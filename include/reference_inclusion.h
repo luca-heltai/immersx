@@ -16,6 +16,7 @@ struct ReferenceInclusion
     : n_q_points(n_q_points)
     , n_coefficients(n_coefficients)
     , support_points(n_q_points)
+    , normals(n_q_points)
     , theta(n_q_points)
     , current_support_points(n_q_points)
     , current_fe_values(n_coefficients)
@@ -26,25 +27,47 @@ struct ReferenceInclusion
         theta[i]             = i * 2 * numbers::PI / n_q_points;
         support_points[i][0] = std::cos(theta[i]);
         support_points[i][1] = std::sin(theta[i]);
+        normals[i]           = support_points[i];
       }
   }
 
 
   std::vector<types::global_dof_index>
-  get_dof_indices(const types::global_dof_index &id) const
+  get_dof_indices(const types::global_dof_index &quadrature_id) const
   {
     std::vector<types::global_dof_index> dofs(n_coefficients);
-    auto start_index = (id / n_q_points) * n_coefficients;
+    auto start_index = (quadrature_id / n_q_points) * n_coefficients;
     for (auto &d : dofs)
       d = start_index++;
     return dofs;
   }
 
 
-  const unsigned int           n_q_points;
-  const unsigned int           n_coefficients;
-  std::vector<Point<spacedim>> support_points;
-  std::vector<double>          theta;
+
+  /**
+   * Quadrature id to inclusion id.
+   *
+   * @param quadrature_id
+   * @return const types::global_dof_index
+   */
+  inline types::global_dof_index
+  get_inclusion_id(const types::global_dof_index &quadrature_id) const
+  {
+    return (quadrature_id / n_q_points);
+  }
+
+  inline const Tensor<1, spacedim> &
+  get_normal(const types::global_dof_index &quadrature_id) const
+  {
+    return (normals[quadrature_id % n_q_points]);
+  }
+
+
+  const unsigned int               n_q_points;
+  const unsigned int               n_coefficients;
+  std::vector<Point<spacedim>>     support_points;
+  std::vector<Tensor<1, spacedim>> normals;
+  std::vector<double>              theta;
 
   // Current configuration
   unsigned int    current_inclusion_id = numbers::invalid_unsigned_int;
@@ -62,7 +85,7 @@ struct ReferenceInclusion
     const auto q  = particle_id % n_q_points;
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
-    AssertDimension(inclusions[id].size(), spacedim + 1);
+    AssertDimension(inclusions[id].size(), spacedim + 3);
     const auto r         = inclusions[id][spacedim];
     const auto ds        = 2 * numbers::PI * r / n_q_points;
     current_fe_values[0] = ds;
@@ -81,7 +104,7 @@ struct ReferenceInclusion
   const std::vector<Point<spacedim>> &
   get_current_support_points(const std::vector<double> &inclusion) const
   {
-    AssertDimension(inclusion.size(), spacedim + 1);
+    AssertDimension(inclusion.size(), spacedim + 3);
     Point<spacedim> center;
     for (unsigned int d = 0; d < spacedim; ++d)
       center[d] = inclusion[d];
