@@ -67,8 +67,8 @@ int
 main()
 {
   initlog();
-  // Reference circles
-  test<2>({{0, 0, 1.0}});
-  // Half a radius circle
-  test<2>({{0, 0, .5}});
+  // Reference circles, Dirichlet data
+  test<2>({{0, 0, 1.0, 1.0, 0.0}});
+  // Half a radius circle, Dirichlet data
+  test<2>({{0, 0, .5, 1.0, 0.0}});
 }
