@@ -106,7 +106,13 @@ public:
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
     inclusions_rhs;
 
-  std::vector<std::vector<double>> inclusions             = {{-.2, -.2, .3}};
+  /**
+   * Each inclusion has: cx, cy, R, alpha1, alpha2
+   *
+   * Where $\alpha_1$ is the Dirichlet coefficient, and $\alpha_2$ is the
+   * Neumann coefficient.
+   */
+  std::vector<std::vector<double>> inclusions = {{-.2, -.2, .3, 1, 0}};
   unsigned int                     inclusions_refinement  = 1000;
   unsigned int                     n_fourier_coefficients = 1;
 
@@ -192,6 +198,7 @@ public:
 
   void
   solve();
+
   void
   refine_and_transfer();
 
@@ -211,7 +218,7 @@ public:
   n_inclusions_dofs() const;
 
 private:
-  const ProblemParameters<dim, spacedim>        &par;
+  const ProblemParameters<dim, spacedim> &       par;
   MPI_Comm                                       mpi_communicator;
   ConditionalOStream                             pcout;
   mutable TimerOutput                            computing_timer;
@@ -259,8 +266,8 @@ PoissonProblem<dim, spacedim>::PoissonProblem(
 
 template <int dim, int spacedim>
 void
-read_grid_and_cad_files(const std::string            &grid_file_name,
-                        const std::string            &ids_and_cad_file_names,
+read_grid_and_cad_files(const std::string &           grid_file_name,
+                        const std::string &           ids_and_cad_file_names,
                         Triangulation<dim, spacedim> &tria)
 {
   GridIn<dim, spacedim> grid_in;
@@ -589,24 +596,48 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
       dh_cell->get_dof_indices(fe_dof_indices);
       const auto pic = inclusions_as_particles.particles_in_cell(cell);
       Assert(pic.begin() == particle, ExcInternalError());
-      for (const auto &p : pic)
-        {
-          local_matrix          = 0;
-          local_rhs             = 0;
-          inclusion_dof_indices = inclusion->get_dof_indices(p.get_id());
-          const auto &inclusion_fe_values =
-            inclusion->reinit(p.get_id(), par.inclusions);
 
-          const auto &ref_q  = p.get_reference_location();
-          const auto &real_q = p.get_location();
-          for (unsigned int j = 0; j < inclusion->n_coefficients; ++j)
+      auto p      = pic.begin();
+      auto next_p = pic.begin();
+      while (p != pic.end())
+        {
+          const auto inclusion_id = inclusion->get_inclusion_id(p->get_id());
+          inclusion_dof_indices   = inclusion->get_dof_indices(p->get_id());
+          local_matrix            = 0;
+          local_rhs               = 0;
+          const auto alpha1       = par.inclusions[inclusion_id][spacedim + 1];
+          const auto alpha2       = par.inclusions[inclusion_id][spacedim + 2];
+
+          std::vector<Point<spacedim>> ref_q_points;
+          for (; next_p != pic.end() &&
+                 inclusion->get_inclusion_id(next_p->get_id()) == inclusion_id;
+               ++next_p)
+            ref_q_points.push_back(next_p->get_reference_location());
+          FEValues<spacedim, spacedim> fev(*fe,
+                                           ref_q_points,
+                                           update_values | update_gradients);
+          fev.reinit(dh_cell);
+          for (unsigned int q = 0; q < ref_q_points.size(); ++q)
             {
-              for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-                local_matrix(i, j) +=
-                  fe->shape_value(i, ref_q) * inclusion_fe_values[j];
-              local_rhs(j) +=
-                inclusion_fe_values[j] * par.inclusions_rhs.value(real_q);
+              const auto  id = p->get_id();
+              const auto &inclusion_fe_values =
+                inclusion->reinit(id, par.inclusions);
+              const auto &real_q = p->get_location();
+
+              for (unsigned int j = 0; j < inclusion->n_coefficients; ++j)
+                {
+                  for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+                    local_matrix(i, j) += (alpha1 * fev.shape_value(i, q) +
+                                           alpha2 * fev.shape_grad(i, q) *
+                                             inclusion->get_normal(id)) *
+                                          inclusion_fe_values[j];
+                  local_rhs(j) +=
+                    inclusion_fe_values[j] * par.inclusions_rhs.value(real_q);
+                }
+              ++p;
             }
+          // I expect p and next_p to be the same now.
+          Assert(p == next_p, ExcInternalError());
           constraints.distribute_local_to_global(local_matrix,
                                                  fe_dof_indices,
                                                  inclusion_constraints,
