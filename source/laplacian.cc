@@ -645,6 +645,7 @@ PoissonProblem<dim, spacedim>::run()
 }
 
 
+// Template instantiations
 template class PoissonProblem<2>;
-template class PoissonProblem<2, 3>;
+template class PoissonProblem<2, 3>; // dim != spacedim
 template class PoissonProblem<3>;
