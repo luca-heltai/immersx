@@ -85,7 +85,7 @@ struct ReferenceInclusion
     const auto q  = particle_id % n_q_points;
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
-    AssertDimension(inclusions[id].size(), spacedim + 3);
+    AssertDimension(inclusions[id].size(), spacedim + 1);
     const auto r         = inclusions[id][spacedim];
     const auto ds        = 2 * numbers::PI * r / n_q_points;
     current_fe_values[0] = ds;
@@ -104,7 +104,7 @@ struct ReferenceInclusion
   const std::vector<Point<spacedim>> &
   get_current_support_points(const std::vector<double> &inclusion) const
   {
-    AssertDimension(inclusion.size(), spacedim + 3);
+    AssertDimension(inclusion.size(), spacedim + 1);
     Point<spacedim> center;
     for (unsigned int d = 0; d < spacedim; ++d)
       center[d] = inclusion[d];
