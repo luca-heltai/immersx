@@ -366,6 +366,9 @@ void
 PoissonProblem<dim, spacedim>::assemble_coupling()
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
+  pcout << "Assembling for alpha1 = " << par.alpha1
+        << " and alpha2 = " << par.alpha2 << std::endl;
+
   const FEValuesExtractors::Scalar     scalar(0);
   std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices(
@@ -532,9 +535,9 @@ PoissonProblem<dim, spacedim>::solve()
       const auto S = par.alpha1 * B * invA * Bt - par.alpha2 / 2 * C;
 
       // Schur complement preconditioner
-      auto            invS = S;
-      LA::SolverCG    cg_schur(par.outer_control);
-      LA::SolverGMRES gmres_schur(par.outer_control);
+      auto                         invS = S;
+      SolverCG<LA::MPI::Vector>    cg_schur(par.outer_control);
+      SolverGMRES<LA::MPI::Vector> gmres_schur(par.outer_control);
 
       if (par.alpha2 == 0)
         // system is symmetric. Use CG
