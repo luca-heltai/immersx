@@ -4,6 +4,7 @@
 #define dealii_distributed_lagrange_multiplier_h
 
 #include <deal.II/base/function.h>
+#include <deal.II/base/parsed_convergence_table.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/timer.h>
 
@@ -128,6 +129,8 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
 
   bool output_results_before_solving = false;
+
+  mutable ParsedConvergenceTable convergence_table;
 };
 
 
@@ -176,6 +179,9 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
     add_parameter("Number of fourier coefficients", n_fourier_coefficients);
   }
   leave_subsection();
+  this->prm.enter_subsection("Error");
+  convergence_table.add_parameters(this->prm);
+  this->prm.leave_subsection();
 }
 
 

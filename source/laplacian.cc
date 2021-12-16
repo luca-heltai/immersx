@@ -491,7 +491,6 @@ PoissonProblem<dim, spacedim>::solve()
 
   const auto amgA = linear_operator(A, prec_A);
 
-  // LA::SolverCG cg_stiffness(par.inner_control);
   SolverCG<LA::MPI::Vector>    cg_stiffness(par.inner_control);
   SolverGMRES<LA::MPI::Vector> gmres_stiffness(par.inner_control);
 
@@ -530,12 +529,12 @@ PoissonProblem<dim, spacedim>::solve()
 
 
       // Schur complement
-      const auto S = par.alpha1 * B * invA * Bt - par.alpha2 * C;
+      const auto S = par.alpha1 * B * invA * Bt - par.alpha2 / 2 * C;
 
       // Schur complement preconditioner
-      auto                         invS = S;
-      LA::SolverCG                 cg_schur(par.outer_control);
-      SolverGMRES<LA::MPI::Vector> gmres_schur(par.outer_control);
+      auto            invS = S;
+      LA::SolverCG    cg_schur(par.outer_control);
+      LA::SolverGMRES gmres_schur(par.outer_control);
 
       if (par.alpha2 == 0)
         // system is symmetric. Use CG
@@ -554,6 +553,8 @@ PoissonProblem<dim, spacedim>::solve()
 
       // Then compute u
       u = invA * (f - Bt * lambda);
+      pcout << "   u norm: " << u.l2_norm()
+            << ", lambda norm: " << lambda.l2_norm() << std::endl;
     }
 
   pcout << "   Solved for u in " << par.inner_control.last_step()
@@ -707,8 +708,11 @@ PoissonProblem<dim, spacedim>::run()
       assemble_coupling();
       solve();
       output_results();
+      par.convergence_table.error_from_exact(dh, solution.block(0), par.bc);
       if (cycle != par.n_refinement_cycles - 1)
         refine_and_transfer();
+      if (pcout.is_active())
+        par.convergence_table.output_table(pcout.get_stream());
     }
 }
 
