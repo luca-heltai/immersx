@@ -97,7 +97,7 @@ public:
   std::string                   name_of_grid        = "hyper_cube";
   std::string                   arguments_for_grid  = "-1: 1: false";
   std::string                   refinement_strategy = "fixed_fraction";
-  double                        coarsening_fraction = 0.3;
+  double                        coarsening_fraction = 0.0;
   double                        refinement_fraction = 0.3;
   unsigned int                  n_refinement_cycles = 1;
   unsigned int                  max_cells           = 20000;

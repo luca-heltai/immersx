@@ -217,38 +217,43 @@ PoissonProblem<dim, spacedim>::setup_dofs()
                             dsp,
                             mpi_communicator);
   }
-  {
-    auto inclusions_set =
-      Utilities::MPI::create_evenly_distributed_partitioning(
-        mpi_communicator, par.inclusions.size());
+  inclusion_constraints.close();
 
-    owned_dofs[1] = inclusions_set.tensor_product(
-      complete_index_set(par.n_fourier_coefficients));
+  if (!par.inclusions.empty())
+    {
+      auto inclusions_set =
+        Utilities::MPI::create_evenly_distributed_partitioning(
+          mpi_communicator, par.inclusions.size());
 
-    coupling_matrix.clear();
-    DynamicSparsityPattern dsp(dh.n_dofs(), n_inclusions_dofs());
+      owned_dofs[1] = inclusions_set.tensor_product(
+        complete_index_set(par.n_fourier_coefficients));
 
-    relevant_dofs[1] = assemble_coupling_sparsity(dsp);
-    SparsityTools::distribute_sparsity_pattern(dsp,
-                                               owned_dofs[0],
-                                               mpi_communicator,
-                                               relevant_dofs[0]);
-    coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
-    inclusion_constraints.close();
+      coupling_matrix.clear();
+      DynamicSparsityPattern dsp(dh.n_dofs(), n_inclusions_dofs());
 
-    DynamicSparsityPattern idsp(n_inclusions_dofs(), n_inclusions_dofs());
-    for (const auto i : owned_dofs[1])
-      idsp.add(i, i);
+      relevant_dofs[1] = assemble_coupling_sparsity(dsp);
+      SparsityTools::distribute_sparsity_pattern(dsp,
+                                                 owned_dofs[0],
+                                                 mpi_communicator,
+                                                 relevant_dofs[0]);
+      coupling_matrix.reinit(owned_dofs[0],
+                             owned_dofs[1],
+                             dsp,
+                             mpi_communicator);
 
-    SparsityTools::distribute_sparsity_pattern(idsp,
-                                               owned_dofs[1],
-                                               mpi_communicator,
-                                               relevant_dofs[1]);
-    inclusion_matrix.reinit(owned_dofs[1],
-                            owned_dofs[1],
-                            idsp,
-                            mpi_communicator);
-  }
+      DynamicSparsityPattern idsp(n_inclusions_dofs(), n_inclusions_dofs());
+      for (const auto i : owned_dofs[1])
+        idsp.add(i, i);
+
+      SparsityTools::distribute_sparsity_pattern(idsp,
+                                                 owned_dofs[1],
+                                                 mpi_communicator,
+                                                 relevant_dofs[1]);
+      inclusion_matrix.reinit(owned_dofs[1],
+                              owned_dofs[1],
+                              idsp,
+                              mpi_communicator);
+    }
 
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
   system_rhs.reinit(owned_dofs, mpi_communicator);
