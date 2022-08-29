@@ -71,7 +71,7 @@ namespace LA
 #include <deal.II/opencascade/manifold_lib.h>
 #include <deal.II/opencascade/utilities.h>
 
-#include "reference_inclusion.h"
+#include "inclusions.h"
 
 
 #ifdef DEAL_II_WITH_OPENCASCADE
@@ -104,27 +104,6 @@ public:
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
 
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
-    inclusions_rhs;
-
-  /**
-   * Each inclusion has: cx, cy, R
-   */
-  std::vector<std::vector<double>> inclusions = {{-.2, -.2, .3}};
-
-  /**
-   * $\alpha_1$ is the Dirichlet coefficient.
-   */
-  double alpha1 = 1.0;
-
-  /**
-   * $\alpha_2$ is the Neumann coefficient.
-   */
-  double alpha2 = 0.0;
-
-  unsigned int inclusions_refinement  = 1000;
-  unsigned int n_fourier_coefficients = 1;
-
   mutable ParameterAcceptorProxy<ReductionControl> inner_control;
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
 
@@ -140,7 +119,6 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
   : ParameterAcceptor("/Immersed Problem/")
   , rhs("/Immersed Problem/Right hand side")
   , bc("/Immersed Problem/Dirichlet boundary conditions")
-  , inclusions_rhs("/Immersed Problem/Immersed inclusions/Boundary data")
   , inner_control("/Immersed Problem/Solver/Inner control")
   , outer_control("/Immersed Problem/Solver/Outer control")
 {
@@ -170,15 +148,7 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
     add_parameter("Number of refinement cycles", n_refinement_cycles);
   }
   leave_subsection();
-  enter_subsection("Immersed inclusions");
-  {
-    add_parameter("alpha1 (Dirichlet factor)", alpha1);
-    add_parameter("alpha2 (Neumann factor)", alpha2);
-    add_parameter("Inclusions", inclusions);
-    add_parameter("Inclusions refinement", inclusions_refinement);
-    add_parameter("Number of fourier coefficients", n_fourier_coefficients);
-  }
-  leave_subsection();
+
   this->prm.enter_subsection("Error");
   convergence_table.add_parameters(this->prm);
   this->prm.leave_subsection();
@@ -230,9 +200,6 @@ public:
   void
   print_parameters() const;
 
-  types::global_dof_index
-  n_inclusions_dofs() const;
-
 private:
   const ProblemParameters<dim, spacedim> &       par;
   MPI_Comm                                       mpi_communicator;
@@ -240,7 +207,7 @@ private:
   mutable TimerOutput                            computing_timer;
   parallel::distributed::Triangulation<spacedim> tria;
   std::unique_ptr<FiniteElement<spacedim>>       fe;
-  std::unique_ptr<ReferenceInclusion<spacedim>>  inclusion;
+  Inclusions<spacedim>                           inclusions;
   std::unique_ptr<Quadrature<spacedim>>          quadrature;
   DoFHandler<spacedim>                           dh;
   std::vector<IndexSet>                          owned_dofs;

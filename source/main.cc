@@ -34,22 +34,22 @@ main(int argc, char *argv[])
       if (prm_file.find("23") != std::string::npos)
         {
           ProblemParameters<2, 3> par;
+          PoissonProblem<2, 3>    problem(par);
           ParameterAcceptor::initialize(prm_file);
-          PoissonProblem<2, 3> problem(par);
           problem.run();
         }
       else if (prm_file.find("3") != std::string::npos)
         {
           ProblemParameters<3> par;
+          PoissonProblem<3>    problem(par);
           ParameterAcceptor::initialize(prm_file);
-          PoissonProblem<3> problem(par);
           problem.run();
         }
       else
         {
           ProblemParameters<2> par;
+          PoissonProblem<2>    problem(par);
           ParameterAcceptor::initialize(prm_file);
-          PoissonProblem<2> problem(par);
           problem.run();
         }
     }

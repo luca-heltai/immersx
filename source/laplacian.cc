@@ -117,17 +117,20 @@ template <int dim, int spacedim>
 void
 PoissonProblem<dim, spacedim>::setup_inclusions_particles()
 {
+  inclusions.initialize();
+  pcout << "Number of inclusions: " << inclusions.n_inclusions()
+        << ", number of inclusion dofs: " << inclusions.n_dofs() << std::endl;
   inclusions_as_particles.clear();
   inclusions_as_particles.initialize(tria, StaticMappingQ1<spacedim>::mapping);
 
-  if (par.inclusions.empty())
+  if (inclusions.n_dofs() == 0)
     return;
 
   std::vector<Point<spacedim>> particles_positions;
-  particles_positions.reserve(inclusion->n_q_points * par.inclusions.size());
-  for (unsigned int i = 0; i < par.inclusions.size(); ++i)
+  particles_positions.reserve(inclusions.n_particles());
+  for (unsigned int i = 0; i < inclusions.n_inclusions(); ++i)
     {
-      const auto &p = inclusion->get_current_support_points(par.inclusions[i]);
+      const auto &p = inclusions.get_current_support_points(i);
       particles_positions.insert(particles_positions.end(), p.begin(), p.end());
     }
 
@@ -167,23 +170,8 @@ PoissonProblem<dim, spacedim>::setup_fe()
 {
   TimerOutput::Scope t(computing_timer, "Initial setup");
   fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
-  quadrature        = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
-  const auto factor = std::pow(2, cycle);
-  inclusion         = std::make_unique<ReferenceInclusion<spacedim>>(
-    par.inclusions_refinement * factor, par.n_fourier_coefficients);
+  quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
 }
-
-
-template <int dim, int spacedim>
-types::global_dof_index
-PoissonProblem<dim, spacedim>::n_inclusions_dofs() const
-{
-  if (!par.inclusions.empty())
-    return par.inclusions.size() * par.n_fourier_coefficients;
-  else
-    return 0;
-}
-
 
 
 template <int dim, int spacedim>
@@ -219,17 +207,17 @@ PoissonProblem<dim, spacedim>::setup_dofs()
   }
   inclusion_constraints.close();
 
-  if (!par.inclusions.empty())
+  if (inclusions.n_dofs() > 0)
     {
       auto inclusions_set =
         Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, par.inclusions.size());
+          mpi_communicator, inclusions.n_inclusions());
 
       owned_dofs[1] = inclusions_set.tensor_product(
-        complete_index_set(par.n_fourier_coefficients));
+        complete_index_set(inclusions.n_coefficients));
 
       coupling_matrix.clear();
-      DynamicSparsityPattern dsp(dh.n_dofs(), n_inclusions_dofs());
+      DynamicSparsityPattern dsp(dh.n_dofs(), inclusions.n_dofs());
 
       relevant_dofs[1] = assemble_coupling_sparsity(dsp);
       SparsityTools::distribute_sparsity_pattern(dsp,
@@ -241,7 +229,7 @@ PoissonProblem<dim, spacedim>::setup_dofs()
                              dsp,
                              mpi_communicator);
 
-      DynamicSparsityPattern idsp(n_inclusions_dofs(), n_inclusions_dofs());
+      DynamicSparsityPattern idsp(inclusions.n_dofs(), inclusions.n_dofs());
       for (const auto i : owned_dofs[1])
         idsp.add(i, i);
 
@@ -326,7 +314,7 @@ PoissonProblem<dim, spacedim>::assemble_coupling_sparsity(
   DynamicSparsityPattern &dsp) const
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
-  IndexSet           relevant(n_inclusions_dofs());
+  IndexSet           relevant(inclusions.n_dofs());
 
   const FEValuesExtractors::Scalar scalar(0);
 
@@ -346,7 +334,7 @@ PoissonProblem<dim, spacedim>::assemble_coupling_sparsity(
       std::set<types::global_dof_index> inclusion_dof_indices_set;
       for (const auto &p : pic)
         {
-          const auto ids = inclusion->get_dof_indices(p.get_id());
+          const auto ids = inclusions.get_dof_indices(p.get_id());
           inclusion_dof_indices_set.insert(ids.begin(), ids.end());
         }
       inclusion_dof_indices.resize(0);
@@ -371,24 +359,22 @@ void
 PoissonProblem<dim, spacedim>::assemble_coupling()
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
-  pcout << "Assembling for alpha1 = " << par.alpha1
-        << " and alpha2 = " << par.alpha2 << std::endl;
 
   const FEValuesExtractors::Scalar     scalar(0);
   std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices(
-    inclusion->n_coefficients);
+    inclusions.n_coefficients);
 
   FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
-                                           inclusion->n_coefficients);
+                                           inclusions.n_coefficients);
 
   FullMatrix<double> local_bulk_matrix(fe->n_dofs_per_cell(),
                                        fe->n_dofs_per_cell());
 
-  FullMatrix<double> local_inclusion_matrix(inclusion->n_coefficients,
-                                            inclusion->n_coefficients);
+  FullMatrix<double> local_inclusion_matrix(inclusions.n_coefficients,
+                                            inclusions.n_coefficients);
 
-  Vector<double> local_rhs(inclusion->n_coefficients);
+  Vector<double> local_rhs(inclusions.n_coefficients);
 
   auto particle = inclusions_as_particles.begin();
   while (particle != inclusions_as_particles.end())
@@ -404,8 +390,8 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
       auto next_p = pic.begin();
       while (p != pic.end())
         {
-          const auto inclusion_id = inclusion->get_inclusion_id(p->get_id());
-          inclusion_dof_indices   = inclusion->get_dof_indices(p->get_id());
+          const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
+          inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
           local_coupling_matrix   = 0;
           local_inclusion_matrix  = 0;
           local_bulk_matrix       = 0;
@@ -414,7 +400,7 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
           // Extract all points that refer to the same inclusion
           std::vector<Point<spacedim>> ref_q_points;
           for (; next_p != pic.end() &&
-                 inclusion->get_inclusion_id(next_p->get_id()) == inclusion_id;
+                 inclusions.get_inclusion_id(next_p->get_id()) == inclusion_id;
                ++next_p)
             ref_q_points.push_back(next_p->get_reference_location());
           FEValues<spacedim, spacedim> fev(*fe,
@@ -423,32 +409,23 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
           fev.reinit(dh_cell);
           for (unsigned int q = 0; q < ref_q_points.size(); ++q)
             {
-              const auto  id = p->get_id();
-              const auto &inclusion_fe_values =
-                inclusion->reinit(id, par.inclusions);
-              const auto &real_q = p->get_location();
+              const auto  id                  = p->get_id();
+              const auto &inclusion_fe_values = inclusions.get_fe_values(id);
+              const auto &real_q              = p->get_location();
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < inclusion->n_coefficients; ++j)
+              for (unsigned int j = 0; j < inclusions.n_coefficients; ++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     local_coupling_matrix(i, j) +=
                       (fev.shape_value(i, q)) * inclusion_fe_values[j];
-                  local_rhs(j) +=
-                    inclusion_fe_values[j] * par.inclusions_rhs.value(real_q);
+                  local_rhs(j) += inclusion_fe_values[j] *
+                                  inclusions.inclusions_rhs.value(real_q);
 
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] /
                      inclusion_fe_values[0]);
                 }
-              // Bulk matrix. This is the only one with alpha explicitly
-              if (par.alpha2 != 0)
-                for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-                  for (unsigned int j = 0; j < fe->n_dofs_per_cell(); ++j)
-                    local_bulk_matrix(i, j) -=
-                      (2 * par.alpha2 * fev.shape_value(i, q) *
-                       (fev.shape_grad(j, q) * inclusion->get_normal(id))) *
-                      inclusion_fe_values[0]; // this is JxW on Gamma
               ++p;
             }
           // I expect p and next_p to be the same now.
@@ -499,24 +476,8 @@ PoissonProblem<dim, spacedim>::solve()
 
   const auto amgA = linear_operator(A, prec_A);
 
-  SolverCG<LA::MPI::Vector>    cg_stiffness(par.inner_control);
-  SolverGMRES<LA::MPI::Vector> gmres_stiffness(par.inner_control);
-
-  if (par.alpha2 == 0)
-    {
-      // system is symmetric. Use CG
-      invA = inverse_operator(A, cg_stiffness, amgA);
-      AssertThrow(par.alpha1 == 1 || par.alpha1 == 0,
-                  ExcNotImplemented(
-                    "If alpha2 is zero, alpha1 can only be one or zero."));
-    }
-  else if (par.alpha2 == 1)
-    // system is not symmetric. Use GMRES
-    invA = inverse_operator(A, gmres_stiffness, amgA);
-  else
-    {
-      AssertThrow(false, ExcNotImplemented("alpha2 can only be zero or 1"));
-    }
+  SolverCG<LA::MPI::Vector> cg_stiffness(par.inner_control);
+  invA = inverse_operator(A, cg_stiffness, amgA);
 
   // Some aliases
   auto &u      = solution.block(0);
@@ -525,7 +486,7 @@ PoissonProblem<dim, spacedim>::solve()
   const auto &f = system_rhs.block(0);
   const auto &g = system_rhs.block(1);
 
-  if (par.inclusions.empty() || (par.alpha1 == 0 && par.alpha2 == 0))
+  if (inclusions.n_dofs() == 0)
     {
       u = invA * f;
     }
@@ -535,27 +496,19 @@ PoissonProblem<dim, spacedim>::solve()
       const auto B  = transpose_operator(Bt);
       const auto C  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
 
-
       // Schur complement
-      const auto S = par.alpha1 * B * invA * Bt - par.alpha2 / 2 * C;
+      const auto S = B * invA * Bt;
 
       // Schur complement preconditioner
-      auto                         invS = S;
-      SolverCG<LA::MPI::Vector>    cg_schur(par.outer_control);
-      SolverGMRES<LA::MPI::Vector> gmres_schur(par.outer_control);
-
-      if (par.alpha2 == 0)
-        // system is symmetric. Use CG
-        invS = inverse_operator(S, cg_schur);
-      else
-        // system is non-symmetric. Use GMRES
-        invS = inverse_operator(S, gmres_schur);
+      auto                      invS = S;
+      SolverCG<LA::MPI::Vector> cg_schur(par.outer_control);
+      invS = inverse_operator(S, cg_schur);
 
       pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
             << std::endl;
 
       // Compute Lambda first
-      lambda = invS * (par.alpha1 * B * invA * f - g);
+      lambda = invS * (B * invA * f - g);
       pcout << "   Solved for lambda in " << par.outer_control.last_step()
             << " iterations." << std::endl;
 
@@ -601,19 +554,9 @@ PoissonProblem<dim, spacedim>::refine_and_transfer()
         par.max_cells);
     }
   else if (par.refinement_strategy == "global")
-    {
-      for (const auto &cell : tria.active_cell_iterators())
-        cell->set_refine_flag();
-    }
-  // for (const auto &cell : tria.active_cell_iterators())
-  //   {
-  //     if (cell->refine_flag_set() && cell->level() ==
-  //     par.max_level_refinement)
-  //       cell->clear_refine_flag();
-  //     if (cell->coarsen_flag_set() && cell->level() ==
-  //     par.min_level_refinement)
-  //       cell->clear_coarsen_flag();
-  //   }
+    for (const auto &cell : tria.active_cell_iterators())
+      cell->set_refine_flag();
+
   parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector> transfer(
     dh);
   tria.prepare_coarsening_and_refinement();
