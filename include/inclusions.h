@@ -228,11 +228,12 @@ public:
   Tensor<2, spacedim>
   get_rotation(const types::global_dof_index &inclusion_id) const
   {
+    Tensor<2, spacedim> rotation = unit_symmetric_tensor<spacedim>();
     if constexpr (spacedim == 2)
       {
-        return unit_symmetric_tensor<spacedim>();
+        return rotation;
       }
-    else
+    else if constexpr (spacedim == 3)
       {
         auto direction = get_direction(inclusion_id);
         direction /= direction.norm();
@@ -240,15 +241,23 @@ public:
         // Build rotation w.r.t. z axis
         static const auto z_axis = Tensor<1, spacedim>({0, 0, 1});
         auto              v      = cross_product_3d(z_axis, direction);
-        const auto        sin_t  = v.norm();
-        auto        angle  = std::asin(sin_t);
-        if(angle < 0)
-          angle += numbers::PI;
-        const auto        rotation =
-          (angle > 1e-10 ?
-             Physics::Transformations::Rotations::rotation_matrix_3d(v/v.norm(), angle) :
-             Physics::Transformations::Rotations::rotation_matrix_3d(z_axis,
-                                                                     0.0));
+        const auto        cos_t  = direction * z_axis;
+
+        if (std::abs(cos_t + 1) < 1e-10)
+          {
+            rotation[1][1] = -1;
+            rotation[2][2] = -1;
+          }
+        else
+          {
+            Tensor<2, spacedim> vx;
+            vx[0]    = Tensor<1, spacedim>({0, -v[2], v[1]});
+            vx[1]    = Tensor<1, spacedim>({v[2], 0, -v[0]});
+            vx[2]    = Tensor<1, spacedim>({-v[1], v[0], 0});
+            auto vx2 = vx * vx;
+            rotation += vx + vx2 * (1 / (1 + cos_t));
+          }
+
         return rotation;
       }
   }
