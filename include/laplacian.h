@@ -4,6 +4,7 @@
 #define dealii_distributed_lagrange_multiplier_h
 
 #include <deal.II/base/function.h>
+#include <deal.II/base/parsed_convergence_table.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/timer.h>
 
@@ -70,7 +71,7 @@ namespace LA
 #include <deal.II/opencascade/manifold_lib.h>
 #include <deal.II/opencascade/utilities.h>
 
-#include "reference_inclusion.h"
+#include "inclusions.h"
 
 
 #ifdef DEAL_II_WITH_OPENCASCADE
@@ -96,30 +97,19 @@ public:
   std::string                   name_of_grid        = "hyper_cube";
   std::string                   arguments_for_grid  = "-1: 1: false";
   std::string                   refinement_strategy = "fixed_fraction";
-  double                        coarsening_fraction = 0.3;
+  double                        coarsening_fraction = 0.0;
   double                        refinement_fraction = 0.3;
   unsigned int                  n_refinement_cycles = 1;
   unsigned int                  max_cells           = 20000;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
 
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
-    inclusions_rhs;
-
-  /**
-   * Each inclusion has: cx, cy, R, alpha1, alpha2
-   *
-   * Where $\alpha_1$ is the Dirichlet coefficient, and $\alpha_2$ is the
-   * Neumann coefficient.
-   */
-  std::vector<std::vector<double>> inclusions = {{-.2, -.2, .3, 1, 0}};
-  unsigned int                     inclusions_refinement  = 1000;
-  unsigned int                     n_fourier_coefficients = 1;
-
   mutable ParameterAcceptorProxy<ReductionControl> inner_control;
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
 
   bool output_results_before_solving = false;
+
+  mutable ParsedConvergenceTable convergence_table;
 };
 
 
@@ -129,7 +119,6 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
   : ParameterAcceptor("/Immersed Problem/")
   , rhs("/Immersed Problem/Right hand side")
   , bc("/Immersed Problem/Dirichlet boundary conditions")
-  , inclusions_rhs("/Immersed Problem/Immersed inclusions/Boundary data")
   , inner_control("/Immersed Problem/Solver/Inner control")
   , outer_control("/Immersed Problem/Solver/Outer control")
 {
@@ -159,13 +148,10 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
     add_parameter("Number of refinement cycles", n_refinement_cycles);
   }
   leave_subsection();
-  enter_subsection("Immersed inclusions");
-  {
-    add_parameter("Inclusions", inclusions);
-    add_parameter("Inclusions refinement", inclusions_refinement);
-    add_parameter("Number of fourier coefficients", n_fourier_coefficients);
-  }
-  leave_subsection();
+
+  this->prm.enter_subsection("Error");
+  convergence_table.add_parameters(this->prm);
+  this->prm.leave_subsection();
 }
 
 
@@ -214,17 +200,14 @@ public:
   void
   print_parameters() const;
 
-  types::global_dof_index
-  n_inclusions_dofs() const;
-
 private:
-  const ProblemParameters<dim, spacedim>        &par;
+  const ProblemParameters<dim, spacedim> &       par;
   MPI_Comm                                       mpi_communicator;
   ConditionalOStream                             pcout;
   mutable TimerOutput                            computing_timer;
   parallel::distributed::Triangulation<spacedim> tria;
   std::unique_ptr<FiniteElement<spacedim>>       fe;
-  std::unique_ptr<ReferenceInclusion<spacedim>>  inclusion;
+  Inclusions<spacedim>                           inclusions;
   std::unique_ptr<Quadrature<spacedim>>          quadrature;
   DoFHandler<spacedim>                           dh;
   std::vector<IndexSet>                          owned_dofs;
@@ -237,6 +220,7 @@ private:
 
   LA::MPI::SparseMatrix                           stiffness_matrix;
   LA::MPI::SparseMatrix                           coupling_matrix;
+  LA::MPI::SparseMatrix                           inclusion_matrix;
   LA::MPI::BlockVector                            solution;
   LA::MPI::BlockVector                            locally_relevant_solution;
   LA::MPI::BlockVector                            system_rhs;
