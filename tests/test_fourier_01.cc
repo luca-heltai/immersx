@@ -19,7 +19,11 @@ test(const std::vector<std::vector<double>> &inclusions)
 {
   const unsigned int      Nq = 100;
   const unsigned int      Nc = 3;
-  ReferenceInclusion<dim> inclusion(Nq, Nc);
+  Inclusions<dim> inclusion;
+  inclusion.n_q_points = Nq;
+  inclusion.n_coefficients = Nc;
+  inclusion.inclusions = inclusions;
+  inclusion.initialize();
 
   // Test integrals
   // Int_gamma 1 = 2 pi
@@ -27,7 +31,7 @@ test(const std::vector<std::vector<double>> &inclusions)
     std::vector<double> integrals(Nc, 0.0);
     for (unsigned int q = 0; q < Nq; ++q)
       {
-        const auto &values = inclusion.reinit(q, inclusions);
+        const auto &values = inclusion.get_fe_values(0);
         for (unsigned int i = 0; i < Nc; ++i)
           integrals[i] += values[i];
       }
@@ -40,9 +44,10 @@ test(const std::vector<std::vector<double>> &inclusions)
     std::vector<double> integrals(Nc, 0.0);
     for (unsigned int q = 0; q < Nq; ++q)
       {
-        const auto &values = inclusion.reinit(q, inclusions);
+        const auto &values = inclusion.get_fe_values(0);
+        const auto theta = q * 2 * numbers::PI / Nq;
         for (unsigned int i = 0; i < Nc; ++i)
-          integrals[i] += std::cos(inclusion.theta[q]) * values[i];
+          integrals[i] += std::cos(theta) * values[i];
       }
     deallog << "cos(theta)*phi_0: " << integrals[0] << std::endl
             << "cos(theta)*phi_1: " << integrals[1] << std::endl
@@ -53,9 +58,10 @@ test(const std::vector<std::vector<double>> &inclusions)
     std::vector<double> integrals(Nc, 0.0);
     for (unsigned int q = 0; q < Nq; ++q)
       {
-        const auto &values = inclusion.reinit(q, inclusions);
+        const auto &values = inclusion.get_fe_values(0);
+        const auto theta = q * 2 * numbers::PI / Nq;
         for (unsigned int i = 0; i < Nc; ++i)
-          integrals[i] += std::sin(inclusion.theta[q]) * values[i];
+          integrals[i] += std::sin(theta) * values[i];
       }
     deallog << "sin(theta)*phi_0: " << integrals[0] << std::endl
             << "sin(theta)*phi_1: " << integrals[1] << std::endl

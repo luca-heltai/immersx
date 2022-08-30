@@ -37,6 +37,7 @@ public:
     return inclusions.size() * n_coefficients;
   }
 
+
   types::global_dof_index
   n_particles() const
   {
@@ -240,10 +241,12 @@ public:
         static const auto z_axis = Tensor<1, spacedim>({0, 0, 1});
         auto              v      = cross_product_3d(z_axis, direction);
         const auto        sin_t  = v.norm();
-        const auto        angle  = std::asin(sin_t);
+        auto        angle  = std::asin(sin_t);
+        if(angle < 0)
+          angle += numbers::PI;
         const auto        rotation =
           (angle > 1e-10 ?
-             Physics::Transformations::Rotations::rotation_matrix_3d(v, angle) :
+             Physics::Transformations::Rotations::rotation_matrix_3d(v/v.norm(), angle) :
              Physics::Transformations::Rotations::rotation_matrix_3d(z_axis,
                                                                      0.0));
         return rotation;
