@@ -17,12 +17,12 @@ template <int dim>
 void
 test(const std::vector<std::vector<double>> &inclusions)
 {
-  const unsigned int      Nq = 100;
-  const unsigned int      Nc = 3;
-  Inclusions<dim> inclusion;
-  inclusion.n_q_points = Nq;
+  const unsigned int Nq = 100;
+  const unsigned int Nc = 3;
+  Inclusions<dim>    inclusion;
+  inclusion.n_q_points     = Nq;
   inclusion.n_coefficients = Nc;
-  inclusion.inclusions = inclusions;
+  inclusion.inclusions     = inclusions;
   inclusion.initialize();
 
   // Test integrals
@@ -45,7 +45,7 @@ test(const std::vector<std::vector<double>> &inclusions)
     for (unsigned int q = 0; q < Nq; ++q)
       {
         const auto &values = inclusion.get_fe_values(0);
-        const auto theta = q * 2 * numbers::PI / Nq;
+        const auto  theta  = q * 2 * numbers::PI / Nq;
         for (unsigned int i = 0; i < Nc; ++i)
           integrals[i] += std::cos(theta) * values[i];
       }
@@ -59,7 +59,7 @@ test(const std::vector<std::vector<double>> &inclusions)
     for (unsigned int q = 0; q < Nq; ++q)
       {
         const auto &values = inclusion.get_fe_values(0);
-        const auto theta = q * 2 * numbers::PI / Nq;
+        const auto  theta  = q * 2 * numbers::PI / Nq;
         for (unsigned int i = 0; i < Nc; ++i)
           integrals[i] += std::sin(theta) * values[i];
       }
