@@ -6,17 +6,13 @@
 	"context": "..",
 	// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
 	"dockerFile": "Dockerfile",
-	// Set *default* container specific settings.json values on container create.
-	"settings": {
-		"terminal.integrated.shell.linux": null
-	},
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
 		"alefragnani.project-manager",
 		"bertrand-thierry.vscode-gmsh",
 		"betwo.vscode-doxygen-runner",
 		"davydden.dealii-prm",
-		// "github.copilot",
+		"github.copilot",
 		"james-yu.latex-workshop",
 		"joaompinto.vscode-graphviz",
 		"johnpapa.vscode-peacock",
@@ -25,31 +21,41 @@
 		"ms-vscode.cpptools-extension-pack",
 		"stkb.rewrap",
 		"xaver.clang-format",
-	]
+	],
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Uncomment the next line to run commands after the container is created - for example installing curl.
-	// "postCreateCommand": "apt-get update && apt-get install -y curl",
+	// "postCreateCommand": "sudo apt-get update && sudo apt-get install -y gdb",
 	// Uncomment when using a ptrace-based debugger like C++, Go, and Rust
 	"runArgs": [
 		"--cap-add=SYS_PTRACE",
 		"--security-opt",
 		"seccomp=unconfined"
 	],
+	"build": {
+		"args": {
+			"REMOTE_USER": "${localEnv:USER}",
+		}
+	},
+	// Uncomment to use the Docker CLI from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker.
+	// "mounts": [ "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind" ],
+	// Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
+	"remoteUser": "${localEnv:USER}",
+	// Make sure we add a BUILD_POSTFIX environment variable that can be used as in
+	// ${workspaceFolder}/build${env:BUILD_POSTFIX}
 	"containerEnv": {
 		"BUILD_POSTFIX": "-container",
 	},
-	// "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
-	// Uncomment to use the Docker CLI from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker.
-	// "mounts": [
-	// "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind" ],
 	"mounts": [
 		// These are two docker volumes to allow persistent storage for the container.
-		"source=dealii-vscode-extensions,target=/home/dealii/.vscode-server/extensions,type=volume",
+		"source=vscode-extensions,target=/home/${localEnv:USER}/.vscode-server/extensions,type=volume",
 		// And/or for VS Code Insiders
-		"source=dealii-vscode-extensions-insiders,target=/home/dealii/.vscode-server-insiders/extensions,type=volume",
-		"source=${localEnv:HOME}/.ssh,target=/home/dealii/.ssh,type=bind,consistency=cached",
+		"source=vscode-extensions-insiders,target=/home/${localEnv:USER}/.vscode-server-insiders/extensions,type=volume",
+		"source=${localEnv:HOME}/.ssh,target=/home/${localEnv:USER}/.ssh,type=bind,consistency=cached",
 	],
-	// Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
-	"remoteUser": "dealii"
+	// Uncomment the following if you want to work on docker on a remote machine
+	// In this case, you also need  "docker.host": "ssh://name-of-machine" in your
+	// settings.
+	//"workspaceMount": "source=/home/heltai/codes/theory-and-practice-of-fem,target=/workspace,type=bind,consistency=cached",
+	//"workspaceFolder": "/workspace",
 }
