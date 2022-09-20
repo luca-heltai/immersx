@@ -126,6 +126,12 @@ public:
     return (quadrature_id / n_q_points);
   }
 
+  /**
+   * @brief Get the normal
+   *
+   * @param quadrature_id
+   * @return const Tensor<1, spacedim>&
+   */
   inline const Tensor<1, spacedim> &
   get_normal(const types::global_dof_index &quadrature_id) const
   {
@@ -141,6 +147,12 @@ public:
 
 
 
+  /**
+   * Get a list of fe values
+   *
+   * @param particle_id
+   * @return const std::vector<double>&
+   */
   const std::vector<double> &
   get_fe_values(const types::global_dof_index particle_id) const
   {
@@ -165,7 +177,12 @@ public:
   }
 
 
-
+  /**
+   * @brief Get the center of the inclusion
+   *
+   * @param inclusion_id
+   * @return Point<spacedim>
+   */
   Point<spacedim>
   get_center(const types::global_dof_index &inclusion_id) const
   {
