@@ -78,20 +78,8 @@ def write_vessels(mesh_name):
 
     vtk_name = mesh_name + ".vtk"
 
-    # Read vertices and edge connectivity
-    vertices = read_verts(mesh)
-    edges = read_edges(mesh)
-
-    # Segments: v0-v1
-    segments = vertices[edges[:,0]]-vertices[edges[:,1]]
-    lengths = sqrt(sum(segments**2, axis=-1))
-
-    sel = lengths != 0
-
-    segments = segments[sel,:]
-    lengths = lengths[sel]
-    edges = edges[sel,:]
-
+    vertices, edges, segments, lengths = get_non_zero_elements(mesh)
+    
     # Start by saving
     write_vtk(vtk_name, vertices, edges, lengths)
 
@@ -126,6 +114,22 @@ def write_vessels(mesh_name):
     J = np.linalg.det(C)
 
     print(J)
+
+def get_non_zero_elements(mesh):
+    # Read vertices and edge connectivity
+    vertices = read_verts(mesh)
+    edges = read_edges(mesh)
+
+    # Segments: v0-v1
+    segments = vertices[edges[:,0]]-vertices[edges[:,1]]
+    lengths = sqrt(sum(segments**2, axis=-1))
+
+    sel = lengths != 0
+
+    segments = segments[sel,:]
+    lengths = lengths[sel]
+    edges = edges[sel,:]
+    return (vertices, edges, segments, lengths)
 
 def create_ellipsoid(mesh_name, R=0.5, location=[0,0,0], N=101, M=56):
 
@@ -253,7 +257,6 @@ def cylinders(vertices, edges, resolution, radius):
         origin = vertices[edge[0]]
         final  = vertices[edge[1]]
         n_nodes = max(int(ceil(np.linalg.norm(final-origin)/resolution)),2)
-        print(n_nodes)
         verts = linspace(origin, final, n_nodes)
         directions = diff(verts, axis=0)
         centers = (verts[1:,:]+verts[:-1,:])/2
@@ -263,25 +266,21 @@ def cylinders(vertices, edges, resolution, radius):
 
 D = bpy.data
 
-mesh_name = 'CornerTree'
+mesh_name = 'Tree'
+file_name = '../data/small_tree_8_3d'
 
-x = -3
-for mesh_name in ['cylinders']:
-    
-    mesh = bpy.data.meshes[mesh_name]
+n_nodes = 8
+radius = .01
+resolution = 2*pi*radius/n_nodes
 
-    # Read vertices and edge connectivity
-    vertices = read_verts(mesh)
-    edges = read_edges(mesh)
-    
-    n_nodes = 64
-    radius = .2
-    resolution = 2*pi*radius/n_nodes
-    
-    inclusions = cylinders(vertices, edges, resolution, radius)
-    
-    np.savetxt("../build/cylinder_3d.gpl", inclusions)
+mesh = bpy.data.meshes[mesh_name]
 
-    # write_vessels(mesh_name)
-    # create_ellipsoid(mesh_name, 1, [x, 1, 1])
-    x = x+3
+# Read vertices and edge connectivity
+vertices, edges, segments, lengths = get_non_zero_elements(mesh)
+
+# Save inclusions
+inclusions = cylinders(vertices, edges, resolution, radius)
+np.savetxt(file_name+".gpl", inclusions)
+
+# Save vtk
+write_vtk(file_name+".vtk", vertices, edges, lengths)
