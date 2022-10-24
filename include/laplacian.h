@@ -90,6 +90,7 @@ public:
   ProblemParameters();
 
   std::string                   output_directory       = ".";
+  std::string                   output_name            = "solution";
   unsigned int                  fe_degree              = 1;
   unsigned int                  initial_refinement     = 5;
   unsigned int                  rtree_extraction_level = 1;
@@ -124,6 +125,7 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
 {
   add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
   add_parameter("Output directory", output_directory);
+  add_parameter("Output name", output_name);
   add_parameter("Output results also before solving",
                 output_results_before_solving);
   add_parameter("Initial refinement", initial_refinement);

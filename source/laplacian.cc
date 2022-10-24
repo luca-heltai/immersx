@@ -154,10 +154,6 @@ PoissonProblem<dim, spacedim>::setup_inclusions_particles()
            "here. Bailing out."));
   inclusions_as_particles.insert_global_particles(particles_positions,
                                                   global_bounding_boxes);
-  tria.signals.pre_distributed_refinement.connect(
-    [&]() { inclusions_as_particles.register_store_callback_function(); });
-  tria.signals.post_distributed_refinement.connect(
-    [&]() { inclusions_as_particles.register_load_callback_function(false); });
   pcout << "Inclusions particles: "
         << inclusions_as_particles.n_global_particles() << std::endl;
 }
@@ -324,8 +320,8 @@ PoissonProblem<dim, spacedim>::assemble_coupling_sparsity(
   auto particle = inclusions_as_particles.begin();
   while (particle != inclusions_as_particles.end())
     {
-      const auto &cell = particle->get_surrounding_cell(tria);
-      const auto &dh_cell =
+      const auto &cell = particle->get_surrounding_cell();
+      const auto  dh_cell =
         typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
       dh_cell->get_dof_indices(dof_indices);
 
@@ -379,8 +375,8 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
   auto particle = inclusions_as_particles.begin();
   while (particle != inclusions_as_particles.end())
     {
-      const auto &cell = particle->get_surrounding_cell(tria);
-      const auto &dh_cell =
+      const auto &cell = particle->get_surrounding_cell();
+      const auto  dh_cell =
         typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
       dh_cell->get_dof_indices(fe_dof_indices);
       const auto pic = inclusions_as_particles.particles_in_cell(cell);
@@ -560,9 +556,11 @@ PoissonProblem<dim, spacedim>::refine_and_transfer()
   parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector> transfer(
     dh);
   tria.prepare_coarsening_and_refinement();
+  inclusions_as_particles.prepare_for_coarsening_and_refinement();
   transfer.prepare_for_coarsening_and_refinement(
     locally_relevant_solution.block(0));
   tria.execute_coarsening_and_refinement();
+  inclusions_as_particles.unpack_after_coarsening_and_refinement();
   setup_dofs();
   transfer.interpolate(solution.block(0));
   constraints.distribute(solution.block(0));
@@ -585,7 +583,8 @@ PoissonProblem<dim, spacedim>::output_solution() const
     subdomain(i) = tria.locally_owned_subdomain();
   data_out.add_data_vector(subdomain, "subdomain");
   data_out.build_patches();
-  const std::string filename = "solution_" + std::to_string(cycle) + ".vtu";
+  const std::string filename =
+    par.output_name + "_" + std::to_string(cycle) + ".vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
   return filename;
@@ -599,7 +598,8 @@ PoissonProblem<dim, spacedim>::output_particles() const
 {
   Particles::DataOut<spacedim> particles_out;
   particles_out.build_patches(inclusions_as_particles);
-  const std::string filename = "particles_" + std::to_string(cycle) + ".vtu";
+  const std::string filename =
+    par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
   particles_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                       mpi_communicator);
   return filename;
@@ -618,8 +618,10 @@ PoissonProblem<dim, spacedim>::output_results() const
       cycles_and_solutions.push_back({(double)cycle, output_solution()});
       cycles_and_particles.push_back({(double)cycle, output_particles()});
 
-      std::ofstream pvd_solutions(par.output_directory + "/solutions.pvd");
-      std::ofstream pvd_particles(par.output_directory + "/particles.pvd");
+      std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
+                                  ".pvd");
+      std::ofstream pvd_particles(par.output_directory + "/" + par.output_name +
+                                  "_particles.pvd");
       DataOutBase::write_pvd_record(pvd_solutions, cycles_and_solutions);
       DataOutBase::write_pvd_record(pvd_particles, cycles_and_particles);
     }

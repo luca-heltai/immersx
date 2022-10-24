@@ -13,7 +13,7 @@ def read_verts(mesh):
 
 
 def read_edges(mesh):
-    fastedges = np.zeros((len(mesh.edges) * 2), dtype=np.int)  # [0.0, 0.0] * len(mesh.edges)
+    fastedges = np.zeros((len(mesh.edges) * 2), dtype=int)  # [0.0, 0.0] * len(mesh.edges)
     mesh.edges.foreach_get("vertices", fastedges)
     return np.reshape(fastedges, (len(mesh.edges), 2))
 
@@ -266,11 +266,11 @@ def cylinders(vertices, edges, resolution, radius):
 
 D = bpy.data
 
-mesh_name = 'Tree'
-file_name = '../data/small_tree_8_3d'
+mesh_name = 'cylinders'
+file_name = '../data/three_cylinders_R0025'
 
-n_nodes = 8
-radius = .01
+n_nodes = 64
+radius = .0025
 resolution = 2*pi*radius/n_nodes
 
 mesh = bpy.data.meshes[mesh_name]
