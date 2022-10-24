@@ -31,14 +31,14 @@ main(int argc, char *argv[])
         prm_file = argv[1];
       else
         prm_file = "parameters.prm";
-      if (prm_file.find("23") != std::string::npos)
+      if (prm_file.find("23d") != std::string::npos)
         {
           ProblemParameters<2, 3> par;
           PoissonProblem<2, 3>    problem(par);
           ParameterAcceptor::initialize(prm_file);
           problem.run();
         }
-      else if (prm_file.find("3") != std::string::npos)
+      else if (prm_file.find("3d") != std::string::npos)
         {
           ProblemParameters<3> par;
           PoissonProblem<3>    problem(par);
