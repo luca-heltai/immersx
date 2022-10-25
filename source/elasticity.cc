@@ -547,10 +547,31 @@ std::string
 ElasticityProblem<dim, spacedim>::output_solution() const
 {
   TimerOutput::Scope t(computing_timer, "Output results");
-  std::string        solution_name = "solution";
+  std::vector<std::string> solution_names(spacedim, "displacement");
+  std::vector<std::string> exact_solution_names(spacedim, "exact_displacement");
+  
+  
+  auto exact_vec(solution.block(0));
+  VectorTools::interpolate(dh, par.bc, exact_vec);
+  auto exact_vec_locally_relevant(locally_relevant_solution.block(0));
+      exact_vec_locally_relevant = exact_vec;
+  
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+        data_component_interpretation(
+          spacedim, DataComponentInterpretation::component_is_part_of_vector);
+
   DataOut<spacedim>  data_out;
   data_out.attach_dof_handler(dh);
-  data_out.add_data_vector(locally_relevant_solution.block(0), solution_name);
+  data_out.add_data_vector(locally_relevant_solution.block(0), 
+                          solution_names,
+                          DataOut<spacedim>::type_dof_data,
+                          data_component_interpretation);
+  
+  data_out.add_data_vector(exact_vec_locally_relevant,
+                               exact_solution_names,
+                               DataOut<spacedim>::type_dof_data,
+                               data_component_interpretation);
+                               
   Vector<float> subdomain(tria.n_active_cells());
   for (unsigned int i = 0; i < subdomain.size(); ++i)
     subdomain(i) = tria.locally_owned_subdomain();
