@@ -89,11 +89,10 @@ class ProblemParameters : public ParameterAcceptor
 public:
   ProblemParameters();
 
-  std::string                   output_directory       = ".";
-  std::string                   output_name            = "solution";
-  unsigned int                  fe_degree              = 1;
-  unsigned int                  initial_refinement     = 5;
-  unsigned int                  rtree_extraction_level = 1;
+  std::string                   output_directory   = ".";
+  std::string                   output_name        = "solution";
+  unsigned int                  fe_degree          = 1;
+  unsigned int                  initial_refinement = 5;
   std::list<types::boundary_id> dirichlet_ids{0};
   std::string                   name_of_grid        = "hyper_cube";
   std::string                   arguments_for_grid  = "-1: 1: false";
@@ -129,7 +128,6 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
   add_parameter("Output results also before solving",
                 output_results_before_solving);
   add_parameter("Initial refinement", initial_refinement);
-  add_parameter("Bounding boxes extraction level", rtree_extraction_level);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   enter_subsection("Grid generation");
   {
@@ -166,8 +164,6 @@ public:
   void
   make_grid();
   void
-  setup_inclusions_particles();
-  void
   setup_fe();
   void
   setup_dofs();
@@ -193,9 +189,6 @@ public:
   std::string
   output_solution() const;
 
-  std::string
-  output_particles() const;
-
   void
   output_results() const;
 
@@ -214,8 +207,6 @@ private:
   DoFHandler<spacedim>                           dh;
   std::vector<IndexSet>                          owned_dofs;
   std::vector<IndexSet>                          relevant_dofs;
-
-  Particles::ParticleHandler<spacedim> inclusions_as_particles;
 
   AffineConstraints<double> constraints;
   AffineConstraints<double> inclusion_constraints;
