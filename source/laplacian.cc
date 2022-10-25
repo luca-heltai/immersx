@@ -115,53 +115,6 @@ PoissonProblem<dim, spacedim>::make_grid()
 
 template <int dim, int spacedim>
 void
-PoissonProblem<dim, spacedim>::setup_inclusions_particles()
-{
-  inclusions.initialize();
-  pcout << "Number of inclusions: " << inclusions.n_inclusions()
-        << ", number of inclusion dofs: " << inclusions.n_dofs() << std::endl;
-  inclusions_as_particles.clear();
-  inclusions_as_particles.initialize(tria, StaticMappingQ1<spacedim>::mapping);
-
-  if (inclusions.n_dofs() == 0)
-    return;
-
-  std::vector<Point<spacedim>> particles_positions;
-  particles_positions.reserve(inclusions.n_particles());
-  for (unsigned int i = 0; i < inclusions.n_inclusions(); ++i)
-    {
-      const auto &p = inclusions.get_current_support_points(i);
-      particles_positions.insert(particles_positions.end(), p.begin(), p.end());
-    }
-
-  std::vector<BoundingBox<spacedim>> all_boxes;
-  all_boxes.reserve(tria.n_locally_owned_active_cells());
-  for (const auto &cell : tria.active_cell_iterators())
-    if (cell->is_locally_owned())
-      all_boxes.emplace_back(cell->bounding_box());
-  const auto tree = pack_rtree(all_boxes);
-  const auto local_boxes =
-    extract_rtree_level(tree, par.rtree_extraction_level);
-
-  global_bounding_boxes =
-    Utilities::MPI::all_gather(mpi_communicator, local_boxes);
-
-  Assert(!global_bounding_boxes.empty(),
-         ExcInternalError(
-           "I was expecting the "
-           "global_bounding_boxes to be filled at this stage. "
-           "Make sure you fill this vector before trying to use it "
-           "here. Bailing out."));
-  inclusions_as_particles.insert_global_particles(particles_positions,
-                                                  global_bounding_boxes);
-  pcout << "Inclusions particles: "
-        << inclusions_as_particles.n_global_particles() << std::endl;
-}
-
-
-
-template <int dim, int spacedim>
-void
 PoissonProblem<dim, spacedim>::setup_fe()
 {
   TimerOutput::Scope t(computing_timer, "Initial setup");
@@ -317,15 +270,16 @@ PoissonProblem<dim, spacedim>::assemble_coupling_sparsity(
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices;
 
-  auto particle = inclusions_as_particles.begin();
-  while (particle != inclusions_as_particles.end())
+  auto particle = inclusions.inclusions_as_particles.begin();
+  while (particle != inclusions.inclusions_as_particles.end())
     {
       const auto &cell = particle->get_surrounding_cell();
       const auto  dh_cell =
         typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
       dh_cell->get_dof_indices(dof_indices);
 
-      const auto pic = inclusions_as_particles.particles_in_cell(cell);
+      const auto pic =
+        inclusions.inclusions_as_particles.particles_in_cell(cell);
       Assert(pic.begin() == particle, ExcInternalError());
       std::set<types::global_dof_index> inclusion_dof_indices_set;
       for (const auto &p : pic)
@@ -372,14 +326,15 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
 
   Vector<double> local_rhs(inclusions.n_coefficients);
 
-  auto particle = inclusions_as_particles.begin();
-  while (particle != inclusions_as_particles.end())
+  auto particle = inclusions.inclusions_as_particles.begin();
+  while (particle != inclusions.inclusions_as_particles.end())
     {
       const auto &cell = particle->get_surrounding_cell();
       const auto  dh_cell =
         typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
       dh_cell->get_dof_indices(fe_dof_indices);
-      const auto pic = inclusions_as_particles.particles_in_cell(cell);
+      const auto pic =
+        inclusions.inclusions_as_particles.particles_in_cell(cell);
       Assert(pic.begin() == particle, ExcInternalError());
 
       auto p      = pic.begin();
@@ -556,11 +511,11 @@ PoissonProblem<dim, spacedim>::refine_and_transfer()
   parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector> transfer(
     dh);
   tria.prepare_coarsening_and_refinement();
-  inclusions_as_particles.prepare_for_coarsening_and_refinement();
+  inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
   transfer.prepare_for_coarsening_and_refinement(
     locally_relevant_solution.block(0));
   tria.execute_coarsening_and_refinement();
-  inclusions_as_particles.unpack_after_coarsening_and_refinement();
+  inclusions.inclusions_as_particles.unpack_after_coarsening_and_refinement();
   setup_dofs();
   transfer.interpolate(solution.block(0));
   constraints.distribute(solution.block(0));
@@ -592,18 +547,18 @@ PoissonProblem<dim, spacedim>::output_solution() const
 
 
 
-template <int dim, int spacedim>
-std::string
-PoissonProblem<dim, spacedim>::output_particles() const
-{
-  Particles::DataOut<spacedim> particles_out;
-  particles_out.build_patches(inclusions_as_particles);
-  const std::string filename =
-    par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
-  particles_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
-                                      mpi_communicator);
-  return filename;
-}
+// template <int dim, int spacedim>
+// std::string
+// PoissonProblem<dim, spacedim>::output_particles() const
+// {
+//   Particles::DataOut<spacedim> particles_out;
+//   particles_out.build_patches(inclusions.inclusions_as_particles);
+//   const std::string filename =
+//     par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
+//   particles_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+//                                       mpi_communicator);
+//   return filename;
+// }
 
 
 template <int dim, int spacedim>
@@ -616,7 +571,13 @@ PoissonProblem<dim, spacedim>::output_results() const
   if (cycles_and_solutions.size() == cycle)
     {
       cycles_and_solutions.push_back({(double)cycle, output_solution()});
-      cycles_and_particles.push_back({(double)cycle, output_particles()});
+
+      const std::string particles_filename =
+        par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
+      inclusions.output_particles(par.output_directory + "/" +
+                                  particles_filename);
+
+      cycles_and_particles.push_back({(double)cycle, particles_filename});
 
       std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
                                   ".pvd");
@@ -651,7 +612,7 @@ PoissonProblem<dim, spacedim>::run()
   print_parameters();
   make_grid();
   setup_fe();
-  setup_inclusions_particles();
+  inclusions.setup_inclusions_particles(tria);
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
       setup_dofs();

@@ -4,6 +4,11 @@
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
 
+#include <deal.II/distributed/tria.h>
+
+#include <deal.II/fe/mapping_q.h>
+#include <deal.II/fe/mapping_q1.h>
+
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/generators.h>
 #include <deal.II/particles/particle_handler.h>
@@ -27,6 +32,7 @@ public:
     add_parameter("Inclusions refinement", n_q_points);
     add_parameter("Inclusions", inclusions);
     add_parameter("Number of fourier coefficients", n_coefficients);
+    add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
   }
 
@@ -112,7 +118,50 @@ public:
     return dofs;
   }
 
+  void
+  setup_inclusions_particles(
+    const parallel::distributed::Triangulation<spacedim> &tria)
+  {
+    initialize();
+    mpi_communicator = tria.get_communicator();
+    inclusions_as_particles.initialize(tria,
+                                       StaticMappingQ1<spacedim>::mapping);
 
+    if (n_dofs() == 0)
+      return;
+
+    std::vector<Point<spacedim>> particles_positions;
+    particles_positions.reserve(n_particles());
+    for (unsigned int i = 0; i < n_inclusions(); ++i)
+      {
+        const auto &p = get_current_support_points(i);
+        particles_positions.insert(particles_positions.end(),
+                                   p.begin(),
+                                   p.end());
+      }
+
+    std::vector<BoundingBox<spacedim>> all_boxes;
+    all_boxes.reserve(tria.n_locally_owned_active_cells());
+    for (const auto &cell : tria.active_cell_iterators())
+      if (cell->is_locally_owned())
+        all_boxes.emplace_back(cell->bounding_box());
+    const auto tree        = pack_rtree(all_boxes);
+    const auto local_boxes = extract_rtree_level(tree, rtree_extraction_level);
+
+    auto global_bounding_boxes =
+      Utilities::MPI::all_gather(mpi_communicator, local_boxes);
+
+    Assert(!global_bounding_boxes.empty(),
+           ExcInternalError(
+             "I was expecting the "
+             "global_bounding_boxes to be filled at this stage. "
+             "Make sure you fill this vector before trying to use it "
+             "here. Bailing out."));
+    inclusions_as_particles.insert_global_particles(particles_positions,
+                                                    global_bounding_boxes);
+    // pcout << "Inclusions particles: "
+    //       << inclusions_as_particles.n_global_particles() << std::endl;
+  }
 
   /**
    * Quadrature id to inclusion id.
@@ -294,13 +343,24 @@ public:
     return current_support_points;
   }
 
+  void
+  output_particles(const std::string &filename) const
+  {
+    Particles::DataOut<spacedim> particles_out;
+    particles_out.build_patches(inclusions_as_particles);
+    particles_out.write_vtu_in_parallel(filename, mpi_communicator);
+  }
+
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
   std::vector<std::vector<double>> inclusions;
   unsigned int                     n_q_points     = 100;
   unsigned int                     n_coefficients = 1;
 
+  Particles::ParticleHandler<spacedim> inclusions_as_particles;
+
 private:
+  MPI_Comm                     mpi_communicator;
   std::vector<Point<spacedim>> support_points;
   std::vector<double>          theta;
 
@@ -309,7 +369,8 @@ private:
   mutable std::vector<Point<spacedim>>     current_support_points;
   mutable std::vector<double>              current_fe_values;
 
-  std::string inclusions_file = "";
+  std::string  inclusions_file        = "";
+  unsigned int rtree_extraction_level = 1;
 };
 
 #endif
