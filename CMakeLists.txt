@@ -27,8 +27,7 @@
 # Set the name of the project and target
 # If your application follows the structure above, you don't need to 
 # specify anything else. 
-SET(_main_target laplacian)
-SET(_main source/main.cc)
+SET(_main_target reduced_lagrange)
 
 # Set the _main variable to empty if you don't want an executable
 # but only a library
@@ -39,13 +38,7 @@ SET(_main source/main.cc)
 ############################################################
 # Declare all source files the target consists of:
 file(GLOB _files source/*cc include/*.h)
-
-# Don't compile the main file into the library
-IF(NOT "${_main}" STREQUAL "") 
-LIST(REMOVE_ITEM _files
-${CMAKE_CURRENT_SOURCE_DIR}/${_main}
-)
-ENDIF()
+file(GLOB _main_files apps/*cc)
 
 INCLUDE_DIRECTORIES(include)
 
@@ -89,13 +82,17 @@ FOREACH(_build_type ${_d2_build_types})
     ADD_LIBRARY(${_lib} SHARED ${_files})
     DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
     SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
-
-    # Setup one executable per dimension/per build type
-    SET(_exe "${_main_target}${${_build_type}_postfix}")
-    MESSAGE("-- Configuring executable ${_exe}")
-    ADD_EXECUTABLE(${_exe} ${_main})
-    TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
-    DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
+    
+    FOREACH(_main ${_main_files})
+      # Setup one executable per dimension/per build type
+      get_filename_component(_main_we ${_main} NAME_WE)
+      STRING(REPLACE "app_" "" _main_we ${_main_we})
+      SET(_exe "${_main_we}${${_build_type}_postfix}")
+      MESSAGE("-- Configuring executable ${_exe}")
+      ADD_EXECUTABLE(${_exe} ${_main})
+      TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
+      DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
+    ENDFOREACH()
   ENDIF()
 ENDFOREACH()
 
