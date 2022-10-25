@@ -372,6 +372,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
               const auto  id                  = p->get_id();
               const auto &inclusion_fe_values = inclusions.get_fe_values(id);
               const auto &real_q              = p->get_location();
+              const auto  ds                  = inclusions.get_JxW(id);
 
               // Coupling and inclusions matrix
               for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
@@ -384,16 +385,28 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                       if (comp_i == inclusions.get_component(j))
                         {
                           local_coupling_matrix(i, j) +=
-                            (fev.shape_value(i, q)) * inclusion_fe_values[j];
+                            (fev.shape_value(i, q)) * inclusion_fe_values[j] *
+                            ds;
                         }
                     }
-                  local_rhs(j) += inclusion_fe_values[j] *
-                                  inclusions.inclusions_rhs.value(
-                                    real_q, inclusions.get_component(j));
-
+                  if (inclusions.data_file != "")
+                    {
+                      if (inclusions.inclusions_data[inclusion_id].size() > j)
+                        {
+                          local_rhs(j) +=
+                            inclusion_fe_values[j] * inclusion_fe_values[j] *
+                            inclusions.inclusions_data[inclusion_id][j] * ds;
+                        }
+                    }
+                  else
+                    {
+                      local_rhs(j) += inclusion_fe_values[j] *
+                                      inclusions.inclusions_rhs.value(
+                                        real_q, inclusions.get_component(j)) *
+                                      ds;
+                    }
                   local_inclusion_matrix(j, j) +=
-                    (inclusion_fe_values[j] * inclusion_fe_values[j] /
-                     inclusion_fe_values[0]);
+                    (inclusion_fe_values[j] * inclusion_fe_values[j] * ds);
                 }
               ++p;
             }
@@ -453,7 +466,7 @@ ElasticityProblem<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  const auto &g = system_rhs.block(1);
+  auto &      g = system_rhs.block(1);
 
   if (inclusions.n_dofs() == 0)
     {
@@ -464,6 +477,10 @@ ElasticityProblem<dim, spacedim>::solve()
       const auto Bt = linear_operator<LA::MPI::Vector>(coupling_matrix);
       const auto B  = transpose_operator(Bt);
       const auto C  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+
+      // auto interp_g = g;
+      // interp_g      = 0.1;
+      // g             = C * interp_g;
 
       // Schur complement
       const auto S = B * invA * Bt;
@@ -546,32 +563,32 @@ template <int dim, int spacedim>
 std::string
 ElasticityProblem<dim, spacedim>::output_solution() const
 {
-  TimerOutput::Scope t(computing_timer, "Output results");
+  TimerOutput::Scope       t(computing_timer, "Output results");
   std::vector<std::string> solution_names(spacedim, "displacement");
   std::vector<std::string> exact_solution_names(spacedim, "exact_displacement");
-  
-  
+
+
   auto exact_vec(solution.block(0));
   VectorTools::interpolate(dh, par.bc, exact_vec);
   auto exact_vec_locally_relevant(locally_relevant_solution.block(0));
-      exact_vec_locally_relevant = exact_vec;
-  
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-        data_component_interpretation(
-          spacedim, DataComponentInterpretation::component_is_part_of_vector);
+  exact_vec_locally_relevant = exact_vec;
 
-  DataOut<spacedim>  data_out;
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    data_component_interpretation(
+      spacedim, DataComponentInterpretation::component_is_part_of_vector);
+
+  DataOut<spacedim> data_out;
   data_out.attach_dof_handler(dh);
-  data_out.add_data_vector(locally_relevant_solution.block(0), 
-                          solution_names,
-                          DataOut<spacedim>::type_dof_data,
-                          data_component_interpretation);
-  
+  data_out.add_data_vector(locally_relevant_solution.block(0),
+                           solution_names,
+                           DataOut<spacedim>::type_dof_data,
+                           data_component_interpretation);
+
   data_out.add_data_vector(exact_vec_locally_relevant,
-                               exact_solution_names,
-                               DataOut<spacedim>::type_dof_data,
-                               data_component_interpretation);
-                               
+                           exact_solution_names,
+                           DataOut<spacedim>::type_dof_data,
+                           data_component_interpretation);
+
   Vector<float> subdomain(tria.n_active_cells());
   for (unsigned int i = 0; i < subdomain.size(); ++i)
     subdomain(i) = tria.locally_owned_subdomain();

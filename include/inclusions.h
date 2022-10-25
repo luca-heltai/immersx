@@ -34,8 +34,10 @@ public:
     add_parameter("Inclusions refinement", n_q_points);
     add_parameter("Inclusions", inclusions);
     add_parameter("Number of fourier coefficients", n_coefficients);
+    add_parameter("Start index of Fourier coefficients", offset_coefficients);
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
+    add_parameter("Data file", data_file);
   }
 
 
@@ -117,8 +119,39 @@ public:
             inclusions.push_back(inclusion);
           }
       }
-  }
 
+    if (data_file != "")
+      {
+        std::ifstream infile(data_file);
+        Assert(infile, ExcIO());
+
+        std::string line;
+        while (std::getline(infile, line))
+          {
+            std::vector<double> double_line;
+            std::istringstream  iss(line);
+            double              buffer_double;
+            while (iss >> buffer_double)
+              {
+                double_line.push_back(buffer_double);
+              }
+            inclusions_data.push_back(double_line);
+          }
+        AssertThrow(inclusions_data.size() == n_inclusions(),
+                    ExcDimensionMismatch(inclusions_data.size(),
+                                         n_inclusions()));
+        if (inclusions_data.size() > 0)
+          {
+            const auto N = inclusions_data[0].size();
+            for (const auto &l : inclusions_data)
+              {
+                AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
+              }
+            std::cout << "Read " << N << " coefficients per inclusion"
+                      << std::endl;
+          }
+      }
+  }
 
 
   std::vector<types::global_dof_index>
@@ -220,6 +253,15 @@ public:
   }
 
 
+  inline double
+  get_JxW(const types::global_dof_index &particle_id) const
+  {
+    const auto id = particle_id / n_q_points;
+    AssertIndexRange(id, inclusions.size());
+    const auto r = get_radius(id);
+    return 2 * numbers::PI * r / n_q_points * get_direction(id).norm();
+  }
+
 
   /**
    * Get a list of fe values
@@ -235,20 +277,18 @@ public:
     const auto q  = particle_id % n_q_points;
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
-    const auto r  = get_radius(id);
-    const auto ds = 2 * numbers::PI * r / n_q_points * get_direction(id).norm();
-    current_fe_values[0] = ds;
-    for (unsigned int c = 1; c < n_coefficients; ++c)
+    const auto r = get_radius(id);
+    for (unsigned int c = 0; c < n_coefficients; ++c)
       {
-        unsigned int omega = (c + 1) / 2;
+        unsigned int omega = (c + offset_coefficients + 1) / 2;
         const double rho   = std::pow(r, omega);
         for (unsigned int i = 0; i < n_vector_components; ++i)
-          if ((c + 1) % 2 == 0)
+          if ((std::max(c + offset_coefficients, 1u) + 1) % 2 == 0)
             current_fe_values[c * n_vector_components + i] =
-              ds * rho * std::cos(theta[q] * omega);
+              rho * std::cos(theta[q] * omega);
           else
             current_fe_values[c * n_vector_components + i] =
-              ds * rho * std::sin(theta[q] * omega);
+              rho * std::sin(theta[q] * omega);
       }
     return current_fe_values;
   }
@@ -384,10 +424,14 @@ public:
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
   std::vector<std::vector<double>> inclusions;
-  unsigned int                     n_q_points     = 100;
-  unsigned int                     n_coefficients = 1;
+  unsigned int                     n_q_points          = 100;
+  unsigned int                     n_coefficients      = 1;
+  unsigned int                     offset_coefficients = 0;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
+
+  std::string                      data_file = "";
+  std::vector<std::vector<double>> inclusions_data;
 
 private:
   const unsigned int           n_vector_components;
