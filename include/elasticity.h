@@ -125,10 +125,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   , bc("/Immersed Problem/Dirichlet boundary conditions", spacedim)
   , inner_control("/Immersed Problem/Solver/Inner control")
   , outer_control("/Immersed Problem/Solver/Outer control")
-  , convergence_table(std::vector<std::string>(spacedim, "u"),
-                      std::vector<std::set<VectorTools::NormType>>(
-                        spacedim,
-                        {VectorTools::L2_norm, VectorTools::H1_norm}))
+  , convergence_table(std::vector<std::string>(spacedim, "u"))
 {
   add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
   add_parameter("Output directory", output_directory);
