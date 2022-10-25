@@ -35,7 +35,9 @@ ElasticityProblem<dim, spacedim>::ElasticityProblem(
          typename Triangulation<spacedim>::MeshSmoothing(
            Triangulation<spacedim>::smoothing_on_refinement |
            Triangulation<spacedim>::smoothing_on_coarsening))
+  , inclusions(spacedim)
   , dh(tria)
+  , displacement(0)
 {}
 
 
@@ -118,7 +120,8 @@ void
 ElasticityProblem<dim, spacedim>::setup_fe()
 {
   TimerOutput::Scope t(computing_timer, "Initial setup");
-  fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
+  fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree),
+                                            spacedim);
   quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
 }
 
@@ -163,7 +166,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
           mpi_communicator, inclusions.n_inclusions());
 
       owned_dofs[1] = inclusions_set.tensor_product(
-        complete_index_set(inclusions.n_coefficients));
+        complete_index_set(inclusions.n_dofs_per_inclusion()));
 
       coupling_matrix.clear();
       DynamicSparsityPattern dsp(dh.n_dofs(), inclusions.n_dofs());
@@ -204,44 +207,52 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::assemble_poisson_system()
+ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
 {
   stiffness_matrix = 0;
   coupling_matrix  = 0;
   system_rhs       = 0;
-  TimerOutput::Scope               t(computing_timer, "Assemble Stiffness");
-  FEValues<spacedim>               fe_values(*fe,
+  TimerOutput::Scope          t(computing_timer, "Assemble Stiffness");
+  FEValues<spacedim>          fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
                                  update_quadrature_points | update_JxW_values);
-  const unsigned int               dofs_per_cell = fe->n_dofs_per_cell();
-  const unsigned int               n_q_points    = quadrature->size();
-  FullMatrix<double>               cell_matrix(dofs_per_cell, dofs_per_cell);
-  Vector<double>                   cell_rhs(dofs_per_cell);
-  std::vector<double>              rhs_values(n_q_points);
-  std::vector<Tensor<1, spacedim>> grad_phi_u(dofs_per_cell);
+  const unsigned int          dofs_per_cell = fe->n_dofs_per_cell();
+  const unsigned int          n_q_points    = quadrature->size();
+  FullMatrix<double>          cell_matrix(dofs_per_cell, dofs_per_cell);
+  Vector<double>              cell_rhs(dofs_per_cell);
+  std::vector<Vector<double>> rhs_values(n_q_points, Vector<double>(spacedim));
+  std::vector<Tensor<2, spacedim>>     grad_phi_u(dofs_per_cell);
+  std::vector<double>                  div_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-  const FEValuesExtractors::Scalar     scalar(0);
+
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
       {
         cell_matrix = 0;
         cell_rhs    = 0;
         fe_values.reinit(cell);
-        par.rhs.value_list(fe_values.get_quadrature_points(), rhs_values);
+        par.rhs.vector_value_list(fe_values.get_quadrature_points(),
+                                  rhs_values);
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
-              grad_phi_u[k] = fe_values[scalar].gradient(k, q);
+              {
+                grad_phi_u[k] = fe_values[displacement].gradient(k, q);
+                div_phi_u[k]  = fe_values[displacement].divergence(k, q);
+              }
             for (unsigned int i = 0; i < dofs_per_cell; ++i)
               {
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     cell_matrix(i, j) +=
-                      grad_phi_u[i] * grad_phi_u[j] * fe_values.JxW(q);
+                      (par.mu * scalar_product(grad_phi_u[i], grad_phi_u[j]) +
+                       par.lambda * div_phi_u[i] * div_phi_u[j]) *
+                      fe_values.JxW(q);
                   }
-                cell_rhs(i) += fe_values.shape_value(i, q) * rhs_values[q] *
-                               fe_values.JxW(q);
+                const auto comp_i = fe->system_to_component_index(i).first;
+                cell_rhs(i) += fe_values.shape_value(i, q) *
+                               rhs_values[q][comp_i] * fe_values.JxW(q);
               }
           }
         cell->get_dof_indices(local_dof_indices);
@@ -264,8 +275,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
   IndexSet           relevant(inclusions.n_dofs());
-
-  const FEValuesExtractors::Scalar scalar(0);
 
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices;
@@ -313,18 +322,18 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
   const FEValuesExtractors::Scalar     scalar(0);
   std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices(
-    inclusions.n_coefficients);
+    inclusions.n_dofs_per_inclusion());
 
   FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
-                                           inclusions.n_coefficients);
+                                           inclusions.n_dofs_per_inclusion());
 
   FullMatrix<double> local_bulk_matrix(fe->n_dofs_per_cell(),
                                        fe->n_dofs_per_cell());
 
-  FullMatrix<double> local_inclusion_matrix(inclusions.n_coefficients,
-                                            inclusions.n_coefficients);
+  FullMatrix<double> local_inclusion_matrix(inclusions.n_dofs_per_inclusion(),
+                                            inclusions.n_dofs_per_inclusion());
 
-  Vector<double> local_rhs(inclusions.n_coefficients);
+  Vector<double> local_rhs(inclusions.n_dofs_per_inclusion());
 
   auto particle = inclusions.inclusions_as_particles.begin();
   while (particle != inclusions.inclusions_as_particles.end())
@@ -365,13 +374,22 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
               const auto &real_q              = p->get_location();
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < inclusions.n_coefficients; ++j)
+              for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
+                   ++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-                    local_coupling_matrix(i, j) +=
-                      (fev.shape_value(i, q)) * inclusion_fe_values[j];
+                    {
+                      const auto comp_i =
+                        fe->system_to_component_index(i).first;
+                      if (comp_i == inclusions.get_component(j))
+                        {
+                          local_coupling_matrix(i, j) +=
+                            (fev.shape_value(i, q)) * inclusion_fe_values[j];
+                        }
+                    }
                   local_rhs(j) += inclusion_fe_values[j] *
-                                  inclusions.inclusions_rhs.value(real_q);
+                                  inclusions.inclusions_rhs.value(
+                                    real_q, inclusions.get_component(j));
 
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] /
@@ -618,7 +636,7 @@ ElasticityProblem<dim, spacedim>::run()
       setup_dofs();
       if (par.output_results_before_solving)
         output_results();
-      assemble_poisson_system();
+      assemble_elasticity_system();
       assemble_coupling();
       solve();
       output_results();
