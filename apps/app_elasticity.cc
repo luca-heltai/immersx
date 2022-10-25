@@ -17,7 +17,7 @@
  * Modified by: Luca Heltai, 2020
  */
 
-#include "laplacian.h"
+#include "elasticity.h"
 int
 main(int argc, char *argv[])
 {
@@ -33,22 +33,22 @@ main(int argc, char *argv[])
         prm_file = "parameters.prm";
       if (prm_file.find("23d") != std::string::npos)
         {
-          ProblemParameters<2, 3> par;
-          PoissonProblem<2, 3>    problem(par);
+          ElasticityProblemParameters<2, 3> par;
+          ElasticityProblem<2, 3>           problem(par);
           ParameterAcceptor::initialize(prm_file);
           problem.run();
         }
       else if (prm_file.find("3d") != std::string::npos)
         {
-          ProblemParameters<3> par;
-          PoissonProblem<3>    problem(par);
+          ElasticityProblemParameters<3> par;
+          ElasticityProblem<3>           problem(par);
           ParameterAcceptor::initialize(prm_file);
           problem.run();
         }
       else
         {
-          ProblemParameters<2> par;
-          PoissonProblem<2>    problem(par);
+          ElasticityProblemParameters<2> par;
+          ElasticityProblem<2>           problem(par);
           ParameterAcceptor::initialize(prm_file);
           problem.run();
         }
