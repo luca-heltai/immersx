@@ -101,6 +101,10 @@ public:
   double                        refinement_fraction = 0.3;
   unsigned int                  n_refinement_cycles = 1;
   unsigned int                  max_cells           = 20000;
+
+  double mu     = 1;
+  double lambda = 1;
+
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
 
@@ -117,10 +121,14 @@ public:
 template <int dim, int spacedim>
 ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   : ParameterAcceptor("/Immersed Problem/")
-  , rhs("/Immersed Problem/Right hand side")
-  , bc("/Immersed Problem/Dirichlet boundary conditions")
+  , rhs("/Immersed Problem/Right hand side", spacedim)
+  , bc("/Immersed Problem/Dirichlet boundary conditions", spacedim)
   , inner_control("/Immersed Problem/Solver/Inner control")
   , outer_control("/Immersed Problem/Solver/Outer control")
+  , convergence_table(std::vector<std::string>(spacedim, "u"),
+                      std::vector<std::set<VectorTools::NormType>>(
+                        spacedim,
+                        {VectorTools::L2_norm, VectorTools::H1_norm}))
 {
   add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
   add_parameter("Output directory", output_directory);
@@ -168,7 +176,7 @@ public:
   void
   setup_dofs();
   void
-  assemble_poisson_system();
+  assemble_elasticity_system();
   void
   assemble_coupling();
   void
@@ -219,6 +227,8 @@ private:
   LA::MPI::BlockVector                            system_rhs;
   std::vector<std::vector<BoundingBox<spacedim>>> global_bounding_boxes;
   unsigned int                                    cycle = 0;
+
+  FEValuesExtractors::Vector displacement;
 };
 
 

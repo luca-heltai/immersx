@@ -24,9 +24,11 @@ template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
-  Inclusions()
+  Inclusions(const unsigned int n_vector_components = 1)
     : ParameterAcceptor("/Immersed Problem/Immersed inclusions")
-    , inclusions_rhs("/Immersed Problem/Immersed inclusions/Boundary data")
+    , inclusions_rhs("/Immersed Problem/Immersed inclusions/Boundary data",
+                     n_vector_components)
+    , n_vector_components(n_vector_components)
   {
     static_assert(spacedim > 1, "Not implemented in dim = 1");
     add_parameter("Inclusions refinement", n_q_points);
@@ -40,7 +42,7 @@ public:
   types::global_dof_index
   n_dofs() const
   {
-    return inclusions.size() * n_coefficients;
+    return inclusions.size() * n_dofs_per_inclusion();
   }
 
 
@@ -55,6 +57,17 @@ public:
   n_inclusions() const
   {
     return inclusions.size();
+  }
+
+  /**
+   * @brief Number of degrees of freedom associated to each inclusion.
+   *
+   * @return unsigned int
+   */
+  unsigned int
+  n_dofs_per_inclusion() const
+  {
+    return n_coefficients * n_vector_components;
   }
 
   /**
@@ -73,7 +86,7 @@ public:
     normals.resize(n_q_points);
     theta.resize(n_q_points);
     current_support_points.resize(n_q_points);
-    current_fe_values.resize(n_coefficients);
+    current_fe_values.resize(n_dofs_per_inclusion());
 
     for (unsigned int i = 0; i < n_q_points; ++i)
       {
@@ -111,8 +124,8 @@ public:
   std::vector<types::global_dof_index>
   get_dof_indices(const types::global_dof_index &quadrature_id) const
   {
-    std::vector<types::global_dof_index> dofs(n_coefficients);
-    auto start_index = (quadrature_id / n_q_points) * n_coefficients;
+    std::vector<types::global_dof_index> dofs(n_dofs_per_inclusion());
+    auto start_index = (quadrature_id / n_q_points) * n_dofs_per_inclusion();
     for (auto &d : dofs)
       d = start_index++;
     return dofs;
@@ -176,6 +189,18 @@ public:
   }
 
   /**
+   * @brief Get the ith component for the given dof index.
+   *
+   * @param dof_index A number in [0,n_dofs())
+   * @return unsigned int The index of the current component
+   */
+  inline unsigned int
+  get_component(const types::global_dof_index &dof_index) const
+  {
+    return dof_index % n_vector_components;
+  }
+
+  /**
    * @brief Get the normal
    *
    * @param quadrature_id
@@ -217,10 +242,13 @@ public:
       {
         unsigned int omega = (c + 1) / 2;
         const double rho   = std::pow(r, omega);
-        if ((c + 1) % 2 == 0)
-          current_fe_values[c] = ds * rho * std::cos(theta[q] * omega);
-        else
-          current_fe_values[c] = ds * rho * std::sin(theta[q] * omega);
+        for (unsigned int i = 0; i < n_vector_components; ++i)
+          if ((c + 1) % 2 == 0)
+            current_fe_values[c * n_vector_components + i] =
+              ds * rho * std::cos(theta[q] * omega);
+          else
+            current_fe_values[c * n_vector_components + i] =
+              ds * rho * std::sin(theta[q] * omega);
       }
     return current_fe_values;
   }
@@ -343,6 +371,8 @@ public:
     return current_support_points;
   }
 
+
+
   void
   output_particles(const std::string &filename) const
   {
@@ -360,6 +390,7 @@ public:
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
 
 private:
+  const unsigned int           n_vector_components;
   MPI_Comm                     mpi_communicator;
   std::vector<Point<spacedim>> support_points;
   std::vector<double>          theta;
