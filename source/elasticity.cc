@@ -145,13 +145,13 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
     constraints.close();
   }
   {
-    stiffness_matrix.clear();
     DynamicSparsityPattern dsp(relevant_dofs[0]);
     DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
     SparsityTools::distribute_sparsity_pattern(dsp,
                                                owned_dofs[0],
                                                mpi_communicator,
                                                relevant_dofs[0]);
+    stiffness_matrix.clear();
     stiffness_matrix.reinit(owned_dofs[0],
                             owned_dofs[0],
                             dsp,
@@ -168,7 +168,6 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
       owned_dofs[1] = inclusions_set.tensor_product(
         complete_index_set(inclusions.n_dofs_per_inclusion()));
 
-      coupling_matrix.clear();
       DynamicSparsityPattern dsp(dh.n_dofs(), inclusions.n_dofs());
 
       relevant_dofs[1] = assemble_coupling_sparsity(dsp);
@@ -176,6 +175,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
                                                  owned_dofs[0],
                                                  mpi_communicator,
                                                  relevant_dofs[0]);
+      coupling_matrix.clear();
       coupling_matrix.reinit(owned_dofs[0],
                              owned_dofs[1],
                              dsp,
@@ -189,6 +189,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
                                                  owned_dofs[1],
                                                  mpi_communicator,
                                                  relevant_dofs[1]);
+      inclusion_matrix.clear();
       inclusion_matrix.reinit(owned_dofs[1],
                               owned_dofs[1],
                               idsp,
@@ -486,8 +487,8 @@ ElasticityProblem<dim, spacedim>::solve()
       const auto S = B * invA * Bt;
 
       // Schur complement preconditioner
-      auto                      invS = S;
-      SolverCG<LA::MPI::Vector> cg_schur(par.outer_control);
+      auto                          invS = S;
+      SolverFGMRES<LA::MPI::Vector> cg_schur(par.outer_control);
       invS = inverse_operator(S, cg_schur);
 
       pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
