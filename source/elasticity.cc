@@ -373,7 +373,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
               const auto  id                  = p->get_id();
               const auto &inclusion_fe_values = inclusions.get_fe_values(id);
               const auto &real_q              = p->get_location();
-              const auto  ds                  = inclusions.get_JxW(id);
+              const auto  ds                  = inclusions.get_JxW(id)/inclusions.get_radius(inclusion_id);
 
               // Coupling and inclusions matrix
               for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
@@ -396,7 +396,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                         {
                           local_rhs(j) +=
                             inclusion_fe_values[j] * inclusion_fe_values[j] *
-                            inclusions.inclusions_data[inclusion_id][j] * ds;
+                            inclusions.inclusions_data[inclusion_id][j] * 
+                            ds;
                         }
                     }
                   else
@@ -409,6 +410,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] * ds);
                 }
+
               ++p;
             }
           // I expect p and next_p to be the same now.

@@ -102,8 +102,8 @@ public:
   unsigned int                  n_refinement_cycles = 1;
   unsigned int                  max_cells           = 20000;
 
-  double mu     = 1;
-  double lambda = 1;
+  double Lame_mu     = 1;
+  double Lame_lambda = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
@@ -151,6 +151,25 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     add_parameter("Refinement fraction", refinement_fraction);
     add_parameter("Maximum number of cells", max_cells);
     add_parameter("Number of refinement cycles", n_refinement_cycles);
+  }
+  leave_subsection();
+  // enter_subsection("Dirac delta approximation");
+  // {
+  //   add_parameter("Use tensor product", use_tensor_product_dirac);
+  //   add_parameter("Epsilon expression",epsilon_expression,              
+  //                 "Use h and H for minimal and maximal cell radius.");
+  //   add_parameter("Dirac type",              dirac_type,
+  //                 "",Patterns::Selection("W1|C1|Cinfty"
+  //   add_parameter("Singularities file", singularities_file);
+  //   add_parameter("Hyper-singularities file", hyper_singularities_file);
+  //   add_parameter("Singularities", singularities);
+  //   add_parameter("Hyper-singularities", hyper_singularities);
+  // }
+  // leave_subsection();
+  enter_subsection("Physical constants");
+  {
+    add_parameter("Lame mu", Lame_mu);
+    add_parameter("Lame lambda", Lame_lambda);
   }
   leave_subsection();
 
