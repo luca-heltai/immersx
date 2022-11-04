@@ -247,8 +247,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     cell_matrix(i, j) +=
-                      (par.mu * scalar_product(grad_phi_u[i], grad_phi_u[j]) +
-                       par.lambda * div_phi_u[i] * div_phi_u[j]) *
+                      (par.Lame_mu * scalar_product(grad_phi_u[i], grad_phi_u[j]) +
+                       par.Lame_lambda * div_phi_u[i] * div_phi_u[j]) *
                       fe_values.JxW(q);
                   }
                 const auto comp_i = fe->system_to_component_index(i).first;
