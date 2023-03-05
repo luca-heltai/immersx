@@ -1,0 +1,68 @@
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  = error_refZZZ_R0YYY_NXXX.txt
+  set Error precision                  = 6
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = none
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0
+  set FE degree                          = 1
+  set Initial refinement                 = ZZZ
+  set Output directory                   = refZZZ_R0YYY_NXXX
+  set Output results also before solving = false
+  subsection Dirichlet boundary conditions
+    set Function constants  = r=.YYY
+    set Function expression = if(x^2+y^2 < r^2, 2*x^3 - x^2 - 6*x*y^2 + x + y^2 + 1 , 2*r^6*x*(x^2 - 3*y^2)/(x^2 + y^2)^3 + r^4*(-x^2 + y^2)/(x^2 + y^2)^2 + r^2*x/(x^2 + y^2) + log(x^2 + y^2)/(2*log(r)) )
+    set Variable names      = x,y,t
+  end
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+  subsection Immersed inclusions
+    set Bounding boxes extraction level    = 1
+    set Inclusions                     = 0,0,.YYY
+    set Inclusions file                = 
+    set Inclusions refinement          = 10000
+    set Number of fourier coefficients = XXX
+    subsection Boundary data
+      set Function constants  = r=.YYY
+      set Function expression = if(x^2+y^2 < r^2, 2*x^3 - x^2 - 6*x*y^2 + x + y^2 + 1 , 2*r^6*x*(x^2 - 3*y^2)/(x^2 + y^2)^3 + r^4*(-x^2 + y^2)/(x^2 + y^2)^2 + r^2*x/(x^2 + y^2) + log(x^2 + y^2)/(2*log(r)) )
+      set Variable names      = x,y,t
+    end
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = -1
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.3
+    set Strategy                    = global
+  end
+  subsection Right hand side
+    set Function constants  = 
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Inner control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 1000
+      set Reduction     = 1.e-8
+      set Tolerance     = 1.e-10
+    end
+    subsection Outer control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 1000
+      set Reduction     = 1.e-7
+      set Tolerance     = 1.e-10
+    end
+  end
+end

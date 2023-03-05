@@ -1,0 +1,68 @@
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  = 
+  set Error precision                  = 6
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+subsection Immersed Problem
+  set Bounding boxes extraction level    = 1
+  set Dirichlet boundary ids             = 0
+  set FE degree                          = 1
+  set Initial refinement                 = 4
+  set Output directory                   = .
+  set Output results also before solving = false
+  subsection Dirichlet boundary conditions
+    set Function constants  = r=.2
+    set Function expression = if(x^2+y^2 < r^2, r^4*(-6*x^4/r^8 + 36*x^2*y^2/r^8 - 6*y^4/r^8) , r^4*(-6*x^4/(x^2 + y^2)^4 + 36*x^2*y^2/(x^2 + y^2)^4 - 6*y^4/(x^2 + y^2)^4) )
+    set Variable names      = x,y,t
+  end
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+  subsection Immersed inclusions
+    set Inclusions                     = 0,0,.2
+    set Inclusions file                = 
+    set Inclusions refinement          = 1024
+    set Number of fourier coefficients = 9
+    subsection Boundary data
+      set Function constants  = r=.2
+      set Function expression = if(x^2+y^2 < r^2, r^4*(-6*x^4/r^8 + 36*x^2*y^2/r^8 - 6*y^4/r^8) , r^4*(-6*x^4/(x^2 + y^2)^4 + 36*x^2*y^2/(x^2 + y^2)^4 - 6*y^4/(x^2 + y^2)^4) )
+      set Variable names      = x,y,t
+    end
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = -1
+    set Number of refinement cycles = 10
+    set Refinement fraction         = 0.3
+    set Strategy                    = global
+  end
+  subsection Right hand side
+    set Function constants  = 
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Inner control
+      set Log frequency = 1
+      set Log history   = true
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-10
+    end
+    subsection Outer control
+      set Log frequency = 1
+      set Log history   = true
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-10
+    end
+  end
+end
