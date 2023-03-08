@@ -1,5 +1,5 @@
 for rr in 6 7 8 9 10; do
-    for NN in 1 3 5 7 9; do
+    for NN in 1 3 5; do
         for RR in 2 1 05 025; do
             echo parameter_ref${rr}_R0${RR}_N${NN}.prm
             mkdir -p ref${rr}_R0${RR}_N${NN}
