@@ -51,6 +51,13 @@ namespace LA
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/manifold_lib.h>
 
+#include <deal.II/grid/grid_out.h>
+#include <deal.II/grid/grid_refinement.h>
+#include <deal.II/grid/grid_tools_cache.h>
+#include <deal.II/grid/tria.h>
+#include <deal.II/grid/tria_accessor.h>
+#include <deal.II/grid/tria_iterator.h>
+
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/full_matrix.h>
@@ -70,6 +77,13 @@ namespace LA
 
 #include <deal.II/opencascade/manifold_lib.h>
 #include <deal.II/opencascade/utilities.h>
+
+// #include <deal.II/meshworker/scratch_data.h>
+#include <deal.II/base/work_stream.h>
+#include <deal.II/meshworker/dof_info.h>
+#include <deal.II/meshworker/integration_info.h>
+#include <deal.II/meshworker/simple.h>
+#include <deal.II/meshworker/loop.h>
 
 #include "inclusions.h"
 
@@ -94,6 +108,9 @@ public:
   unsigned int                  fe_degree          = 1;
   unsigned int                  initial_refinement = 5;
   std::list<types::boundary_id> dirichlet_ids{0};
+  std::list<types::boundary_id> neumann_ids{};
+  std::set<types::boundary_id>  normal_flux_ids{};
+  std::string                   domain_type         = "";
   std::string                   name_of_grid        = "hyper_cube";
   std::string                   arguments_for_grid  = "-1: 1: false";
   std::string                   refinement_strategy = "fixed_fraction";
@@ -106,7 +123,11 @@ public:
   double Lame_lambda = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> exact_solution;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> Neumann_bc;
+
+  std::string weight_expression = "1.";
 
   mutable ParameterAcceptorProxy<ReductionControl> inner_control;
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
@@ -114,6 +135,13 @@ public:
   bool output_results_before_solving = false;
 
   mutable ParsedConvergenceTable convergence_table;
+
+  bool treat_as_hypersingular = false; //
+
+    // Time dependency.
+  double initial_time = 0.0;
+  double final_time   = 0.0;
+  double dt           = 5e-3; 
 };
 
 
@@ -122,7 +150,9 @@ template <int dim, int spacedim>
 ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   : ParameterAcceptor("/Immersed Problem/")
   , rhs("/Immersed Problem/Right hand side", spacedim)
+  , exact_solution("/Immersed Problem/Exact solution", spacedim)
   , bc("/Immersed Problem/Dirichlet boundary conditions", spacedim)
+  , Neumann_bc("/Immersed Problem/Neumann boundary conditions", spacedim)
   , inner_control("/Immersed Problem/Solver/Inner control")
   , outer_control("/Immersed Problem/Solver/Outer control")
   , convergence_table(std::vector<std::string>(spacedim, "u"))
@@ -134,8 +164,11 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                 output_results_before_solving);
   add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
+  add_parameter("Neumann boundary ids", neumann_ids);
+  add_parameter("Normal flux boundary ids", normal_flux_ids);
   enter_subsection("Grid generation");
   {
+    add_parameter("Domain type", domain_type);
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
   }
@@ -172,6 +205,19 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     add_parameter("Lame lambda", Lame_lambda);
   }
   leave_subsection();
+  enter_subsection("Exact solution");
+  {
+//    exact_solution.declare_parameters(prm, spacedim);
+    add_parameter("Weight expression", weight_expression);
+  }
+  leave_subsection();
+  enter_subsection("Time dependency");
+  {
+    add_parameter("Initial time", initial_time);
+    add_parameter("Final time", final_time);
+    add_parameter("Time step", dt);
+  }
+  leave_subsection();
 
   this->prm.enter_subsection("Error");
   convergence_table.add_parameters(this->prm);
@@ -197,6 +243,8 @@ public:
   assemble_coupling();
   void
   run();
+  void
+  check_boundary_ids();
 
   /**
    * Builds coupling sparsity, and returns locally relevant inclusion dofs.
@@ -219,6 +267,9 @@ public:
   void
   print_parameters() const;
 
+  void
+  compute_boundary_stress() const;
+
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
   MPI_Comm                                          mpi_communicator;
@@ -228,6 +279,7 @@ private:
   std::unique_ptr<FiniteElement<spacedim>>          fe;
   Inclusions<spacedim>                              inclusions;
   std::unique_ptr<Quadrature<spacedim>>             quadrature;
+  std::unique_ptr<Quadrature<spacedim-1>>           face_quadrature_formula;
   DoFHandler<spacedim>                              dh;
   std::vector<IndexSet>                             owned_dofs;
   std::vector<IndexSet>                             relevant_dofs;
@@ -245,6 +297,15 @@ private:
   unsigned int                                    cycle = 0;
 
   FEValuesExtractors::Vector displacement;
+
+  // Postprocessing values
+  std::map<types::boundary_id, Tensor<1, spacedim>> forces;
+  std::map<types::boundary_id, Tensor<1, spacedim>> average_displacements;
+  std::map<types::boundary_id, Tensor<1, spacedim>> average_normals;
+  std::map<types::boundary_id, double>              areas;
+
+  // Time dependency.
+  double current_time = 0.0;
 };
 
 
