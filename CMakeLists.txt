@@ -40,7 +40,7 @@ SET(_main_target reduced_lagrange)
 file(GLOB _files source/*cc include/*.h)
 file(GLOB _main_files apps/*cc)
 
-INCLUDE_DIRECTORIES(include)
+INCLUDE_DIRECTORIES(include /usr/include/1dsolver)
 
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 
@@ -90,7 +90,7 @@ FOREACH(_build_type ${_d2_build_types})
       SET(_exe "${_main_we}${${_build_type}_postfix}")
       MESSAGE("-- Configuring executable ${_exe}")
       ADD_EXECUTABLE(${_exe} ${_main})
-      TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
+      TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
       DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     ENDFOREACH()
   ENDIF()

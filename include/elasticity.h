@@ -75,10 +75,10 @@ namespace LA
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/vector_tools.h>
 
+#include <deal.II/meshworker/scratch_data.h>
 #include <deal.II/opencascade/manifold_lib.h>
 #include <deal.II/opencascade/utilities.h>
 
-// #include <deal.II/meshworker/scratch_data.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/meshworker/dof_info.h>
 #include <deal.II/meshworker/integration_info.h>
@@ -270,6 +270,9 @@ public:
   void
   compute_boundary_stress() const;
 
+  void
+  output_pressure() const;
+
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
   MPI_Comm                                          mpi_communicator;
@@ -303,9 +306,12 @@ private:
   std::map<types::boundary_id, Tensor<1, spacedim>> average_displacements;
   std::map<types::boundary_id, Tensor<1, spacedim>> average_normals;
   std::map<types::boundary_id, double>              areas;
+  // std::vector<BaseClass::BlockType>                 pressure_records;
 
   // Time dependency.
   double current_time = 0.0;
+
+  mutable std::unique_ptr<HDF5::File> pressure_file;
 };
 
 
