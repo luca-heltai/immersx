@@ -628,8 +628,8 @@ ElasticityProblem<dim, spacedim>::solve()
       u = invA * (f - Bt * lambda);
       pcout << "   u norm: " << u.l2_norm()
             << ", lambda norm: " << lambda.l2_norm() << std::endl;
-      std::cout << "   lambda: ";
-      lambda.print(std::cout);
+      // std::cout << "   lambda: ";
+      // lambda.print(std::cout);
     }
 
   pcout << "   Solved for u in " << par.inner_control.last_step()
@@ -823,7 +823,7 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress() const
 {
   TimerOutput::Scope       t(computing_timer, "computing stresses");
   Tensor<1, spacedim> b_stress;
-  Tensor<2, spacedim> i_stress;
+  Tensor<2, spacedim> i_stress; 
   double u_dot_n;
   double i_area = 0.;
   double perimeter = 0.;
@@ -851,7 +851,7 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress() const
 
   // std::vector<std::vector<Tensor<1,spacedim>>> solution_gradient(face_quadrature_formula->size(), std::vector<Tensor<1,spacedim> >(spacedim+1));
   std::vector<Tensor<2,spacedim>> displacement_gradient(face_quadrature_formula->size());
-  std::vector<Vector<double>> displacement_values(face_quadrature_formula->size());
+  std::vector<Tensor<1,spacedim>> displacement_values(face_quadrature_formula->size());
 
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -869,7 +869,7 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress() const
                             * solution.block(0)[local_dof_indices[k]]*fe_values.JxW(q);
               }
           }
-        // /*
+        
         for (unsigned int f = 0; f < GeometryInfo<spacedim>::faces_per_cell; ++f)
         // for (const auto &f : cell->face_iterators())
         // for (const auto f : GeometryInfo<spacedim>::face_indices())
@@ -878,20 +878,16 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress() const
             fe_face_values.reinit(cell, f);
             // fe_face_values.get_function_gradients(solution, solution_gradient);
             fe_face_values[displacement].get_function_gradients(solution, displacement_gradient);
-            fe_face_values.get_function_values(solution, displacement_values);
+            fe_face_values[displacement].get_function_values(solution, displacement_values);
             for (unsigned int q = 0; q < fe_face_values.n_quadrature_points;++q)
             {
               perimeter += fe_face_values.JxW(q);
-              std::cout << "871" << std::endl;
               // for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                  u_dot_n += //solution.block(0)[local_dof_indices[i]] // 
-                            (displacement_values[q][0] * fe_face_values.normal_vector(q)[0]
-                            + displacement_values[q][1] * fe_face_values.normal_vector(q)[1])
+                  u_dot_n += (displacement_values[q]* fe_face_values.normal_vector(q))
                               * fe_face_values.JxW(q);
               const Tensor<1,spacedim> disp_grad_x = displacement_gradient[q][0];
               const Tensor<1,spacedim> disp_grad_y = displacement_gradient[q][1];
               double div = disp_grad_x[0] + disp_grad_y[1];
-              // std::cout << div << std::endl;
               // b_stress[0] += (2* par.Lame_mu * disp_grad_x[0] + par.Lame_lambda * div)
               //             * fe_face_values.JxW(q)* fe_face_values.normal_vector(q)[0]
               //             + (2* par.Lame_mu * disp_grad_x[1])
@@ -902,24 +898,99 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress() const
               //             * fe_face_values.JxW(q)* fe_face_values.normal_vector(q)[1]; 
               b_stress += (2* par.Lame_mu * displacement_gradient[q] + par.Lame_lambda * div * identity) 
                             * fe_face_values.JxW(q)* fe_face_values.normal_vector(q);
-              u_dot_n += std::abs((displacement_values[q][0]* fe_face_values.normal_vector(q)[0]
-                                  + displacement_values[q][1]* fe_face_values.normal_vector(q)[1])* fe_face_values.JxW(q));
+              u_dot_n += //std::abs((displacement_values[q]* fe_face_values.normal_vector(q))* fe_face_values.JxW(q));
+                          (displacement_values[q]* fe_face_values.normal_vector(q))* fe_face_values.JxW(q);
             }
           }
-        // */
+        
       }
   i_stress = Utilities::MPI::sum(i_stress, mpi_communicator);
   b_stress = Utilities::MPI::sum(b_stress, mpi_communicator);
   i_area = Utilities::MPI::sum(i_area, mpi_communicator);
   perimeter = Utilities::MPI::sum(perimeter, mpi_communicator);
   i_stress/= i_area;
-  //b_stress /= perimeter;
+  b_stress /= perimeter;
   pcout << "perimeter: " << perimeter << ", Boundary stress: " << b_stress << std::endl;
   pcout << "area: " << i_area << ", Mean internal stress: " << i_stress << std::endl;
-  // std::cout << "u dot n" << u_dot_n << std::endl;
+  std::cout << "u dot n " << u_dot_n << std::endl;
   // pcout << "Mean internal solution: " << u_avg << std::endl;
   // i_stress.print(std::cout);
 }
+
+template <int dim, int spacedim>
+void
+ElasticityProblem<dim, spacedim>::output_pressure() const
+{
+  if (inclusions.n_inclusions() > 0)
+  {
+    auto &lambda = solution.block(1);
+    // std::cout << "incl num " << inclusions.n_inclusions() << std::endl;
+    std::vector<double> pressure_to_write;
+    if (inclusions.offset_coefficients == 0)
+      return;
+
+    // compute the value of the pressure as average of the first two modes
+    unsigned int coef_num = 2; // only interested in the first two modes ( not the zero)
+    unsigned value = 0;
+    Tensor<1, spacedim> i_d = (inclusions.get_direction(0));
+    for (auto ix =0; ix < spacedim; ++ix)
+      std::cout << i_d[ix];
+    std::cout << std::endl;
+    // Vector<double> tensor_to_print;
+    // i_d.unroll(tensor_to_print);
+    // tensor_to_print.print();
+    for (unsigned inc_num = 0; inc_num < inclusions.n_inclusions(); ++inc_num)
+    {
+      // std::cout << "incl " << inc_num << std::endl;
+      auto index = inc_num*(spacedim-1)*coef_num;
+      std::cout << inclusions.get_direction(inc_num) << std::endl;
+      if(inclusions.get_direction(inc_num) == i_d)
+      {
+        value += (lambda[index] + lambda[index+spacedim+1])/2;
+        // std::cout << "updated value" << std::endl;
+      }
+      else
+      {
+        pressure_to_write.push_back(value);
+        value = 0;
+        i_d = inclusions.get_direction(inc_num);
+        std::cout << "new direction" << std::endl;
+        for (auto ix =0; ix < spacedim; ++ix)
+          std::cout << i_d[ix];
+        std::cout << std::endl;
+        value += (lambda[index] + lambda[index+spacedim+1])/2;
+      }
+    }
+    pressure_to_write.push_back(value);
+
+    ofstream pressure_file;
+    pressure_file.open(par.output_directory + "/external_pressure.txt");
+    for (auto p_i : pressure_to_write)
+      pressure_file << p_i << std::endl;
+    pressure_file.close();
+
+
+    // if (current_time + par.dt == par.final_time)
+    // {
+//         const std::string filename_h5(par.output_directory + "/" + par.output_name +
+//                      "_pressure.h5");
+//         pressure_file  = std::make_unique<HDF5::File>(filename_h5,
+//                                                HDF5::File::FileAccessMode::open,
+//                                                mpi_communicator);
+//         auto group = pressure_file->open_group("pressure");
+//   
+//         group.write_selection(pressure_to_write);
+//   
+    //   std::ofstream txt_pressure(par.output_directory + "/" + par.output_name +
+    //                 "_pressure.h5");
+    //   // unsigned int coef_num = 2; // only interested in the first two modes ( not the zero)
+    //   for (unsigned int cyc = 0; cyc < pressure_records.size(); ++cyc)
+    //   {
+    //     auto lambda_temp = pressure_records[cyc];
+    //   }
+    // }
+  }
+} 
 
 template <int dim, int spacedim>
 void
@@ -930,7 +1001,7 @@ ElasticityProblem<dim, spacedim>::run()
     print_parameters();
     make_grid();
     setup_fe();
-    check_boundary_ids();
+    // check_boundary_ids();
     inclusions.setup_inclusions_particles(tria);
     for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
       {
@@ -938,9 +1009,11 @@ ElasticityProblem<dim, spacedim>::run()
         if (par.output_results_before_solving)
           output_results();
         assemble_elasticity_system();
+        // inclusions.read_displacement_hdf5();
         assemble_coupling();
         solve();
         output_results();
+        output_pressure();
         if (spacedim == 2)
         {
           FunctionParser<spacedim> weight(par.weight_expression);
@@ -948,7 +1021,7 @@ ElasticityProblem<dim, spacedim>::run()
         }
         else
           par.convergence_table.error_from_exact(dh, solution.block(0), par.bc);
-        //compute_boundary_stress();
+        compute_boundary_stress();
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
         if (pcout.is_active())
@@ -975,6 +1048,7 @@ ElasticityProblem<dim, spacedim>::run()
           assemble_coupling();
           solve();
           output_results();
+          output_pressure();
         }
     }
 }
