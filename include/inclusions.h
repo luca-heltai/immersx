@@ -1,9 +1,9 @@
 #ifndef rdlm_inclusions
 #define rdlm_inclusions
 
+#include <deal.II/base/hdf5.h>
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
-#include <deal.II/base/hdf5.h>
 
 #include <deal.II/distributed/tria.h>
 
@@ -425,10 +425,10 @@ public:
   void
   read_displacement_hdf5()
   {
-    data_file_h  = std::make_unique<HDF5::File>(data_file,
-                                             HDF5::File::FileAccessMode::open,
-                                             mpi_communicator);
-    auto group = data_file_h->open_group("data");
+    data_file_h = std::make_unique<HDF5::File>(data_file,
+                                               HDF5::File::FileAccessMode::open,
+                                               mpi_communicator);
+    auto group  = data_file_h->open_group("data");
     // Read new displacement
     {
       auto h5data         = group.open_dataset("displacement_data");
@@ -436,12 +436,11 @@ public:
 
       for (unsigned int i = 0; i < vector_of_data.size(); ++i)
         {
-          //inclusions_data.push_back(vector_of_data[i]);
+          // inclusions_data.push_back(vector_of_data[i]);
         }
     }
     AssertThrow(inclusions_data.size() == n_inclusions(),
-                ExcDimensionMismatch(inclusions_data.size(),
-                                     n_inclusions()));
+                ExcDimensionMismatch(inclusions_data.size(), n_inclusions()));
     if (inclusions_data.size() > 0)
       {
         const auto N = inclusions_data[0].size();
@@ -449,11 +448,9 @@ public:
           {
             AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
           }
-        
-        std::cout << "Read " << N << " coefficients per inclusion"
-                  << std::endl;
-      }
 
+        std::cout << "Read " << N << " coefficients per inclusion" << std::endl;
+      }
   }
 
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
@@ -465,9 +462,9 @@ public:
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
 
-  std::string                      data_file = "";
+  std::string                         data_file = "";
   mutable std::unique_ptr<HDF5::File> data_file_h;
-  std::vector<std::vector<double>> inclusions_data;
+  std::vector<std::vector<double>>    inclusions_data;
 
 private:
   const unsigned int           n_vector_components;
