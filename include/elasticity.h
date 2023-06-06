@@ -30,6 +30,7 @@ namespace LA
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/base/utilities.h>
+#include <deal.II/base/work_stream.h>
 
 #include <deal.II/distributed/grid_refinement.h>
 #include <deal.II/distributed/solution_transfer.h>
@@ -48,12 +49,11 @@ namespace LA
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
-#include <deal.II/grid/grid_tools.h>
-#include <deal.II/grid/manifold_lib.h>
-
 #include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_refinement.h>
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_tools_cache.h>
+#include <deal.II/grid/manifold_lib.h>
 #include <deal.II/grid/tria.h>
 #include <deal.II/grid/tria_accessor.h>
 #include <deal.II/grid/tria_iterator.h>
@@ -71,19 +71,18 @@ namespace LA
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/vector.h>
 
+#include <deal.II/meshworker/dof_info.h>
+#include <deal.II/meshworker/integration_info.h>
+#include <deal.II/meshworker/loop.h>
+#include <deal.II/meshworker/scratch_data.h>
+#include <deal.II/meshworker/simple.h>
+
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/vector_tools.h>
 
-#include <deal.II/meshworker/scratch_data.h>
 #include <deal.II/opencascade/manifold_lib.h>
 #include <deal.II/opencascade/utilities.h>
-
-#include <deal.II/base/work_stream.h>
-#include <deal.II/meshworker/dof_info.h>
-#include <deal.II/meshworker/integration_info.h>
-#include <deal.II/meshworker/simple.h>
-#include <deal.II/meshworker/loop.h>
 
 #include "inclusions.h"
 
@@ -138,10 +137,10 @@ public:
 
   bool treat_as_hypersingular = false; //
 
-    // Time dependency.
+  // Time dependency.
   double initial_time = 0.0;
   double final_time   = 0.0;
-  double dt           = 5e-3; 
+  double dt           = 5e-3;
 };
 
 
@@ -186,19 +185,6 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     add_parameter("Number of refinement cycles", n_refinement_cycles);
   }
   leave_subsection();
-  // enter_subsection("Dirac delta approximation");
-  // {
-  //   add_parameter("Use tensor product", use_tensor_product_dirac);
-  //   add_parameter("Epsilon expression",epsilon_expression,              
-  //                 "Use h and H for minimal and maximal cell radius.");
-  //   add_parameter("Dirac type",              dirac_type,
-  //                 "",Patterns::Selection("W1|C1|Cinfty"
-  //   add_parameter("Singularities file", singularities_file);
-  //   add_parameter("Hyper-singularities file", hyper_singularities_file);
-  //   add_parameter("Singularities", singularities);
-  //   add_parameter("Hyper-singularities", hyper_singularities);
-  // }
-  // leave_subsection();
   enter_subsection("Physical constants");
   {
     add_parameter("Lame mu", Lame_mu);
@@ -207,7 +193,6 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   leave_subsection();
   enter_subsection("Exact solution");
   {
-//    exact_solution.declare_parameters(prm, spacedim);
     add_parameter("Weight expression", weight_expression);
   }
   leave_subsection();
@@ -268,10 +253,10 @@ public:
   print_parameters() const;
 
   void
-  compute_boundary_stress() const;
+  compute_boundary_stress(bool openfilefirsttime) const; // make const
 
   void
-  output_pressure() const;
+  output_pressure(bool openfilefirsttime);// make const
 
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
@@ -282,7 +267,7 @@ private:
   std::unique_ptr<FiniteElement<spacedim>>          fe;
   Inclusions<spacedim>                              inclusions;
   std::unique_ptr<Quadrature<spacedim>>             quadrature;
-  std::unique_ptr<Quadrature<spacedim-1>>           face_quadrature_formula;
+  std::unique_ptr<Quadrature<spacedim - 1>>         face_quadrature_formula;
   DoFHandler<spacedim>                              dh;
   std::vector<IndexSet>                             owned_dofs;
   std::vector<IndexSet>                             relevant_dofs;
@@ -311,7 +296,9 @@ private:
   // Time dependency.
   double current_time = 0.0;
 
-  mutable std::unique_ptr<HDF5::File> pressure_file;
+  // mutable std::unique_ptr<HDF5::File> pressure_file;
+  std::ofstream pressure_file;
+  // std::ofstream forces_file;
 };
 
 

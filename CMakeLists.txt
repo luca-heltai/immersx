@@ -80,6 +80,7 @@ FOREACH(_build_type ${_d2_build_types})
     MESSAGE("-- Configuring library ${_lib}")
 
     ADD_LIBRARY(${_lib} SHARED ${_files})
+    #ADD_LIBRARY( STATIC )
     DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
     SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
     
