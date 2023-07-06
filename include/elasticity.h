@@ -274,6 +274,7 @@ private:
 
   AffineConstraints<double> constraints;
   AffineConstraints<double> inclusion_constraints;
+  AffineConstraints<double> mean_value_constraints;
 
   LA::MPI::SparseMatrix                           stiffness_matrix;
   LA::MPI::SparseMatrix                           coupling_matrix;
