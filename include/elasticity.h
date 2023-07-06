@@ -122,9 +122,11 @@ public:
   double Lame_lambda = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> exact_solution;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+    exact_solution;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> Neumann_bc;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+    Neumann_bc;
 
   std::string weight_expression = "1.";
 
@@ -256,7 +258,7 @@ public:
   compute_boundary_stress(bool openfilefirsttime) const; // make const
 
   void
-  output_pressure(bool openfilefirsttime);// make const
+  output_pressure(bool openfilefirsttime); // make const
 
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
