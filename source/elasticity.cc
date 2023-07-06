@@ -197,6 +197,29 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
     VectorTools::compute_nonzero_normal_flux_constraints(
       dh, 0, par.normal_flux_ids, function_map, constraints);
     constraints.close();
+
+    /*{
+      mean_value_constraints.clear();
+      mean_value_constraints.reinit(relevant_dofs[0]);
+
+      for (const auto id : par.normal_flux_ids)
+      {
+        const std::set<types::boundary_id > &boundary_ids={id};
+        const ComponentMask &component_mask=ComponentMask();
+        const IndexSet boundary_dofs = DoFTools::extract_boundary_dofs(dh, component_mask, boundary_ids);
+
+        const types::global_dof_index first_boundary_dof =
+          boundary_dofs.nth_index_in_set(0);
+
+        mean_value_constraints.add_line(first_boundary_dof);
+        for (types::global_dof_index i : boundary_dofs)
+          if (i != first_boundary_dof)
+            mean_value_constraints.add_entry(first_boundary_dof, i, -1);
+      }
+        mean_value_constraints.close();
+
+        constraints.merge(mean_value_constraints);
+    }*/
   }
   {
     DynamicSparsityPattern dsp(relevant_dofs[0]);
@@ -372,17 +395,28 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
   DynamicSparsityPattern &dsp) const
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
+  // auto inclusion_n_dofs_total = inclusions.n_dofs();
+  // inclusion_n_dofs_total  = Utilities::MPI::sum(inclusion_n_dofs_total, mpi_communicator);
   IndexSet           relevant(inclusions.n_dofs());
+  // IndexSet           globally_relevant(inclusion_n_dofs_total);
 
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
-  std::vector<types::global_dof_index> inclusion_dof_indices;
+  std::vector<types::global_dof_index> inclusion_dof_indices; //changed to make mpi run
+  // LA::MPI::Vector inclusion_dof_indices;
+  // LA::MPI::Vector dof_indices(fe->n_dofs_per_cell());
 
   if (!par.treat_as_hypersingular)
     {
       auto particle = inclusions.inclusions_as_particles.begin();
       while (particle != inclusions.inclusions_as_particles.end())
-        {
+      {
+  //     IndexSet owned_particle_id = inclusions.inclusions_as_particles.locally_owned_particle_ids();
+  //     for (auto id : owned_particle_id)
+  //       {
+  //         auto particle = inclusions.inclusions_as_particles(id);
           const auto &cell = particle->get_surrounding_cell();
+        if (cell->is_locally_owned())
+          {
           const auto  dh_cell =
             typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
           dh_cell->get_dof_indices(dof_indices);
@@ -391,23 +425,36 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
             inclusions.inclusions_as_particles.particles_in_cell(cell);
           Assert(pic.begin() == particle, ExcInternalError());
           std::set<types::global_dof_index> inclusion_dof_indices_set;
+          // IndexSet local_pic_ids = inclusions.inclusions_as_particles.locally_owned_particle_ids();
           for (const auto &p : pic)
             {
-              const auto ids = inclusions.get_dof_indices(p.get_id());
-              inclusion_dof_indices_set.insert(ids.begin(), ids.end());
+              // if (local_pic_ids.is_element(p.get_id() ))
+              //   {
+                  const auto ids = inclusions.get_dof_indices(p.get_id());
+                  inclusion_dof_indices_set.insert(ids.begin(), ids.end());
+              //   }
             }
+          // for (const auto &p_id : pic_ids)
+          //   {
+          //     const auto ids = inclusions.get_dof_indices(p_id);
+          //     inclusion_dof_indices_set.insert(ids.begin(), ids.end());
+          //   }
           inclusion_dof_indices.resize(0);
           inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
                                        inclusion_dof_indices_set.begin(),
                                        inclusion_dof_indices_set.end());
-
+          // inclusion_dof_indices.clear();
+          // for (auto i : inclusion_dof_indices_set)
+          //   inclusion_dof_indices.add(i);
           constraints.add_entries_local_to_global(dof_indices,
                                                   inclusion_dof_indices,
                                                   dsp);
           relevant.add_indices(inclusion_dof_indices.begin(),
                                inclusion_dof_indices.end());
-          particle = pic.end();
+          // relevant = globally_relevant & local_pic_ids;
+          particle = pic.end(); // perche mi servirebbe?
         }
+      }
     }
   else // if treat_as_hypersingular
     {}
@@ -644,6 +691,7 @@ ElasticityProblem<dim, spacedim>::solve()
   constraints.distribute(u);
   inclusion_constraints.distribute(lambda);
   locally_relevant_solution = solution;
+  std::cout << "qua" << std::endl;
 }
 
 
@@ -801,23 +849,23 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::check_boundary_ids()
 {
-  // std::vector<types::boundary_id> temp = tria.get_boundary_ids();
-  // std::cout << "all boundary : ";
-  // for (auto i : temp)
-  //   std::cout << i << ", ";
-  // std::cout << std::endl;
-  // std::cout << "Dir boundary : ";
-  // for (const auto id : par.dirichlet_ids)
-  //   std::cout << id << ", ";
-  // std::cout << std::endl;
-  // std::cout << "Neu boundary : ";
-  // for (const auto Nid : par.neumann_ids)
-  //   std::cout << Nid << ", ";
-  // std::cout << std::endl;
-  // std::cout << "flux boundary : ";
-  // for (const auto noid : par.normal_flux_ids)
-  //   std::cout << noid << ", ";
-  // std::cout << std::endl;
+  std::vector<types::boundary_id> temp = tria.get_boundary_ids();
+  std::cout << "all boundary : ";
+  for (auto i : temp)
+    std::cout << i << ", ";
+  std::cout << std::endl;
+  std::cout << "Dir boundary : ";
+  for (const auto id : par.dirichlet_ids)
+    std::cout << id << ", ";
+  std::cout << std::endl;
+  std::cout << "Neu boundary : ";
+  for (const auto Nid : par.neumann_ids)
+    std::cout << Nid << ", ";
+  std::cout << std::endl;
+  std::cout << "flux boundary : ";
+  for (const auto noid : par.normal_flux_ids)
+    std::cout << noid << ", ";
+  std::cout << std::endl;
   for (const auto id : par.dirichlet_ids)
     {
       for (const auto Nid : par.neumann_ids)
@@ -845,10 +893,13 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(bool openfilefirsttime
   Tensor<1, spacedim> average_displacement;
   std::vector<double> u_dot_n(spacedim*spacedim); // !!!!!!!!!!!!
   auto all_ids = tria.get_boundary_ids();
+  std::vector<double> perimeter;
   for (auto id : all_ids)
+  {
     b_stress[id] = Tensor<1, spacedim>();
+    perimeter.push_back(0.0);
+  }
   double              i_area    = 0.;
-  double              perimeter = 0.;
   FEValues<spacedim>     fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
@@ -915,7 +966,7 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(bool openfilefirsttime
               for (unsigned int q = 0; q < fe_face_values.n_quadrature_points;
                    ++q)
                 {
-                  perimeter += fe_face_values.JxW(q);
+                  perimeter[boundary_index] += fe_face_values.JxW(q);
                   const Tensor<1, spacedim> disp_grad_x =
                     displacement_gradient[q][0];
                   const Tensor<1, spacedim> disp_grad_y =
@@ -947,13 +998,14 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(bool openfilefirsttime
   i_stress  = Utilities::MPI::sum(i_stress, mpi_communicator);
   average_displacement  = Utilities::MPI::sum(average_displacement, mpi_communicator);
   i_area    = Utilities::MPI::sum(i_area, mpi_communicator);
-  perimeter = Utilities::MPI::sum(perimeter, mpi_communicator);
+  // perimeter = Utilities::MPI::sum(perimeter, mpi_communicator);
   i_stress /= i_area;
   average_displacement /= i_area;
   for (auto id : all_ids)
   {
     b_stress[id]  = Utilities::MPI::sum(b_stress[id], mpi_communicator);
-    b_stress[id] /= perimeter;
+    perimeter[id] = Utilities::MPI::sum(perimeter[id], mpi_communicator);
+    b_stress[id] /= perimeter[id];
   }
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
@@ -971,7 +1023,10 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(bool openfilefirsttime
       else
         forces_file.open(filename, std::ios_base::app);
       
-      forces_file << cycle << " " << i_area << " " << perimeter << " " << i_stress << " " << average_displacement << " ";
+      forces_file << cycle << " " << i_area << " ";
+      for (auto id : all_ids)
+        forces_file << perimeter[id] << " ";
+      forces_file << i_stress << " " << average_displacement << " ";
       for (auto id : all_ids)
         forces_file << b_stress[id] << " " << u_dot_n[id] << " ";
       forces_file << std::endl;
@@ -1073,7 +1128,7 @@ ElasticityProblem<dim, spacedim>::run()
           if (par.output_results_before_solving)
             output_results();
           assemble_elasticity_system();
-          // inclusions.read_displacement_hdf5();
+          // inclusions.read_displacement_hdf5(); // not working yet
 
           assemble_coupling();
           solve();
@@ -1090,10 +1145,10 @@ ElasticityProblem<dim, spacedim>::run()
             par.convergence_table.error_from_exact(dh,
                                                    solution.block(0),
                                                    par.bc);
-          if (cycle != par.n_refinement_cycles - 1)
-            refine_and_transfer();
           if (pcout.is_active())
             par.convergence_table.output_table(pcout.get_stream());
+          if (cycle != par.n_refinement_cycles - 1)
+            refine_and_transfer();
         }
         output_pressure(true);
         compute_boundary_stress(true);
