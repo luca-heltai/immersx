@@ -158,6 +158,7 @@ public:
   std::vector<types::global_dof_index>
   get_dof_indices(const types::global_dof_index &quadrature_id) const
   {
+    AssertIndexRange(quadrature_id, n_particles());
     std::vector<types::global_dof_index> dofs(n_dofs_per_inclusion());
     auto start_index = (quadrature_id / n_q_points) * n_dofs_per_inclusion();
     for (auto &d : dofs)
@@ -177,9 +178,14 @@ public:
     if (n_dofs() == 0)
       return;
 
+    // Only add particles once.
+    auto inclusions_set =
+      Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
+                                                             n_inclusions());
+
     std::vector<Point<spacedim>> particles_positions;
     particles_positions.reserve(n_particles());
-    for (unsigned int i = 0; i < n_inclusions(); ++i)
+    for (const auto i : inclusions_set)
       {
         const auto &p = get_current_support_points(i);
         particles_positions.insert(particles_positions.end(),
@@ -206,8 +212,10 @@ public:
              "here. Bailing out."));
     inclusions_as_particles.insert_global_particles(particles_positions,
                                                     global_bounding_boxes);
-    // pcout << "Inclusions particles: "
-    //       << inclusions_as_particles.n_global_particles() << std::endl;
+
+    // Sanity check.
+    AssertDimension(inclusions_as_particles.n_global_particles(),
+                    n_particles());
   }
 
   /**
@@ -219,6 +227,7 @@ public:
   inline types::global_dof_index
   get_inclusion_id(const types::global_dof_index &quadrature_id) const
   {
+    AssertIndexRange(quadrature_id, n_particles());
     return (quadrature_id / n_q_points);
   }
 
@@ -231,6 +240,7 @@ public:
   inline unsigned int
   get_component(const types::global_dof_index &dof_index) const
   {
+    AssertIndexRange(dof_index, n_dofs());
     return dof_index % n_vector_components;
   }
 
@@ -243,6 +253,7 @@ public:
   inline const Tensor<1, spacedim> &
   get_normal(const types::global_dof_index &quadrature_id) const
   {
+    AssertIndexRange(quadrature_id, n_particles());
     if constexpr (spacedim == 2)
       return (normals[quadrature_id % n_q_points]);
     else
@@ -257,6 +268,7 @@ public:
   inline double
   get_JxW(const types::global_dof_index &particle_id) const
   {
+    AssertIndexRange(particle_id, n_particles());
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
     const auto r = get_radius(id);
@@ -273,6 +285,7 @@ public:
   const std::vector<double> &
   get_fe_values(const types::global_dof_index particle_id) const
   {
+    AssertIndexRange(particle_id, n_particles());
     if (n_coefficients == 0)
       return current_fe_values;
     const auto q  = particle_id % n_q_points;

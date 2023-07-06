@@ -1014,7 +1014,7 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime)
 
       if (spacedim == 3)
         {
-          unsigned            value             = 0;
+          double              value             = 0;
           Tensor<1, spacedim> current_direction = inclusions.get_direction(0);
           for (unsigned inc_num = 0; inc_num < inclusions.n_inclusions();
                ++inc_num)
