@@ -39,6 +39,7 @@ public:
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
+    add_parameter("3D 1D discretization", h3D1D);
   }
 
 
@@ -105,8 +106,8 @@ public:
         Assert(infile, ExcIO());
 
         double buffer_double;
-        // cx, cy, R or cx,cy,cz,dx,dy,dz,R
-        const unsigned int  size = (spacedim == 2 ? 3 : 7);
+        // cx, cy, R or cx,cy,cz,dx,dy,dz,R,vesselID
+        const unsigned int  size = (spacedim == 2 ? 3 : 8);
         std::vector<double> inclusion(size);
 
         while (infile >> buffer_double)
@@ -152,6 +153,7 @@ public:
                       << std::endl;
           }
       }
+    vessels_number = n_inclusions();
   }
 
 
@@ -327,7 +329,12 @@ public:
   }
 
 
-
+  /**
+   * @brief Get the radius of the inclusion
+   *
+   * @param inclusion_id
+   * @return double
+   */
   double
   get_radius(const types::global_dof_index &inclusion_id) const
   {
@@ -340,13 +347,18 @@ public:
       }
     else
       {
-        AssertDimension(inclusion.size(), 2 * spacedim + 1);
+        AssertDimension(inclusion.size(), 2 * spacedim + 2);
         return inclusion[2 * spacedim];
       }
   }
 
 
-
+  /**
+   * @brief Get the direction of the inclusion
+   *
+   * @param inclusion_id
+   * @return Tensor<1, spacedim>
+   */
   Tensor<1, spacedim>
   get_direction(const types::global_dof_index &inclusion_id) const
   {
@@ -361,7 +373,7 @@ public:
     else
       {
         const auto &inclusion = inclusions[inclusion_id];
-        AssertDimension(inclusion.size(), 2 * spacedim + 1);
+        AssertDimension(inclusion.size(), 2 * spacedim + 2);
         Tensor<1, spacedim> direction;
         for (unsigned int d = 0; d < spacedim; ++d)
           direction[d] = inclusion[spacedim + d];
@@ -372,7 +384,12 @@ public:
   }
 
 
-
+  /**
+   * @brief Get the rotation of the inclusion
+   *
+   * @param inclusion_id
+   * @return Tensor<2, spacedim>
+   */
   Tensor<2, spacedim>
   get_rotation(const types::global_dof_index &inclusion_id) const
   {
@@ -426,7 +443,11 @@ public:
   }
 
 
-
+  /**
+   * @brief print the inclusions in parallel on a .vtu file
+   *
+   * @param filename
+   */
   void
   output_particles(const std::string &filename) const
   {
@@ -435,6 +456,10 @@ public:
     particles_out.write_vtu_in_parallel(filename, mpi_communicator);
   }
 
+  /**
+   * @brief Update the displacement data after the initialization reading from a hdf5 file
+   *
+   */
   void
   read_displacement_hdf5()
   {
@@ -466,12 +491,36 @@ public:
       }
   }
 
+  int
+  get_vesselID(const types::global_dof_index &inclusion_id) const
+  {
+    AssertIndexRange(inclusion_id, inclusions.size());
+    const auto &inclusion = inclusions[inclusion_id];
+    if constexpr (spacedim == 2)
+      {
+        return 0.0;
+      }
+    else
+      {
+        AssertDimension(inclusion.size(), 2 * spacedim + 2);
+        return int(inclusion[2 * spacedim + 1]);
+      }
+  }
+
+  double
+  get_h3D1D()
+  {
+    return h3D1D;
+  }
+
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
   std::vector<std::vector<double>> inclusions;
   unsigned int                     n_q_points          = 100;
   unsigned int                     n_coefficients      = 1;
   unsigned int                     offset_coefficients = 0;
+  unsigned int                     vessels_number      = 0;
+  double                           h3D1D               = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
 
@@ -492,6 +541,38 @@ private:
 
   std::string  inclusions_file        = "";
   unsigned int rtree_extraction_level = 1;
+
+  /**
+   * @brief Check that all vesselsID are present
+   */
+  void
+  check_vessels() const
+  {
+    if (inclusions.size() == 0)
+      return;
+
+    if constexpr (spacedim == 2)
+      {
+        vessels_number = n_inclusions();
+        return;
+      }
+
+    std::set<double> vessel_id_is_present;
+    for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
+         ++inc_number)
+      vessel_id_is_present.insert(get_vesselID(inc_number));
+
+    types::global_dof_index id_check = 0;
+    while (id_check < vessel_id_is_present.size() &&
+           vessel_id_is_present.find(id_check) != vessel_id_is_present.end())
+      ++id_check;
+
+    AssertThrow(
+      id_check != vessel_id_is_present.size(),
+      ExcMessage(
+        "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
+    vessels_number = vessel_id_is_present.size();
+  }
 };
 
 #endif
