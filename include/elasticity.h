@@ -90,6 +90,8 @@ namespace LA
 #ifdef DEAL_II_WITH_OPENCASCADE
 #  include <TopoDS.hxx>
 #endif
+#include <deal.II/base/hdf5.h>
+
 #include <cmath>
 #include <fstream>
 #include <iostream>

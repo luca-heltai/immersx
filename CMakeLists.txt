@@ -92,12 +92,8 @@ FOREACH(_build_type ${_d2_build_types})
       SET(_exe "${_main_we}${${_build_type}_postfix}")
       MESSAGE("-- Configuring executable ${_exe}")
       ADD_EXECUTABLE(${_exe} ${_main})
-<<<<<<< HEAD
-      TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)     
-=======
       # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
       TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
->>>>>>> origin/elasticity_local
       DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     ENDFOREACH()
   ENDIF()
