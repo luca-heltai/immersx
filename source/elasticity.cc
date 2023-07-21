@@ -264,23 +264,29 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
       DynamicSparsityPattern idsp(relevant_dofs[1]);
       for (const auto i : relevant_dofs[1])
         idsp.add(i, i);
-
+      
       SparsityTools::distribute_sparsity_pattern(idsp,
                                                  owned_dofs[1],
                                                  mpi_communicator,
                                                  relevant_dofs[1]);
       inclusion_matrix.clear();
-      inclusion_matrix.reinit(owned_dofs[1], idsp, mpi_communicator);
+      inclusion_matrix.reinit(owned_dofs[1],
+                              owned_dofs[1],
+                              idsp,
+                              mpi_communicator);
     }
 
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
   system_rhs.reinit(owned_dofs, mpi_communicator);
   solution.reinit(owned_dofs, mpi_communicator);
 
-  pcout << "   Number of degrees of freedom: " << owned_dofs[0].size() << " + "
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+  {
+    pcout << "   Number of degrees of freedom: " << owned_dofs[0].size() << " + "
         << owned_dofs[1].size()
         << " (locally owned: " << owned_dofs[0].n_elements() << " + "
         << owned_dofs[1].n_elements() << ")" << std::endl;
+  }
 }
 
 template <int dim, int spacedim>
@@ -393,20 +399,15 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
 template <int dim, int spacedim>
 IndexSet
 ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
-  DynamicSparsityPattern &dsp) const
+  DynamicSparsityPattern &dsp)
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
-  // auto inclusion_n_dofs_total = inclusions.n_dofs();
-  // inclusion_n_dofs_total  = Utilities::MPI::sum(inclusion_n_dofs_total,
-  // mpi_communicator);
+
   IndexSet relevant(inclusions.n_dofs());
-  // IndexSet           globally_relevant(inclusion_n_dofs_total);
 
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index>
-    inclusion_dof_indices; // changed to make mpi run
-  // LA::MPI::Vector inclusion_dof_indices;
-  // LA::MPI::Vector dof_indices(fe->n_dofs_per_cell());
+    inclusion_dof_indices;
 
   if (!par.treat_as_hypersingular)
     {
@@ -559,8 +560,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
           inclusion_constraints.distribute_local_to_global(
             local_rhs, inclusion_dof_indices, system_rhs.block(1));
 
-          inclusion_constraints.distribute_local_to_global(
-            local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
+          // inclusion_constraints.distribute_local_to_global(
+          //   local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
         }
       particle = pic.end();
     }
@@ -858,26 +859,26 @@ ElasticityProblem<dim, spacedim>::check_boundary_ids()
 template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::compute_boundary_stress(
-  bool /*openfilefirsttime*/) const
+  bool openfilefirsttime) const
 {
   if (spacedim == 3)
     return;
-  std::cout << "in compute boundary" << std::endl;
   TimerOutput::Scope t(computing_timer, "computing stresses");
-  /*std::map<types::boundary_id, Tensor<1, spacedim>> b_stress;
-  // std::vector<Tensor<1, spacedim>> b_stress;
-  Tensor<2, spacedim> i_stress;
+
+  std::map<types::boundary_id, Tensor<1, spacedim>> boundary_stress;
+  Tensor<2, spacedim> internal_stress;
   Tensor<1, spacedim> average_displacement;
-  std::vector<double> u_dot_n(spacedim * spacedim); // !!!!!!!!!!!!
+  std::vector<double> u_dot_n(spacedim * spacedim);
+
   auto                all_ids = tria.get_boundary_ids();
   std::vector<double> perimeter;
   for (auto id : all_ids)
     {
-      // b_stress[id] = Tensor<1, spacedim>();
-      b_stress[id] = 0.0;
+      // boundary_stress[id] = Tensor<1, spacedim>();
+      boundary_stress[id] = 0.0;
       perimeter.push_back(0.0);
     }
-  double                           i_area = 0.;
+  double                           internal_area = 0.;
   FEValues<spacedim>               fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
@@ -905,25 +906,27 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
     face_quadrature_formula->size());
   std::vector<Tensor<1, spacedim>> displacement_values(
     face_quadrature_formula->size());
+
   for (const auto &cell : dh.active_cell_iterators())
-    {if (cell->is_locally_owned())
+    {
+      if (cell->is_locally_owned())
       {
         cell->get_dof_indices(local_dof_indices);
         fe_values.reinit(cell);
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
-            i_area += fe_values.JxW(q);
+            internal_area += fe_values.JxW(q);
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
               {
                 grad_phi_u = fe_values[displacement].symmetric_gradient(k, q);
                 div_phi_u  = fe_values[displacement].divergence(k, q);
-                i_stress += (2 * par.Lame_mu * grad_phi_u +
+                internal_stress += (2 * par.Lame_mu * grad_phi_u +
                              par.Lame_lambda * div_phi_u * identity) *
-                            solution.block(0)[local_dof_indices[k]] *
+                            locally_relevant_solution.block(0)[local_dof_indices[k]] *
                             fe_values.JxW(q);
                 average_displacement +=
                   fe_values[displacement].value(k, q) *
-                  solution.block(0)[local_dof_indices[k]] * fe_values.JxW(q);
+                  locally_relevant_solution.block(0)[local_dof_indices[k]] * fe_values.JxW(q);
               }
           }
 
@@ -935,12 +938,12 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
             {
               auto boundary_index = cell->face(f)->boundary_id();
               fe_face_values.reinit(cell, f);
-              // fe_face_values.get_function_gradients(solution,
-              // solution_gradient);
+
               fe_face_values[displacement].get_function_gradients(
-                solution.block(0), displacement_gradient);
+                locally_relevant_solution.block(0), displacement_gradient);
               fe_face_values[displacement].get_function_values(
-                solution.block(0), displacement_values);
+                locally_relevant_solution.block(0), displacement_values);
+
               for (unsigned int q = 0; q < fe_face_values.n_quadrature_points;
                    ++q)
                 {
@@ -950,113 +953,67 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
                   const Tensor<1, spacedim> disp_grad_y =
                     displacement_gradient[q][1];
                   double div = disp_grad_x[0] + disp_grad_y[1];
-                  // b_stress[0] += (2* par.Lame_mu * disp_grad_x[0] +
-                  // par.Lame_lambda * div)
-                  //             * fe_face_values.JxW(q)*
-                  //             fe_face_values.normal_vector(q)[0]
-                  //             + (2* par.Lame_mu * disp_grad_x[1])
-                  //             * fe_face_values.JxW(q)*
-                  //             fe_face_values.normal_vector(q)[1];
-                  // b_stress[1] += (2* par.Lame_mu * disp_grad_y[0])
-                  //             * fe_face_values.JxW(q)*
-                  //             fe_face_values.normal_vector(q)[0]
-                  //             + (2* par.Lame_mu * disp_grad_y[1] +
-                  //             par.Lame_lambda * div)
-                  //             * fe_face_values.JxW(q)*
-                  //             fe_face_values.normal_vector(q)[1];
-                  b_stress[boundary_index] +=
+
+                  boundary_stress[boundary_index] +=
                     (2 * par.Lame_mu * displacement_gradient[q] +
                      par.Lame_lambda * div * identity) *
                     fe_face_values.JxW(q) * fe_face_values.normal_vector(q);
                   u_dot_n[boundary_index] +=
                     (displacement_values[q] * fe_face_values.normal_vector(q))
-  * fe_face_values.JxW(q);
+                    * fe_face_values.JxW(q);
                 }
             }
-      }}
+      }
+    }
 
-    */
-  std::cout << "1004" << std::endl;
-  //   Tensor<2, spacedim> global_i_stress;
-  //   Tensor<1, spacedim> global_average_displacement;
-  //   // i_stress = Utilities::MPI::sum(i_stress, mpi_communicator);
-  //   global_i_stress = Utilities::MPI::reduce(i_stress, mpi_communicator);
-  //   std::cout << "1006" << std::endl;
-  //   global_average_displacement =
-  //     Utilities::MPI::sum(average_displacement, mpi_communicator);
-  //     std::cout << "1009" << std::endl;
-  //   i_area = Utilities::MPI::sum(i_area, mpi_communicator);
-  //   // perimeter = Utilities::MPI::sum(perimeter, mpi_communicator);
-  //   std::cout << "1012" << std::endl;
-  //   i_stress /= i_area;
-  //   average_displacement /= i_area;
-  //   std::cout << "1015" << std::endl;
-  //   //auto all_ids =
-  //   Utilities::MPI::compute_set_union(local_ids,mpi_communicator);
-  // std::cout << "1017: all_ids" << all_ids.size() << std::endl;
-  //   for (auto id : all_ids)
-  //     {
-  //         std::cout << "sizes" << b_stress.size() << std::endl;
-  // //         b_stress[id] = Utilities::MPI::reduce(b_stress[id],
-  // mpi_communicator, ) auto b_temp = Utilities::MPI::sum(b_stress[id],
-  // mpi_communicator); // same as all_reduce, we could put reduce as we're
-  // only printing from proc 0
-  //       // b_stress[id]  = Utilities::MPI::sum<Tensor<1,
-  //       spacedim>>(b_stress[id], mpi_communicator); // same as all_reduce,
-  //       we could put reduce as we're only printing from proc 0 std::cout <<
-  //       "peri?" << std::endl; perimeter[id] =
-  //       Utilities::MPI::sum(perimeter[id], mpi_communicator); std::cout <<
-  //       "diviso??" << std::endl; b_stress[id] /= perimeter[id];
-  //     }
+  internal_stress = Utilities::MPI::sum(internal_stress, mpi_communicator);
+  average_displacement =
+    Utilities::MPI::sum(average_displacement, mpi_communicator);
+  internal_area = Utilities::MPI::sum(internal_area, mpi_communicator);
 
-  //   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-  //     {
-  //       const std::string filename(par.output_directory + "/forces.txt");
-  //       std::ofstream     forces_file;
-  //       if (openfilefirsttime)
-  //         {
-  //           forces_file.open(filename);
-  //           forces_file
-  //             << "cycle area perimeter meanInternalStressxx
-  //             meanInternalStressxy meanInternalStressyx
-  //             meanInternalStressyy avg_u_x avg_u_y";
-  //           for (auto id : all_ids)
-  //             forces_file << " boundaryStressX_" << id << "
-  //             boundaryStressY_"
-  //                         << id << " uDotN_" << id;
-  //           forces_file << std::endl;
-  //         }
-  //       else
-  //         forces_file.open(filename, std::ios_base::app);
-  //
-  //       forces_file << cycle << " " << i_area << " ";
-  //       for (auto id : all_ids)
-  //         forces_file << perimeter[id] << " ";
-  //       forces_file << i_stress << " " << average_displacement << " ";
-  //       for (auto id : all_ids)
-  //         forces_file << b_stress[id] << " " << u_dot_n[id] << " ";
-  //       forces_file << std::endl;
-  //       forces_file.close();
-  //     }
+  internal_stress /= internal_area;
+  average_displacement /= internal_area;
 
-  // pcout << "area: " << i_area << ", Mean internal stress: " << i_stress
-  //       << std::endl;
-  // pcout << "perimeter: " << perimeter << ", Boundary stresses: ";
-  // for (auto id : all_ids)
-  //   pcout << id << " : " << b_stress[id] << ", ";
-  // pcout << std::endl;
-  // pcout << "u dot n ";
-  // for (auto id : all_ids)
-  //   pcout << id << " : " << u_dot_n[id] << ", ";
-  // pcout << std::endl;
-  // pcout << "Mean internal solution: " << u_avg << std::endl;
-  std::cout << "1005" << std::endl;
+  for (auto id : all_ids)
+    {
+      boundary_stress[id]  = Utilities::MPI::sum(boundary_stress[id], mpi_communicator); 
+      perimeter[id] = Utilities::MPI::sum(perimeter[id], mpi_communicator);
+      boundary_stress[id] /= perimeter[id];
+    }
+
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    {
+      const std::string filename(par.output_directory + "/forces.txt");
+      std::ofstream     forces_file;
+      if (openfilefirsttime)
+        {
+          forces_file.open(filename);
+          forces_file
+            << "cycle area perimeter meanInternalStressxx meanInternalStressxy meanInternalStressyx meanInternalStressyy avg_u_x avg_u_y";
+          for (auto id : all_ids)
+            forces_file << " boundaryStressX_" << id << " boundaryStressY_"
+                        << id << " uDotN_" << id;
+          forces_file << std::endl;
+        }
+      else
+        forces_file.open(filename, std::ios_base::app);
+
+      forces_file << cycle << " " << internal_area << " ";
+      for (auto id : all_ids)
+        forces_file << perimeter[id] << " ";
+      forces_file << internal_stress << " " << average_displacement << " ";
+      for (auto id : all_ids)
+        forces_file << boundary_stress[id] << " " << u_dot_n[id] << " ";
+      forces_file << std::endl;
+      forces_file.close();
+    }
+
   return;
 }
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::output_pressure(bool /*openfilefirsttime*/)
+ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime)
 {
   TimerOutput::Scope t(computing_timer, "Output Pressure");
   if (inclusions.n_inclusions() > 0 && inclusions.offset_coefficients == 1 &&
@@ -1112,16 +1069,9 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool /*openfilefirsttime*/)
           pressure.compress(VectorOperation::add);
         }
 
-
-
-      // print .txt
-      /*
-      std::vector<double> all_pressure_to_write =
-      Utilities::MPI::compute_set_union( mpi_communicator, pressure_to_write);
-
-      if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+      // print .txt only sequential 
+      if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
       {
-        std::cout << "print txt" << std::endl;
         const std::string filename(par.output_directory +
                                    "/externalPressure.txt");
         if (openfilefirsttime)
@@ -1129,26 +1079,22 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool /*openfilefirsttime*/)
         else
           pressure_file.open(filename, std::ios_base::app);
         // pressure_file << cycle << " ";
-        for (double p_i : pressure_to_write)
-          pressure_file << p_i << " ";
-        pressure_file << std::endl;
+        // for (double p_i : pressure_to_write)
+        //   pressure_file << p_i << " ";
+        // pressure_file << std::endl;
+        pressure.print(pressure_file);
         pressure_file.close();
       }
-      */
+      // print .h5
       if (par.initial_time == par.final_time)
         {
-          // print .h5
-          std::cout << "print hdf5 " << std::endl;
           pcout
             << "hdf5 file externalPressure.h5 will be created from new, no append"
             << std::endl;
 
           const std::string FILE_NAME(par.output_directory +
                                       "/externalPressure.h5");
-          const std::string FILE_NAME_prova(par.output_directory +
-                                            "/externalPressure_prova.h5");
           const std::string DATASET_NAME("externalPressure");
-
 
           HDF5::File file_h5(FILE_NAME,
                              HDF5::File::FileAccessMode::create,
@@ -1167,54 +1113,14 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool /*openfilefirsttime*/)
               data_to_write.emplace_back(pressure[el]);
             }
           data.write_selection(data_to_write, coordinates);
-
-
-          // for (unsigned int i = 0; i < pressure.locally_owned_size(); ++i)
-          //   data_to_write[i] = pressure[i];
-
-          // int num_proc = Utilities::MPI::this_mpi_process(mpi_communicator);
-          // std::cout << "rank: "
-          //           << Utilities::MPI::this_mpi_process(mpi_communicator)
-          //           << ", num proc: " << num_proc << std::endl;
-          // if (num_proc == 0)
-          // {
-          //   // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-          //     file_h5.write_dataset<std::vector<double>>(DATASET_NAME,
-          //                                          vesselID_and_pressure);
-          // }
-          // else
-          // {
-          //   int vess_per_proc =
-          //    (unsigned int) floor(vesselID_and_pressure.size() / (num_proc +
-          //    1));
-          //   std::cout << "rank: "
-          //             << Utilities::MPI::this_mpi_process(mpi_communicator)
-          //             << ", vess_on_proc: " << vess_on_proc << std::endl;
-          //   auto begin_print =
-          //     vesselID_and_pressure.begin() + num_proc * vess_on_proc;
-          //   auto end_print = vesselID_and_pressure.begin() +
-          //                    std::min((num_proc + 1) * vess_on_proc,
-          //                             int(vesselID_and_pressure.size()));
-          //   std::vector<double> Partial_vector(begin_print, end_print);
-          //   std::cout << "rank: "
-          //             << Utilities::MPI::this_mpi_process(mpi_communicator)
-          //             << ", Partial_vector: ";
-          //   for (auto i : Partial_vector)
-          //     std::cout << i << " ";
-          //   std::cout << std::endl;
-          //   file_h5_prova.write_dataset<std::vector<double>>(DATASET_NAME,
-          //                                                    Partial_vector);
-          // file_h5_prova.write_dataset<std::vector<double>>(DATASET_NAME,
-          // Partial_vector); non funziona perche non mi stampa l'indice:
-          // fare una mappa non funziona
-          // }
         }
-      else
-        {
-          pcout
-            << "implementation of hdf5 for time dependent simulation is missing "
-            << std::endl;
-        }
+      // for the coupling with 1D code we only need the .hdf5 file for time-independent simulation
+      // else
+      //   {
+      //     pcout
+      //       << "implementation of hdf5 for time dependent simulation is missing "
+      //       << std::endl;
+      //   }
     }
   else
     {
@@ -1264,8 +1170,7 @@ ElasticityProblem<dim, spacedim>::run()
             refine_and_transfer();
         }
       output_pressure(true);
-      compute_boundary_stress(true); // does not work in parallel either
-      std::cout << "fine ciclo" << std::endl;
+      compute_boundary_stress(true);
     }
   else // Time dependent simulation
     {
@@ -1284,18 +1189,16 @@ ElasticityProblem<dim, spacedim>::run()
           setup_dofs();
 
           assemble_elasticity_system();
-          // inclusions.read_displacement_hdf5();
           inclusions.inclusions_rhs.set_time(current_time);
           par.Neumann_bc.set_time(current_time);
           assemble_coupling();
           solve();
-          // output_results();
+          output_results();
           output_pressure(cycle == 0 ? true : false);
 
           compute_boundary_stress(cycle == 0 ? true : false);
         }
     }
-  std::cout << "fine run" << std::endl;
 }
 
 
