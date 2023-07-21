@@ -239,7 +239,7 @@ public:
    * Builds coupling sparsity, and returns locally relevant inclusion dofs.
    */
   IndexSet
-  assemble_coupling_sparsity(DynamicSparsityPattern &dsp) const;
+  assemble_coupling_sparsity(DynamicSparsityPattern &dsp);
 
   void
   solve();

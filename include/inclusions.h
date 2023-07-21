@@ -153,7 +153,7 @@ public:
                       << std::endl;
           }
       }
-    n_vessels = n_inclusions();
+    n_vessels = check_vessels();
   }
 
 
@@ -519,7 +519,7 @@ public:
   unsigned int                     n_q_points          = 100;
   unsigned int                     n_coefficients      = 1;
   unsigned int                     offset_coefficients = 0;
-  unsigned int                     n_vessels           = 0;
+  unsigned int                     n_vessels      = 0;
   double                           h3D1D               = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
@@ -545,17 +545,14 @@ private:
   /**
    * @brief Check that all vesselsID are present
    */
-  void
+  unsigned int
   check_vessels() const
   {
     if (inclusions.size() == 0)
-      return;
+      return 0;
 
     if constexpr (spacedim == 2)
-      {
-        n_vessels = n_inclusions();
-        return;
-      }
+        return n_inclusions();
 
     std::set<double> vessel_id_is_present;
     for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
@@ -571,7 +568,7 @@ private:
       id_check != vessel_id_is_present.size(),
       ExcMessage(
         "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
-    n_vessels = vessel_id_is_present.size();
+    return vessel_id_is_present.size();
   }
 };
 
