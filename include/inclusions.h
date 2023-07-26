@@ -149,8 +149,9 @@ public:
               {
                 AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
               }
-            std::cout << "Read " << N << " coefficients per inclusion"
-                      << std::endl;
+            std::cout << "rank " << Utilities::MPI::this_mpi_process(mpi_communicator)
+                      << ": Read " << N << " coefficients per " << inclusions.size() 
+                      << " inclusion" << std::endl;
           }
       }
     n_vessels = check_vessels();
@@ -565,7 +566,7 @@ private:
       ++id_check;
 
     AssertThrow(
-      id_check != vessel_id_is_present.size(),
+      id_check+1 != vessel_id_is_present.size(),
       ExcMessage(
         "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
     return vessel_id_is_present.size();

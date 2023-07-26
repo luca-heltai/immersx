@@ -861,8 +861,8 @@ void
 ElasticityProblem<dim, spacedim>::compute_boundary_stress(
   bool openfilefirsttime) const
 {
-  if (spacedim == 3)
-    return;
+  // if (spacedim == 3)
+  //   return;
   TimerOutput::Scope t(computing_timer, "computing stresses");
 
   std::map<types::boundary_id, Tensor<1, spacedim>> boundary_stress;
@@ -1042,7 +1042,7 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime)
               const unsigned inclusion_number = (unsigned int)floor(
                 ll / (inclusions.n_coefficients * spacedim));
               auto lii = ll - inclusion_number * inclusions.n_coefficients;
-              if (lii == 0 || lii == 5) ////////// check!!!
+              if (lii == 0 || lii == 4)
                 {
                   AssertIndexRange(inclusion_number, inclusions.n_inclusions());
                   pressure[inclusions.get_vesselID(inclusion_number)] +=
@@ -1079,10 +1079,9 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime)
         else
           pressure_file.open(filename, std::ios_base::app);
         // pressure_file << cycle << " ";
-        // for (double p_i : pressure_to_write)
-        //   pressure_file << p_i << " ";
-        // pressure_file << std::endl;
-        pressure.print(pressure_file);
+        for (unsigned int in = 0; in < pressure.size(); ++in)
+          pressure_file << in << " " << pressure[in] << std::endl;
+        // pressure.print(pressure_file);
         pressure_file.close();
       }
       // print .h5
@@ -1100,7 +1099,7 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime)
                              HDF5::File::FileAccessMode::create,
                              mpi_communicator);
 
-          auto data = file_h5.create_dataset<double>(DATASET_NAME,
+           HDF5::DataSet data = file_h5.create_dataset<double>(DATASET_NAME,
                                                      {inclusions.n_vessels});
 
           std::vector<double>  data_to_write;
@@ -1112,7 +1111,10 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime)
               coordinates.emplace_back(el);
               data_to_write.emplace_back(pressure[el]);
             }
-          data.write_selection(data_to_write, coordinates);
+          if (pressure.locally_owned_size() > 0)
+            data.write_selection(data_to_write, coordinates);
+          else
+            data.write_none<int>();
         }
       // for the coupling with 1D code we only need the .hdf5 file for time-independent simulation
       // else
