@@ -26,7 +26,7 @@ TEST(TestInclusion2, CheckPoints) // NOLINT
 TEST(TestInclusion3, CheckPoints) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
-  std::vector<double> inc({{0, 0, 0, 0, 0, 1.0, 1.0}});
+  std::vector<double> inc({{0, 0, 0, 0, 0, 1.0, 1.0, 0}});
   Inclusions<3>       ref;
   ref.n_q_points     = 4;
   ref.n_coefficients = 1;
@@ -43,7 +43,7 @@ TEST(TestInclusion3, CheckPoints) // NOLINT
 TEST(TestInclusion3, CheckPointsRotated) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
-  std::vector<double> inc({{0, 0, 0, 1.0, 0, 0, 1.0}});
+  std::vector<double> inc({{0, 0, 0, 1.0, 0, 0, 1.0, 0}});
   Inclusions<3>       ref;
   ref.n_q_points     = 4;
   ref.n_coefficients = 1;
@@ -66,7 +66,7 @@ TEST(TestInclusion3, CheckPointsRotated) // NOLINT
 TEST(TestInclusion3, CheckNegativeZDirection) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
-  std::vector<double> inc({{0, 0, 0, 0, 0, -1, 1.0}});
+  std::vector<double> inc({{0, 0, 0, 0, 0, -1, 1.0, 0}});
   Inclusions<3>       ref;
   ref.n_q_points     = 4;
   ref.n_coefficients = 1;
@@ -85,7 +85,7 @@ TEST(TestInclusion3, CheckNegativeZDirection) // NOLINT
 TEST(TestInclusion3, CheckAlmostNegativeZDirection) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
-  std::vector<double> inc({{0, 0, 0, 0, 0.5, -1, 1.0}});
+  std::vector<double> inc({{0, 0, 0, 0, 0.5, -1, 1.0, 0}});
   Inclusions<3>       ref;
   ref.n_q_points     = 4;
   ref.n_coefficients = 1;
