@@ -153,6 +153,14 @@ public:
                       << ": Read " << N << " coefficients per " << inclusions.size() 
                       << " inclusion" << std::endl;
           }
+        // TODO:
+        // 3d data has to be rotated because the data file is wrt the local coordinates
+        // if constexpr (spacedim == 3)
+        // {
+        //   rotated_inclusion_data.resize(inclusions_data.size());
+        //   sdt::vector<double>  temp = unroll(inclusion.data);
+        //   get_rotation(inclusio)
+        // }
       }
     n_vessels = check_vessels();
   }
@@ -509,10 +517,28 @@ public:
   }
 
   double
-  get_h3D1D()
+  get_h3D1D() const
   {
     return h3D1D;
   }
+
+  unsigned int 
+  get_n_vessels() const
+  {
+    return n_vessels;
+  }
+
+  // std::vector<double>
+  // get_rotated_inclusion_data(const types::global_dof_index &inclusion_id)
+  // {
+  //   AssertIndexRange(inclusion_id, inclusions.size());
+  //   if constexpr (spacedim == 2)
+  //     return inclusions_data[inclusion_id];
+  //   
+  //   else
+  //     return rotated_inclusion_data[inclusion_id];
+  // }
+
 
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
@@ -520,7 +546,6 @@ public:
   unsigned int                     n_q_points          = 100;
   unsigned int                     n_coefficients      = 1;
   unsigned int                     offset_coefficients = 0;
-  unsigned int                     n_vessels      = 0;
   double                           h3D1D               = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
@@ -528,6 +553,7 @@ public:
   std::string                         data_file = "";
   mutable std::unique_ptr<HDF5::File> data_file_h;
   std::vector<std::vector<double>>    inclusions_data;
+  std::vector<std::vector<double>>    rotated_inclusion_data;
 
 private:
   const unsigned int           n_vector_components;
@@ -540,6 +566,8 @@ private:
   mutable std::vector<Point<spacedim>>     current_support_points;
   mutable std::vector<double>              current_fe_values;
 
+  unsigned int                     n_vessels      = 0;
+
   std::string  inclusions_file        = "";
   unsigned int rtree_extraction_level = 1;
 
@@ -549,6 +577,8 @@ private:
   unsigned int
   check_vessels() const
   {
+    // TODO:
+    // vessel sanity check: that vessel with same label have the same direction
     if (inclusions.size() == 0)
       return 0;
 
