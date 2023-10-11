@@ -260,7 +260,7 @@ public:
   compute_boundary_stress(bool openfilefirsttime) const; // make const
 
   void
-  output_pressure(bool openfilefirsttime); // make const
+  output_pressure(bool openfilefirsttime) const; // if i want to open the same file again it can not be const
 
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
@@ -302,7 +302,7 @@ private:
   double current_time = 0.0;
 
   // mutable std::unique_ptr<HDF5::File> pressure_file;
-  std::ofstream pressure_file;
+  // std::ofstream pressure_file;
   // std::ofstream forces_file;
 };
 
