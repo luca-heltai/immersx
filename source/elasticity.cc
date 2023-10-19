@@ -529,8 +529,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                         {
                           auto temp =
                             inclusion_fe_values[j] * inclusion_fe_values[j] *
-                            // inclusions.get_rotated_inclusion_data(inclusion_id)[j] /
-                            inclusions.inclusions_data[inclusion_id][j] / // data is always prescribed in relative coordinates 
+                            inclusions.get_rotated_inclusion_data(inclusion_id)[j] /
+                            // inclusions.inclusions_data[inclusion_id][j] / // data is always prescribed in relative coordinates 
                             inclusions.get_radius(inclusion_id) * ds;
                           if (par.initial_time != par.final_time)
                             temp *= inclusions.inclusions_rhs.value(
@@ -1201,11 +1201,11 @@ ElasticityProblem<dim, spacedim>::run()
           // inclusions.read_displacement_hdf5(); // not working yet
           // assemble_elasticity_system();
           inclusions.inclusions_rhs.set_time(current_time);
-          // par.Neumann_bc.set_time(current_time);
+          par.Neumann_bc.set_time(current_time);
           assemble_coupling();
           solve();
           output_results();
-          // output_pressure(cycle == 0 ? true : false);
+          output_pressure(cycle == 0 ? true : false);
 
           compute_boundary_stress(cycle == 0 ? true : false);
         }
