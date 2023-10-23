@@ -62,6 +62,8 @@ template <int dim, int spacedim>
 void
 read_grid_and_cad_files(const std::string            &grid_file_name,
                         const std::string            &ids_and_cad_file_names,
+read_grid_and_cad_files(const std::string            &grid_file_name,
+                        const std::string            &ids_and_cad_file_names,
                         Triangulation<dim, spacedim> &tria)
 {
   GridIn<dim, spacedim> grid_in;
@@ -165,7 +167,6 @@ PoissonProblem<dim, spacedim>::setup_dofs()
   }
   {
 #ifdef MATRIX_FREE_PATH
-
     typename MatrixFree<spacedim, double>::AdditionalData additional_data;
     additional_data.tasks_parallel_scheme =
       MatrixFree<spacedim, double>::AdditionalData::none;
@@ -220,7 +221,6 @@ PoissonProblem<dim, spacedim>::setup_dofs()
 
 
 #else
-
     stiffness_matrix.clear();
     DynamicSparsityPattern dsp(relevant_dofs[0]);
     DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
