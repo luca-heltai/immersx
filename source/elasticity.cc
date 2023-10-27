@@ -1184,6 +1184,7 @@ ElasticityProblem<dim, spacedim>::run()
     }
   else // Time dependent simulation
     {
+      // TODO: add refinement as the first cycle,
       pcout << "time dependent simulation, refinement is not possible"
             << std::endl;
       print_parameters();
@@ -1198,7 +1199,9 @@ ElasticityProblem<dim, spacedim>::run()
            current_time += par.dt, ++cycle)
         {
           pcout << "Time: " << current_time << std::endl;
-          // inclusions.read_displacement_hdf5(); // not working yet
+          // if (current_time > par.initial_time && spacedim == 3)
+          // // & coupling_flag == true
+          //   inclusions.update_displacement_hdf5();
           // assemble_elasticity_system();
           inclusions.inclusions_rhs.set_time(current_time);
           par.Neumann_bc.set_time(current_time);
