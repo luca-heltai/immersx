@@ -464,11 +464,15 @@ public:
 
   /**
    * @brief Update the displacement data after the initialization reading from a hdf5 file
-   *
+   * only for thr 3D case (of interest for the coupling)
+   * read one value for each inclusion
    */
   void
   update_displacement_hdf5()
   {
+    // 
+    inclusions_data.clear();
+    inclusions_data.resize(n_inclusions);
     data_file_h = std::make_unique<HDF5::File>(data_file,
                                                HDF5::File::FileAccessMode::open,
                                                mpi_communicator);
@@ -478,21 +482,29 @@ public:
       auto h5data         = group.open_dataset("displacement_data");
       auto vector_of_data = h5data.template read<Vector<double>>();
 
-      for (unsigned int i = 0; i < vector_of_data.size(); ++i)
-        {
-          // inclusions_data.push_back(vector_of_data[i]);
-        }
-    }
-    AssertThrow(inclusions_data.size() == n_inclusions(),
-                ExcDimensionMismatch(inclusions_data.size(), n_inclusions()));
-    if (inclusions_data.size() > 0)
+      // Only add particles once.
+      auto inclusions_set =
+        Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
+                                                             n_inclusions());
+      for (const auto i : inclusions_set)
       {
+        AssertIndexRange(i, vector_of_data.size());
+        inclusions_data[i] = vector_of_data[i];
+      }
+      // for (unsigned int i = 0; i < vector_of_data.size(); ++i)
+      //   {
+      //     inclusions_data.push_back(vector_of_data[i]);
+      //   }
+    }
+//     if (inclusions_data.size() > 0)
+//       {
         const auto N = inclusions_data[0].size();
         for (const auto &l : inclusions_data)
           {
             AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
           }
-      }
+//       }
+    compute_rotated_inclusion_data();
   }
 
   int
@@ -526,9 +538,8 @@ public:
   void
   compute_rotated_inclusion_data()
   {
-    if constexpr (spacedim == 2)
-      rotated_inclusion_data = inclusions_data;
-    else
+    rotated_inclusion_data = inclusions_data;
+    if constexpr (spacedim == 3)
     {
       rotated_inclusion_data.clear();
       //const unsigned number_phi_data = (unsigned int)floor(inclusions_data[0].size() / spacedim);
@@ -563,6 +574,18 @@ public:
       return rotated_inclusion_data[inclusion_id];  
   }
 
+  // IndexSet
+  // get_inclusions_of_vessel(const double vesselID) const
+  // {
+  //   AssertIndexRange(vesselID, (n_vessels-1));
+  //   IndexSet relevant_inclusions;
+// 
+  //   for (auto index = 0; index < inclsuions.size(); ++index)
+  //     if (get_vesselID(index) == vesselID)
+  //       relevant_inclusions.add_index(index);
+// 
+  // }
+
 
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
@@ -578,6 +601,8 @@ public:
   mutable std::unique_ptr<HDF5::File> data_file_h;
   std::vector<std::vector<double>>    inclusions_data;
   std::vector<std::vector<double>>    rotated_inclusion_data;
+  // std::map<unsigned int, IndexSet>    map_vessel_inclusions;
+  std::map<unsigned int, std::vector<types::global_dof_index>>    map_vessel_inclusions;
 
 private:
   const unsigned int           n_vector_components;
@@ -596,7 +621,8 @@ private:
   unsigned int rtree_extraction_level = 1;
 
   /**
-   * @brief Check that all vesselsID are present
+   * @brief Check that all vesselsID are present,
+   * set n_vessels and create the vessel-inclusions map
    */
   void
   check_vessels()
@@ -610,21 +636,37 @@ private:
         return;
 
     //if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
-      std::set<double> vessel_id_is_present;
+      // std::set<double> vessel_id_is_present;
       for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
            ++inc_number)
-        vessel_id_is_present.insert(get_vesselID(inc_number));
+        //vessel_id_is_present.insert(get_vesselID(inc_number));
+        // map_vessel_inclusions[get_vesselID(inc_number)].add_index(inc_number);
+        map_vessel_inclusions[get_vesselID(inc_number)].push_back(inc_number);
 
     types::global_dof_index id_check = 0;
+    /*
     while (id_check < vessel_id_is_present.size() &&
            vessel_id_is_present.find(id_check) != vessel_id_is_present.end())
       ++id_check;
-
-    AssertThrow(
+        AssertThrow(
         id_check+1 != vessel_id_is_present.size(),
         ExcMessage(
           "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
       n_vessels = vessel_id_is_present.size();
+      */
+    std::map<unsigned int, std::vector<types::global_dof_index>>::iterator it = map_vessel_inclusions.begin();
+    //for (it = map_vessel_inclusions.begin(); it != symbolTable.end(); it++)
+    while(it != map_vessel_inclusions.end() && id_check == it->first)
+    {
+        ++id_check;
+        ++it;
+    }
+    AssertThrow(
+        it == map_vessel_inclusions.end(),
+        ExcMessage(
+          "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
+
+    n_vessels = map_vessel_inclusions.size();
     }
 
 };
