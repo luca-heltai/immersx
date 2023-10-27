@@ -857,7 +857,8 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
 
   auto                all_ids = tria.get_boundary_ids();
   std::vector<double> perimeter;
-  for (auto id : all_ids)
+  // for (auto id : all_ids)
+  for (const auto id : par.dirichlet_ids)
     {
       // boundary_stress[id] = Tensor<1, spacedim>();
       boundary_stress[id] = 0.0;
@@ -1180,7 +1181,9 @@ ElasticityProblem<dim, spacedim>::run()
             refine_and_transfer();
         }
       output_pressure(true);
-      compute_boundary_stress(true);
+
+      if (par.domain_type == "generate")
+        compute_boundary_stress(true);
     }
   else // Time dependent simulation
     {
@@ -1210,7 +1213,8 @@ ElasticityProblem<dim, spacedim>::run()
           output_results();
           output_pressure(cycle == 0 ? true : false);
 
-          compute_boundary_stress(cycle == 0 ? true : false);
+          if (par.domain_type == "generate")
+            compute_boundary_stress(cycle == 0 ? true : false);
         }
     }
 }
