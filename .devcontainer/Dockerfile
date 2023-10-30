@@ -20,10 +20,6 @@ RUN echo "fs.suid_dumpable=0" >> /etc/sysctl.conf
 RUN echo "kernel.core_pattern=|/bin/false" >> /etc/sysctl.conf
 RUN sysctl -p /etc/sysctl.conf
 
-ADD .devcontainer/lib1dsolver.a /usr/lib/lib1dsolver.a
-RUN mkdir /usr/include/1dsolver 
-ADD .devcontainer/*.h /usr/include/1dsolver
-
 USER $REMOTE_USER
 RUN mkdir -p /home/$REMOTE_USER/.ssh
 RUN mkdir -p /home/$REMOTE_USER/.vscode-server-insiders/extensions
