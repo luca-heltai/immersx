@@ -33,3 +33,6 @@ CMakeCache.txt
 
 compile_commands.json
 .DS_Store
+
+build/
+output/

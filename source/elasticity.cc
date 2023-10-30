@@ -857,8 +857,8 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
 
   auto                all_ids = tria.get_boundary_ids();
   std::vector<double> perimeter;
-  // for (auto id : all_ids)
-  for (const auto id : par.dirichlet_ids)
+  for (auto id : all_ids)
+  // for (const auto id : par.dirichlet_ids)
     {
       // boundary_stress[id] = Tensor<1, spacedim>();
       boundary_stress[id] = 0.0;
@@ -1197,7 +1197,7 @@ ElasticityProblem<dim, spacedim>::run()
       cycle = 0;
       inclusions.setup_inclusions_particles(tria);
       setup_dofs();
-      assemble_elasticity_system();
+      // assemble_elasticity_system();
       for (current_time = par.initial_time; current_time < par.final_time;
            current_time += par.dt, ++cycle)
         {
@@ -1205,7 +1205,7 @@ ElasticityProblem<dim, spacedim>::run()
           // if (current_time > par.initial_time && spacedim == 3)
           // // & coupling_flag == true
           //   inclusions.update_displacement_hdf5();
-          // assemble_elasticity_system();
+          assemble_elasticity_system();
           inclusions.inclusions_rhs.set_time(current_time);
           par.Neumann_bc.set_time(current_time);
           assemble_coupling();
