@@ -260,7 +260,8 @@ public:
   compute_boundary_stress(bool openfilefirsttime) const; // make const
 
   void
-  output_pressure(bool openfilefirsttime) const; // if i want to open the same file again it can not be const
+  output_pressure(bool openfilefirsttime)
+    const; // if i want to open the same file again it can not be const
 
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
