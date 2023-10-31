@@ -151,13 +151,15 @@ public:
               }
             // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
             // {
-            //   std::cout << "rank " << Utilities::MPI::this_mpi_process(mpi_communicator)
-            //           << ": Read " << N << " coefficients per " << inclusions.size() 
+            //   std::cout << "rank " <<
+            //   Utilities::MPI::this_mpi_process(mpi_communicator)
+            //           << ": Read " << N << " coefficients per " <<
+            //           inclusions.size()
             //           << " inclusion" << std::endl;
             // }
             // MPI_Barrier(MPI_COMM_WORLD);
           }
-      compute_rotated_inclusion_data();
+        compute_rotated_inclusion_data();
       }
     check_vessels();
   }
@@ -470,7 +472,7 @@ public:
   void
   update_displacement_hdf5()
   {
-    // 
+    //
     inclusions_data.clear();
     inclusions_data.resize(n_inclusions);
     data_file_h = std::make_unique<HDF5::File>(data_file,
@@ -485,25 +487,25 @@ public:
       // Only add particles once.
       auto inclusions_set =
         Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
-                                                             n_inclusions());
+                                                               n_inclusions());
       for (const auto i : inclusions_set)
-      {
-        AssertIndexRange(i, vector_of_data.size());
-        inclusions_data[i] = vector_of_data[i];
-      }
+        {
+          AssertIndexRange(i, vector_of_data.size());
+          inclusions_data[i] = vector_of_data[i];
+        }
       // for (unsigned int i = 0; i < vector_of_data.size(); ++i)
       //   {
       //     inclusions_data.push_back(vector_of_data[i]);
       //   }
     }
-//     if (inclusions_data.size() > 0)
-//       {
-        const auto N = inclusions_data[0].size();
-        for (const auto &l : inclusions_data)
-          {
-            AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
-          }
-//       }
+    //     if (inclusions_data.size() > 0)
+    //       {
+    const auto N = inclusions_data[0].size();
+    for (const auto &l : inclusions_data)
+      {
+        AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
+      }
+    //       }
     compute_rotated_inclusion_data();
   }
 
@@ -529,7 +531,7 @@ public:
     return h3D1D;
   }
 
-  unsigned int 
+  unsigned int
   get_n_vessels() const
   {
     return n_vessels;
@@ -540,27 +542,40 @@ public:
   {
     rotated_inclusion_data = inclusions_data;
     if constexpr (spacedim == 3)
-    {
-      rotated_inclusion_data.clear();
-      //const unsigned number_phi_data = (unsigned int)floor(inclusions_data[0].size() / spacedim);
-      for (long unsigned int inclusion_id = 0; inclusion_id < inclusions_data.size(); ++inclusion_id)
       {
-        auto tensorR = get_rotation(inclusion_id);
-        std::vector<double> rotated_phi(inclusions_data[0].size()+spacedim);
-        //for (long unsigned int phi_i = 0; phi_i < number_phi_data; ++phi_i)
-        long unsigned int phi_i = 0;
-        while (phi_i*spacedim+2 < inclusions_data[inclusion_id].size())
-        {
-          std::vector<double> coef_phii(&inclusions_data[inclusion_id][phi_i*spacedim], &inclusions_data[inclusion_id][(phi_i+1)*spacedim-1]);
-          rotated_phi[phi_i*spacedim] = coef_phii[0]*tensorR[0][0]+coef_phii[1]*tensorR[1][0]+coef_phii[2]*tensorR[2][0];
-          rotated_phi[phi_i*spacedim+1] = coef_phii[0]*tensorR[0][1]+coef_phii[1]*tensorR[1][1]+coef_phii[2]*tensorR[2][1];
-          rotated_phi[phi_i*spacedim+2] = coef_phii[0]*tensorR[0][2]+coef_phii[1]*tensorR[1][2]+coef_phii[2]*tensorR[2][2];
-          ++phi_i;
-        }
-        rotated_inclusion_data.push_back(rotated_phi);
+        rotated_inclusion_data.clear();
+        // const unsigned number_phi_data = (unsigned
+        // int)floor(inclusions_data[0].size() / spacedim);
+        for (long unsigned int inclusion_id = 0;
+             inclusion_id < inclusions_data.size();
+             ++inclusion_id)
+          {
+            auto                tensorR = get_rotation(inclusion_id);
+            std::vector<double> rotated_phi(inclusions_data[0].size() +
+                                            spacedim);
+            // for (long unsigned int phi_i = 0; phi_i < number_phi_data;
+            // ++phi_i)
+            long unsigned int phi_i = 0;
+            while (phi_i * spacedim + 2 < inclusions_data[inclusion_id].size())
+              {
+                std::vector<double> coef_phii(
+                  &inclusions_data[inclusion_id][phi_i * spacedim],
+                  &inclusions_data[inclusion_id][(phi_i + 1) * spacedim - 1]);
+                rotated_phi[phi_i * spacedim] = coef_phii[0] * tensorR[0][0] +
+                                                coef_phii[1] * tensorR[1][0] +
+                                                coef_phii[2] * tensorR[2][0];
+                rotated_phi[phi_i * spacedim + 1] =
+                  coef_phii[0] * tensorR[0][1] + coef_phii[1] * tensorR[1][1] +
+                  coef_phii[2] * tensorR[2][1];
+                rotated_phi[phi_i * spacedim + 2] =
+                  coef_phii[0] * tensorR[0][2] + coef_phii[1] * tensorR[1][2] +
+                  coef_phii[2] * tensorR[2][2];
+                ++phi_i;
+              }
+            rotated_inclusion_data.push_back(rotated_phi);
+          }
       }
-    }
-  } 
+  }
 
 
   std::vector<double>
@@ -569,9 +584,9 @@ public:
     AssertIndexRange(inclusion_id, inclusions.size());
     if constexpr (spacedim == 2)
       return inclusions_data[inclusion_id];
-    
+
     if constexpr (spacedim == 3)
-      return rotated_inclusion_data[inclusion_id];  
+      return rotated_inclusion_data[inclusion_id];
   }
 
   // IndexSet
@@ -579,11 +594,11 @@ public:
   // {
   //   AssertIndexRange(vesselID, (n_vessels-1));
   //   IndexSet relevant_inclusions;
-// 
+  //
   //   for (auto index = 0; index < inclsuions.size(); ++index)
   //     if (get_vesselID(index) == vesselID)
   //       relevant_inclusions.add_index(index);
-// 
+  //
   // }
 
 
@@ -602,7 +617,8 @@ public:
   std::vector<std::vector<double>>    inclusions_data;
   std::vector<std::vector<double>>    rotated_inclusion_data;
   // std::map<unsigned int, IndexSet>    map_vessel_inclusions;
-  std::map<unsigned int, std::vector<types::global_dof_index>>    map_vessel_inclusions;
+  std::map<unsigned int, std::vector<types::global_dof_index>>
+    map_vessel_inclusions;
 
 private:
   const unsigned int           n_vector_components;
@@ -615,7 +631,7 @@ private:
   mutable std::vector<Point<spacedim>>     current_support_points;
   mutable std::vector<double>              current_fe_values;
 
-  unsigned int                     n_vessels      = 1;
+  unsigned int n_vessels = 1;
 
   std::string  inclusions_file        = "";
   unsigned int rtree_extraction_level = 1;
@@ -633,15 +649,15 @@ private:
       return;
 
     if constexpr (spacedim == 2)
-        return;
+      return;
 
-    //if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
-      // std::set<double> vessel_id_is_present;
-      for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
-           ++inc_number)
-        //vessel_id_is_present.insert(get_vesselID(inc_number));
-        // map_vessel_inclusions[get_vesselID(inc_number)].add_index(inc_number);
-        map_vessel_inclusions[get_vesselID(inc_number)].push_back(inc_number);
+    // if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
+    // std::set<double> vessel_id_is_present;
+    for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
+         ++inc_number)
+      // vessel_id_is_present.insert(get_vesselID(inc_number));
+      // map_vessel_inclusions[get_vesselID(inc_number)].add_index(inc_number);
+      map_vessel_inclusions[get_vesselID(inc_number)].push_back(inc_number);
 
     types::global_dof_index id_check = 0;
     /*
@@ -651,24 +667,24 @@ private:
         AssertThrow(
         id_check+1 != vessel_id_is_present.size(),
         ExcMessage(
-          "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
-      n_vessels = vessel_id_is_present.size();
+          "Vessel Ids from data file should be sequential, missing vessels
+    ID(s)")); n_vessels = vessel_id_is_present.size();
       */
-    std::map<unsigned int, std::vector<types::global_dof_index>>::iterator it = map_vessel_inclusions.begin();
-    //for (it = map_vessel_inclusions.begin(); it != symbolTable.end(); it++)
-    while(it != map_vessel_inclusions.end() && id_check == it->first)
-    {
+    std::map<unsigned int, std::vector<types::global_dof_index>>::iterator it =
+      map_vessel_inclusions.begin();
+    // for (it = map_vessel_inclusions.begin(); it != symbolTable.end(); it++)
+    while (it != map_vessel_inclusions.end() && id_check == it->first)
+      {
         ++id_check;
         ++it;
-    }
+      }
     AssertThrow(
-        it == map_vessel_inclusions.end(),
-        ExcMessage(
-          "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
+      it == map_vessel_inclusions.end(),
+      ExcMessage(
+        "Vessel Ids from data file should be sequential, missing vessels ID(s)"));
 
     n_vessels = map_vessel_inclusions.size();
-    }
-
+  }
 };
 
 #endif
