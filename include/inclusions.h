@@ -474,7 +474,7 @@ public:
   {
     //
     inclusions_data.clear();
-    inclusions_data.resize(n_inclusions);
+    inclusions_data.resize(n_inclusions());
     data_file_h = std::make_unique<HDF5::File>(data_file,
                                                HDF5::File::FileAccessMode::open,
                                                mpi_communicator);

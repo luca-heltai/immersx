@@ -1,3 +1,14 @@
+"""
+This script contains functions to create and manipulate meshes in Blender.
+It includes functions to read vertices and edges from a mesh, write a VTK file, color a single vertex, create an ellipsoid, and create cylinders.
+The `read_verts`, `read_edges`, and `read_norms` functions read the vertices, edges, and normals of a mesh, respectively.
+The `write_vtk` function writes a VTK file with the given filename, vertices, edges, and lengths.
+The `color_vertex` function colors a single vertex of a mesh with the given RGB values.
+The `write_vessels` function writes a VTK file and a hypersingularity file for the given mesh, and computes the total length of the vessels, the unit directions, and the principal directions.
+The `get_non_zero_elements` function returns the non-zero elements of a mesh.
+The `create_ellipsoid` function creates an ellipsoid mesh with the given name, radius, location, and number of points in the theta and phi directions.
+The `cylinders` function creates a cylinder mesh with the given vertices, edges, resolution, and radius.
+"""
 import bpy
 import numpy as np
 from numpy import *
@@ -7,12 +18,32 @@ from mathutils import Vector
 
 
 def read_verts(mesh):
+    """
+    Reads the vertex coordinates of a mesh and returns them as a numpy array.
+
+    Args:
+        mesh: A Blender mesh object.
+
+    Returns:
+        A numpy array of shape (n_verts, 3) containing the vertex coordinates.
+    """
     mverts_co = np.zeros((len(mesh.vertices) * 3), dtype=float)
     mesh.vertices.foreach_get("co", mverts_co)
     return np.reshape(mverts_co, (len(mesh.vertices), 3))
 
 
 def read_edges(mesh):
+    """
+    Reads the edges of a mesh and returns them as a numpy array of shape (num_edges, 2),
+    where each row contains the indices of the two vertices that form the edge.
+    
+    Args:
+        mesh (bpy.types.Mesh): The mesh object to read edges from.
+    
+    Returns:
+        numpy.ndarray: A 2D array of shape (num_edges, 2) containing the indices of the
+        two vertices that form each edge.
+    """
     fastedges = np.zeros((len(mesh.edges) * 2), dtype=int)  # [0.0, 0.0] * len(mesh.edges)
     mesh.edges.foreach_get("vertices", fastedges)
     return np.reshape(fastedges, (len(mesh.edges), 2))
@@ -248,12 +279,13 @@ def create_ellipsoid(mesh_name, R=0.5, location=[0,0,0], N=101, M=56):
         # no slots
         obj.data.materials.append(mat)
 
-def cylinders(vertices, edges, resolution, radius):
+def cylinders(vertices, edges, resolution, radius, disp=np.zeros(2)):
     """
     Create a cylinder, with at least the given resolution, and the given radius
     """
     inclusions = []
-    for edge in edges:
+    data = []
+    for id, edge in enumerate(edges):
         origin = vertices[edge[0]]
         final  = vertices[edge[1]]
         n_nodes = max(int(ceil(np.linalg.norm(final-origin)/resolution)),2)
@@ -261,17 +293,23 @@ def cylinders(vertices, edges, resolution, radius):
         directions = diff(verts, axis=0)
         centers = (verts[1:,:]+verts[:-1,:])/2
         radii = ones(centers.shape[0],)*radius
-        inclusions.append(c_[centers, directions, radii])
-    return concatenate(inclusions)
+        ids = np.full(centers.shape[0], id)
+        zeros = np.full(centers.shape[0], 0.0)
+        dispx = np.full(centers.shape[0], disp[0])
+        dispy = np.full(centers.shape[0], disp[1])
+        inclusions.append(c_[centers, directions, radii, ids])
+        data.append(c_[dispx, zeros, zeros, zeros, dispy, zeros, zeros, zeros, zeros]) 
+    return concatenate(inclusions), concatenate(data)
 
 D = bpy.data
 
 mesh_name = 'cylinders'
-file_name = '../data/three_cylinders_R0025'
+file_name = '/Users/heltai/c++/reduced_lagrange_multipliers/data/four_cylinders_R0025'
 
-n_nodes = 64
+n_nodes = 8
 radius = .0025
 resolution = 2*pi*radius/n_nodes
+resolution = 0.001
 
 mesh = bpy.data.meshes[mesh_name]
 
@@ -279,8 +317,9 @@ mesh = bpy.data.meshes[mesh_name]
 vertices, edges, segments, lengths = get_non_zero_elements(mesh)
 
 # Save inclusions
-inclusions = cylinders(vertices, edges, resolution, radius)
+inclusions, data = cylinders(vertices, edges, resolution, radius, [1e-2, 1e-2])
 np.savetxt(file_name+".gpl", inclusions)
+np.savetxt(file_name+".txt", data)
 
 # Save vtk
 write_vtk(file_name+".vtk", vertices, edges, lengths)

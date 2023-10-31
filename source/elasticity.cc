@@ -43,8 +43,8 @@ ElasticityProblem<dim, spacedim>::ElasticityProblem(
 
 template <int dim, int spacedim>
 void
-read_grid_and_cad_files(const std::string &           grid_file_name,
-                        const std::string &           ids_and_cad_file_names,
+read_grid_and_cad_files(const std::string            &grid_file_name,
+                        const std::string            &ids_and_cad_file_names,
                         Triangulation<dim, spacedim> &tria)
 {
   GridIn<dim, spacedim> grid_in;
@@ -251,6 +251,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
                                  relevant_dofs[0]);
 
       relevant_dofs[1] = assemble_coupling_sparsity(dsp);
+      relevant_dofs[1].add_indices(owned_dofs[1]);
       SparsityTools::distribute_sparsity_pattern(dsp,
                                                  owned_dofs[0],
                                                  mpi_communicator,
@@ -442,7 +443,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
         }
     }
   else // if treat_as_hypersingular
-    {}
+    {
+    }
   return relevant;
 }
 
@@ -610,7 +612,7 @@ ElasticityProblem<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  auto &      g = system_rhs.block(1);
+  auto       &g = system_rhs.block(1);
 
   if (inclusions.n_dofs() == 0)
     {
@@ -1101,46 +1103,46 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
       else
         // print .h5
         if (par.initial_time == par.final_time)
-        {
-          HDF5::DataSet dataset =
-            file_h5.create_dataset<double>(DATASET_NAME,
-                                           {inclusions.get_n_vessels()});
+          {
+            HDF5::DataSet dataset =
+              file_h5.create_dataset<double>(DATASET_NAME,
+                                             {inclusions.get_n_vessels()});
 
-          std::vector<double> data_to_write;
-          // std::vector<hsize_t> coordinates;
-          data_to_write.reserve(pressure.locally_owned_size());
-          // coordinates.reserve(pressure.locally_owned_size());
-          for (const auto &el : locally_owned_vessels)
-            {
-              // coordinates.emplace_back(el);
-              data_to_write.emplace_back(pressure[el]);
-            }
-          if (pressure.locally_owned_size() > 0)
-            {
-              hsize_t prefix = 0;
-              hsize_t los    = pressure.locally_owned_size();
-              int     ierr   = MPI_Exscan(&los,
-                                    &prefix,
-                                    1,
-                                    MPI_UNSIGNED_LONG_LONG,
-                                    MPI_SUM,
-                                    mpi_communicator);
-              AssertThrowMPI(ierr);
+            std::vector<double> data_to_write;
+            // std::vector<hsize_t> coordinates;
+            data_to_write.reserve(pressure.locally_owned_size());
+            // coordinates.reserve(pressure.locally_owned_size());
+            for (const auto &el : locally_owned_vessels)
+              {
+                // coordinates.emplace_back(el);
+                data_to_write.emplace_back(pressure[el]);
+              }
+            if (pressure.locally_owned_size() > 0)
+              {
+                hsize_t prefix = 0;
+                hsize_t los    = pressure.locally_owned_size();
+                int     ierr   = MPI_Exscan(&los,
+                                      &prefix,
+                                      1,
+                                      MPI_UNSIGNED_LONG_LONG,
+                                      MPI_SUM,
+                                      mpi_communicator);
+                AssertThrowMPI(ierr);
 
-              std::vector<hsize_t> offset = {prefix, 1};
-              std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
-              // data.write_selection(data_to_write, coordinates);
-              dataset.write_hyperslab(data_to_write, offset, count);
-            }
-          else
-            dataset.write_none<int>();
-        }
-      else
-        {
-          pcout
-            << "implementation of hdf5 for time dependent simulation is missing "
-            << std::endl;
-        }
+                std::vector<hsize_t> offset = {prefix, 1};
+                std::vector<hsize_t> count = {pressure.locally_owned_size(), 1};
+                // data.write_selection(data_to_write, coordinates);
+                dataset.write_hyperslab(data_to_write, offset, count);
+              }
+            else
+              dataset.write_none<int>();
+          }
+        else
+          {
+            pcout
+              << "implementation of hdf5 for time dependent simulation is missing "
+              << std::endl;
+          }
     }
   else
     {
