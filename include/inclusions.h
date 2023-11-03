@@ -159,7 +159,6 @@ public:
             // }
             // MPI_Barrier(MPI_COMM_WORLD);
           }
-        compute_rotated_inclusion_data();
       }
     check_vessels();
   }
@@ -182,6 +181,8 @@ public:
   {
     initialize();
     mpi_communicator = tria.get_communicator();
+    compute_rotated_inclusion_data();
+
     inclusions_as_particles.initialize(tria,
                                        StaticMappingQ1<spacedim>::mapping);
 
@@ -466,8 +467,6 @@ public:
 
   /**
    * @brief Update the displacement data after the initialization reading from a hdf5 file
-   * only for thr 3D case (of interest for the coupling)
-   * read one value for each inclusion
    */
   void
   update_displacement_hdf5()
@@ -484,7 +483,6 @@ public:
       auto h5data         = group.open_dataset("displacement_data");
       auto vector_of_data = h5data.template read<Vector<double>>();
 
-      // Only add particles once.
       auto inclusions_set =
         Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
                                                                n_inclusions());
@@ -493,19 +491,74 @@ public:
           AssertIndexRange(i, vector_of_data.size());
           inclusions_data[i] = vector_of_data[i];
         }
-      // for (unsigned int i = 0; i < vector_of_data.size(); ++i)
-      //   {
-      //     inclusions_data.push_back(vector_of_data[i]);
-      //   }
     }
-    //     if (inclusions_data.size() > 0)
-    //       {
+    // check that the new data is size consistente
     const auto N = inclusions_data[0].size();
     for (const auto &l : inclusions_data)
       {
         AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
       }
-    //       }
+
+    // data from file should respect the input file standard, i.e. be given in
+    // relative coordinates then we need to rotate it to obtain data in absolute
+    // coordinates
+    compute_rotated_inclusion_data();
+  }
+  /**
+   * @brief Update the displacement data after the initialization
+   * reading from a vector of lenght n_vessels (constant displacement along the
+   * vessel) or of lenght inclusions.size()
+   *
+   */
+  void
+  update_inclusions_data(std::vector<double> new_data)
+  {
+    if constexpr (spacedim == 2)
+      return;
+
+    if (new_data.size() == n_vessels)
+      {
+        std::map<unsigned int, std::vector<types::global_dof_index>>::iterator
+          it = map_vessel_inclusions.begin();
+        while (it != map_vessel_inclusions.end())
+          {
+            // inclusions_data[it->second] = {new_data[it->first],
+            // 0,0,0,new_data[it->first]};
+            for (auto inclusion_id : it->second)
+              {
+                AssertIndexRange(inclusion_id, inclusions_data.size());
+                inclusions_data[inclusion_id] = {new_data[it->first],
+                                                 0,
+                                                 0,
+                                                 0,
+                                                 new_data[it->first],
+                                                 0,
+                                                 0,
+                                                 0,
+                                                 0};
+                // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+                // {
+                //   std::cout << "new data for inclusion " << inclusion_id <<
+                //   ": "; for (auto i : inclusions_data[inclusion_id])
+                //     std::cout << i << " ";
+                //   std::cout << std::endl;
+                // }
+              }
+            ++it;
+          }
+        std::cout << "data update successful" << std::endl;
+      }
+    else if (new_data.size() == inclusions.size())
+      {
+        for (long unsigned int id = 0; id < new_data.size(); ++id)
+          inclusions_data[id] = {
+            new_data[id], 0, 0, 0, new_data[id], 0, 0, 0, 0};
+        std::cout << "data update successful" << std::endl;
+      }
+    else
+      AssertThrow(inclusions.size() == 0,
+                  ExcMessage("cannot update inclusions_data"));
+
     compute_rotated_inclusion_data();
   }
 
@@ -540,39 +593,37 @@ public:
   void
   compute_rotated_inclusion_data()
   {
-    rotated_inclusion_data = inclusions_data;
+    rotated_inclusion_data.resize(inclusions_data.size());
     if constexpr (spacedim == 3)
       {
-        rotated_inclusion_data.clear();
-        // const unsigned number_phi_data = (unsigned
-        // int)floor(inclusions_data[0].size() / spacedim);
+        // const auto locally_owned_inclusions =
+        //   Utilities::MPI::create_evenly_distributed_partitioning(
+        //     mpi_communicator, n_inclusions());
+        //
+        // for (const auto inclusion_id : locally_owned_inclusions)
         for (long unsigned int inclusion_id = 0;
              inclusion_id < inclusions_data.size();
              ++inclusion_id)
+
           {
             auto                tensorR = get_rotation(inclusion_id);
-            std::vector<double> rotated_phi(inclusions_data[0].size() +
-                                            spacedim);
-            // for (long unsigned int phi_i = 0; phi_i < number_phi_data;
-            // ++phi_i)
-            long unsigned int phi_i = 0;
-            while (phi_i * spacedim + 2 < inclusions_data[inclusion_id].size())
+            std::vector<double> rotated_phi(
+              inclusions_data[inclusion_id].size());
+            for (long unsigned int phi_i = 0;
+                 (phi_i * spacedim + spacedim - 1) <
+                 inclusions_data[inclusion_id].size();
+                 ++phi_i)
               {
-                std::vector<double> coef_phii(
-                  &inclusions_data[inclusion_id][phi_i * spacedim],
-                  &inclusions_data[inclusion_id][(phi_i + 1) * spacedim - 1]);
-                rotated_phi[phi_i * spacedim] = coef_phii[0] * tensorR[0][0] +
-                                                coef_phii[1] * tensorR[1][0] +
-                                                coef_phii[2] * tensorR[2][0];
-                rotated_phi[phi_i * spacedim + 1] =
-                  coef_phii[0] * tensorR[0][1] + coef_phii[1] * tensorR[1][1] +
-                  coef_phii[2] * tensorR[2][1];
-                rotated_phi[phi_i * spacedim + 2] =
-                  coef_phii[0] * tensorR[0][2] + coef_phii[1] * tensorR[1][2] +
-                  coef_phii[2] * tensorR[2][2];
-                ++phi_i;
+                Tensor<1, spacedim> coef_phii;
+                for (unsigned int d = 0; d < spacedim; ++d)
+                  coef_phii[d] =
+                    inclusions_data[inclusion_id][phi_i * spacedim + d];
+                auto rotated_phi_i = coef_phii * tensorR;
+                rotated_phi_i.unroll(&rotated_phi[phi_i * spacedim],
+                                     &rotated_phi[phi_i * spacedim + 3]);
               }
-            rotated_inclusion_data.push_back(rotated_phi);
+            AssertIndexRange(inclusion_id, rotated_inclusion_data.size());
+            rotated_inclusion_data[inclusion_id] = rotated_phi;
           }
       }
   }
@@ -616,7 +667,7 @@ public:
   mutable std::unique_ptr<HDF5::File> data_file_h;
   std::vector<std::vector<double>>    inclusions_data;
   std::vector<std::vector<double>>    rotated_inclusion_data;
-  // std::map<unsigned int, IndexSet>    map_vessel_inclusions;
+
   std::map<unsigned int, std::vector<types::global_dof_index>>
     map_vessel_inclusions;
 
@@ -651,7 +702,6 @@ private:
     if constexpr (spacedim == 2)
       return;
 
-    // if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
     // std::set<double> vessel_id_is_present;
     for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
          ++inc_number)
