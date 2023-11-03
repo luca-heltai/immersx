@@ -43,8 +43,8 @@ ElasticityProblem<dim, spacedim>::ElasticityProblem(
 
 template <int dim, int spacedim>
 void
-read_grid_and_cad_files(const std::string            &grid_file_name,
-                        const std::string            &ids_and_cad_file_names,
+read_grid_and_cad_files(const std::string &           grid_file_name,
+                        const std::string &           ids_and_cad_file_names,
                         Triangulation<dim, spacedim> &tria)
 {
   GridIn<dim, spacedim> grid_in;
@@ -297,8 +297,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
   stiffness_matrix = 0;
   coupling_matrix  = 0;
   system_rhs       = 0;
-  TimerOutput::Scope t(computing_timer, "Assemble Stiffness and Neumann rhs");
-  FEValues<spacedim> fe_values(*fe,
+  TimerOutput::Scope     t(computing_timer, "Assemble Stiffness and rhs");
+  FEValues<spacedim>     fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
                                  update_quadrature_points | update_JxW_values);
@@ -402,48 +402,41 @@ IndexSet
 ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
   DynamicSparsityPattern &dsp)
 {
-  TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
+  TimerOutput::Scope t(computing_timer,
+                       "Setup dofs: Assemble Coupling sparsity");
 
   IndexSet relevant(inclusions.n_dofs());
 
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices;
 
-  if (!par.treat_as_hypersingular)
+  auto particle = inclusions.inclusions_as_particles.begin();
+  while (particle != inclusions.inclusions_as_particles.end())
     {
-      auto particle = inclusions.inclusions_as_particles.begin();
-      while (particle != inclusions.inclusions_as_particles.end())
+      const auto &cell = particle->get_surrounding_cell();
+      const auto  dh_cell =
+        typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
+      dh_cell->get_dof_indices(dof_indices);
+      const auto pic =
+        inclusions.inclusions_as_particles.particles_in_cell(cell);
+      Assert(pic.begin() == particle, ExcInternalError());
+      std::set<types::global_dof_index> inclusion_dof_indices_set;
+      for (const auto &p : pic)
         {
-          const auto &cell = particle->get_surrounding_cell();
-          const auto  dh_cell =
-            typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-          dh_cell->get_dof_indices(dof_indices);
-
-          const auto pic =
-            inclusions.inclusions_as_particles.particles_in_cell(cell);
-          Assert(pic.begin() == particle, ExcInternalError());
-          std::set<types::global_dof_index> inclusion_dof_indices_set;
-          for (const auto &p : pic)
-            {
-              const auto ids = inclusions.get_dof_indices(p.get_id());
-              inclusion_dof_indices_set.insert(ids.begin(), ids.end());
-            }
-          inclusion_dof_indices.resize(0);
-          inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
-                                       inclusion_dof_indices_set.begin(),
-                                       inclusion_dof_indices_set.end());
-
-          constraints.add_entries_local_to_global(dof_indices,
-                                                  inclusion_constraints,
-                                                  inclusion_dof_indices,
-                                                  dsp);
-          relevant.add_indices(inclusion_dof_indices.begin(),
-                               inclusion_dof_indices.end());
-          particle = pic.end();
+          const auto ids = inclusions.get_dof_indices(p.get_id());
+          inclusion_dof_indices_set.insert(ids.begin(), ids.end());
         }
-    }
-  else // if treat_as_hypersingular
-    {
+      inclusion_dof_indices.resize(0);
+      inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
+                                   inclusion_dof_indices_set.begin(),
+                                   inclusion_dof_indices_set.end());
+      constraints.add_entries_local_to_global(dof_indices,
+                                              inclusion_constraints,
+                                              inclusion_dof_indices,
+                                              dsp);
+      relevant.add_indices(inclusion_dof_indices.begin(),
+                           inclusion_dof_indices.end());
+      particle = pic.end();
     }
   return relevant;
 }
@@ -612,7 +605,7 @@ ElasticityProblem<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  auto       &g = system_rhs.block(1);
+  auto &      g = system_rhs.block(1);
 
   if (inclusions.n_dofs() == 0)
     {
@@ -727,7 +720,6 @@ template <int dim, int spacedim>
 std::string
 ElasticityProblem<dim, spacedim>::output_solution() const
 {
-  TimerOutput::Scope       t(computing_timer, "Output results");
   std::vector<std::string> solution_names(spacedim, "displacement");
   std::vector<std::string> exact_solution_names(spacedim, "exact_displacement");
 
@@ -787,6 +779,7 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::output_results() const
 {
+  TimerOutput::Scope t(computing_timer, "Postprocessing: Output results");
   static std::vector<std::pair<double, std::string>> cycles_and_solutions;
   static std::vector<std::pair<double, std::string>> cycles_and_particles;
 
@@ -851,7 +844,8 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
 {
   // if (spacedim == 3)
   //   return;
-  TimerOutput::Scope t(computing_timer, "computing stresses");
+  TimerOutput::Scope t(computing_timer,
+                       "Postprocessing: Computing boundary stresses");
 
   std::map<types::boundary_id, Tensor<1, spacedim>> boundary_stress;
   Tensor<2, spacedim>                               internal_stress;
@@ -1008,17 +1002,10 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
 {
-  TimerOutput::Scope t(computing_timer, "Output Pressure");
+  TimerOutput::Scope t(computing_timer, "Postprocessing: Output Pressure");
   if (inclusions.n_inclusions() > 0 && inclusions.offset_coefficients == 1 &&
       inclusions.n_coefficients >= 2)
     {
-      const std::string FILE_NAME(par.output_directory + "/externalPressure_" +
-                                  std::to_string(cycle) + ".h5");
-      HDF5::File        file_h5(FILE_NAME,
-                         HDF5::File::FileAccessMode::create,
-                         mpi_communicator);
-      const std::string DATASET_NAME("externalPressure");
-
       const auto locally_owned_vessels =
         Utilities::MPI::create_evenly_distributed_partitioning(
           mpi_communicator, inclusions.get_n_vessels());
@@ -1103,53 +1090,62 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
       else
         // print .h5
         if (par.initial_time == par.final_time)
-          {
-            HDF5::DataSet dataset =
-              file_h5.create_dataset<double>(DATASET_NAME,
-                                             {inclusions.get_n_vessels()});
+        {
+          const std::string FILE_NAME(par.output_directory +
+                                      "/externalPressure.h5");
 
-            std::vector<double> data_to_write;
-            // std::vector<hsize_t> coordinates;
-            data_to_write.reserve(pressure.locally_owned_size());
-            // coordinates.reserve(pressure.locally_owned_size());
-            for (const auto &el : locally_owned_vessels)
-              {
-                // coordinates.emplace_back(el);
-                data_to_write.emplace_back(pressure[el]);
-              }
-            if (pressure.locally_owned_size() > 0)
-              {
-                hsize_t prefix = 0;
-                hsize_t los    = pressure.locally_owned_size();
-                int     ierr   = MPI_Exscan(&los,
-                                      &prefix,
-                                      1,
-                                      MPI_UNSIGNED_LONG_LONG,
-                                      MPI_SUM,
-                                      mpi_communicator);
-                AssertThrowMPI(ierr);
+          auto accessMode = HDF5::File::FileAccessMode::create;
+          if (!openfilefirsttime)
+            accessMode = HDF5::File::FileAccessMode::open;
 
-                std::vector<hsize_t> offset = {prefix, 1};
-                std::vector<hsize_t> count = {pressure.locally_owned_size(), 1};
-                // data.write_selection(data_to_write, coordinates);
-                dataset.write_hyperslab(data_to_write, offset, count);
-              }
-            else
-              dataset.write_none<int>();
-          }
-        else
-          {
-            pcout
-              << "implementation of hdf5 for time dependent simulation is missing "
-              << std::endl;
-          }
+          HDF5::File        file_h5(FILE_NAME, accessMode, mpi_communicator);
+          const std::string DATASET_NAME("externalPressure_" +
+                                         std::to_string(cycle));
+
+          HDF5::DataSet dataset =
+            file_h5.create_dataset<double>(DATASET_NAME,
+                                           {inclusions.get_n_vessels()});
+
+          std::vector<double> data_to_write;
+          // std::vector<hsize_t> coordinates;
+          data_to_write.reserve(pressure.locally_owned_size());
+          // coordinates.reserve(pressure.locally_owned_size());
+          for (const auto &el : locally_owned_vessels)
+            {
+              // coordinates.emplace_back(el);
+              data_to_write.emplace_back(pressure[el]);
+            }
+          if (pressure.locally_owned_size() > 0)
+            {
+              hsize_t prefix = 0;
+              hsize_t los    = pressure.locally_owned_size();
+              int     ierr   = MPI_Exscan(&los,
+                                    &prefix,
+                                    1,
+                                    MPI_UNSIGNED_LONG_LONG,
+                                    MPI_SUM,
+                                    mpi_communicator);
+              AssertThrowMPI(ierr);
+
+              std::vector<hsize_t> offset = {prefix, 1};
+              std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
+              // data.write_selection(data_to_write, coordinates);
+              dataset.write_hyperslab(data_to_write, offset, count);
+            }
+          else
+            dataset.write_none<int>();
+        }
+      else
+        {
+          pcout
+            << "output_pressure file for time dependent simulation not implemented"
+            << std::endl;
+        }
     }
   else
     {
       pcout
-        << "inclusions parameters ('Start index of Fourier coefficients' or "
-        << std::endl
-        << "'Inclusions number') not compatible with the computation of the pressure as intended."
+        << "inclusions parameters ('Start index of Fourier coefficients' or 'Number of fourier coefficients') not compatible with the computation of the pressure as intended, pressure.hdf5 not generated"
         << std::endl;
     }
 }
@@ -1164,7 +1160,11 @@ ElasticityProblem<dim, spacedim>::run()
       make_grid();
       setup_fe();
       check_boundary_ids();
-      inclusions.setup_inclusions_particles(tria);
+      {
+        TimerOutput::Scope t(computing_timer, "Setup inclusion");
+        inclusions.setup_inclusions_particles(tria);
+      }
+      // setup_dofs(); // called inside refine_and_transfer
       for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
         {
           setup_dofs();
@@ -1198,24 +1198,24 @@ ElasticityProblem<dim, spacedim>::run()
   else // Time dependent simulation
     {
       // TODO: add refinement as the first cycle,
-      pcout << "time dependent simulation, refinement is not possible"
+      pcout << "time dependent simulation, refinement not implemented"
             << std::endl;
       print_parameters();
       make_grid();
       setup_fe();
       check_boundary_ids();
       cycle = 0;
-      inclusions.setup_inclusions_particles(tria);
+      {
+        TimerOutput::Scope t(computing_timer, "Setup inclusion");
+        inclusions.setup_inclusions_particles(tria);
+      }
       setup_dofs();
-      // assemble_elasticity_system();
+      assemble_elasticity_system();
       for (current_time = par.initial_time; current_time < par.final_time;
            current_time += par.dt, ++cycle)
         {
           pcout << "Time: " << current_time << std::endl;
-          // if (current_time > par.initial_time && spacedim == 3)
-          // // & coupling_flag == true
-          //   inclusions.update_displacement_hdf5();
-          assemble_elasticity_system();
+          // assemble_elasticity_system();
           inclusions.inclusions_rhs.set_time(current_time);
           par.Neumann_bc.set_time(current_time);
           assemble_coupling();

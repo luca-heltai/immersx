@@ -94,6 +94,7 @@ namespace LA
 
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 
@@ -138,8 +139,6 @@ public:
   bool output_results_before_solving = false;
 
   mutable ParsedConvergenceTable convergence_table;
-
-  bool treat_as_hypersingular = false; //
 
   // Time dependency.
   double initial_time = 0.0;
@@ -260,8 +259,7 @@ public:
   compute_boundary_stress(bool openfilefirsttime) const; // make const
 
   void
-  output_pressure(bool openfilefirsttime)
-    const; // if i want to open the same file again it can not be const
+  output_pressure(bool openfilefirsttime) const;
 
 private:
   const ElasticityProblemParameters<dim, spacedim> &par;
