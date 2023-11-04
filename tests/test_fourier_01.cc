@@ -33,7 +33,7 @@ test(const std::vector<std::vector<double>> &inclusions)
       {
         const auto &values = inclusion.get_fe_values(0);
         for (unsigned int i = 0; i < Nc; ++i)
-          integrals[i] += values[i];
+          integrals[i] += values[i] * inclusion.get_JxW(0);
       }
     deallog << "integral 0: " << integrals[0] << std::endl
             << "integral 1: " << integrals[1] << std::endl
@@ -47,7 +47,7 @@ test(const std::vector<std::vector<double>> &inclusions)
         const auto &values = inclusion.get_fe_values(0);
         const auto  theta  = q * 2 * numbers::PI / Nq;
         for (unsigned int i = 0; i < Nc; ++i)
-          integrals[i] += std::cos(theta) * values[i];
+          integrals[i] += std::cos(theta) * values[i] * inclusion.get_JxW(0);
       }
     deallog << "cos(theta)*phi_0: " << integrals[0] << std::endl
             << "cos(theta)*phi_1: " << integrals[1] << std::endl
@@ -61,7 +61,7 @@ test(const std::vector<std::vector<double>> &inclusions)
         const auto &values = inclusion.get_fe_values(0);
         const auto  theta  = q * 2 * numbers::PI / Nq;
         for (unsigned int i = 0; i < Nc; ++i)
-          integrals[i] += std::sin(theta) * values[i];
+          integrals[i] += std::sin(theta) * values[i] * inclusion.get_JxW(0);
       }
     deallog << "sin(theta)*phi_0: " << integrals[0] << std::endl
             << "sin(theta)*phi_1: " << integrals[1] << std::endl
