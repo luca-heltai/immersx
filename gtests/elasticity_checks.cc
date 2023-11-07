@@ -38,11 +38,136 @@ get_default_test_parameters()
 
 
 
-TEST(ElasticityTest, Displacement)
+TEST(ElasticityTest, DisplacementX)
 {
   static constexpr int   dim = 2;
   auto                   par = get_default_test_parameters<dim>();
   ElasticityProblem<dim> problem(*par);
   ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+    subsection Immersed Problem
+      set Output name                           = displacement_x
+      set Initial refinement                    = 5
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -5: 5: false
+      end
+      subsection Immersed inclusions
+        set Inclusions                          = 0, 0, 1.0
+        set Number of fourier coefficients      = 1
+        set Start index of Fourier coefficients = 0
+        set Inclusions refinement               = 100
+        subsection Boundary data
+          set Function expression = 1; 0
+        end
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters();
   problem.run();
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
+}
+
+
+
+TEST(ElasticityTest, DisplacementY)
+{
+  static constexpr int   dim = 2;
+  auto                   par = get_default_test_parameters<dim>();
+  ElasticityProblem<dim> problem(*par);
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+    subsection Immersed Problem
+      set Output name                           = displacement_y
+      set Initial refinement                    = 5
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -5: 5: false
+      end
+      subsection Immersed inclusions
+        set Inclusions                          = 0, 0, 1.0
+        set Number of fourier coefficients      = 1
+        set Start index of Fourier coefficients = 0
+        set Inclusions refinement               = 100
+        subsection Boundary data
+          set Function expression = 0; 1
+        end
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
+}
+
+
+
+TEST(ElasticityTest, DisplacementXScaled)
+{
+  static constexpr int   dim = 2;
+  auto                   par = get_default_test_parameters<dim>();
+  ElasticityProblem<dim> problem(*par);
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+    subsection Immersed Problem
+      set Output name                           = displacement_x_scaled
+      set Initial refinement                    = 5
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Immersed inclusions
+        set Inclusions                          = 0, 0, .1
+        set Number of fourier coefficients      = 1
+        set Start index of Fourier coefficients = 0
+        set Inclusions refinement               = 100
+        subsection Boundary data
+          set Function expression = .1; 0
+        end
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 2e-1);
+}
+
+
+
+TEST(ElasticityTest, DisplacementYScaled)
+{
+  static constexpr int   dim = 2;
+  auto                   par = get_default_test_parameters<dim>();
+  ElasticityProblem<dim> problem(*par);
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+    subsection Immersed Problem
+      set Output name                           = displacement_y_scaled
+      set Initial refinement                    = 5
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Immersed inclusions
+        set Inclusions                          = 0, 0, .1
+        set Number of fourier coefficients      = 1
+        set Start index of Fourier coefficients = 0
+        set Inclusions refinement               = 100
+        subsection Boundary data
+          set Function expression = 0;.1
+        end
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 2e-1);
 }
