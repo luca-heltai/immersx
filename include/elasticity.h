@@ -273,7 +273,7 @@ public:
   void
   output_pressure(bool openfilefirsttime) const;
 
-protected:
+  // protected:
   const ElasticityProblemParameters<dim, spacedim> &par;
   MPI_Comm                                          mpi_communicator;
   ConditionalOStream                                pcout;
