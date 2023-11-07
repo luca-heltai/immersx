@@ -1,3 +1,13 @@
+/**
+ * @brief Header file that includes all necessary headers and defines the Inclusions class.
+ *
+ * This class represents a set of inclusions in a domain. It stores the
+ * positions of the inclusions, their radii, and their Fourier coefficients. It
+ * also provides methods to initialize the inclusions, compute their normals,
+ * and extract their degrees of freedom.
+ *
+ * @tparam spacedim The dimension of the space in which the inclusions are embedded.
+ */
 #ifndef rdlm_inclusions
 #define rdlm_inclusions
 
@@ -21,10 +31,26 @@
 
 using namespace dealii;
 
+
+/**
+ * @brief Class for handling inclusions in an immersed boundary method.
+ *
+ * This class provides functionality for handling inclusions in an immersed
+ * boundary method. It stores the positions, radii, and Fourier coefficients of
+ * the inclusions, and provides methods for computing their normals, center, and
+ * direction. It also provides methods for initializing the inclusions from a
+ * file, setting up particles for the inclusions, and getting degrees of freedom
+ * associated with each inclusion.
+ */
 template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
+  /**
+   * @brief Class for computing the inclusions of a given mesh.
+   *
+   * @param n_vector_components Number of vector components.
+   */
   Inclusions(const unsigned int n_vector_components = 1)
     : ParameterAcceptor("/Immersed Problem/Immersed inclusions")
     , inclusions_rhs("/Immersed Problem/Immersed inclusions/Boundary data",
@@ -40,10 +66,21 @@ public:
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
     add_parameter("3D 1D discretization", h3D1D);
+
+    auto reset_function = [this]() {
+      this->prm.set("Function expression",
+                    (spacedim == 2 ? "0; 0" : "0; 0; 0"));
+    };
+    inclusions_rhs.declare_parameters_call_back.connect(reset_function);
   }
 
 
   types::global_dof_index
+  /**
+   * Returns the number of degrees of freedom in the system.
+   *
+   * @return The number of degrees of freedom.
+   */
   n_dofs() const
   {
     return inclusions.size() * n_dofs_per_inclusion();
@@ -51,6 +88,11 @@ public:
 
 
   types::global_dof_index
+  /**
+   * Returns the number of particles in the system.
+   *
+   * @return The number of particles in the system.
+   */
   n_particles() const
   {
     return inclusions.size() * n_q_points;
@@ -58,6 +100,11 @@ public:
 
 
   types::global_dof_index
+  /**
+   * @brief Returns the number of inclusions in the mesh.
+   *
+   * @return The number of inclusions in the mesh.
+   */
   n_inclusions() const
   {
     return inclusions.size();
@@ -164,6 +211,12 @@ public:
   }
 
 
+  /**
+   * @brief Returns the degrees of freedom indices associated with a given quadrature point.
+   *
+   * @param quadrature_id The global index of the quadrature point.
+   * @return A vector containing the degrees of freedom indices.
+   */
   std::vector<types::global_dof_index>
   get_dof_indices(const types::global_dof_index &quadrature_id) const
   {
@@ -175,6 +228,11 @@ public:
     return dofs;
   }
 
+  /**
+   * @brief Sets up the inclusions particles for the given triangulation.
+   *
+   * @param tria The triangulation to set up the inclusions particles for.
+   */
   void
   setup_inclusions_particles(
     const parallel::distributed::Triangulation<spacedim> &tria)
@@ -659,7 +717,8 @@ public:
   unsigned int                     n_q_points          = 100;
   unsigned int                     n_coefficients      = 1;
   unsigned int                     offset_coefficients = 0;
-  double                           h3D1D               = 0.01;
+  std::vector<unsigned int>        selected_coefficients;
+  double                           h3D1D = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
 

@@ -112,7 +112,7 @@ public:
   std::list<types::boundary_id> dirichlet_ids{0};
   std::list<types::boundary_id> neumann_ids{};
   std::set<types::boundary_id>  normal_flux_ids{};
-  std::string                   domain_type         = "";
+  std::string                   domain_type         = "generate";
   std::string                   name_of_grid        = "hyper_cube";
   std::string                   arguments_for_grid  = "-1: 1: false";
   std::string                   refinement_strategy = "fixed_fraction";
@@ -170,7 +170,11 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   add_parameter("Normal flux boundary ids", normal_flux_ids);
   enter_subsection("Grid generation");
   {
-    add_parameter("Domain type", domain_type);
+    add_parameter("Domain type",
+                  domain_type,
+                  "",
+                  this->prm,
+                  Patterns::Selection("generate|file|cheese|cylinder"));
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
   }
@@ -210,6 +214,14 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   this->prm.enter_subsection("Error");
   convergence_table.add_parameters(this->prm);
   this->prm.leave_subsection();
+
+  auto reset_function = [this]() {
+    this->prm.set("Function expression", (spacedim == 2 ? "0; 0" : "0; 0; 0"));
+  };
+  rhs.declare_parameters_call_back.connect(reset_function);
+  exact_solution.declare_parameters_call_back.connect(reset_function);
+  Neumann_bc.declare_parameters_call_back.connect(reset_function);
+  bc.declare_parameters_call_back.connect(reset_function);
 }
 
 
@@ -261,7 +273,7 @@ public:
   void
   output_pressure(bool openfilefirsttime) const;
 
-private:
+protected:
   const ElasticityProblemParameters<dim, spacedim> &par;
   MPI_Comm                                          mpi_communicator;
   ConditionalOStream                                pcout;
