@@ -524,10 +524,11 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                           auto temp =
                             inclusion_fe_values[j] * inclusion_fe_values[j] *
                             inclusions.get_rotated_inclusion_data(
-                              inclusion_id)[j] /
+                              inclusion_id)[j] // /
                             // inclusions.inclusions_data[inclusion_id][j] / //
                             // data is always prescribed in relative coordinates
-                            inclusions.get_radius(inclusion_id) * ds;
+                            // inclusions.get_radius(inclusion_id) //
+                            * ds;
                           if (par.initial_time != par.final_time)
                             temp *= inclusions.inclusions_rhs.value(
                               real_q, inclusions.get_component(j));
@@ -536,10 +537,12 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                     }
                   else
                     {
-                      local_rhs(j) += inclusion_fe_values[j] *
-                                      inclusions.inclusions_rhs.value(
-                                        real_q, inclusions.get_component(j)) /
-                                      inclusions.get_radius(inclusion_id) * ds;
+                      local_rhs(j) +=
+                        inclusion_fe_values[j] *
+                        inclusions.inclusions_rhs.value(
+                          real_q, inclusions.get_component(j)) // /
+                        // inclusions.get_radius(inclusion_id)
+                        * ds;
                     }
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] * ds);
