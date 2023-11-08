@@ -135,7 +135,7 @@ TEST(ElasticityTest, DisplacementXScaled)
   )");
   ParameterAcceptor::parse_all_parameters();
   problem.run();
-  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 2e-1);
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), .1, 2e-1);
 }
 
 
@@ -169,5 +169,5 @@ TEST(ElasticityTest, DisplacementYScaled)
   )");
   ParameterAcceptor::parse_all_parameters();
   problem.run();
-  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 2e-1);
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 0.1, 2e-1);
 }

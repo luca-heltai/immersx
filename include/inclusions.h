@@ -360,19 +360,37 @@ public:
     const auto q  = particle_id % n_q_points;
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
-    const auto r = get_radius(id);
-    for (unsigned int c = 0; c < n_coefficients; ++c)
+    (void)id;
+    // const auto r  = get_radius(id);
+    const auto s0 = 1.0;
+    const auto s1 = std::sqrt(2);
+
+    for (unsigned int basis = 0; basis < n_coefficients * n_vector_components;
+         ++basis)
       {
-        unsigned int omega = (c + offset_coefficients + 1) / 2;
-        const double rho   = std::pow(r, omega);
-        for (unsigned int i = 0; i < n_vector_components; ++i)
-          if ((std::max(c + offset_coefficients, 1u) + 1) % 2 == 0)
-            current_fe_values[c * n_vector_components + i] =
-              rho * std::cos(theta[q] * omega);
-          else
-            current_fe_values[c * n_vector_components + i] =
-              rho * std::sin(theta[q] * omega);
+        const unsigned int fourier_index =
+          basis / n_vector_components + offset_coefficients;
+        unsigned int omega = (fourier_index + 1) / 2;
+
+        if (fourier_index == 0)
+          current_fe_values[basis] = s0;
+        else if ((fourier_index - 1) % 2 == 0)
+          current_fe_values[basis] = s1 * std::cos(theta[q] * omega);
+        else
+          current_fe_values[basis] = s1 * std::sin(theta[q] * omega);
       }
+    // for (unsigned int c = 0; c < n_coefficients; ++c)
+    //   {
+    //     unsigned int omega = (c + offset_coefficients + 1) / 2;
+    //     const double rho   = std::pow(r, omega);
+    //     for (unsigned int i = 0; i < n_vector_components; ++i)
+    //       if ((std::max(c + offset_coefficients, 1u) + 1) % 2 == 0)
+    //         current_fe_values[c * n_vector_components + i] =
+    //           rho * std::cos(theta[q] * omega);
+    //       else
+    //         current_fe_values[c * n_vector_components + i] =
+    //           rho * std::sin(theta[q] * omega);
+    //   }
     return current_fe_values;
   }
 
