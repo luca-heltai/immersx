@@ -67,7 +67,7 @@ TEST(ElasticityTest, DisplacementX)
   )");
   ParameterAcceptor::parse_all_parameters();
   problem.run();
-  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
+  ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 5e-2);
 }
 
 
@@ -170,4 +170,54 @@ TEST(ElasticityTest, DisplacementYScaled)
   ParameterAcceptor::parse_all_parameters();
   problem.run();
   ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 0.1, 2e-1);
+}
+
+
+TEST(ElasticityTest, CheckInclusionMatrix)
+{
+  static constexpr int   dim = 2;
+  auto                   par = get_default_test_parameters<dim>();
+  ElasticityProblem<dim> problem(*par);
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+    subsection Immersed Problem
+      set Output name                           = displacement_enflate
+      set Initial refinement                    = 5
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -4: 4: false
+      end
+      subsection Immersed inclusions
+        set Inclusions                          = 0, 0, .5
+        set Number of fourier coefficients      = 3
+        set Start index of Fourier coefficients = 0
+        set Data file                           = ../data_file_1d.txt
+        set Inclusions refinement               = 100
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+  // ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
+  problem.inclusion_matrix.print(std::cout);
+  // problem.coupling_matrix.print(std::cout);
+
+  auto inclusions   = problem.solution.block(1);
+  auto displacement = problem.solution.block(0);
+  // problem.solution.block(0) = 1.0;
+  const auto Bt = linear_operator<LA::MPI::Vector>(problem.coupling_matrix);
+  const auto B  = transpose_operator(Bt);
+  const auto M  = linear_operator<LA::MPI::Vector>(problem.inclusion_matrix);
+
+
+  // for small radius you might need SolverFGMRES<LA::MPI::Vector>
+  SolverCG<LA::MPI::Vector> cg_M(problem.par.inner_control);
+  auto                      invM = inverse_operator(M, cg_M);
+
+
+  inclusions = B * displacement;
+
+  inclusions.print(std::cout);
 }

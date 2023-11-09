@@ -196,15 +196,13 @@ public:
               {
                 AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
               }
-            // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-            // {
-            //   std::cout << "rank " <<
-            //   Utilities::MPI::this_mpi_process(mpi_communicator)
-            //           << ": Read " << N << " coefficients per " <<
-            //           inclusions.size()
-            //           << " inclusion" << std::endl;
-            // }
-            // MPI_Barrier(MPI_COMM_WORLD);
+            if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+              {
+                std::cout << "rank "
+                          << Utilities::MPI::this_mpi_process(mpi_communicator)
+                          << ": Read " << N << " coefficients per "
+                          << inclusions.size() << " inclusion" << std::endl;
+              }
           }
       }
     check_vessels();
@@ -237,8 +235,8 @@ public:
   setup_inclusions_particles(
     const parallel::distributed::Triangulation<spacedim> &tria)
   {
-    initialize();
     mpi_communicator = tria.get_communicator();
+    initialize();
     compute_rotated_inclusion_data();
 
     inclusions_as_particles.initialize(tria,
@@ -361,7 +359,8 @@ public:
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
     (void)id;
-    // const auto r  = get_radius(id);
+    const auto r = get_radius(id);
+    (void)r;
     const auto s0 = 1.0;
     const auto s1 = std::sqrt(2);
 
@@ -372,12 +371,16 @@ public:
           basis / n_vector_components + offset_coefficients;
         unsigned int omega = (fourier_index + 1) / 2;
 
+        double scaling_factor = (omega == 1 ? 1 : s1);
+
         if (fourier_index == 0)
           current_fe_values[basis] = s0;
         else if ((fourier_index - 1) % 2 == 0)
-          current_fe_values[basis] = s1 * std::cos(theta[q] * omega);
+          current_fe_values[basis] =
+            scaling_factor * std::cos(theta[q] * omega);
         else
-          current_fe_values[basis] = s1 * std::sin(theta[q] * omega);
+          current_fe_values[basis] =
+            scaling_factor * std::sin(theta[q] * omega);
       }
     // for (unsigned int c = 0; c < n_coefficients; ++c)
     //   {
@@ -434,6 +437,25 @@ public:
       {
         AssertDimension(inclusion.size(), 2 * spacedim + 2);
         return inclusion[2 * spacedim];
+      }
+  }
+
+  /**
+   * @brief Get the measure of the section of the inclusion
+   *
+   * @param inclusion_id
+   * @return double
+   */
+  double
+  get_section_measure(const types::global_dof_index &inclusion_id) const
+  {
+    auto r = get_radius(inclusion_id);
+    if constexpr (spacedim == 2)
+      return 2 * numbers::PI * r;
+    else
+      {
+        auto ds = get_direction(inclusion_id).norm();
+        return 2 * numbers::PI * r * ds;
       }
   }
 
