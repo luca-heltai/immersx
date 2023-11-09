@@ -120,6 +120,7 @@ public:
   double                        refinement_fraction = 0.3;
   unsigned int                  n_refinement_cycles = 1;
   unsigned int                  max_cells           = 20000;
+  bool                          output_pressure     = false;
 
   double Lame_mu     = 1;
   double Lame_lambda = 1;
@@ -168,6 +169,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   add_parameter("Neumann boundary ids", neumann_ids);
   add_parameter("Normal flux boundary ids", normal_flux_ids);
+  add_parameter("Output pressure", output_pressure);
   enter_subsection("Grid generation");
   {
     add_parameter("Domain type",
