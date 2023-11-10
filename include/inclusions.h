@@ -61,6 +61,7 @@ public:
     add_parameter("Inclusions refinement", n_q_points);
     add_parameter("Inclusions", inclusions);
     add_parameter("Number of fourier coefficients", n_coefficients);
+    add_parameter("indices", indices);
     add_parameter("Start index of Fourier coefficients", offset_coefficients);
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
@@ -131,7 +132,7 @@ public:
                 ExcMessage(
                   "Refinement of inclusions must be greater than zero."));
     AssertThrow(n_coefficients > 0,
-                ExcMessage(
+               ExcMessage(
                   "Number of coefficients must be greater than zero."));
     support_points.resize(n_q_points);
     normals.resize(n_q_points);
@@ -364,11 +365,11 @@ public:
     const auto s0 = 1.0;
     const auto s1 = std::sqrt(2);
 
-    for (unsigned int basis = 0; basis < n_coefficients * n_vector_components;
-         ++basis)
+    for (unsigned int basis :indices)// 0; basis < n_coefficients * n_vector_components;
+         //++basis)
       {
         const unsigned int fourier_index =
-          basis / n_vector_components + offset_coefficients;
+          basis / n_vector_components + 0; //offset_coefficients;
         unsigned int omega = (fourier_index + 1) / 2;
 
         double scaling_factor = (omega == 1 ? 1 : s1);
@@ -755,9 +756,10 @@ public:
 
   std::vector<std::vector<double>> inclusions;
   unsigned int                     n_q_points          = 100;
-  unsigned int                     n_coefficients      = 1;
+  unsigned int                     n_coefficients      = 0;
   unsigned int                     offset_coefficients = 0;
   std::vector<unsigned int>        selected_coefficients;
+  std::vector<unsigned int>        indices;
   double                           h3D1D = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
