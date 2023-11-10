@@ -502,8 +502,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
               const auto  ds                  = inclusions.get_JxW(id);
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
-                   ++j)
+              for (unsigned int j :inclusions.indices )//= 0; j < inclusions.indices.size();
+                   //++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     {
@@ -518,7 +518,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                     }
                   if (inclusions.data_file != "")
                     {
-                      if (inclusions.inclusions_data[inclusion_id].size() > j)
+                      if (inclusions.inclusions_data[inclusion_id].size()+1 > j)
                         {
                           auto temp =
                             inclusion_fe_values[j] * ds /
