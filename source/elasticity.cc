@@ -502,11 +502,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
 
               // Coupling and inclusions matrix
-              for (unsigned int j :
-                   inclusions
-                     .selected_coefficients) //= 0; j <
-                                             // inclusions.indices.size();
-                                             //++j)
+              for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
+                   ++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     {
@@ -522,7 +519,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                   if (inclusions.data_file != "")
                     {
                       if (inclusions.inclusions_data[inclusion_id].size() + 1 >
-                          j)
+                          inclusions.get_fourier_component(j))
                         {
                           auto temp =
                             inclusion_fe_values[j] * ds /
@@ -532,8 +529,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                             // this is sum E^i g_i where g_i are coefficients of
                             // the modes, but only the j one survives
                             inclusion_fe_values[j] *
-                            inclusions.get_rotated_inclusion_data(
-                              inclusion_id)[j];
+                            inclusions.get_inclusion_data(inclusion_id, j);
 
                           if (par.initial_time != par.final_time)
                             temp *= inclusions.inclusions_rhs.value(
