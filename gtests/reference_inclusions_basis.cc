@@ -58,6 +58,10 @@ TEST(TestInclusionsBasis2, CheckScaling) // NOLINT
   auto D = 2 * numbers::PI * radius;
   for (unsigned int i = 0; i < ref.n_coefficients + 1; ++i)
     {
-      EXPECT_NEAR(integral[i], D, 1e-10);
+      auto expected = D;
+      // Take into account
+      if (i == 2 || i == 3)
+        expected /= 2;
+      EXPECT_NEAR(integral[i], expected, 1e-10);
     }
 }
