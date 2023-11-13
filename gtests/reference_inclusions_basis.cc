@@ -11,9 +11,9 @@ TEST(TestInclusionsBasis2, CheckIntegrals) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
-  ref.n_q_points          = 100;
-  ref.n_coefficients      = 3;
-  ref.offset_coefficients = 0;
+  ref.n_q_points         = 100;
+  ref.n_coefficients     = 3;
+  ref.coefficient_offset = 0;
   ref.inclusions.push_back({{0, 0, 1.0}});
   ref.initialize();
   double integral[4] = {0, 0, 0, 0};
@@ -37,10 +37,10 @@ TEST(TestInclusionsBasis2, CheckScaling) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
-  double        radius    = 9;
-  ref.n_q_points          = 100;
-  ref.n_coefficients      = 13;
-  ref.offset_coefficients = 0;
+  double        radius   = 9;
+  ref.n_q_points         = 100;
+  ref.n_coefficients     = 13;
+  ref.coefficient_offset = 0;
   ref.inclusions.push_back({{0, 0, radius}});
   ref.initialize();
   std::vector<double> integral(ref.n_coefficients + 1, 0.0);
