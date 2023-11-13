@@ -60,9 +60,32 @@ public:
     static_assert(spacedim > 1, "Not implemented in dim = 1");
     add_parameter("Inclusions refinement", n_q_points);
     add_parameter("Inclusions", inclusions);
-    add_parameter("Number of fourier coefficients", n_coefficients);
-    add_parameter("indices", indices);
-    add_parameter("Start index of Fourier coefficients", coefficient_offset);
+    add_parameter(
+      "Number of fourier coefficients",
+      n_coefficients,
+      "This represents the number of scalar harmonic functions used "
+      "for the representation of the data (boundary data or forcing data) "
+      "of the inclusion. The provided input files should contain at least "
+      "a number of entries which is equal to this number multiplied by the "
+      "number of vector components of the problem. Any additional entry is "
+      "ignored by program. If fewer entries are specified, an exception is "
+      "thrown.");
+    add_parameter(
+      "Start index of Fourier coefficients",
+      coefficient_offset,
+      "This allows one to ignore the first few scalar components of the harmonic "
+      "functions used for the representation of the data (boundary data or forcing "
+      "data). This parameter is ignored if you provide a non-empty list of selected "
+      "Fourier coefficients.");
+    add_parameter(
+      "Selection of Fourier coefficients",
+      selected_coefficients,
+      "This allows one to select a subset of the components of the harmonic functions "
+      "used for the representation of the data (boundary data or forcing data). Notice "
+      "that these indices are w.r.t. to the total number of components of the problem, "
+      "that is, number of Fourier coefficients x number of vector components. In "
+      "particular any entry of this list must be in the set "
+      "[0,n_coefficients*n_vector_components). ");
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
@@ -147,6 +170,18 @@ public:
         support_points[i][1] = std::sin(theta[i]);
         normals[i]           = support_points[i];
       }
+
+    if (selected_coefficients.empty())
+      {
+        selected_coefficients.resize(n_dofs_per_inclusion());
+        for (unsigned int i = 0; i < n_dofs_per_inclusion(); ++i)
+          selected_coefficients[i] = i;
+      }
+    else
+      {
+        coefficient_offset = 0;
+      }
+
 
     if (inclusions_file != "")
       {
@@ -366,8 +401,9 @@ public:
     const auto s1 = std::sqrt(2);
 
     for (unsigned int basis :
-         indices) // 0; basis < n_coefficients * n_vector_components;
-                  //++basis)
+         selected_coefficients) // 0; basis < n_coefficients *
+                                // n_vector_components;
+                                //++basis)
       {
         const unsigned int fourier_index =
           basis / n_vector_components + 0; // coefficient_offset;
@@ -760,7 +796,6 @@ public:
   unsigned int                     n_coefficients     = 0;
   unsigned int                     coefficient_offset = 0;
   std::vector<unsigned int>        selected_coefficients;
-  std::vector<unsigned int>        indices;
   double                           h3D1D = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;

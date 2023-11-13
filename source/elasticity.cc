@@ -462,22 +462,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
   Vector<double> local_rhs(inclusions.n_dofs_per_inclusion());
 
-  if (inclusions.indices.empty())
-    {
-      inclusions.indices.resize(inclusions.n_dofs_per_inclusion());
-      for (unsigned int i = 0; i < inclusions.n_dofs_per_inclusion(); ++i)
-        {
-          inclusions.indices[i] = i;
-        }
-
-      inclusions.coefficient_offset = inclusions.coefficient_offset;
-    }
-  else
-    {
-      inclusions.indices            = inclusions.indices;
-      inclusions.coefficient_offset = 0;
-    }
-
   auto particle = inclusions.inclusions_as_particles.begin();
   while (particle != inclusions.inclusions_as_particles.end())
     {
@@ -519,8 +503,10 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
               // Coupling and inclusions matrix
               for (unsigned int j :
-                   inclusions.indices) //= 0; j < inclusions.indices.size();
-                                       //++j)
+                   inclusions
+                     .selected_coefficients) //= 0; j <
+                                             // inclusions.indices.size();
+                                             //++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     {
