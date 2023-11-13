@@ -142,7 +142,8 @@ public:
   unsigned int
   n_dofs_per_inclusion() const
   {
-    return n_coefficients * n_vector_components;
+    // return n_coefficients * n_vector_components;
+    return selected_coefficients.size();
   }
 
   /**
@@ -161,7 +162,6 @@ public:
     normals.resize(n_q_points);
     theta.resize(n_q_points);
     current_support_points.resize(n_q_points);
-    current_fe_values.resize(n_dofs_per_inclusion());
 
     for (unsigned int i = 0; i < n_q_points; ++i)
       {
@@ -171,17 +171,22 @@ public:
         normals[i]           = support_points[i];
       }
 
+    // Make sure that selected coefficients is the iota vector, when we don't
+    // select anything for backward compatibility.
     if (selected_coefficients.empty())
       {
-        selected_coefficients.resize(n_dofs_per_inclusion());
-        for (unsigned int i = 0; i < n_dofs_per_inclusion(); ++i)
+        selected_coefficients.resize(n_coefficients * n_vector_components);
+        for (unsigned int i = 0; i < n_coefficients * n_vector_components; ++i)
           selected_coefficients[i] = i;
       }
     else
       {
+        // This is zero when we use the selection, since it is not used.
         coefficient_offset = 0;
       }
 
+    // This MUST be here, otherwise n_dofs_per_inclusions() would be wrong.
+    current_fe_values.resize(n_dofs_per_inclusion());
 
     if (inclusions_file != "")
       {
@@ -344,8 +349,46 @@ public:
   get_component(const types::global_dof_index &dof_index) const
   {
     AssertIndexRange(dof_index, n_dofs());
-    return dof_index % n_vector_components;
+    // return dof_index % n_vector_components;
+    return selected_coefficients[dof_index % n_dofs_per_inclusion()] %
+           n_vector_components;
   }
+
+
+  /**
+   * @brief Get the ith Fourier component for the given dof index.
+   *
+   * @param dof_index A number in [0,n_dofs())
+   * @return unsigned int The index of the current component
+   */
+  inline unsigned int
+  get_fourier_component(const types::global_dof_index &dof_index) const
+  {
+    AssertIndexRange(dof_index, n_dofs());
+    // return dof_index % n_vector_components;
+    return selected_coefficients[dof_index % n_dofs_per_inclusion()];
+  }
+
+
+  /**
+   * @brief Get the Fourier data for the given local dof index.
+   *
+   * @param inclusion_id A number in [0,n_inclusions())
+   * @param dof_index A number in [0,n_dofs_per_inclusion())
+   * @return unsigned int The index of the current component
+   */
+  inline double
+  get_inclusion_data(const types::global_dof_index &inclusion_id,
+                     const types::global_dof_index &dof_index) const
+  {
+    AssertIndexRange(inclusion_id, n_inclusions());
+    AssertIndexRange(dof_index, n_dofs());
+    // return dof_index % n_vector_components;
+    return get_rotated_inclusion_data(
+      inclusion_id)[get_fourier_component(dof_index)];
+  }
+
+
 
   /**
    * @brief Get the normal
@@ -400,6 +443,7 @@ public:
     const auto s0 = 1.0;
     const auto s1 = std::sqrt(2);
 
+    unsigned int basis_local_id = 0;
     for (unsigned int basis :
          selected_coefficients) // 0; basis < n_coefficients *
                                 // n_vector_components;
@@ -412,13 +456,14 @@ public:
         double scaling_factor = (omega == 1 ? 1 : s1);
 
         if (fourier_index == 0)
-          current_fe_values[basis] = s0;
+          current_fe_values[basis_local_id] = s0;
         else if ((fourier_index - 1) % 2 == 0)
-          current_fe_values[basis] =
+          current_fe_values[basis_local_id] =
             scaling_factor * std::cos(theta[q] * omega);
         else
-          current_fe_values[basis] =
+          current_fe_values[basis_local_id] =
             scaling_factor * std::sin(theta[q] * omega);
+        ++basis_local_id;
       }
     // for (unsigned int c = 0; c < n_coefficients; ++c)
     //   {
@@ -766,7 +811,7 @@ public:
 
 
   std::vector<double>
-  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id)
+  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id) const
   {
     AssertIndexRange(inclusion_id, inclusions.size());
     if constexpr (spacedim == 2)
