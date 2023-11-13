@@ -43,8 +43,8 @@ ElasticityProblem<dim, spacedim>::ElasticityProblem(
 
 template <int dim, int spacedim>
 void
-read_grid_and_cad_files(const std::string &           grid_file_name,
-                        const std::string &           ids_and_cad_file_names,
+read_grid_and_cad_files(const std::string            &grid_file_name,
+                        const std::string            &ids_and_cad_file_names,
                         Triangulation<dim, spacedim> &tria)
 {
   GridIn<dim, spacedim> grid_in;
@@ -482,7 +482,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
           local_coupling_matrix   = 0;
           local_inclusion_matrix  = 0;
           local_rhs               = 0;
-
           // Extract all points that refer to the same inclusion
           std::vector<Point<spacedim>> ref_q_points;
           for (; next_p != pic.end() &&
@@ -499,8 +498,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
               const auto  id                  = p->get_id();
               const auto &inclusion_fe_values = inclusions.get_fe_values(id);
               const auto &real_q              = p->get_location();
-              const auto  ds =
-                inclusions.get_JxW(id); // /inclusions.get_radius(inclusion_id);
+              const auto  ds                  = inclusions.get_JxW(id);
+
 
               // Coupling and inclusions matrix
               for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
@@ -513,21 +512,25 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                       if (comp_i == inclusions.get_component(j))
                         {
                           local_coupling_matrix(i, j) +=
-                            (fev.shape_value(i, q)) * inclusion_fe_values[j] *
-                            ds;
+                            (fev.shape_value(i, q)) * inclusion_fe_values[j] /
+                            inclusions.get_section_measure(inclusion_id) * ds;
                         }
                     }
                   if (inclusions.data_file != "")
                     {
-                      if (inclusions.inclusions_data[inclusion_id].size() > j)
+                      if (inclusions.inclusions_data[inclusion_id].size() + 1 >
+                          inclusions.get_fourier_component(j))
                         {
                           auto temp =
-                            inclusion_fe_values[j] * inclusion_fe_values[j] *
-                            inclusions.get_rotated_inclusion_data(
-                              inclusion_id)[j] /
-                            // inclusions.inclusions_data[inclusion_id][j] / //
-                            // data is always prescribed in relative coordinates
-                            inclusions.get_radius(inclusion_id) * ds;
+                            inclusion_fe_values[j] * ds /
+                            inclusions.get_section_measure(inclusion_id) *
+                            // phi_i ds
+                            // now we need to build g from the data.
+                            // this is sum E^i g_i where g_i are coefficients of
+                            // the modes, but only the j one survives
+                            inclusion_fe_values[j] *
+                            inclusions.get_inclusion_data(inclusion_id, j);
+
                           if (par.initial_time != par.final_time)
                             temp *= inclusions.inclusions_rhs.value(
                               real_q, inclusions.get_component(j));
@@ -536,10 +539,13 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                     }
                   else
                     {
-                      local_rhs(j) += inclusion_fe_values[j] *
-                                      inclusions.inclusions_rhs.value(
-                                        real_q, inclusions.get_component(j)) /
-                                      inclusions.get_radius(inclusion_id) * ds;
+                      local_rhs(j) +=
+                        inclusion_fe_values[j] /
+                        inclusions.get_section_measure(inclusion_id) *
+                        inclusions.inclusions_rhs.value(
+                          real_q, inclusions.get_component(j)) // /
+                        // inclusions.get_radius(inclusion_id)
+                        * ds;
                     }
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] * ds);
@@ -557,8 +563,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
           inclusion_constraints.distribute_local_to_global(
             local_rhs, inclusion_dof_indices, system_rhs.block(1));
 
-          // inclusion_constraints.distribute_local_to_global(
-          //   local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
+          inclusion_constraints.distribute_local_to_global(
+            local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
         }
       particle = pic.end();
     }
@@ -605,7 +611,7 @@ ElasticityProblem<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  auto &      g = system_rhs.block(1);
+  auto       &g = system_rhs.block(1);
 
   if (inclusions.n_dofs() == 0)
     {
@@ -636,6 +642,7 @@ ElasticityProblem<dim, spacedim>::solve()
       // VERSION2
       auto invS       = S;
       auto S_inv_prec = B * invA * Bt + M;
+      // auto S_inv_prec = B * invA * Bt;
       // SolverCG<Vector<double>> cg_schur(par.outer_control);
       // PrimitiveVectorMemory<Vector<double>> mem;
       // SolverGMRES<Vector<double>> solver_gmres(
@@ -1002,8 +1009,10 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
 {
+  if (par.output_pressure == false)
+    return;
   TimerOutput::Scope t(computing_timer, "Postprocessing: Output Pressure");
-  if (inclusions.n_inclusions() > 0 && inclusions.offset_coefficients == 1 &&
+  if (inclusions.n_inclusions() > 0 && inclusions.coefficient_offset == 1 &&
       inclusions.n_coefficients >= 2)
     {
       const auto locally_owned_vessels =
@@ -1090,57 +1099,57 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
       else
         // print .h5
         if (par.initial_time == par.final_time)
-        {
-          const std::string FILE_NAME(par.output_directory +
-                                      "/externalPressure.h5");
+          {
+            const std::string FILE_NAME(par.output_directory +
+                                        "/externalPressure.h5");
 
-          auto accessMode = HDF5::File::FileAccessMode::create;
-          if (!openfilefirsttime)
-            accessMode = HDF5::File::FileAccessMode::open;
+            auto accessMode = HDF5::File::FileAccessMode::create;
+            if (!openfilefirsttime)
+              accessMode = HDF5::File::FileAccessMode::open;
 
-          HDF5::File        file_h5(FILE_NAME, accessMode, mpi_communicator);
-          const std::string DATASET_NAME("externalPressure_" +
-                                         std::to_string(cycle));
+            HDF5::File        file_h5(FILE_NAME, accessMode, mpi_communicator);
+            const std::string DATASET_NAME("externalPressure_" +
+                                           std::to_string(cycle));
 
-          HDF5::DataSet dataset =
-            file_h5.create_dataset<double>(DATASET_NAME,
-                                           {inclusions.get_n_vessels()});
+            HDF5::DataSet dataset =
+              file_h5.create_dataset<double>(DATASET_NAME,
+                                             {inclusions.get_n_vessels()});
 
-          std::vector<double> data_to_write;
-          // std::vector<hsize_t> coordinates;
-          data_to_write.reserve(pressure.locally_owned_size());
-          // coordinates.reserve(pressure.locally_owned_size());
-          for (const auto &el : locally_owned_vessels)
-            {
-              // coordinates.emplace_back(el);
-              data_to_write.emplace_back(pressure[el]);
-            }
-          if (pressure.locally_owned_size() > 0)
-            {
-              hsize_t prefix = 0;
-              hsize_t los    = pressure.locally_owned_size();
-              int     ierr   = MPI_Exscan(&los,
-                                    &prefix,
-                                    1,
-                                    MPI_UNSIGNED_LONG_LONG,
-                                    MPI_SUM,
-                                    mpi_communicator);
-              AssertThrowMPI(ierr);
+            std::vector<double> data_to_write;
+            // std::vector<hsize_t> coordinates;
+            data_to_write.reserve(pressure.locally_owned_size());
+            // coordinates.reserve(pressure.locally_owned_size());
+            for (const auto &el : locally_owned_vessels)
+              {
+                // coordinates.emplace_back(el);
+                data_to_write.emplace_back(pressure[el]);
+              }
+            if (pressure.locally_owned_size() > 0)
+              {
+                hsize_t prefix = 0;
+                hsize_t los    = pressure.locally_owned_size();
+                int     ierr   = MPI_Exscan(&los,
+                                      &prefix,
+                                      1,
+                                      MPI_UNSIGNED_LONG_LONG,
+                                      MPI_SUM,
+                                      mpi_communicator);
+                AssertThrowMPI(ierr);
 
-              std::vector<hsize_t> offset = {prefix, 1};
-              std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
-              // data.write_selection(data_to_write, coordinates);
-              dataset.write_hyperslab(data_to_write, offset, count);
-            }
-          else
-            dataset.write_none<int>();
-        }
-      else
-        {
-          pcout
-            << "output_pressure file for time dependent simulation not implemented"
-            << std::endl;
-        }
+                std::vector<hsize_t> offset = {prefix, 1};
+                std::vector<hsize_t> count = {pressure.locally_owned_size(), 1};
+                // data.write_selection(data_to_write, coordinates);
+                dataset.write_hyperslab(data_to_write, offset, count);
+              }
+            else
+              dataset.write_none<int>();
+          }
+        else
+          {
+            pcout
+              << "output_pressure file for time dependent simulation not implemented"
+              << std::endl;
+          }
     }
   else
     {
