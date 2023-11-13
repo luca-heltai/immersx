@@ -1,3 +1,13 @@
+/**
+ * @brief Header file that includes all necessary headers and defines the Inclusions class.
+ *
+ * This class represents a set of inclusions in a domain. It stores the
+ * positions of the inclusions, their radii, and their Fourier coefficients. It
+ * also provides methods to initialize the inclusions, compute their normals,
+ * and extract their degrees of freedom.
+ *
+ * @tparam spacedim The dimension of the space in which the inclusions are embedded.
+ */
 #ifndef rdlm_inclusions
 #define rdlm_inclusions
 
@@ -21,10 +31,26 @@
 
 using namespace dealii;
 
+
+/**
+ * @brief Class for handling inclusions in an immersed boundary method.
+ *
+ * This class provides functionality for handling inclusions in an immersed
+ * boundary method. It stores the positions, radii, and Fourier coefficients of
+ * the inclusions, and provides methods for computing their normals, center, and
+ * direction. It also provides methods for initializing the inclusions from a
+ * file, setting up particles for the inclusions, and getting degrees of freedom
+ * associated with each inclusion.
+ */
 template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
+  /**
+   * @brief Class for computing the inclusions of a given mesh.
+   *
+   * @param n_vector_components Number of vector components.
+   */
   Inclusions(const unsigned int n_vector_components = 1)
     : ParameterAcceptor("/Immersed Problem/Immersed inclusions")
     , inclusions_rhs("/Immersed Problem/Immersed inclusions/Boundary data",
@@ -34,16 +60,51 @@ public:
     static_assert(spacedim > 1, "Not implemented in dim = 1");
     add_parameter("Inclusions refinement", n_q_points);
     add_parameter("Inclusions", inclusions);
-    add_parameter("Number of fourier coefficients", n_coefficients);
-    add_parameter("Start index of Fourier coefficients", offset_coefficients);
+    add_parameter(
+      "Number of fourier coefficients",
+      n_coefficients,
+      "This represents the number of scalar harmonic functions used "
+      "for the representation of the data (boundary data or forcing data) "
+      "of the inclusion. The provided input files should contain at least "
+      "a number of entries which is equal to this number multiplied by the "
+      "number of vector components of the problem. Any additional entry is "
+      "ignored by program. If fewer entries are specified, an exception is "
+      "thrown.");
+    add_parameter(
+      "Start index of Fourier coefficients",
+      coefficient_offset,
+      "This allows one to ignore the first few scalar components of the harmonic "
+      "functions used for the representation of the data (boundary data or forcing "
+      "data). This parameter is ignored if you provide a non-empty list of selected "
+      "Fourier coefficients.");
+    add_parameter(
+      "Selection of Fourier coefficients",
+      selected_coefficients,
+      "This allows one to select a subset of the components of the harmonic functions "
+      "used for the representation of the data (boundary data or forcing data). Notice "
+      "that these indices are w.r.t. to the total number of components of the problem, "
+      "that is, number of Fourier coefficients x number of vector components. In "
+      "particular any entry of this list must be in the set "
+      "[0,n_coefficients*n_vector_components). ");
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
     add_parameter("3D 1D discretization", h3D1D);
+
+    auto reset_function = [this]() {
+      this->prm.set("Function expression",
+                    (spacedim == 2 ? "0; 0" : "0; 0; 0"));
+    };
+    inclusions_rhs.declare_parameters_call_back.connect(reset_function);
   }
 
 
   types::global_dof_index
+  /**
+   * Returns the number of degrees of freedom in the system.
+   *
+   * @return The number of degrees of freedom.
+   */
   n_dofs() const
   {
     return inclusions.size() * n_dofs_per_inclusion();
@@ -51,6 +112,11 @@ public:
 
 
   types::global_dof_index
+  /**
+   * Returns the number of particles in the system.
+   *
+   * @return The number of particles in the system.
+   */
   n_particles() const
   {
     return inclusions.size() * n_q_points;
@@ -58,6 +124,11 @@ public:
 
 
   types::global_dof_index
+  /**
+   * @brief Returns the number of inclusions in the mesh.
+   *
+   * @return The number of inclusions in the mesh.
+   */
   n_inclusions() const
   {
     return inclusions.size();
@@ -71,7 +142,8 @@ public:
   unsigned int
   n_dofs_per_inclusion() const
   {
-    return n_coefficients * n_vector_components;
+    // return n_coefficients * n_vector_components;
+    return selected_coefficients.size();
   }
 
   /**
@@ -90,7 +162,6 @@ public:
     normals.resize(n_q_points);
     theta.resize(n_q_points);
     current_support_points.resize(n_q_points);
-    current_fe_values.resize(n_dofs_per_inclusion());
 
     for (unsigned int i = 0; i < n_q_points; ++i)
       {
@@ -99,6 +170,23 @@ public:
         support_points[i][1] = std::sin(theta[i]);
         normals[i]           = support_points[i];
       }
+
+    // Make sure that selected coefficients is the iota vector, when we don't
+    // select anything for backward compatibility.
+    if (selected_coefficients.empty())
+      {
+        selected_coefficients.resize(n_coefficients * n_vector_components);
+        for (unsigned int i = 0; i < n_coefficients * n_vector_components; ++i)
+          selected_coefficients[i] = i;
+      }
+    else
+      {
+        // This is zero when we use the selection, since it is not used.
+        coefficient_offset = 0;
+      }
+
+    // This MUST be here, otherwise n_dofs_per_inclusions() would be wrong.
+    current_fe_values.resize(n_dofs_per_inclusion());
 
     if (inclusions_file != "")
       {
@@ -149,21 +237,25 @@ public:
               {
                 AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
               }
-            // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-            // {
-            //   std::cout << "rank " <<
-            //   Utilities::MPI::this_mpi_process(mpi_communicator)
-            //           << ": Read " << N << " coefficients per " <<
-            //           inclusions.size()
-            //           << " inclusion" << std::endl;
-            // }
-            // MPI_Barrier(MPI_COMM_WORLD);
+            if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+              {
+                std::cout << "rank "
+                          << Utilities::MPI::this_mpi_process(mpi_communicator)
+                          << ": Read " << N << " coefficients per "
+                          << inclusions.size() << " inclusion" << std::endl;
+              }
           }
       }
     check_vessels();
   }
 
 
+  /**
+   * @brief Returns the degrees of freedom indices associated with a given quadrature point.
+   *
+   * @param quadrature_id The global index of the quadrature point.
+   * @return A vector containing the degrees of freedom indices.
+   */
   std::vector<types::global_dof_index>
   get_dof_indices(const types::global_dof_index &quadrature_id) const
   {
@@ -175,12 +267,17 @@ public:
     return dofs;
   }
 
+  /**
+   * @brief Sets up the inclusions particles for the given triangulation.
+   *
+   * @param tria The triangulation to set up the inclusions particles for.
+   */
   void
   setup_inclusions_particles(
     const parallel::distributed::Triangulation<spacedim> &tria)
   {
-    initialize();
     mpi_communicator = tria.get_communicator();
+    initialize();
     compute_rotated_inclusion_data();
 
     inclusions_as_particles.initialize(tria,
@@ -252,8 +349,46 @@ public:
   get_component(const types::global_dof_index &dof_index) const
   {
     AssertIndexRange(dof_index, n_dofs());
-    return dof_index % n_vector_components;
+    // return dof_index % n_vector_components;
+    return selected_coefficients[dof_index % n_dofs_per_inclusion()] %
+           n_vector_components;
   }
+
+
+  /**
+   * @brief Get the ith Fourier component for the given dof index.
+   *
+   * @param dof_index A number in [0,n_dofs())
+   * @return unsigned int The index of the current component
+   */
+  inline unsigned int
+  get_fourier_component(const types::global_dof_index &dof_index) const
+  {
+    AssertIndexRange(dof_index, n_dofs());
+    // return dof_index % n_vector_components;
+    return selected_coefficients[dof_index % n_dofs_per_inclusion()];
+  }
+
+
+  /**
+   * @brief Get the Fourier data for the given local dof index.
+   *
+   * @param inclusion_id A number in [0,n_inclusions())
+   * @param dof_index A number in [0,n_dofs_per_inclusion())
+   * @return unsigned int The index of the current component
+   */
+  inline double
+  get_inclusion_data(const types::global_dof_index &inclusion_id,
+                     const types::global_dof_index &dof_index) const
+  {
+    AssertIndexRange(inclusion_id, n_inclusions());
+    AssertIndexRange(dof_index, n_dofs());
+    // return dof_index % n_vector_components;
+    return get_rotated_inclusion_data(
+      inclusion_id)[get_fourier_component(dof_index)];
+  }
+
+
 
   /**
    * @brief Get the normal
@@ -302,19 +437,46 @@ public:
     const auto q  = particle_id % n_q_points;
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
+    (void)id;
     const auto r = get_radius(id);
-    for (unsigned int c = 0; c < n_coefficients; ++c)
+    (void)r;
+    const auto s0 = 1.0;
+    const auto s1 = std::sqrt(2);
+
+    unsigned int basis_local_id = 0;
+    for (unsigned int basis :
+         selected_coefficients) // 0; basis < n_coefficients *
+                                // n_vector_components;
+                                //++basis)
       {
-        unsigned int omega = (c + offset_coefficients + 1) / 2;
-        const double rho   = std::pow(r, omega);
-        for (unsigned int i = 0; i < n_vector_components; ++i)
-          if ((std::max(c + offset_coefficients, 1u) + 1) % 2 == 0)
-            current_fe_values[c * n_vector_components + i] =
-              rho * std::cos(theta[q] * omega);
-          else
-            current_fe_values[c * n_vector_components + i] =
-              rho * std::sin(theta[q] * omega);
+        const unsigned int fourier_index =
+          basis / n_vector_components + 0; // coefficient_offset;
+        unsigned int omega = (fourier_index + 1) / 2;
+
+        double scaling_factor = (omega == 1 ? 1 : s1);
+
+        if (fourier_index == 0)
+          current_fe_values[basis_local_id] = s0;
+        else if ((fourier_index - 1) % 2 == 0)
+          current_fe_values[basis_local_id] =
+            scaling_factor * std::cos(theta[q] * omega);
+        else
+          current_fe_values[basis_local_id] =
+            scaling_factor * std::sin(theta[q] * omega);
+        ++basis_local_id;
       }
+    // for (unsigned int c = 0; c < n_coefficients; ++c)
+    //   {
+    //     unsigned int omega = (c + coefficient_offset + 1) / 2;
+    //     const double rho   = std::pow(r, omega);
+    //     for (unsigned int i = 0; i < n_vector_components; ++i)
+    //       if ((std::max(c + coefficient_offset, 1u) + 1) % 2 == 0)
+    //         current_fe_values[c * n_vector_components + i] =
+    //           rho * std::cos(theta[q] * omega);
+    //       else
+    //         current_fe_values[c * n_vector_components + i] =
+    //           rho * std::sin(theta[q] * omega);
+    //   }
     return current_fe_values;
   }
 
@@ -358,6 +520,25 @@ public:
       {
         AssertDimension(inclusion.size(), 2 * spacedim + 2);
         return inclusion[2 * spacedim];
+      }
+  }
+
+  /**
+   * @brief Get the measure of the section of the inclusion
+   *
+   * @param inclusion_id
+   * @return double
+   */
+  double
+  get_section_measure(const types::global_dof_index &inclusion_id) const
+  {
+    auto r = get_radius(inclusion_id);
+    if constexpr (spacedim == 2)
+      return 2 * numbers::PI * r;
+    else
+      {
+        auto ds = get_direction(inclusion_id).norm();
+        return 2 * numbers::PI * r * ds;
       }
   }
 
@@ -630,7 +811,7 @@ public:
 
 
   std::vector<double>
-  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id)
+  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id) const
   {
     AssertIndexRange(inclusion_id, inclusions.size());
     if constexpr (spacedim == 2)
@@ -656,10 +837,11 @@ public:
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
   std::vector<std::vector<double>> inclusions;
-  unsigned int                     n_q_points          = 100;
-  unsigned int                     n_coefficients      = 1;
-  unsigned int                     offset_coefficients = 0;
-  double                           h3D1D               = 0.01;
+  unsigned int                     n_q_points         = 100;
+  unsigned int                     n_coefficients     = 0;
+  unsigned int                     coefficient_offset = 0;
+  std::vector<unsigned int>        selected_coefficients;
+  double                           h3D1D = 0.01;
 
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
 
