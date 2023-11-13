@@ -464,21 +464,19 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
   if (inclusions.indices.empty())
     {
-
       inclusions.indices.resize(inclusions.n_dofs_per_inclusion());
-      for (unsigned int i = 0; i < inclusions.n_dofs_per_inclusion(); ++i) 
-      {
-        inclusions.indices[i] = i; 
-      }
-    
-      inclusions.offset_coefficients= inclusions.offset_coefficients;
-    
+      for (unsigned int i = 0; i < inclusions.n_dofs_per_inclusion(); ++i)
+        {
+          inclusions.indices[i] = i;
+        }
+
+      inclusions.coefficient_offset = inclusions.coefficient_offset;
     }
   else
-  {
-    inclusions.indices=inclusions.indices;
-    inclusions.offset_coefficients=0;
-  }
+    {
+      inclusions.indices            = inclusions.indices;
+      inclusions.coefficient_offset = 0;
+    }
 
   auto particle = inclusions.inclusions_as_particles.begin();
   while (particle != inclusions.inclusions_as_particles.end())
@@ -517,11 +515,12 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
               const auto &inclusion_fe_values = inclusions.get_fe_values(id);
               const auto &real_q              = p->get_location();
               const auto  ds                  = inclusions.get_JxW(id);
-              
+
 
               // Coupling and inclusions matrix
-              for (unsigned int j :inclusions.indices )//= 0; j < inclusions.indices.size();
-                   //++j)
+              for (unsigned int j :
+                   inclusions.indices) //= 0; j < inclusions.indices.size();
+                                       //++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     {
@@ -536,8 +535,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                     }
                   if (inclusions.data_file != "")
                     {
-                      
-                      if (inclusions.inclusions_data[inclusion_id].size()+1 > j)
+                      if (inclusions.inclusions_data[inclusion_id].size() + 1 >
+                          j)
                         {
                           auto temp =
                             inclusion_fe_values[j] * ds /
@@ -1031,7 +1030,7 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
   if (par.output_pressure == false)
     return;
   TimerOutput::Scope t(computing_timer, "Postprocessing: Output Pressure");
-  if (inclusions.n_inclusions() > 0 && inclusions.offset_coefficients == 1 &&
+  if (inclusions.n_inclusions() > 0 && inclusions.coefficient_offset == 1 &&
       inclusions.n_coefficients >= 2)
     {
       const auto locally_owned_vessels =
