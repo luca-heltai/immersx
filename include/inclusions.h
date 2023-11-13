@@ -62,7 +62,7 @@ public:
     add_parameter("Inclusions", inclusions);
     add_parameter("Number of fourier coefficients", n_coefficients);
     add_parameter("indices", indices);
-    add_parameter("Start index of Fourier coefficients", offset_coefficients);
+    add_parameter("Start index of Fourier coefficients", coefficient_offset);
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
@@ -132,7 +132,7 @@ public:
                 ExcMessage(
                   "Refinement of inclusions must be greater than zero."));
     AssertThrow(n_coefficients > 0,
-               ExcMessage(
+                ExcMessage(
                   "Number of coefficients must be greater than zero."));
     support_points.resize(n_q_points);
     normals.resize(n_q_points);
@@ -365,11 +365,12 @@ public:
     const auto s0 = 1.0;
     const auto s1 = std::sqrt(2);
 
-    for (unsigned int basis :indices)// 0; basis < n_coefficients * n_vector_components;
-         //++basis)
+    for (unsigned int basis :
+         indices) // 0; basis < n_coefficients * n_vector_components;
+                  //++basis)
       {
         const unsigned int fourier_index =
-          basis / n_vector_components + 0; //offset_coefficients;
+          basis / n_vector_components + 0; // coefficient_offset;
         unsigned int omega = (fourier_index + 1) / 2;
 
         double scaling_factor = (omega == 1 ? 1 : s1);
@@ -385,10 +386,10 @@ public:
       }
     // for (unsigned int c = 0; c < n_coefficients; ++c)
     //   {
-    //     unsigned int omega = (c + offset_coefficients + 1) / 2;
+    //     unsigned int omega = (c + coefficient_offset + 1) / 2;
     //     const double rho   = std::pow(r, omega);
     //     for (unsigned int i = 0; i < n_vector_components; ++i)
-    //       if ((std::max(c + offset_coefficients, 1u) + 1) % 2 == 0)
+    //       if ((std::max(c + coefficient_offset, 1u) + 1) % 2 == 0)
     //         current_fe_values[c * n_vector_components + i] =
     //           rho * std::cos(theta[q] * omega);
     //       else
@@ -755,9 +756,9 @@ public:
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
 
   std::vector<std::vector<double>> inclusions;
-  unsigned int                     n_q_points          = 100;
-  unsigned int                     n_coefficients      = 0;
-  unsigned int                     offset_coefficients = 0;
+  unsigned int                     n_q_points         = 100;
+  unsigned int                     n_coefficients     = 0;
+  unsigned int                     coefficient_offset = 0;
   std::vector<unsigned int>        selected_coefficients;
   std::vector<unsigned int>        indices;
   double                           h3D1D = 0.01;
