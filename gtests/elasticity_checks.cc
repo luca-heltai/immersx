@@ -30,7 +30,11 @@ template <int dim>
 void
 get_default_test_parameters(ElasticityProblemParameters<dim> &par)
 {
-  par.output_directory    = ".";
+#ifdef DEBUG
+  par.output_directory = "tests_debug_output";
+#else
+  par.output_directory = "tests_release_output";
+#endif
   par.output_name         = "solution";
   par.fe_degree           = 1;
   par.initial_refinement  = 5;
@@ -43,13 +47,13 @@ get_default_test_parameters(ElasticityProblemParameters<dim> &par)
   par.n_refinement_cycles = 1;
   par.max_cells           = 20000;
 
-  par.Lame_mu     = 1;
-  par.Lame_lambda = 1;
+  par.default_material_properties.Lame_mu     = 1;
+  par.default_material_properties.Lame_lambda = 1;
 
-  par.inner_control.set_reduction(1e-12);
-  par.inner_control.set_tolerance(1e-12);
-  par.outer_control.set_reduction(1e-12);
-  par.outer_control.set_tolerance(1e-12);
+  par.displacement_solver_control.set_reduction(1e-12);
+  par.displacement_solver_control.set_tolerance(1e-12);
+  par.reduced_mass_solver_control.set_reduction(1e-12);
+  par.reduced_mass_solver_control.set_tolerance(1e-12);
 }
 
 
@@ -159,6 +163,13 @@ TEST(ElasticityTest, DisplacementXScaled)
         end
       end
     end
+    subsection Solvers
+      subsection Displacement
+        set Max steps     = 100
+        set Reduction     = 1.e-9
+        set Tolerance     = 1.e-9
+      end
+    end
   )");
 
   ParameterAcceptor::parse_all_parameters();
@@ -230,7 +241,7 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .5
         set Number of fourier coefficients      = 3
-        set Data file                           = ../data_file_1d.txt
+        set Data file                           = ../data/tests/data_file_1d.txt
         set Inclusions refinement               = 100
       end
     end
@@ -251,11 +262,11 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
 
 
   // for small radius you might need SolverFGMRES<LA::MPI::Vector>
-  SolverCG<LA::MPI::Vector> cg_M(problem.par.inner_control);
+  SolverCG<LA::MPI::Vector> cg_M(problem.par.displacement_solver_control);
   auto                      invM = inverse_operator(M, cg_M);
 
 
-  inclusions = B * displacement;
+  inclusions = invM * B * displacement;
 
   inclusions.print(std::cout);
 }
@@ -355,19 +366,38 @@ subsection Immersed Problem
     set Number of fourier coefficients      = 2
     set Selection of Fourier coefficients   = 3,7
   end
-  subsection Physical constants
-    set Lame lambda = 50
-    set Lame mu = 2
+  subsection Material properties
+    set Material tags by material id =
+    subsection default
+      set Lame lambda     = 50.0
+      set Lame mu         = 2.0
+    end
   end
-  subsection Solver
-    subsection Inner control
-      set Reduction     = 1.e-10
-      set Tolerance     = 1.e-12
-    end
-    subsection Outer control
-      set Reduction     = 1.e-10
-      set Tolerance     = 1.e-12
-    end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 1000
+    set Reduction     = 1.e-10
+    set Tolerance     = 1.e-10
+  end
+  subsection Displacement
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 1000
+    set Reduction     = 1.e-8
+    set Tolerance     = 1.e-10
+  end
+  subsection Reduced mass
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 100
+    set Reduction     = 1.e-10
+    set Tolerance     = 1.e-12
   end
 end
     )");
@@ -376,6 +406,6 @@ end
   problem.run();
 
   const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.71201, tol);
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 4.60961, tol);
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6763217, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 81.839722544, tol);
 }

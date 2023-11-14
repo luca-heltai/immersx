@@ -1,0 +1,128 @@
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  = static_convergence/errors_neumann.txt
+  set Error precision                  = 8
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0,2,3
+  set FE degree                          = 1
+  set Initial refinement                 = 1
+  set Neumann boundary ids               = 1
+  set Normal flux boundary ids           =
+  set Output directory                   = static_convergence
+  set Output name                        = neumann
+  set Output pressure                    = false
+  set Output results also before solving = false
+  set Pressure coupling                  = false
+  set Weak Dirichlet boundary ids        = 
+  set Weak Dirichlet penalty coefficient = 1000
+  subsection Dirichlet boundary conditions
+    set Function constants   =
+    set Function expression  = x*y*(x - 1)*(y - 1) + sin(pi*x)*sin(pi*y); x*y*(x - 1)*(y - 1) + sin(pi*y)*cos(pi*x)
+    set Modulation frequency = 0
+    set Variable names       = x,y,t
+  end
+  subsection Exact solution
+    set Function constants  =
+    set Function expression = x*y*(x - 1)*(y - 1) + sin(pi*x)*sin(pi*y); x*y*(x - 1)*(y - 1) + sin(pi*y)*cos(pi*x)
+    set Variable names      = x,y,t
+    set Weight expression   = 1.
+  end
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Immersed inclusions
+    set Bounding boxes extraction level   = 1
+    set Data file                         =
+    set Inclusions                        =
+    set Inclusions file                   =
+    set Inclusions refinement             = 100
+    set Number of fourier coefficients    = 1
+    set Reference inclusion data          =
+    set Selection of Fourier coefficients =
+    subsection Boundary data
+      set Function constants   =
+      set Function expression  = 0; 0
+      set Modulation frequency = 0
+      set Variable names       = x,y,t
+    end
+  end
+  subsection Material properties
+    set Material tags by material id =
+    subsection default
+      set Density         = 0
+      set Lame lambda     = 2
+      set Lame mu         = 1
+      set Rayleigh alpha  = 0
+      set Rayleigh beta   = 0
+      set Viscosity eta   = 0
+    end
+  end
+  subsection Neumann boundary conditions
+    set Function constants   =
+    set Function expression  = 4*x^2*y - 2*x^2 + 8*x*y^2 - 12*x*y + 2*x - 4*y^2 + 4*y + 4*pi*sin(pi*y)*cos(pi*x) + 2*pi*cos(pi*x)*cos(pi*y); 2*x^2*y - x^2 + 2*x*y^2 - 4*x*y + x - y^2 + y + sqrt(2)*pi*sin(pi*x)*cos(pi*(y + 1/4))
+    set Modulation frequency = 0
+    set Variable names       = x,y,t
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 20000
+    set Number of refinement cycles = 6
+    set Refinement fraction         = 0.3
+    set Strategy                    = global
+  end
+  subsection Right hand side
+    set Function constants   =
+    set Function expression  = -2*x^2 - 12*x*y + 8*x - 8*y^2 + 14*y + 5*pi^2*sin(pi*x)*sin(pi*y) + 3*pi^2*sin(pi*x)*cos(pi*y) - 3; -8*x^2 - 12*x*y + 14*x - 2*y^2 + 8*y + 5*pi^2*sin(pi*y)*cos(pi*x) - 3*pi^2*cos(pi*x)*cos(pi*y) - 3
+    set Modulation frequency = 0
+    set Variable names       = x,y,t
+  end
+  subsection Solver
+    subsection Augmented Lagrange
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-10
+    end
+    subsection Displacement
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-10
+    end
+    subsection Reduced mass
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-10
+    end
+    subsection Schur complement
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-10
+    end
+  end
+  subsection Time dependency
+    set Final time    = 0
+    set Initial time  = 0
+    set Newmark beta  = 0.25
+    set Newmark gamma = 0.5
+    set Time step     = 0.005
+  end
+end

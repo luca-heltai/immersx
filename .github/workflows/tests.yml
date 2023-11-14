@@ -2,88 +2,85 @@ name: GitHub CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 jobs:
   debug:
-
     runs-on: ubuntu-latest
-    container: 
+    container:
       image: dealii/dealii:v9.6.0-noble
       options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
-    
+
     steps:
-    
-    - uses: actions/checkout@v2
-    
-    - uses: robinraju/release-downloader@v1
-      with:
-        tag: 'v0.2'
-        fileName: 'lib1dsolver.a'
+      - uses: actions/checkout@v2
 
-    - name: Build debug
-      run: |
-         ls lib1dsolver.a
-         rm -rf build_linux_debug
-         mkdir build_linux_debug
-         cd build_linux_debug
-         cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp
-         ninja
+      - uses: robinraju/release-downloader@v1
+        with:
+          tag: "v0.2"
+          fileName: "lib1dsolver.a"
 
-    - name: CTest debug
-      run: |
-         cd build_linux_debug
-         ctest -N
-         ctest --output-on-failure
+      - name: Build debug
+        run: |
+          ls lib1dsolver.a
+          rm -rf build_linux_debug
+          mkdir build_linux_debug
+          cd build_linux_debug
+          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp
+          ninja
 
-    - name: Serial gtests debug
-      run: |
-         cd build_linux_debug
-         ./gtests/gtests_debug
+      - name: CTest debug
+        run: |
+          cd build_linux_debug
+          ctest -N
+          ctest --output-on-failure
 
-    - name: Parallel gtests debug
-      run: |
-         cd build_linux_debug
-         mpirun -n 2 ./gtests/gtests_debug --gtest_filter="*.MPI_*"
+      - name: Serial gtests debug
+        run: |
+          cd build_linux_debug
+          ./gtests/gtests_debug
+
+      - name: Parallel gtests debug
+        run: |
+          cd build_linux_debug
+          mpirun -n 2 ./gtests/gtests_debug --gtest_filter="*.MPI_*"
 
   release:
-
     runs-on: ubuntu-latest
-    container: 
+    container:
       image: dealii/dealii:v9.6.0-noble
       options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-    - uses: robinraju/release-downloader@v1
-      with:
-        tag: 'v0.1'
-        fileName: 'lib1dsolver.a'
+      - uses: robinraju/release-downloader@v1
+        with:
+          tag: "v0.1"
+          fileName: "lib1dsolver.a"
 
-    - name: Build release
-      run: |
-       ls lib1dsolver.a
-       rm -rf build_linux_release
-       mkdir build_linux_release
-       cd build_linux_release
-       cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp
-       ninja
+      - name: Build release
+        run: |
+          ls lib1dsolver.a
+          rm -rf build_linux_release
+          mkdir build_linux_release
+          cd build_linux_release
+          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp
+          ninja
 
-    - name: CTest release
-      run: |
-       cd build_linux_release
-       ctest -N
-       ctest --output-on-failure
+      - name: CTest release
+        run: |
+          cd build_linux_release
+          ctest -N
+          ctest --output-on-failure
 
-    - name: Serial gtests release
-      run: |
-       cd build_linux_release
-       ./gtests/gtests
+      - name: Serial gtests release
+        run: |
+          cd build_linux_release
+          ./gtests/gtests
 
-    - name: Parallel gtests release
-      run: |
-       cd build_linux_release
-       mpirun -n 2 ./gtests/gtests --gtest_filter="*.MPI_*"
+      - name: Parallel gtests release
+        run: |
+          cd build_linux_release
+          mpirun -n 2 ./gtests/gtests --gtest_filter="*.MPI_*"

@@ -285,10 +285,10 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
           const auto [immersed_cell_id, immersed_q, section_q] =
             this->particle_id_to_cell_and_qpoint_indices(p.get_id());
 
-          const auto &background_p = p.get_reference_location();
-          const auto  immersed_p   = this->get_quadrature().point(immersed_q);
-          const auto &JxW          = p.get_properties()[0];
-          last_cell_id             = immersed_cell_id;
+          const auto  &background_p = p.get_reference_location();
+          const auto   immersed_p   = this->get_quadrature().point(immersed_q);
+          const double JxW          = p.get_properties()[0];
+          last_cell_id              = immersed_cell_id;
           if (immersed_cell_id != previous_cell_id &&
               previous_cell_id != numbers::invalid_unsigned_int)
             {

@@ -106,6 +106,10 @@ public:
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
 
+    enter_subsection("Boundary data");
+    add_parameter("Modulation frequency", modulation_frequency);
+    leave_subsection();
+
     auto reset_function = [this]() {
       this->prm.set("Function expression",
                     (spacedim == 2 ? "0; 0" : "0; 0; 0"));
@@ -982,8 +986,9 @@ public:
     this->n_coefficients = n_coefficients;
   }
 
-
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
+  double modulation_frequency = 0.0;
+
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
   std::vector<std::vector<double>>     inclusions;
 
