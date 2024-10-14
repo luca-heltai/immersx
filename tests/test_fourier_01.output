@@ -9,7 +9,7 @@ DEAL::sin(theta)*phi_0: -9.54098e-18
 DEAL::sin(theta)*phi_1: -9.54098e-18
 DEAL::sin(theta)*phi_2: 0.00000
 DEAL::integral 0: 3.14159
-DEAL::integral 1: 1.57080
+DEAL::integral 1: 3.14159
 DEAL::integral 2: 0.00000
 DEAL::cos(theta)*phi_0: 7.63278e-17
 DEAL::cos(theta)*phi_1: 3.81639e-17
