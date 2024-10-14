@@ -129,9 +129,12 @@ ElasticityProblem<dim, spacedim>::make_grid()
     {
       GridIn<spacedim> gi;
       gi.attach_triangulation(tria);
-      // std::ifstream infile(par.name_of_grid);
-      const std::string infile(par.name_of_grid);
+#ifdef DEAL_II_WITH_GMSH_API
+      std::string infile(par.name_of_grid);
       Assert(!infile.empty(), ExcIO());
+#else
+      std::ifstream infile(par.name_of_grid);
+#endif
       try
         {
           gi.read_msh(infile);
