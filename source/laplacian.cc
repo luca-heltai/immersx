@@ -135,7 +135,7 @@ PoissonProblem<dim, spacedim>::setup_dofs()
   relevant_dofs.resize(2);
   DoFTools::extract_locally_relevant_dofs(dh, relevant_dofs[0]);
   {
-    constraints.reinit(relevant_dofs[0]);
+    constraints.reinit(owned_dofs[0], relevant_dofs[0]);
     DoFTools::make_hanging_node_constraints(dh, constraints);
     for (const auto id : par.dirichlet_ids)
       VectorTools::interpolate_boundary_values(dh, id, par.bc, constraints);
@@ -183,7 +183,7 @@ PoissonProblem<dim, spacedim>::setup_dofs()
       DynamicSparsityPattern idsp(inclusions.n_dofs(),
                                   inclusions.n_dofs(),
                                   relevant_dofs[1]);
-      for (const auto i : owned_dofs[1])
+      for (const auto i : relevant_dofs[1])
         idsp.add(i, i);
 
       SparsityTools::distribute_sparsity_pattern(idsp,
@@ -297,8 +297,10 @@ PoissonProblem<dim, spacedim>::assemble_coupling_sparsity(
                                    inclusion_dof_indices_set.end());
 
       constraints.add_entries_local_to_global(dof_indices,
+                                              inclusion_constraints,
                                               inclusion_dof_indices,
                                               dsp);
+
       relevant.add_indices(inclusion_dof_indices.begin(),
                            inclusion_dof_indices.end());
       particle = pic.end();
@@ -322,8 +324,8 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
   FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
                                            inclusions.n_coefficients);
 
-  FullMatrix<double> local_bulk_matrix(fe->n_dofs_per_cell(),
-                                       fe->n_dofs_per_cell());
+  [[maybe_unused]] FullMatrix<double> local_bulk_matrix(fe->n_dofs_per_cell(),
+                                                        fe->n_dofs_per_cell());
 
   FullMatrix<double> local_inclusion_matrix(inclusions.n_coefficients,
                                             inclusions.n_coefficients);
@@ -349,7 +351,6 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
           inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
           local_coupling_matrix   = 0;
           local_inclusion_matrix  = 0;
-          local_bulk_matrix       = 0;
           local_rhs               = 0;
 
           // Extract all points that refer to the same inclusion
@@ -387,10 +388,6 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
           Assert(p == next_p, ExcInternalError());
 
           // Add local matrices to global ones
-          constraints.distribute_local_to_global(local_bulk_matrix,
-                                                 fe_dof_indices,
-                                                 stiffness_matrix);
-
           constraints.distribute_local_to_global(local_coupling_matrix,
                                                  fe_dof_indices,
                                                  inclusion_constraints,
@@ -626,7 +623,9 @@ PoissonProblem<dim, spacedim>::run()
       assemble_coupling();
       solve();
       output_results();
-      par.convergence_table.error_from_exact(dh, solution.block(0), par.bc);
+      par.convergence_table.error_from_exact(dh,
+                                             locally_relevant_solution.block(0),
+                                             par.bc);
       if (cycle != par.n_refinement_cycles - 1)
         refine_and_transfer();
       if (pcout.is_active())
