@@ -41,8 +41,8 @@ PoissonProblem<dim, spacedim>::PoissonProblem(
 
 template <int dim, int spacedim>
 void
-read_grid_and_cad_files(const std::string &           grid_file_name,
-                        const std::string &           ids_and_cad_file_names,
+read_grid_and_cad_files(const std::string            &grid_file_name,
+                        const std::string            &ids_and_cad_file_names,
                         Triangulation<dim, spacedim> &tria)
 {
   GridIn<dim, spacedim> grid_in;
@@ -166,7 +166,9 @@ PoissonProblem<dim, spacedim>::setup_dofs()
         complete_index_set(inclusions.n_coefficients));
 
       coupling_matrix.clear();
-      DynamicSparsityPattern dsp(dh.n_dofs(), inclusions.n_dofs());
+      DynamicSparsityPattern dsp(dh.n_dofs(),
+                                 inclusions.n_dofs(),
+                                 relevant_dofs[0]);
 
       relevant_dofs[1] = assemble_coupling_sparsity(dsp);
       SparsityTools::distribute_sparsity_pattern(dsp,
@@ -178,7 +180,9 @@ PoissonProblem<dim, spacedim>::setup_dofs()
                              dsp,
                              mpi_communicator);
 
-      DynamicSparsityPattern idsp(inclusions.n_dofs(), inclusions.n_dofs());
+      DynamicSparsityPattern idsp(inclusions.n_dofs(),
+                                  inclusions.n_dofs(),
+                                  relevant_dofs[1]);
       for (const auto i : owned_dofs[1])
         idsp.add(i, i);
 
