@@ -27,6 +27,8 @@
 
 #include <deal.II/physics/transformations.h>
 
+#include <boost/algorithm/string.hpp>
+
 #include <fstream>
 
 using namespace dealii;
