@@ -142,6 +142,24 @@ PoissonProblem<dim, spacedim>::setup_dofs()
     constraints.close();
   }
   {
+#ifdef MATRIX_FREE_PATH
+
+    typename MatrixFree<dim, double>::AdditionalData additional_data;
+    additional_data.tasks_parallel_scheme =
+      MatrixFree<dim, double>::AdditionalData::none;
+    additional_data.mapping_update_flags =
+      (update_gradients | update_JxW_values | update_quadrature_points);
+    std::shared_ptr<MatrixFree<dim, double>> system_mf_storage(
+      new MatrixFree<dim, double>());
+    system_mf_storage->reinit(MappingQ1<dim, spacedim>(),
+                              dh,
+                              constraints,
+                              QGauss<1>(fe->degree + 1),
+                              additional_data);
+    stiffness_matrix.initialize(system_mf_storage);
+
+#else
+
     stiffness_matrix.clear();
     DynamicSparsityPattern dsp(relevant_dofs[0]);
     DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
@@ -153,6 +171,8 @@ PoissonProblem<dim, spacedim>::setup_dofs()
                             owned_dofs[0],
                             dsp,
                             mpi_communicator);
+
+#endif
   }
   inclusion_constraints.close();
 
@@ -197,8 +217,14 @@ PoissonProblem<dim, spacedim>::setup_dofs()
     }
 
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
+
+#ifdef MATRIX_FREE_PATH
+  system_rhs.reinit(owned_dofs, relevant_dofs, mpi_communicator);
+  solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
+#else
   system_rhs.reinit(owned_dofs, mpi_communicator);
   solution.reinit(owned_dofs, mpi_communicator);
+#endif
 
   pcout << "   Number of degrees of freedom: " << owned_dofs[0].size() << " + "
         << owned_dofs[1].size()
@@ -206,6 +232,8 @@ PoissonProblem<dim, spacedim>::setup_dofs()
         << owned_dofs[1].n_elements() << ")" << std::endl;
 }
 
+
+#ifndef MATRIX_FREE_PATH
 template <int dim, int spacedim>
 void
 PoissonProblem<dim, spacedim>::assemble_poisson_system()
@@ -213,7 +241,6 @@ PoissonProblem<dim, spacedim>::assemble_poisson_system()
   stiffness_matrix = 0;
   coupling_matrix  = 0;
   system_rhs       = 0;
-  TimerOutput::Scope               t(computing_timer, "Assemble Stiffness");
   FEValues<spacedim>               fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
@@ -258,7 +285,7 @@ PoissonProblem<dim, spacedim>::assemble_poisson_system()
   stiffness_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
 }
-
+#endif
 
 
 template <int dim, int spacedim>
@@ -402,34 +429,88 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
       particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
+#ifndef MATRIX_FREE_PATH
   stiffness_matrix.compress(VectorOperation::add);
+#endif
   inclusion_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
 }
 
+
+#ifdef MATRIX_FREE_PATH
+template <int dim, int spacedim>
+void
+PoissonProblem<dim, spacedim>::assemble_rhs()
+{
+  stiffness_matrix.get_matrix_free()->initialize_dof_vector(solution.block(0));
+  stiffness_matrix.get_matrix_free()->initialize_dof_vector(
+    system_rhs.block(0));
+  system_rhs        = 0;
+  solution.block(0) = 0;
+  constraints.distribute(solution.block(0));
+  solution.block(0).update_ghost_values();
+
+  FEEvaluation<dim, -1> phi(*stiffness_matrix.get_matrix_free());
+  for (unsigned int cell = 0;
+       cell < stiffness_matrix.get_matrix_free()->n_cell_batches();
+       ++cell)
+    {
+      phi.reinit(cell);
+      phi.read_dof_values_plain(solution.block(0));
+      phi.evaluate(EvaluationFlags::gradients);
+      for (unsigned int q = 0; q < phi.n_q_points; ++q)
+        {
+          const Point<dim, VectorizedArray<double>> p_vect =
+            phi.quadrature_point(q);
+
+          VectorizedArray<double> f_value = 0.0;
+          for (unsigned int v = 0; v < VectorizedArray<double>::size(); ++v)
+            {
+              Point<dim> p;
+              for (unsigned int d = 0; d < dim; ++d)
+                p[d] = p_vect[d][v];
+              f_value[v] = par.rhs.value(p);
+            }
+          phi.submit_gradient(-phi.get_gradient(q), q);
+          phi.submit_value(f_value, q);
+        }
+      phi.integrate(EvaluationFlags::values | EvaluationFlags::gradients);
+      phi.distribute_local_to_global(system_rhs.block(0));
+    }
+
+  system_rhs.compress(VectorOperation::add);
+}
+#endif
 
 
 template <int dim, int spacedim>
 void
 PoissonProblem<dim, spacedim>::solve()
 {
-  TimerOutput::Scope       t(computing_timer, "Solve");
-  LA::MPI::PreconditionAMG prec_A;
-  {
-    LA::MPI::PreconditionAMG::AdditionalData data;
-#ifdef USE_PETSC_LA
-    data.symmetric_operator = true;
+  TimerOutput::Scope t(computing_timer, "Solve");
+
+  SolverCG<VectorType> cg_stiffness(par.inner_control);
+#ifdef MATRIX_FREE_PATH
+  using Payload = dealii::internal::LinearOperatorImplementation::EmptyPayload;
+#else
+  using Payload =
+    TrilinosWrappers::internal::LinearOperatorImplementation::TrilinosPayload;
+//   LA::MPI::PreconditionAMG prec_A;
+//   {
+//     LA::MPI::PreconditionAMG::AdditionalData data;
+// #  ifdef USE_PETSC_LA
+//     data.symmetric_operator = true;
+// #  endif
+//     prec_A.initialize(stiffness_matrix, data);
+//   }
+// const auto amgA = linear_operator<VectorType, VectorType>(A, prec_A);
+// invA            = inverse_operator(A, cg_stiffness, amgA);
 #endif
-    prec_A.initialize(stiffness_matrix, data);
-  }
+  LinearOperator<VectorType, VectorType, Payload> A;
+  auto                                            invA = A;
+  A    = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
+  invA = inverse_operator(A, cg_stiffness);
 
-  const auto A    = linear_operator<LA::MPI::Vector>(stiffness_matrix);
-  auto       invA = A;
-
-  const auto amgA = linear_operator(A, prec_A);
-
-  SolverCG<LA::MPI::Vector> cg_stiffness(par.inner_control);
-  invA = inverse_operator(A, cg_stiffness, amgA);
 
   // Some aliases
   auto &u      = solution.block(0);
@@ -444,17 +525,19 @@ PoissonProblem<dim, spacedim>::solve()
     }
   else
     {
-      const auto Bt = linear_operator<LA::MPI::Vector>(coupling_matrix);
-      const auto B  = transpose_operator(Bt);
-      const auto C  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+      const auto Bt =
+        linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
+      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+      const auto C =
+        linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
       // Schur complement
       const auto S = B * invA * Bt;
 
       // Schur complement preconditioner
-      auto                      invS = S;
-      SolverCG<LA::MPI::Vector> cg_schur(par.outer_control);
-      invS = inverse_operator(S, cg_schur);
+      auto                 invS = S;
+      SolverCG<VectorType> cg_schur(par.outer_control);
+      invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
 
       pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
             << std::endl;
@@ -474,6 +557,7 @@ PoissonProblem<dim, spacedim>::solve()
         << " iterations." << std::endl;
   constraints.distribute(u);
   inclusion_constraints.distribute(lambda);
+  solution.update_ghost_values();
   locally_relevant_solution = solution;
 }
 
@@ -509,8 +593,7 @@ PoissonProblem<dim, spacedim>::refine_and_transfer()
     for (const auto &cell : tria.active_cell_iterators())
       cell->set_refine_flag();
 
-  parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector> transfer(
-    dh);
+  parallel::distributed::SolutionTransfer<spacedim, VectorType> transfer(dh);
   tria.prepare_coarsening_and_refinement();
   inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
   transfer.prepare_for_coarsening_and_refinement(
@@ -556,7 +639,8 @@ PoissonProblem<dim, spacedim>::output_solution() const
 //   particles_out.build_patches(inclusions.inclusions_as_particles);
 //   const std::string filename =
 //     par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
-//   particles_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+//   particles_out.write_vtu_in_parallel(par.output_directory + "/" +
+//   filename,
 //                                       mpi_communicator);
 //   return filename;
 // }
@@ -619,7 +703,11 @@ PoissonProblem<dim, spacedim>::run()
       setup_dofs();
       if (par.output_results_before_solving)
         output_results();
+#ifdef MATRIX_FREE_PATH
+      assemble_rhs();
+#else
       assemble_poisson_system();
+#endif
       assemble_coupling();
       solve();
       output_results();
@@ -636,5 +724,7 @@ PoissonProblem<dim, spacedim>::run()
 
 // Template instantiations
 template class PoissonProblem<2>;
-template class PoissonProblem<2, 3>; // dim != spacedim
+#ifndef MATRIX_FREE_PATH
+template class PoissonProblem<2, 3>;
+#endif
 template class PoissonProblem<3>;
