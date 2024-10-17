@@ -175,6 +175,9 @@ public:
 #ifndef MATRIX_FREE_PATH
   void
   assemble_poisson_system();
+#else
+  void
+                        assemble_rhs();
 #endif
   void
   assemble_coupling();
@@ -225,8 +228,6 @@ private:
   MatrixFreeOperators::LaplaceOperator<dim, -1> stiffness_matrix;
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
-  void
-  assemble_rhs();
 #else
   LA::MPI::SparseMatrix stiffness_matrix;
   using VectorType      = LA::MPI::Vector;
