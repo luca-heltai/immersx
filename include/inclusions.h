@@ -33,6 +33,10 @@
 
 using namespace dealii;
 
+// forward declaration
+template <int dim, typename number>
+class CouplingOperator;
+
 
 /**
  * @brief Class for handling inclusions in an immersed boundary method.
@@ -48,6 +52,9 @@ template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
+  template <int dim, typename number>
+  friend class CouplingOperator;
+
   /**
    * @brief Class for computing the inclusions of a given mesh.
    *
@@ -633,7 +640,6 @@ public:
         center + rotation * (support_points[q] * radius);
     return current_support_points;
   }
-
 
   /**
    * @brief print the inclusions in parallel on a .vtu file
