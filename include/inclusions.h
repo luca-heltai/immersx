@@ -33,9 +33,6 @@
 
 using namespace dealii;
 
-// forward declaration
-template <int dim, typename number>
-class CouplingOperator;
 
 
 /**
@@ -52,7 +49,7 @@ template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
-  template <int dim, typename number>
+  template <int dim, typename number, int n_components>
   friend class CouplingOperator;
 
   /**
