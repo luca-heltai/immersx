@@ -1,5 +1,5 @@
 /**
- * @brief Header file that includes all necessary headers and defines the Inclusions class.
+ * @brief Header with the interface of the CouplingOperator class.
  */
 #ifndef rdlm_mf_utils
 #define rdlm_mf_utils
@@ -7,10 +7,11 @@
 
 #include <deal.II/base/mpi_remote_point_evaluation.h>
 
-#include <deal.II/matrix_free/fe_evaluation.h>
+#include <deal.II/fe/fe_q.h>
+
+#include <deal.II/lac/la_parallel_vector.h>
+
 #include <deal.II/matrix_free/fe_point_evaluation.h>
-#include <deal.II/matrix_free/matrix_free.h>
-#include <deal.II/matrix_free/operators.h>
 
 #include <inclusions.h>
 
@@ -59,13 +60,13 @@ public:
 
 
 private:
-  Utilities::MPI::RemotePointEvaluation<dim> rpe;
-  const Mapping<dim>                        *mapping;
-  const FiniteElement<dim>                  *fe;
-  const DoFHandler<dim>                     *dof_handler;
-  const Inclusions<dim>                     *inclusions;
-  const AffineConstraints<number>           *constraints;
-  const unsigned int                         n_coefficients;
+  Utilities::MPI::RemotePointEvaluation<dim>       rpe;
+  ObserverPointer<const Mapping<dim>>              mapping;
+  ObserverPointer<const FiniteElement<dim>>        fe;
+  ObserverPointer<const DoFHandler<dim>>           dof_handler;
+  ObserverPointer<const Inclusions<dim>>           inclusions;
+  ObserverPointer<const AffineConstraints<number>> constraints;
+  const unsigned int                               n_coefficients;
 };
 
 
