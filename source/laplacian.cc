@@ -525,9 +525,22 @@ PoissonProblem<dim, spacedim>::solve()
     }
   else
     {
+#ifdef MATRIX_FREE_PATH
+      auto Bt =
+        linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
+      Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
+        vec.reinit(owned_dofs[0], relevant_dofs[0], mpi_communicator);
+      };
+      Bt.reinit_domain_vector = [this](VectorType &vec, const bool) {
+        vec.reinit(owned_dofs[1], relevant_dofs[1], mpi_communicator);
+      };
+
+      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+#else
       const auto Bt =
         linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
       const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+#endif
       const auto C =
         linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
@@ -697,9 +710,9 @@ PoissonProblem<dim, spacedim>::run()
   print_parameters();
   make_grid();
   setup_fe();
-  inclusions.setup_inclusions_particles(tria);
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
+      inclusions.setup_inclusions_particles(tria);
       setup_dofs();
       if (par.output_results_before_solving)
         output_results();
@@ -709,6 +722,12 @@ PoissonProblem<dim, spacedim>::run()
       assemble_poisson_system();
 #endif
       assemble_coupling();
+#ifdef MATRIX_FREE_PATH
+      MappingQ1<dim> mapping;
+      coupling_operator = std::make_unique<CouplingOperator<dim, double>>(
+        inclusions, dh, constraints, mapping, *fe);
+#endif
+      // return;
       solve();
       output_results();
       par.convergence_table.error_from_exact(dh,

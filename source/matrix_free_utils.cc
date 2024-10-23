@@ -27,7 +27,7 @@ CouplingOperator<dim, number, n_components>::CouplingOperator(
   : rpe{{1e-9, true, inclusions_.rtree_extraction_level, {}}}
   , n_coefficients{inclusions_.n_coefficients}
 {
-  auto parallel_triangulation =
+  [[maybe_unused]] auto parallel_triangulation =
     dynamic_cast<const parallel::distributed::Triangulation<dim, dim> *>(
       &dof_handler_.get_triangulation());
   Assert((parallel_triangulation != nullptr),
