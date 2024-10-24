@@ -723,8 +723,8 @@ PoissonProblem<dim, spacedim>::run()
 #endif
       assemble_coupling();
 #ifdef MATRIX_FREE_PATH
-      MappingQ1<dim> mapping;
-      coupling_operator = std::make_unique<CouplingOperator<dim, double>>(
+      MappingQ1<spacedim> mapping;
+      coupling_operator = std::make_unique<CouplingOperator<spacedim, double>>(
         inclusions, dh, constraints, mapping, *fe);
 #endif
       // return;
