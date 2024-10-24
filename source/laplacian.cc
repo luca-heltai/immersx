@@ -144,14 +144,14 @@ PoissonProblem<dim, spacedim>::setup_dofs()
   {
 #ifdef MATRIX_FREE_PATH
 
-    typename MatrixFree<dim, double>::AdditionalData additional_data;
+    typename MatrixFree<spacedim, double>::AdditionalData additional_data;
     additional_data.tasks_parallel_scheme =
-      MatrixFree<dim, double>::AdditionalData::none;
+      MatrixFree<spacedim, double>::AdditionalData::none;
     additional_data.mapping_update_flags =
       (update_gradients | update_JxW_values | update_quadrature_points);
-    std::shared_ptr<MatrixFree<dim, double>> system_mf_storage(
-      new MatrixFree<dim, double>());
-    system_mf_storage->reinit(MappingQ1<dim, spacedim>(),
+    std::shared_ptr<MatrixFree<spacedim, double>> system_mf_storage(
+      new MatrixFree<spacedim, double>());
+    system_mf_storage->reinit(MappingQ1<spacedim>(),
                               dh,
                               constraints,
                               QGauss<1>(fe->degree + 1),
@@ -450,7 +450,7 @@ PoissonProblem<dim, spacedim>::assemble_rhs()
   constraints.distribute(solution.block(0));
   solution.block(0).update_ghost_values();
 
-  FEEvaluation<dim, -1> phi(*stiffness_matrix.get_matrix_free());
+  FEEvaluation<spacedim, -1> phi(*stiffness_matrix.get_matrix_free());
   for (unsigned int cell = 0;
        cell < stiffness_matrix.get_matrix_free()->n_cell_batches();
        ++cell)
@@ -460,14 +460,14 @@ PoissonProblem<dim, spacedim>::assemble_rhs()
       phi.evaluate(EvaluationFlags::gradients);
       for (unsigned int q = 0; q < phi.n_q_points; ++q)
         {
-          const Point<dim, VectorizedArray<double>> p_vect =
+          const Point<spacedim, VectorizedArray<double>> p_vect =
             phi.quadrature_point(q);
 
           VectorizedArray<double> f_value = 0.0;
           for (unsigned int v = 0; v < VectorizedArray<double>::size(); ++v)
             {
-              Point<dim> p;
-              for (unsigned int d = 0; d < dim; ++d)
+              Point<spacedim> p;
+              for (unsigned int d = 0; d < spacedim; ++d)
                 p[d] = p_vect[d][v];
               f_value[v] = par.rhs.value(p);
             }
@@ -724,7 +724,5 @@ PoissonProblem<dim, spacedim>::run()
 
 // Template instantiations
 template class PoissonProblem<2>;
-#ifndef MATRIX_FREE_PATH
 template class PoissonProblem<2, 3>;
-#endif
 template class PoissonProblem<3>;

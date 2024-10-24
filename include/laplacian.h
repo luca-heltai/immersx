@@ -225,7 +225,7 @@ private:
   LA::MPI::SparseMatrix coupling_matrix;
   LA::MPI::SparseMatrix inclusion_matrix;
 #ifdef MATRIX_FREE_PATH
-  MatrixFreeOperators::LaplaceOperator<dim, -1> stiffness_matrix;
+  MatrixFreeOperators::LaplaceOperator<spacedim, -1> stiffness_matrix;
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
 #else
