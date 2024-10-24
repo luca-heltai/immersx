@@ -10,8 +10,11 @@
 
 #include <deal.II/lac/block_linear_operator.h>
 #include <deal.II/lac/generic_linear_algebra.h>
+#include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
+#define MATRIX_FREE_PATH
+
 #define FORCE_USE_OF_TRILINOS
 namespace LA
 {
@@ -63,6 +66,8 @@ namespace LA
 #include <deal.II/lac/solver_minres.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/vector.h>
+
+#include <deal.II/matrix_free/operators.h>
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
@@ -167,8 +172,13 @@ public:
   setup_fe();
   void
   setup_dofs();
+#ifndef MATRIX_FREE_PATH
   void
   assemble_poisson_system();
+#else
+  void
+                        assemble_rhs();
+#endif
   void
   assemble_coupling();
   void
@@ -204,19 +214,29 @@ private:
   std::unique_ptr<FiniteElement<spacedim>>       fe;
   Inclusions<spacedim>                           inclusions;
   std::unique_ptr<Quadrature<spacedim>>          quadrature;
-  DoFHandler<spacedim>                           dh;
-  std::vector<IndexSet>                          owned_dofs;
-  std::vector<IndexSet>                          relevant_dofs;
+
+  DoFHandler<spacedim>  dh;
+  std::vector<IndexSet> owned_dofs;
+  std::vector<IndexSet> relevant_dofs;
 
   AffineConstraints<double> constraints;
   AffineConstraints<double> inclusion_constraints;
 
-  LA::MPI::SparseMatrix                           stiffness_matrix;
-  LA::MPI::SparseMatrix                           coupling_matrix;
-  LA::MPI::SparseMatrix                           inclusion_matrix;
-  LA::MPI::BlockVector                            solution;
-  LA::MPI::BlockVector                            locally_relevant_solution;
-  LA::MPI::BlockVector                            system_rhs;
+  LA::MPI::SparseMatrix coupling_matrix;
+  LA::MPI::SparseMatrix inclusion_matrix;
+#ifdef MATRIX_FREE_PATH
+  MatrixFreeOperators::LaplaceOperator<spacedim, -1> stiffness_matrix;
+  using VectorType      = LinearAlgebra::distributed::Vector<double>;
+  using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
+#else
+  LA::MPI::SparseMatrix stiffness_matrix;
+  using VectorType      = LA::MPI::Vector;
+  using BlockVectorType = LA::MPI::BlockVector;
+#endif
+
+  BlockVectorType                                 solution;
+  BlockVectorType                                 locally_relevant_solution;
+  BlockVectorType                                 system_rhs;
   std::vector<std::vector<BoundingBox<spacedim>>> global_bounding_boxes;
   unsigned int                                    cycle = 0;
 };
