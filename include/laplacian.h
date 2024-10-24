@@ -76,6 +76,8 @@ namespace LA
 #include <deal.II/opencascade/manifold_lib.h>
 #include <deal.II/opencascade/utilities.h>
 
+#include <matrix_free_utils.h>
+
 #include "inclusions.h"
 
 
@@ -228,6 +230,7 @@ private:
   MatrixFreeOperators::LaplaceOperator<spacedim, -1> stiffness_matrix;
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
+  std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
 #else
   LA::MPI::SparseMatrix stiffness_matrix;
   using VectorType      = LA::MPI::Vector;
