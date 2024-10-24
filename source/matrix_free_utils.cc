@@ -39,17 +39,13 @@ CouplingOperator<dim, number, n_components>::CouplingOperator(
   dof_handler = &dof_handler_;
   inclusions  = &inclusions_;
 
-
-  std::vector<Point<dim>> locations;
-  auto particle = inclusions->inclusions_as_particles.begin();
-  while (particle != inclusions->inclusions_as_particles.end())
-    {
-      locations.push_back(particle->get_location());
-      ++particle;
-    }
-
-
   //  Get all locally owned support points from the inclusions
+  std::vector<Point<dim>> locations(
+    inclusions->inclusions_as_particles.n_locally_owned_particles());
+  const_cast<Particles::ParticleHandler<dim> &>(
+    inclusions->inclusions_as_particles)
+    .get_particle_positions(locations);
+
   rpe.reinit(locations, dof_handler->get_triangulation(), *mapping);
 
   // We should make sure all points have been found. Do this only in debug mode
