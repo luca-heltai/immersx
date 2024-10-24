@@ -181,15 +181,15 @@ PoissonProblem<dim, spacedim>::setup_dofs()
             level_constraints.constrain_dof_to_zero(dof_index);
           level_constraints.close();
 
-          typename MatrixFree<spacedim, double>::AdditionalData
+          typename MatrixFree<spacedim, float>::AdditionalData
             additional_data_level;
           additional_data_level.tasks_parallel_scheme =
-            MatrixFree<spacedim, double>::AdditionalData::none;
+            MatrixFree<spacedim, float>::AdditionalData::none;
           additional_data_level.mapping_update_flags =
             (update_gradients | update_JxW_values | update_quadrature_points);
           additional_data_level.mg_level = level;
-          std::shared_ptr<MatrixFree<spacedim, double>> mg_mf_storage_level =
-            std::make_shared<MatrixFree<spacedim, double>>();
+          std::shared_ptr<MatrixFree<spacedim, float>> mg_mf_storage_level =
+            std::make_shared<MatrixFree<spacedim, float>>();
           mg_mf_storage_level->reinit(mapping,
                                       dh,
                                       level_constraints,
@@ -541,14 +541,14 @@ PoissonProblem<dim, spacedim>::solve()
   LinearOperator<VectorType, VectorType, Payload> A;
   A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
 
-  MGTransferMatrixFree<spacedim, double> mg_transfer(mg_constrained_dofs);
+  MGTransferMatrixFree<spacedim, float> mg_transfer(mg_constrained_dofs);
   mg_transfer.build(dh);
 
   using SmootherType =
     PreconditionChebyshev<LevelMatrixType,
-                          LinearAlgebra::distributed::Vector<double>>;
+                          LinearAlgebra::distributed::Vector<float>>;
   mg::SmootherRelaxation<SmootherType,
-                         LinearAlgebra::distributed::Vector<double>>
+                         LinearAlgebra::distributed::Vector<float>>
                                                        mg_smoother;
   MGLevelObject<typename SmootherType::AdditionalData> smoother_data;
   smoother_data.resize(0, tria.n_global_levels() - 1);
@@ -572,27 +572,27 @@ PoissonProblem<dim, spacedim>::solve()
     }
   mg_smoother.initialize(mg_matrices, smoother_data);
 
-  MGCoarseGridApplySmoother<LinearAlgebra::distributed::Vector<double>>
+  MGCoarseGridApplySmoother<LinearAlgebra::distributed::Vector<float>>
     mg_coarse;
   mg_coarse.initialize(mg_smoother);
 
-  mg::Matrix<LinearAlgebra::distributed::Vector<double>> mg_matrix(mg_matrices);
+  mg::Matrix<LinearAlgebra::distributed::Vector<float>> mg_matrix(mg_matrices);
 
   MGLevelObject<MatrixFreeOperators::MGInterfaceOperator<LevelMatrixType>>
     mg_interface_matrices;
   mg_interface_matrices.resize(0, tria.n_global_levels() - 1);
   for (unsigned int level = 0; level < tria.n_global_levels(); ++level)
     mg_interface_matrices[level].initialize(mg_matrices[level]);
-  mg::Matrix<LinearAlgebra::distributed::Vector<double>> mg_interface(
+  mg::Matrix<LinearAlgebra::distributed::Vector<float>> mg_interface(
     mg_interface_matrices);
 
-  Multigrid<LinearAlgebra::distributed::Vector<double>> mg(
+  Multigrid<LinearAlgebra::distributed::Vector<float>> mg(
     mg_matrix, mg_coarse, mg_transfer, mg_smoother, mg_smoother);
   mg.set_edge_matrices(mg_interface, mg_interface);
 
   PreconditionMG<spacedim,
-                 LinearAlgebra::distributed::Vector<double>,
-                 MGTransferMatrixFree<spacedim, double>>
+                 LinearAlgebra::distributed::Vector<float>,
+                 MGTransferMatrixFree<spacedim, float>>
     preconditioner(dh, mg, mg_transfer);
 
   auto invA = A;
