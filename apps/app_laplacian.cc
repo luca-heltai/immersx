@@ -33,12 +33,10 @@ main(int argc, char *argv[])
         prm_file = "parameters.prm";
       if (prm_file.find("23d") != std::string::npos)
         {
-#ifndef MATRIX_FREE_PATH
           ProblemParameters<2, 3> par;
           PoissonProblem<2, 3>    problem(par);
           ParameterAcceptor::initialize(prm_file);
           problem.run();
-#endif
         }
       else if (prm_file.find("3d") != std::string::npos)
         {
