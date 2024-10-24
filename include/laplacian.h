@@ -237,13 +237,18 @@ private:
   LA::MPI::SparseMatrix inclusion_matrix;
   MappingQ<spacedim>    mapping;
 #ifdef MATRIX_FREE_PATH
-  using LevelMatrixType = MatrixFreeOperators::LaplaceOperator<spacedim, -1>;
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
   std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
-  LevelMatrixType                                        stiffness_matrix;
-  MGLevelObject<LevelMatrixType>                         mg_matrices;
-  MGConstrainedDoFs                                      mg_constrained_dofs;
+  MatrixFreeOperators::LaplaceOperator<spacedim, -1>     stiffness_matrix;
+  using LevelMatrixType = MatrixFreeOperators::LaplaceOperator<
+    spacedim,
+    -1,
+    -1,
+    1,
+    LinearAlgebra::distributed::Vector<float>>;
+  MGLevelObject<LevelMatrixType> mg_matrices;
+  MGConstrainedDoFs              mg_constrained_dofs;
 #else
   LA::MPI::SparseMatrix stiffness_matrix;
   using VectorType      = LA::MPI::Vector;
