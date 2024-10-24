@@ -1,7 +1,14 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria.h>
 
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/xml_parser.hpp>
+
 #include <gtest/gtest.h>
+
+#include <iostream>
+#include <string>
+#include <vector>
 
 #include "inclusions.h"
 
@@ -64,4 +71,119 @@ TEST(TestInclusionsBasis2, CheckScaling) // NOLINT
         expected /= 2;
       EXPECT_NEAR(integral[i], expected, 1e-10);
     }
+}
+
+std::string
+indent(int level)
+{
+  std::string s;
+  for (int i = 0; i < level; i++)
+    s += "  ";
+  return s;
+}
+
+void
+print_tree(boost::property_tree::ptree &pt, int level)
+{
+  if (pt.empty())
+    {
+      std::cout << "\"" << pt.data() << "\"";
+    }
+
+  else
+    {
+      if (level)
+        std::cout << std::endl;
+
+      std::cout << indent(level) << "{" << std::endl;
+
+      for (boost::property_tree::ptree::iterator pos = pt.begin();
+           pos != pt.end();)
+        {
+          std::cout << indent(level + 1) << "\"" << pos->first << "\": ";
+
+          print_tree(pos->second, level + 1);
+          ++pos;
+          if (pos != pt.end())
+            {
+              std::cout << ",";
+            }
+          std::cout << std::endl;
+        }
+
+      std::cout << indent(level) << " }";
+    }
+  std::cout << std::endl;
+  return;
+}
+
+TEST(CCO, XmlConverter)
+{
+  using namespace boost;
+  using namespace property_tree;
+
+  ptree root;
+  read_xml(SOURCE_DIR "/data/tree_3D.xml", root);
+
+  // print_tree(root, 0);
+
+  // std::vector<Point<3>>              nodes;
+  // std::vector<std::array<size_t, 2>> edges;
+  // std::vector<double>                radii;
+  std::map<std::string, Point<3>>                   nodes;
+  std::map<std::string, std::array<std::string, 2>> edges;
+  std::map<std::string, double>                     radii;
+  std::map<std::string, size_t>                     ids;
+
+  for (const auto &node : root.get_child("gxl").get_child("graph"))
+    {
+      if (node.first == "node")
+        {
+          auto id = node.second.get<std::string>("<xmlattr>.id");
+          std::cout << "Node: " << id;
+
+          Point<3> n;
+          for (const auto &attr : node.second)
+            if (attr.first == "attr")
+              for (const auto &attr : attr.second)
+                if (attr.first == "tup")
+                  {
+                    for (unsigned int i = 0; i < 3; ++i)
+                      n[i] = attr.second.get<double>("float");
+                    nodes[id] = n;
+                    std::cout << ": " << n << std::endl;
+                  }
+        }
+      else if (node.first == "edge")
+        {
+          auto from = node.second.get<std::string>("<xmlattr>.from");
+          auto to   = node.second.get<std::string>("<xmlattr>.to");
+          auto id   = node.second.get<std::string>("<xmlattr>.id");
+          edges[id] = {from, to};
+          for (const auto &attr : node.second)
+            {
+              if (attr.first == "attr" &&
+                  attr.second.get_optional<std::string>("name").has_value() &&
+                  attr.second.get_optional<std::string>("name").value() ==
+                    "radius")
+                {
+                  radii[id] = attr.second.get<double>("float");
+                }
+            }
+        }
+    }
+  std::cout << "N nodes: " << nodes.size() << std::endl;
+  std::cout << "N edges: " << edges.size() << std::endl;
+  for (const auto &n : nodes)
+    ids[n.first] = ids.size();
+
+  std::vector<Point<3>>              v_nodes;
+  std::vector<std::array<size_t, 2>> v_edges;
+  std::vector<double>                v_radii;
+  for (const auto &n : nodes)
+    v_nodes.push_back(n.second);
+  for (const auto &e : edges)
+    v_edges.push_back({ids[e.second[0]], ids[e.second[1]]});
+  for (const auto &r : radii)
+    v_radii.push_back(r.second);
 }

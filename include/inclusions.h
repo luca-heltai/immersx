@@ -924,4 +924,37 @@ private:
   }
 };
 
+
+
+/**
+ * @brief Converts a given string to lowercase using a specific locale.
+ *
+ * This function takes an input string and converts all its characters to their
+ * lowercase equivalents according to the rules of a specified locale. If no
+ * locale is provided, the global C locale is used by default. The converted
+ * string is returned as output.
+ *
+ * @param[in] input The original string to be converted.
+ * @param[in] loc The locale object determining the conversion rules. Defaults
+ * to std::locale().
+ *
+ * @returns A new string with all characters in lowercase according to the provided locale.
+ */
+inline std::string
+to_lower_copy(const std::string &input, const std::locale &loc = std::locale())
+{
+  auto const &facet = std::use_facet<std::ctype<char>>(loc);
+
+  std::string out;
+  out.reserve(input.size());
+
+  std::transform(input.begin(),
+                 input.end(),
+                 std::back_inserter(out),
+                 [&facet](unsigned char c) { return facet.tolower(c); });
+
+  return out;
+}
+
+
 #endif
