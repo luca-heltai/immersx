@@ -57,7 +57,7 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
     {
       const auto &manifold_id   = pair.first;
       const auto &cad_file_name = pair.second;
-      const auto  extension     = boost::algorithm::to_lower_copy(
+      const auto  extension     = to_lower_copy(
         cad_file_name.substr(cad_file_name.find_last_of('.') + 1));
       TopoDS_Shape shape;
       if (extension == "iges" || extension == "igs")
