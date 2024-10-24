@@ -34,8 +34,11 @@ PoissonProblem<dim, spacedim>::PoissonProblem(
   , tria(mpi_communicator,
          typename Triangulation<spacedim>::MeshSmoothing(
            Triangulation<spacedim>::smoothing_on_refinement |
-           Triangulation<spacedim>::smoothing_on_coarsening))
+           Triangulation<spacedim>::smoothing_on_coarsening),
+         parallel::distributed::Triangulation<
+           spacedim>::construct_multigrid_hierarchy)
   , dh(tria)
+  , mapping(1)
 {}
 
 
@@ -129,6 +132,9 @@ PoissonProblem<dim, spacedim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
   dh.distribute_dofs(*fe);
+#ifdef MATRIX_FREE_PATH
+  dh.distribute_mg_dofs();
+#endif
 
   owned_dofs.resize(2);
   owned_dofs[0] = dh.locally_owned_dofs();
@@ -151,12 +157,51 @@ PoissonProblem<dim, spacedim>::setup_dofs()
       (update_gradients | update_JxW_values | update_quadrature_points);
     std::shared_ptr<MatrixFree<spacedim, double>> system_mf_storage(
       new MatrixFree<spacedim, double>());
-    system_mf_storage->reinit(MappingQ1<spacedim>(),
-                              dh,
-                              constraints,
-                              QGauss<1>(fe->degree + 1),
-                              additional_data);
+    system_mf_storage->reinit(
+      mapping, dh, constraints, QGauss<1>(fe->degree + 1), additional_data);
     stiffness_matrix.initialize(system_mf_storage);
+
+    // Perform setup for matrix-free multigrid
+    {
+      const unsigned int nlevels = tria.n_global_levels();
+      mg_matrices.resize(0, nlevels - 1);
+
+      const std::set<types::boundary_id> dirichlet_boundary_ids = {0};
+      mg_constrained_dofs.initialize(dh);
+      mg_constrained_dofs.make_zero_boundary_constraints(
+        dh, dirichlet_boundary_ids);
+
+      for (unsigned int level = 0; level < nlevels; ++level)
+        {
+          AffineConstraints<double> level_constraints(
+            dh.locally_owned_mg_dofs(level),
+            DoFTools::extract_locally_relevant_level_dofs(dh, level));
+          for (const types::global_dof_index dof_index :
+               mg_constrained_dofs.get_boundary_indices(level))
+            level_constraints.constrain_dof_to_zero(dof_index);
+          level_constraints.close();
+
+          typename MatrixFree<spacedim, double>::AdditionalData
+            additional_data_level;
+          additional_data_level.tasks_parallel_scheme =
+            MatrixFree<spacedim, double>::AdditionalData::none;
+          additional_data_level.mapping_update_flags =
+            (update_gradients | update_JxW_values | update_quadrature_points);
+          additional_data_level.mg_level = level;
+          std::shared_ptr<MatrixFree<spacedim, double>> mg_mf_storage_level =
+            std::make_shared<MatrixFree<spacedim, double>>();
+          mg_mf_storage_level->reinit(mapping,
+                                      dh,
+                                      level_constraints,
+                                      QGauss<1>(fe->degree + 1),
+                                      additional_data_level);
+
+          mg_matrices[level].initialize(mg_mf_storage_level,
+                                        mg_constrained_dofs,
+                                        level);
+        }
+    }
+
 
 #else
 
@@ -491,7 +536,67 @@ PoissonProblem<dim, spacedim>::solve()
 
   SolverCG<VectorType> cg_stiffness(par.inner_control);
 #ifdef MATRIX_FREE_PATH
+
   using Payload = dealii::internal::LinearOperatorImplementation::EmptyPayload;
+  LinearOperator<VectorType, VectorType, Payload> A;
+  A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
+
+  MGTransferMatrixFree<spacedim, double> mg_transfer(mg_constrained_dofs);
+  mg_transfer.build(dh);
+
+  using SmootherType =
+    PreconditionChebyshev<LevelMatrixType,
+                          LinearAlgebra::distributed::Vector<double>>;
+  mg::SmootherRelaxation<SmootherType,
+                         LinearAlgebra::distributed::Vector<double>>
+                                                       mg_smoother;
+  MGLevelObject<typename SmootherType::AdditionalData> smoother_data;
+  smoother_data.resize(0, tria.n_global_levels() - 1);
+  for (unsigned int level = 0; level < tria.n_global_levels(); ++level)
+    {
+      if (level > 0)
+        {
+          smoother_data[level].smoothing_range     = 15.;
+          smoother_data[level].degree              = 5;
+          smoother_data[level].eig_cg_n_iterations = 10;
+        }
+      else
+        {
+          smoother_data[0].smoothing_range     = 1e-3;
+          smoother_data[0].degree              = numbers::invalid_unsigned_int;
+          smoother_data[0].eig_cg_n_iterations = mg_matrices[0].m();
+        }
+      mg_matrices[level].compute_diagonal();
+      smoother_data[level].preconditioner =
+        mg_matrices[level].get_matrix_diagonal_inverse();
+    }
+  mg_smoother.initialize(mg_matrices, smoother_data);
+
+  MGCoarseGridApplySmoother<LinearAlgebra::distributed::Vector<double>>
+    mg_coarse;
+  mg_coarse.initialize(mg_smoother);
+
+  mg::Matrix<LinearAlgebra::distributed::Vector<double>> mg_matrix(mg_matrices);
+
+  MGLevelObject<MatrixFreeOperators::MGInterfaceOperator<LevelMatrixType>>
+    mg_interface_matrices;
+  mg_interface_matrices.resize(0, tria.n_global_levels() - 1);
+  for (unsigned int level = 0; level < tria.n_global_levels(); ++level)
+    mg_interface_matrices[level].initialize(mg_matrices[level]);
+  mg::Matrix<LinearAlgebra::distributed::Vector<double>> mg_interface(
+    mg_interface_matrices);
+
+  Multigrid<LinearAlgebra::distributed::Vector<double>> mg(
+    mg_matrix, mg_coarse, mg_transfer, mg_smoother, mg_smoother);
+  mg.set_edge_matrices(mg_interface, mg_interface);
+
+  PreconditionMG<spacedim,
+                 LinearAlgebra::distributed::Vector<double>,
+                 MGTransferMatrixFree<spacedim, double>>
+    preconditioner(dh, mg, mg_transfer);
+
+  auto invA = A;
+  invA      = inverse_operator(A, cg_stiffness, preconditioner);
 #else
   using Payload =
     TrilinosWrappers::internal::LinearOperatorImplementation::TrilinosPayload;
@@ -506,10 +611,6 @@ PoissonProblem<dim, spacedim>::solve()
 // const auto amgA = linear_operator<VectorType, VectorType>(A, prec_A);
 // invA            = inverse_operator(A, cg_stiffness, amgA);
 #endif
-  LinearOperator<VectorType, VectorType, Payload> A;
-  auto                                            invA = A;
-  A    = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
-  invA = inverse_operator(A, cg_stiffness);
 
 
   // Some aliases
