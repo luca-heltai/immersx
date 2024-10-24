@@ -92,6 +92,10 @@
         "regex": "cpp",
         "source_location": "cpp",
         "span": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "csignal": "cpp",
+        "*.lxx": "cpp",
+        "codecvt": "cpp",
+        "execution": "cpp"
     }
 }
