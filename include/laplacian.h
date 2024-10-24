@@ -230,7 +230,7 @@ private:
   MatrixFreeOperators::LaplaceOperator<spacedim, -1> stiffness_matrix;
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
-  std::unique_ptr<CouplingOperator<dim, double, 1>> coupling_operator;
+  std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
 #else
   LA::MPI::SparseMatrix stiffness_matrix;
   using VectorType      = LA::MPI::Vector;
