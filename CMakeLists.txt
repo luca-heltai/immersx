@@ -82,8 +82,10 @@ FOREACH(_build_type ${_d2_build_types})
 
     ADD_LIBRARY(${_lib} SHARED ${_files})
     #ADD_LIBRARY( STATIC )
+    TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
     SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
+
     
     FOREACH(_main ${_main_files})
       # Setup one executable per dimension/per build type
@@ -93,6 +95,7 @@ FOREACH(_build_type ${_d2_build_types})
       MESSAGE("-- Configuring executable ${_exe}")
       ADD_EXECUTABLE(${_exe} ${_main})
       # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
+      TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
       TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
       DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     ENDFOREACH()
