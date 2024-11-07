@@ -18,6 +18,7 @@ jobs:
          ./scripts/dr.sh "rm -rf build_linux_debug"
          ./scripts/dr.sh "mkdir build_linux_debug; cd build_linux_debug; cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug; ninja"
          ./scripts/dr.sh "cd build_linux_debug; ctest -N; ctest --output-on-failure"
+         ./scripts/dr.sh "cd build_linux_debug; ctest -N; ./gtests/gtests_debug"
 
   release:
 
@@ -30,3 +31,4 @@ jobs:
           ./scripts/dr.sh "rm -rf build_linux_release"
           ./scripts/dr.sh "mkdir build_linux_release; cd build_linux_release; cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release; ninja"
           ./scripts/dr.sh "cd build_linux_release; ctest -N; ctest --output-on-failure"
+          ./scripts/dr.sh "cd build_linux_debug; ctest -N; ./gtests/gtests"
