@@ -1,16 +1,18 @@
-// ------------------------------------------------------------------------
+// ---------------------------------------------------------------------
 //
-// SPDX-License-Identifier: LGPL-2.1-or-later
-// Copyright (C) 2004 - 2024 by the deal.II authors
+// Copyright (C) 2024 by Luca Heltai
 //
-// This file is part of the deal.II library.
+// This file is part of the reduced_lagrange_multipliers application, based on
+// the deal.II library.
 //
-// Part of the source code is dual licensed under Apache-2.0 WITH
-// LLVM-exception OR LGPL-2.1-or-later. Detailed license information
-// governing the source code and code contributions can be found in
-// LICENSE.md and CONTRIBUTING.md at the top level directory of deal.II.
+// The reduced_lagrange_multipliers application is free software; you can use
+// it, redistribute it, and/or modify it under the terms of the Apache-2.0
+// License WITH LLVM-exception as published by the Free Software Foundation;
+// either version 3.0 of the License, or (at your option) any later version. The
+// full text of the license can be found in the file LICENSE.md at the top level
+// of the reduced_lagrange_multipliers distribution.
 //
-// ------------------------------------------------------------------------
+// ---------------------------------------------------------------------
 
 #ifndef dealii_tests_h
 #define dealii_tests_h
