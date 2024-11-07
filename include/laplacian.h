@@ -67,7 +67,16 @@ namespace LA
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/vector.h>
 
-#include <deal.II/matrix_free/operators.h>
+#ifdef MATRIX_FREE_PATH
+#  include <deal.II/matrix_free/operators.h>
+
+#  include <deal.II/multigrid/mg_coarse.h>
+#  include <deal.II/multigrid/mg_matrix.h>
+#  include <deal.II/multigrid/mg_smoother.h>
+#  include <deal.II/multigrid/mg_tools.h>
+#  include <deal.II/multigrid/mg_transfer_matrix_free.h>
+#  include <deal.II/multigrid/multigrid.h>
+#endif
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
@@ -226,11 +235,20 @@ private:
 
   LA::MPI::SparseMatrix coupling_matrix;
   LA::MPI::SparseMatrix inclusion_matrix;
+  MappingQ<spacedim>    mapping;
 #ifdef MATRIX_FREE_PATH
-  MatrixFreeOperators::LaplaceOperator<spacedim, -1> stiffness_matrix;
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
   std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
+  MatrixFreeOperators::LaplaceOperator<spacedim, -1>     stiffness_matrix;
+  using LevelMatrixType = MatrixFreeOperators::LaplaceOperator<
+    spacedim,
+    -1,
+    -1,
+    1,
+    LinearAlgebra::distributed::Vector<float>>;
+  MGLevelObject<LevelMatrixType> mg_matrices;
+  MGConstrainedDoFs              mg_constrained_dofs;
 #else
   LA::MPI::SparseMatrix stiffness_matrix;
   using VectorType      = LA::MPI::Vector;
