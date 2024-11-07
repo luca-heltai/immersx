@@ -34,6 +34,7 @@ FOREACH(_build_type ${_d2_build_types})
     add_executable(${_exe} ${_test_files})
 
     TARGET_LINK_LIBRARIES(${_exe} ${TEST_LIBRARIES_${_BUILD_TYPE}} ${GTEST_MAIN_LIBRARY} ${GTEST_LIBRARIES})   
+    # TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     include_directories(${GTEST_INCLUDE_DIRS})
     
