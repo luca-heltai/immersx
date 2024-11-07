@@ -1,3 +1,19 @@
+// ---------------------------------------------------------------------
+//
+// Copyright (C) 2024 by Luca Heltai
+//
+// This file is part of the reduced_lagrange_multipliers application, based on
+// the deal.II library.
+//
+// The reduced_lagrange_multipliers application is free software; you can use
+// it, redistribute it, and/or modify it under the terms of the Apache-2.0
+// License WITH LLVM-exception as published by the Free Software Foundation;
+// either version 3.0 of the License, or (at your option) any later version. The
+// full text of the license can be found in the file LICENSE.md at the top level
+// of the reduced_lagrange_multipliers distribution.
+//
+// ---------------------------------------------------------------------
+
 /* ---------------------------------------------------------------------
  *
  * Copyright (C) 2000 - 2020 by the deal.II authors
@@ -57,7 +73,7 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
     {
       const auto &manifold_id   = pair.first;
       const auto &cad_file_name = pair.second;
-      const auto  extension     = boost::algorithm::to_lower_copy(
+      const auto  extension     = to_lower_copy(
         cad_file_name.substr(cad_file_name.find_last_of('.') + 1));
       TopoDS_Shape shape;
       if (extension == "iges" || extension == "igs")
