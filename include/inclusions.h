@@ -955,9 +955,9 @@ public:
 
 
   void
-  set_n_coefficients(unsigned int n_q)
+  set_n_coefficients(unsigned int n_coefficients)
   {
-    n_coefficients = n_q;
+    this->n_coefficients = n_coefficients;
   }
 
 
