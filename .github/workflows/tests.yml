@@ -34,7 +34,7 @@ jobs:
          ctest -N
          ctest --output-on-failure
          cd gtests 
-         ./gtests.g
+         ./gtests_debug
 
   release:
 
