@@ -1,12 +1,13 @@
-#include <vector>
-#include<iostream>
 #include <stdlib.h>
+
+#include <iostream>
+#include <vector>
 class Inflow
 {
- public:
+public:
   Inflow(){};
   ~Inflow(){};
-  
+
   ///@brief scaling parameter for relative duration of ejection period (systole)
   double Ts;
   ///@brief scaling parameter for amplitude of systolic flow peak
@@ -37,18 +38,25 @@ class Inflow
 
   ///@bried time
   std::vector<double> time;
-  
+
   ///@brief flow
   std::vector<double> flow;
   // methods
-  void init(int inflowType, double cardiacCycleDuration, double tSys,double tDias, double ampSys, double ampDias);
-  void initMynard();
-  double getFlow(double tModel);
-  void setCurve();
-  void setCurve(double qAverage);
-  double getAverage();
+  void
+  init(int    inflowType,
+       double cardiacCycleDuration,
+       double tSys,
+       double tDias,
+       double ampSys,
+       double ampDias);
+  void
+  initMynard();
+  double
+  getFlow(double tModel);
+  void
+  setCurve();
+  void
+  setCurve(double qAverage);
+  double
+  getAverage();
 };
-
-
-
-  
