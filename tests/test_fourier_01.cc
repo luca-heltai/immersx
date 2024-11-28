@@ -25,8 +25,8 @@ test(const std::vector<std::vector<double>> &inclusions)
   const unsigned int Nq = 100;
   const unsigned int Nc = 3;
   Inclusions<dim>    inclusion;
-  inclusion.n_q_points     = Nq;
-  inclusion.n_coefficients = Nc;
+  inclusion.set_n_q_points(Nq);
+  inclusion.set_n_coefficients(Nc);
   inclusion.inclusions     = inclusions;
   inclusion.initialize();
 
