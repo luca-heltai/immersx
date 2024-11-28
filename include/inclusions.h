@@ -93,13 +93,6 @@ public:
       "ignored by program. If fewer entries are specified, an exception is "
       "thrown.");
     add_parameter(
-      "Start index of Fourier coefficients",
-      coefficient_offset,
-      "This allows one to ignore the first few scalar components of the harmonic "
-      "functions used for the representation of the data (boundary data or forcing "
-      "data). This parameter is ignored if you provide a non-empty list of selected "
-      "Fourier coefficients.");
-    add_parameter(
       "Selection of Fourier coefficients",
       selected_coefficients,
       "This allows one to select a subset of the components of the harmonic functions "
@@ -198,11 +191,6 @@ public:
         selected_coefficients.resize(n_coefficients * n_vector_components);
         for (unsigned int i = 0; i < n_coefficients * n_vector_components; ++i)
           selected_coefficients[i] = i;
-      }
-    else
-      {
-        // This is zero when we use the selection, since it is not used.
-        coefficient_offset = 0;
       }
 
     // This MUST be here, otherwise n_dofs_per_inclusions() would be wrong.
@@ -864,15 +852,9 @@ public:
   }
 
   void
-  update_single_vessel_data(const types::global_dof_index &vessel_id,
-                            const std::vector<double>      nd)
+  update_single_vessel_data(const types::global_dof_index &,
+                            const std::vector<double>)
   {}
-
-  double
-  get_h3D1D() const
-  {
-    return h3D1D;
-  }
 
   unsigned int
   get_n_vessels() const
@@ -955,7 +937,7 @@ public:
 
 
   std::vector<double>
-  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id)
+  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id) const
   {
     AssertIndexRange(inclusion_id, inclusions.size());
     if constexpr (spacedim == 2)

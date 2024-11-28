@@ -16,11 +16,12 @@
  * Author: Wolfgang Bangerth, University of Heidelberg, 2000
  * Modified by: Luca Heltai, 2020, Camilla Belponer 2023
  */
+#ifdef ENABLE_COUPLED_PROBLEMS
 
-#include <iomanip>
+#  include <iomanip>
 
-#include "coupledModel1d.h"
-#include "coupled_elasticity.h"
+#  include "coupledModel1d.h"
+#  include "coupled_elasticity.h"
 
 
 int
@@ -391,3 +392,10 @@ main(int argc, char *argv[])
     }
   return 0;
 }
+#else
+int
+main()
+{
+  return 0;
+}
+#endif

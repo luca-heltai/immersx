@@ -48,6 +48,23 @@ FIND_PACKAGE(deal.II 9.2 REQUIRED
 HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
+OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." ON)
+
+IF(${ENABLE_COUPLED_PROBLEMS})
+  MESSAGE("-- Looking for 1dsolver library")
+  SET(CMAKE_FIND_LIBRARY_PREFIXES "lib")
+  SET(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".a" ".lib" ".dll" ".dylib")
+  FIND_LIBRARY(FVM_LIB NAMES 1dsolver HINTS ${CMAKE_CURRENT_SOURCE_DIR})
+  IF(NOT FVM_LIB)
+    MESSAGE("-- Could not find 1dsolver library -- disabling coupled problems")
+    SET(ENABLE_COUPLED_PROBLEMS OFF)
+    ELSE()
+    MESSAGE("-- Found 1dsolver library -- enabling coupled problems")
+    MESSAGE("FVM_LIB: ${FVM_LIB}")
+  ENDIF()
+ELSE()
+  MESSAGE("-- Coupled problems disabled")
+ENDIF()
 
 PROJECT(${_main_target})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
@@ -63,9 +80,6 @@ OPTION(ENABLE_GOOGLE_TESTING
 SET(_d2_build_types "Release;Debug")
 SET(Release_postfix "")
 SET(Debug_postfix "_debug")
-SET(CMAKE_C_FLAGS -fopenmp)
-SET(CMAKE_CXX_FLAGS -fopenmp)
-
 
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
@@ -104,8 +118,11 @@ FOREACH(_build_type ${_d2_build_types})
       TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
       TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
       
-    TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../CODICE_1D/fvmCoupling)
-    TARGET_LINK_LIBRARIES(${_exe} ${CMAKE_CURRENT_SOURCE_DIR}/../CODICE_1D/fvmCoupling/lib1dsolver.a)
+      IF(ENABLE_COUPLED_PROBLEMS)
+        TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/fvm/)
+        TARGET_LINK_LIBRARIES(${_exe} ${FVM_LIB})
+        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC ENABLE_COUPLED_PROBLEMS)
+      ENDIF()
     MESSAGE(${_exe})
      
       
