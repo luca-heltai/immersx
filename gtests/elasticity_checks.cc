@@ -73,6 +73,7 @@ TEST(ElasticityTest, DisplacementX)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, 1.0
         set Number of fourier coefficients      = 1
+        set Selection of Fourier coefficients   = 0
         set Inclusions refinement               = 100
         subsection Boundary data
           set Function expression = 1; 0
@@ -106,6 +107,7 @@ TEST(ElasticityTest, DisplacementY)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, 1.0
         set Number of fourier coefficients      = 1
+        set Selection of Fourier coefficients   = 1
         set Inclusions refinement               = 100
         subsection Boundary data
           set Function expression = 0; 1
@@ -140,6 +142,7 @@ TEST(ElasticityTest, DisplacementXScaled)
         set Inclusions                          = 0, 0, .1
         set Number of fourier coefficients      = 1
         set Inclusions refinement               = 100
+        set Selection of Fourier coefficients   = 0 
         subsection Boundary data
           set Function expression = .1; 0
         end
@@ -173,6 +176,7 @@ TEST(ElasticityTest, DisplacementYScaled)
         set Inclusions                          = 0, 0, .1
         set Number of fourier coefficients      = 1
         set Inclusions refinement               = 100
+        set Selection of Fourier coefficients   = 1
         subsection Boundary data
           set Function expression = 0;.1
         end
