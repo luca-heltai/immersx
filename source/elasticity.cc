@@ -1028,7 +1028,8 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::output_pressure(bool /* openfilefirsttime */) const
+ElasticityProblem<dim, spacedim>::output_pressure(
+  bool /* openfilefirsttime */) const
 {
   // if (par.output_pressure == false)
   //   return;
