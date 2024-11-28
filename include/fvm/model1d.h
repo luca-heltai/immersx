@@ -48,9 +48,10 @@
 #  define GRI \
     0 // 0 for generalized Riemann invariants and 1 for characteristic variables
 
-#  define empConvTest 0     // 1 for empirical convergence
-#  define empConvBoundary 0 // 0 for periodic domain
-                            // 1 for sharp interface
+#  define empConvTest 0 // 1 for empirical convergence
+#  define empConvBoundary \
+    0 // 0 for periodic domain
+      // 1 for sharp interface
 
 #  define useMontecinosBalsara \
     0 // 1 if MontecinosBalsara2020 GRP solver is to be used instead of DET
@@ -558,7 +559,7 @@ public:
     gravity; // gravity field 9.81 [m/s^2] -> 981. [cm/s^2] to be read in input
   double         g_intensity; // gravity field intensity to be read in input
   vector<double> g_versor;    // versor containing the position of the gravity
-                           // field to be read in input
+                              // field to be read in input
   // rotation angles taken in input (rigid movement of the body): in stands for
   // initial position and end stands for final position
   double
@@ -577,9 +578,9 @@ public:
   double rotation_angle_pitch_end;
   double rotation_angle_roll_end;
   double rotation_angle_yaw_end;
-  int    TransitionOn; // integer indicating whether the transition from one
-                    // position to a new one is active (1) or not (0)
-  double TransitionTime;     // Time duration of the transition process
+  int    TransitionOn;   // integer indicating whether the transition from one
+                         // position to a new one is active (1) or not (0)
+  double TransitionTime; // Time duration of the transition process
   double TransitionTimeInit; // Time at which the transition will start
   double TransitionTimePost; // Minimum time after the transition is done
 
@@ -730,12 +731,12 @@ public:
   int     *juncN;         //[NN];
   double **vessels;       //[NV][NVC];	// vessel file is read into this file
   double **vesselsASE;    //[NV];	// number of ASE nodes for this vessel and
-                          //location (deprecated)
+                          // location (deprecated)
   double  *vesselsASEn;   //[NV];	// number of ASE nodes for this vessel
   double **vesselsASEx;   //[NV][NVC];	// ASE nodes location
   double **vesselsASErad; //[NV][NVC];	// ASE nodes radii
   vector<vector<double>> vesselsASEcoord; //[NV][vesselsASEn*3+1]; // number of
-                                          //nodes + ASE nodes 3d coordinate
+                                          // nodes + ASE nodes 3d coordinate
   string         vesselFileNamesASE;
   vector<string> vesselsNamesASE;
   double       **nodes; //[NN][NNC];		// node file is read into this file
