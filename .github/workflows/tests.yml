@@ -10,25 +10,56 @@ jobs:
   debug:
 
     runs-on: ubuntu-latest
-
+    container: 
+      image: dealii/dealii:v9.6.0-jammy
+      options: --user root
+    
     steps:
+    
     - uses: actions/checkout@v2
+    
+    - uses: robinraju/release-downloader@v1
+      with:
+        tag: 'v0.1'
+        fileName: 'lib1dsolver.a'
+
     - name: Test debug
       run: |
-         ./scripts/dr.sh "rm -rf build_linux_debug"
-         ./scripts/dr.sh "mkdir build_linux_debug; cd build_linux_debug; cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug; ninja"
-         ./scripts/dr.sh "cd build_linux_debug; ctest -N; ctest --output-on-failure"
-         ./scripts/dr.sh "cd build_linux_debug; ctest -N; ./gtests/gtests_debug"
+         ls lib1dsolver.a
+         rm -rf build_linux_debug
+         mkdir build_linux_debug
+         cd build_linux_debug
+         cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug
+         ninja
+         ctest -N
+         ctest --output-on-failure
+         cd gtests 
+         ./gtests.g
 
   release:
 
     runs-on: ubuntu-latest
+    container: 
+      image: dealii/dealii:v9.6.0-jammy
+      options: --user root
 
     steps:
     - uses: actions/checkout@v2
+
+    - uses: robinraju/release-downloader@v1
+      with:
+        tag: 'v0.1'
+        fileName: 'lib1dsolver.a'
+
     - name: Test release
       run: |
-          ./scripts/dr.sh "rm -rf build_linux_release"
-          ./scripts/dr.sh "mkdir build_linux_release; cd build_linux_release; cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release; ninja"
-          ./scripts/dr.sh "cd build_linux_release; ctest -N; ctest --output-on-failure"
-          ./scripts/dr.sh "cd build_linux_debug; ctest -N; ./gtests/gtests"
+          ls lib1dsolver.a
+          rm -rf build_linux_release
+          mkdir build_linux_release
+          cd build_linux_release
+          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release
+          ninja
+          ctest -N
+          ctest --output-on-failure
+          cd gtests 
+          ./gtests
