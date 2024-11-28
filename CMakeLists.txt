@@ -60,7 +60,7 @@ IF(${ENABLE_COUPLED_PROBLEMS})
     SET(ENABLE_COUPLED_PROBLEMS OFF)
     ELSE()
     MESSAGE("-- Found 1dsolver library -- enabling coupled problems")
-    MESSAGE("FVM_LIB: ${FVM_LIB}")
+    MESSAGE("-- FVM_LIB: ${FVM_LIB}")
   ENDIF()
 ELSE()
   MESSAGE("-- Coupled problems disabled")
@@ -89,44 +89,44 @@ FOREACH(_build_type ${_d2_build_types})
   IF(CMAKE_BUILD_TYPE MATCHES "${_build_type}" AND
       DEAL_II_BUILD_TYPE MATCHES "${_build_type}")
       
-   # MESSAGE(${_build_type})
+      MESSAGE("-- Found ${_build_type} version of deal.II.")
 
-    MESSAGE("-- Found ${_build_type} version of deal.II.")
+      STRING(TOUPPER "${_build_type}" _BUILD_TYPE)
 
-    STRING(TOUPPER "${_build_type}" _BUILD_TYPE)
+      # Setup library
+      SET(_lib "${_main_target}_lib${_p}")
+      MESSAGE("-- Configuring library ${_lib}")
 
-    # Setup library
-    SET(_lib "${_main_target}_lib${_p}")
-    MESSAGE("-- Configuring library ${_lib}")
-
-    ADD_LIBRARY(${_lib} SHARED ${_files})
-    #ADD_LIBRARY( STATIC )
-    TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
-    
-    SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
-
-    
-    FOREACH(_main ${_main_files})
-      # Setup one executable per dimension/per build type
-      get_filename_component(_main_we ${_main} NAME_WE)
-      STRING(REPLACE "app_" "" _main_we ${_main_we})
-      SET(_exe "${_main_we}${${_build_type}_postfix}")
-      MESSAGE("-- Configuring executable ${_exe}")
-      ADD_EXECUTABLE(${_exe} ${_main})
-      # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
-      TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-      TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
-      
+      ADD_LIBRARY(${_lib} SHARED ${_files})
+      #ADD_LIBRARY( STATIC )
+      TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
       IF(ENABLE_COUPLED_PROBLEMS)
-        TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/fvm/)
-        TARGET_LINK_LIBRARIES(${_exe} ${FVM_LIB})
-        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC ENABLE_COUPLED_PROBLEMS)
+        TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC ENABLE_COUPLED_PROBLEMS)
       ENDIF()
-    MESSAGE(${_exe})
-     
       
-      DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
+      DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
+      SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
+
+      
+      FOREACH(_main ${_main_files})
+        # Setup one executable per dimension/per build type
+        get_filename_component(_main_we ${_main} NAME_WE)
+        STRING(REPLACE "app_" "" _main_we ${_main_we})
+        SET(_exe "${_main_we}${${_build_type}_postfix}")
+        MESSAGE("-- Configuring executable ${_exe}")
+        ADD_EXECUTABLE(${_exe} ${_main})
+        # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
+        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC ENABLE_COUPLED_PROBLEMS)
+
+        IF(ENABLE_COUPLED_PROBLEMS)
+          TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/fvm/)
+          TARGET_LINK_LIBRARIES(${_exe} ${_lib} ${FVM_LIB})
+        ELSE()
+          TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
+        ENDIF()
+
+        DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     ENDFOREACH()
   ENDIF()
 ENDFOREACH()

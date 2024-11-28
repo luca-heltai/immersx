@@ -18,8 +18,76 @@
  */
 
 
+#include "coupled_elasticity.h"
+
+#include <deal.II/grid/grid_tools.h>
+
 #ifdef ENABLE_COUPLED_PROBLEMS
-#  include "coupled_elasticity.h"
+
+template <int dim, int spacedim>
+CoupledElasticityProblemParameters<dim, spacedim>::
+  CoupledElasticityProblemParameters()
+  : ParameterAcceptor("/Immersed Problem/")
+  , rhs("/Immersed Problem/Right hand side", spacedim)
+  , exact_solution("/Immersed Problem/Exact solution", spacedim)
+  , bc("/Immersed Problem/Dirichlet boundary conditions", spacedim)
+  , Neumann_bc("/Immersed Problem/Neumann boundary conditions", spacedim)
+  , inner_control("/Immersed Problem/Solver/Inner control")
+  , outer_control("/Immersed Problem/Solver/Outer control")
+  , convergence_table(std::vector<std::string>(spacedim, "u"))
+{
+  add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
+  add_parameter("Output directory", output_directory);
+  add_parameter("Output name", output_name);
+  add_parameter("Output results", output_results);
+  add_parameter("Initial refinement", initial_refinement);
+  add_parameter("Dirichlet boundary ids", dirichlet_ids);
+  add_parameter("Neumann boundary ids", neumann_ids);
+  add_parameter("Normal flux boundary ids", normal_flux_ids);
+  enter_subsection("Grid generation");
+  {
+    add_parameter("Domain type", domain_type);
+    add_parameter("Grid generator", name_of_grid);
+    add_parameter("Grid generator arguments", arguments_for_grid);
+  }
+  leave_subsection();
+  enter_subsection("Refinement and remeshing");
+  {
+    add_parameter("Strategy",
+                  refinement_strategy,
+                  "",
+                  this->prm,
+                  Patterns::Selection("fixed_fraction|fixed_number|global"));
+    add_parameter("Coarsening fraction", coarsening_fraction);
+    add_parameter("Refinement fraction", refinement_fraction);
+    add_parameter("Maximum number of cells", max_cells);
+    add_parameter("Number of refinement cycles", n_refinement_cycles);
+  }
+  leave_subsection();
+  enter_subsection("Physical constants");
+  {
+    add_parameter("Lame mu", Lame_mu);
+    add_parameter("Lame lambda", Lame_lambda);
+  }
+  leave_subsection();
+  enter_subsection("Exact solution");
+  {
+    add_parameter("Weight expression", weight_expression);
+  }
+  leave_subsection();
+  enter_subsection("Time dependency");
+  {
+    add_parameter("Initial time", initial_time);
+    add_parameter("Final time", final_time);
+    add_parameter("Time step", dt);
+  }
+  leave_subsection();
+
+  this->prm.enter_subsection("Error");
+  convergence_table.add_parameters(this->prm);
+  this->prm.leave_subsection();
+}
+
 
 template <int dim, int spacedim>
 CoupledElasticityProblem<dim, spacedim>::CoupledElasticityProblem(
@@ -1835,14 +1903,11 @@ CoupledElasticityProblem<dim, spacedim>::update_inclusions_data(
   inclusions.update_inclusions_data(full_vector);
 }
 
-// template <int dim, int spacedim>
-// std::map<unsigned int, IndexSet>
-// CoupledElasticityProblem<dim, spacedim>::get_map_vessels_inclusions() const
-// {
-//   return inclusions.map_vessel_inclusions;
-// }
-
 // Template instantiations
+template class CoupledElasticityProblemParameters<2>;
+template class CoupledElasticityProblemParameters<2, 3>;
+template class CoupledElasticityProblemParameters<3>;
+
 template class CoupledElasticityProblem<2>;
 template class CoupledElasticityProblem<2, 3>; // dim != spacedim
 template class CoupledElasticityProblem<3>;

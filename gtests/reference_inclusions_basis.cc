@@ -173,7 +173,7 @@ TEST(CCO, XmlConverter)
           auto from = node.second.get<std::string>("<xmlattr>.from");
           auto to   = node.second.get<std::string>("<xmlattr>.to");
           auto id   = node.second.get<std::string>("<xmlattr>.id");
-          edges[id] = {from, to};
+          edges[id] = {{from, to}};
           for (const auto &attr : node.second)
             {
               if (attr.first == "attr" &&
@@ -197,7 +197,7 @@ TEST(CCO, XmlConverter)
   for (const auto &n : nodes)
     v_nodes.push_back(n.second);
   for (const auto &e : edges)
-    v_edges.push_back({ids[e.second[0]], ids[e.second[1]]});
+    v_edges.push_back({{ids[e.second[0]], ids[e.second[1]]}});
   for (const auto &r : radii)
     v_radii.push_back(r.second);
 }
