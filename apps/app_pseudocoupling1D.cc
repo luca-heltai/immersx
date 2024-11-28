@@ -21,8 +21,10 @@
 
 #  include <iomanip>
 
+#  if 1
+#    include "coupled_elasticity.h"
+#  endif
 #  include "coupledModel1d.h"
-#  include "coupled_elasticity.h"
 
 
 int

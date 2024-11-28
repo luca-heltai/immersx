@@ -29,7 +29,7 @@ jobs:
          rm -rf build_linux_debug
          mkdir build_linux_debug
          cd build_linux_debug
-         cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug
+         cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp
          ninja
          ctest -N
          ctest --output-on-failure
@@ -57,7 +57,7 @@ jobs:
           rm -rf build_linux_release
           mkdir build_linux_release
           cd build_linux_release
-          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release
+          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp
           ninja
           ctest -N
           ctest --output-on-failure

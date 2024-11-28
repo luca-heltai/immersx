@@ -19,7 +19,7 @@
 
 
 #ifdef ENABLE_COUPLED_PROBLEMS
-#  include "elasticity.h"
+#  include "coupled_elasticity.h"
 
 template <int dim, int spacedim>
 CoupledElasticityProblem<dim, spacedim>::CoupledElasticityProblem(
