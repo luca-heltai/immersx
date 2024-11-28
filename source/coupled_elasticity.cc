@@ -1500,8 +1500,9 @@ CoupledElasticityProblem<dim, spacedim>::compute_coupling_pressure() /*const*/
       const auto local_lambda = lambda_to_pressure.locally_owned_elements();
       if constexpr (spacedim == 3)
         {
-          int  previous_inclusion_number = -1;
-          auto tensorR                   = inclusions.get_rotation(0);
+          unsigned int previous_inclusion_number =
+            numbers::invalid_unsigned_int;
+          auto tensorR = inclusions.get_rotation(0);
           for (const auto &ll : local_lambda)
             {
               const unsigned inclusion_number = (unsigned int)floor(
@@ -1665,7 +1666,7 @@ template <int dim, int spacedim>
 std::vector<std::vector<double>>
 CoupledElasticityProblem<dim, spacedim>::split_pressure_over_inclusions(
   std::vector<int> number_of_cells_per_vessel,
-  Vector<double>   full_press) const
+  Vector<double> /* full_press */) const
 {
   Assert(number_of_cells_per_vessel.size() == inclusions.get_n_vessels(),
          ExcInternalError());

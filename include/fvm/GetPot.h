@@ -1948,7 +1948,7 @@ GetPot::set(const char *VarName,
 inline void
 GetPot::set(const char   *VarName,
             const double &Value,
-            const bool    Requested /* = yes */)
+            const bool /* Requested = yes */)
 {
   __set_variable(VarName, __double2string(Value).c_str());
 }
@@ -1956,7 +1956,7 @@ GetPot::set(const char   *VarName,
 inline void
 GetPot::set(const char *VarName,
             const int   Value,
-            const bool  Requested /* = yes */)
+            const bool /* Requested = yes */)
 {
   __set_variable(VarName, __int2string(Value).c_str());
 }

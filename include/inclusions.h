@@ -770,7 +770,7 @@ public:
             "insufficient number of inclusion int the vessel for the update"));
         if (N2 == 1)
           {
-            for (auto i = 0; i < N1 - 1; ++i)
+            for (unsigned int i = 0; i < N1 - 1; ++i)
               update_single_inclusion_data_along_normal(i, current_new_data[0]);
           }
         else
@@ -780,7 +780,7 @@ public:
             double current_vessel_new_data;
             update_single_inclusion_data_along_normal(0, current_new_data[0]);
             // current_vessel_new_data.push_back(current_new_data[0]);
-            for (auto i = 1; i < N1 - 1; ++i)
+            for (unsigned int i = 1; i < N1 - 1; ++i)
               {
                 auto X = i / (N1 - 1) * (N2 - 1);
                 auto j = floor(X);
