@@ -34,9 +34,8 @@ TEST(TestInclusionsBasis2, CheckIntegrals) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
-  ref.n_q_points         = 100;
-  ref.n_coefficients     = 3;
-  ref.coefficient_offset = 0;
+  ref.set_n_q_points(100);
+  ref.set_n_coefficients(3);
   ref.inclusions.push_back({{0, 0, 1.0}});
   ref.initialize();
   double integral[4] = {0, 0, 0, 0};
@@ -60,26 +59,25 @@ TEST(TestInclusionsBasis2, CheckScaling) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
-  double        radius   = 9;
-  ref.n_q_points         = 100;
-  ref.n_coefficients     = 13;
-  ref.coefficient_offset = 0;
+  double        radius = 9;
+  ref.set_n_q_points(100);
+  ref.set_n_coefficients(13);
   ref.inclusions.push_back({{0, 0, radius}});
   ref.initialize();
-  std::vector<double> integral(ref.n_coefficients + 1, 0.0);
+  std::vector<double> integral(ref.get_n_coefficients() + 1, 0.0);
   for (unsigned int q = 0; q < ref.n_particles(); ++q)
     {
       const auto &fe_values = ref.get_fe_values(q);
       const auto &ds        = ref.get_JxW(q);
       integral[0] += ds;
-      for (unsigned int i = 0; i < ref.n_coefficients; ++i)
+      for (unsigned int i = 0; i < ref.get_n_coefficients(); ++i)
         integral[i + 1] += fe_values[i] * fe_values[i] * ds;
     }
   // Take the square root of the integral of the basis functions
   // and check that they are equal to sqrt(|D|) where |D| is the length of the
   // inclusion
   auto D = 2 * numbers::PI * radius;
-  for (unsigned int i = 0; i < ref.n_coefficients + 1; ++i)
+  for (unsigned int i = 0; i < ref.get_n_coefficients() + 1; ++i)
     {
       auto expected = D;
       // Take into account
@@ -175,7 +173,7 @@ TEST(CCO, XmlConverter)
           auto from = node.second.get<std::string>("<xmlattr>.from");
           auto to   = node.second.get<std::string>("<xmlattr>.to");
           auto id   = node.second.get<std::string>("<xmlattr>.id");
-          edges[id] = {from, to};
+          edges[id] = {{from, to}};
           for (const auto &attr : node.second)
             {
               if (attr.first == "attr" &&
@@ -199,7 +197,7 @@ TEST(CCO, XmlConverter)
   for (const auto &n : nodes)
     v_nodes.push_back(n.second);
   for (const auto &e : edges)
-    v_edges.push_back({ids[e.second[0]], ids[e.second[1]]});
+    v_edges.push_back({{ids[e.second[0]], ids[e.second[1]]}});
   for (const auto &r : radii)
     v_radii.push_back(r.second);
 }

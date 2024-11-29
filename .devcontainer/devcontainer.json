@@ -5,7 +5,7 @@
 	// Sets the run context to one level up instead of the .devcontainer folder.
 	"context": "..",
 	// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
-	"dockerFile": "Dockerfile",
+	"image": "dealii/dealii:v9.6.0-jammy",
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
 		"alefragnani.project-manager",
@@ -30,29 +30,26 @@
 	"runArgs": [
 		"--cap-add=SYS_PTRACE",
 		"--security-opt",
-		"seccomp=unconfined"
+		"seccomp=unconfined",
+		"--platform",
+		"linux/amd64",
 	],
-	"build": {
-		"args": {
-			"REMOTE_USER": "${localEnv:USER}",
-		}
-	},
 	// Uncomment to use the Docker CLI from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker.
 	// "mounts": [ "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind" ],
 	// Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
-	"remoteUser": "${localEnv:USER}",
+	"remoteUser": "dealii",
 	// Make sure we add a BUILD_POSTFIX environment variable that can be used as in
 	// ${workspaceFolder}/build${env:BUILD_POSTFIX}
 	"containerEnv": {
 		"BUILD_POSTFIX": "-container",
 	},
-	"mounts": [
-		// These are two docker volumes to allow persistent storage for the container.
-		"source=vscode-extensions,target=/home/${localEnv:USER}/.vscode-server/extensions,type=volume",
-		// And/or for VS Code Insiders
-		"source=vscode-extensions-insiders,target=/home/${localEnv:USER}/.vscode-server-insiders/extensions,type=volume",
-		"source=${localEnv:HOME}/.ssh,target=/home/${localEnv:USER}/.ssh,type=bind,consistency=cached",
-	],
+	// "mounts": [
+	// 	// These are two docker volumes to allow persistent storage for the container.
+	// 	"source=vscode-extensions,target=/home/${localEnv:USER}/.vscode-server/extensions,type=volume",
+	// 	// And/or for VS Code Insiders
+	// 	"source=vscode-extensions-insiders,target=/home/${localEnv:USER}/.vscode-server-insiders/extensions,type=volume",
+	// 	"source=${localEnv:HOME}/.ssh,target=/home/${localEnv:USER}/.ssh,type=bind,consistency=cached",
+	// ],
 	// Uncomment the following if you want to work on docker on a remote machine
 	// In this case, you also need  "docker.host": "ssh://name-of-machine" in your
 	// settings.

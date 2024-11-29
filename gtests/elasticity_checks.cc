@@ -73,7 +73,7 @@ TEST(ElasticityTest, DisplacementX)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, 1.0
         set Number of fourier coefficients      = 1
-        set Start index of Fourier coefficients = 0
+        set Selection of Fourier coefficients   = 0
         set Inclusions refinement               = 100
         subsection Boundary data
           set Function expression = 1; 0
@@ -107,7 +107,7 @@ TEST(ElasticityTest, DisplacementY)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, 1.0
         set Number of fourier coefficients      = 1
-        set Start index of Fourier coefficients = 0
+        set Selection of Fourier coefficients   = 1
         set Inclusions refinement               = 100
         subsection Boundary data
           set Function expression = 0; 1
@@ -141,8 +141,8 @@ TEST(ElasticityTest, DisplacementXScaled)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .1
         set Number of fourier coefficients      = 1
-        set Start index of Fourier coefficients = 0
         set Inclusions refinement               = 100
+        set Selection of Fourier coefficients   = 0 
         subsection Boundary data
           set Function expression = .1; 0
         end
@@ -175,8 +175,8 @@ TEST(ElasticityTest, DisplacementYScaled)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .1
         set Number of fourier coefficients      = 1
-        set Start index of Fourier coefficients = 0
         set Inclusions refinement               = 100
+        set Selection of Fourier coefficients   = 1
         subsection Boundary data
           set Function expression = 0;.1
         end
@@ -189,7 +189,10 @@ TEST(ElasticityTest, DisplacementYScaled)
 }
 
 
-TEST(ElasticityTest, CheckInclusionMatrix)
+/**
+ * We need the data_file_1d.txt file to be present somewhere
+ */
+TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
 {
   static constexpr int   dim = 2;
   auto                   par = get_default_test_parameters<dim>();
@@ -208,7 +211,6 @@ TEST(ElasticityTest, CheckInclusionMatrix)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .5
         set Number of fourier coefficients      = 3
-        set Start index of Fourier coefficients = 0
         set Data file                           = ../data_file_1d.txt
         set Inclusions refinement               = 100
       end

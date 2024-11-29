@@ -40,7 +40,6 @@ SET(_main_target reduced_lagrange)
 file(GLOB _files source/*cc include/*.h)
 file(GLOB _main_files apps/*cc)
 
-# INCLUDE_DIRECTORIES(include /usr/include/1dsolver)
 INCLUDE_DIRECTORIES(include)
 
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
@@ -49,6 +48,23 @@ FIND_PACKAGE(deal.II 9.2 REQUIRED
 HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
+OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." ON)
+
+IF(${ENABLE_COUPLED_PROBLEMS})
+  MESSAGE("-- Looking for 1dsolver library")
+  SET(CMAKE_FIND_LIBRARY_PREFIXES "lib")
+  SET(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".a" ".lib" ".dll" ".dylib")
+  FIND_LIBRARY(FVM_LIB NAMES 1dsolver HINTS ${CMAKE_CURRENT_SOURCE_DIR})
+  IF(NOT FVM_LIB)
+    MESSAGE("-- Could not find 1dsolver library -- disabling coupled problems")
+    SET(ENABLE_COUPLED_PROBLEMS OFF)
+    ELSE()
+    MESSAGE("-- Found 1dsolver library -- enabling coupled problems")
+    MESSAGE("-- FVM_LIB: ${FVM_LIB}")
+  ENDIF()
+ELSE()
+  MESSAGE("-- Coupled problems disabled")
+ENDIF()
 
 PROJECT(${_main_target})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
@@ -68,36 +84,49 @@ SET(Debug_postfix "_debug")
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
   SET(_p "${${_build_type}_postfix}")
+  #MESSAGE(${_build_type})
   # Only build this type, if deal.II was compiled with it.
   IF(CMAKE_BUILD_TYPE MATCHES "${_build_type}" AND
       DEAL_II_BUILD_TYPE MATCHES "${_build_type}")
+      
+      MESSAGE("-- Found ${_build_type} version of deal.II.")
 
-    MESSAGE("-- Found ${_build_type} version of deal.II.")
+      STRING(TOUPPER "${_build_type}" _BUILD_TYPE)
 
-    STRING(TOUPPER "${_build_type}" _BUILD_TYPE)
+      # Setup library
+      SET(_lib "${_main_target}_lib${_p}")
+      MESSAGE("-- Configuring library ${_lib}")
 
-    # Setup library
-    SET(_lib "${_main_target}_lib${_p}")
-    MESSAGE("-- Configuring library ${_lib}")
+      ADD_LIBRARY(${_lib} SHARED ${_files})
+      #ADD_LIBRARY( STATIC )
+      TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+      IF(ENABLE_COUPLED_PROBLEMS)
+        TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC ENABLE_COUPLED_PROBLEMS)
+      ENDIF()
+      
+      DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
+      SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
 
-    ADD_LIBRARY(${_lib} SHARED ${_files})
-    #ADD_LIBRARY( STATIC )
-    TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
-    SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
+      
+      FOREACH(_main ${_main_files})
+        # Setup one executable per dimension/per build type
+        get_filename_component(_main_we ${_main} NAME_WE)
+        STRING(REPLACE "app_" "" _main_we ${_main_we})
+        SET(_exe "${_main_we}${${_build_type}_postfix}")
+        MESSAGE("-- Configuring executable ${_exe}")
+        ADD_EXECUTABLE(${_exe} ${_main})
+        # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
+        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC ENABLE_COUPLED_PROBLEMS)
 
-    
-    FOREACH(_main ${_main_files})
-      # Setup one executable per dimension/per build type
-      get_filename_component(_main_we ${_main} NAME_WE)
-      STRING(REPLACE "app_" "" _main_we ${_main_we})
-      SET(_exe "${_main_we}${${_build_type}_postfix}")
-      MESSAGE("-- Configuring executable ${_exe}")
-      ADD_EXECUTABLE(${_exe} ${_main})
-      # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
-      TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-      TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
-      DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
+        IF(ENABLE_COUPLED_PROBLEMS)
+          TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/fvm/)
+          TARGET_LINK_LIBRARIES(${_exe} ${_lib} ${FVM_LIB})
+        ELSE()
+          TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
+        ENDIF()
+
+        DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     ENDFOREACH()
   ENDIF()
 ENDFOREACH()
