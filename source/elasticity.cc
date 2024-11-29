@@ -37,6 +37,8 @@
 
 #include "elasticity.h"
 
+#include <boost/algorithm/string.hpp>
+
 template <int dim, int spacedim>
 ElasticityProblem<dim, spacedim>::ElasticityProblem(
   const ElasticityProblemParameters<dim, spacedim> &par)
@@ -73,7 +75,7 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
     {
       const auto &manifold_id   = pair.first;
       const auto &cad_file_name = pair.second;
-      const auto  extension     = to_lower_copy(
+      const auto  extension     = boost::to_lower_copy(
         cad_file_name.substr(cad_file_name.find_last_of('.') + 1));
       TopoDS_Shape shape;
       if (extension == "iges" || extension == "igs")
@@ -1026,156 +1028,164 @@ ElasticityProblem<dim, spacedim>::compute_boundary_stress(
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
+ElasticityProblem<dim, spacedim>::output_pressure(
+  bool /* openfilefirsttime */) const
 {
-  if (par.output_pressure == false)
-    return;
-  TimerOutput::Scope t(computing_timer, "Postprocessing: Output Pressure");
-  if (inclusions.n_inclusions() > 0 && inclusions.coefficient_offset == 1 &&
-      inclusions.n_coefficients >= 2)
-    {
-      const auto locally_owned_vessels =
-        Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, inclusions.get_n_vessels());
-      const auto locally_owned_inclusions =
-        Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, inclusions.n_inclusions());
+  // if (par.output_pressure == false)
+  //   return;
+  // TimerOutput::Scope t(computing_timer, "Postprocessing: Output Pressure");
+  // if (inclusions.n_inclusions() > 0 && inclusions.get_n_coefficients() >= 2)
+  //   {
+  //     const auto locally_owned_vessels =
+  //       Utilities::MPI::create_evenly_distributed_partitioning(
+  //         mpi_communicator, inclusions.get_n_vessels());
+  //     const auto locally_owned_inclusions =
+  //       Utilities::MPI::create_evenly_distributed_partitioning(
+  //         mpi_communicator, inclusions.n_inclusions());
 
-      TrilinosWrappers::MPI::Vector pressure(locally_owned_vessels,
-                                             mpi_communicator);
-      pressure = 0;
-      TrilinosWrappers::MPI::Vector pressure_at_inc(locally_owned_inclusions,
-                                                    mpi_communicator);
-      pressure_at_inc = 0;
+  //     TrilinosWrappers::MPI::Vector pressure(locally_owned_vessels,
+  //                                            mpi_communicator);
+  //     pressure = 0;
+  //     TrilinosWrappers::MPI::Vector pressure_at_inc(locally_owned_inclusions,
+  //                                                   mpi_communicator);
+  //     pressure_at_inc = 0;
 
-      auto &lambda_to_pressure = locally_relevant_solution.block(1);
-      // std::vector<double> pressure_to_write;
-      // std::vector<double> vesselID_and_pressure(inclusions.get_n_vessels(),
-      // 0.0);
-      std::vector<double> weights(inclusions.n_inclusions(),
-                                  inclusions.get_h3D1D());
+  //     auto &lambda_to_pressure = locally_relevant_solution.block(1);
+  //     // std::vector<double> pressure_to_write;
+  //     // std::vector<double>
+  //     vesselID_and_pressure(inclusions.get_n_vessels(),
+  //     // 0.0);
+  //     // std::vector<double> weights(inclusions.n_inclusions(),
+  //     //                             inclusions.get_h3D1D());
 
-      const auto local_lambda = lambda_to_pressure.locally_owned_elements();
-      if constexpr (spacedim == 3)
-        {
-          for (const auto &ll : local_lambda)
-            {
-              const unsigned inclusion_number = (unsigned int)floor(
-                //   ll / (inclusions.n_coefficients * spacedim));
-                ll / (inclusions.inclusions_data[0].size()));
-              // auto lii = ll - inclusion_number * inclusions.n_coefficients;
-              auto lii =
-                ll - inclusion_number * (inclusions.inclusions_data[0].size());
-              if (lii == 0 || lii == 4)
-                {
-                  AssertIndexRange(inclusion_number, inclusions.n_inclusions());
-                  pressure[inclusions.get_vesselID(inclusion_number)] +=
-                    lambda_to_pressure[ll] / 2 * weights[inclusion_number];
-                  pressure_at_inc[inclusion_number] +=
-                    lambda_to_pressure[ll] / 2 * weights[inclusion_number];
-                }
-            }
-          pressure.compress(VectorOperation::add);
-          pressure_at_inc.compress(VectorOperation::add);
-        }
-      else // spacedim = 2
-        {
-          for (auto ll : local_lambda)
-            {
-              const unsigned inclusion_number = (unsigned int)floor(
-                ll / (inclusions.n_coefficients * spacedim));
-              auto lii =
-                ll - inclusion_number * (inclusions.n_coefficients * spacedim);
-              if (lii == 0 || lii == 3)
-                {
-                  AssertIndexRange(inclusion_number, inclusions.n_inclusions());
-                  pressure[inclusion_number] +=
-                    lambda_to_pressure[ll] / 2 * weights[inclusion_number];
-                  pressure_at_inc[inclusion_number] +=
-                    lambda_to_pressure[ll] / 2 * weights[inclusion_number];
-                }
-            }
-          pressure.compress(VectorOperation::add);
-          pressure_at_inc.compress(VectorOperation::add);
-        }
+  //     const auto local_lambda = lambda_to_pressure.locally_owned_elements();
+  //     if constexpr (spacedim == 3)
+  //       {
+  //         for (const auto &ll : local_lambda)
+  //           {
+  //             const unsigned inclusion_number = (unsigned int)floor(
+  //               //   ll / (inclusions.n_coefficients * spacedim));
+  //               ll / (inclusions.inclusions_data[0].size()));
+  //             // auto lii = ll - inclusion_number *
+  //             inclusions.n_coefficients; auto lii =
+  //               ll - inclusion_number *
+  //               (inclusions.inclusions_data[0].size());
+  //             if (lii == 0 || lii == 4)
+  //               {
+  //                 AssertIndexRange(inclusion_number,
+  //                 inclusions.n_inclusions());
+  //                 pressure[inclusions.get_vesselID(inclusion_number)] +=
+  //                   lambda_to_pressure[ll] / 2 * weights[inclusion_number];
+  //                 pressure_at_inc[inclusion_number] +=
+  //                   lambda_to_pressure[ll] / 2 * weights[inclusion_number];
+  //               }
+  //           }
+  //         pressure.compress(VectorOperation::add);
+  //         pressure_at_inc.compress(VectorOperation::add);
+  //       }
+  //     else // spacedim = 2
+  //       {
+  //         for (auto ll : local_lambda)
+  //           {
+  //             const unsigned inclusion_number = (unsigned int)floor(
+  //               ll / (inclusions.get_n_coefficients() * spacedim));
+  //             auto lii = ll - inclusion_number *
+  //                               (inclusions.get_n_coefficients() * spacedim);
+  //             if (lii == 0 || lii == 3)
+  //               {
+  //                 AssertIndexRange(inclusion_number,
+  //                 inclusions.n_inclusions()); pressure[inclusion_number] +=
+  //                   lambda_to_pressure[ll] / 2 * weights[inclusion_number];
+  //                 pressure_at_inc[inclusion_number] +=
+  //                   lambda_to_pressure[ll] / 2 * weights[inclusion_number];
+  //               }
+  //           }
+  //         pressure.compress(VectorOperation::add);
+  //         pressure_at_inc.compress(VectorOperation::add);
+  //       }
 
-      // print .txt only sequential
-      if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
-        {
-          const std::string filename(par.output_directory +
-                                     "/externalPressure.txt");
-          std::ofstream     pressure_file;
-          if (openfilefirsttime)
-            pressure_file.open(filename);
-          else
-            pressure_file.open(filename, std::ios_base::app);
-          // pressure_file << cycle << " ";
-          for (unsigned int in = 0; in < pressure.size(); ++in)
-            pressure_file << in << " " << pressure[in] << std::endl;
-          // pressure.print(pressure_file);
-          pressure_file.close();
-        }
-      else
-        // print .h5
-        if (par.initial_time == par.final_time)
-          {
-            const std::string FILE_NAME(par.output_directory +
-                                        "/externalPressure.h5");
+  //     // print .txt only sequential
+  //     if (Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
+  //       {
+  //         const std::string filename(par.output_directory +
+  //                                    "/externalPressure.txt");
+  //         std::ofstream     pressure_file;
+  //         if (openfilefirsttime)
+  //           pressure_file.open(filename);
+  //         else
+  //           pressure_file.open(filename, std::ios_base::app);
+  //         // pressure_file << cycle << " ";
+  //         for (unsigned int in = 0; in < pressure.size(); ++in)
+  //           pressure_file << in << " " << pressure[in] << std::endl;
+  //         // pressure.print(pressure_file);
+  //         pressure_file.close();
+  //       }
+  //     else
+  //       // print .h5
+  //       if (par.initial_time == par.final_time)
+  //         {
+  //           const std::string FILE_NAME(par.output_directory +
+  //                                       "/externalPressure.h5");
 
-            auto accessMode = HDF5::File::FileAccessMode::create;
-            if (!openfilefirsttime)
-              accessMode = HDF5::File::FileAccessMode::open;
+  //           auto accessMode = HDF5::File::FileAccessMode::create;
+  //           if (!openfilefirsttime)
+  //             accessMode = HDF5::File::FileAccessMode::open;
 
-            HDF5::File        file_h5(FILE_NAME, accessMode, mpi_communicator);
-            const std::string DATASET_NAME("externalPressure_" +
-                                           std::to_string(cycle));
+  //           HDF5::File        file_h5(FILE_NAME, accessMode,
+  //           mpi_communicator); const std::string
+  //           DATASET_NAME("externalPressure_" +
+  //                                          std::to_string(cycle));
 
-            HDF5::DataSet dataset =
-              file_h5.create_dataset<double>(DATASET_NAME,
-                                             {inclusions.get_n_vessels()});
+  //           HDF5::DataSet dataset =
+  //             file_h5.create_dataset<double>(DATASET_NAME,
+  //                                            {inclusions.get_n_vessels()});
 
-            std::vector<double> data_to_write;
-            // std::vector<hsize_t> coordinates;
-            data_to_write.reserve(pressure.locally_owned_size());
-            // coordinates.reserve(pressure.locally_owned_size());
-            for (const auto &el : locally_owned_vessels)
-              {
-                // coordinates.emplace_back(el);
-                data_to_write.emplace_back(pressure[el]);
-              }
-            if (pressure.locally_owned_size() > 0)
-              {
-                hsize_t prefix = 0;
-                hsize_t los    = pressure.locally_owned_size();
-                int     ierr   = MPI_Exscan(&los,
-                                      &prefix,
-                                      1,
-                                      MPI_UNSIGNED_LONG_LONG,
-                                      MPI_SUM,
-                                      mpi_communicator);
-                AssertThrowMPI(ierr);
+  //           std::vector<double> data_to_write;
+  //           // std::vector<hsize_t> coordinates;
+  //           data_to_write.reserve(pressure.locally_owned_size());
+  //           // coordinates.reserve(pressure.locally_owned_size());
+  //           for (const auto &el : locally_owned_vessels)
+  //             {
+  //               // coordinates.emplace_back(el);
+  //               data_to_write.emplace_back(pressure[el]);
+  //             }
+  //           if (pressure.locally_owned_size() > 0)
+  //             {
+  //               hsize_t prefix = 0;
+  //               hsize_t los    = pressure.locally_owned_size();
+  //               int     ierr   = MPI_Exscan(&los,
+  //                                     &prefix,
+  //                                     1,
+  //                                     MPI_UNSIGNED_LONG_LONG,
+  //                                     MPI_SUM,
+  //                                     mpi_communicator);
+  //               AssertThrowMPI(ierr);
 
-                std::vector<hsize_t> offset = {prefix, 1};
-                std::vector<hsize_t> count = {pressure.locally_owned_size(), 1};
-                // data.write_selection(data_to_write, coordinates);
-                dataset.write_hyperslab(data_to_write, offset, count);
-              }
-            else
-              dataset.write_none<int>();
-          }
-        else
-          {
-            pcout
-              << "output_pressure file for time dependent simulation not implemented"
-              << std::endl;
-          }
-    }
-  else
-    {
-      pcout
-        << "inclusions parameters ('Start index of Fourier coefficients' or 'Number of fourier coefficients') not compatible with the computation of the pressure as intended, pressure.hdf5 not generated"
-        << std::endl;
-    }
+  //               std::vector<hsize_t> offset = {prefix, 1};
+  //               std::vector<hsize_t> count = {pressure.locally_owned_size(),
+  //               1};
+  //               // data.write_selection(data_to_write, coordinates);
+  //               dataset.write_hyperslab(data_to_write, offset, count);
+  //             }
+  //           else
+  //             dataset.write_none<int>();
+  //         }
+  //       else
+  //         {
+  //           pcout
+  //             << "output_pressure file for time dependent simulation not
+  //             implemented"
+  //             << std::endl;
+  //         }
+  //   }
+  // else
+  //   {
+  //     pcout
+  //       << "inclusions parameters ('Start index of Fourier coefficients' or
+  //       'Number of fourier coefficients') not compatible with the computation
+  //       of the pressure as intended, pressure.hdf5 not generated"
+  //       << std::endl;
+  //   }
 }
 
 template <int dim, int spacedim>

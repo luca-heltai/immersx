@@ -37,6 +37,8 @@
 
 #include "laplacian.h"
 
+#include <boost/algorithm/string.hpp>
+
 template <int dim, int spacedim>
 PoissonProblem<dim, spacedim>::PoissonProblem(
   const ProblemParameters<dim, spacedim> &par)
@@ -74,7 +76,7 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
     {
       const auto &manifold_id   = pair.first;
       const auto &cad_file_name = pair.second;
-      const auto  extension     = to_lower_copy(
+      const auto  extension     = boost::to_lower_copy(
         cad_file_name.substr(cad_file_name.find_last_of('.') + 1));
       TopoDS_Shape shape;
       if (extension == "iges" || extension == "igs")
@@ -165,7 +167,6 @@ PoissonProblem<dim, spacedim>::setup_dofs()
   }
   {
 #ifdef MATRIX_FREE_PATH
-
     typename MatrixFree<spacedim, double>::AdditionalData additional_data;
     additional_data.tasks_parallel_scheme =
       MatrixFree<spacedim, double>::AdditionalData::none;
@@ -220,7 +221,6 @@ PoissonProblem<dim, spacedim>::setup_dofs()
 
 
 #else
-
     stiffness_matrix.clear();
     DynamicSparsityPattern dsp(relevant_dofs[0]);
     DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
@@ -244,7 +244,7 @@ PoissonProblem<dim, spacedim>::setup_dofs()
           mpi_communicator, inclusions.n_inclusions());
 
       owned_dofs[1] = inclusions_set.tensor_product(
-        complete_index_set(inclusions.n_coefficients));
+        complete_index_set(inclusions.get_n_coefficients()));
 
       coupling_matrix.clear();
       DynamicSparsityPattern dsp(dh.n_dofs(),
@@ -407,18 +407,18 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
   const FEValuesExtractors::Scalar     scalar(0);
   std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices(
-    inclusions.n_coefficients);
+    inclusions.get_n_coefficients());
 
   FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
-                                           inclusions.n_coefficients);
+                                           inclusions.get_n_coefficients());
 
   [[maybe_unused]] FullMatrix<double> local_bulk_matrix(fe->n_dofs_per_cell(),
                                                         fe->n_dofs_per_cell());
 
-  FullMatrix<double> local_inclusion_matrix(inclusions.n_coefficients,
-                                            inclusions.n_coefficients);
+  FullMatrix<double> local_inclusion_matrix(inclusions.get_n_coefficients(),
+                                            inclusions.get_n_coefficients());
 
-  Vector<double> local_rhs(inclusions.n_coefficients);
+  Vector<double> local_rhs(inclusions.get_n_coefficients());
 
   auto particle = inclusions.inclusions_as_particles.begin();
   while (particle != inclusions.inclusions_as_particles.end())
@@ -458,7 +458,7 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
               const auto &real_q              = p->get_location();
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < inclusions.n_coefficients; ++j)
+              for (unsigned int j = 0; j < inclusions.get_n_coefficients(); ++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     local_coupling_matrix(i, j) +=
