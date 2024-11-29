@@ -49,11 +49,20 @@ find the latest documentation here:
 
 <https://luca-heltai.github.io/reduced_lagrange_multipliers/>
 
-The repository is accessible at:
-
-<https://github.com/luca-heltai/reduced_lagrange_multipliers>
-
 Licence
 =======
 
 See the file [LICENSE.md](./LICENSE.md) for details
+
+USE OF COUPLED ELASTICITY
+=========================
+
+run in parallel as
+
+export OMP_NUM_THREADS=1
+
+mpirun -np n ./build/coupled_elasticity_debug <path_to_input_3d> <path_to_input_1d> <couplingSampling> <couplingStart> 0
+if we only want the the 1D simulation then set coupling Start to 100
+if we only want the 3D Simulation then only give <path_to_input_3d>
+
+random error "invalid template argument" solved by changing the order od #include in app_*

@@ -35,8 +35,8 @@ test(const std::vector<std::vector<double>> &inclusions,
   const unsigned int Nq = 100;
   const unsigned int Nc = 5;
   Inclusions<dim>    inclusion;
-  inclusion.n_q_points     = Nq;
-  inclusion.n_coefficients = Nc;
+  inclusion.set_n_q_points(Nq);
+  inclusion.set_n_coefficients(Nc);
   inclusion.inclusions     = inclusions;
   inclusion.initialize();
 
@@ -97,7 +97,7 @@ test(const std::vector<std::vector<double>> &inclusions,
   auto inclusions_set = Utilities::MPI::create_evenly_distributed_partitioning(
     mpi_comm, inclusion.n_inclusions());
   IndexSet owned_dofs =
-    inclusions_set.tensor_product(complete_index_set(inclusion.n_coefficients));
+    inclusions_set.tensor_product(complete_index_set(inclusion.get_n_coefficients()));
 
   dst.reinit(owned_dofs, relevant, mpi_comm);
 
