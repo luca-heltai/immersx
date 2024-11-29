@@ -1,0 +1,94 @@
+subsection Error
+  set Enable computation of the errors = false
+  set Error file name                  = 
+  set Error precision                  = 5
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0,1,2,3,4,5,6
+  set FE degree                          = 1
+  set Initial refinement                 = 4
+  set Neumann boundary ids               = 
+  set Normal flux boundary ids           = 
+  set Output directory                   = ./
+  set Output name                        = solution
+  set Output results = true
+  subsection Dirichlet boundary conditions
+    set Function constants  = 
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+  end
+  subsection Exact solution
+    set Function constants  = 
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+    set Weight expression   = 
+  end
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0:2:true
+  end
+  subsection Immersed inclusions
+    set Bounding boxes extraction level     = 1
+    set Data file                           = data/bifurcation/inclusions_data_bif_2503_0.05.txt
+    set Inclusions                          = 
+    set Inclusions file                     = data/bifurcation/inclusions_points_bif_2503_0.05.txt
+    set Inclusions refinement               = 10
+    set Number of fourier coefficients      = 2
+    set Selection of Fourier coefficients   = 3,7
+    subsection Boundary data
+      set Function constants  = T=1,L=2
+      set Function expression = 0;0;0
+      set Variable names      = x,y,z,t
+    end
+  end
+  subsection Neumann boundary conditions
+    set Function constants  = p = 0.13
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+  end
+  subsection Physical constants
+    set Lame lambda = 50
+    set Lame mu = 2
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 2000000
+    set Number of refinement cycles = 2
+    set Refinement fraction         = 0.4
+    set Strategy                    = fixed_number
+  end
+  subsection Right hand side
+    set Function constants  = 
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+  end
+  subsection Solver
+    subsection Inner control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 10000
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-4
+    end
+    subsection Outer control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 10000
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-4
+    end
+  end
+  subsection Time dependency
+    set Final time   = 0
+    set Initial time = 0
+    set Time step    = 0.5
+  end
+end
