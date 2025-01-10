@@ -75,11 +75,13 @@ polydata.cell_data['hematocrit'] = hematocrit
 # Save to VTK file
 pv.UnstructuredGrid(polydata).save('Network2.vtk', binary=False)
 polydata.save('Network1.vtk', binary=False)
+grid = pv.UnstructuredGrid(polydata)
 
 polydata2 = pv.merge([polydata], merge_points=True)
 
 print(polydata)
 print(polydata2)
+print(grid)
 
 # print(lines.shape, vertices.shape, np.min(edges),
 # np.max(edges), np.min(vertices), np.max(vertices))
