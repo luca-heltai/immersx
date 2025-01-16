@@ -35,7 +35,6 @@ flowrate = np.loadtxt('Network1_Split_11.txt', skiprows=1)
 concentration = np.loadtxt('Network1_Split_12.txt', skiprows=1)
 pressure = np.loadtxt('Network1_Split_13.txt', skiprows=1)
 
-
 # Read edge data
 # edges = np.loadtxt(edge_file, skiprows=1, usecols=(0, 1), dtype=int)
 # lines = np.zeros((edges.shape[0], 3), dtype=int)
@@ -47,7 +46,7 @@ lines = np.zeros(
 n_inclusions = int(len(lines)/2)
 
 line_ids = np.zeros(len(lines), dtype=int)
-line_concentration = np.zeros_like(lines)
+line_concentration = np.zeros(lines.shape)
 
 ids = np.cumsum(num_edge_points)
 j = 0
@@ -83,8 +82,8 @@ min_p = edge_point_coordinates.min(axis=0)
 max_p = edge_point_coordinates.max(axis=0)
 
 # Rescale all coordinates to be between 0.1 and 0.9
-edge_point_coordinates = (edge_point_coordinates - min_p) / \
-    (max_p - min_p) * 0.8 + 0.1
+edge_point_coordinates = (edge_point_coordinates -
+                          min_p) / (max_p - min_p) * 0.8 + 0.1
 
 # Rescale the thickness
 point_thickness = point_thickness / point_thickness.max() * 0.05
@@ -112,5 +111,5 @@ out_data = np.c_[line_centers, directions, radii, line_ids]
 np.savetxt('inclusions.txt', out_data,
            fmt='%.5f %.5f %.5f %.5f %.5f %.5f %.5f %d')
 
-np.savetxt('concentration.txt', line_concentration, fmt='%.5f')
+np.savetxt('concentration.txt', line_concentration)
 # np.savetxt('pressure.txt', line_pressure, fmt='%.5f')
