@@ -16,6 +16,7 @@
  * Author: Wolfgang Bangerth, University of Heidelberg, 2000
  * Modified by: Luca Heltai, 2020, Camilla Belponer 2023
  */
+#include <iostream>
 
 #ifdef ENABLE_COUPLED_PROBLEMS
 
@@ -24,7 +25,7 @@
 #  if 1
 #    include "coupled_elasticity.h"
 #  endif
-#  include "coupledModel1d.h"
+// #  include "coupledModel1d.h"
 
 
 int
@@ -185,6 +186,8 @@ main(int argc, char *argv[])
 int
 main()
 {
+  std::cout << "This program can only be run with ENABLE_COUPLED_PROBLEMS"
+            << std::endl;
   return 0;
 }
 #endif
