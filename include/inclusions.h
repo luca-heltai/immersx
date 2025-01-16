@@ -255,6 +255,9 @@ public:
           }
       }
     check_vessels();
+    std::cout << "Dofs per inclusions: " << n_dofs_per_inclusion() << std::endl
+              << "Number of inclusions: " << n_inclusions() << std::endl
+              << "Total dofs: " << n_dofs() << std::endl;
   }
 
 
