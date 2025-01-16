@@ -266,7 +266,6 @@ PoissonProblem<dim, spacedim>::setup_dofs()
                                   relevant_dofs[1]);
       for (const auto i : relevant_dofs[1])
         idsp.add(i, i);
-
       SparsityTools::distribute_sparsity_pattern(idsp,
                                                  owned_dofs[1],
                                                  mpi_communicator,
@@ -403,6 +402,7 @@ void
 PoissonProblem<dim, spacedim>::assemble_coupling()
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
+  pcout << "Assemble coupling matrix. " << std::endl;
 
   const FEValuesExtractors::Scalar     scalar(0);
   std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
@@ -463,8 +463,9 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     local_coupling_matrix(i, j) +=
                       (fev.shape_value(i, q)) * inclusion_fe_values[j];
-                  local_rhs(j) += inclusion_fe_values[j] *
-                                  inclusions.inclusions_rhs.value(real_q);
+                  local_rhs(j) +=
+                    inclusion_fe_values[j] *
+                    inclusions.get_inclusion_data(inclusion_id, id, real_q);
 
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] /
@@ -495,6 +496,7 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
 #endif
   inclusion_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
+  pcout << "System rhs: " << system_rhs.l2_norm() << std::endl;
 }
 
 
@@ -549,7 +551,7 @@ void
 PoissonProblem<dim, spacedim>::solve()
 {
   TimerOutput::Scope t(computing_timer, "Solve");
-
+  pcout << "Preparing solve." << std::endl;
   SolverCG<VectorType> cg_stiffness(par.inner_control);
 #ifdef MATRIX_FREE_PATH
 
@@ -616,16 +618,22 @@ PoissonProblem<dim, spacedim>::solve()
 #else
   using Payload =
     TrilinosWrappers::internal::LinearOperatorImplementation::TrilinosPayload;
-//   LA::MPI::PreconditionAMG prec_A;
-//   {
-//     LA::MPI::PreconditionAMG::AdditionalData data;
-// #  ifdef USE_PETSC_LA
-//     data.symmetric_operator = true;
-// #  endif
-//     prec_A.initialize(stiffness_matrix, data);
-//   }
-// const auto amgA = linear_operator<VectorType, VectorType>(A, prec_A);
-// invA            = inverse_operator(A, cg_stiffness, amgA);
+  LinearOperator<VectorType, VectorType, Payload> A;
+  A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
+
+  LA::MPI::PreconditionAMG prec_A;
+  {
+    LA::MPI::PreconditionAMG::AdditionalData data;
+#  ifdef USE_PETSC_LA
+    data.symmetric_operator = true;
+#  endif
+    pcout << "Initialize AMG...";
+    prec_A.initialize(stiffness_matrix, data);
+    pcout << "done." << std::endl;
+  }
+  const auto amgA = linear_operator<VectorType, VectorType, Payload>(A, prec_A);
+  auto       invA = A;
+  invA            = inverse_operator(A, cg_stiffness, amgA);
 #endif
 
 
@@ -662,7 +670,9 @@ PoissonProblem<dim, spacedim>::solve()
         linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
       // Schur complement
+      pcout << "   Prepare schur... ";
       const auto S = B * invA * Bt;
+      pcout << "S was built." << std::endl;
 
       // Schur complement preconditioner
       auto                 invS = S;
