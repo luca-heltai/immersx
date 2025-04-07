@@ -39,6 +39,8 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "augmented_lagrangian.h"
+
 template <int dim, int spacedim>
 PoissonProblem<dim, spacedim>::PoissonProblem(
   const ProblemParameters<dim, spacedim> &par)
@@ -274,6 +276,8 @@ PoissonProblem<dim, spacedim>::setup_dofs()
                               owned_dofs[1],
                               idsp,
                               mpi_communicator);
+
+      mass_matrix.reinit(owned_dofs[1], owned_dofs[1], idsp, mpi_communicator);
     }
 
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
@@ -414,6 +418,8 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
 
   FullMatrix<double> local_inclusion_matrix(inclusions.get_n_coefficients(),
                                             inclusions.get_n_coefficients());
+  FullMatrix<double> local_mass_matrix(inclusions.get_n_coefficients(),
+                                       inclusions.get_n_coefficients());
 
   Vector<double> local_rhs(inclusions.get_n_coefficients());
 
@@ -436,6 +442,7 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
           inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
           local_coupling_matrix   = 0;
           local_inclusion_matrix  = 0;
+          local_mass_matrix       = 0;
           local_rhs               = 0;
 
           // Extract all points that refer to the same inclusion
@@ -467,6 +474,9 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] /
                      inclusion_fe_values[0]);
+
+                  local_mass_matrix(j, j) +=
+                    inclusion_fe_values[j] * inclusion_fe_values[j];
                 }
               ++p;
             }
@@ -484,10 +494,14 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
 
           inclusion_constraints.distribute_local_to_global(
             local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
+
+          inclusion_constraints.distribute_local_to_global(
+            local_mass_matrix, inclusion_dof_indices, mass_matrix);
         }
       particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
+  mass_matrix.compress(VectorOperation::add);
 #ifndef MATRIX_FREE_PATH
   stiffness_matrix.compress(VectorOperation::add);
 #endif
@@ -615,8 +629,8 @@ PoissonProblem<dim, spacedim>::solve()
 #else
   using Payload =
     TrilinosWrappers::internal::LinearOperatorImplementation::TrilinosPayload;
-  LinearOperator<VectorType, VectorType, Payload> A;
-  A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
+
+  auto A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
 
   LA::MPI::PreconditionAMG prec_A;
   {
@@ -624,13 +638,10 @@ PoissonProblem<dim, spacedim>::solve()
 #  ifdef USE_PETSC_LA
     data.symmetric_operator = true;
 #  endif
-    pcout << "Initialize AMG...";
     prec_A.initialize(stiffness_matrix, data);
-    pcout << "done." << std::endl;
   }
-  const auto amgA = linear_operator<VectorType, VectorType, Payload>(A, prec_A);
-  auto       invA = A;
-  invA            = inverse_operator(A, cg_stiffness, amgA);
+  const auto amgA = linear_operator<VectorType, VectorType>(A, prec_A);
+  auto       invA = inverse_operator(A, cg_stiffness, amgA);
 #endif
 
 
@@ -666,6 +677,8 @@ PoissonProblem<dim, spacedim>::solve()
       const auto C =
         linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
+
+#ifdef FALSE
       // Schur complement
       pcout << "   Prepare schur... ";
       const auto S = B * invA * Bt;
@@ -688,12 +701,73 @@ PoissonProblem<dim, spacedim>::solve()
       u = invA * (f - Bt * lambda);
       pcout << "   u norm: " << u.l2_norm()
             << ", lambda norm: " << lambda.l2_norm() << std::endl;
+
+      pcout << "   Solved for u in " << par.inner_control.last_step()
+            << " iterations." << std::endl;
+
+#endif
+
+      const auto M = linear_operator<LA::MPI::Vector>(mass_matrix);
+
+      {
+        TrilinosWrappers::PreconditionILU M_inv_ilu;
+        M_inv_ilu.initialize(mass_matrix);
+
+        SolverControl solver_control(100, 1e-15, false, false);
+        SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(solver_control);
+        auto invM = inverse_operator(M, solver_CG_M, M_inv_ilu);
+        auto invW = invM * invM;
+
+        // Try augmented lagrangian preconditioner
+        const double gamma = 10;
+        auto         Aug   = A + gamma * Bt * invW * B;
+
+
+        auto Zero = M * 0.0;
+        auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
+          {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
+
+        LA::MPI::BlockVector solution_block;
+        LA::MPI::BlockVector system_rhs_block;
+        AA.reinit_domain_vector(solution_block, false);
+        AA.reinit_range_vector(system_rhs_block, false);
+
+
+        // lagrangian term
+        LA::MPI::Vector tmp;
+        tmp.reinit(system_rhs.block(0));
+        tmp                       = gamma * Bt * invW * system_rhs.block(1);
+        system_rhs_block.block(0) = system_rhs.block(0);
+        system_rhs_block.block(0).add(1., tmp); // ! augmented
+        system_rhs_block.block(1) = system_rhs.block(1);
+
+        SolverControl control_lagrangian(100000, 1e-2, false, false);
+        SolverCG<LA::MPI::Vector> solver_lagrangian(control_lagrangian);
+
+        auto                               Aug_inv = inverse_operator(Aug,
+                                        solver_lagrangian); //! augmented
+        SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
+
+        BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+          augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
+
+        solver_fgmres.solve(AA,
+                            solution_block,
+                            system_rhs_block,
+                            augmented_lagrangian_preconditioner);
+
+        pcout << "Solver with FGMRES in " << par.outer_control.last_step()
+              << " iterations." << std::endl;
+
+        solution.block(0) = solution_block.block(0);
+
+        constraints.distribute(solution_block.block(0));
+      }
     }
 
-  pcout << "   Solved for u in " << par.inner_control.last_step()
-        << " iterations." << std::endl;
-  constraints.distribute(u);
-  inclusion_constraints.distribute(lambda);
+
+  constraints.distribute(solution.block(0));
+  inclusion_constraints.distribute(solution.block(1));
   solution.update_ghost_values();
   locally_relevant_solution = solution;
 }

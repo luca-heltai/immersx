@@ -251,6 +251,7 @@ private:
 
   LA::MPI::SparseMatrix coupling_matrix;
   LA::MPI::SparseMatrix inclusion_matrix;
+  LA::MPI::SparseMatrix mass_matrix;
   MappingQ<spacedim>    mapping;
 #ifdef MATRIX_FREE_PATH
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
