@@ -97,5 +97,21 @@
         "*.lxx": "cpp",
         "codecvt": "cpp",
         "execution": "cpp"
-    }
+    },
+    "testMate.cpp.test.executables": [
+        "build/gtests/gtests",
+        "build/gtests/gtests_debug",
+    ],
+    "testMate.cpp.test.advancedExecutables": [
+        {
+            "name": "GoogleTest Debug",
+            "pattern": "build/gtests/gtests_debug",
+            "framework": "googleTest"
+        },
+        {
+            "name": "GoogleTest Release",
+            "pattern": "build/gtests/gtests",
+            "framework": "googleTest"
+        },
+    ]
 }

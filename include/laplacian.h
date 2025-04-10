@@ -29,7 +29,7 @@
 #include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
-#define MATRIX_FREE_PATH
+// #define MATRIX_FREE_PATH
 
 #define FORCE_USE_OF_TRILINOS
 namespace LA

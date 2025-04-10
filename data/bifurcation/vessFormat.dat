@@ -1,0 +1,6 @@
+# 0: first node; 1: second node; 2: length; 3: initial radius; 4: final radius; 5: proximal resistance; 6: distal resistance; 7: compliance
+
+3 and 4 can be override if radius is specified with other typo of files
+values in 5-7 are only relevant for terminal vessels
+
+the rest of the columns are not used (but must be there)

@@ -1,0 +1,1 @@
+# 0: node ID (used in vess.dat); 1: node type (0: inlet node, -1: terminal node, N>=2: junction with N vessels), 2,3,4: 3D coordinates (dummy values here), the rest are irrelevant
