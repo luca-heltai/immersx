@@ -356,8 +356,6 @@ PoissonProblem<dim, spacedim>::assemble_coupling_sparsity(
   TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
   IndexSet           relevant(inclusions.n_dofs());
 
-  const FEValuesExtractors::Scalar scalar(0);
-
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices;
 
@@ -404,7 +402,6 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
   pcout << "Assemble coupling matrix. " << std::endl;
 
-  const FEValuesExtractors::Scalar     scalar(0);
   std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices(
     inclusions.get_n_coefficients());
