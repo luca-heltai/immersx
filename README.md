@@ -54,8 +54,23 @@ Licence
 
 See the file [LICENSE.md](./LICENSE.md) for details
 
-USE OF COUPLED ELASTICITY
+## USE OF COUPLED ELASTICITY
 =========================
+
+### Install FVM(1D)
+
+- Clone the fvm repo
+- run docker: `docker run -ti -v ./:/fvm --platform linux/amd64 dealii/dealii:v9.6.0-jammy`
+- `cd /fvm/`
+- `make -f MakefileGCCDesktop clean all`
+
+### Compile the coupled code
+
+- create the `build` directory with cmake `cmake -DCMAKE_CXX_FLAGS=-fopenmp .` (this includes OMP, necessary for the 1D)
+- `cd build`
+- compile with `ninja -jX` (X = number of proc)
+
+
 
 run in parallel as
 
