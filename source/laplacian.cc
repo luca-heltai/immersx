@@ -462,14 +462,16 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
               const auto &real_q              = p->get_location();
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < inclusions.get_n_coefficients(); ++j)
+              for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
+                   ++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     local_coupling_matrix(i, j) +=
                       (fev.shape_value(i, q)) * inclusion_fe_values[j];
+
                   local_rhs(j) +=
                     inclusion_fe_values[j] *
-                    inclusions.get_inclusion_data(inclusion_id, id, real_q);
+                    inclusions.get_inclusion_data(inclusion_id, j, real_q);
 
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] /
@@ -646,11 +648,11 @@ PoissonProblem<dim, spacedim>::solve()
 
 
   // Some aliases
-  auto &u      = solution.block(0);
-  auto &lambda = solution.block(1);
+  auto &u = solution.block(0);
+  // auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  const auto &g = system_rhs.block(1);
+  // const auto &g = system_rhs.block(1);
 
   if (inclusions.n_dofs() == 0)
     {
