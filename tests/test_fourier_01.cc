@@ -27,7 +27,7 @@ test(const std::vector<std::vector<double>> &inclusions)
   Inclusions<dim>    inclusion;
   inclusion.set_n_q_points(Nq);
   inclusion.set_n_coefficients(Nc);
-  inclusion.inclusions     = inclusions;
+  inclusion.inclusions = inclusions;
   inclusion.initialize();
 
   // Test integrals

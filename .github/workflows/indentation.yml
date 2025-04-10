@@ -15,7 +15,11 @@ jobs:
       options: --user root
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Check indentation
-      run: |
-         ./scripts/check_indentation.sh
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Mark the repository as safe
+      run: git config --global --add safe.directory /__w/reduced_lagrange_multipliers/reduced_lagrange_multipliers
+
+    - name: Run indentation check
+      run: ./scripts/check_indentation.sh
