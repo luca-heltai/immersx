@@ -24,41 +24,39 @@
 using namespace dealii;
 
 template <int dim>
-std::shared_ptr<ElasticityProblemParameters<dim>>
-get_default_test_parameters()
+void
+get_default_test_parameters(ElasticityProblemParameters<dim> &par)
 {
-  auto par = std::make_shared<ElasticityProblemParameters<dim>>();
+  par.output_directory    = ".";
+  par.output_name         = "solution";
+  par.fe_degree           = 1;
+  par.initial_refinement  = 5;
+  par.domain_type         = "generate";
+  par.name_of_grid        = "hyper_cube";
+  par.arguments_for_grid  = "-1: 1: false";
+  par.refinement_strategy = "fixed_fraction";
+  par.coarsening_fraction = 0.0;
+  par.refinement_fraction = 0.3;
+  par.n_refinement_cycles = 1;
+  par.max_cells           = 20000;
 
-  par->output_directory    = ".";
-  par->output_name         = "solution";
-  par->fe_degree           = 1;
-  par->initial_refinement  = 5;
-  par->domain_type         = "generate";
-  par->name_of_grid        = "hyper_cube";
-  par->arguments_for_grid  = "-1: 1: false";
-  par->refinement_strategy = "fixed_fraction";
-  par->coarsening_fraction = 0.0;
-  par->refinement_fraction = 0.3;
-  par->n_refinement_cycles = 1;
-  par->max_cells           = 20000;
+  par.Lame_mu     = 1;
+  par.Lame_lambda = 1;
 
-  par->Lame_mu     = 1;
-  par->Lame_lambda = 1;
-
-  par->inner_control.set_reduction(1e-12);
-  par->inner_control.set_tolerance(1e-12);
-  par->outer_control.set_reduction(1e-12);
-  par->outer_control.set_tolerance(1e-12);
-  return par;
+  par.inner_control.set_reduction(1e-12);
+  par.inner_control.set_tolerance(1e-12);
+  par.outer_control.set_reduction(1e-12);
+  par.outer_control.set_tolerance(1e-12);
 }
 
 
 
 TEST(ElasticityTest, DisplacementX)
 {
-  static constexpr int   dim = 2;
-  auto                   par = get_default_test_parameters<dim>();
-  ElasticityProblem<dim> problem(*par);
+  static constexpr int             dim = 2;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -90,9 +88,10 @@ TEST(ElasticityTest, DisplacementX)
 
 TEST(ElasticityTest, DisplacementY)
 {
-  static constexpr int   dim = 2;
-  auto                   par = get_default_test_parameters<dim>();
-  ElasticityProblem<dim> problem(*par);
+  static constexpr int             dim = 2;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -124,9 +123,10 @@ TEST(ElasticityTest, DisplacementY)
 
 TEST(ElasticityTest, DisplacementXScaled)
 {
-  static constexpr int   dim = 2;
-  auto                   par = get_default_test_parameters<dim>();
-  ElasticityProblem<dim> problem(*par);
+  static constexpr int             dim = 2;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -158,9 +158,10 @@ TEST(ElasticityTest, DisplacementXScaled)
 
 TEST(ElasticityTest, DisplacementYScaled)
 {
-  static constexpr int   dim = 2;
-  auto                   par = get_default_test_parameters<dim>();
-  ElasticityProblem<dim> problem(*par);
+  static constexpr int             dim = 2;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -194,9 +195,10 @@ TEST(ElasticityTest, DisplacementYScaled)
  */
 TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
 {
-  static constexpr int   dim = 2;
-  auto                   par = get_default_test_parameters<dim>();
-  ElasticityProblem<dim> problem(*par);
+  static constexpr int             dim = 2;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
