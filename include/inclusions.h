@@ -396,6 +396,44 @@ public:
       inclusion_id)[get_fourier_component(dof_index)];
   }
 
+  /**
+   * @brief Get the Fourier data for the given local dof index.
+   *
+   * @param inclusion_id A number in [0,n_inclusions())
+   * @param dof_index A number in [0,n_dofs_per_inclusion())
+   * @param point The inclusion quadrature point location
+   * @return unsigned int The index of the current component
+   */
+  inline double
+  get_inclusion_data(const types::global_dof_index &inclusion_id,
+                     const types::global_dof_index &dof_index,
+                     const Point<spacedim>         &point) const
+  {
+    AssertIndexRange(inclusion_id, n_inclusions());
+    AssertIndexRange(dof_index, n_dofs());
+    // return dof_index % n_vector_components;
+    if (inclusions_data.size() > 0) // If we have data
+      {
+        if (n_vector_components == 1)
+          return inclusions_data[inclusion_id]
+                                [get_fourier_component(dof_index)];
+        else if (n_vector_components == spacedim)
+          {
+            return get_rotated_inclusion_data(
+              inclusion_id)[get_fourier_component(dof_index)];
+          }
+        else
+          {
+            AssertThrow(false, ExcNotImplemented());
+            return 0.0;
+          }
+      }
+    else
+      {
+        return inclusions_rhs.value(point, get_fourier_component(dof_index));
+      }
+  }
+
 
 
   /**
