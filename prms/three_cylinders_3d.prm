@@ -9,7 +9,7 @@ subsection Error
   set Rate mode                        = reduction_rate_log2
 end
 subsection Immersed Problem
-  set Bounding boxes extraction level    = 1
+  # set Bounding boxes extraction level    = 1
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
   set Initial refinement                 = 6
@@ -26,7 +26,7 @@ subsection Immersed Problem
   end
   subsection Immersed inclusions
     set Inclusions                     = 
-    set Inclusions file                = ../data/three_cylinders_64_3d.gpl
+    set Inclusions file                = ../data/three_cylinders_R0025.gpl
     set Inclusions refinement          = 64
     set Number of fourier coefficients = 1
     subsection Boundary data
