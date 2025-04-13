@@ -388,6 +388,7 @@ public:
   LA::MPI::SparseMatrix                           stiffness_matrix;
   LA::MPI::SparseMatrix                           coupling_matrix;
   LA::MPI::SparseMatrix                           inclusion_matrix;
+  LA::MPI::SparseMatrix                           mass_matrix;
   LA::MPI::BlockVector                            solution;
   LA::MPI::BlockVector                            locally_relevant_solution;
   LA::MPI::BlockVector                            system_rhs;
