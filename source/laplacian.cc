@@ -39,6 +39,8 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <cstdbool>
+
 #include "augmented_lagrangian.h"
 
 template <int dim, int spacedim>
@@ -477,8 +479,9 @@ PoissonProblem<dim, spacedim>::assemble_coupling()
                     (inclusion_fe_values[j] * inclusion_fe_values[j] /
                      inclusion_fe_values[0]);
 
-                  local_mass_matrix(j, j) +=
-                    inclusion_fe_values[j] * inclusion_fe_values[j];
+                  local_mass_matrix(j, j) += inclusion_fe_values[j] *
+                                             inclusion_fe_values[j] /
+                                             inclusion_fe_values[0];
                 }
               ++p;
             }
@@ -558,6 +561,12 @@ PoissonProblem<dim, spacedim>::assemble_rhs()
 }
 #endif
 
+
+void
+output_double_number(double input, const std::string &text)
+{
+  std::cout << text << input << std::endl;
+}
 
 template <int dim, int spacedim>
 void
@@ -680,6 +689,42 @@ PoissonProblem<dim, spacedim>::solve()
         linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
 
+      {
+        // Estimate condition number:
+        std::cout << "- - - - - - - - - - - - - - - - - - - - - - - -"
+                  << std::endl;
+        std::cout << "Estimate condition number of CCt using CG" << std::endl;
+        SolverControl             solver_control(2000, 1e-12);
+        SolverCG<LA::MPI::Vector> solver_cg(solver_control);
+
+        solver_cg.connect_condition_number_slot(
+          std::bind(output_double_number,
+                    std::placeholders::_1,
+                    "Condition number estimate: "));
+
+        auto CCt = B * Bt;
+
+        LA::MPI::Vector u;
+        u.reinit(system_rhs.block(1));
+        u = 0.;
+
+        LA::MPI::Vector f;
+        f.reinit(system_rhs.block(1));
+        f = 1.;
+        PreconditionIdentity prec_no;
+        try
+          {
+            solver_cg.solve(CCt, u, f, prec_no);
+          }
+        catch (...)
+          {
+            std::cerr
+              << "***CCt solve not successfull (see condition number above)***"
+              << std::endl;
+          }
+      }
+
+
 #ifdef FALSE
       // Schur complement
       pcout << "   Prepare schur... ";
@@ -743,7 +788,7 @@ PoissonProblem<dim, spacedim>::solve()
         system_rhs_block.block(0).add(1., tmp); // ! augmented
         system_rhs_block.block(1) = system_rhs.block(1);
 
-        SolverControl control_lagrangian(100000, 1e-2, false, false);
+        SolverControl             control_lagrangian(100000, 1e-2, false, true);
         SolverCG<LA::MPI::Vector> solver_lagrangian(control_lagrangian);
 
         auto                               Aug_inv = inverse_operator(Aug,
