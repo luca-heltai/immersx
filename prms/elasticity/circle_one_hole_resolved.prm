@@ -9,48 +9,50 @@ subsection Error
   set Rate mode                        = reduction_rate_log2
 end
 subsection Immersed Problem
-  set Dirichlet boundary ids             = 0,1,2,3
+  set Dirichlet boundary ids             = 1,2
   set FE degree                          = 1
-  set Initial refinement                 = 8
+  set Initial refinement                 = 3
   set Neumann boundary ids               = 
   set Normal flux boundary ids           = 
-  set Output directory                   = out/
+  set Output directory                   = ./
   set Output name                        = solution
   set Output results also before solving = false
   subsection Dirichlet boundary conditions
-    set Function constants  = d=0.1
-    set Function expression = if (x^2==1,-d*sqrt(2)*sign(x),-d*sqrt(2)*x);if (y^2==1,-d*sqrt(2)*sign(y),-d*sqrt(2)*y)
+    set Function constants  = ri=0.2, re=1, di=0.1
+    set Function expression = if((x^2+y^2) > (2*ri*ri), 0, di*x/ri); if((x^2+y^2) > (2*ri*ri), 0, di*y/ri)
     set Variable names      = x,y,t
   end
-  subsection Exact solution
+  subsection Neumann boundary conditions
     set Function constants  = 
     set Function expression = 0;0
     set Variable names      = x,y,t
-    set Weight expression   = 1.
+  end
+  subsection Exact solution
+    set Function constants  = ri=0.2, re=1, di=0.1
+    set Function expression = if((x^2+y^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*x/(x^2+y^2) - x), di *x/ri); if((x^2+y^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*y/(x^2+y^2) - y), di*y/ri)
+    set Variable names      = x,y,t
+    set Weight expression   = if((x^2+y^2) > 0.04, 1., 0.)
   end
   subsection Grid generation
-    set Domain type              = generate
-    set Grid generator           = hyper_cube
-    set Grid generator arguments = -1:1:true
+    set Domain type              = file
+    set Grid generator           = data/elasticity/geometry/circle_1hole.msh
+    set Grid generator arguments = 1.
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level     = 1
-    set Data file                           = data/input_data/inclusion_data_4.txt
+    set Data file                           =
+    set Reference inclusion data            = 
     set Inclusions                          = 
-    set Inclusions file                     = data/input_data/inclusion_points_4.txt
-    set Inclusions refinement               = 50
+    set Inclusions file                     = 
+    set Inclusions refinement               = 400
     set Number of fourier coefficients      = 2
+    set Selection of Fourier coefficients   = 2,5
     set Start index of Fourier coefficients = 1
     subsection Boundary data
       set Function constants  = 
       set Function expression = 0;0
       set Variable names      = x,y,t
     end
-  end
-  subsection Neumann boundary conditions
-    set Function constants  = p = 0.13
-    set Function expression = 0;0
-    set Variable names      = x,y,t
   end
   subsection Physical constants
     set Lame lambda = 1
@@ -60,8 +62,8 @@ subsection Immersed Problem
     set Coarsening fraction         = 0
     set Maximum number of cells     = 2000000
     set Number of refinement cycles = 1
-    set Refinement fraction         = 0.6
-    set Strategy                    = fixed_number
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_fraction
   end
   subsection Right hand side
     set Function constants  = 
@@ -74,21 +76,21 @@ subsection Immersed Problem
       set Log history   = false
       set Log result    = true
       set Max steps     = 10000
-      set Reduction     = 1.e-6
-      set Tolerance     = 1.e-10
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
     end
     subsection Outer control
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
       set Max steps     = 10000
-      set Reduction     = 1.e-6
-      set Tolerance     = 1.e-10
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
     end
   end
   subsection Time dependency
     set Final time   = 0
     set Initial time = 0
-    set Time step    = 0.2
+    set Time step    = 0.005
   end
 end
