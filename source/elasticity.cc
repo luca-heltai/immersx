@@ -1110,11 +1110,10 @@ ElasticityProblem<dim, spacedim>::compute_internal_and_boundary_stress(
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::output_pressure(
-  bool openfilefirsttime) const
+ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
 {
   if (par.output_pressure == false)
-     return;
+    return;
   TimerOutput::Scope t(computing_timer, "Postprocessing: Output Pressure");
 
   if (inclusions.n_inclusions() > 0
@@ -1200,57 +1199,57 @@ ElasticityProblem<dim, spacedim>::output_pressure(
       else
         // print .h5
         if (par.initial_time == par.final_time)
-        {
-          const std::string FILE_NAME(par.output_directory +
-                                      "/externalPressure.h5");
+          {
+            const std::string FILE_NAME(par.output_directory +
+                                        "/externalPressure.h5");
 
-          auto accessMode = HDF5::File::FileAccessMode::create;
-          if (!openfilefirsttime)
-            accessMode = HDF5::File::FileAccessMode::open;
+            auto accessMode = HDF5::File::FileAccessMode::create;
+            if (!openfilefirsttime)
+              accessMode = HDF5::File::FileAccessMode::open;
 
-          HDF5::File        file_h5(FILE_NAME, accessMode, mpi_communicator);
-          const std::string DATASET_NAME("externalPressure_" +
-                                         std::to_string(cycle));
+            HDF5::File        file_h5(FILE_NAME, accessMode, mpi_communicator);
+            const std::string DATASET_NAME("externalPressure_" +
+                                           std::to_string(cycle));
 
-          HDF5::DataSet dataset =
-            file_h5.create_dataset<double>(DATASET_NAME,
-                                           {inclusions.get_n_vessels()});
+            HDF5::DataSet dataset =
+              file_h5.create_dataset<double>(DATASET_NAME,
+                                             {inclusions.get_n_vessels()});
 
-          std::vector<double> data_to_write;
-          // std::vector<hsize_t> coordinates;
-          data_to_write.reserve(pressure.locally_owned_size());
-          // coordinates.reserve(pressure.locally_owned_size());
-          for (const auto &el : locally_owned_vessels)
-            {
-              // coordinates.emplace_back(el);
-              data_to_write.emplace_back(pressure[el]);
-            }
-          if (pressure.locally_owned_size() > 0)
-            {
-              hsize_t prefix = 0;
-              hsize_t los    = pressure.locally_owned_size();
-              int     ierr   = MPI_Exscan(&los,
-                                    &prefix,
-                                    1,
-                                    MPI_UNSIGNED_LONG_LONG,
-                                    MPI_SUM,
-                                    mpi_communicator);
-              AssertThrowMPI(ierr);
+            std::vector<double> data_to_write;
+            // std::vector<hsize_t> coordinates;
+            data_to_write.reserve(pressure.locally_owned_size());
+            // coordinates.reserve(pressure.locally_owned_size());
+            for (const auto &el : locally_owned_vessels)
+              {
+                // coordinates.emplace_back(el);
+                data_to_write.emplace_back(pressure[el]);
+              }
+            if (pressure.locally_owned_size() > 0)
+              {
+                hsize_t prefix = 0;
+                hsize_t los    = pressure.locally_owned_size();
+                int     ierr   = MPI_Exscan(&los,
+                                      &prefix,
+                                      1,
+                                      MPI_UNSIGNED_LONG_LONG,
+                                      MPI_SUM,
+                                      mpi_communicator);
+                AssertThrowMPI(ierr);
 
-              std::vector<hsize_t> offset = {prefix, 1};
-              std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
-              // data.write_selection(data_to_write, coordinates);
-              dataset.write_hyperslab(data_to_write, offset, count);
-            }
-          else
-            dataset.write_none<int>();
-        }
-      else
-        {
-          pcout
-            << "output_pressure file for time dependent simulation not implemented"
-            << std::endl;
-        }
+                std::vector<hsize_t> offset = {prefix, 1};
+                std::vector<hsize_t> count = {pressure.locally_owned_size(), 1};
+                // data.write_selection(data_to_write, coordinates);
+                dataset.write_hyperslab(data_to_write, offset, count);
+              }
+            else
+              dataset.write_none<int>();
+          }
+        else
+          {
+            pcout
+              << "output_pressure file for time dependent simulation not implemented"
+              << std::endl;
+          }
     }
   else
     {
@@ -1262,7 +1261,7 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::output_lambda() const
 {
-  auto &     lambda            = locally_relevant_solution.block(1);
+  auto      &lambda            = locally_relevant_solution.block(1);
   const auto used_number_modes = inclusions.get_n_coefficients();
 
   if (lambda.size() > 0)
