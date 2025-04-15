@@ -32,7 +32,6 @@
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe.h>
-#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_system.h>
 
 #include <deal.II/grid/tria.h>
@@ -51,15 +50,13 @@ class ReferenceInclusionParameters : public ParameterAcceptor
 public:
   enum class InclusionType
   {
-    disk = 0x1, //< Disk inclusion
-    ball = 0x2, //< Ball inclusion
-    cube = 0x4, //< Square inclusion
+    hyper_ball = 0x1, //< Ball inclusion
+    hyper_cube = 0x2, //< Square inclusion
   };
 
   ReferenceInclusionParameters(const unsigned int)
     : ParameterAcceptor("Reference inclusion")
   {
-    add_parameter("Number of quadrature points", n_q_points);
     add_parameter("Maximum inclusion degree", inclusion_degree);
     add_parameter(
       "Selected indices",
@@ -75,7 +72,6 @@ public:
     add_parameter("Refinement level", refinement_level);
   }
 
-  unsigned int              n_q_points       = 1;
   unsigned int              refinement_level = 1;
   InclusionType             inclusion_type   = InclusionType::ball;
   unsigned int              inclusion_degree = 0;
@@ -107,6 +103,9 @@ public:
   void
   make_grid();
 
+  /**
+   * @brief Set the up dofs object
+   */
   void
   setup_dofs();
 
@@ -115,7 +114,6 @@ private:
 
   Triangulation<dim, spacedim> triangulation;
   QGauss<dim>                  quadrature_formula;
-  QGauss<1>                    quadrature_formula_1d;
   FESystem<dim, spacedim>      fe;
 
   DoFHandler<dim, spacedim> dof_handler;
