@@ -64,11 +64,10 @@ template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
-
   template <int dim, typename number, int n_components>
   friend class CouplingOperator;
 
-/**
+  /**
    * @brief Class for computing the inclusions of a given mesh.
    *
    * @param n_vector_components Number of vector components.
