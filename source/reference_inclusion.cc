@@ -2,6 +2,8 @@
 
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_q.h>
+
 #include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
@@ -11,9 +13,8 @@ template <int dim, int spacedim, int n_components>
 ReferenceInclusion<dim, spacedim, n_components>::ReferenceInclusion(
   const ReferenceInclusionParameters<dim, spacedim, n_components> &par)
   : par(par)
-  , quadrature_formula(par.n_q_points)
-  , quadrature_formula_1d(par.n_q_points)
-  , fe(FE_DGQArbitraryNodes<dim, spacedim>(quadrature_formula_1d), n_components)
+  , quadrature_formula(2 * par.inclusion_degree + 1)
+  , fe(FE_Q<dim, spacedim>(par.inclusion_degree), n_components)
   , dof_handler(triangulation)
 {
   make_grid();
@@ -33,18 +34,14 @@ ReferenceInclusion<dim, spacedim, n_components>::make_grid()
       switch (par.inclusion_type)
         {
           case ReferenceInclusionParameters<dim, spacedim, n_components>::
-            InclusionType::disk:
+            InclusionType::hyper_ball:
             if constexpr (dim == 2 && spacedim == 3)
               GridGenerator::hyper_sphere(triangulation);
             else
               GridGenerator::hyper_ball(triangulation);
             break;
           case ReferenceInclusionParameters<dim, spacedim, n_components>::
-            InclusionType::ball:
-            GridGenerator::hyper_ball(triangulation);
-            break;
-          case ReferenceInclusionParameters<dim, spacedim, n_components>::
-            InclusionType::cube:
+            InclusionType::hyper_cube:
             GridGenerator::hyper_cube(triangulation, -1, 1);
             break;
           default:
