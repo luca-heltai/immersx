@@ -12,7 +12,9 @@ subsection Immersed Problem
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
   set Initial refinement                 = 3
-  set Output directory                   = out/
+  set Neumann boundary ids               = 
+  set Normal flux boundary ids           = 
+  set Output directory                   = ./
   set Output name                        = solution
   set Output results also before solving = false
   subsection Dirichlet boundary conditions
@@ -38,12 +40,14 @@ subsection Immersed Problem
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level     = 1
-    set Data file                           = data/input_data/inclusion_data_1.txt
+    set Data file                           = 
+    set Reference inclusion data            = 0, 0, 0.1, 0, 0, 0.1
     set Inclusions                          = 0,0,0.2
     set Inclusions file                     = 
     set Inclusions refinement               = 400
     set Number of fourier coefficients      = 2
-    set Start index of Fourier coefficients = 1
+    set Selection of Fourier coefficients   = 2,5
+    set Start index of Fourier coefficients = 0
     subsection Boundary data
       set Function constants  = 
       set Function expression = 0;0
@@ -58,8 +62,8 @@ subsection Immersed Problem
     set Coarsening fraction         = 0
     set Maximum number of cells     = 2000000
     set Number of refinement cycles = 7
-    set Refinement fraction         = 0.5
-    set Strategy                    = fixed_number
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_number # or global
   end
   subsection Right hand side
     set Function constants  = 
@@ -71,17 +75,22 @@ subsection Immersed Problem
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 100
-      set Reduction     = 1.e-2
-      set Tolerance     = 1.e-10
+      set Max steps     = 10000
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
     end
     subsection Outer control
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 100
-      set Reduction     = 1.e-2
-      set Tolerance     = 1.e-10
+      set Max steps     = 10000
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
     end
+  end
+  subsection Time dependency
+    set Final time   = 0
+    set Initial time = 0
+    set Time step    = 0.005
   end
 end

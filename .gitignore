@@ -41,7 +41,7 @@ input_file/*
 data/*
 execute/*
 compile_commands.json
-.DS_Store
+*/.DS_Store
 
 # Documentation
 doc/html/*
