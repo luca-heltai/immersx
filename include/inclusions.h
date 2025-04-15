@@ -50,7 +50,6 @@
 using namespace dealii;
 
 
-
 /**
  * @brief Class for handling inclusions in an immersed boundary method.
  *
@@ -65,10 +64,11 @@ template <int spacedim>
 class Inclusions : public ParameterAcceptor
 {
 public:
+
   template <int dim, typename number, int n_components>
   friend class CouplingOperator;
 
-  /**
+/**
    * @brief Class for computing the inclusions of a given mesh.
    *
    * @param n_vector_components Number of vector components.
@@ -82,6 +82,8 @@ public:
     static_assert(spacedim > 1, "Not implemented in dim = 1");
     add_parameter("Inclusions refinement", n_q_points);
     add_parameter("Inclusions", inclusions);
+    add_parameter("Reference inclusion data", reference_inclusion_data);
+
     add_parameter(
       "Number of fourier coefficients",
       n_coefficients,
@@ -104,6 +106,7 @@ public:
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
+
     auto reset_function = [this]() {
       this->prm.set("Function expression",
                     (spacedim == 2 ? "0; 0" : "0; 0; 0"));
@@ -254,6 +257,13 @@ public:
               }
           }
       }
+    else
+      {
+        while (inclusions_data.size() < inclusions.size())
+          {
+            inclusions_data.push_back(reference_inclusion_data);
+          }
+      }
     check_vessels();
   }
 
@@ -286,7 +296,7 @@ public:
   {
     mpi_communicator = tria.get_communicator();
     initialize();
-    compute_rotated_inclusion_data();
+    // compute_rotated_inclusion_data();
 
     inclusions_as_particles.initialize(tria,
                                        StaticMappingQ1<spacedim>::mapping);
@@ -456,7 +466,12 @@ public:
       }
   }
 
-
+  /**
+   * @brief return weight for integration normal direction of an inclusion at a quadrature point
+   *
+   * @param quadrature_id
+   * @return const Tensor<1, spacedim>&
+   */
   inline double
   get_JxW(const types::global_dof_index &particle_id) const
   {
@@ -729,14 +744,13 @@ public:
     // data from file should respect the input file standard, i.e. be given in
     // relative coordinates then we need to rotate it to obtain data in absolute
     // coordinates
-    compute_rotated_inclusion_data();
+    // compute_rotated_inclusion_data();
   }
 
   /**
-   * @brief Update the displacement data after the initialization
-   * reading from a vector of lenght n_vessels (constant displacement along the
-   * vessel) or of lenght inclusions.size()
+   * @brief Update the displacement data after the initialization, 3D case only
    *
+   * @param new_data  vector of lenght equal to the number of inclusions or to the number of vessels, elements of the vector are the new values to be assigned for normal expansion
    */
   void
   update_inclusions_data(std::vector<double> new_data)
@@ -771,10 +785,7 @@ public:
         ExcMessage(
           "dimensions of new data for the update does not match the inclusions"));
 
-    // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-    //   std::cout << "data update successful" << std::endl;
-    compute_rotated_inclusion_data();
-    // std::cout << "update data version1" << std::endl;
+    // compute_rotated_inclusion_data();
   }
 
   void
@@ -843,13 +854,16 @@ public:
           }
       }
 
-    // if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-    //   std::cout << "data update successful" << std::endl;
-    compute_rotated_inclusion_data();
-
-    // std::cout << "update data version2" << std::endl;
+    // compute_rotated_inclusion_data();
   }
 
+  /**
+   * @brief 3D return the vessel that a given inclusion belongs to,
+   * 2D return 0
+   *
+   * @param inclusion_id
+   * @return unsigned int of vessel id
+   */
   int
   get_vesselID(const types::global_dof_index &inclusion_id) const
   {
@@ -953,9 +967,8 @@ public:
                 for (unsigned int d = 0; d < spacedim; ++d)
                   coef_phii[d] =
                     inclusions_data[inclusion_id][phi_i * spacedim + d];
+
                 auto rotated_phi_i = tensorR * coef_phii;
-                //                 std::cout << "rotated phi_i: " <<
-                //                 rotated_phi_i << std::endl;
                 rotated_phi_i.unroll(&rotated_phi[phi_i * spacedim],
                                      &rotated_phi[phi_i * spacedim + 3]);
                 //                 std::cout << "rotated_phi: ";
@@ -973,16 +986,22 @@ public:
       }
   }
 
-
+  /**
+   * @brief return the rotate the data of a given inclusion
+   *
+   * @param inclusion_id
+   * @return std::vector<double> rotated data
+   */
   std::vector<double>
   get_rotated_inclusion_data(const types::global_dof_index &inclusion_id) const
   {
     AssertIndexRange(inclusion_id, inclusions.size());
-    if constexpr (spacedim == 2)
-      return inclusions_data[inclusion_id];
 
-    if constexpr (spacedim == 3)
-      return rotated_inclusion_data[inclusion_id];
+    // if constexpr (spacedim == 2)
+    return inclusions_data[inclusion_id];
+
+    // if constexpr (spacedim == 3)
+    return rotated_inclusion_data[inclusion_id];
   }
 
   void
@@ -1006,6 +1025,7 @@ public:
   std::string                         data_file = "";
   mutable std::unique_ptr<HDF5::File> data_file_h;
   std::vector<std::vector<double>>    inclusions_data;
+  std::vector<double>                 reference_inclusion_data;
   std::vector<std::vector<double>>    rotated_inclusion_data;
 
   std::map<unsigned int, std::vector<types::global_dof_index>>

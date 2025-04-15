@@ -1,5 +1,5 @@
 subsection Error
-  set Enable computation of the errors = true
+  set Enable computation of the errors = false
   set Error file name                  = 
   set Error precision                  = 3
   set Exponent for p-norms             = 2
@@ -11,15 +11,15 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0,1,2,3
   set FE degree                          = 1
-  set Initial refinement                 = 7
+  set Initial refinement                 = 8
   set Neumann boundary ids               = 
   set Normal flux boundary ids           = 
-  set Output directory                   = out/
+  set Output directory                   = ./
   set Output name                        = solution
   set Output results also before solving = false
   subsection Dirichlet boundary conditions
-    set Function constants  = d=0.45
-    set Function expression = if (x^2==1,-d*sqrt(2)*sign(x),-d*sqrt(2)*x);if (y^2==1,-d*sqrt(2)*sign(y),-d*sqrt(2)*y)
+    set Function constants  = 
+    set Function expression = 0;0
     set Variable names      = x,y,t
   end
   subsection Exact solution
@@ -35,11 +35,13 @@ subsection Immersed Problem
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level     = 1
-    set Data file                           = data/input_data/inclusion_data_21.txt
+    set Data file                           = 
+    set Reference inclusion data            = 0, 0, 0.01, 0, 0, 0.01
     set Inclusions                          = 
-    set Inclusions file                     = data/input_data/inclusion_points_21_random_compressed.txt
+    set Inclusions file                     = data/elasticity/input_data/inclusion_points_XXX.txt # select right file name
     set Inclusions refinement               = 50
     set Number of fourier coefficients      = 2
+    set Selection of Fourier coefficients   = 2,5
     set Start index of Fourier coefficients = 1
     subsection Boundary data
       set Function constants  = 
@@ -48,7 +50,7 @@ subsection Immersed Problem
     end
   end
   subsection Neumann boundary conditions
-    set Function constants  = 
+    set Function constants  = p = 0.13
     set Function expression = 0;0
     set Variable names      = x,y,t
   end

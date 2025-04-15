@@ -87,6 +87,7 @@ TEST(TestInclusionsBasis2, CheckScaling) // NOLINT
     }
 }
 
+
 std::string
 indent(int level)
 {

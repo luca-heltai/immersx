@@ -1,5 +1,5 @@
 subsection Error
-  set Enable computation of the errors = true
+  set Enable computation of the errors = false
   set Error file name                  = 
   set Error precision                  = 3
   set Exponent for p-norms             = 2
@@ -9,17 +9,17 @@ subsection Error
   set Rate mode                        = reduction_rate_log2
 end
 subsection Immersed Problem
-  set Dirichlet boundary ids             = 0
+  set Dirichlet boundary ids             = 0,1,2,3
   set FE degree                          = 1
-  set Initial refinement                 = 4
+  set Initial refinement                 = 8
   set Neumann boundary ids               = 
   set Normal flux boundary ids           = 
-  set Output directory                   = out/
+  set Output directory                   = ./
   set Output name                        = solution
   set Output results also before solving = false
   subsection Dirichlet boundary conditions
-    set Function constants  = 
-    set Function expression = 0;0
+    set Function constants  = d=0.1
+    set Function expression = if (x^2==1,-d*sqrt(2)*sign(x),-d*sqrt(2)*x);if (y^2==1,-d*sqrt(2)*sign(y),-d*sqrt(2)*y)
     set Variable names      = x,y,t
   end
   subsection Exact solution
@@ -31,16 +31,18 @@ subsection Immersed Problem
   subsection Grid generation
     set Domain type              = generate
     set Grid generator           = hyper_cube
-    set Grid generator arguments = -1: 1: false
+    set Grid generator arguments = -1:1:true
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level     = 1
-    set Data file                           = data/input_data/inclusion_data_4_3modes.txt
-    set Inclusions                          = 0.3, 0.3, 0.1; -0.3, 0.3, 0.1; 0.3, -0.3, 0.1; -0.3, -0.3, 0.1;
-    set Inclusions file                     = 
-    set Inclusions refinement               = 400
-    set Number of fourier coefficients      = 3
-    set Start index of Fourier coefficients = 0
+    set Data file                           =
+    set Reference inclusion data            = 0, 0, 0.0, 0, 0, 0.0
+    set Inclusions                          = 
+    set Inclusions file                     = data/elasticity/input_data/inclusion_points_XXX.txt # select right filename
+    set Inclusions refinement               = 50
+    set Number of fourier coefficients      = 2
+    set Selection of Fourier coefficients   = 2,5
+    set Start index of Fourier coefficients = 1
     subsection Boundary data
       set Function constants  = 
       set Function expression = 0;0
@@ -58,9 +60,9 @@ subsection Immersed Problem
   end
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
-    set Maximum number of cells     = 20000
-    set Number of refinement cycles = 5
-    set Refinement fraction         = 0.5
+    set Maximum number of cells     = 2000000
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.6
     set Strategy                    = fixed_number
   end
   subsection Right hand side
@@ -71,19 +73,24 @@ subsection Immersed Problem
   subsection Solver
     subsection Inner control
       set Log frequency = 1
-      set Log history   = true
+      set Log history   = false
       set Log result    = true
-      set Max steps     = 100
+      set Max steps     = 10000
       set Reduction     = 1.e-6
       set Tolerance     = 1.e-10
     end
     subsection Outer control
       set Log frequency = 1
-      set Log history   = true
+      set Log history   = false
       set Log result    = true
-      set Max steps     = 100
-      set Reduction     = 1.e-2
+      set Max steps     = 10000
+      set Reduction     = 1.e-6
       set Tolerance     = 1.e-10
     end
+  end
+  subsection Time dependency
+    set Final time   = 0
+    set Initial time = 0
+    set Time step    = 0.2
   end
 end

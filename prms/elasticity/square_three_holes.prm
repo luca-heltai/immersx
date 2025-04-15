@@ -1,5 +1,5 @@
 subsection Error
-  set Enable computation of the errors = true
+  set Enable computation of the errors = false
   set Error file name                  = 
   set Error precision                  = 3
   set Exponent for p-norms             = 2
@@ -11,10 +11,10 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
-  set Initial refinement                 = 5
+  set Initial refinement                 = 4
   set Neumann boundary ids               = 
-  set Normal flux boundary ids           = 1001, 1002, 1003, 1004
-  set Output directory                   = out/
+  set Normal flux boundary ids           = 
+  set Output directory                   = ./
   set Output name                        = solution
   set Output results also before solving = false
   subsection Dirichlet boundary conditions
@@ -23,24 +23,27 @@ subsection Immersed Problem
     set Variable names      = x,y,t
   end
   subsection Exact solution
-    set Function constants  = 
+    set Function constants  = ri=0.1, re=1, di=0.1
     set Function expression = 0;0
     set Variable names      = x,y,t
     set Weight expression   = 1.
   end
   subsection Grid generation
-    set Domain type              = file
-    set Grid generator           = data/geometry/structured_multi_03.msh
-    set Grid generator arguments = -1: 1: false
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1:1:false
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level     = 1
     set Data file                           = 
-    set Inclusions                          = 
+    set Reference inclusion data            = 0, 0, 0.1, 0, 0, 0.1,0,0,0,0,0,0,0,0,0,0,0,0
+    set Inclusions                          = 0.3,0.3,0.05;-0.4,0.3,0.05;0.1,-0.3,0.05
     set Inclusions file                     = 
-    set Inclusions refinement               = 400
-    set Number of fourier coefficients      = 3
-    set Start index of Fourier coefficients = 0
+    set Inclusions refinement               = 100
+    ## number of coefficients is the total number of elements indicated in the selection field
+    set Number of fourier coefficients      = 14
+    set Selection of Fourier coefficients   = 2,5,6,7,8,9,10,11,12,13,14,15,16,17
+    set Start index of Fourier coefficients = 1
     subsection Boundary data
       set Function constants  = 
       set Function expression = 0;0
@@ -48,8 +51,8 @@ subsection Immersed Problem
     end
   end
   subsection Neumann boundary conditions
-    set Function constants  = p = 1
-    set Function expression = if(x>0, p*(x-0.3), p*(x+0.3));if(y>0, p*(y-0.3), p*(y+0.3))
+    set Function constants  = p = 0.13
+    set Function expression = 0;0
     set Variable names      = x,y,t
   end
   subsection Physical constants
@@ -58,9 +61,9 @@ subsection Immersed Problem
   end
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
-    set Maximum number of cells     = 20000
-    set Number of refinement cycles = 3
-    set Refinement fraction         = 0.5
+    set Maximum number of cells     = 2000000
+    set Number of refinement cycles = 4
+    set Refinement fraction         = 0.3
     set Strategy                    = fixed_number
   end
   subsection Right hand side
@@ -71,19 +74,24 @@ subsection Immersed Problem
   subsection Solver
     subsection Inner control
       set Log frequency = 1
-      set Log history   = true
+      set Log history   = false
       set Log result    = true
       set Max steps     = 100
-      set Reduction     = 1.e-2
+      set Reduction     = 1.e-6
       set Tolerance     = 1.e-10
     end
     subsection Outer control
       set Log frequency = 1
-      set Log history   = true
+      set Log history   = false
       set Log result    = true
       set Max steps     = 100
       set Reduction     = 1.e-2
       set Tolerance     = 1.e-10
     end
+  end
+  subsection Time dependency
+    set Final time   = 0
+    set Initial time = 0
+    set Time step    = 1
   end
 end
