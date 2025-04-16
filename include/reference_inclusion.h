@@ -46,16 +46,16 @@
 
 using namespace dealii;
 
-template <int dim, int spacedim, int n_components = 1>
+template <int dim, int spacedim = dim, int n_components = 1>
 class ReferenceInclusionParameters : public ParameterAcceptor
 {
 public:
   ReferenceInclusionParameters();
 
-  unsigned int              refinement_level = 1;
-  std::string               inclusion_type   = "hyper_ball";
-  unsigned int              inclusion_degree = 0;
-  std::vector<unsigned int> selected_coefficients;
+  unsigned int                      refinement_level = 1;
+  std::string                       inclusion_type   = "hyper_ball";
+  unsigned int                      inclusion_degree = 0;
+  mutable std::vector<unsigned int> selected_coefficients;
 };
 
 /**
@@ -65,7 +65,7 @@ public:
  * in an immersed boundary method. It stores a fully initialized Lagrange finite
  * element space.
  */
-template <int dim, int spacedim, int n_components = 1>
+template <int dim, int spacedim = dim, int n_components = 1>
 class ReferenceInclusion
 {
 public:
@@ -77,6 +77,39 @@ public:
   ReferenceInclusion(
     const ReferenceInclusionParameters<dim, spacedim, n_components> &par);
 
+  /**
+   * @brief Get the global quadrature object
+   *
+   * @return const Quadrature<spacedim>&
+   */
+  const Quadrature<spacedim> &
+  get_global_quadrature() const;
+
+  /**
+   * @brief Get the selected basis functions object
+   *
+   * @return const std::vector<Vector<double>>&
+   */
+  const std::vector<Vector<double>> &
+  get_basis_functions() const;
+
+  /**
+   * @brief Get the mass matrix object
+   *
+   * @return const SparseMatrix<double>&
+   */
+  const SparseMatrix<double> &
+  get_mass_matrix() const;
+
+  /**
+   * @brief Return the maximum number of selectable basis functions.
+   *
+   * @return unsigned int
+   */
+  unsigned int
+  max_n_basis() const;
+
+private:
   /**
    * @brief Initialize the grid for the reference inclusion.
    */
@@ -92,7 +125,6 @@ public:
   void
   compute_basis();
 
-private:
   const ReferenceInclusionParameters<dim, spacedim, n_components> &par;
 
   PolynomialsP<spacedim> polynomials;
