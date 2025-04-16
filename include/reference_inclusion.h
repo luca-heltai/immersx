@@ -27,6 +27,8 @@
 #define rdlm_reference_inclusion
 
 #include <deal.II/base/parameter_acceptor.h>
+#include <deal.II/base/patterns.h>
+#include <deal.II/base/polynomials_p.h>
 #include <deal.II/base/quadrature_lib.h>
 
 #include <deal.II/dofs/dof_handler.h>
@@ -48,32 +50,10 @@ template <int dim, int spacedim, int n_components = 1>
 class ReferenceInclusionParameters : public ParameterAcceptor
 {
 public:
-  enum class InclusionType
-  {
-    hyper_ball = 0x1, //< Ball inclusion
-    hyper_cube = 0x2, //< Square inclusion
-  };
-
-  ReferenceInclusionParameters(const unsigned int)
-    : ParameterAcceptor("Reference inclusion")
-  {
-    add_parameter("Maximum inclusion degree", inclusion_degree);
-    add_parameter(
-      "Selected indices",
-      selected_coefficients,
-      "This allows one to select a subset of the components of the "
-      "basis functions used for the representation of the data "
-      "(boundary data or forcing data). Notice that these indices are "
-      "w.r.t. to the total number of components of the problem, that "
-      "is, dimension of the space P^{inclusion_degree} number of Fourier coefficients x number of vector "
-      "components. In particular any entry of this list must be in "
-      "the set [0,inclusion_degree*n_components). ");
-    add_parameter("Inclusion type", inclusion_type);
-    add_parameter("Refinement level", refinement_level);
-  }
+  ReferenceInclusionParameters();
 
   unsigned int              refinement_level = 1;
-  InclusionType             inclusion_type   = InclusionType::ball;
+  std::string               inclusion_type   = "hyper_ball";
   unsigned int              inclusion_degree = 0;
   std::vector<unsigned int> selected_coefficients;
 };
@@ -109,8 +89,13 @@ public:
   void
   setup_dofs();
 
+  void
+  compute_basis();
+
 private:
   const ReferenceInclusionParameters<dim, spacedim, n_components> &par;
+
+  PolynomialsP<spacedim> polynomials;
 
   Triangulation<dim, spacedim> triangulation;
   QGauss<dim>                  quadrature_formula;
@@ -119,10 +104,13 @@ private:
   DoFHandler<dim, spacedim> dof_handler;
 
   std::vector<Vector<double>>          basis_functions;
+  std::vector<Vector<double>>          selected_basis_functions;
   std::array<Vector<double>, spacedim> x;
 
   SparsityPattern      sparsity_pattern;
   SparseMatrix<double> mass_matrix;
+
+  Quadrature<spacedim> global_quadrature;
 };
 
 #endif
