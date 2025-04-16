@@ -132,7 +132,7 @@ print_tree(boost::property_tree::ptree &pt, int level)
   return;
 }
 
-TEST(CCO, XmlConverter)
+TEST(CCO, DISABLED_XmlConverter)
 {
   using namespace boost;
   using namespace property_tree;

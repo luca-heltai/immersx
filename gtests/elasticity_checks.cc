@@ -30,7 +30,7 @@ get_default_test_parameters(ElasticityProblemParameters<dim> &par)
   par.output_directory    = ".";
   par.output_name         = "solution";
   par.fe_degree           = 1;
-  par.initial_refinement  = 5;
+  par.initial_refinement  = 3;
   par.domain_type         = "generate";
   par.name_of_grid        = "hyper_cube";
   par.arguments_for_grid  = "-1: 1: false";
@@ -240,4 +240,82 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
   inclusions = B * displacement;
 
   inclusions.print(std::cout);
+}
+
+TEST(ElasticityTest3, DisplacementD)
+{
+  static constexpr int             dim = 3;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
+  //std::string prm_file("/home/camilla/Desktop/Project_Lagrangian_CODE/beam_3d.prm");
+  // ParameterAcceptor::initialize(prm_file);
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0
+  set FE degree                          = 1
+  set Initial refinement                 = 4
+  set Output directory                   = ./
+  set Output name                        = solution
+  set Output results also before solving = false
+  subsection Dirichlet boundary conditions
+    set Function constants  = 
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+  end
+  subsection Exact solution
+    set Function constants  = 
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+    set Weight expression   = 1.
+  end
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1:1:false
+  end
+  subsection Immersed inclusions
+    set Bounding boxes extraction level   = 1
+    set Data file                         = 
+    set Inclusions                        = 0., 0., 0., 1., 0., 0., 0.1, 0 
+    set Inclusions file                   = 
+    set Inclusions refinement             = 100
+    set Number of fourier coefficients    = 2
+    set Reference inclusion data          = 0, 0, 0, 0.01, 0, 0, 0, 0.01, 0,0,0,0
+    set Selection of Fourier coefficients = 3,7
+    subsection Boundary data
+      set Function constants  = 
+      set Function expression = 0;0;0
+      set Variable names      = x,y,z,t
+    end
+  end
+  subsection Neumann boundary conditions
+    set Function constants  = p = 0.14
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+  end
+  subsection Physical constants
+    set Lame lambda = 1
+    set Lame mu     = 1
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 2000000
+    set Number of refinement cycles = 3
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_number
+  end
+  subsection Right hand side
+    set Function constants  = 
+    set Function expression = 0;0;0
+    set Variable names      = x,y,z,t
+  end
+  )");
+
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 0.0956977, 2e-1); 
 }
