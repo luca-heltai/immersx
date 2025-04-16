@@ -30,7 +30,7 @@
 
 using namespace dealii;
 
-TEST(TestInclusionsBasis2, CheckIntegrals) // NOLINT
+TEST(InclusionsBasis2, CheckIntegrals) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
@@ -55,7 +55,7 @@ TEST(TestInclusionsBasis2, CheckIntegrals) // NOLINT
   ASSERT_NEAR(integral[3], 0, 1e-10);
 }
 
-TEST(TestInclusionsBasis2, CheckScaling) // NOLINT
+TEST(InclusionsBasis2, CheckScaling) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;

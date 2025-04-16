@@ -10,6 +10,7 @@
 #include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
+#include <deal.II/lac/lapack_full_matrix.h>
 
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
@@ -33,6 +34,7 @@ ReferenceInclusion<dim, spacedim, n_components>::ReferenceInclusion(
     }
   make_grid();
   setup_dofs();
+  compute_basis();
 }
 
 
@@ -102,8 +104,8 @@ template <int dim, int spacedim, int n_components>
 void
 ReferenceInclusion<dim, spacedim, n_components>::compute_basis()
 {
-  std::vector<Vector<double>> basis_functions(
-    polynomials.n() * n_components, Vector<double>(dof_handler.n_dofs()));
+  basis_functions.resize(polynomials.n() * n_components,
+                         Vector<double>(dof_handler.n_dofs()));
   for (unsigned int i = 0; i < basis_functions.size(); ++i)
     {
       const auto comp_i = i % n_components;
@@ -116,28 +118,77 @@ ReferenceInclusion<dim, spacedim, n_components>::compute_basis()
         n_components);
       VectorTools::interpolate(dof_handler, function, basis_functions[i]);
     }
-  // Metric and inverse metric
-  FullMatrix<double> G(basis_functions.size(), basis_functions.size());
-  FullMatrix<double> Ginv(basis_functions.size(), basis_functions.size());
+  // Grahm-Schmidt orthogonalization
   for (unsigned int i = 0; i < basis_functions.size(); ++i)
-    for (unsigned int j = 0; j < basis_functions.size(); ++j)
-      G(i, j) = mass_matrix.matrix_scalar_product(basis_functions[i],
-                                                  basis_functions[j]);
-  G.invert(Ginv);
+    {
+      for (unsigned int j = 0; j < i; ++j)
+        {
+          const auto coeff =
+            mass_matrix.matrix_scalar_product(basis_functions[i],
+                                              basis_functions[j]);
+          basis_functions[i].sadd(1, -coeff, basis_functions[j]);
+        }
+      const auto coeff = mass_matrix.matrix_scalar_product(basis_functions[i],
+                                                           basis_functions[i]);
+      basis_functions[i] /= std::sqrt(coeff);
+    }
+
+  // functions
+  if (par.selected_coefficients.empty())
+    {
+      par.selected_coefficients.resize(basis_functions.size());
+      std::iota(par.selected_coefficients.begin(),
+                par.selected_coefficients.end(),
+                0);
+    }
+
   selected_basis_functions.resize(par.selected_coefficients.size(),
                                   Vector<double>(dof_handler.n_dofs()));
   // Compute the selected basis functions as the rows of the inverse metric
   // times the basis functions
   for (unsigned int i = 0; i < par.selected_coefficients.size(); ++i)
     {
-      const auto index = par.selected_coefficients[i];
-      for (unsigned int j = 0; j < basis_functions.size(); ++j)
-        for (unsigned int k = 0; k < dof_handler.n_dofs(); ++k)
-          {
-            selected_basis_functions[i][k] +=
-              Ginv(index, j) * basis_functions[j][k];
-          }
+      selected_basis_functions[i] =
+        basis_functions[par.selected_coefficients[i]];
     }
+}
+
+
+
+template <int dim, int spacedim, int n_components>
+auto
+ReferenceInclusion<dim, spacedim, n_components>::get_global_quadrature() const
+  -> const Quadrature<spacedim> &
+{
+  return global_quadrature;
+}
+
+
+
+template <int dim, int spacedim, int n_components>
+auto
+ReferenceInclusion<dim, spacedim, n_components>::get_basis_functions() const
+  -> const std::vector<Vector<double>> &
+{
+  return selected_basis_functions;
+}
+
+
+
+template <int dim, int spacedim, int n_components>
+auto
+ReferenceInclusion<dim, spacedim, n_components>::get_mass_matrix() const
+  -> const SparseMatrix<double> &
+{
+  return mass_matrix;
+}
+
+
+template <int dim, int spacedim, int n_components>
+unsigned int
+ReferenceInclusion<dim, spacedim, n_components>::max_n_basis() const
+{
+  return n_components * polynomials.n();
 }
 
 template <int dim, int spacedim, int n_components>
@@ -159,6 +210,8 @@ ReferenceInclusionParameters<dim, spacedim, n_components>::
   add_parameter("Inclusion type", inclusion_type);
   add_parameter("Refinement level", refinement_level);
 }
+
+
 
 // Scalar case
 template class ReferenceInclusion<1, 2, 1>;
