@@ -1,5 +1,3 @@
-#include "reference_inclusion.h"
-
 #include <deal.II/base/function.h>
 
 #include <deal.II/dofs/dof_tools.h>
@@ -15,10 +13,12 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
+#include "reference_cross_section.h"
+
 
 template <int dim, int spacedim, int n_components>
-ReferenceInclusion<dim, spacedim, n_components>::ReferenceInclusion(
-  const ReferenceInclusionParameters<dim, spacedim, n_components> &par)
+ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
+  const ReferenceCrossSectionParameters<dim, spacedim, n_components> &par)
   : par(par)
   , polynomials(par.inclusion_degree)
   , quadrature_formula(2 * par.inclusion_degree + 1)
@@ -40,7 +40,7 @@ ReferenceInclusion<dim, spacedim, n_components>::ReferenceInclusion(
 
 template <int dim, int spacedim, int n_components>
 void
-ReferenceInclusion<dim, spacedim, n_components>::make_grid()
+ReferenceCrossSection<dim, spacedim, n_components>::make_grid()
 
 {
   if constexpr (dim == 1)
@@ -69,7 +69,7 @@ ReferenceInclusion<dim, spacedim, n_components>::make_grid()
 
 template <int dim, int spacedim, int n_components>
 void
-ReferenceInclusion<dim, spacedim, n_components>::setup_dofs()
+ReferenceCrossSection<dim, spacedim, n_components>::setup_dofs()
 {
   dof_handler.distribute_dofs(fe);
   DynamicSparsityPattern dsp(dof_handler.n_dofs(), dof_handler.n_dofs());
@@ -102,7 +102,7 @@ ReferenceInclusion<dim, spacedim, n_components>::setup_dofs()
 
 template <int dim, int spacedim, int n_components>
 void
-ReferenceInclusion<dim, spacedim, n_components>::compute_basis()
+ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
 {
   basis_functions.resize(polynomials.n() * n_components,
                          Vector<double>(dof_handler.n_dofs()));
@@ -157,8 +157,8 @@ ReferenceInclusion<dim, spacedim, n_components>::compute_basis()
 
 template <int dim, int spacedim, int n_components>
 auto
-ReferenceInclusion<dim, spacedim, n_components>::get_global_quadrature() const
-  -> const Quadrature<spacedim> &
+ReferenceCrossSection<dim, spacedim, n_components>::get_global_quadrature()
+  const -> const Quadrature<spacedim> &
 {
   return global_quadrature;
 }
@@ -167,7 +167,7 @@ ReferenceInclusion<dim, spacedim, n_components>::get_global_quadrature() const
 
 template <int dim, int spacedim, int n_components>
 auto
-ReferenceInclusion<dim, spacedim, n_components>::get_basis_functions() const
+ReferenceCrossSection<dim, spacedim, n_components>::get_basis_functions() const
   -> const std::vector<Vector<double>> &
 {
   return selected_basis_functions;
@@ -177,7 +177,7 @@ ReferenceInclusion<dim, spacedim, n_components>::get_basis_functions() const
 
 template <int dim, int spacedim, int n_components>
 auto
-ReferenceInclusion<dim, spacedim, n_components>::get_mass_matrix() const
+ReferenceCrossSection<dim, spacedim, n_components>::get_mass_matrix() const
   -> const SparseMatrix<double> &
 {
   return mass_matrix;
@@ -187,7 +187,7 @@ ReferenceInclusion<dim, spacedim, n_components>::get_mass_matrix() const
 
 template <int dim, int spacedim, int n_components>
 auto
-ReferenceInclusion<dim, spacedim, n_components>::n_selected_basis() const
+ReferenceCrossSection<dim, spacedim, n_components>::n_selected_basis() const
   -> unsigned int
 {
   return selected_basis_functions.size();
@@ -197,14 +197,14 @@ ReferenceInclusion<dim, spacedim, n_components>::n_selected_basis() const
 
 template <int dim, int spacedim, int n_components>
 unsigned int
-ReferenceInclusion<dim, spacedim, n_components>::max_n_basis() const
+ReferenceCrossSection<dim, spacedim, n_components>::max_n_basis() const
 {
   return n_components * polynomials.n();
 }
 
 template <int dim, int spacedim, int n_components>
-ReferenceInclusionParameters<dim, spacedim, n_components>::
-  ReferenceInclusionParameters()
+ReferenceCrossSectionParameters<dim, spacedim, n_components>::
+  ReferenceCrossSectionParameters()
   : ParameterAcceptor("Reference inclusion")
 {
   add_parameter("Maximum inclusion degree", inclusion_degree);
@@ -225,34 +225,34 @@ ReferenceInclusionParameters<dim, spacedim, n_components>::
 
 
 // Scalar case
-template class ReferenceInclusion<1, 2, 1>;
-template class ReferenceInclusion<1, 3, 1>;
+template class ReferenceCrossSection<1, 2, 1>;
+template class ReferenceCrossSection<1, 3, 1>;
 
-template class ReferenceInclusion<2, 2, 1>;
-template class ReferenceInclusion<2, 3, 1>;
-template class ReferenceInclusion<3, 3, 1>;
+template class ReferenceCrossSection<2, 2, 1>;
+template class ReferenceCrossSection<2, 3, 1>;
+template class ReferenceCrossSection<3, 3, 1>;
 
 // Vector case
-template class ReferenceInclusion<1, 2, 2>;
-template class ReferenceInclusion<1, 3, 3>;
+template class ReferenceCrossSection<1, 2, 2>;
+template class ReferenceCrossSection<1, 3, 3>;
 
-template class ReferenceInclusion<2, 2, 2>;
-template class ReferenceInclusion<2, 3, 3>;
-template class ReferenceInclusion<3, 3, 3>;
+template class ReferenceCrossSection<2, 2, 2>;
+template class ReferenceCrossSection<2, 3, 3>;
+template class ReferenceCrossSection<3, 3, 3>;
 
-// Explicit instantiations for ReferenceInclusionParameters
+// Explicit instantiations for ReferenceCrossSectionParameters
 // Scalar case
-template class ReferenceInclusionParameters<1, 2, 1>;
-template class ReferenceInclusionParameters<1, 3, 1>;
+template class ReferenceCrossSectionParameters<1, 2, 1>;
+template class ReferenceCrossSectionParameters<1, 3, 1>;
 
-template class ReferenceInclusionParameters<2, 2, 1>;
-template class ReferenceInclusionParameters<2, 3, 1>;
-template class ReferenceInclusionParameters<3, 3, 1>;
+template class ReferenceCrossSectionParameters<2, 2, 1>;
+template class ReferenceCrossSectionParameters<2, 3, 1>;
+template class ReferenceCrossSectionParameters<3, 3, 1>;
 
 // Vector case
-template class ReferenceInclusionParameters<1, 2, 2>;
-template class ReferenceInclusionParameters<1, 3, 3>;
+template class ReferenceCrossSectionParameters<1, 2, 2>;
+template class ReferenceCrossSectionParameters<1, 3, 3>;
 
-template class ReferenceInclusionParameters<2, 2, 2>;
-template class ReferenceInclusionParameters<2, 3, 3>;
-template class ReferenceInclusionParameters<3, 3, 3>;
+template class ReferenceCrossSectionParameters<2, 2, 2>;
+template class ReferenceCrossSectionParameters<2, 3, 3>;
+template class ReferenceCrossSectionParameters<3, 3, 3>;

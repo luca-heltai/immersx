@@ -15,9 +15,9 @@
 // ---------------------------------------------------------------------
 
 /**
- * @file reference_inclusion.h
- * Defines the ReferenceInclusion and ReferenceInclusionParameters classes for
- * representing a reference domain and basis functions in reduced immersed
+ * @file reference_cross_section.h
+ * Defines the ReferenceCrossSection and ReferenceCrossSectionParameters classes
+ * for representing a reference domain and basis functions in reduced immersed
  * boundary methods.
  */
 
@@ -45,18 +45,18 @@
 using namespace dealii;
 
 /**
- * Parameter configuration for a ReferenceInclusion.
+ * Parameter configuration for a ReferenceCrossSection.
  *
  * @tparam dim The intrinsic dimension of the reference domain.
  * @tparam spacedim The embedding space dimension.
  * @tparam n_components Number of components per field variable.
  */
 template <int dim, int spacedim = dim, int n_components = 1>
-class ReferenceInclusionParameters : public ParameterAcceptor
+class ReferenceCrossSectionParameters : public ParameterAcceptor
 {
 public:
   /// Constructor that registers parameters.
-  ReferenceInclusionParameters();
+  ReferenceCrossSectionParameters();
 
   /// Refinement level of the mesh.
   unsigned int refinement_level = 1;
@@ -84,12 +84,12 @@ public:
  * @tparam n_components Number of components per field variable.
  */
 template <int dim, int spacedim = dim, int n_components = 1>
-class ReferenceInclusion
+class ReferenceCrossSection
 {
 public:
-  /// Constructs the ReferenceInclusion from parameters.
-  ReferenceInclusion(
-    const ReferenceInclusionParameters<dim, spacedim, n_components> &par);
+  /// Constructs the ReferenceCrossSection from parameters.
+  ReferenceCrossSection(
+    const ReferenceCrossSectionParameters<dim, spacedim, n_components> &par);
 
   /// Returns the global quadrature object in the embedding space.
   const Quadrature<spacedim> &
@@ -125,7 +125,7 @@ private:
   compute_basis();
 
   /// Reference to parameter configuration.
-  const ReferenceInclusionParameters<dim, spacedim, n_components> &par;
+  const ReferenceCrossSectionParameters<dim, spacedim, n_components> &par;
 
   /// Polynomial space used for modal basis generation.
   PolynomialsP<spacedim> polynomials;
