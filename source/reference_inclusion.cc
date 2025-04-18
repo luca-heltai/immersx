@@ -184,6 +184,17 @@ ReferenceInclusion<dim, spacedim, n_components>::get_mass_matrix() const
 }
 
 
+
+template <int dim, int spacedim, int n_components>
+auto
+ReferenceInclusion<dim, spacedim, n_components>::n_selected_basis() const
+  -> unsigned int
+{
+  return selected_basis_functions.size();
+}
+
+
+
 template <int dim, int spacedim, int n_components>
 unsigned int
 ReferenceInclusion<dim, spacedim, n_components>::max_n_basis() const
