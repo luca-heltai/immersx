@@ -15,14 +15,12 @@
 // ---------------------------------------------------------------------
 
 /**
- * @brief Header file for the ReferenceInclusion class.
- *
- * This class represents the reference domain for the cross section of an
- * inclusion.
- *
- * @tparam dim The intrinsic dimension of the reference domain.
- * @tparam spacedim The dimension of the space in which the inclusions are embedded.
+ * @file reference_inclusion.h
+ * Defines the ReferenceInclusion and ReferenceInclusionParameters classes for
+ * representing a reference domain and basis functions in reduced immersed
+ * boundary methods.
  */
+
 #ifndef rdlm_reference_inclusion
 #define rdlm_reference_inclusion
 
@@ -46,102 +44,120 @@
 
 using namespace dealii;
 
+/**
+ * Parameter configuration for a ReferenceInclusion.
+ *
+ * @tparam dim The intrinsic dimension of the reference domain.
+ * @tparam spacedim The embedding space dimension.
+ * @tparam n_components Number of components per field variable.
+ */
 template <int dim, int spacedim = dim, int n_components = 1>
 class ReferenceInclusionParameters : public ParameterAcceptor
 {
 public:
+  /// Constructor that registers parameters.
   ReferenceInclusionParameters();
 
-  unsigned int                      refinement_level = 1;
-  std::string                       inclusion_type   = "hyper_ball";
-  unsigned int                      inclusion_degree = 0;
+  /// Refinement level of the mesh.
+  unsigned int refinement_level = 1;
+
+  /// Geometric type of inclusion ("hyper_ball", etc.).
+  std::string inclusion_type = "hyper_ball";
+
+  /// Degree of the polynomial basis for inclusion.
+  unsigned int inclusion_degree = 0;
+
+  /// List of selected coefficient indices for reduced modeling.
   mutable std::vector<unsigned int> selected_coefficients;
 };
 
 /**
- * @brief Class for handling a Reference inclusion in a Reduced method.
+ * Handles the construction and management of a reference inclusion geometry and
+ * its basis.
  *
- * This class provides functionality for handling many non-matching inclusions
- * in an immersed boundary method. It stores a fully initialized Lagrange finite
- * element space.
+ * Used in reduced basis immersed boundary methods, this class initializes and
+ * stores a full finite element space, computes basis functions, and provides
+ * access to quadrature rules and mass matrices.
+ *
+ * @tparam dim The intrinsic dimension of the inclusion.
+ * @tparam spacedim The embedding dimension.
+ * @tparam n_components Number of components per field variable.
  */
 template <int dim, int spacedim = dim, int n_components = 1>
 class ReferenceInclusion
 {
 public:
-  /**
-   * @brief Construct a new Reference Inclusion object
-   *
-   * @param par The parameters for the reference inclusion.
-   */
+  /// Constructs the ReferenceInclusion from parameters.
   ReferenceInclusion(
     const ReferenceInclusionParameters<dim, spacedim, n_components> &par);
 
-  /**
-   * @brief Get the global quadrature object
-   *
-   * @return const Quadrature<spacedim>&
-   */
+  /// Returns the global quadrature object in the embedding space.
   const Quadrature<spacedim> &
   get_global_quadrature() const;
 
-  /**
-   * @brief Get the selected basis functions object
-   *
-   * @return const std::vector<Vector<double>>&
-   */
+  /// Returns the list of selected basis functions.
   const std::vector<Vector<double>> &
   get_basis_functions() const;
 
-  /**
-   * @brief Get the mass matrix object
-   *
-   * @return const SparseMatrix<double>&
-   */
+  /// Returns the mass matrix corresponding to selected basis functions.
   const SparseMatrix<double> &
   get_mass_matrix() const;
 
-  /**
-   * @brief Return the maximum number of selectable basis functions.
-   *
-   * @return unsigned int
-   */
+  /// Returns the number of selected basis functions.
+  unsigned int
+  n_selected_basis() const;
+
+  /// Returns the total number of available basis functions.
   unsigned int
   max_n_basis() const;
 
 private:
-  /**
-   * @brief Initialize the grid for the reference inclusion.
-   */
+  /// Builds the mesh for the reference inclusion domain.
   void
   make_grid();
 
-  /**
-   * @brief Set the up dofs object
-   */
+  /// Initializes the degrees of freedom and finite element space.
   void
   setup_dofs();
 
+  /// Computes and stores all basis functions.
   void
   compute_basis();
 
+  /// Reference to parameter configuration.
   const ReferenceInclusionParameters<dim, spacedim, n_components> &par;
 
+  /// Polynomial space used for modal basis generation.
   PolynomialsP<spacedim> polynomials;
 
+  /// Triangulation of the reference inclusion domain.
   Triangulation<dim, spacedim> triangulation;
-  QGauss<dim>                  quadrature_formula;
-  FESystem<dim, spacedim>      fe;
 
+  /// Quadrature formula for integration on the reference domain.
+  QGauss<dim> quadrature_formula;
+
+  /// Finite element space for the inclusion.
+  FESystem<dim, spacedim> fe;
+
+  /// Degree of freedom handler for the inclusion.
   DoFHandler<dim, spacedim> dof_handler;
 
-  std::vector<Vector<double>>          basis_functions;
-  std::vector<Vector<double>>          selected_basis_functions;
+  /// List of all computed basis functions.
+  std::vector<Vector<double>> basis_functions;
+
+  /// Subset of selected basis functions.
+  std::vector<Vector<double>> selected_basis_functions;
+
+  /// Coordinates of degrees of freedom in each space dimension.
   std::array<Vector<double>, spacedim> x;
 
-  SparsityPattern      sparsity_pattern;
+  /// Sparsity pattern used for assembling the mass matrix.
+  SparsityPattern sparsity_pattern;
+
+  /// Mass matrix associated with the selected basis functions.
   SparseMatrix<double> mass_matrix;
 
+  /// Quadrature rule in the embedding space.
   Quadrature<spacedim> global_quadrature;
 };
 
