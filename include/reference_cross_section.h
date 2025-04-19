@@ -110,6 +110,11 @@ public:
   unsigned int
   max_n_basis() const;
 
+  Quadrature<spacedim>
+  get_transformed_quadrature(const Point<spacedim>     &new_origin,
+                             const Tensor<1, spacedim> &new_vertical,
+                             const double               scale) const;
+
 private:
   /// Builds the mesh for the reference inclusion domain.
   void
