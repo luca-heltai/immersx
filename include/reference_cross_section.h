@@ -52,9 +52,8 @@ using namespace dealii;
  * @tparam n_components Number of components per field variable.
  */
 template <int dim, int spacedim = dim, int n_components = 1>
-class ReferenceCrossSectionParameters : public ParameterAcceptor
+struct ReferenceCrossSectionParameters : public ParameterAcceptor
 {
-public:
   /// Constructor that registers parameters.
   ReferenceCrossSectionParameters();
 
