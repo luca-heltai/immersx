@@ -222,6 +222,91 @@ ReferenceCrossSectionParameters<dim, spacedim, n_components>::
   add_parameter("Refinement level", refinement_level);
 }
 
+template <int dim, int spacedim, int n_components>
+Quadrature<spacedim>
+ReferenceCrossSection<dim, spacedim, n_components>::get_transformed_quadrature(
+  const Point<spacedim>     &new_origin,
+  const Tensor<1, spacedim> &new_vertical,
+  const double               scale) const
+{
+  AssertThrow(new_vertical.norm() > 0,
+              ExcMessage("The new vertical direction must be non-zero."));
+
+  // Build the transformation Tensor<2,spacedim> that rotates the
+  // reference quadrature points to the new vertical direction
+  Tensor<2, spacedim> rotation;
+  // The rotation matrix is built by constructing the Tensor<2,spacedim> matrix
+  // that maps the current tensor with all zeros except for the last component
+  // which is one, to new_vertical direction, i.e., rotation * {0,0,...,1} =
+  // new_vertical
+
+  // Create unit vector in the last dimension (equivalent to {0,0,...,1})
+  Tensor<1, spacedim> last_axis;
+  last_axis[spacedim - 1] = 1.0;
+
+  // Normalize the new_vertical to get a unit vector
+  const Tensor<1, spacedim> normalized_vertical =
+    new_vertical / new_vertical.norm();
+
+  // Use the Gram-Schmidt process to create an orthonormal basis
+  std::vector<Tensor<1, spacedim>> basis;
+  basis.push_back(normalized_vertical);
+
+  // Create spacedim-1 orthogonal vectors
+  for (unsigned int i = 0; i < spacedim - 1; ++i)
+    {
+      // Start with a unit vector in the i-th direction
+      Tensor<1, spacedim> e_i;
+      e_i[i] = 1.0;
+
+      // Make it orthogonal to all previous vectors in basis
+      for (const auto &b : basis)
+        e_i -= (e_i * b) * b;
+
+      // Normalize if not zero
+      const double norm = e_i.norm();
+      if (norm > 1e-10)
+        basis.push_back(e_i / norm);
+      else
+        {
+          // Try a different direction
+          e_i                     = Tensor<1, spacedim>();
+          e_i[(i + 1) % spacedim] = 1.0;
+          for (const auto &b : basis)
+            e_i -= (e_i * b) * b;
+
+          basis.push_back(e_i / e_i.norm());
+        }
+    }
+
+  // Build the rotation matrix using the orthonormal basis
+  // The columns of the rotation matrix are the basis vectors
+  for (unsigned int i = 0; i < spacedim; ++i)
+    for (unsigned int j = 0; j < spacedim; ++j)
+      rotation[i][j] = basis[j][i];
+
+  // Create transformed quadrature by applying the mapping to points and weights
+  std::vector<Point<spacedim>> transformed_points(global_quadrature.size());
+  std::vector<double>          transformed_weights(global_quadrature.size());
+
+  const auto &original_points  = global_quadrature.get_points();
+  const auto &original_weights = global_quadrature.get_weights();
+
+  // Calculate scale factor for weights
+  const double weight_scale_factor = std::pow(scale, dim);
+
+  for (unsigned int q = 0; q < original_points.size(); ++q)
+    {
+      transformed_points[q] =
+        rotation * (scale * original_points[q]) + new_origin;
+
+      // Scale the weight by scale^dim
+      transformed_weights[q] = original_weights[q] * weight_scale_factor;
+    }
+
+  return Quadrature<spacedim>(transformed_points, transformed_weights);
+}
+
 
 
 // Scalar case
