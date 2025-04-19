@@ -71,8 +71,18 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::setup_dofs()
   // Additional setup can be done here if needed
 }
 
-// Explicit template instantiations can be added here if needed, e.g.:
+template struct TensorProductSpaceParameters<1, 2, 3, 1>;
+template struct TensorProductSpaceParameters<1, 3, 3, 1>;
+template struct TensorProductSpaceParameters<2, 3, 3, 1>;
+
+template struct TensorProductSpaceParameters<1, 2, 3, 3>;
+template struct TensorProductSpaceParameters<1, 3, 3, 3>;
+template struct TensorProductSpaceParameters<2, 3, 3, 3>;
+
 template class TensorProductSpace<1, 2, 3, 1>;
+template class TensorProductSpace<1, 3, 3, 1>;
 template class TensorProductSpace<2, 3, 3, 1>;
 
-// Implementations of TensorProductSpace methods would go here.
+template class TensorProductSpace<1, 2, 3, 3>;
+template class TensorProductSpace<1, 3, 3, 3>;
+template class TensorProductSpace<2, 3, 3, 3>;
