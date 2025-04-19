@@ -1,3 +1,5 @@
+#include "reference_cross_section.h"
+
 #include <deal.II/base/function.h>
 
 #include <deal.II/dofs/dof_tools.h>
@@ -12,8 +14,6 @@
 
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
-
-#include "reference_cross_section.h"
 
 
 template <int dim, int spacedim, int n_components>
@@ -242,17 +242,17 @@ template class ReferenceCrossSection<3, 3, 3>;
 
 // Explicit instantiations for ReferenceCrossSectionParameters
 // Scalar case
-template class ReferenceCrossSectionParameters<1, 2, 1>;
-template class ReferenceCrossSectionParameters<1, 3, 1>;
+template struct ReferenceCrossSectionParameters<1, 2, 1>;
+template struct ReferenceCrossSectionParameters<1, 3, 1>;
 
-template class ReferenceCrossSectionParameters<2, 2, 1>;
-template class ReferenceCrossSectionParameters<2, 3, 1>;
-template class ReferenceCrossSectionParameters<3, 3, 1>;
+template struct ReferenceCrossSectionParameters<2, 2, 1>;
+template struct ReferenceCrossSectionParameters<2, 3, 1>;
+template struct ReferenceCrossSectionParameters<3, 3, 1>;
 
 // Vector case
-template class ReferenceCrossSectionParameters<1, 2, 2>;
-template class ReferenceCrossSectionParameters<1, 3, 3>;
+template struct ReferenceCrossSectionParameters<1, 2, 2>;
+template struct ReferenceCrossSectionParameters<1, 3, 3>;
 
-template class ReferenceCrossSectionParameters<2, 2, 2>;
-template class ReferenceCrossSectionParameters<2, 3, 3>;
-template class ReferenceCrossSectionParameters<3, 3, 3>;
+template struct ReferenceCrossSectionParameters<2, 2, 2>;
+template struct ReferenceCrossSectionParameters<2, 3, 3>;
+template struct ReferenceCrossSectionParameters<3, 3, 3>;
