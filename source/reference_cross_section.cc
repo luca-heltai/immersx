@@ -8,12 +8,16 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/manifold_lib.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/lapack_full_matrix.h>
 
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
+
+#include <deal.II/physics/transformations.h>
+#include <deal.II/physics/vector_relations.h>
 
 
 template <int dim, int spacedim, int n_components>
@@ -23,6 +27,7 @@ ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
   , polynomials(par.inclusion_degree)
   , quadrature_formula(2 * par.inclusion_degree + 1)
   , fe(FE_Q<dim, spacedim>(par.inclusion_degree), n_components)
+  , mapping(par.inclusion_degree)
   , dof_handler(triangulation)
 {
   for (const auto &index : par.selected_coefficients)
@@ -43,25 +48,29 @@ void
 ReferenceCrossSection<dim, spacedim, n_components>::make_grid()
 
 {
-  if constexpr (dim == 1)
+  if (par.inclusion_type == "hyper_ball")
+    {
+      if constexpr (dim == 1 && spacedim == 3)
+        {
+          // 1D inclusion in 3D space. A disk.
+          Triangulation<1, 2> tria_12;
+          GridGenerator::hyper_sphere(tria_12);
+          GridGenerator::flatten_triangulation(tria_12, triangulation);
+          triangulation.set_all_manifold_ids(1);
+          triangulation.set_manifold(1, PolarManifold<dim, spacedim>());
+        }
+      else if constexpr (dim == spacedim - 1)
+        GridGenerator::hyper_sphere(triangulation);
+      else
+        GridGenerator::hyper_ball(triangulation);
+    }
+  else if (par.inclusion_type == "hyper_cube")
     GridGenerator::hyper_cube(triangulation, -1, 1);
   else
     {
-      if (par.inclusion_type == "hyper_ball")
-        {
-          if constexpr (dim == 2 && spacedim == 3)
-            GridGenerator::hyper_sphere(triangulation);
-          else
-            GridGenerator::hyper_ball(triangulation);
-        }
-      else if (par.inclusion_type == "hyper_cube")
-        GridGenerator::hyper_cube(triangulation, -1, 1);
-      else
-        {
-          AssertThrow(false,
-                      ExcMessage("Unknown inclusion type. Please check the "
-                                 "parameter file."));
-        }
+      AssertThrow(false,
+                  ExcMessage("Unknown inclusion type. Please check the "
+                             "parameter file."));
     }
   triangulation.refine_global(par.refinement_level);
 }
@@ -82,10 +91,16 @@ ReferenceCrossSection<dim, spacedim, n_components>::setup_dofs()
   const auto n_global_q_points =
     triangulation.n_active_cells() * quadrature_formula.size();
 
-  std::vector<Point<spacedim>> points(n_global_q_points);
-  std::vector<double>          weights(n_global_q_points);
-  FEValues<dim, spacedim>      fe_values(
-    fe, quadrature_formula, update_quadrature_points | update_JxW_values);
+  std::vector<Point<spacedim>> points;
+  std::vector<double>          weights;
+  points.reserve(n_global_q_points);
+  weights.reserve(n_global_q_points);
+
+  FEValues<dim, spacedim> fe_values(mapping,
+                                    fe,
+                                    quadrature_formula,
+                                    update_quadrature_points |
+                                      update_JxW_values);
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
       fe_values.reinit(cell);
@@ -119,6 +134,7 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
       VectorTools::interpolate(dof_handler, function, basis_functions[i]);
     }
   // Grahm-Schmidt orthogonalization
+  std::vector<bool> is_zero(basis_functions.size(), false);
   for (unsigned int i = 0; i < basis_functions.size(); ++i)
     {
       for (unsigned int j = 0; j < i; ++j)
@@ -130,8 +146,19 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
         }
       const auto coeff = mass_matrix.matrix_scalar_product(basis_functions[i],
                                                            basis_functions[i]);
-      basis_functions[i] /= std::sqrt(coeff);
+
+      // If the basis functions are on a plane, and we are in 3d, they may be
+      // zero
+      if (coeff > 1e-10)
+        basis_functions[i] /= std::sqrt(coeff);
+      else
+        is_zero[i] = true;
     }
+
+  // Remove the zero basis functions
+  for (int i = is_zero.size() - 1; i >= 0; --i)
+    if (is_zero[i] == true)
+      basis_functions.erase(basis_functions.begin() + i);
 
   // functions
   if (par.selected_coefficients.empty())
@@ -232,58 +259,28 @@ ReferenceCrossSection<dim, spacedim, n_components>::get_transformed_quadrature(
   AssertThrow(new_vertical.norm() > 0,
               ExcMessage("The new vertical direction must be non-zero."));
 
-  // Build the transformation Tensor<2,spacedim> that rotates the
-  // reference quadrature points to the new vertical direction
   Tensor<2, spacedim> rotation;
-  // The rotation matrix is built by constructing the Tensor<2,spacedim> matrix
-  // that maps the current tensor with all zeros except for the last component
-  // which is one, to new_vertical direction, i.e., rotation * {0,0,...,1} =
-  // new_vertical
-
-  // Create unit vector in the last dimension (equivalent to {0,0,...,1})
-  Tensor<1, spacedim> last_axis;
-  last_axis[spacedim - 1] = 1.0;
-
-  // Normalize the new_vertical to get a unit vector
-  const Tensor<1, spacedim> normalized_vertical =
+  Tensor<1, spacedim> vertical;
+  Tensor<1, spacedim> new_vertical_normalized =
     new_vertical / new_vertical.norm();
-
-  // Use the Gram-Schmidt process to create an orthonormal basis
-  std::vector<Tensor<1, spacedim>> basis;
-  basis.push_back(normalized_vertical);
-
-  // Create spacedim-1 orthogonal vectors
-  for (unsigned int i = 0; i < spacedim - 1; ++i)
+  vertical[spacedim - 1] = 1;
+  if constexpr (spacedim == 3)
     {
-      // Start with a unit vector in the i-th direction
-      Tensor<1, spacedim> e_i;
-      e_i[i] = 1.0;
-
-      // Make it orthogonal to all previous vectors in basis
-      for (const auto &b : basis)
-        e_i -= (e_i * b) * b;
-
-      // Normalize if not zero
-      const double norm = e_i.norm();
-      if (norm > 1e-10)
-        basis.push_back(e_i / norm);
-      else
-        {
-          // Try a different direction
-          e_i                     = Tensor<1, spacedim>();
-          e_i[(i + 1) % spacedim] = 1.0;
-          for (const auto &b : basis)
-            e_i -= (e_i * b) * b;
-
-          basis.push_back(e_i / e_i.norm());
-        }
+      Tensor<1, spacedim> axis =
+        cross_product_3d(vertical, new_vertical_normalized);
+      double angle =
+        Physics::VectorRelations::signed_angle(vertical,
+                                               new_vertical_normalized,
+                                               axis);
+      rotation =
+        Physics::Transformations::Rotations::rotation_matrix_3d(axis, angle);
     }
-
-  // Build the rotation matrix using the orthonormal basis
-  // The columns of the rotation matrix are the basis vectors
-  for (unsigned int i = 0; i < spacedim; ++i)
-    for (unsigned int j = 0; j < spacedim; ++j)
-      rotation[i][j] = basis[j][i];
+  else if constexpr (spacedim == 2)
+    {
+      double angle =
+        Physics::VectorRelations::angle(vertical, new_vertical_normalized);
+      rotation = Physics::Transformations::Rotations::rotation_matrix_2d(angle);
+    }
 
   // Create transformed quadrature by applying the mapping to points and weights
   std::vector<Point<spacedim>> transformed_points(global_quadrature.size());

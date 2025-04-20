@@ -33,6 +33,7 @@
 
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/mapping_q.h>
 
 #include <deal.II/grid/tria.h>
 
@@ -142,6 +143,9 @@ private:
 
   /// Finite element space for the inclusion.
   FESystem<dim, spacedim> fe;
+
+  // Mapping space for the inclusion.
+  MappingQ<dim, spacedim> mapping;
 
   /// Degree of freedom handler for the inclusion.
   DoFHandler<dim, spacedim> dof_handler;

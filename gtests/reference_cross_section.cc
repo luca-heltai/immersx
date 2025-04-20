@@ -84,6 +84,64 @@ TEST(ReferenceCrossSection, CheckBasisOrthogonality) // NOLINT
     }
 }
 
+
+TEST(ReferenceCrossSection, CheckDiskQuadrature) // NOLINT
+{
+  const int          dim          = 1;
+  const int          spacedim     = 2;
+  const int          n_components = 1;
+  const unsigned int degree       = 3;
+
+  // Set up parameters for the reference inclusion
+  ReferenceCrossSectionParameters<dim, spacedim, n_components> par;
+  par.inclusion_degree = degree;
+  par.inclusion_type   = "hyper_ball"; // Use a circular domain
+  par.refinement_level = 5;            // Use a reasonable refinement level
+
+  // Create the reference inclusion object
+  ReferenceCrossSection<dim, spacedim, n_components> ref_inclusion(par);
+
+  // Get the global quadrature
+  const auto &quadrature = ref_inclusion.get_global_quadrature();
+
+  // Compute the sum of all quadrature weights, which should equal
+  // the measure of the domain (2*pi for a unit circle, with r=1)
+  double sum = 0.0;
+  for (const auto &weight : quadrature.get_weights())
+    {
+      sum += weight;
+    }
+
+  // The area of a unit circle is 2*pi
+  ASSERT_NEAR(sum, 2 * numbers::PI, 1e-3)
+    << "Integral of unit function over unit circle should equal 2*pi";
+
+  // Test that a constant function integrates as expected
+  double const_integral = 0.0;
+  double const_value    = 2.5; // Some arbitrary constant
+
+  for (unsigned int q = 0; q < quadrature.size(); ++q)
+    {
+      const_integral += const_value * quadrature.weight(q);
+    }
+
+  ASSERT_NEAR(const_integral, const_value * 2 * numbers::PI, 2e-3)
+    << "Constant function integral incorrect";
+
+  // Test that x^2 + y^2 integrates to expected value over unit circle
+  // For x^2 + y^2 over unit circle, the exact result is pi/2
+  double r_squared_integral = 0.0;
+
+  for (unsigned int q = 0; q < quadrature.size(); ++q)
+    {
+      const Point<spacedim> &p = quadrature.point(q);
+      r_squared_integral += p.square() * quadrature.weight(q);
+    }
+
+  ASSERT_NEAR(r_squared_integral, 2 * numbers::PI, 1e-3)
+    << "Integral of r^2 over unit circle should equal 2 pi";
+}
+
 TEST(ReferenceCrossSection, CheckCircleQuadrature) // NOLINT
 {
   const int          dim          = 2;
@@ -200,4 +258,63 @@ TEST(ReferenceCrossSection, Check3DBallQuadrature) // NOLINT
   const double expected_r_squared = 4.0 * numbers::PI / 5.0;
   ASSERT_NEAR(r_squared_integral, expected_r_squared, 0.3)
     << "Integral of r^2 over unit 3D ball should equal 4π/5";
+}
+
+TEST(ReferenceCrossSection, CheckRotatedDisk) // NOLINT
+{
+  const int          dim          = 1;
+  const int          spacedim     = 3;
+  const int          n_components = 1;
+  const unsigned int degree       = 3;
+
+  // Set up parameters for the reference inclusion
+  ReferenceCrossSectionParameters<dim, spacedim, n_components> par;
+  par.inclusion_degree = degree;
+  par.inclusion_type   = "hyper_ball"; // Use a circular domain
+  par.refinement_level = 1;            // Use a reasonable refinement level
+
+  // Create the reference inclusion object for the original disk
+  ReferenceCrossSection<dim, spacedim, n_components> ref_inclusion(par);
+
+  // Get the global quadrature for the reference disk
+  const auto &quadrature = ref_inclusion.get_global_quadrature();
+
+  // Compute the sum of all quadrature weights for the reference disk
+  double reference_sum = 0.0;
+  for (const auto &weight : quadrature.get_weights())
+    {
+      reference_sum += weight;
+    }
+
+  auto rotated_quadrature =
+    ref_inclusion.get_transformed_quadrature(Point<3>(),
+                                             Tensor<1, 3>({0, 1, 0}),
+                                             1.0);
+
+  // Check that the sum of weights is the same (measure of domain is preserved)
+  double rotated_sum = 0.0;
+  for (const auto &weight : rotated_quadrature.get_weights())
+    {
+      rotated_sum += weight;
+    }
+
+  std::cout << "Reference sum: " << reference_sum
+            << ", Rotated sum: " << rotated_sum << std::endl;
+
+  ASSERT_NEAR(rotated_sum, reference_sum, 1e-10)
+    << "Measure of rotated disk should equal reference disk";
+
+  // Check that for each quadrature point, the x coordinate is approximately 0
+  // (since the disk is now in the y-z plane)
+  for (unsigned int q = 0; q < rotated_quadrature.size(); ++q)
+    {
+      const Point<spacedim> &p = rotated_quadrature.point(q);
+      ASSERT_NEAR(p[1], 0.0, 1e-10)
+        << "Y-coordinate of point " << p << " should be zero after rotation";
+
+      // Verify that the sum of squares of the non-zero coordinates is ≤ 1
+      // (points should still be inside the unit disk, now in y-z plane)
+      ASSERT_NEAR(p.square(), 1.0, 1e-3)
+        << "Rotated point " << q << " lies outside the unit disk";
+    }
 }
