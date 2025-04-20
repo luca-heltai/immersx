@@ -19,6 +19,8 @@
 #include <deal.II/physics/transformations.h>
 #include <deal.II/physics/vector_relations.h>
 
+#include <string>
+
 
 template <int dim, int spacedim, int n_components>
 ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
@@ -30,13 +32,6 @@ ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
   , mapping(par.inclusion_degree)
   , dof_handler(triangulation)
 {
-  for (const auto &index : par.selected_coefficients)
-    {
-      AssertThrow(index < polynomials.n() * n_components,
-                  ExcMessage(
-                    "One of the selected index is out of range. It should be "
-                    "in [0, inclusion_degree*n_components)."));
-    }
   make_grid();
   setup_dofs();
   compute_basis();
@@ -168,6 +163,14 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
                 par.selected_coefficients.end(),
                 0);
     }
+  else
+    {
+      for (const auto &index : par.selected_coefficients)
+        {
+          AssertThrow(index < basis_functions.size(),
+                      ExcIndexRange(index, 0, basis_functions.size()));
+        }
+    }
 
   selected_basis_functions.resize(par.selected_coefficients.size(),
                                   Vector<double>(dof_handler.n_dofs()));
@@ -226,7 +229,7 @@ template <int dim, int spacedim, int n_components>
 unsigned int
 ReferenceCrossSection<dim, spacedim, n_components>::max_n_basis() const
 {
-  return n_components * polynomials.n();
+  return basis_functions.size();
 }
 
 template <int dim, int spacedim, int n_components>
