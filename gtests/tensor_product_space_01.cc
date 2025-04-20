@@ -112,7 +112,8 @@ TEST(TensorProductSpace, ImmersedGridPartitioning) // NOLINT
     auto partition = repartitioner.partition(serial_tria_fully_distributed);
 
     const auto construction_data = TriangulationDescription::Utilities::
-      create_description_from_triangulation(serial_tria, partition);
+      create_description_from_triangulation(serial_tria_fully_distributed,
+                                            partition);
     tria.create_triangulation(construction_data);
   };
 
@@ -125,7 +126,9 @@ TEST(TensorProductSpace, ImmersedGridPartitioning) // NOLINT
 
   // Get quadrature points positions and check they are not empty
   auto qpoints = tps.get_locally_owned_qpoints_positions();
-  ASSERT_FALSE(qpoints.empty());
+  ASSERT_FALSE(qpoints.empty())
+    << "No quadrature points found in the tensor product space for processor : "
+    << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
 
   // Test that we can get indices from qpoints
   if (!qpoints.empty())
