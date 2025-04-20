@@ -1,3 +1,19 @@
+// ---------------------------------------------------------------------
+//
+// Copyright (C) 2024 by Luca Heltai
+//
+// This file is part of the reduced_lagrange_multipliers application, based on
+// the deal.II library.
+//
+// The reduced_lagrange_multipliers application is free software; you can use
+// it, redistribute it, and/or modify it under the terms of the Apache-2.0
+// License WITH LLVM-exception as published by the Free Software Foundation;
+// either version 3.0 of the License, or (at your option) any later version. The
+// full text of the license can be found in the file LICENSE.md at the top level
+// of the reduced_lagrange_multipliers distribution.
+//
+// ---------------------------------------------------------------------
+
 #include "tensor_product_space.h"
 
 #include <deal.II/fe/fe_q.h>
@@ -16,7 +32,7 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
   enter_subsection("Representative domain");
   add_parameter("Refinement level", refinement_level);
   add_parameter("Finite element degree", fe_degree);
-  add_parameter("RTree extraction level", rtree_extraction_level);
+  add_parameter("Radius", radius);
   leave_subsection();
 }
 
@@ -25,9 +41,12 @@ template <int reduced_dim, int dim, int spacedim, int n_components>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   TensorProductSpace(
     const TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>
-      &par)
-  : par(par)
+            &par,
+    MPI_Comm mpi_communicator)
+  : mpi_communicator(mpi_communicator)
+  , par(par)
   , reference_cross_section(par.section)
+  , triangulation(mpi_communicator)
   , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
        reference_cross_section.n_selected_basis())
   , quadrature_formula(2 * par.fe_degree + 1)
@@ -67,34 +86,15 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_dof_handler()
   return dof_handler;
 }
 
+
 template <int reduced_dim, int dim, int spacedim, int n_components>
-void
+std::vector<Point<spacedim>>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-  setup_qpoints_particles(
-    const parallel::distributed::Triangulation<spacedim> &tria,
-    const Mapping<spacedim>                              &mapping)
+  get_locally_owned_qpoints_positions() const
 {
-  qpoints_as_particles.initialize(tria, mapping);
-  mpi_communicator = tria.get_communicator();
-
-  std::vector<BoundingBox<spacedim>> all_boxes;
-  all_boxes.reserve(tria.n_locally_owned_active_cells());
-  for (const auto &cell : tria.active_cell_iterators())
-    if (cell->is_locally_owned())
-      all_boxes.emplace_back(mapping.get_bounding_box(cell));
-
-  const auto tree = pack_rtree(all_boxes);
-  const auto local_boxes =
-    extract_rtree_level(tree, par.rtree_extraction_level);
-
-  auto global_bounding_boxes =
-    Utilities::MPI::all_gather(mpi_communicator, local_boxes);
-
-  // now that we have the global bounding boxes, we can set up the particles
-  std::vector<Point<spacedim>> particles_positions;
-  particles_positions.reserve(triangulation.n_active_cells() *
-                              quadrature_formula.size() *
-                              reference_cross_section.n_quadrature_points());
+  std::vector<Point<spacedim>> positions;
+  positions.reserve(triangulation.n_active_cells() * quadrature_formula.size() *
+                    reference_cross_section.n_quadrature_points());
 
   UpdateFlags flags = reduced_dim == 1 ?
                         update_quadrature_points :
@@ -114,34 +114,42 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
         for (const auto &q : fev.quadrature_point_indices())
           {
             const auto &qpoint = qpoints[q];
-            if constexpr (dim == 2)
+            if constexpr (reduced_dim == 2)
               new_vertical = fev.normal_vector(q);
             auto cross_section_qpoints =
               reference_cross_section.get_transformed_quadrature(qpoint,
                                                                  new_vertical,
-                                                                 1.0);
-            particles_positions.insert(
-              particles_positions.end(),
-              cross_section_qpoints.get_points().begin(),
-              cross_section_qpoints.get_points().end());
+                                                                 par.radius);
+            positions.insert(positions.end(),
+                             cross_section_qpoints.get_points().begin(),
+                             cross_section_qpoints.get_points().end());
           }
       }
-  qpoints_as_particles.insert_global_particles(particles_positions,
-                                               global_bounding_boxes);
+  return positions;
 }
 
 
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
-void
+std::tuple<unsigned int, unsigned int, unsigned int>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-  output_qpoints_particles(const std::string &filename) const
+  qpoint_index_to_cell_and_qpoint_indices(const unsigned int qpoint_index) const
 {
-  Particles::DataOut<spacedim> particles_out;
-  particles_out.build_patches(qpoints_as_particles);
-  particles_out.write_vtu_in_parallel(filename, mpi_communicator);
+  AssertIndexRange(qpoint_index,
+                   triangulation.n_active_cells() * quadrature_formula.size() *
+                     reference_cross_section.n_quadrature_points());
+  const unsigned int cell_index =
+    qpoint_index /
+    (quadrature_formula.size() * reference_cross_section.n_quadrature_points());
+  const unsigned int qpoint_index_in_cell =
+    (qpoint_index / reference_cross_section.n_quadrature_points()) %
+    quadrature_formula.size();
+  const unsigned int qpoint_index_in_section =
+    qpoint_index % reference_cross_section.n_quadrature_points();
+  return std::make_tuple(cell_index,
+                         qpoint_index_in_cell,
+                         qpoint_index_in_section);
 }
-
 
 
 // Setup degrees of freedom for the tensor product space
