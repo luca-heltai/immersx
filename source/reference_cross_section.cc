@@ -308,6 +308,14 @@ ReferenceCrossSection<dim, spacedim, n_components>::get_transformed_quadrature(
 }
 
 
+template <int dim, int spacedim, int n_components>
+unsigned int
+ReferenceCrossSection<dim, spacedim, n_components>::n_quadrature_points() const
+{
+  return quadrature_formula.size();
+}
+
+
 
 // Scalar case
 template class ReferenceCrossSection<1, 2, 1>;
