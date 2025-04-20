@@ -116,6 +116,9 @@ public:
                              const Tensor<1, spacedim> &new_vertical,
                              const double               scale) const;
 
+  unsigned int
+  n_quadrature_points() const;
+
 private:
   /// Builds the mesh for the reference inclusion domain.
   void
@@ -155,9 +158,6 @@ private:
 
   /// Subset of selected basis functions.
   std::vector<Vector<double>> selected_basis_functions;
-
-  /// Coordinates of degrees of freedom in each space dimension.
-  std::array<Vector<double>, spacedim> x;
 
   /// Sparsity pattern used for assembling the mass matrix.
   SparsityPattern sparsity_pattern;

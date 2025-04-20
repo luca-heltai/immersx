@@ -17,13 +17,20 @@
 #ifndef tensor_product_space_h
 #define tensor_product_space_h
 
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
+
+#include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/tria.h>
+
+#include <deal.II/particles/particle_handler.h>
+#include <deal.II/particles/utilities.h>
 
 #include "reference_cross_section.h"
 
@@ -77,6 +84,11 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    * used in the tensor product space. Default value is 0.
    */
   unsigned int refinement_level = 0;
+
+  /**
+   * The level of the RTree used to estimate roughly local ownership.
+   */
+  unsigned int rtree_extraction_level = 1;
 
   /**
    * The degree of the finite element basis functions.
@@ -167,6 +179,15 @@ public:
   const DoFHandler<reduced_dim, spacedim> &
   get_dof_handler() const;
 
+  void
+  setup_qpoints_particles(
+    const parallel::distributed::Triangulation<spacedim> &tria,
+    const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
+
+  void
+  output_qpoints_particles(const std::string &filename) const;
+
+
 private:
   /**
    * Sets up the degrees of freedom (DoFs) for the reduced domain.
@@ -176,6 +197,14 @@ private:
    */
   void
   setup_dofs();
+
+  /**
+   * The MPI communicator for parallel processing.
+   *
+   * This object is used to manage communication between different processes
+   * in a parallel environment.
+   */
+  MPI_Comm mpi_communicator;
 
   /**
    * The parameters defining the tensor product space.
@@ -210,12 +239,22 @@ private:
   FESystem<reduced_dim, spacedim> fe;
 
   /**
+   * The quadrature formula used for integration in the reduced domain.
+   */
+  QGauss<reduced_dim> quadrature_formula;
+
+  /**
    * The DoFHandler for the reduced domain.
    *
    * This object manages the degrees of freedom for the reduced-dimensional
    * domain.
    */
   DoFHandler<reduced_dim, spacedim> dof_handler;
+
+  /**
+   * The quadrature points of the full domain as a ParticleHandler object.
+   */
+  Particles::ParticleHandler<spacedim> qpoints_as_particles;
 };
 
 
