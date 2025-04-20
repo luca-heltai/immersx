@@ -185,7 +185,8 @@ public:
 
 
   /**
-   * Return a vector of all quadrature points in the tensor product space.
+   * Return a vector of all quadrature points in the tensor product space that
+   * are locally owned by the reduced domain.
    *
    * @return std::vector<Point<spacedim>>
    */
