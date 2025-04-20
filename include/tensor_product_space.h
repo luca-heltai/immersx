@@ -20,6 +20,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
@@ -86,17 +87,17 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   unsigned int refinement_level = 0;
 
   /**
-   * The level of the RTree used to estimate roughly local ownership.
-   */
-  unsigned int rtree_extraction_level = 1;
-
-  /**
    * The degree of the finite element basis functions.
    *
    * Specifies the polynomial degree of the finite element basis
    * functions used in the tensor product space. Default value is 1.
    */
   unsigned int fe_degree = 1;
+
+  /**
+   * Radius of the inclusion.
+   */
+  double radius = 0.01;
 };
 
 
@@ -136,7 +137,8 @@ public:
    */
   TensorProductSpace(
     const TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>
-      &par);
+            &par,
+    MPI_Comm mpi_communicator = MPI_COMM_WORLD);
 
   /**
    * The dimension of the cross-section of the reduced domain.
@@ -179,14 +181,18 @@ public:
   const DoFHandler<reduced_dim, spacedim> &
   get_dof_handler() const;
 
-  void
-  setup_qpoints_particles(
-    const parallel::distributed::Triangulation<spacedim> &tria,
-    const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
 
-  void
-  output_qpoints_particles(const std::string &filename) const;
+  /**
+   * Return a vector of all quadrature points in the tensor product space.
+   *
+   * @return std::vector<Point<spacedim>>
+   */
+  std::vector<Point<spacedim>>
+  get_locally_owned_qpoints_positions() const;
 
+  std::tuple<unsigned int, unsigned int, unsigned int>
+  qpoint_index_to_cell_and_qpoint_indices(
+    const unsigned int qpoint_index) const;
 
 private:
   /**
@@ -228,7 +234,8 @@ private:
    *
    * This object holds the mesh for the reduced-dimensional domain.
    */
-  Triangulation<reduced_dim, spacedim> triangulation;
+  parallel::fullydistributed::Triangulation<reduced_dim, spacedim>
+    triangulation;
 
   /**
    * The finite element system used for the reduced domain.
@@ -250,12 +257,11 @@ private:
    * domain.
    */
   DoFHandler<reduced_dim, spacedim> dof_handler;
-
-  /**
-   * The quadrature points of the full domain as a ParticleHandler object.
-   */
-  Particles::ParticleHandler<spacedim> qpoints_as_particles;
 };
+
+
+// Template specializations for the TensorProductSpaceParameters
+
 
 
 #endif // tensor_product_space_h

@@ -1,3 +1,19 @@
+// ---------------------------------------------------------------------
+//
+// Copyright (C) 2024 by Luca Heltai
+//
+// This file is part of the reduced_lagrange_multipliers application, based on
+// the deal.II library.
+//
+// The reduced_lagrange_multipliers application is free software; you can use
+// it, redistribute it, and/or modify it under the terms of the Apache-2.0
+// License WITH LLVM-exception as published by the Free Software Foundation;
+// either version 3.0 of the License, or (at your option) any later version. The
+// full text of the license can be found in the file LICENSE.md at the top level
+// of the reduced_lagrange_multipliers distribution.
+//
+// ---------------------------------------------------------------------
+
 #include "reference_cross_section.h"
 
 #include <deal.II/base/function.h>
@@ -28,8 +44,8 @@ ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
   : par(par)
   , polynomials(par.inclusion_degree)
   , quadrature_formula(2 * par.inclusion_degree + 1)
-  , fe(FE_Q<dim, spacedim>(par.inclusion_degree), n_components)
-  , mapping(par.inclusion_degree)
+  , fe(FE_Q<dim, spacedim>(std::max(par.inclusion_degree, 1u)), n_components)
+  , mapping(fe.degree)
   , dof_handler(triangulation)
 {
   make_grid();
@@ -264,24 +280,31 @@ ReferenceCrossSection<dim, spacedim, n_components>::get_transformed_quadrature(
 
   Tensor<2, spacedim> rotation;
   Tensor<1, spacedim> vertical;
-  Tensor<1, spacedim> new_vertical_normalized =
-    new_vertical / new_vertical.norm();
   vertical[spacedim - 1] = 1;
   if constexpr (spacedim == 3)
     {
-      Tensor<1, spacedim> axis =
-        cross_product_3d(vertical, new_vertical_normalized);
-      double angle =
-        Physics::VectorRelations::signed_angle(vertical,
-                                               new_vertical_normalized,
-                                               axis);
-      rotation =
-        Physics::Transformations::Rotations::rotation_matrix_3d(axis, angle);
+      Tensor<1, spacedim> axis      = cross_product_3d(vertical, new_vertical);
+      const double        axis_norm = axis.norm();
+      if (axis_norm < 1e-10)
+        {
+          // The two vectors are parallel, no rotation needed
+          for (unsigned int i = 0; i < spacedim; ++i)
+            rotation[i][i] = 1;
+        }
+      else
+        {
+          axis /= axis_norm;
+          double angle = Physics::VectorRelations::signed_angle(vertical,
+                                                                new_vertical,
+                                                                axis);
+          rotation =
+            Physics::Transformations::Rotations::rotation_matrix_3d(axis,
+                                                                    angle);
+        }
     }
   else if constexpr (spacedim == 2)
     {
-      double angle =
-        Physics::VectorRelations::angle(vertical, new_vertical_normalized);
+      double angle = Physics::VectorRelations::angle(vertical, new_vertical);
       rotation = Physics::Transformations::Rotations::rotation_matrix_2d(angle);
     }
 
