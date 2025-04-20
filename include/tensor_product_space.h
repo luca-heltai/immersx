@@ -154,7 +154,9 @@ public:
    * This function is used to generate the triangulation for the
    * reduced-dimensional domain.
    */
-  std::function<void(Triangulation<reduced_dim, spacedim> &)> make_reduced_grid;
+  std::function<void(
+    parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &)>
+    make_reduced_grid;
 
   /**
    * Initializes the tensor product space.
