@@ -40,11 +40,8 @@ ParticleCoupling<dim>::output_particles(const std::string &output_name) const
   particles_out.write_vtu_in_parallel(output_name, mpi_communicator);
 }
 
-/**
- * @brief Initializes the particle handler with the given triangulation and mapping.
- * @param tria_background The background triangulation.
- * @param mapping The mapping used for the triangulation.
- */
+
+
 template <int dim>
 void
 ParticleCoupling<dim>::initialize_particle_handler(
@@ -78,12 +75,34 @@ ParticleCoupling<dim>::initialize_particle_handler(
            "here. Bailing out."));
 }
 
+
+
 template <int dim>
 std::vector<std::vector<BoundingBox<dim>>>
 ParticleCoupling<dim>::get_global_bounding_boxes() const
 {
   return global_bounding_boxes;
 };
+
+
+
+template <int dim>
+const Particles::ParticleHandler<dim> &
+ParticleCoupling<dim>::get_particles() const
+{
+  return particles;
+}
+
+
+
+template <int dim>
+void
+ParticleCoupling<dim>::insert_points(const std::vector<Point<dim>> &points)
+{
+  AssertThrow(tria_background, ExcNotInitialized());
+  local_indices_map =
+    particles.insert_global_particles(points, global_bounding_boxes);
+}
 
 // Explicit instantiations
 
