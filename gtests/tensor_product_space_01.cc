@@ -67,7 +67,7 @@ TEST(TensorProductSpace, GridGeneration) // NOLINT
   ASSERT_FALSE(qpoints.empty());
 }
 
-TEST(TensorProductSpace, ImmersedGridPartitioning) // NOLINT
+TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
 {
   static constexpr int reduced_dim  = 1;
   static constexpr int dim          = 2;
@@ -82,7 +82,7 @@ TEST(TensorProductSpace, ImmersedGridPartitioning) // NOLINT
   // Create a background grid (hypercube)
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
-  GridGenerator::hyper_cube(background_tria, -1.2, 1.2);
+  GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
   background_tria.refine_global(5);
 
   // Create the tensor product space
@@ -123,6 +123,22 @@ TEST(TensorProductSpace, ImmersedGridPartitioning) // NOLINT
   // Verify the reduced grid was created
   const DoFHandler<reduced_dim, spacedim> &dof_handler = tps.get_dof_handler();
   ASSERT_GT(dof_handler.n_dofs(), 0);
+
+  // Check how many ranks we have:
+  const auto n_ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  // Check that, if n_ranks > 1, the number of local dofs is > 0, and < than
+  // the total number of dofs
+  if (n_ranks > 1)
+    {
+      const auto n_local_dofs = tps.get_dof_handler().n_locally_owned_dofs();
+      ASSERT_GT(n_local_dofs, 0u);
+      ASSERT_LT(n_local_dofs, tps.get_dof_handler().n_dofs());
+      std::cout << "Rank " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+                << " has " << n_local_dofs << " local dofs out of "
+                << tps.get_dof_handler().n_dofs() << " total dofs."
+                << std::endl;
+    }
+
 
   // Get quadrature points positions and check they are not empty
   auto qpoints = tps.get_locally_owned_qpoints_positions();
