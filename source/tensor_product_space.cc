@@ -52,9 +52,14 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   , quadrature_formula(2 * par.fe_degree + 1)
   , dof_handler(triangulation)
 {
-  make_reduced_grid = [](Triangulation<reduced_dim, spacedim> &tria) {
-    GridGenerator::hyper_cube(tria, 0, 1);
-  };
+  make_reduced_grid =
+    [&](
+      parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &tria) {
+      Triangulation<reduced_dim, spacedim> serial_tria;
+      GridGenerator::hyper_cube(tria, 0, 1);
+      serial_tria.refine_global(par.refinement_level);
+      tria.copy_triangulation(serial_tria);
+    };
 }
 
 // Initialize the tensor product space
@@ -64,7 +69,6 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize()
 {
   // Create the reduced grid
   make_reduced_grid(triangulation);
-  triangulation.refine_global(par.refinement_level);
 
   // Setup degrees of freedom
   setup_dofs();
