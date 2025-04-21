@@ -92,10 +92,16 @@ public:
   void
   output_particles(const std::string &output_name) const;
 
+  /**
+   * Initializes the particle handler with a background triangulation.
+   *
+   * @param tria_background The background triangulation.
+   * @param mapping The mapping associated with the triangulation.
+   */
   void
   initialize_particle_handler(
     const parallel::TriangulationBase<dim> &tria_background,
-    const Mapping<dim>                     &mapping);
+    const Mapping<dim> &mapping = StaticMappingQ1<dim>::mapping);
 
   /**
    * Get a covering of the background triangulation indexed by processor.
@@ -103,17 +109,31 @@ public:
   std::vector<std::vector<BoundingBox<dim>>>
   get_global_bounding_boxes() const;
 
+  /**
+   * Get the particles  triangulation.
+   */
+  const Particles::ParticleHandler<dim> &
+  get_particles() const;
+
+  /**
+   * Insert global points into the particle handler.
+   * @param points The points to be inserted.
+   */
+  void
+  insert_points(const std::vector<Point<dim>> &points);
+
 private:
   /**
-   * The parameters governing the particle coupling.
+   * @brief Parameters for particle coupling.
    *
-   * This object contains all the necessary configuration for the particle
-   * coupling process, including the R-tree extraction level.
+   * This object contains parameters that control the behavior of the
+   * particle coupling process, such as the extraction level for the R-tree.
    */
   const ParticleCouplingParameters<dim> &par;
 
   /**
-   * The MPI communicator for parallel processing.
+   * @brief Get the MPI communicator associated with the triangulation.
+   * @return The MPI communicator.
    */
   MPI_Comm mpi_communicator;
 
@@ -136,6 +156,13 @@ private:
    * @brief Handler for managing particles in the simulation.
    */
   Particles::ParticleHandler<dim> particles;
+
+  /**
+   * A map from owner to IndexSet, that contains the local indices of the points
+   * that were inserted with insert_quadrature_points(), and that falls within
+   * the part of triangulation owned by this mpi process.
+   */
+  std::map<unsigned int, IndexSet> local_indices_map;
 };
 
 #endif
