@@ -14,14 +14,13 @@
 //
 // ---------------------------------------------------------------------
 
-#include "reference_cross_section.h" // Add include for ReferenceCrossSection
-
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
 
 #include "inclusions.h"
+#include "reference_cross_section.h" // Add include for ReferenceCrossSection
 
 using namespace dealii;
 
