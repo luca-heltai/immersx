@@ -23,7 +23,7 @@ jobs:
         tag: 'v0.1'
         fileName: 'lib1dsolver.a'
 
-    - name: Test debug
+    - name: Build debug
       run: |
          ls lib1dsolver.a
          rm -rf build_linux_debug
@@ -31,10 +31,24 @@ jobs:
          cd build_linux_debug
          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp
          ninja
+
+    - name: CTest debug
+      run: |
+         cd build_linux_debug
          ctest -N
          ctest --output-on-failure
+
+    - name: Serial gtests debug
+      run: |
+         cd build_linux_debug
          cd gtests 
          ./gtests_debug
+
+    - name: Parallel gtests debug
+      run: |
+         cd build_linux_debug
+         cd gtests 
+         mpirun -n 2 ./gtests_debug --gtest_filter="*.MPI_*"
 
   release:
 
@@ -51,15 +65,29 @@ jobs:
         tag: 'v0.1'
         fileName: 'lib1dsolver.a'
 
-    - name: Test release
+    - name: Build release
       run: |
-          ls lib1dsolver.a
-          rm -rf build_linux_release
-          mkdir build_linux_release
-          cd build_linux_release
-          cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp
-          ninja
-          ctest -N
-          ctest --output-on-failure
-          cd gtests 
-          ./gtests
+       ls lib1dsolver.a
+       rm -rf build_linux_release
+       mkdir build_linux_release
+       cd build_linux_release
+       cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp
+       ninja
+
+    - name: CTest release
+      run: |
+       cd build_linux_release
+       ctest -N
+       ctest --output-on-failure
+
+    - name: Serial gtests release
+      run: |
+       cd build_linux_release
+       cd gtests 
+       ./gtests
+
+    - name: Parallel gtests release
+      run: |
+       cd build_linux_release
+       cd gtests 
+       mpirun -n 2 ./gtests --gtest_filter="*.MPI_*"
