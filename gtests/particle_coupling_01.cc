@@ -18,6 +18,7 @@
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
@@ -104,4 +105,11 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 
   ASSERT_EQ(particles.n_global_particles(), n_total_points)
     << "Number of particles does not match the number of quadrature points.";
+
+  // Output the background grid and its partitioning
+  GridOut grid_out;
+  grid_out.write_mesh_per_processor_as_vtu(background_tria,
+                                           "particles_test_background");
+  grid_out.write_mesh_per_processor_as_vtu(
+    tps.get_dof_handler().get_triangulation(), "particles_test_reduced");
 }
