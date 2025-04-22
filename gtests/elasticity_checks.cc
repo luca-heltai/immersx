@@ -247,10 +247,11 @@ TEST(ElasticityTest3, DisplacementD)
   static constexpr int             dim = 3;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
-  par.initial_refinement  = 4;
+  par.initial_refinement = 4;
   ElasticityProblem<dim> problem(par);
-  //std::string prm_file("/home/camilla/Desktop/Project_Lagrangian_CODE/beam_3d.prm");
-  // ParameterAcceptor::initialize(prm_file);
+  // std::string
+  // prm_file("/home/camilla/Desktop/Project_Lagrangian_CODE/beam_3d.prm");
+  //  ParameterAcceptor::initialize(prm_file);
   ParameterAcceptor::initialize();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -319,5 +320,5 @@ TEST(ElasticityTest3, DisplacementD)
   ParameterAcceptor::parse_all_parameters();
   problem.run();
 
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 0.0956977, 2e-1); 
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 0.0956977, 2e-1);
 }
