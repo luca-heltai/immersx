@@ -712,6 +712,7 @@ public:
   void
   update_displacement_hdf5()
   {
+#ifdef DEAL_II_WITH_HDF5
     //
     inclusions_data.clear();
     inclusions_data.resize(n_inclusions());
@@ -740,10 +741,13 @@ public:
         AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
       }
 
-    // data from file should respect the input file standard, i.e. be given in
-    // relative coordinates then we need to rotate it to obtain data in absolute
-    // coordinates
-    // compute_rotated_inclusion_data();
+      // data from file should respect the input file standard, i.e. be given in
+      // relative coordinates then we need to rotate it to obtain data in
+      // absolute coordinates compute_rotated_inclusion_data();
+
+#else
+    AssertThrow(false, ExcNeedsHDF5());
+#endif
   }
 
   /**
@@ -1021,11 +1025,13 @@ public:
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
   std::vector<std::vector<double>>     inclusions;
 
-  std::string                         data_file = "";
+  std::string data_file = "";
+#ifdef DEAL_II_WITH_HDF5
   mutable std::unique_ptr<HDF5::File> data_file_h;
-  std::vector<std::vector<double>>    inclusions_data;
-  std::vector<double>                 reference_inclusion_data;
-  std::vector<std::vector<double>>    rotated_inclusion_data;
+#endif
+  std::vector<std::vector<double>> inclusions_data;
+  std::vector<double>              reference_inclusion_data;
+  std::vector<std::vector<double>> rotated_inclusion_data;
 
   std::map<unsigned int, std::vector<types::global_dof_index>>
     map_vessel_inclusions;
