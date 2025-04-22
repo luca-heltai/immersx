@@ -132,7 +132,7 @@ print_tree(boost::property_tree::ptree &pt, int level)
   return;
 }
 
-TEST(CCO, DISABLED_XmlConverter)
+TEST(CCO, XmlConverter)
 {
   using namespace boost;
   using namespace property_tree;
@@ -155,7 +155,7 @@ TEST(CCO, DISABLED_XmlConverter)
       if (node.first == "node")
         {
           auto id = node.second.get<std::string>("<xmlattr>.id");
-          std::cout << "Node: " << id;
+          // std::cout << "Node: " << id;
 
           Point<3> n;
           for (const auto &attr : node.second)
@@ -166,7 +166,7 @@ TEST(CCO, DISABLED_XmlConverter)
                     for (unsigned int i = 0; i < 3; ++i)
                       n[i] = attr.second.get<double>("float");
                     nodes[id] = n;
-                    std::cout << ": " << n << std::endl;
+                    // std::cout << ": " << n << std::endl;
                   }
         }
       else if (node.first == "edge")
@@ -187,8 +187,9 @@ TEST(CCO, DISABLED_XmlConverter)
             }
         }
     }
-  std::cout << "N nodes: " << nodes.size() << std::endl;
-  std::cout << "N edges: " << edges.size() << std::endl;
+  ASSERT_EQ(nodes.size(), 1000);
+  ASSERT_EQ(edges.size(), 999);
+
   for (const auto &n : nodes)
     ids[n.first] = ids.size();
 
