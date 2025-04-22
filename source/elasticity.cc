@@ -1200,6 +1200,7 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
         // print .h5
         if (par.initial_time == par.final_time)
           {
+#ifdef DEAL_II_WITH_HDF5
             const std::string FILE_NAME(par.output_directory +
                                         "/externalPressure.h5");
 
@@ -1243,6 +1244,9 @@ ElasticityProblem<dim, spacedim>::output_pressure(bool openfilefirsttime) const
               }
             else
               dataset.write_none<int>();
+#else
+            AssertThrow(false, ExcNeedsHDF5());
+#endif
           }
         else
           {
