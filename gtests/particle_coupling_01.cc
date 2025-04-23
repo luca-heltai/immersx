@@ -114,7 +114,7 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
     tps.get_dof_handler().get_triangulation(), "particles_test_reduced");
 }
 
-TEST(ParticleCoupling, MPI_ProcessorToIndexSetMapping) // NOLINT
+TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
 {
   static constexpr int reduced_dim  = 1;
   static constexpr int dim          = 2;
@@ -177,4 +177,25 @@ TEST(ParticleCoupling, MPI_ProcessorToIndexSetMapping) // NOLINT
   auto proc_to_qindices = particle_coupling.insert_points(qpoints, weights);
 
   tps.update_local_dof_indices(proc_to_qindices);
+
+  // Loop over local particles, and check that the local indices are all within
+  // the index set of the relevant indices
+  const auto &relevant_indices = tps.locally_relevant_indices();
+
+  std::cout << "Relevant indices: ";
+  relevant_indices.print(std::cout);
+  std::cout << std::endl;
+
+  for (const auto particle : particle_coupling.get_particles())
+    {
+      const auto qpoint_index = particle.get_id();
+      const auto [cell_index, q_index_gamma, q_index_section] =
+        tps.particle_id_to_cell_and_qpoint_indices(qpoint_index);
+
+      ASSERT_TRUE(relevant_indices.is_element(cell_index))
+        << "Qpoint index " << qpoint_index << ", corresponding to cell index "
+        << cell_index << ", q_index_gamma " << q_index_gamma
+        << ", and q_index_section " << q_index_section << " is not within the "
+        << "locally relevant indices.";
+    }
 }
