@@ -50,7 +50,7 @@ ParticleCoupling<dim>::initialize_particle_handler(
 {
   tria_background = &tria;
   mapping         = &mapp;
-  particles.initialize(*tria_background, *mapping);
+  particles.initialize(*tria_background, *mapping, 1);
   mpi_communicator = tria_background->get_communicator();
 
   {
@@ -96,12 +96,17 @@ ParticleCoupling<dim>::get_particles() const
 
 
 template <int dim>
-void
-ParticleCoupling<dim>::insert_points(const std::vector<Point<dim>> &points)
+std::map<unsigned int, IndexSet>
+ParticleCoupling<dim>::insert_points(
+  const std::vector<Point<dim>>          &points,
+  const std::vector<std::vector<double>> &properties)
 {
   AssertThrow(tria_background, ExcNotInitialized());
-  local_indices_map =
-    particles.insert_global_particles(points, global_bounding_boxes);
+  auto local_indices_map =
+    particles.insert_global_particles(points,
+                                      global_bounding_boxes,
+                                      properties);
+  return local_indices_map;
 }
 
 // Explicit instantiations
