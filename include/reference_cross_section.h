@@ -99,6 +99,13 @@ public:
   const std::vector<Vector<double>> &
   get_basis_functions() const;
 
+  /// the component comp of the ith selected basis function, at the quadrature
+  /// point index q,
+  const double &
+  shape_value(const unsigned int i,
+              const unsigned int q,
+              const unsigned int comp) const;
+
   /// Returns the mass matrix corresponding to selected basis functions.
   const SparseMatrix<double> &
   get_mass_matrix() const;
@@ -167,6 +174,9 @@ private:
 
   /// Quadrature rule in the embedding space.
   Quadrature<spacedim> global_quadrature;
+
+  /// The basis functions computed on the quadrature points.
+  FullMatrix<double> basis_functions_on_qpoints;
 };
 
 #endif

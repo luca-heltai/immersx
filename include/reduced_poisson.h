@@ -170,15 +170,16 @@ public:
   void
                         assemble_rhs();
 #endif
-  // void
-  // assemble_coupling();
+  void
+  assemble_coupling();
+
   void
   run();
 
   /**
    * Builds coupling sparsity, and returns locally relevant inclusion dofs.
    */
-  IndexSet
+  void
   assemble_coupling_sparsity(DynamicSparsityPattern &dsp) const;
 
   void
