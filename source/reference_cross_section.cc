@@ -335,7 +335,7 @@ template <int dim, int spacedim, int n_components>
 unsigned int
 ReferenceCrossSection<dim, spacedim, n_components>::n_quadrature_points() const
 {
-  return quadrature_formula.size();
+  return global_quadrature.size();
 }
 
 
