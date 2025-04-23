@@ -37,8 +37,8 @@
 
 
 
-template <int dim, int spacedim>
-ReducedPoissonParameters<dim, spacedim>::ReducedPoissonParameters()
+template <int spacedim>
+ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   : ParameterAcceptor("/Reduced Poisson/")
   , rhs("/Reduced Poisson/Right hand side")
   , bc("/Reduced Poisson/Dirichlet boundary conditions")
@@ -80,7 +80,7 @@ ReducedPoissonParameters<dim, spacedim>::ReducedPoissonParameters()
 
 template <int dim, int spacedim>
 ReducedPoisson<dim, spacedim>::ReducedPoisson(
-  const ReducedPoissonParameters<dim, spacedim> &par)
+  const ReducedPoissonParameters<spacedim> &par)
   : par(par)
   , mpi_communicator(MPI_COMM_WORLD)
   , pcout(std::cout, (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
@@ -95,6 +95,8 @@ ReducedPoisson<dim, spacedim>::ReducedPoisson(
          parallel::distributed::Triangulation<
            spacedim>::construct_multigrid_hierarchy)
   , dh(tria)
+  , tensor_product_space(par.tensor_product_space_parameters, mpi_communicator)
+  , particle_coupling(par.particle_coupling_parameters)
   , mapping(1)
 {}
 
@@ -276,45 +278,48 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
   }
   inclusion_constraints.close();
 
-  if (inclusions.n_dofs() > 0)
-    {
-      auto inclusions_set =
-        Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, inclusions.n_inclusions());
+  // if (inclusions.n_dofs() > 0)
+  //   {
+  //     auto inclusions_set =
+  //       Utilities::MPI::create_evenly_distributed_partitioning(
+  //         mpi_communicator, inclusions.n_inclusions());
 
-      owned_dofs[1] = inclusions_set.tensor_product(
-        complete_index_set(inclusions.get_n_coefficients()));
+  //     owned_dofs[1] = inclusions_set.tensor_product(
+  //       complete_index_set(inclusions.get_n_coefficients()));
 
-      coupling_matrix.clear();
-      DynamicSparsityPattern dsp(dh.n_dofs(),
-                                 inclusions.n_dofs(),
-                                 relevant_dofs[0]);
+  //     coupling_matrix.clear();
+  //     DynamicSparsityPattern dsp(dh.n_dofs(),
+  //                                inclusions.n_dofs(),
+  //                                relevant_dofs[0]);
 
-      relevant_dofs[1] = assemble_coupling_sparsity(dsp);
-      SparsityTools::distribute_sparsity_pattern(dsp,
-                                                 owned_dofs[0],
-                                                 mpi_communicator,
-                                                 relevant_dofs[0]);
-      coupling_matrix.reinit(owned_dofs[0],
-                             owned_dofs[1],
-                             dsp,
-                             mpi_communicator);
+  //     relevant_dofs[1] = assemble_coupling_sparsity(dsp);
+  //     SparsityTools::distribute_sparsity_pattern(dsp,
+  //                                                owned_dofs[0],
+  //                                                mpi_communicator,
+  //                                                relevant_dofs[0]);
+  //     coupling_matrix.reinit(owned_dofs[0],
+  //                            owned_dofs[1],
+  //                            dsp,
+  //                            mpi_communicator);
 
-      DynamicSparsityPattern idsp(inclusions.n_dofs(),
-                                  inclusions.n_dofs(),
-                                  relevant_dofs[1]);
-      for (const auto i : relevant_dofs[1])
-        idsp.add(i, i);
-      SparsityTools::distribute_sparsity_pattern(idsp,
-                                                 owned_dofs[1],
-                                                 mpi_communicator,
-                                                 relevant_dofs[1]);
-      inclusion_matrix.reinit(owned_dofs[1],
-                              owned_dofs[1],
-                              idsp,
-                              mpi_communicator);
-    }
+  //     DynamicSparsityPattern idsp(inclusions.n_dofs(),
+  //                                 inclusions.n_dofs(),
+  //                                 relevant_dofs[1]);
+  //     for (const auto i : relevant_dofs[1])
+  //       idsp.add(i, i);
+  //     SparsityTools::distribute_sparsity_pattern(idsp,
+  //                                                owned_dofs[1],
+  //                                                mpi_communicator,
+  //                                                relevant_dofs[1]);
+  //     inclusion_matrix.reinit(owned_dofs[1],
+  //                             owned_dofs[1],
+  //                             idsp,
+  //                             mpi_communicator);
+  //   }
 
+  // Commented out inclusions-dependent reinit
+  // locally_relevant_solution.reinit(owned_dofs, relevant_dofs,
+  // mpi_communicator);
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
 
 #ifdef MATRIX_FREE_PATH
@@ -386,7 +391,8 @@ ReducedPoisson<dim, spacedim>::assemble_poisson_system()
 }
 #endif
 
-
+// Commented out inclusions-dependent function
+/*
 template <int dim, int spacedim>
 IndexSet
 ReducedPoisson<dim, spacedim>::assemble_coupling_sparsity(
@@ -431,9 +437,10 @@ ReducedPoisson<dim, spacedim>::assemble_coupling_sparsity(
     }
   return relevant;
 }
+*/
 
-
-
+// Commented out inclusions-dependent function
+/*
 template <int dim, int spacedim>
 void
 ReducedPoisson<dim, spacedim>::assemble_coupling()
@@ -534,7 +541,7 @@ ReducedPoisson<dim, spacedim>::assemble_coupling()
   system_rhs.compress(VectorOperation::add);
   pcout << "System rhs: " << system_rhs.l2_norm() << std::endl;
 }
-
+*/
 
 #ifdef MATRIX_FREE_PATH
 template <int dim, int spacedim>
@@ -678,56 +685,56 @@ ReducedPoisson<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  const auto &g = system_rhs.block(1);
+  // const auto &g = system_rhs.block(1);
 
-  if (inclusions.n_dofs() == 0)
-    {
-      u = invA * f;
-    }
-  else
-    {
-#ifdef MATRIX_FREE_PATH
-      auto Bt =
-        linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
-      Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
-        vec.reinit(owned_dofs[0], relevant_dofs[0], mpi_communicator);
-      };
-      Bt.reinit_domain_vector = [this](VectorType &vec, const bool) {
-        vec.reinit(owned_dofs[1], relevant_dofs[1], mpi_communicator);
-      };
+  // if (inclusions.n_dofs() == 0)
+  //   {
+  u = invA * f;
+  //   }
+  // else
+  //   {
+  // #ifdef MATRIX_FREE_PATH
+  //     auto Bt =
+  //       linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
+  //     Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
+  //       vec.reinit(owned_dofs[0], relevant_dofs[0], mpi_communicator);
+  //     };
+  //     Bt.reinit_domain_vector = [this](VectorType &vec, const bool) {
+  //       vec.reinit(owned_dofs[1], relevant_dofs[1], mpi_communicator);
+  //     };
 
-      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
-#else
-      const auto Bt =
-        linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
-      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
-#endif
-      const auto C =
-        linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
+  //     const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+  // #else
+  //     const auto Bt =
+  //       linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
+  //     const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+  // #endif
+  //     const auto C =
+  //       linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
-      // Schur complement
-      pcout << "   Prepare schur... ";
-      const auto S = B * invA * Bt;
-      pcout << "S was built." << std::endl;
+  //     // Schur complement
+  //     pcout << "   Prepare schur... ";
+  //     const auto S = B * invA * Bt;
+  //     pcout << "S was built." << std::endl;
 
-      // Schur complement preconditioner
-      auto                 invS = S;
-      SolverCG<VectorType> cg_schur(par.outer_control);
-      invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
+  //     // Schur complement preconditioner
+  //     auto                 invS = S;
+  //     SolverCG<VectorType> cg_schur(par.outer_control);
+  //     invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
 
-      pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
-            << std::endl;
+  //     pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
+  //           << std::endl;
 
-      // Compute Lambda first
-      lambda = invS * (B * invA * f - g);
-      pcout << "   Solved for lambda in " << par.outer_control.last_step()
-            << " iterations." << std::endl;
+  //     // Compute Lambda first
+  //     lambda = invS * (B * invA * f - g);
+  //     pcout << "   Solved for lambda in " << par.outer_control.last_step()
+  //           << " iterations." << std::endl;
 
-      // Then compute u
-      u = invA * (f - Bt * lambda);
-      pcout << "   u norm: " << u.l2_norm()
-            << ", lambda norm: " << lambda.l2_norm() << std::endl;
-    }
+  //     // Then compute u
+  //     u = invA * (f - Bt * lambda);
+  //     pcout << "   u norm: " << u.l2_norm()
+  //           << ", lambda norm: " << lambda.l2_norm() << std::endl;
+  //   }
 
   pcout << "   Solved for u in " << par.inner_control.last_step()
         << " iterations." << std::endl;
@@ -771,11 +778,11 @@ ReducedPoisson<dim, spacedim>::refine_and_transfer()
 
   parallel::distributed::SolutionTransfer<spacedim, VectorType> transfer(dh);
   tria.prepare_coarsening_and_refinement();
-  inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
+  // inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
   transfer.prepare_for_coarsening_and_refinement(
     locally_relevant_solution.block(0));
   tria.execute_coarsening_and_refinement();
-  inclusions.inclusions_as_particles.unpack_after_coarsening_and_refinement();
+  // inclusions.inclusions_as_particles.unpack_after_coarsening_and_refinement();
   setup_dofs();
   transfer.interpolate(solution.block(0));
   constraints.distribute(solution.block(0));
@@ -833,19 +840,20 @@ ReducedPoisson<dim, spacedim>::output_results() const
     {
       cycles_and_solutions.push_back({(double)cycle, output_solution()});
 
-      const std::string particles_filename =
-        par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
-      inclusions.output_particles(par.output_directory + "/" +
-                                  particles_filename);
+      // Commented out inclusions-dependent output
+      // const std::string particles_filename =
+      //   par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
+      // inclusions.output_particles(par.output_directory + "/" +
+      //                             particles_filename);
 
-      cycles_and_particles.push_back({(double)cycle, particles_filename});
+      // cycles_and_particles.push_back({(double)cycle, particles_filename});
 
       std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
                                   ".pvd");
       std::ofstream pvd_particles(par.output_directory + "/" + par.output_name +
                                   "_particles.pvd");
       DataOutBase::write_pvd_record(pvd_solutions, cycles_and_solutions);
-      DataOutBase::write_pvd_record(pvd_particles, cycles_and_particles);
+      // DataOutBase::write_pvd_record(pvd_particles, cycles_and_particles);
     }
 }
 
@@ -875,7 +883,7 @@ ReducedPoisson<dim, spacedim>::run()
   setup_fe();
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
-      inclusions.setup_inclusions_particles(tria);
+      // inclusions.setup_inclusions_particles(tria);
       setup_dofs();
       if (par.output_results_before_solving)
         output_results();
@@ -884,11 +892,12 @@ ReducedPoisson<dim, spacedim>::run()
 #else
       assemble_poisson_system();
 #endif
-      assemble_coupling();
+      // assemble_coupling();
 #ifdef MATRIX_FREE_PATH
-      MappingQ1<spacedim> mapping;
-      coupling_operator = std::make_unique<CouplingOperator<spacedim, double>>(
-        inclusions, dh, constraints, mapping, *fe);
+      // MappingQ1<spacedim> mapping;
+      // coupling_operator = std::make_unique<CouplingOperator<spacedim,
+      // double>>(
+      //   inclusions, dh, constraints, mapping, *fe);
 #endif
       // return;
       solve();
@@ -906,9 +915,7 @@ ReducedPoisson<dim, spacedim>::run()
 
 // Template instantiations
 template class ReducedPoissonParameters<2>;
-template class ReducedPoissonParameters<2, 3>;
 template class ReducedPoissonParameters<3>;
 
 template class ReducedPoisson<2>;
-template class ReducedPoisson<2, 3>;
 template class ReducedPoisson<3>;

@@ -103,7 +103,9 @@ namespace LA
 
 #include <matrix_free_utils.h>
 
-#include "inclusions.h"
+#include "immersed_repartitioner.h"
+#include "particle_coupling.h"
+#include "tensor_product_space.h"
 
 
 #ifdef DEAL_II_WITH_OPENCASCADE
@@ -115,7 +117,7 @@ namespace LA
 #include <memory>
 
 
-template <int dim, int spacedim = dim>
+template <int spacedim>
 class ReducedPoissonParameters : public ParameterAcceptor
 {
 public:
@@ -142,6 +144,10 @@ public:
   bool output_results_before_solving = false;
 
   mutable ParsedConvergenceTable convergence_table;
+
+  TensorProductSpaceParameters<1, 2, spacedim, 1>
+                                       tensor_product_space_parameters;
+  ParticleCouplingParameters<spacedim> particle_coupling_parameters;
 };
 
 
@@ -150,7 +156,7 @@ template <int dim, int spacedim = dim>
 class ReducedPoisson : public Subscriptor
 {
 public:
-  ReducedPoisson(const ReducedPoissonParameters<dim, spacedim> &par);
+  ReducedPoisson(const ReducedPoissonParameters<spacedim> &par);
   void
   make_grid();
   void
@@ -164,8 +170,8 @@ public:
   void
                         assemble_rhs();
 #endif
-  void
-  assemble_coupling();
+  // void
+  // assemble_coupling();
   void
   run();
 
@@ -191,16 +197,20 @@ public:
   print_parameters() const;
 
 private:
-  const ReducedPoissonParameters<dim, spacedim> &par;
+  const ReducedPoissonParameters<spacedim>      &par;
   MPI_Comm                                       mpi_communicator;
   ConditionalOStream                             pcout;
   mutable TimerOutput                            computing_timer;
   parallel::distributed::Triangulation<spacedim> tria;
   std::unique_ptr<FiniteElement<spacedim>>       fe;
-  Inclusions<spacedim>                           inclusions;
-  std::unique_ptr<Quadrature<spacedim>>          quadrature;
 
-  DoFHandler<spacedim>  dh;
+  std::unique_ptr<Quadrature<spacedim>> quadrature;
+
+  DoFHandler<spacedim> dh;
+
+  TensorProductSpace<1, 2, spacedim, 1> tensor_product_space;
+  ParticleCoupling<spacedim>            particle_coupling;
+
   std::vector<IndexSet> owned_dofs;
   std::vector<IndexSet> relevant_dofs;
 

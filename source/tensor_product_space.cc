@@ -92,17 +92,21 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_dof_handler()
 
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
-std::vector<Point<spacedim>>
+std::pair<std::vector<Point<spacedim>>, std::vector<std::vector<double>>>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-  get_locally_owned_qpoints_positions() const
+  get_locally_owned_qpoints() const
 {
-  std::vector<Point<spacedim>> positions;
+  std::vector<Point<spacedim>>     positions;
+  std::vector<std::vector<double>> weights;
   positions.reserve(triangulation.n_active_cells() * quadrature_formula.size() *
                     reference_cross_section.n_quadrature_points());
+  weights.reserve(triangulation.n_active_cells() * quadrature_formula.size() *
+                  reference_cross_section.n_quadrature_points());
 
-  UpdateFlags flags = reduced_dim == 1 ?
-                        update_quadrature_points :
-                        update_quadrature_points | update_normal_vectors;
+  UpdateFlags flags =
+    reduced_dim == 1 ?
+      update_quadrature_points | update_JxW_values :
+      update_quadrature_points | update_normal_vectors | update_JxW_values;
 
   FEValues<reduced_dim, spacedim> fev(fe, quadrature_formula, flags);
 
@@ -120,6 +124,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
             const auto &qpoint = qpoints[q];
             if constexpr (reduced_dim == 2)
               new_vertical = fev.normal_vector(q);
+            // [TODO] Make radius a function of the cell
             auto cross_section_qpoints =
               reference_cross_section.get_transformed_quadrature(qpoint,
                                                                  new_vertical,
@@ -127,9 +132,45 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
             positions.insert(positions.end(),
                              cross_section_qpoints.get_points().begin(),
                              cross_section_qpoints.get_points().end());
+
+            for (const auto &w : cross_section_qpoints.get_weights())
+              weights.emplace_back(std::vector<double>(1, w * fev.JxW(q)));
           }
       }
-  return positions;
+  return {positions, weights};
+}
+
+
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+void
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  update_local_dof_indices(
+    const std::map<unsigned int, IndexSet> &remote_q_point_indices)
+{
+  auto global_cell_indices =
+    local_q_point_indices_to_cell_indices(remote_q_point_indices);
+  std::map<
+    unsigned int,
+    std::map<types::global_cell_index, std::vector<types::global_dof_index>>>
+    global_dof_indices;
+
+  for (const auto &[proc, cell_indices] : global_cell_indices)
+    {
+      for (const auto &id : cell_indices)
+        {
+          global_dof_indices[proc][id] = global_cell_to_dof_indices[id];
+        }
+    }
+  // Exchange the data with participating processors
+  auto local_dof_indices =
+    Utilities::MPI::some_to_some(mpi_communicator, global_dof_indices);
+  // update global_cell_to_dof_indices
+  for (const auto &[proc, cell_indices] : local_dof_indices)
+    {
+      global_cell_to_dof_indices.insert(cell_indices.begin(),
+                                        cell_indices.end());
+    }
 }
 
 
@@ -137,22 +178,54 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 template <int reduced_dim, int dim, int spacedim, int n_components>
 std::tuple<unsigned int, unsigned int, unsigned int>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-  qpoint_index_to_cell_and_qpoint_indices(const unsigned int qpoint_index) const
+  particle_id_to_cell_and_qpoint_indices(const unsigned int particle_id) const
 {
-  AssertIndexRange(qpoint_index,
-                   triangulation.n_active_cells() * quadrature_formula.size() *
+  AssertIndexRange(particle_id,
+                   triangulation.n_global_active_cells() *
+                     quadrature_formula.size() *
                      reference_cross_section.n_quadrature_points());
   const unsigned int cell_index =
-    qpoint_index /
+    particle_id /
     (quadrature_formula.size() * reference_cross_section.n_quadrature_points());
   const unsigned int qpoint_index_in_cell =
-    (qpoint_index / reference_cross_section.n_quadrature_points()) %
+    (particle_id / reference_cross_section.n_quadrature_points()) %
     quadrature_formula.size();
   const unsigned int qpoint_index_in_section =
-    qpoint_index % reference_cross_section.n_quadrature_points();
+    particle_id % reference_cross_section.n_quadrature_points();
   return std::make_tuple(cell_index,
                          qpoint_index_in_cell,
                          qpoint_index_in_section);
+}
+
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+std::map<unsigned int, IndexSet>
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  local_q_point_indices_to_cell_indices(
+    const std::map<unsigned int, IndexSet> &remote_q_point_indices) const
+{
+  std::map<unsigned int, IndexSet> cell_indices;
+  auto OwnedCells = triangulation.global_active_cell_index_partitioner()
+                      .lock()
+                      ->locally_owned_range();
+
+  auto local_q_point_indices =
+    Utilities::MPI::some_to_some(mpi_communicator, remote_q_point_indices);
+
+  for (const auto &[proc, qpoint_indices] : local_q_point_indices)
+    {
+      IndexSet cell_indices_for_proc(triangulation.n_global_active_cells());
+      for (const auto &qpoint_index : qpoint_indices)
+        {
+          const auto [cell_index, q_index, i] =
+            particle_id_to_cell_and_qpoint_indices(qpoint_index);
+          cell_indices_for_proc.add_index(
+            OwnedCells.nth_index_in_set(cell_index));
+        }
+      cell_indices_for_proc.compress();
+      cell_indices[proc] = cell_indices_for_proc;
+    }
+  return cell_indices;
 }
 
 
@@ -163,20 +236,67 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::setup_dofs()
 {
   dof_handler.distribute_dofs(fe);
   // Additional setup can be done here if needed
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
+        cell->get_dof_indices(dof_indices);
+        global_cell_to_dof_indices[cell->global_active_cell_index()] =
+          dof_indices;
+      }
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  locally_owned_qpoints() const
+{
+  IndexSet locally_owned_cell_set =
+    triangulation.global_active_cell_index_partitioner()
+      .lock()
+      ->locally_owned_range();
+
+  // Now make a tensor product of the local indices with the total number of
+  // quadrature points, and the number of quadrature points in the
+  // cross-section
+  const unsigned int n_qpoints_per_cell =
+    reference_cross_section.n_quadrature_points() * quadrature_formula.size();
+
+  IndexSet locally_owned_qpoints_set = locally_owned_cell_set.tensor_product(
+    complete_index_set(n_qpoints_per_cell));
+
+  return locally_owned_qpoints_set;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  locally_relevant_indices() const
+{
+  IndexSet indices(triangulation.n_global_active_cells());
+  for (const auto &[cell_id, local_indices] : global_cell_to_dof_indices)
+    indices.add_index(cell_id);
+  indices.compress();
+  return indices;
+}
+
+
+template struct TensorProductSpaceParameters<1, 2, 2, 1>;
 template struct TensorProductSpaceParameters<1, 2, 3, 1>;
 template struct TensorProductSpaceParameters<1, 3, 3, 1>;
 template struct TensorProductSpaceParameters<2, 3, 3, 1>;
 
+template struct TensorProductSpaceParameters<1, 2, 2, 2>;
 template struct TensorProductSpaceParameters<1, 2, 3, 3>;
 template struct TensorProductSpaceParameters<1, 3, 3, 3>;
 template struct TensorProductSpaceParameters<2, 3, 3, 3>;
 
+template class TensorProductSpace<1, 2, 2, 1>;
 template class TensorProductSpace<1, 2, 3, 1>;
 template class TensorProductSpace<1, 3, 3, 1>;
 template class TensorProductSpace<2, 3, 3, 1>;
 
+template class TensorProductSpace<1, 2, 2, 2>;
 template class TensorProductSpace<1, 2, 3, 3>;
 template class TensorProductSpace<1, 3, 3, 3>;
 template class TensorProductSpace<2, 3, 3, 3>;

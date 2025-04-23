@@ -118,9 +118,12 @@ public:
   /**
    * Insert global points into the particle handler.
    * @param points The points to be inserted.
+   * @return A map of processor to local indices corresponding to the processor
+   * where the local qpoints ended up being locate w.r.t. the background grid.
    */
-  void
-  insert_points(const std::vector<Point<dim>> &points);
+  std::map<unsigned int, IndexSet>
+  insert_points(const std::vector<Point<dim>>          &points,
+                const std::vector<std::vector<double>> &properties = {});
 
 private:
   /**
@@ -156,13 +159,6 @@ private:
    * @brief Handler for managing particles in the simulation.
    */
   Particles::ParticleHandler<dim> particles;
-
-  /**
-   * A map from owner to IndexSet, that contains the local indices of the points
-   * that were inserted with insert_quadrature_points(), and that falls within
-   * the part of triangulation owned by this mpi process.
-   */
-  std::map<unsigned int, IndexSet> local_indices_map;
 };
 
 #endif

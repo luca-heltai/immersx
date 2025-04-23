@@ -190,12 +190,50 @@ public:
    *
    * @return std::vector<Point<spacedim>>
    */
-  std::vector<Point<spacedim>>
-  get_locally_owned_qpoints_positions() const;
+  std::pair<std::vector<Point<spacedim>>, std::vector<std::vector<double>>>
+  get_locally_owned_qpoints() const;
 
+  /**
+   * Update the relevant local dof_indices.
+   *
+   * After inserting global particles, this function updates the indices that
+   * are required to assemble the coupling matrix.
+   */
+  void
+  update_local_dof_indices(
+    const std::map<unsigned int, IndexSet> &remote_q_point_indices);
+
+
+  /**
+   * Convert a global particle id to a global cell index, and the local
+   * quadrature indices on the reduce triangulation and on the cross-section.
+   *
+   * @param particle_id The global particle id.
+   * @return std::tuple<unsigned int, unsigned int, unsigned int> cell_index,
+   * q_index, qpoint_index_in_section
+   */
   std::tuple<unsigned int, unsigned int, unsigned int>
-  qpoint_index_to_cell_and_qpoint_indices(
-    const unsigned int qpoint_index) const;
+  particle_id_to_cell_and_qpoint_indices(const unsigned int qpoint_index) const;
+
+
+  /**
+   * Return the indices of the quadrature points that are locally owned by the
+   * reduced domain.
+   *
+   * @return IndexSet
+   */
+  IndexSet
+  locally_owned_qpoints() const;
+
+
+  /**
+   * Return the indices of the cells that are required to assemble the coupling
+   * matrix.
+   *
+   * @return IndexSet
+   */
+  IndexSet
+  locally_relevant_indices() const;
 
 private:
   /**
@@ -206,6 +244,14 @@ private:
    */
   void
   setup_dofs();
+
+  /**
+   * Given a map of processor to local quadrature point indices, return a map of
+   * processor to the corresponding global cell indices.
+   */
+  std::map<unsigned int, IndexSet>
+  local_q_point_indices_to_cell_indices(
+    const std::map<unsigned int, IndexSet> &local_q_point_indices) const;
 
   /**
    * The MPI communicator for parallel processing.
@@ -260,6 +306,12 @@ private:
    * domain.
    */
   DoFHandler<reduced_dim, spacedim> dof_handler;
+
+  /**
+   * Mapping from global cell index to dof indices.
+   */
+  std::map<types::global_cell_index, std::vector<types::global_dof_index>>
+    global_cell_to_dof_indices;
 };
 
 
