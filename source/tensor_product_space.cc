@@ -156,12 +156,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     global_dof_indices;
 
   for (const auto &[proc, cell_indices] : global_cell_indices)
-    {
-      for (const auto &id : cell_indices)
-        {
-          global_dof_indices[proc][id] = global_cell_to_dof_indices[id];
-        }
-    }
+    for (const auto &id : cell_indices)
+      global_dof_indices[proc][id] = global_cell_to_dof_indices[id];
+
   // Exchange the data with participating processors
   auto local_dof_indices =
     Utilities::MPI::some_to_some(mpi_communicator, global_dof_indices);
