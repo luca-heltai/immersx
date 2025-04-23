@@ -273,7 +273,9 @@ IndexSet
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   locally_relevant_indices() const
 {
-  IndexSet indices(triangulation.n_global_active_cells());
+  IndexSet indices = triangulation.global_active_cell_index_partitioner()
+                       .lock()
+                       ->locally_owned_range();
   for (const auto &[cell_id, local_indices] : global_cell_to_dof_indices)
     indices.add_index(cell_id);
   indices.compress();
