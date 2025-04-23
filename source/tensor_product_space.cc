@@ -170,6 +170,17 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     }
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<types::global_dof_index> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_dof_indices(
+  const types::global_cell_index cell_index) const
+{
+  Assert(global_cell_to_dof_indices.find(cell_index) !=
+           global_cell_to_dof_indices.end(),
+         ExcMessage("Cell index not found in global cell to dof indices."));
+  return global_cell_to_dof_indices.at(cell_index);
+}
+
 
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -279,6 +290,13 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   return indices;
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+auto
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_quadrature()
+  const -> const QGauss<reduced_dim> &
+{
+  return quadrature_formula;
+}
 
 template struct TensorProductSpaceParameters<1, 2, 2, 1>;
 template struct TensorProductSpaceParameters<1, 2, 3, 1>;

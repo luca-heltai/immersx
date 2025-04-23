@@ -391,53 +391,139 @@ ReducedPoisson<dim, spacedim>::assemble_poisson_system()
 }
 #endif
 
-// Commented out inclusions-dependent function
-/*
 template <int dim, int spacedim>
-IndexSet
+void
 ReducedPoisson<dim, spacedim>::assemble_coupling_sparsity(
   DynamicSparsityPattern &dsp) const
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
-  IndexSet           relevant(inclusions.n_dofs());
+  std::vector<types::global_dof_index> background_dof_indices(
+    fe->n_dofs_per_cell());
 
-  std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
-  std::vector<types::global_dof_index> inclusion_dof_indices;
-
-  auto particle = inclusions.inclusions_as_particles.begin();
-  while (particle != inclusions.inclusions_as_particles.end())
+  auto particle = particle_coupling.get_particles().begin();
+  while (particle != particle_coupling.get_particles().end())
     {
       const auto &cell = particle->get_surrounding_cell();
       const auto  dh_cell =
         typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-      dh_cell->get_dof_indices(dof_indices);
+      dh_cell->get_dof_indices(background_dof_indices);
 
       const auto pic =
-        inclusions.inclusions_as_particles.particles_in_cell(cell);
+        particle_coupling.get_particles().particles_in_cell(cell);
       Assert(pic.begin() == particle, ExcInternalError());
-      std::set<types::global_dof_index> inclusion_dof_indices_set;
+
+      types::global_cell_index previous_cell_id = numbers::invalid_unsigned_int;
       for (const auto &p : pic)
         {
-          const auto ids = inclusions.get_dof_indices(p.get_id());
-          inclusion_dof_indices_set.insert(ids.begin(), ids.end());
+          const auto [immersed_cell_id, immersed_q, section_q] =
+            tensor_product_space.particle_id_to_cell_and_qpoint_indices(
+              p.get_id());
+          // If cell id is the same, we can skip the rest of the loop. We
+          // already added these entries
+          if (immersed_cell_id != previous_cell_id)
+            {
+              const auto &immersed_dof_indices =
+                tensor_product_space.get_dof_indices(immersed_cell_id);
+
+              constraints.add_entries_local_to_global(background_dof_indices,
+                                                      inclusion_constraints,
+                                                      immersed_dof_indices,
+                                                      dsp);
+              previous_cell_id = immersed_cell_id;
+            }
         }
-      inclusion_dof_indices.resize(0);
-      inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
-                                   inclusion_dof_indices_set.begin(),
-                                   inclusion_dof_indices_set.end());
-
-      constraints.add_entries_local_to_global(dof_indices,
-                                              inclusion_constraints,
-                                              inclusion_dof_indices,
-                                              dsp);
-
-      relevant.add_indices(inclusion_dof_indices.begin(),
-                           inclusion_dof_indices.end());
       particle = pic.end();
     }
-  return relevant;
 }
-*/
+
+
+template <int dim, int spacedim>
+void
+ReducedPoisson<dim, spacedim>::assemble_coupling()
+{
+  TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
+
+  std::vector<types::global_dof_index> background_dof_indices(
+    fe->n_dofs_per_cell());
+
+  const auto &immersed_fe = tensor_product_space.get_dof_handler().get_fe();
+
+  FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
+                                           immersed_fe.n_dofs_per_cell());
+
+  auto particle = particle_coupling.get_particles().begin();
+  while (particle != particle_coupling.get_particles().end())
+    {
+      const auto &cell = particle->get_surrounding_cell();
+      const auto  dh_cell =
+        typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
+      dh_cell->get_dof_indices(background_dof_indices);
+
+      const auto pic =
+        particle_coupling.get_particles().particles_in_cell(cell);
+      Assert(pic.begin() == particle, ExcInternalError());
+
+      types::global_cell_index previous_cell_id = numbers::invalid_unsigned_int;
+      types::global_cell_index last_cell_id     = numbers::invalid_unsigned_int;
+      local_coupling_matrix                     = 0;
+      for (const auto &p : pic)
+        {
+          const auto [immersed_cell_id, immersed_q, section_q] =
+            tensor_product_space.particle_id_to_cell_and_qpoint_indices(
+              p.get_id());
+          const auto &background_p = p.get_reference_location();
+          const auto  immersed_p =
+            tensor_product_space.get_quadrature().point(immersed_q);
+          const auto &JxW = p.get_properties()[0];
+          last_cell_id    = immersed_cell_id;
+          if (immersed_cell_id != previous_cell_id &&
+              previous_cell_id != numbers::invalid_unsigned_int)
+            {
+              // Distribute the matrix to the previous dofs
+              const auto &immersed_dof_indices =
+                tensor_product_space.get_dof_indices(previous_cell_id);
+              constraints.distribute_local_to_global(local_coupling_matrix,
+                                                     background_dof_indices,
+                                                     inclusion_constraints,
+                                                     immersed_dof_indices,
+                                                     coupling_matrix);
+              local_coupling_matrix = 0;
+              previous_cell_id      = immersed_cell_id;
+            }
+
+          for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+            {
+              const auto comp_i     = fe->system_to_component_index(i).first;
+              const auto v_i_comp_i = fe->shape_value(i, background_p);
+
+              for (unsigned int j = 0; j < immersed_fe.n_dofs_per_cell(); ++j)
+                {
+                  const auto comp_j =
+                    immersed_fe.system_to_component_index(j).first;
+
+                  const auto phi_comp_j_comp_i =
+                    tensor_product_space.get_reference_cross_section()
+                      .shape_value(comp_j, section_q, comp_i);
+
+                  const auto w_j_comp_j =
+                    immersed_fe.shape_value(j, immersed_p);
+
+                  local_coupling_matrix(i, j) +=
+                    v_i_comp_i * phi_comp_j_comp_i * w_j_comp_j * JxW;
+                }
+            }
+        }
+      const auto &immersed_dof_indices =
+        tensor_product_space.get_dof_indices(last_cell_id);
+      constraints.distribute_local_to_global(local_coupling_matrix,
+                                             background_dof_indices,
+                                             inclusion_constraints,
+                                             immersed_dof_indices,
+                                             coupling_matrix);
+      particle = pic.end();
+    }
+  coupling_matrix.compress(VectorOperation::add);
+}
 
 // Commented out inclusions-dependent function
 /*
@@ -448,15 +534,15 @@ ReducedPoisson<dim, spacedim>::assemble_coupling()
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
   pcout << "Assemble coupling matrix. " << std::endl;
 
-  std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
-  std::vector<types::global_dof_index> inclusion_dof_indices(
-    inclusions.get_n_coefficients());
+  std::vector<types::global_dof_index>
+fe_dof_indices(fe->n_dofs_per_cell()); std::vector<types::global_dof_index>
+inclusion_dof_indices( inclusions.get_n_coefficients());
 
   FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
                                            inclusions.get_n_coefficients());
 
-  [[maybe_unused]] FullMatrix<double> local_bulk_matrix(fe->n_dofs_per_cell(),
-                                                        fe->n_dofs_per_cell());
+  [[maybe_unused]] FullMatrix<double>
+local_bulk_matrix(fe->n_dofs_per_cell(), fe->n_dofs_per_cell());
 
   FullMatrix<double> local_inclusion_matrix(inclusions.get_n_coefficients(),
                                             inclusions.get_n_coefficients());
@@ -478,16 +564,17 @@ ReducedPoisson<dim, spacedim>::assemble_coupling()
       auto next_p = pic.begin();
       while (p != pic.end())
         {
-          const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
-          inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
-          local_coupling_matrix   = 0;
+          const auto inclusion_id =
+inclusions.get_inclusion_id(p->get_id()); inclusion_dof_indices   =
+inclusions.get_dof_indices(p->get_id()); local_coupling_matrix   = 0;
           local_inclusion_matrix  = 0;
           local_rhs               = 0;
 
           // Extract all points that refer to the same inclusion
           std::vector<Point<spacedim>> ref_q_points;
           for (; next_p != pic.end() &&
-                 inclusions.get_inclusion_id(next_p->get_id()) == inclusion_id;
+                 inclusions.get_inclusion_id(next_p->get_id()) ==
+inclusion_id;
                ++next_p)
             ref_q_points.push_back(next_p->get_reference_location());
           FEValues<spacedim, spacedim> fev(*fe,
@@ -497,11 +584,13 @@ ReducedPoisson<dim, spacedim>::assemble_coupling()
           for (unsigned int q = 0; q < ref_q_points.size(); ++q)
             {
               const auto  id                  = p->get_id();
-              const auto &inclusion_fe_values = inclusions.get_fe_values(id);
-              const auto &real_q              = p->get_location();
+              const auto &inclusion_fe_values =
+inclusions.get_fe_values(id); const auto &real_q              =
+p->get_location();
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < inclusions.get_n_coefficients(); ++j)
+              for (unsigned int j = 0; j < inclusions.get_n_coefficients();
+++j)
                 {
                   for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                     local_coupling_matrix(i, j) +=
@@ -529,7 +618,8 @@ ReducedPoisson<dim, spacedim>::assemble_coupling()
             local_rhs, inclusion_dof_indices, system_rhs.block(1));
 
           inclusion_constraints.distribute_local_to_global(
-            local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
+            local_inclusion_matrix, inclusion_dof_indices,
+inclusion_matrix);
         }
       particle = pic.end();
     }
@@ -685,7 +775,8 @@ ReducedPoisson<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  // const auto &g = system_rhs.block(1);
+  // const auto &g =
+  // system_rhs.block(1);
 
   // if (inclusions.n_dofs() == 0)
   //   {
@@ -695,45 +786,76 @@ ReducedPoisson<dim, spacedim>::solve()
   //   {
   // #ifdef MATRIX_FREE_PATH
   //     auto Bt =
-  //       linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
-  //     Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
-  //       vec.reinit(owned_dofs[0], relevant_dofs[0], mpi_communicator);
+  //       linear_operator<VectorType,
+  //       VectorType,
+  //       Payload>(*coupling_operator);
+  //     Bt.reinit_range_vector =
+  //     [this](VectorType &vec, const
+  //     bool) {
+  //       vec.reinit(owned_dofs[0],
+  //       relevant_dofs[0],
+  //       mpi_communicator);
   //     };
-  //     Bt.reinit_domain_vector = [this](VectorType &vec, const bool) {
-  //       vec.reinit(owned_dofs[1], relevant_dofs[1], mpi_communicator);
+  //     Bt.reinit_domain_vector =
+  //     [this](VectorType &vec, const
+  //     bool) {
+  //       vec.reinit(owned_dofs[1],
+  //       relevant_dofs[1],
+  //       mpi_communicator);
   //     };
 
-  //     const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+  //     const auto B =
+  //     transpose_operator<VectorType,
+  //     VectorType, Payload>(Bt);
   // #else
   //     const auto Bt =
-  //       linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
-  //     const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+  //       linear_operator<VectorType,
+  //       VectorType,
+  //       Payload>(coupling_matrix);
+  //     const auto B =
+  //     transpose_operator<VectorType,
+  //     VectorType, Payload>(Bt);
   // #endif
   //     const auto C =
-  //       linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
+  //       linear_operator<VectorType,
+  //       VectorType,
+  //       Payload>(inclusion_matrix);
 
   //     // Schur complement
-  //     pcout << "   Prepare schur... ";
-  //     const auto S = B * invA * Bt;
-  //     pcout << "S was built." << std::endl;
+  //     pcout << "   Prepare schur...
+  //     "; const auto S = B * invA *
+  //     Bt; pcout << "S was built." <<
+  //     std::endl;
 
-  //     // Schur complement preconditioner
-  //     auto                 invS = S;
-  //     SolverCG<VectorType> cg_schur(par.outer_control);
-  //     invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
+  //     // Schur complement
+  //     preconditioner auto invS = S;
+  //     SolverCG<VectorType>
+  //     cg_schur(par.outer_control);
+  //     invS =
+  //     inverse_operator<Payload,
+  //     SolverCG<VectorType>>(S,
+  //     cg_schur);
 
-  //     pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
+  //     pcout << "   f norm: " <<
+  //     f.l2_norm() << ", g norm: " <<
+  //     g.l2_norm()
   //           << std::endl;
 
   //     // Compute Lambda first
-  //     lambda = invS * (B * invA * f - g);
-  //     pcout << "   Solved for lambda in " << par.outer_control.last_step()
-  //           << " iterations." << std::endl;
+  //     lambda = invS * (B * invA * f
+  //     - g); pcout << "   Solved for
+  //     lambda in " <<
+  //     par.outer_control.last_step()
+  //           << " iterations." <<
+  //           std::endl;
 
   //     // Then compute u
   //     u = invA * (f - Bt * lambda);
-  //     pcout << "   u norm: " << u.l2_norm()
-  //           << ", lambda norm: " << lambda.l2_norm() << std::endl;
+  //     pcout << "   u norm: " <<
+  //     u.l2_norm()
+  //           << ", lambda norm: " <<
+  //           lambda.l2_norm() <<
+  //           std::endl;
   //   }
 
   pcout << "   Solved for u in " << par.inner_control.last_step()
@@ -840,20 +962,28 @@ ReducedPoisson<dim, spacedim>::output_results() const
     {
       cycles_and_solutions.push_back({(double)cycle, output_solution()});
 
-      // Commented out inclusions-dependent output
-      // const std::string particles_filename =
-      //   par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
-      // inclusions.output_particles(par.output_directory + "/" +
+      // Commented out
+      // inclusions-dependent output
+      // const std::string
+      // particles_filename =
+      //   par.output_name +
+      //   "_particles_" +
+      //   std::to_string(cycle) +
+      //   ".vtu";
+      // inclusions.output_particles(par.output_directory
+      // + "/" +
       //                             particles_filename);
 
-      // cycles_and_particles.push_back({(double)cycle, particles_filename});
+      // cycles_and_particles.push_back({(double)cycle,
+      // particles_filename});
 
       std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
                                   ".pvd");
       std::ofstream pvd_particles(par.output_directory + "/" + par.output_name +
                                   "_particles.pvd");
       DataOutBase::write_pvd_record(pvd_solutions, cycles_and_solutions);
-      // DataOutBase::write_pvd_record(pvd_particles, cycles_and_particles);
+      // DataOutBase::write_pvd_record(pvd_particles,
+      // cycles_and_particles);
     }
 }
 
@@ -895,9 +1025,11 @@ ReducedPoisson<dim, spacedim>::run()
       // assemble_coupling();
 #ifdef MATRIX_FREE_PATH
       // MappingQ1<spacedim> mapping;
-      // coupling_operator = std::make_unique<CouplingOperator<spacedim,
+      // coupling_operator =
+      // std::make_unique<CouplingOperator<spacedim,
       // double>>(
-      //   inclusions, dh, constraints, mapping, *fe);
+      //   inclusions, dh, constraints,
+      //   mapping, *fe);
 #endif
       // return;
       solve();

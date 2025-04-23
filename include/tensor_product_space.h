@@ -204,6 +204,10 @@ public:
     const std::map<unsigned int, IndexSet> &remote_q_point_indices);
 
 
+  const std::vector<types::global_dof_index> &
+  get_dof_indices(const types::global_cell_index cell_index) const;
+
+
   /**
    * Convert a global particle id to a global cell index, and the local
    * quadrature indices on the reduce triangulation and on the cross-section.
@@ -234,6 +238,14 @@ public:
    */
   IndexSet
   locally_relevant_indices() const;
+
+  /**
+   * Retrieve the quadrature formula used in the reduced domain.
+   *
+   * @return A constant reference to the quadrature formula.
+   */
+  auto
+  get_quadrature() const -> const QGauss<reduced_dim> &;
 
 private:
   /**

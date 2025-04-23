@@ -197,6 +197,42 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
       selected_basis_functions[i] =
         basis_functions[par.selected_coefficients[i]];
     }
+
+
+  // Now compute the Matrix of the selected basis functions evaluated on the
+  // quadrature points
+  basis_functions_on_qpoints.reinit(global_quadrature.size(),
+                                    selected_basis_functions.size() *
+                                      n_components);
+
+  std::vector<Vector<double>> values(quadrature_formula.size(),
+                                     Vector<double>(fe.n_components()));
+
+  FEValues<dim, spacedim> fe_values(mapping,
+                                    fe,
+                                    quadrature_formula,
+                                    update_values);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+      const unsigned int shift =
+        cell->global_active_cell_index() * quadrature_formula.size();
+
+      for (unsigned int i = 0; i < selected_basis_functions.size(); ++i)
+        {
+          fe_values.get_function_values(selected_basis_functions[i], values);
+          for (unsigned int q = 0; q < quadrature_formula.size(); ++q)
+            {
+              for (unsigned int comp = 0; comp < n_components; ++comp)
+                {
+                  basis_functions_on_qpoints(q + shift,
+                                             i * n_components + comp) =
+                    values[q][comp];
+                }
+            }
+        }
+    }
 }
 
 
@@ -218,6 +254,24 @@ ReferenceCrossSection<dim, spacedim, n_components>::get_basis_functions() const
 {
   return selected_basis_functions;
 }
+
+template <int dim, int spacedim, int n_components>
+const double &
+ReferenceCrossSection<dim, spacedim, n_components>::shape_value(
+  const unsigned int i,
+  const unsigned int q,
+  const unsigned int comp) const
+{
+  AssertIndexRange(i, selected_basis_functions.size());
+  AssertIndexRange(q, global_quadrature.size());
+  AssertIndexRange(comp, n_components);
+
+  // Check that the matrix is not empty
+  AssertThrow(!basis_functions_on_qpoints.empty(),
+              ExcMessage(
+                "The basis functions on quadrature points are empty."));
+  return basis_functions_on_qpoints(q, i * n_components + comp);
+};
 
 
 
