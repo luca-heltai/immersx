@@ -17,7 +17,7 @@
 #include "particle_coupling.h"
 template <int dim>
 ParticleCouplingParameters<dim>::ParticleCouplingParameters()
-  : ParameterAcceptor("Particle Coupling")
+  : ParameterAcceptor("Particle coupling")
 {
   add_parameter("RTree extraction level", rtree_extraction_level);
 }
