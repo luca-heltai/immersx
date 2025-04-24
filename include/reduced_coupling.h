@@ -102,8 +102,7 @@ struct ReducedCoupling
 
   template <typename VectorType>
   void
-  assemble_reduced_rhs(VectorType                      &reduced_rhs,
-                       const AffineConstraints<double> &constraints) const;
+  assemble_reduced_rhs(VectorType &reduced_rhs) const;
 
   const AffineConstraints<double> &
   get_coupling_constraints() const;
@@ -222,24 +221,26 @@ template <int reduced_dim, int dim, int spacedim, int n_components>
 template <typename VectorType>
 inline void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
-  VectorType                      &reduced_rhs,
-  const AffineConstraints<double> &constraints) const
+  VectorType &reduced_rhs) const
 {
   const auto &immersed_fe = this->get_dof_handler().get_fe();
 
   const auto &all_weights     = this->get_locally_owned_weights();
   const auto &reduced_qpoints = this->get_locally_owned_reduced_qpoints();
 
-  const auto &tria = this->get_triangulation();
+  const auto &locally_owned_cell_ids = this->get_triangulation()
+                                         .global_active_cell_index_partitioner()
+                                         .lock()
+                                         ->locally_owned_range();
 
-  Vector<double> local_rhs(immersed_fe.n_dofs_per_cell());
+  Vector<double> cell_rhs(immersed_fe.n_dofs_per_cell());
   Vector<double> reduced_rhs_value(immersed_fe.n_components());
 
   unsigned int reduced_q = 0;
   unsigned int all_q     = 0;
-  for (unsigned int cell_id = 0; cell_id < tria.n_locally_owned_active_cells();
-       ++cell_id)
+  for (const auto &cell_id : locally_owned_cell_ids)
     {
+      cell_rhs = 0;
       for (unsigned int q = 0; q < this->get_quadrature().size(); ++q)
         {
           this->coupling_rhs->vector_value(reduced_qpoints[reduced_q++],
@@ -263,18 +264,17 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
                                                                         qs,
                                                                         comp_j);
 
-                      local_rhs(i) += reduced_rhs_value(comp_j) * phi_i_comp_j *
-                                      phi_i_comp_j * w_i *
-                                      all_weights[all_q][0];
+                      cell_rhs(i) += reduced_rhs_value(comp_j) * phi_i_comp_j *
+                                     phi_i_comp_j * w_i * all_weights[all_q][0];
                     }
                 }
               all_q++;
             }
         }
       const auto &immersed_dof_indices = this->get_dof_indices(cell_id);
-      constraints.distribute_local_to_global(local_rhs,
-                                             immersed_dof_indices,
-                                             reduced_rhs);
+      coupling_constraints.distribute_local_to_global(cell_rhs,
+                                                      immersed_dof_indices,
+                                                      reduced_rhs);
     }
   reduced_rhs.compress(VectorOperation::add);
 }
