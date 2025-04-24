@@ -22,7 +22,7 @@
 
 #include <deal.II/grid/grid_tools.h>
 
-#ifdef ENABLE_COUPLED_PROBLEMS
+#ifdef FALSE
 
 template <int dim, int spacedim>
 CoupledElasticityProblemParameters<dim, spacedim>::
@@ -1593,6 +1593,7 @@ CoupledElasticityProblem<dim, spacedim>::output_coupling_pressure(
         // print .h5
         if (par.initial_time == par.final_time)
           {
+#  ifdef DEAL_II_WITH_HDF5
             const std::string FILE_NAME(par.output_directory +
                                         "/externalPressure.h5");
 
@@ -1640,6 +1641,10 @@ CoupledElasticityProblem<dim, spacedim>::output_coupling_pressure(
               }
             else
               dataset.write_none<int>();
+#  else
+
+            AssertThrow(false, ExcNeedsHDF5());
+#  endif
           }
         else
           {

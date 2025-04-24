@@ -104,7 +104,7 @@ private:
   const ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>
     &par;
 
-  /// The triangulation of the reduced domain.
+  /// The triangulation of the background domain.
   SmartPointer<const parallel::TriangulationBase<spacedim>> background_tria;
 
   AffineConstraints<double> coupling_constraints;
