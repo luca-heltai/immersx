@@ -653,18 +653,16 @@ ReducedPoisson<dim, spacedim>::solve()
         linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
       const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
 #endif
-      const auto C =
-        linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
-
       // Schur complement
       pcout << "   Prepare schur... ";
       const auto S = B * invA * Bt;
       pcout << "S was built." << std::endl;
 
       // Schur complement preconditioner
-      auto                 invS = S;
-      SolverCG<VectorType> cg_schur(par.outer_control);
-      invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
+      auto                     invS = S;
+      SolverFGMRES<VectorType> solver_schur(par.outer_control);
+      invS =
+        inverse_operator<Payload, SolverFGMRES<VectorType>>(S, solver_schur);
 
       pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
             << std::endl;
@@ -684,7 +682,7 @@ ReducedPoisson<dim, spacedim>::solve()
         << " iterations." << std::endl;
   constraints.distribute(u);
   reduced_coupling.get_coupling_constraints().distribute(lambda);
-  solution.update_ghost_values();
+  // solution.update_ghost_values();
   locally_relevant_solution = solution;
 }
 
@@ -757,22 +755,6 @@ ReducedPoisson<dim, spacedim>::output_solution() const
 }
 
 
-
-// template <int dim, int spacedim>
-// std::string
-// ReducedPoisson<dim, spacedim>::output_particles() const
-// {
-//   Particles::DataOut<spacedim> particles_out;
-//   particles_out.build_patches(inclusions.inclusions_as_particles);
-//   const std::string filename =
-//     par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
-//   particles_out.write_vtu_in_parallel(par.output_directory + "/" +
-//   filename,
-//                                       mpi_communicator);
-//   return filename;
-// }
-
-
 template <int dim, int spacedim>
 void
 ReducedPoisson<dim, spacedim>::output_results() const
@@ -840,7 +822,7 @@ ReducedPoisson<dim, spacedim>::run()
       reduced_coupling.assemble_coupling_matrix(coupling_matrix,
                                                 dh,
                                                 constraints);
-      reduced_coupling.assemble_reduced_rhs(system_rhs.block(1), constraints);
+      reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
 
 #ifdef MATRIX_FREE_PATH
       // MappingQ1<spacedim> mapping;
