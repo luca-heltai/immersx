@@ -275,7 +275,7 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
 
 #endif
   }
-  // Initialize the coupling matrix
+  // Initialize the coupling object
   reduced_coupling.initialize(mapping);
 
   const auto &reduced_dh = reduced_coupling.get_dof_handler();
@@ -816,28 +816,19 @@ ReducedPoisson<dim, spacedim>::output_results() const
     {
       cycles_and_solutions.push_back({(double)cycle, output_solution()});
 
-      // Commented out
-      // inclusions-dependent output
-      // const std::string
-      // particles_filename =
-      //   par.output_name +
-      //   "_particles_" +
-      //   std::to_string(cycle) +
-      //   ".vtu";
-      // inclusions.output_particles(par.output_directory
-      // + "/" +
-      //                             particles_filename);
+      const std::string particles_filename =
+        par.output_name + "_particles_" + std::to_string(cycle) + ".vtu";
+      reduced_coupling.output_particles(par.output_directory + "/" +
+                                        particles_filename);
 
-      // cycles_and_particles.push_back({(double)cycle,
-      // particles_filename});
+      cycles_and_particles.push_back({(double)cycle, particles_filename});
 
       std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
                                   ".pvd");
       std::ofstream pvd_particles(par.output_directory + "/" + par.output_name +
                                   "_particles.pvd");
       DataOutBase::write_pvd_record(pvd_solutions, cycles_and_solutions);
-      // DataOutBase::write_pvd_record(pvd_particles,
-      // cycles_and_particles);
+      DataOutBase::write_pvd_record(pvd_particles, cycles_and_particles);
     }
 }
 
@@ -852,10 +843,13 @@ ReducedPoisson<dim, spacedim>::print_parameters() const
   pcout << "Running ReducedPoisson<" << Utilities::dim_string(dim, spacedim)
         << "> using Trilinos." << std::endl;
 #endif
-  par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
-                             std::to_string(dim) + std::to_string(spacedim) +
-                             ".prm",
-                           ParameterHandler::Short);
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    {
+      par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
+                                 std::to_string(dim) +
+                                 std::to_string(spacedim) + ".prm",
+                               ParameterHandler::Short);
+    }
 }
 
 template <int dim, int spacedim>
@@ -867,7 +861,6 @@ ReducedPoisson<dim, spacedim>::run()
   setup_fe();
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
-      // inclusions.setup_inclusions_particles(tria);
       setup_dofs();
       if (par.output_results_before_solving)
         output_results();
