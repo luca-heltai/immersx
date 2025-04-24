@@ -166,7 +166,7 @@ public:
   assemble_poisson_system();
 #else
   void
-                        assemble_rhs();
+  assemble_rhs();
 #endif
   void
   run();
@@ -206,6 +206,7 @@ private:
   AffineConstraints<double> constraints;
 
   LA::MPI::SparseMatrix coupling_matrix;
+  LA::MPI::SparseMatrix coupling_matrix_transpose;
   LA::MPI::SparseMatrix inclusion_matrix;
   MappingQ<spacedim>    mapping;
 #ifdef MATRIX_FREE_PATH
