@@ -35,6 +35,10 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <type_traits>
+
+#include "augmented_lagrangian_preconditioner.h"
+
 
 
 template <int spacedim>
@@ -50,6 +54,7 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   add_parameter("Output name", output_name);
   add_parameter("Output results also before solving",
                 output_results_before_solving);
+  add_parameter("Solver type", solver_name);
   add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   enter_subsection("Grid generation");
@@ -653,37 +658,135 @@ ReducedPoisson<dim, spacedim>::solve()
         linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
       const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
 #endif
-      // Schur complement
-      pcout << "   Prepare schur... ";
-      const auto S = B * invA * Bt;
-      pcout << "S was built." << std::endl;
 
-      // Schur complement preconditioner
-      auto                     invS = S;
-      SolverFGMRES<VectorType> solver_schur(par.outer_control);
-      invS =
-        inverse_operator<Payload, SolverFGMRES<VectorType>>(S, solver_schur);
+      if (par.solver_name == "Schur")
+        {
+          // Schur complement
+          pcout << "   Prepare schur... ";
+          const auto S = B * invA * Bt;
+          pcout << "S was built." << std::endl;
 
-      pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
-            << std::endl;
+          // Schur complement preconditioner
+          auto                     invS = S;
+          SolverFGMRES<VectorType> solver_schur(par.outer_control);
+          invS =
+            inverse_operator<Payload, SolverFGMRES<VectorType>>(S,
+                                                                solver_schur);
 
-      // Compute Lambda first
-      lambda = invS * (B * invA * f - g);
-      pcout << "   Solved for lambda in " << par.outer_control.last_step()
-            << " iterations." << std::endl;
+          pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
+                << std::endl;
 
-      // Then compute u
-      u = invA * (f - Bt * lambda);
-      pcout << "   u norm: " << u.l2_norm()
-            << ", lambda norm: " << lambda.l2_norm() << std::endl;
+          // Compute Lambda first
+          lambda = invS * (B * invA * f - g);
+          pcout << "   Solved for lambda in " << par.outer_control.last_step()
+                << " iterations." << std::endl;
+
+          // Then compute u
+          u = invA * (f - Bt * lambda);
+          pcout << "   u norm: " << u.l2_norm()
+                << ", lambda norm: " << lambda.l2_norm() << std::endl;
+
+          pcout << "   Solved for u in " << par.inner_control.last_step()
+                << " iterations." << std::endl;
+
+          constraints.distribute(u);
+          reduced_coupling.get_coupling_constraints().distribute(lambda);
+          // solution.update_ghost_values();
+          locally_relevant_solution = solution;
+        }
+      else if (par.solver_name == "AL")
+        {
+          std::cout << "Prepare AL preconditioner... " << std::endl;
+
+          AssertThrow(
+            (std::is_same_v<LA::MPI::Vector, TrilinosWrappers::MPI::Vector>),
+            ExcNotImplemented());
+
+          LA::MPI::SparseMatrix reduced_mass_matrix;
+          const auto           &reduced_dh = reduced_coupling.get_dof_handler();
+          DynamicSparsityPattern dsp_reduced_mass(relevant_dofs[1]);
+          DoFTools::make_sparsity_pattern(reduced_dh, dsp_reduced_mass);
+          SparsityTools::distribute_sparsity_pattern(dsp_reduced_mass,
+                                                     owned_dofs[1],
+                                                     mpi_communicator,
+                                                     relevant_dofs[1]);
+          reduced_mass_matrix.reinit(owned_dofs[1],
+                                     owned_dofs[1],
+                                     dsp_reduced_mass,
+                                     mpi_communicator);
+
+          // Create mass matrix associated with the reduced dof handler
+          MatrixTools::create_mass_matrix(reduced_dh,
+                                          QGauss<1>(2 * par.fe_degree + 1),
+                                          reduced_mass_matrix);
+          reduced_mass_matrix.compress(VectorOperation::add);
+
+
+          pcout << "   Mass matrix size: " << reduced_mass_matrix.m() << " x "
+                << reduced_mass_matrix.n() << std::endl;
+
+
+          const auto M = linear_operator<LA::MPI::Vector>(reduced_mass_matrix);
+
+          // Augmented Lagrangian solver
+          TrilinosWrappers::PreconditionILU M_inv_ilu;
+          M_inv_ilu.initialize(reduced_mass_matrix);
+
+          SolverControl solver_control(100, 1e-15, false, false);
+          SolverCG<TrilinosWrappers::MPI::Vector> solver_mass_matrix(
+            solver_control);
+          auto invM = inverse_operator(M, solver_mass_matrix, M_inv_ilu);
+          auto invW = invM * invM;
+
+          const double gamma = 10; // TODO: add to parameters file
+          auto         Aug   = A + gamma * Bt * invW * B;
+
+          auto Zero = M * 0.0;
+          auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
+            {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
+
+          LA::MPI::BlockVector solution_block;
+          LA::MPI::BlockVector system_rhs_block;
+          AA.reinit_domain_vector(solution_block, false);
+          AA.reinit_range_vector(system_rhs_block, false);
+
+          // lagrangian term
+          LA::MPI::Vector tmp;
+          tmp.reinit(system_rhs.block(0));
+          tmp                       = gamma * Bt * invW * system_rhs.block(1);
+          system_rhs_block.block(0) = system_rhs.block(0);
+          system_rhs_block.block(0).add(1., tmp); // ! augmented
+          system_rhs_block.block(1) = system_rhs.block(1);
+
+          SolverCG<LA::MPI::Vector> solver_lagrangian(par.inner_control);
+
+          auto Aug_inv = inverse_operator(
+            Aug,
+            solver_lagrangian); // TODO: build AMG for augmented block
+          SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
+
+          BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+            augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
+
+          solver_fgmres.solve(AA,
+                              solution_block,
+                              system_rhs_block,
+                              augmented_lagrangian_preconditioner);
+
+          pcout << "   Solved with AL preconditioner in "
+                << par.outer_control.last_step() << " iterations." << std::endl;
+
+          constraints.distribute(solution_block.block(0));
+          reduced_coupling.get_coupling_constraints().distribute(
+            solution_block.block(1));
+          // solution.update_ghost_values();
+          locally_relevant_solution = solution_block;
+        }
+      else
+        {
+          DEAL_II_NOT_IMPLEMENTED();
+        }
     }
-
-  pcout << "   Solved for u in " << par.inner_control.last_step()
-        << " iterations." << std::endl;
-  constraints.distribute(u);
-  reduced_coupling.get_coupling_constraints().distribute(lambda);
-  // solution.update_ghost_values();
-  locally_relevant_solution = solution;
 }
 
 

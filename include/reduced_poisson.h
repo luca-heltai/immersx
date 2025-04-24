@@ -83,6 +83,8 @@ namespace LA
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/vector.h>
 
+#include <deal.II/numerics/matrix_tools.h>
+
 #ifdef MATRIX_FREE_PATH
 #  include <deal.II/matrix_free/operators.h>
 
@@ -138,7 +140,8 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> inner_control;
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
 
-  bool output_results_before_solving = false;
+  bool        output_results_before_solving = false;
+  std::string solver_name                   = "Schur";
 
   mutable ParsedConvergenceTable convergence_table;
 
