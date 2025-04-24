@@ -149,7 +149,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     const std::map<unsigned int, IndexSet> &remote_q_point_indices)
 {
   auto global_cell_indices =
-    local_q_point_indices_to_cell_indices(remote_q_point_indices);
+    local_q_point_indices_to_global_cell_indices(remote_q_point_indices);
   std::map<
     unsigned int,
     std::map<types::global_cell_index, std::vector<types::global_dof_index>>>
@@ -209,13 +209,14 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 template <int reduced_dim, int dim, int spacedim, int n_components>
 std::map<unsigned int, IndexSet>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-  local_q_point_indices_to_cell_indices(
+  local_q_point_indices_to_global_cell_indices(
     const std::map<unsigned int, IndexSet> &remote_q_point_indices) const
 {
   std::map<unsigned int, IndexSet> cell_indices;
-  auto OwnedCells = triangulation.global_active_cell_index_partitioner()
-                      .lock()
-                      ->locally_owned_range();
+  const IndexSet                  &owned_cells =
+    triangulation.global_active_cell_index_partitioner()
+      .lock()
+      ->locally_owned_range();
 
   auto local_q_point_indices =
     Utilities::MPI::some_to_some(mpi_communicator, remote_q_point_indices);
@@ -228,7 +229,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
           const auto [cell_index, q_index, i] =
             particle_id_to_cell_and_qpoint_indices(qpoint_index);
           cell_indices_for_proc.add_index(
-            OwnedCells.nth_index_in_set(cell_index));
+            owned_cells.nth_index_in_set(cell_index));
         }
       cell_indices_for_proc.compress();
       cell_indices[proc] = cell_indices_for_proc;
