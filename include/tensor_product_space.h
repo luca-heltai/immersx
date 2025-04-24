@@ -175,15 +175,17 @@ public:
   const DoFHandler<reduced_dim, spacedim> &
   get_dof_handler() const;
 
-
-  /**
-   * Return a vector of all quadrature points in the tensor product space that
-   * are locally owned by the reduced domain.
-   *
-   * @return std::vector<Point<spacedim>>
-   */
-  std::pair<std::vector<Point<spacedim>>, std::vector<std::vector<double>>>
+  const std::vector<Point<spacedim>> &
   get_locally_owned_qpoints() const;
+
+  const std::vector<std::vector<double>> &
+  get_locally_owned_weights() const;
+
+  const std::vector<Point<spacedim>> &
+  get_locally_owned_reduced_qpoints() const;
+
+  const std::vector<std::vector<double>> &
+  get_locally_owned_reduced_weights() const;
 
   /**
    * Update the relevant local dof_indices.
@@ -238,6 +240,12 @@ public:
    */
   auto
   get_quadrature() const -> const QGauss<reduced_dim> &;
+
+  void
+  compute_points_and_weights();
+
+  const parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &
+  get_triangulation() const;
 
 private:
   /**
@@ -316,6 +324,12 @@ private:
    */
   std::map<types::global_cell_index, std::vector<types::global_dof_index>>
     global_cell_to_dof_indices;
+
+  std::vector<Point<spacedim>>     all_qpoints;
+  std::vector<std::vector<double>> all_weights;
+
+  std::vector<Point<spacedim>>     reduced_qpoints;
+  std::vector<std::vector<double>> reduced_weights;
 };
 
 

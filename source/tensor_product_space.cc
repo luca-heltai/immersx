@@ -69,6 +69,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize()
 
   // Setup degrees of freedom
   setup_dofs();
+
+  // Setup quadrature formulas
+  compute_points_and_weights();
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -87,56 +90,51 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_dof_handler()
   return dof_handler;
 }
 
-
+/**
+ * Return a vector of all quadrature points in the tensor product space that
+ * are locally owned by the reduced domain.
+ *
+ * @return std::vector<Point<spacedim>>
+ */
 template <int reduced_dim, int dim, int spacedim, int n_components>
-std::pair<std::vector<Point<spacedim>>, std::vector<std::vector<double>>>
+const std::vector<Point<spacedim>> &
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_locally_owned_qpoints() const
 {
-  std::vector<Point<spacedim>>     positions;
-  std::vector<std::vector<double>> weights;
-  positions.reserve(triangulation.n_active_cells() * quadrature_formula.size() *
-                    reference_cross_section.n_quadrature_points());
-  weights.reserve(triangulation.n_active_cells() * quadrature_formula.size() *
-                  reference_cross_section.n_quadrature_points());
-
-  UpdateFlags flags =
-    reduced_dim == 1 ?
-      update_quadrature_points | update_JxW_values :
-      update_quadrature_points | update_normal_vectors | update_JxW_values;
-
-  FEValues<reduced_dim, spacedim> fev(fe, quadrature_formula, flags);
-
-  for (const auto &cell : triangulation.active_cell_iterators())
-    if (cell->is_locally_owned())
-      {
-        fev.reinit(cell);
-        const auto         &qpoints = fev.get_quadrature_points();
-        Tensor<1, spacedim> new_vertical;
-        if constexpr (reduced_dim == 1)
-          new_vertical = cell->vertex(1) - cell->vertex(0);
-
-        for (const auto &q : fev.quadrature_point_indices())
-          {
-            const auto &qpoint = qpoints[q];
-            if constexpr (reduced_dim == 2)
-              new_vertical = fev.normal_vector(q);
-            // [TODO] Make radius a function of the cell
-            auto cross_section_qpoints =
-              reference_cross_section.get_transformed_quadrature(qpoint,
-                                                                 new_vertical,
-                                                                 par.radius);
-            positions.insert(positions.end(),
-                             cross_section_qpoints.get_points().begin(),
-                             cross_section_qpoints.get_points().end());
-
-            for (const auto &w : cross_section_qpoints.get_weights())
-              weights.emplace_back(std::vector<double>(1, w * fev.JxW(q)));
-          }
-      }
-  return {positions, weights};
+  AssertThrow(!all_qpoints.empty(),
+              ExcMessage("You must call compute_points_and_weights() first"));
+  return all_qpoints;
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_locally_owned_weights() const
+{
+  AssertThrow(!all_weights.empty(),
+              ExcMessage("You must call compute_points_and_weights() first"));
+  return all_weights;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<Point<spacedim>> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_locally_owned_reduced_qpoints() const
+{
+  AssertThrow(!reduced_qpoints.empty(),
+              ExcMessage("You must call compute_points_and_weights() first"));
+  return reduced_qpoints;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_locally_owned_reduced_weights() const
+{
+  AssertThrow(!reduced_weights.empty(),
+              ExcMessage("You must call compute_points_and_weights() first"));
+  return reduced_weights;
+}
 
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -294,6 +292,75 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_quadrature()
   const -> const QGauss<reduced_dim> &
 {
   return quadrature_formula;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+void
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  compute_points_and_weights()
+{
+  all_qpoints.reserve(triangulation.n_active_cells() *
+                      quadrature_formula.size() *
+                      reference_cross_section.n_quadrature_points());
+  all_weights.reserve(triangulation.n_active_cells() *
+                      quadrature_formula.size() *
+                      reference_cross_section.n_quadrature_points());
+
+  reduced_qpoints.reserve(triangulation.n_active_cells() *
+                          quadrature_formula.size());
+  reduced_weights.reserve(triangulation.n_active_cells() *
+                          quadrature_formula.size());
+
+  UpdateFlags flags =
+    reduced_dim == 1 ?
+      update_quadrature_points | update_JxW_values :
+      update_quadrature_points | update_normal_vectors | update_JxW_values;
+
+  FEValues<reduced_dim, spacedim> fev(fe, quadrature_formula, flags);
+
+  for (const auto &cell : triangulation.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        fev.reinit(cell);
+        const auto &qpoints = fev.get_quadrature_points();
+        const auto &JxW     = fev.get_JxW_values();
+
+        reduced_qpoints.insert(reduced_qpoints.end(),
+                               qpoints.begin(),
+                               qpoints.end());
+        for (const auto &w : JxW)
+          reduced_weights.emplace_back(std::vector<double>(1, w));
+
+        Tensor<1, spacedim> new_vertical;
+        if constexpr (reduced_dim == 1)
+          new_vertical = cell->vertex(1) - cell->vertex(0);
+
+        for (const auto &q : fev.quadrature_point_indices())
+          {
+            const auto &qpoint = qpoints[q];
+            if constexpr (reduced_dim == 2)
+              new_vertical = fev.normal_vector(q);
+            // [TODO] Make radius a function of the cell
+            auto cross_section_qpoints =
+              reference_cross_section.get_transformed_quadrature(qpoint,
+                                                                 new_vertical,
+                                                                 par.radius);
+            all_qpoints.insert(all_qpoints.end(),
+                               cross_section_qpoints.get_points().begin(),
+                               cross_section_qpoints.get_points().end());
+
+            for (const auto &w : cross_section_qpoints.get_weights())
+              all_weights.emplace_back(std::vector<double>(1, w * fev.JxW(q)));
+          }
+      }
+};
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_triangulation() const
+{
+  return triangulation;
 }
 
 template struct TensorProductSpaceParameters<1, 2, 2, 1>;
