@@ -169,24 +169,27 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
 
           for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
             {
-              const auto comp_i     = fe.system_to_component_index(i).first;
-              const auto v_i_comp_i = fe.shape_value(i, background_p);
-
-              for (unsigned int j = 0; j < immersed_fe.n_dofs_per_cell(); ++j)
+              const auto comp_i = fe.system_to_component_index(i).first;
+              if (comp_i < n_components)
                 {
-                  const auto comp_j =
-                    immersed_fe.system_to_component_index(j).first;
+                  const auto v_i_comp_i = fe.shape_value(i, background_p);
 
-                  const auto phi_comp_j_comp_i =
-                    this->get_reference_cross_section().shape_value(comp_j,
-                                                                    section_q,
-                                                                    comp_i);
+                  for (unsigned int j = 0; j < immersed_fe.n_dofs_per_cell();
+                       ++j)
+                    {
+                      const auto comp_j =
+                        immersed_fe.system_to_component_index(j).first;
 
-                  const auto w_j_comp_j =
-                    immersed_fe.shape_value(j, immersed_p);
+                      const auto phi_comp_j_comp_i =
+                        this->get_reference_cross_section().shape_value(
+                          comp_j, section_q, comp_i);
 
-                  local_coupling_matrix(i, j) +=
-                    v_i_comp_i * phi_comp_j_comp_i * w_j_comp_j * JxW;
+                      const auto w_j_comp_j =
+                        immersed_fe.shape_value(j, immersed_p);
+
+                      local_coupling_matrix(i, j) +=
+                        v_i_comp_i * phi_comp_j_comp_i * w_j_comp_j * JxW;
+                    }
                 }
             }
         }
