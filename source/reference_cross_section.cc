@@ -305,7 +305,7 @@ ReferenceCrossSection<dim, spacedim, n_components>::max_n_basis() const
 template <int dim, int spacedim, int n_components>
 ReferenceCrossSectionParameters<dim, spacedim, n_components>::
   ReferenceCrossSectionParameters()
-  : ParameterAcceptor("Reference inclusion")
+  : ParameterAcceptor("Cross section")
 {
   add_parameter("Maximum inclusion degree", inclusion_degree);
   add_parameter(

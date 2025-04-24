@@ -36,8 +36,6 @@ TEST(TensorProductSpace, GridGeneration) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.refinement_level = 0;
-  params.fe_degree        = 1;
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
@@ -76,8 +74,6 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.refinement_level = 0;
-  params.fe_degree        = 1;
 
   // Create a background grid (hypercube)
   parallel::distributed::Triangulation<spacedim> background_tria(
