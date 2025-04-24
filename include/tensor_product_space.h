@@ -262,7 +262,7 @@ private:
    * processor to the corresponding global cell indices.
    */
   std::map<unsigned int, IndexSet>
-  local_q_point_indices_to_cell_indices(
+  local_q_point_indices_to_global_cell_indices(
     const std::map<unsigned int, IndexSet> &local_q_point_indices) const;
 
   /**
