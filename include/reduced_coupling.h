@@ -18,6 +18,7 @@
 #ifndef rdlm_reduced_coupling_h
 #define rdlm_reduced_coupling_h
 
+#include <deal.II/base/function_parser.h>
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/patterns.h>
 #include <deal.II/base/polynomials_p.h>
@@ -65,6 +66,9 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   /// Number of pre_refinements to apply to the grid, before transforming it to
   /// a fully distributed grid.
   unsigned int pre_refinement = 0;
+
+  /// Reduced coupling right hand side
+  std::vector<std::string> coupling_rhs_expressions = {"0"};
 };
 
 template <int reduced_dim, int dim, int spacedim = dim, int n_components = 1>
@@ -95,6 +99,12 @@ struct ReducedCoupling
                            const DoFHandler<spacedim>      &dh,
                            const AffineConstraints<double> &constraints) const;
 
+
+  template <typename VectorType>
+  void
+  assemble_reduced_rhs(VectorType                      &reduced_rhs,
+                       const AffineConstraints<double> &constraints) const;
+
   const AffineConstraints<double> &
   get_coupling_constraints() const;
 
@@ -108,6 +118,9 @@ private:
   SmartPointer<const parallel::TriangulationBase<spacedim>> background_tria;
 
   AffineConstraints<double> coupling_constraints;
+
+  /// The coupling rhs expression
+  std::unique_ptr<FunctionParser<spacedim>> coupling_rhs;
 };
 
 
@@ -204,5 +217,66 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
   coupling_matrix.compress(VectorOperation::add);
 }
 
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+template <typename VectorType>
+inline void
+ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
+  VectorType                      &reduced_rhs,
+  const AffineConstraints<double> &constraints) const
+{
+  const auto &immersed_fe = this->get_dof_handler().get_fe();
+
+  const auto &all_weights     = this->get_locally_owned_weights();
+  const auto &reduced_qpoints = this->get_locally_owned_reduced_qpoints();
+
+  const auto &tria = this->get_triangulation();
+
+  Vector<double> local_rhs(immersed_fe.n_dofs_per_cell());
+  Vector<double> reduced_rhs_value(immersed_fe.n_components());
+
+  unsigned int reduced_q = 0;
+  unsigned int all_q     = 0;
+  for (unsigned int cell_id = 0; cell_id < tria.n_locally_owned_active_cells();
+       ++cell_id)
+    {
+      for (unsigned int q = 0; q < this->get_quadrature().size(); ++q)
+        {
+          this->coupling_rhs->vector_value(reduced_qpoints[reduced_q++],
+                                           reduced_rhs_value);
+          for (unsigned int qs = 0;
+               qs < this->get_reference_cross_section().n_quadrature_points();
+               ++qs)
+            {
+              for (unsigned int i = 0; i < immersed_fe.n_dofs_per_cell(); ++i)
+                {
+                  const auto comp_i =
+                    immersed_fe.system_to_component_index(i).first;
+
+                  const auto w_i =
+                    immersed_fe.shape_value(i, this->get_quadrature().point(q));
+
+                  for (unsigned int comp_j = 0; comp_j < n_components; ++comp_j)
+                    {
+                      const auto phi_i_comp_j =
+                        this->get_reference_cross_section().shape_value(comp_i,
+                                                                        qs,
+                                                                        comp_j);
+
+                      local_rhs(i) += reduced_rhs_value(comp_j) * phi_i_comp_j *
+                                      phi_i_comp_j * w_i *
+                                      all_weights[all_q][0];
+                    }
+                }
+              all_q++;
+            }
+        }
+      const auto &immersed_dof_indices = this->get_dof_indices(cell_id);
+      constraints.distribute_local_to_global(local_rhs,
+                                             immersed_dof_indices,
+                                             reduced_rhs);
+    }
+  reduced_rhs.compress(VectorOperation::add);
+}
 
 #endif

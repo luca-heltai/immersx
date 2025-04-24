@@ -85,7 +85,8 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
   particle_coupling.initialize_particle_handler(background_tria);
 
   // Now add particles to the particle handler
-  const auto [qpoints, weights] = tps.get_locally_owned_qpoints();
+  const auto &qpoints = tps.get_locally_owned_qpoints();
+  const auto &weights = tps.get_locally_owned_weights();
   particle_coupling.insert_points(qpoints, weights);
   // Output the particles to a file
   const std::string filename = "particles_test.vtu";
@@ -168,8 +169,8 @@ TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
   particle_coupling.initialize_particle_handler(background_tria);
 
   // Add particles to the particle handler
-  const auto [qpoints, weights] = tps.get_locally_owned_qpoints();
-
+  const auto &qpoints   = tps.get_locally_owned_qpoints();
+  const auto &weights   = tps.get_locally_owned_weights();
   auto proc_to_qindices = particle_coupling.insert_points(qpoints, weights);
 
   tps.update_local_dof_indices(proc_to_qindices);

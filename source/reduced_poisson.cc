@@ -629,93 +629,61 @@ ReducedPoisson<dim, spacedim>::solve()
   auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
-  // const auto &g =
-  // system_rhs.block(1);
+  const auto &g = system_rhs.block(1);
 
-  // if (inclusions.n_dofs() == 0)
-  //   {
-  u = invA * f;
-  //   }
-  // else
-  //   {
-  // #ifdef MATRIX_FREE_PATH
-  //     auto Bt =
-  //       linear_operator<VectorType,
-  //       VectorType,
-  //       Payload>(*coupling_operator);
-  //     Bt.reinit_range_vector =
-  //     [this](VectorType &vec, const
-  //     bool) {
-  //       vec.reinit(owned_dofs[0],
-  //       relevant_dofs[0],
-  //       mpi_communicator);
-  //     };
-  //     Bt.reinit_domain_vector =
-  //     [this](VectorType &vec, const
-  //     bool) {
-  //       vec.reinit(owned_dofs[1],
-  //       relevant_dofs[1],
-  //       mpi_communicator);
-  //     };
+  if (reduced_coupling.get_dof_handler().n_dofs() == 0)
+    {
+      u = invA * f;
+    }
+  else
+    {
+#ifdef MATRIX_FREE_PATH
+      auto Bt =
+        linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
+      Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
+        vec.reinit(owned_dofs[0], relevant_dofs[0], mpi_communicator);
+      };
+      Bt.reinit_domain_vector = [this](VectorType &vec, const bool) {
+        vec.reinit(owned_dofs[1], relevant_dofs[1], mpi_communicator);
+      };
 
-  //     const auto B =
-  //     transpose_operator<VectorType,
-  //     VectorType, Payload>(Bt);
-  // #else
-  //     const auto Bt =
-  //       linear_operator<VectorType,
-  //       VectorType,
-  //       Payload>(coupling_matrix);
-  //     const auto B =
-  //     transpose_operator<VectorType,
-  //     VectorType, Payload>(Bt);
-  // #endif
-  //     const auto C =
-  //       linear_operator<VectorType,
-  //       VectorType,
-  //       Payload>(inclusion_matrix);
+      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+#else
+      const auto Bt =
+        linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
+      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+#endif
+      const auto C =
+        linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
-  //     // Schur complement
-  //     pcout << "   Prepare schur...
-  //     "; const auto S = B * invA *
-  //     Bt; pcout << "S was built." <<
-  //     std::endl;
+      // Schur complement
+      pcout << "   Prepare schur... ";
+      const auto S = B * invA * Bt;
+      pcout << "S was built." << std::endl;
 
-  //     // Schur complement
-  //     preconditioner auto invS = S;
-  //     SolverCG<VectorType>
-  //     cg_schur(par.outer_control);
-  //     invS =
-  //     inverse_operator<Payload,
-  //     SolverCG<VectorType>>(S,
-  //     cg_schur);
+      // Schur complement preconditioner
+      auto                 invS = S;
+      SolverCG<VectorType> cg_schur(par.outer_control);
+      invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
 
-  //     pcout << "   f norm: " <<
-  //     f.l2_norm() << ", g norm: " <<
-  //     g.l2_norm()
-  //           << std::endl;
+      pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
+            << std::endl;
 
-  //     // Compute Lambda first
-  //     lambda = invS * (B * invA * f
-  //     - g); pcout << "   Solved for
-  //     lambda in " <<
-  //     par.outer_control.last_step()
-  //           << " iterations." <<
-  //           std::endl;
+      // Compute Lambda first
+      lambda = invS * (B * invA * f - g);
+      pcout << "   Solved for lambda in " << par.outer_control.last_step()
+            << " iterations." << std::endl;
 
-  //     // Then compute u
-  //     u = invA * (f - Bt * lambda);
-  //     pcout << "   u norm: " <<
-  //     u.l2_norm()
-  //           << ", lambda norm: " <<
-  //           lambda.l2_norm() <<
-  //           std::endl;
-  //   }
+      // Then compute u
+      u = invA * (f - Bt * lambda);
+      pcout << "   u norm: " << u.l2_norm()
+            << ", lambda norm: " << lambda.l2_norm() << std::endl;
+    }
 
   pcout << "   Solved for u in " << par.inner_control.last_step()
         << " iterations." << std::endl;
   constraints.distribute(u);
-  inclusion_constraints.distribute(lambda);
+  reduced_coupling.get_coupling_constraints().distribute(lambda);
   solution.update_ghost_values();
   locally_relevant_solution = solution;
 }
@@ -872,6 +840,8 @@ ReducedPoisson<dim, spacedim>::run()
       reduced_coupling.assemble_coupling_matrix(coupling_matrix,
                                                 dh,
                                                 constraints);
+      reduced_coupling.assemble_reduced_rhs(system_rhs.block(1), constraints);
+
 #ifdef MATRIX_FREE_PATH
       // MappingQ1<spacedim> mapping;
       // coupling_operator =

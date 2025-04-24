@@ -61,7 +61,7 @@ TEST(TensorProductSpace, GridGeneration) // NOLINT
   ASSERT_GT(dof_handler.n_dofs(), 0);
 
   // Get quadrature points positions and check they are not empty
-  auto [qpoints, weights] = tps.get_locally_owned_qpoints();
+  const auto &qpoints = tps.get_locally_owned_qpoints();
   ASSERT_FALSE(qpoints.empty());
 }
 
@@ -137,7 +137,9 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
 
 
   // Get quadrature points positions and check they are not empty
-  auto [qpoints, weights] = tps.get_locally_owned_qpoints();
+  const auto &qpoints = tps.get_locally_owned_qpoints();
+
+
   ASSERT_FALSE(qpoints.empty())
     << "No quadrature points found in the tensor product space for processor : "
     << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
@@ -145,7 +147,7 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
   // Test that we can get indices from qpoints
   if (!qpoints.empty())
     {
-      auto [cell_index, q_index, i] =
+      const auto [cell_index, q_index, i] =
         tps.particle_id_to_cell_and_qpoint_indices(0);
       ASSERT_GE(cell_index, 0);
       ASSERT_GE(q_index, 0);
