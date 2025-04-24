@@ -38,7 +38,7 @@ int
 main(int argc, char *argv[])
 {
   using namespace dealii;
-  deallog.depth_console(1);
+  deallog.depth_console(10);
   try
     {
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
