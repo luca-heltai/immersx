@@ -201,7 +201,6 @@ private:
   std::vector<IndexSet> relevant_dofs;
 
   AffineConstraints<double> constraints;
-  AffineConstraints<double> inclusion_constraints;
 
   LA::MPI::SparseMatrix coupling_matrix;
   LA::MPI::SparseMatrix inclusion_matrix;

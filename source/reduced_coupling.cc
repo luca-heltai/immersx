@@ -17,6 +17,7 @@ ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   this->enter_subsection("Representative domain");
   this->add_parameter("Reduced grid name", reduced_grid_name);
   this->add_parameter("Pre-refinement level", pre_refinement);
+  this->add_parameter("Reduced right hand side", coupling_rhs_expressions);
   this->leave_subsection();
 }
 
@@ -95,9 +96,26 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
     *this->background_tria, mapping);
 
   // Initialize the particles
-  const auto [qpoints, weights] = this->get_locally_owned_qpoints();
-  auto q_index                  = this->insert_points(qpoints, weights);
+  const auto &qpoints = this->get_locally_owned_qpoints();
+  const auto &weights = this->get_locally_owned_weights();
+  auto        q_index = this->insert_points(qpoints, weights);
   this->update_local_dof_indices(q_index);
+
+  // Initialize the coupling rhs
+  typename FunctionParser<spacedim>::ConstMap constants;
+  constants["pi"] = numbers::PI;
+  constants["E"]  = numbers::E;
+
+  coupling_rhs = std::make_unique<FunctionParser<spacedim>>(
+    this->get_reference_cross_section().n_selected_basis());
+
+  coupling_rhs->initialize(FunctionParser<spacedim>::default_variable_names(),
+                           par.coupling_rhs_expressions,
+                           constants);
+
+  // This should be true. Let's double check
+  AssertDimension(coupling_rhs->n_components,
+                  this->get_dof_handler().get_fe().n_components());
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
