@@ -116,14 +116,22 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   // This should be true. Let's double check
   AssertDimension(coupling_rhs->n_components,
                   this->get_dof_handler().get_fe().n_components());
+
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    {
+      std::cout << "Reduced coupling initialized" << std::endl;
+      std::cout << "Reduced grid name: " << par.reduced_grid_name << std::endl;
+    }
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-  assemble_coupling_sparsity(DynamicSparsityPattern          &dsp,
-                             const DoFHandler<spacedim>      &dh,
-                             const AffineConstraints<double> &constraints) const
+  assemble_coupling_sparsities(
+    DynamicSparsityPattern          &dsp,
+    DynamicSparsityPattern          &dsp_transpose,
+    const DoFHandler<spacedim>      &dh,
+    const AffineConstraints<double> &constraints) const
 {
   const auto                          &fe = dh.get_fe();
   std::vector<types::global_dof_index> background_dof_indices(
@@ -156,6 +164,12 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
                                                       coupling_constraints,
                                                       immersed_dof_indices,
                                                       dsp);
+              // same, but for the transpose
+              coupling_constraints.add_entries_local_to_global(
+                immersed_dof_indices,
+                constraints,
+                background_dof_indices,
+                dsp_transpose);
               previous_cell_id = immersed_cell_id;
             }
         }

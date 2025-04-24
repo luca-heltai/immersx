@@ -288,14 +288,26 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
   DoFTools::extract_locally_relevant_dofs(reduced_dh, relevant_dofs[1]);
 
   coupling_matrix.clear();
+  coupling_matrix_transpose.clear();
 
   DynamicSparsityPattern dsp(dh.n_dofs(),
                              reduced_dh.n_dofs(),
                              relevant_dofs[0]);
 
-  reduced_coupling.assemble_coupling_sparsity(dsp, dh, constraints);
+  DynamicSparsityPattern dsp_transpose(reduced_dh.n_dofs(),
+                                       dh.n_dofs(),
+                                       relevant_dofs[1]);
+
+  reduced_coupling.assemble_coupling_sparsities(dsp,
+                                                dsp_transpose,
+                                                dh,
+                                                constraints);
 
   coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
+  coupling_matrix_transpose.reinit(owned_dofs[1],
+                                   owned_dofs[0],
+                                   dsp_transpose,
+                                   mpi_communicator);
 
   //     DynamicSparsityPattern idsp(inclusions.n_dofs(),
   //                                 inclusions.n_dofs(),
@@ -335,9 +347,10 @@ template <int dim, int spacedim>
 void
 ReducedPoisson<dim, spacedim>::assemble_poisson_system()
 {
-  stiffness_matrix = 0;
-  coupling_matrix  = 0;
-  system_rhs       = 0;
+  stiffness_matrix          = 0;
+  coupling_matrix           = 0;
+  coupling_matrix_transpose = 0;
+  system_rhs                = 0;
   FEValues<spacedim>               fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
@@ -656,7 +669,9 @@ ReducedPoisson<dim, spacedim>::solve()
 #else
       const auto Bt =
         linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
-      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+      // const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+      const auto B = linear_operator<VectorType, VectorType, Payload>(
+        coupling_matrix_transpose);
 #endif
 
       if (par.solver_name == "Schur")
@@ -732,6 +747,16 @@ ReducedPoisson<dim, spacedim>::solve()
           TrilinosWrappers::PreconditionILU M_inv_ilu;
           M_inv_ilu.initialize(reduced_mass_matrix);
 
+          TrilinosWrappers::MPI::Vector inverse_squares_reduced; // diag(M)^{-2}
+          inverse_squares_reduced.reinit(owned_dofs[1], mpi_communicator);
+          for (const types::global_dof_index local_idx : owned_dofs[1])
+            inverse_squares_reduced(local_idx) =
+              1. / (reduced_mass_matrix.diag_element(local_idx) *
+                    reduced_mass_matrix.diag_element(local_idx));
+
+          inverse_squares_reduced.compress(VectorOperation::insert);
+
+
           SolverControl solver_control(100, 1e-15, false, false);
           SolverCG<TrilinosWrappers::MPI::Vector> solver_mass_matrix(
             solver_control);
@@ -740,6 +765,18 @@ ReducedPoisson<dim, spacedim>::solve()
 
           const double gamma = 10; // TODO: add to parameters file
           auto         Aug   = A + gamma * Bt * invW * B;
+
+          TrilinosWrappers::SparseMatrix augmented_matrix;
+          UtilitiesAL::create_augmented_block(stiffness_matrix,
+                                              coupling_matrix_transpose,
+                                              coupling_matrix,
+                                              inverse_squares_reduced,
+                                              gamma,
+                                              augmented_matrix);
+
+          TrilinosWrappers::PreconditionAMG prec_amg_augmented_block;
+          TrilinosWrappers::PreconditionAMG::AdditionalData data;
+          prec_amg_augmented_block.initialize(augmented_matrix, data);
 
           auto Zero = M * 0.0;
           auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
@@ -760,12 +797,12 @@ ReducedPoisson<dim, spacedim>::solve()
 
           SolverCG<LA::MPI::Vector> solver_lagrangian(par.inner_control);
 
-          auto Aug_inv = inverse_operator(
-            Aug,
-            solver_lagrangian); // TODO: build AMG for augmented block
+
+          auto Aug_inv =
+            inverse_operator(Aug, solver_lagrangian, prec_amg_augmented_block);
           SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
-          BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+          UtilitiesAL::BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
             augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
 
           solver_fgmres.solve(AA,
@@ -922,9 +959,10 @@ ReducedPoisson<dim, spacedim>::run()
 #else
       assemble_poisson_system();
 #endif
-      reduced_coupling.assemble_coupling_matrix(coupling_matrix,
-                                                dh,
-                                                constraints);
+      reduced_coupling.assemble_coupling_matrices(coupling_matrix,
+                                                  coupling_matrix_transpose,
+                                                  dh,
+                                                  constraints);
       reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
 
 #ifdef MATRIX_FREE_PATH
