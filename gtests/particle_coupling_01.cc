@@ -36,8 +36,6 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.refinement_level = 0;
-  params.fe_degree        = 1;
 
   // Create a background grid (hypercube)
   parallel::distributed::Triangulation<spacedim> background_tria(
@@ -123,8 +121,6 @@ TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.refinement_level = 0;
-  params.fe_degree        = 1;
 
   // Create a background grid (hypercube)
   parallel::distributed::Triangulation<spacedim> background_tria(

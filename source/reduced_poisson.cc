@@ -95,8 +95,7 @@ ReducedPoisson<dim, spacedim>::ReducedPoisson(
          parallel::distributed::Triangulation<
            spacedim>::construct_multigrid_hierarchy)
   , dh(tria)
-  , tensor_product_space(par.tensor_product_space_parameters, mpi_communicator)
-  , particle_coupling(par.particle_coupling_parameters)
+  , reduced_coupling(tria, par.reduced_coupling_parameters)
   , mapping(1)
 {}
 
@@ -276,31 +275,22 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
 
 #endif
   }
-  inclusion_constraints.close();
+  // Initialize the coupling matrix
+  reduced_coupling.initialize(mapping);
 
-  // if (inclusions.n_dofs() > 0)
-  //   {
-  //     auto inclusions_set =
-  //       Utilities::MPI::create_evenly_distributed_partitioning(
-  //         mpi_communicator, inclusions.n_inclusions());
+  const auto &reduced_dh = reduced_coupling.get_dof_handler();
+  owned_dofs[1]          = reduced_dh.locally_owned_dofs();
+  DoFTools::extract_locally_relevant_dofs(reduced_dh, relevant_dofs[1]);
 
-  //     owned_dofs[1] = inclusions_set.tensor_product(
-  //       complete_index_set(inclusions.get_n_coefficients()));
+  coupling_matrix.clear();
 
-  //     coupling_matrix.clear();
-  //     DynamicSparsityPattern dsp(dh.n_dofs(),
-  //                                inclusions.n_dofs(),
-  //                                relevant_dofs[0]);
+  DynamicSparsityPattern dsp(dh.n_dofs(),
+                             reduced_dh.n_dofs(),
+                             relevant_dofs[0]);
 
-  //     relevant_dofs[1] = assemble_coupling_sparsity(dsp);
-  //     SparsityTools::distribute_sparsity_pattern(dsp,
-  //                                                owned_dofs[0],
-  //                                                mpi_communicator,
-  //                                                relevant_dofs[0]);
-  //     coupling_matrix.reinit(owned_dofs[0],
-  //                            owned_dofs[1],
-  //                            dsp,
-  //                            mpi_communicator);
+  reduced_coupling.assemble_coupling_sparsity(dsp, dh, constraints);
+
+  coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
 
   //     DynamicSparsityPattern idsp(inclusions.n_dofs(),
   //                                 inclusions.n_dofs(),
@@ -318,8 +308,6 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
   //   }
 
   // Commented out inclusions-dependent reinit
-  // locally_relevant_solution.reinit(owned_dofs, relevant_dofs,
-  // mpi_communicator);
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
 
 #ifdef MATRIX_FREE_PATH
@@ -390,140 +378,6 @@ ReducedPoisson<dim, spacedim>::assemble_poisson_system()
   system_rhs.compress(VectorOperation::add);
 }
 #endif
-
-template <int dim, int spacedim>
-void
-ReducedPoisson<dim, spacedim>::assemble_coupling_sparsity(
-  DynamicSparsityPattern &dsp) const
-{
-  TimerOutput::Scope t(computing_timer, "Assemble Coupling sparsity");
-  std::vector<types::global_dof_index> background_dof_indices(
-    fe->n_dofs_per_cell());
-
-  auto particle = particle_coupling.get_particles().begin();
-  while (particle != particle_coupling.get_particles().end())
-    {
-      const auto &cell = particle->get_surrounding_cell();
-      const auto  dh_cell =
-        typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-      dh_cell->get_dof_indices(background_dof_indices);
-
-      const auto pic =
-        particle_coupling.get_particles().particles_in_cell(cell);
-      Assert(pic.begin() == particle, ExcInternalError());
-
-      types::global_cell_index previous_cell_id = numbers::invalid_unsigned_int;
-      for (const auto &p : pic)
-        {
-          const auto [immersed_cell_id, immersed_q, section_q] =
-            tensor_product_space.particle_id_to_cell_and_qpoint_indices(
-              p.get_id());
-          // If cell id is the same, we can skip the rest of the loop. We
-          // already added these entries
-          if (immersed_cell_id != previous_cell_id)
-            {
-              const auto &immersed_dof_indices =
-                tensor_product_space.get_dof_indices(immersed_cell_id);
-
-              constraints.add_entries_local_to_global(background_dof_indices,
-                                                      inclusion_constraints,
-                                                      immersed_dof_indices,
-                                                      dsp);
-              previous_cell_id = immersed_cell_id;
-            }
-        }
-      particle = pic.end();
-    }
-}
-
-
-template <int dim, int spacedim>
-void
-ReducedPoisson<dim, spacedim>::assemble_coupling()
-{
-  TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
-
-  std::vector<types::global_dof_index> background_dof_indices(
-    fe->n_dofs_per_cell());
-
-  const auto &immersed_fe = tensor_product_space.get_dof_handler().get_fe();
-
-  FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
-                                           immersed_fe.n_dofs_per_cell());
-
-  auto particle = particle_coupling.get_particles().begin();
-  while (particle != particle_coupling.get_particles().end())
-    {
-      const auto &cell = particle->get_surrounding_cell();
-      const auto  dh_cell =
-        typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-      dh_cell->get_dof_indices(background_dof_indices);
-
-      const auto pic =
-        particle_coupling.get_particles().particles_in_cell(cell);
-      Assert(pic.begin() == particle, ExcInternalError());
-
-      types::global_cell_index previous_cell_id = numbers::invalid_unsigned_int;
-      types::global_cell_index last_cell_id     = numbers::invalid_unsigned_int;
-      local_coupling_matrix                     = 0;
-      for (const auto &p : pic)
-        {
-          const auto [immersed_cell_id, immersed_q, section_q] =
-            tensor_product_space.particle_id_to_cell_and_qpoint_indices(
-              p.get_id());
-          const auto &background_p = p.get_reference_location();
-          const auto  immersed_p =
-            tensor_product_space.get_quadrature().point(immersed_q);
-          const auto &JxW = p.get_properties()[0];
-          last_cell_id    = immersed_cell_id;
-          if (immersed_cell_id != previous_cell_id &&
-              previous_cell_id != numbers::invalid_unsigned_int)
-            {
-              // Distribute the matrix to the previous dofs
-              const auto &immersed_dof_indices =
-                tensor_product_space.get_dof_indices(previous_cell_id);
-              constraints.distribute_local_to_global(local_coupling_matrix,
-                                                     background_dof_indices,
-                                                     inclusion_constraints,
-                                                     immersed_dof_indices,
-                                                     coupling_matrix);
-              local_coupling_matrix = 0;
-              previous_cell_id      = immersed_cell_id;
-            }
-
-          for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-            {
-              const auto comp_i     = fe->system_to_component_index(i).first;
-              const auto v_i_comp_i = fe->shape_value(i, background_p);
-
-              for (unsigned int j = 0; j < immersed_fe.n_dofs_per_cell(); ++j)
-                {
-                  const auto comp_j =
-                    immersed_fe.system_to_component_index(j).first;
-
-                  const auto phi_comp_j_comp_i =
-                    tensor_product_space.get_reference_cross_section()
-                      .shape_value(comp_j, section_q, comp_i);
-
-                  const auto w_j_comp_j =
-                    immersed_fe.shape_value(j, immersed_p);
-
-                  local_coupling_matrix(i, j) +=
-                    v_i_comp_i * phi_comp_j_comp_i * w_j_comp_j * JxW;
-                }
-            }
-        }
-      const auto &immersed_dof_indices =
-        tensor_product_space.get_dof_indices(last_cell_id);
-      constraints.distribute_local_to_global(local_coupling_matrix,
-                                             background_dof_indices,
-                                             inclusion_constraints,
-                                             immersed_dof_indices,
-                                             coupling_matrix);
-      particle = pic.end();
-    }
-  coupling_matrix.compress(VectorOperation::add);
-}
 
 // Commented out inclusions-dependent function
 /*
@@ -1022,7 +876,9 @@ ReducedPoisson<dim, spacedim>::run()
 #else
       assemble_poisson_system();
 #endif
-      // assemble_coupling();
+      reduced_coupling.assemble_coupling_matrix(coupling_matrix,
+                                                dh,
+                                                constraints);
 #ifdef MATRIX_FREE_PATH
       // MappingQ1<spacedim> mapping;
       // coupling_operator =

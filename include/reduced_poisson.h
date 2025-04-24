@@ -103,10 +103,7 @@ namespace LA
 
 #include <matrix_free_utils.h>
 
-#include "immersed_repartitioner.h"
-#include "particle_coupling.h"
-#include "tensor_product_space.h"
-
+#include "reduced_coupling.h"
 
 #ifdef DEAL_II_WITH_OPENCASCADE
 #  include <TopoDS.hxx>
@@ -145,9 +142,7 @@ public:
 
   mutable ParsedConvergenceTable convergence_table;
 
-  TensorProductSpaceParameters<1, 2, spacedim, 1>
-                                       tensor_product_space_parameters;
-  ParticleCouplingParameters<spacedim> particle_coupling_parameters;
+  ReducedCouplingParameters<1, 2, spacedim, 1> reduced_coupling_parameters;
 };
 
 
@@ -171,16 +166,7 @@ public:
                         assemble_rhs();
 #endif
   void
-  assemble_coupling();
-
-  void
   run();
-
-  /**
-   * Builds coupling sparsity, and returns locally relevant inclusion dofs.
-   */
-  void
-  assemble_coupling_sparsity(DynamicSparsityPattern &dsp) const;
 
   void
   solve();
@@ -209,8 +195,7 @@ private:
 
   DoFHandler<spacedim> dh;
 
-  TensorProductSpace<1, 2, spacedim, 1> tensor_product_space;
-  ParticleCoupling<spacedim>            particle_coupling;
+  ReducedCoupling<1, 2, spacedim, 1> reduced_coupling;
 
   std::vector<IndexSet> owned_dofs;
   std::vector<IndexSet> relevant_dofs;

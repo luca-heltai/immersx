@@ -79,14 +79,6 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
     section;
 
   /**
-   * The refinement level of the mesh.
-   *
-   * Specifies the number of refinement levels applied to the mesh
-   * used in the tensor product space. Default value is 0.
-   */
-  unsigned int refinement_level = 0;
-
-  /**
    * The degree of the finite element basis functions.
    *
    * Specifies the polynomial degree of the finite element basis

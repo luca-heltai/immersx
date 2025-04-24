@@ -27,13 +27,10 @@
 template <int reduced_dim, int dim, int spacedim, int n_components>
 TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
   TensorProductSpaceParameters()
-  : ParameterAcceptor("Tensor product space")
+  : ParameterAcceptor("Representative domain")
 {
-  enter_subsection("Representative domain");
-  add_parameter("Refinement level", refinement_level);
   add_parameter("Finite element degree", fe_degree);
   add_parameter("Radius", radius);
-  leave_subsection();
 }
 
 // Constructor for TensorProductSpace
@@ -57,7 +54,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
       parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &tria) {
       Triangulation<reduced_dim, spacedim> serial_tria;
       GridGenerator::hyper_cube(tria, 0, 1);
-      serial_tria.refine_global(par.refinement_level);
+      serial_tria.refine_global(3);
       tria.copy_triangulation(serial_tria);
     };
 }
