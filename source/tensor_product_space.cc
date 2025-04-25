@@ -199,6 +199,11 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     quadrature_formula.size();
   const unsigned int qpoint_index_in_section =
     particle_id % reference_cross_section.n_quadrature_points();
+
+  AssertIndexRange(cell_index, triangulation.n_global_active_cells());
+  AssertIndexRange(qpoint_index_in_cell, quadrature_formula.size());
+  AssertIndexRange(qpoint_index_in_section,
+                   reference_cross_section.n_quadrature_points());
   return std::make_tuple(cell_index,
                          qpoint_index_in_cell,
                          qpoint_index_in_section);
