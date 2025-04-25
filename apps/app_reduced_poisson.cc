@@ -33,16 +33,19 @@
  * Modified by: Luca Heltai, 2020
  */
 
+#include "../tests/tests.h"
 #include "reduced_poisson.h"
 int
 main(int argc, char *argv[])
 {
   using namespace dealii;
-  deallog.depth_console(10);
+
+  // deallog.depth_console(10);
   try
     {
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-      std::string                      prm_file;
+      mpi_initlog(true);
+      std::string prm_file;
       if (argc > 1)
         prm_file = argv[1];
       else

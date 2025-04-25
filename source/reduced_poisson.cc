@@ -698,7 +698,7 @@ ReducedPoisson<dim, spacedim>::solve()
         }
       else if (par.solver_name == "AL")
         {
-          std::cout << "Prepare AL preconditioner... " << std::endl;
+          pcout << "Prepare AL preconditioner... " << std::endl;
 
           AssertThrow(
             (std::is_same_v<LA::MPI::Vector, TrilinosWrappers::MPI::Vector>),
@@ -917,7 +917,9 @@ ReducedPoisson<dim, spacedim>::print_parameters() const
         << "> using PETSc." << std::endl;
 #else
   pcout << "Running ReducedPoisson<" << Utilities::dim_string(dim, spacedim)
-        << "> using Trilinos." << std::endl;
+        << "> using Trilinos with "
+        << Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) << " MPI ranks."
+        << std::endl;
 #endif
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
     {
