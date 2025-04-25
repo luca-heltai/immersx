@@ -37,6 +37,8 @@
 #include <deal.II/lac/sparsity_pattern.h>
 #include <deal.II/lac/vector.h>
 
+#include <deal.II/numerics/vector_tools.h>
+
 #include <fstream>
 
 #include "particle_coupling.h"
@@ -163,6 +165,12 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
         {
           const auto [immersed_cell_id, immersed_q, section_q] =
             this->particle_id_to_cell_and_qpoint_indices(p.get_id());
+
+          // FIXME: this is not correct, we need to use the local
+          // immersed_cell_id index.
+          const auto global_reduced_qpoint_index = 0;
+          // immersed_cell_id * this->get_quadrature().size() + immersed_q;
+
           const auto &background_p = p.get_reference_location();
           const auto  immersed_p   = this->get_quadrature().point(immersed_q);
           const auto &JxW          = p.get_properties()[0];
@@ -195,9 +203,8 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
                       const auto comp_j =
                         immersed_fe.system_to_component_index(j).first;
 
-                      const auto phi_comp_j_comp_i =
-                        this->get_reference_cross_section().shape_value(
-                          comp_j, section_q, comp_i);
+                      const auto phi_comp_j_comp_i = this->weight_shape_value(
+                        comp_j, global_reduced_qpoint_index, section_q, comp_i);
 
                       const auto w_j_comp_j =
                         immersed_fe.shape_value(j, immersed_p);
@@ -226,59 +233,12 @@ inline void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
   VectorType &reduced_rhs) const
 {
-  const auto &immersed_fe = this->get_dof_handler().get_fe();
+  VectorTools::create_right_hand_side(this->get_dof_handler(),
+                                      this->get_quadrature(),
+                                      *coupling_rhs,
+                                      reduced_rhs,
+                                      coupling_constraints);
 
-  const auto &all_weights     = this->get_locally_owned_weights();
-  const auto &reduced_qpoints = this->get_locally_owned_reduced_qpoints();
-
-  const auto &locally_owned_cell_ids = this->get_triangulation()
-                                         .global_active_cell_index_partitioner()
-                                         .lock()
-                                         ->locally_owned_range();
-
-  Vector<double> cell_rhs(immersed_fe.n_dofs_per_cell());
-  Vector<double> reduced_rhs_value(immersed_fe.n_components());
-
-  unsigned int reduced_q = 0;
-  unsigned int all_q     = 0;
-  for (const auto &cell_id : locally_owned_cell_ids)
-    {
-      cell_rhs = 0;
-      for (unsigned int q = 0; q < this->get_quadrature().size(); ++q)
-        {
-          this->coupling_rhs->vector_value(reduced_qpoints[reduced_q++],
-                                           reduced_rhs_value);
-          for (unsigned int qs = 0;
-               qs < this->get_reference_cross_section().n_quadrature_points();
-               ++qs)
-            {
-              for (unsigned int i = 0; i < immersed_fe.n_dofs_per_cell(); ++i)
-                {
-                  const auto comp_i =
-                    immersed_fe.system_to_component_index(i).first;
-
-                  const auto w_i =
-                    immersed_fe.shape_value(i, this->get_quadrature().point(q));
-
-                  for (unsigned int comp_j = 0; comp_j < n_components; ++comp_j)
-                    {
-                      const auto phi_i_comp_j =
-                        this->get_reference_cross_section().shape_value(comp_i,
-                                                                        qs,
-                                                                        comp_j);
-
-                      cell_rhs(i) += reduced_rhs_value(comp_j) * phi_i_comp_j *
-                                     phi_i_comp_j * w_i * all_weights[all_q][0];
-                    }
-                }
-              all_q++;
-            }
-        }
-      const auto &immersed_dof_indices = this->get_dof_indices(cell_id);
-      coupling_constraints.distribute_local_to_global(cell_rhs,
-                                                      immersed_dof_indices,
-                                                      reduced_rhs);
-    }
   reduced_rhs.compress(VectorOperation::add);
 }
 
