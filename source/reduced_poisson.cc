@@ -724,8 +724,8 @@ ReducedPoisson<dim, spacedim>::solve()
           reduced_mass_matrix.compress(VectorOperation::add);
 
 
-          pcout << "   Mass matrix size: " << reduced_mass_matrix.m() << " x "
-                << reduced_mass_matrix.n() << std::endl;
+          pcout << "Reduced mass matrix size: " << reduced_mass_matrix.m()
+                << " x " << reduced_mass_matrix.n() << std::endl;
 
 
           const auto M = linear_operator<LA::MPI::Vector>(reduced_mass_matrix);
@@ -754,11 +754,13 @@ ReducedPoisson<dim, spacedim>::solve()
           auto         Aug   = A + gamma * Bt * invW * B;
 
           TrilinosWrappers::SparseMatrix augmented_matrix;
+          pcout << "Building augmented matrix..." << std::endl;
           UtilitiesAL::create_augmented_block(stiffness_matrix,
                                               coupling_matrix,
                                               inverse_squares_reduced,
                                               gamma,
                                               augmented_matrix);
+          pcout << "done." << std::endl;
 
           TrilinosWrappers::PreconditionAMG prec_amg_augmented_block;
           TrilinosWrappers::PreconditionAMG::AdditionalData data;
@@ -804,6 +806,48 @@ ReducedPoisson<dim, spacedim>::solve()
             solution_block.block(1));
           // solution.update_ghost_values();
           locally_relevant_solution = solution_block;
+
+
+          // Estimate condition number of BBt using CG
+          {
+            auto output_double_number = [this](double             input,
+                                               const std::string &text) {
+              if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+                std::cout << text << input << std::endl;
+            };
+
+            // Estimate condition number:
+            pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
+                  << std::endl;
+            pcout << "Estimate condition number of BBt using CG" << std::endl;
+            SolverControl solver_control(solution.block(1).size(), 1e-12);
+            SolverCG<TrilinosWrappers::MPI::Vector> solver_cg(solver_control);
+
+            solver_cg.connect_condition_number_slot(
+              std::bind(output_double_number,
+                        std::placeholders::_1,
+                        "Condition number estimate: "));
+            using PayloadType = dealii::TrilinosWrappers::internal::
+              LinearOperatorImplementation::TrilinosPayload;
+
+            auto BBt = B * Bt;
+
+            TrilinosWrappers::MPI::Vector u(lambda);
+            u = 0.;
+            TrilinosWrappers::MPI::Vector f(lambda);
+            f = 1.;
+            TrilinosWrappers::PreconditionIdentity prec_no;
+            try
+              {
+                solver_cg.solve(BBt, u, f, prec_no);
+              }
+            catch (...)
+              {
+                pcout
+                  << "***BBt solve not successfull (see condition number above)***"
+                  << std::endl;
+              }
+          }
         }
       else
         {
