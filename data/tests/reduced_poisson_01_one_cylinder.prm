@@ -58,7 +58,7 @@ subsection Reduced Poisson
       subsection Cross section
         set Inclusion type           = hyper_ball
         set Maximum inclusion degree = 0
-        set Refinement level         = 1
+        set Refinement level         = 3
         set Selected indices         =
       end
       subsection Particle coupling
@@ -67,7 +67,7 @@ subsection Reduced Poisson
       subsection Representative domain
         set Finite element degree   = 1
         set Pre-refinement level    = 5
-        set Radius                  = 0.01
+        set Radius                  = 0.1
         set Reduced grid name       =
         set Reduced right hand side = 1
       end
