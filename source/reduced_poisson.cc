@@ -808,6 +808,7 @@ ReducedPoisson<dim, spacedim>::solve()
           locally_relevant_solution = solution_block;
 
 
+#ifdef DEBUG
           // Estimate condition number of BBt using CG
           {
             auto output_double_number = [this](double             input,
@@ -820,7 +821,7 @@ ReducedPoisson<dim, spacedim>::solve()
             pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
                   << std::endl;
             pcout << "Estimate condition number of BBt using CG" << std::endl;
-            SolverControl solver_control(solution.block(1).size(), 1e-12);
+            SolverControl solver_control(100000, 1e-12);
             SolverCG<TrilinosWrappers::MPI::Vector> solver_cg(solver_control);
 
             solver_cg.connect_condition_number_slot(
@@ -848,6 +849,7 @@ ReducedPoisson<dim, spacedim>::solve()
                   << std::endl;
               }
           }
+#endif
         }
       else
         {
