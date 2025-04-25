@@ -77,6 +77,14 @@ background_tria.get_mpi_communicator()
       create_description_from_triangulation(serial_tria_fully_distributed,
                                             partition);
     tria.create_triangulation(construction_data);
+
+    if (tria.n_locally_owned_active_cells() == 0)
+      {
+        std::cerr << "Process "
+                  << Utilities::MPI::this_mpi_process(mpi_communicator)
+                  << " has no locally owned cells. Aborting." << std::endl;
+        MPI_Abort(mpi_communicator, EXIT_FAILURE);
+      }
   };
 }
 
