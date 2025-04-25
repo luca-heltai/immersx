@@ -288,26 +288,14 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
   DoFTools::extract_locally_relevant_dofs(reduced_dh, relevant_dofs[1]);
 
   coupling_matrix.clear();
-  coupling_matrix_transpose.clear();
 
   DynamicSparsityPattern dsp(dh.n_dofs(),
                              reduced_dh.n_dofs(),
                              relevant_dofs[0]);
 
-  DynamicSparsityPattern dsp_transpose(reduced_dh.n_dofs(),
-                                       dh.n_dofs(),
-                                       relevant_dofs[1]);
-
-  reduced_coupling.assemble_coupling_sparsities(dsp,
-                                                dsp_transpose,
-                                                dh,
-                                                constraints);
+  reduced_coupling.assemble_coupling_sparsity(dsp, dh, constraints);
 
   coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
-  coupling_matrix_transpose.reinit(owned_dofs[1],
-                                   owned_dofs[0],
-                                   dsp_transpose,
-                                   mpi_communicator);
 
   //     DynamicSparsityPattern idsp(inclusions.n_dofs(),
   //                                 inclusions.n_dofs(),
@@ -347,10 +335,9 @@ template <int dim, int spacedim>
 void
 ReducedPoisson<dim, spacedim>::assemble_poisson_system()
 {
-  stiffness_matrix          = 0;
-  coupling_matrix           = 0;
-  coupling_matrix_transpose = 0;
-  system_rhs                = 0;
+  stiffness_matrix = 0;
+  coupling_matrix  = 0;
+  system_rhs       = 0;
   FEValues<spacedim>               fe_values(*fe,
                                *quadrature,
                                update_values | update_gradients |
@@ -669,9 +656,9 @@ ReducedPoisson<dim, spacedim>::solve()
 #else
       const auto Bt =
         linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
-      // const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
-      const auto B = linear_operator<VectorType, VectorType, Payload>(
-        coupling_matrix_transpose);
+      const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+      // const auto B = linear_operator<VectorType, VectorType, Payload>(
+      //   coupling_matrix_transpose);
 #endif
 
       if (par.solver_name == "Schur")
@@ -768,7 +755,6 @@ ReducedPoisson<dim, spacedim>::solve()
 
           TrilinosWrappers::SparseMatrix augmented_matrix;
           UtilitiesAL::create_augmented_block(stiffness_matrix,
-                                              coupling_matrix_transpose,
                                               coupling_matrix,
                                               inverse_squares_reduced,
                                               gamma,
@@ -959,10 +945,9 @@ ReducedPoisson<dim, spacedim>::run()
 #else
       assemble_poisson_system();
 #endif
-      reduced_coupling.assemble_coupling_matrices(coupling_matrix,
-                                                  coupling_matrix_transpose,
-                                                  dh,
-                                                  constraints);
+      reduced_coupling.assemble_coupling_matrix(coupling_matrix,
+                                                dh,
+                                                constraints);
       reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
 
 #ifdef MATRIX_FREE_PATH

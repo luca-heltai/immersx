@@ -72,7 +72,6 @@ namespace UtilitiesAL
             typename PreconditionerType = TrilinosWrappers::PreconditionAMG>
   void
   create_augmented_block(const MatrixType &A,
-                         const MatrixType &C,
                          const MatrixType &Ct,
                          const VectorType &scaling_vector,
                          const double      gamma,
@@ -89,13 +88,12 @@ namespace UtilitiesAL
 
 
         Epetra_CrsMatrix A_trilinos   = A.trilinos_matrix();
-        Epetra_CrsMatrix C_trilinos   = C.trilinos_matrix();
         Epetra_CrsMatrix Ct_trilinos  = Ct.trilinos_matrix();
         auto             multi_vector = scaling_vector.trilinos_vector();
 
 
         Assert((A_trilinos.NumGlobalRows() !=
-                C_trilinos.RangeMap().NumGlobalElements()),
+                Ct_trilinos.DomainMap().NumGlobalElements()),
                ExcMessage("Number of columns in C must match dimension of A"));
 
 
@@ -130,7 +128,7 @@ namespace UtilitiesAL
         // Compute Ct^T * W, which is equivalent to (C^T * diag(V)) * C
         Epetra_CrsMatrix *CtT_W = new Epetra_CrsMatrix(Copy, W->RangeMap(), 0);
         EpetraExt::MatrixMatrix::Multiply(
-          *W, false /* transpose */, C_trilinos, false, *CtT_W);
+          *W, false /* transpose */, Ct_trilinos, true, *CtT_W);
 
 
         // Add A to the result, scaling with gamma

@@ -102,28 +102,14 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
   constraints.close();
 
   DynamicSparsityPattern dsp(dh.n_dofs(), coupling.get_dof_handler().n_dofs());
-  DynamicSparsityPattern dspT(coupling.get_dof_handler().n_dofs(), dh.n_dofs());
-  coupling.assemble_coupling_sparsities(dsp, dspT, dh, constraints);
-
+  coupling.assemble_coupling_sparsity(dsp, dh, constraints);
 
   LinearAlgebraTrilinos::MPI::SparseMatrix coupling_matrix;
-  LinearAlgebraTrilinos::MPI::SparseMatrix coupling_matrix_transpose;
-
   coupling_matrix.reinit(owned_dofs,
                          coupling.get_dof_handler().locally_owned_dofs(),
                          dsp,
                          MPI_COMM_WORLD);
-
-  coupling_matrix_transpose.reinit(
-    coupling.get_dof_handler().locally_owned_dofs(),
-    owned_dofs,
-    dspT,
-    MPI_COMM_WORLD);
-
-  coupling.assemble_coupling_matrices(coupling_matrix,
-                                      coupling_matrix_transpose,
-                                      dh,
-                                      constraints);
+  coupling.assemble_coupling_matrix(coupling_matrix, dh, constraints);
 
   // Now build a vector
   LinearAlgebraTrilinos::MPI::Vector back_vector;
