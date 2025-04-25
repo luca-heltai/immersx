@@ -317,3 +317,26 @@ TEST(ReferenceCrossSection, CheckRotatedDisk) // NOLINT
         << "Rotated point " << q << " lies outside the unit disk";
     }
 }
+
+
+
+TEST(ReferenceCrossSection, CheckP1) // NOLINT
+{
+  const int          dim          = 1;
+  const int          spacedim     = 3;
+  const int          n_components = 1;
+  const unsigned int degree       = 1;
+
+  // Set up parameters for the reference inclusion
+  ReferenceCrossSectionParameters<dim, spacedim, n_components> par;
+  par.inclusion_degree = degree;
+  par.inclusion_type   = "hyper_ball"; // Use a circular domain
+  par.refinement_level = 1;            // Use a reasonable refinement level
+
+  // Create the reference inclusion object for the original disk
+  ReferenceCrossSection<dim, spacedim, n_components> ref_inclusion(par);
+
+  ASSERT_EQ(ref_inclusion.max_n_basis(), 3);
+  ASSERT_EQ(ref_inclusion.n_selected_basis(), 3)
+    << "P1 inclusion should have 3 selected basis functions";
+}

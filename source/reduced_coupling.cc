@@ -17,7 +17,14 @@ ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   this->enter_subsection("Representative domain");
   this->add_parameter("Reduced grid name", reduced_grid_name);
   this->add_parameter("Pre-refinement level", pre_refinement);
-  this->add_parameter("Reduced right hand side", coupling_rhs_expressions);
+  this->add_parameter("Reduced right hand side",
+                      coupling_rhs_expressions,
+                      "",
+                      this->prm,
+                      Patterns::List(Patterns::Anything(),
+                                     1,
+                                     Patterns::List::max_int_value,
+                                     ";"));
   this->leave_subsection();
 }
 
