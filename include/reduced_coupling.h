@@ -88,19 +88,16 @@ struct ReducedCoupling
     const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
 
   void
-  assemble_coupling_sparsities(
+  assemble_coupling_sparsity(
     DynamicSparsityPattern          &dsp,
-    DynamicSparsityPattern          &dsp_transpose,
     const DoFHandler<spacedim>      &dh,
     const AffineConstraints<double> &constraints) const;
 
   template <typename MatrixType>
   void
-  assemble_coupling_matrices(
-    MatrixType                      &coupling_matrix,
-    MatrixType                      &coupling_matrix_transpose,
-    const DoFHandler<spacedim>      &dh,
-    const AffineConstraints<double> &constraints) const;
+  assemble_coupling_matrix(MatrixType                      &coupling_matrix,
+                           const DoFHandler<spacedim>      &dh,
+                           const AffineConstraints<double> &constraints) const;
 
 
   template <typename VectorType>
@@ -132,10 +129,9 @@ template <int reduced_dim, int dim, int spacedim, int n_components>
 template <typename MatrixType>
 inline void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-  assemble_coupling_matrices(MatrixType &coupling_matrix,
-                             MatrixType &coupling_matrix_transpose,
-                             const DoFHandler<spacedim>      &dh,
-                             const AffineConstraints<double> &constraints) const
+  assemble_coupling_matrix(MatrixType                      &coupling_matrix,
+                           const DoFHandler<spacedim>      &dh,
+                           const AffineConstraints<double> &constraints) const
 {
   const auto &fe          = dh.get_fe();
   const auto &immersed_fe = this->get_dof_handler().get_fe();
@@ -218,18 +214,9 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
                                              coupling_constraints,
                                              immersed_dof_indices,
                                              coupling_matrix);
-      //  transpose
-      local_coupling_matrix_transpose.copy_transposed(local_coupling_matrix);
-      coupling_constraints.distribute_local_to_global(
-        local_coupling_matrix_transpose,
-        immersed_dof_indices,
-        constraints,
-        background_dof_indices,
-        coupling_matrix_transpose);
       particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
-  coupling_matrix_transpose.compress(VectorOperation::add);
 }
 
 
