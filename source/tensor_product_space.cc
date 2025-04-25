@@ -64,14 +64,18 @@ template <int reduced_dim, int dim, int spacedim, int n_components>
 void
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize()
 {
-  // Create the reduced grid
-  make_reduced_grid(triangulation);
+  // Create the reduced grid and perform setup only if the triangulation is
+  // empty
+  if (triangulation.n_active_cells() == 0)
+    {
+      make_reduced_grid(triangulation);
 
-  // Setup degrees of freedom
-  setup_dofs();
+      // Setup degrees of freedom
+      setup_dofs();
 
-  // Setup quadrature formulas
-  compute_points_and_weights();
+      // Setup quadrature formulas
+      compute_points_and_weights();
+    }
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
