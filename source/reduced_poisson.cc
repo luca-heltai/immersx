@@ -719,7 +719,7 @@ ReducedPoisson<dim, spacedim>::solve()
 
           // Create mass matrix associated with the reduced dof handler
           MatrixTools::create_mass_matrix(reduced_dh,
-                                          QGauss<1>(2 * par.fe_degree + 1),
+                                          reduced_coupling.get_quadrature(),
                                           reduced_mass_matrix);
           reduced_mass_matrix.compress(VectorOperation::add);
 
