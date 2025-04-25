@@ -363,6 +363,32 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   return triangulation;
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+double
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  weight_shape_value(const unsigned int i,
+                     const unsigned int global_reduced_q,
+                     const unsigned int section_q,
+                     const unsigned int comp) const
+{
+  AssertIndexRange(i, reference_cross_section.n_selected_basis());
+  AssertIndexRange(global_reduced_q, reduced_qpoints.size());
+  AssertIndexRange(section_q, reference_cross_section.n_quadrature_points());
+  AssertIndexRange(comp, n_components);
+  return reference_cross_section.shape_value(i, section_q, comp) *
+         get_scaling(global_reduced_q);
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+double
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_scaling(
+  const unsigned int) const
+{
+  return std::pow(par.radius, -((dim - reduced_dim) / 2.0));
+}
+
+
+
 template struct TensorProductSpaceParameters<1, 2, 2, 1>;
 template struct TensorProductSpaceParameters<1, 2, 3, 1>;
 template struct TensorProductSpaceParameters<1, 3, 3, 1>;

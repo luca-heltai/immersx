@@ -247,12 +247,25 @@ public:
   const parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &
   get_triangulation() const;
 
+
+  /// the component comp of the ith selected weight basis function, at the
+  /// global reduced quadrature point index global_reduced_q, and section
+  /// quadrature point index section_q
+  double
+  weight_shape_value(const unsigned int i,
+                     const unsigned int global_reduced_q,
+                     const unsigned int section_q,
+                     const unsigned int comp) const;
+
+  double
+  get_scaling(const unsigned int) const;
+
 private:
   /**
    * Sets up the degrees of freedom (DoFs) for the reduced domain.
    *
-   * This function initializes the DoFHandler and associates it with the finite
-   * element system.
+   * This function initializes the DoFHandler and associates it with the
+   * finite element system.
    */
   void
   setup_dofs();

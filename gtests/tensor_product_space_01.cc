@@ -153,3 +153,71 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
       ASSERT_GE(q_index, 0);
     }
 }
+
+
+
+TEST(TensorProductSpace, OrthoNormality) // NOLINT
+{
+  static constexpr int reduced_dim  = 1;
+  static constexpr int dim          = 2;
+  static constexpr int spacedim     = 3;
+  static constexpr int n_components = 1;
+
+  // Setup parameters
+  TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
+  params.radius = 0.125;
+
+  // Create the tensor product space
+  TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
+
+  // Set the make_reduced_grid function to read from a VTK file
+  tps.make_reduced_grid = [&](auto &tria) {
+    // First create a serial triangulation with the VTK file
+    const std::string filename = SOURCE_DIR "/data/tests/mstree_100.vtk";
+    GridIn<reduced_dim, spacedim>        gridin;
+    Triangulation<reduced_dim, spacedim> serial_tria;
+    gridin.attach_triangulation(serial_tria);
+    std::ifstream f(filename);
+    ASSERT_TRUE(f.good()) << "Failed to open file: " << filename;
+    gridin.read_vtk(f);
+    tria.copy_triangulation(serial_tria);
+  };
+
+  // Initialize the tensor product space
+  tps.initialize();
+
+  // Loop over the first cross-section quadrature points, and integrate phi_i *
+  // phi_j. This should give delta_ij We can do this by looping over all
+  // quadrature points, and checking that the integral is 0 for i != j
+  const auto &weigths         = tps.get_locally_owned_weights();
+  const auto &reduced_weights = tps.get_locally_owned_reduced_weights();
+
+  for (size_t i = 0; i < tps.get_reference_cross_section().n_selected_basis();
+       ++i)
+    for (size_t j = 0; i < tps.get_reference_cross_section().n_selected_basis();
+         ++i)
+      {
+        double integral = 0.0;
+        for (size_t q = 0;
+             q < tps.get_reference_cross_section().n_quadrature_points();
+             ++q)
+          {
+            auto phi_i = tps.weight_shape_value(i, 0, q, 0);
+            auto phi_j = tps.weight_shape_value(j, 0, q, 0);
+
+            integral += phi_i * phi_j * weigths[q][0] / reduced_weights[0][0];
+          }
+        if (i != j)
+          {
+            ASSERT_NEAR(integral, 0.0, 1e-10)
+              << "Integral of phi_" << i << " and phi_" << j
+              << " should be zero.";
+          }
+        else
+          {
+            ASSERT_NEAR(integral, 1.0, 1e-10)
+              << "Integral of phi_" << i << " and phi_" << j
+              << " should be one.";
+          }
+      }
+}

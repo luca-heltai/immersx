@@ -99,8 +99,8 @@ public:
   const std::vector<Vector<double>> &
   get_basis_functions() const;
 
-  /// the component comp of the ith selected basis function, at the quadrature
-  /// point index q,
+  /// the component comp of the ith selected reference basis function, at the
+  /// quadrature point index q,
   const double &
   shape_value(const unsigned int i,
               const unsigned int q,
