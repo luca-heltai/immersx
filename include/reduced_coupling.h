@@ -47,80 +47,157 @@
 using namespace dealii;
 
 /**
+ * @class ReducedCouplingParameters
+ * @brief Parameter structure for configuring ReducedCoupling objects.
  *
+ * This structure holds all parameters required to set up a ReducedCoupling
+ * object, including parameters for the tensor product space, particle coupling,
+ * grid name, pre-refinement steps, and right-hand side expressions for the
+ * coupling.
+ *
+ * @tparam reduced_dim The reduced dimension of the problem.
+ * @tparam dim The dimension of the domain we are approximating.
+ * @tparam spacedim The space dimension (default: dim).
+ * @tparam n_components Number of components (default: 1).
  */
 template <int reduced_dim, int dim, int spacedim = dim, int n_components = 1>
 struct ReducedCouplingParameters : public ParameterAcceptor
 {
-  /// Constructor that registers parameters.
+  /**
+   * @brief Constructor that registers parameters with the ParameterAcceptor.
+   */
   ReducedCouplingParameters();
 
-  /// TensorProductSpace parameters.
+  /**
+   * @brief Parameters for the tensor product space.
+   */
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>
     tensor_product_space_parameters;
 
-  /// ParticleCoupling parameters.
+  /**
+   * @brief Parameters for the particle coupling.
+   */
   ParticleCouplingParameters<spacedim> particle_coupling_parameters;
 
-  /// Name of the grid to read from a file.
+  /**
+   * @brief Name of the grid to read from a file.
+   */
   std::string reduced_grid_name = "";
 
-  /// Number of pre_refinements to apply to the grid, before transforming it to
-  /// a fully distributed grid.
+  /**
+   * @brief Number of pre-refinements to apply to the grid before distribution.
+   */
   unsigned int pre_refinement = 0;
 
-  /// Reduced coupling right hand side
+  /**
+   * @brief Right hand side expressions for the reduced coupling.
+   */
   std::vector<std::string> coupling_rhs_expressions = {"0"};
 };
 
+/**
+ * @class ReducedCoupling
+ * @brief Combines tensor product space and particle coupling for reduced Lagrange multipliers.
+ *
+ * This class inherits from TensorProductSpace and ParticleCoupling, providing
+ * methods to initialize, assemble coupling matrices, and handle constraints for
+ * reduced coupling problems in the context of immersed or embedded finite
+ * element methods.
+ *
+ * @tparam reduced_dim The reduced dimension of the problem.
+ * @tparam dim The dimension of the background domain.
+ * @tparam spacedim The space dimension (default: dim).
+ * @tparam n_components Number of components (default: 1).
+ */
 template <int reduced_dim, int dim, int spacedim = dim, int n_components = 1>
 struct ReducedCoupling
   : public TensorProductSpace<reduced_dim, dim, spacedim, n_components>,
     public ParticleCoupling<spacedim>
 {
-  /// Constructor that initializes the parameters.
+  /**
+   * @brief Constructor that initializes the ReducedCoupling object with background triangulation and parameters.
+   * @param background_tria The background domain triangulation.
+   * @param par The parameters for reduced coupling.
+   */
   ReducedCoupling(
     const parallel::TriangulationBase<spacedim> &background_tria,
     const ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>
       &par);
 
-  /// Initialize the tensor product space and particle coupling.
+  /**
+   * @brief Initialize the tensor product space and particle coupling.
+   * @param mapping The mapping to use (default: StaticMappingQ1).
+   */
   void
   initialize(
     const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
 
+  /**
+   * @brief Assemble the sparsity pattern for the coupling matrix.
+   * @param dsp The dynamic sparsity pattern to fill.
+   * @param dh The DoFHandler for the background domain.
+   * @param constraints The affine constraints to apply.
+   */
   void
   assemble_coupling_sparsity(
     DynamicSparsityPattern          &dsp,
     const DoFHandler<spacedim>      &dh,
     const AffineConstraints<double> &constraints) const;
 
+  /**
+   * @brief Assemble the coupling matrix between background and reduced spaces.
+   * @tparam MatrixType The matrix type (e.g., SparseMatrix<double>).
+   * @param coupling_matrix The matrix to assemble.
+   * @param dh The DoFHandler for the background domain.
+   * @param constraints The affine constraints to apply.
+   */
   template <typename MatrixType>
   void
   assemble_coupling_matrix(MatrixType                      &coupling_matrix,
                            const DoFHandler<spacedim>      &dh,
                            const AffineConstraints<double> &constraints) const;
 
-
+  /**
+   * @brief Assemble the right-hand side vector for the reduced space.
+   * @tparam VectorType The vector type (e.g., Vector<double>).
+   * @param reduced_rhs The right-hand side vector to assemble.
+   */
   template <typename VectorType>
   void
   assemble_reduced_rhs(VectorType &reduced_rhs) const;
 
+  /**
+   * @brief Get the affine constraints associated with the coupling.
+   * @return The affine constraints.
+   */
   const AffineConstraints<double> &
   get_coupling_constraints() const;
 
 private:
+  /**
+   * @brief The MPI communicator used for parallel operations.
+   */
   const MPI_Comm mpi_communicator;
 
+  /**
+   * @brief Reference to the parameters used for this coupling.
+   */
   const ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>
     &par;
 
-  /// The triangulation of the background domain.
+  /**
+   * @brief The triangulation of the background domain.
+   */
   SmartPointer<const parallel::TriangulationBase<spacedim>> background_tria;
 
+  /**
+   * @brief Affine constraints for the coupling.
+   */
   AffineConstraints<double> coupling_constraints;
 
-  /// The coupling rhs expression
+  /**
+   * @brief The right-hand side function for the coupling.
+   */
   std::unique_ptr<FunctionParser<spacedim>> coupling_rhs;
 };
 
