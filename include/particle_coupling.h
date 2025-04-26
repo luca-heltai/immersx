@@ -39,11 +39,11 @@ using namespace dealii;
  * @class ParticleCouplingParameters
  * @brief Stores parameters related to particle coupling in a simulation.
  *
- * @tparam dim The spatial dimension of the problem.
+ * This class inherits from ParameterAcceptor and provides parameters required
+ * for particle coupling algorithms, such as the extraction level for the R-tree
+ * structure.
  *
- * This class inherits from ParameterAcceptor and provides parameters
- * required for particle coupling algorithms. It includes configuration
- * options such as the extraction level for the R-tree structure.
+ * @tparam dim The spatial dimension of the problem.
  */
 template <int dim>
 class ParticleCouplingParameters : public ParameterAcceptor
