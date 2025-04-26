@@ -20,10 +20,11 @@
 #include <gtest/gtest.h>
 
 #include "inclusions.h"
+#include "reference_cross_section.h" // Add include for ReferenceCrossSection
 
 using namespace dealii;
 
-TEST(TestInclusion2, CheckPoints) // NOLINT
+TEST(ReferenceInclusion2, CheckPoints) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
@@ -39,7 +40,7 @@ TEST(TestInclusion2, CheckPoints) // NOLINT
   ASSERT_NEAR(p[3].distance(Point<2>(0, -1)), 0, 1e-10);
 }
 
-TEST(TestInclusion3, CheckPoints) // NOLINT
+TEST(Inclusion3, CheckPoints) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
   std::vector<double> inc({{0, 0, 0, 0, 0, 1.0, 1.0, 0}});
@@ -56,7 +57,7 @@ TEST(TestInclusion3, CheckPoints) // NOLINT
   ASSERT_NEAR(p[3].distance(Point<3>(0, -1, 0)), 0, 1e-10);
 }
 
-TEST(TestInclusion3, CheckPointsRotated) // NOLINT
+TEST(Inclusion3, CheckPointsRotated) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
   std::vector<double> inc({{0, 0, 0, 1.0, 0, 0, 1.0, 0}});
@@ -79,7 +80,7 @@ TEST(TestInclusion3, CheckPointsRotated) // NOLINT
 }
 
 
-TEST(TestInclusion3, CheckNegativeZDirection) // NOLINT
+TEST(Inclusion3, CheckNegativeZDirection) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
   std::vector<double> inc({{0, 0, 0, 0, 0, -1, 1.0, 0}});
@@ -98,7 +99,7 @@ TEST(TestInclusion3, CheckNegativeZDirection) // NOLINT
   ASSERT_NEAR((a - mzdir).norm(), 0, 1e-10);
 }
 
-TEST(TestInclusion3, CheckAlmostNegativeZDirection) // NOLINT
+TEST(Inclusion3, CheckAlmostNegativeZDirection) // NOLINT
 {
   // cx, cy, cz, dx, dy, dz, r
   std::vector<double> inc({{0, 0, 0, 0, 0.5, -1, 1.0, 0}});
