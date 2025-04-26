@@ -46,7 +46,12 @@
 using namespace dealii;
 
 /**
- * Parameter configuration for a ReferenceCrossSection.
+ * @class ReferenceCrossSectionParameters
+ * @brief Parameter configuration for a ReferenceCrossSection.
+ *
+ * This structure holds all parameters required to set up a
+ * ReferenceCrossSection object, including refinement level, inclusion type,
+ * polynomial degree, and selected coefficients.
  *
  * @tparam dim The intrinsic dimension of the reference domain.
  * @tparam spacedim The embedding space dimension.
@@ -72,8 +77,8 @@ struct ReferenceCrossSectionParameters : public ParameterAcceptor
 };
 
 /**
- * Handles the construction and management of a reference inclusion geometry and
- * its basis.
+ * @class ReferenceCrossSection
+ * @brief Handles the construction and management of a reference inclusion geometry and its basis.
  *
  * Used in reduced basis immersed boundary methods, this class initializes and
  * stores a full finite element space, computes basis functions, and provides
