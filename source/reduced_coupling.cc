@@ -79,12 +79,9 @@ background_tria.get_mpi_communicator()
     tria.create_triangulation(construction_data);
 
     if (tria.n_locally_owned_active_cells() == 0)
-      {
-        std::cerr << "Process "
-                  << Utilities::MPI::this_mpi_process(mpi_communicator)
-                  << " has no locally owned cells. Aborting." << std::endl;
-        MPI_Abort(mpi_communicator, EXIT_FAILURE);
-      }
+      std::cout << "Process "
+                << Utilities::MPI::this_mpi_process(mpi_communicator)
+                << " has no locally owned cells." << std::endl;
   };
 }
 

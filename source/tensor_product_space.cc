@@ -105,8 +105,14 @@ const std::vector<Point<spacedim>> &
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_locally_owned_qpoints() const
 {
-  AssertThrow(!all_qpoints.empty(),
-              ExcMessage("You must call compute_points_and_weights() first"));
+  const int n_local_qpoints = all_qpoints.size();
+  const int global_qpoints =
+    Utilities::MPI::sum(n_local_qpoints, mpi_communicator);
+
+  AssertThrow(
+    global_qpoints > 0,
+    ExcMessage(
+      "No quadrature points exist across all MPI ranks. You must call compute_points_and_weights() first"));
   return all_qpoints;
 }
 
@@ -115,8 +121,12 @@ const std::vector<std::vector<double>> &
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_locally_owned_weights() const
 {
-  AssertThrow(!all_weights.empty(),
-              ExcMessage("You must call compute_points_and_weights() first"));
+  const int n_local_weights = all_weights.size();
+  const int global_weights =
+    Utilities::MPI::sum(n_local_weights, mpi_communicator);
+  AssertThrow(global_weights > 0,
+              ExcMessage("No weights exist across all MPI ranks. You must call"
+                         " compute_points_and_weights() first"));
   return all_weights;
 }
 
@@ -125,8 +135,14 @@ const std::vector<Point<spacedim>> &
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_locally_owned_reduced_qpoints() const
 {
-  AssertThrow(!reduced_qpoints.empty(),
-              ExcMessage("You must call compute_points_and_weights() first"));
+  const int n_local_reduced_qpoints = reduced_qpoints.size();
+  const int global_reduced_qpoints =
+    Utilities::MPI::sum(n_local_reduced_qpoints, mpi_communicator);
+  AssertThrow(
+    global_reduced_qpoints > 0,
+    ExcMessage(
+      "No reduced quadrature points exist across all MPI ranks. You must call"
+      " compute_points_and_weights() first"));
   return reduced_qpoints;
 }
 
@@ -135,8 +151,13 @@ const std::vector<std::vector<double>> &
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_locally_owned_reduced_weights() const
 {
-  AssertThrow(!reduced_weights.empty(),
-              ExcMessage("You must call compute_points_and_weights() first"));
+  const int n_local_reduced_weights = reduced_weights.size();
+  const int global_reduced_weights =
+    Utilities::MPI::sum(n_local_reduced_weights, mpi_communicator);
+  AssertThrow(global_reduced_weights > 0,
+              ExcMessage(
+                "No reduced weights exist across all MPI ranks. You must call"
+                " compute_points_and_weights() first"));
   return reduced_weights;
 }
 
