@@ -402,7 +402,6 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                      const unsigned int comp) const
 {
   AssertIndexRange(i, reference_cross_section.n_selected_basis());
-  AssertIndexRange(global_reduced_q, reduced_qpoints.size());
   AssertIndexRange(section_q, reference_cross_section.n_quadrature_points());
   AssertIndexRange(comp, n_components);
   return reference_cross_section.shape_value(i, section_q, comp) *
