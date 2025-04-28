@@ -42,11 +42,11 @@ namespace VTKUtils
     vtkUnstructuredGrid *grid = reader->GetOutput();
     AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
 
+    auto cleaner = vtkSmartPointer<vtkCleanUnstructuredGrid>::New();
+
     // Cleanup the triangulation if requested
     if (cleanup)
       {
-        // Use VTK's vtkCleanUnstructuredGrid to merge overlapping points
-        auto cleaner = vtkSmartPointer<vtkCleanUnstructuredGrid>::New();
         cleaner->SetInputData(grid);
         cleaner->Update();
         grid = cleaner->GetOutput();
