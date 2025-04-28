@@ -331,6 +331,40 @@ namespace VTKUtils
         dof_offset += n_tuples * n_comp;
       }
   }
+
+  /**
+   * Distribute the output_vector to all processors in the triangulation using
+   * the partitioning of the tria.
+   */
+  template <int dim, int spacedim>
+  void
+  update_vector_layout(
+    const Triangulation<dim, spacedim>         &tria,
+    LinearAlgebra::distributed::Vector<double> &output_vector,
+    const Vector<double>                       &local_vector)
+  {
+    Assert(tria.get_communicator() == output_vector.get_mpi_communicator(),
+           ExcMessage(
+             "The communicator of the triangulation and the vector must be "
+             "the same."));
+    Assert(local_vector.size() > 0,
+           ExcMessage("The output vector must be empty before calling this "
+                      "function."));
+
+    // Distribute the output_vector to all processors in the triangulation
+    // using the partitioning of the tria.
+    const auto &partitioner =
+      tria.global_active_cell_index_partitioner().lock();
+    output_vector.reinit(partitioner, tria.get_communicator());
+
+    // Set the locally owned elements to the values from the local_vector
+    // and update the ghost values.
+    for (unsigned int i = 0; i < output_vector.locally_owned_size(); ++i)
+      output_vector.local_element(i) = local_vector(i);
+
+    output_vector.compress(VectorOperation::insert);
+  }
+
 } // namespace VTKUtils
 
 // Explicit instantiation for 1D, 2D and 3D
