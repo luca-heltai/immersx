@@ -11,11 +11,11 @@
 #  include <deal.II/fe/fe_q.h>
 #  include <deal.II/fe/fe_system.h>
 
-#  include <deal.II/grid/cell_data.h>
 #  include <deal.II/grid/grid_in.h>
 #  include <deal.II/grid/grid_out.h>
 #  include <deal.II/grid/tria.h>
 #  include <deal.II/grid/tria_accessor.h>
+#  include <deal.II/grid/tria_description.h>
 #  include <deal.II/grid/tria_iterator.h>
 
 #  include <vtkCellData.h>
