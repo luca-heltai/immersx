@@ -23,6 +23,7 @@
 
 #  include <deal.II/grid/tria.h>
 
+#  include <deal.II/lac/la_parallel_vector.h>
 #  include <deal.II/lac/vector.h>
 
 using namespace dealii;
