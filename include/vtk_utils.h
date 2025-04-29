@@ -106,18 +106,6 @@ namespace VTKUtils
            Vector<double>            &output_vector,
            std::vector<std::string>  &data_names);
 
-
-  /** Distribute the output_vector to all processors in the triangulation using
-   * the partitioning of the tria.
-   */
-  template <int dim, int spacedim>
-  void
-  update_vector_layout(
-    const Triangulation<dim, spacedim>         &tria,
-    LinearAlgebra::distributed::Vector<double> &output_vector,
-    const Vector<double>                       &local_vector);
-
-
 } // namespace VTKUtils
 
 #endif // DEAL_II_WITH_VTK
