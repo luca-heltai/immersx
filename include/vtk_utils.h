@@ -19,6 +19,28 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/mpi.h>
+#include <deal.II/base/point.h>
+
+#include <deal.II/distributed/tria.h>
+
+#include <deal.II/dofs/dof_handler.h>
+#include <deal.II/dofs/dof_tools.h>
+
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/mapping_q1.h>
+
+#include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/tria.h>
+
+#include <deal.II/lac/la_parallel_vector.h>
+#include <deal.II/lac/vector.h>
+
+#include <iostream>
+#include <map>
+#include <unordered_map>
+
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include <deal.II/grid/tria.h>
@@ -30,6 +52,7 @@ using namespace dealii;
 
 namespace VTKUtils
 {
+
 
   /**
    * @brief Read a VTK mesh file and populate a deal.II Triangulation.
@@ -106,7 +129,60 @@ namespace VTKUtils
            Vector<double>            &output_vector,
            std::vector<std::string>  &data_names);
 
+
+  // Custom comparator for Point<dim>.
+  template <int dim>
+  struct PointComparator
+  {
+    bool
+    operator()(const Point<dim> &p1, const Point<dim> &p2) const
+    {
+      // Compare lexicographically
+      for (unsigned int i = 0; i < dim; ++i)
+        {
+          if (p1[i] < p2[i] - 1e-10)
+            return true;
+          if (p2[i] < p1[i] - 1e-10)
+            return false;
+        }
+      return false; // Points are considered equal
+    }
+  };
+
+
+  /**
+   * Fill a distributed vector from a serial vector using a mapping of
+   * points to DoF indices.
+   *
+   * This function transfers data from a serial vector (the one returned by
+   * read_vtk() above) to a distributed vector based on the mapping of points to
+   * DoF indices for both the serial and parallel DoFHandler objects.
+   *
+   * @param parallel_dof_handler The parallel DoFHandler.
+   * @param serial_vec The serial vector containing the data.
+   * @param serial_map The mapping of points to DoF indices for the serial DoFHandler.
+   * @param mapping The mapping used for support points.
+   * @param parallel_vec The distributed vector to be filled.
+   * @param parallel_map The mapping of points to DoF indices for the parallel DoFHandler.
+   * @param comm The MPI communicator.
+   */
+  template <int dim>
+  void
+  fill_distributed_vector_from_serial(
+    const DoFHandler<dim> &parallel_dof_handler,
+    const Vector<double>  &serial_vec,
+    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
+                                               &serial_map,
+    const Mapping<dim>                         &mapping,
+    LinearAlgebra::distributed::Vector<double> &parallel_vec,
+    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
+            &parallel_map,
+    MPI_Comm comm);
+
+
 } // namespace VTKUtils
 
 #endif // DEAL_II_WITH_VTK
+
+
 #endif
