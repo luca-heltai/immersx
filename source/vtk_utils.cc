@@ -332,6 +332,54 @@ namespace VTKUtils
       }
   }
 
+  template <int dim>
+  void
+  fill_distributed_vector_from_serial(
+    const DoFHandler<dim> &parallel_dof_handler,
+    const Vector<double>  &serial_vec,
+    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
+                                               &serial_map,
+    const Mapping<dim>                         &mapping,
+    LinearAlgebra::distributed::Vector<double> &parallel_vec,
+    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
+            &parallel_map,
+    MPI_Comm comm)
+  {
+    Assert(parallel_vec.size() == 0,
+           ExcMessage("The parallel vector must be empty before filling it."));
+
+    Assert(parallel_dof_handler.get_triangulation().get_communicator() == comm,
+           ExcMessage(
+             "The communicator of the DoFHandler and the MPI_Comm must be "
+             "the same."));
+    // Initialize parallel layout of the vector using DoFHandler
+    parallel_vec.reinit(parallel_dof_handler.locally_owned_dofs(), comm);
+
+    // Transfer data from serial to parallel vector
+    for (const auto &p_pair : parallel_map)
+      {
+        const auto &pt             = p_pair.first;
+        const auto &parallel_index = p_pair.second;
+
+        if (!parallel_dof_handler.locally_owned_dofs().is_element(
+              parallel_index))
+          continue;
+
+        auto it = serial_map.find(pt);
+        if (it != serial_map.end())
+          {
+            types::global_dof_index serial_index = it->second;
+            parallel_vec[parallel_index]         = serial_vec[serial_index];
+          }
+        else
+          {
+            std::cerr << "No match found for point: " << pt << std::endl;
+            AssertThrow(false, ExcInternalError());
+          }
+      }
+
+    parallel_vec.compress(VectorOperation::insert);
+  }
 
 } // namespace VTKUtils
 
@@ -380,5 +428,35 @@ VTKUtils::read_vtk(const std::string &,
                    DoFHandler<3, 3> &,
                    Vector<double> &,
                    std::vector<std::string> &);
+
+template void
+VTKUtils::fill_distributed_vector_from_serial<1>(
+  const DoFHandler<1> &,
+  const Vector<double> &,
+  const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
+  const Mapping<1> &,
+  LinearAlgebra::distributed::Vector<double> &,
+  const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
+  MPI_Comm);
+
+template void
+VTKUtils::fill_distributed_vector_from_serial<2>(
+  const DoFHandler<2> &,
+  const Vector<double> &,
+  const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
+  const Mapping<2> &,
+  LinearAlgebra::distributed::Vector<double> &,
+  const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
+  MPI_Comm);
+
+template void
+VTKUtils::fill_distributed_vector_from_serial<3>(
+  const DoFHandler<3> &,
+  const Vector<double> &,
+  const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
+  const Mapping<3> &,
+  LinearAlgebra::distributed::Vector<double> &,
+  const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
+  MPI_Comm);
 
 #endif // DEAL_II_WITH_VTK
