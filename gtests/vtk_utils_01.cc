@@ -147,7 +147,6 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
     parallel_dof_handler.locally_owned_dofs(),
     serial_vec,
     serial_map,
-    mapping,
     parallel_vec,
     parallel_map,
     MPI_COMM_WORLD);

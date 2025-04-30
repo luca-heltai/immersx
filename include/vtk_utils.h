@@ -161,7 +161,6 @@ namespace VTKUtils
    *
    * @param parallel_dof_handler The parallel DoFHandler.
    * @param serial_vec The serial vector containing the data.
-   * @param serial_map The mapping of points to DoF indices for the serial DoFHandler.
    * @param mapping The mapping used for support points.
    * @param parallel_vec The distributed vector to be filled.
    * @param parallel_map The mapping of points to DoF indices for the parallel DoFHandler.
@@ -174,7 +173,6 @@ namespace VTKUtils
     const Vector<double> &serial_vec,
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
                                                &serial_map,
-    const Mapping<dim>                         &mapping,
     LinearAlgebra::distributed::Vector<double> &parallel_vec,
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
             &parallel_map,
