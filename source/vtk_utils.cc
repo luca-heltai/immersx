@@ -335,8 +335,8 @@ namespace VTKUtils
   template <int dim>
   void
   fill_distributed_vector_from_serial(
-    const DoFHandler<dim> &parallel_dof_handler,
-    const Vector<double>  &serial_vec,
+    const IndexSet       &owned_dofs,
+    const Vector<double> &serial_vec,
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
                                                &serial_map,
     const Mapping<dim>                         &mapping,
@@ -353,7 +353,7 @@ namespace VTKUtils
              "The communicator of the DoFHandler and the MPI_Comm must be "
              "the same."));
     // Initialize parallel layout of the vector using DoFHandler
-    parallel_vec.reinit(parallel_dof_handler.locally_owned_dofs(), comm);
+    parallel_vec.reinit(owned_dofs, comm);
 
     // Transfer data from serial to parallel vector
     for (const auto &p_pair : parallel_map)
@@ -361,8 +361,7 @@ namespace VTKUtils
         const auto &pt             = p_pair.first;
         const auto &parallel_index = p_pair.second;
 
-        if (!parallel_dof_handler.locally_owned_dofs().is_element(
-              parallel_index))
+        if (!owned_dofs.is_element(parallel_index))
           continue;
 
         auto it = serial_map.find(pt);
@@ -380,6 +379,10 @@ namespace VTKUtils
 
     parallel_vec.compress(VectorOperation::insert);
   }
+
+} // namespace VTKUtils
+
+
 
 } // namespace VTKUtils
 
@@ -431,7 +434,7 @@ VTKUtils::read_vtk(const std::string &,
 
 template void
 VTKUtils::fill_distributed_vector_from_serial<1>(
-  const DoFHandler<1> &,
+  const IndexSet &,
   const Vector<double> &,
   const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
   const Mapping<1> &,
@@ -441,7 +444,7 @@ VTKUtils::fill_distributed_vector_from_serial<1>(
 
 template void
 VTKUtils::fill_distributed_vector_from_serial<2>(
-  const DoFHandler<2> &,
+  const IndexSet &,
   const Vector<double> &,
   const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
   const Mapping<2> &,
@@ -451,7 +454,7 @@ VTKUtils::fill_distributed_vector_from_serial<2>(
 
 template void
 VTKUtils::fill_distributed_vector_from_serial<3>(
-  const DoFHandler<3> &,
+  const IndexSet &,
   const Vector<double> &,
   const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
   const Mapping<3> &,
