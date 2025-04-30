@@ -347,11 +347,8 @@ namespace VTKUtils
   {
     Assert(parallel_vec.size() == 0,
            ExcMessage("The parallel vector must be empty before filling it."));
-
-    Assert(parallel_dof_handler.get_triangulation().get_communicator() == comm,
-           ExcMessage(
-             "The communicator of the DoFHandler and the MPI_Comm must be "
-             "the same."));
+    AssertThrow(owned_dofs.n_elements() > 0,
+                ExcMessage("The owned DoF index set must not be empty."));
     // Initialize parallel layout of the vector using DoFHandler
     parallel_vec.reinit(owned_dofs, comm);
 
@@ -382,9 +379,6 @@ namespace VTKUtils
 
 } // namespace VTKUtils
 
-
-
-} // namespace VTKUtils
 
 // Explicit instantiation for 1D, 2D and 3D
 
