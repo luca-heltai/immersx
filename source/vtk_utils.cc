@@ -339,7 +339,6 @@ namespace VTKUtils
     const Vector<double> &serial_vec,
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
                                                &serial_map,
-    const Mapping<dim>                         &mapping,
     LinearAlgebra::distributed::Vector<double> &parallel_vec,
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
             &parallel_map,
@@ -431,7 +430,6 @@ VTKUtils::fill_distributed_vector_from_serial<1>(
   const IndexSet &,
   const Vector<double> &,
   const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
-  const Mapping<1> &,
   LinearAlgebra::distributed::Vector<double> &,
   const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
   MPI_Comm);
@@ -441,7 +439,6 @@ VTKUtils::fill_distributed_vector_from_serial<2>(
   const IndexSet &,
   const Vector<double> &,
   const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
-  const Mapping<2> &,
   LinearAlgebra::distributed::Vector<double> &,
   const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
   MPI_Comm);
@@ -451,7 +448,6 @@ VTKUtils::fill_distributed_vector_from_serial<3>(
   const IndexSet &,
   const Vector<double> &,
   const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
-  const Mapping<3> &,
   LinearAlgebra::distributed::Vector<double> &,
   const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
   MPI_Comm);
