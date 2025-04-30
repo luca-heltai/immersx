@@ -169,8 +169,8 @@ namespace VTKUtils
   template <int dim>
   void
   fill_distributed_vector_from_serial(
-    const DoFHandler<dim> &parallel_dof_handler,
-    const Vector<double>  &serial_vec,
+    const IndexSet       &owned_dofs,
+    const Vector<double> &serial_vec,
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
                                                &serial_map,
     const Mapping<dim>                         &mapping,

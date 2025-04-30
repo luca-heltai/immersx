@@ -143,13 +143,14 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
 
   // Fill parallel vector using the utility function
   LA::distributed::Vector<double> parallel_vec;
-  VTKUtils::fill_distributed_vector_from_serial(parallel_dof_handler,
-                                                serial_vec,
-                                                serial_map,
-                                                mapping,
-                                                parallel_vec,
-                                                parallel_map,
-                                                MPI_COMM_WORLD);
+  VTKUtils::fill_distributed_vector_from_serial(
+    parallel_dof_handler.locally_owned_dofs(),
+    serial_vec,
+    serial_map,
+    mapping,
+    parallel_vec,
+    parallel_map,
+    MPI_COMM_WORLD);
 
 
   // Check values in distributed vector
