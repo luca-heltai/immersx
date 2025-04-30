@@ -137,12 +137,13 @@ namespace VTKUtils
     bool
     operator()(const Point<dim> &p1, const Point<dim> &p2) const
     {
+      const double tol = (p1.norm() + p2.norm()) * .5e-7;
       // Compare lexicographically
       for (unsigned int i = 0; i < dim; ++i)
         {
-          if (p1[i] < p2[i] - 1e-10)
+          if (p1[i] < p2[i] - tol)
             return true;
-          if (p2[i] < p1[i] - 1e-10)
+          if (p2[i] < p1[i] - tol)
             return false;
         }
       return false; // Points are considered equal
