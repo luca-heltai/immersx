@@ -177,7 +177,7 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   const int dim      = 1;
   const int spacedim = 3;
 
-  std::string vtk_filename = SOURCE_DIR "/data/tests/ms_tree100.vtk";
+  std::string vtk_filename = SOURCE_DIR "/data/tests/mstree_100.vtk";
 
   Triangulation<dim, spacedim> serial_tria;
   DoFHandler<dim, spacedim>    serial_dof_handler(serial_tria);
