@@ -179,6 +179,7 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
 
   std::string vtk_filename = SOURCE_DIR "/data/tests/mstree_100.vtk";
 
+
   Triangulation<dim, spacedim> serial_tria;
   DoFHandler<dim, spacedim>    serial_dof_handler(serial_tria);
   Vector<double>               serial_data;
@@ -186,7 +187,7 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
 
   VTKUtils::read_vtk(vtk_filename, serial_dof_handler, serial_data, data_names);
 
-  // Store the original L2 norm
+  // original L2 norm for comparison
   const double serial_norm = serial_data.l2_norm();
 
   MappingQ1<dim, spacedim>                           mapping;
@@ -201,6 +202,26 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
     serial_map;
   for (const auto &pair : serial_support_points)
     serial_map[pair.second] = pair.first;
+
+  // Store few sample points and their values for later verification
+  std::vector<Point<spacedim>> sample_points;
+  std::vector<double>          sample_values;
+
+  // Select some specific points to verify (first, middle, last)
+  int count = 0;
+  for (const auto &pair : serial_map)
+    {
+      // Take the first point, a point in the middle, and the last point
+      if (count == 0 || count == serial_map.size() / 2 ||
+          count == serial_map.size() - 1)
+        {
+          sample_points.push_back(pair.first);
+          sample_values.push_back(serial_data[pair.second]);
+          std::cout << "Serial point " << pair.first << " has value "
+                    << serial_data[pair.second] << std::endl;
+        }
+      count++;
+    }
 
 
   // First, partition the serial triangulation
@@ -244,7 +265,7 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
     parallel_map,
     MPI_COMM_WORLD);
 
-  //  compare norms
+  // compute and compare norms
   double local_norm_sq = 0.0;
   for (const auto &pair : parallel_map)
     {
@@ -262,6 +283,66 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   ASSERT_NEAR(serial_norm, parallel_norm, 1e-10)
     << "Data transfer failed: serial norm = " << serial_norm
     << ", parallel norm = " << parallel_norm;
+
+  // point value verification: Each process checks if it owns any of the sample
+  // points, then verifies values
+  for (size_t i = 0; i < sample_points.size(); ++i)
+    {
+      const Point<spacedim> &point          = sample_points[i];
+      const double           expected_value = sample_values[i];
+
+      // Find this point in the parallel mesh
+      auto it = parallel_map.find(point);
+      if (it != parallel_map.end())
+        {
+          const types::global_dof_index dof_index = it->second;
+
+          // Check if this process owns this DoF
+          if (parallel_dof_handler.locally_owned_dofs().is_element(dof_index))
+            {
+              const double actual_value = parallel_data[dof_index];
+              std::cout << "Process "
+                        << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+                        << " owns point " << point << " with value "
+                        << actual_value << " (expected: " << expected_value
+                        << ")" << std::endl;
+
+              ASSERT_NEAR(expected_value, actual_value, 1e-10)
+                << "Point data transfer failed at " << point;
+            }
+        }
+    }
+
+  // Gather all point verification results to ensure all points were checked
+  std::vector<int> points_verified_local(sample_points.size(), 0);
+  std::vector<int> points_verified_global(sample_points.size(), 0);
+
+  for (size_t i = 0; i < sample_points.size(); ++i)
+    {
+      const Point<spacedim> &point = sample_points[i];
+      auto                   it    = parallel_map.find(point);
+      if (it != parallel_map.end() &&
+          parallel_dof_handler.locally_owned_dofs().is_element(it->second))
+        {
+          points_verified_local[i] = 1;
+        }
+    }
+
+  // Sum up verification status across processes
+  Utilities::MPI::sum(points_verified_local,
+                      MPI_COMM_WORLD,
+                      points_verified_global);
+
+  // On root process, verify all points were checked
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      for (size_t i = 0; i < sample_points.size(); ++i)
+        {
+          ASSERT_GT(points_verified_global[i], 0)
+            << "Sample point " << sample_points[i]
+            << " was not verified by any process";
+        }
+    }
 
   // Additional verification: check sizes match properly
   EXPECT_EQ(serial_tria.n_active_cells(),
