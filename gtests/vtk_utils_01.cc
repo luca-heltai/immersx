@@ -1,7 +1,9 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/point.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_description.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -10,6 +12,7 @@
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
 
 #include <deal.II/lac/la_parallel_vector.h>
@@ -168,6 +171,103 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
       ASSERT_NEAR(parallel_vec[parallel_index], expected_value, 1e-10)
         << "Mismatch at point " << pt;
     }
+}
+
+TEST(VTKUtils, MPI_TransferVTKDataToParallel)
+{
+  const int dim      = 1;
+  const int spacedim = 3;
+
+  std::string vtk_filename = SOURCE_DIR "/data/tests/ms_tree100.vtk";
+
+  Triangulation<dim, spacedim> serial_tria;
+  DoFHandler<dim, spacedim>    serial_dof_handler(serial_tria);
+  Vector<double>               serial_data;
+  std::vector<std::string>     data_names;
+
+  VTKUtils::read_vtk(vtk_filename, serial_dof_handler, serial_data, data_names);
+
+  // Store the original L2 norm
+  const double serial_norm = serial_data.l2_norm();
+
+  MappingQ1<dim, spacedim>                           mapping;
+  std::map<types::global_dof_index, Point<spacedim>> serial_support_points;
+  DoFTools::map_dofs_to_support_points(mapping,
+                                       serial_dof_handler,
+                                       serial_support_points);
+
+  std::map<Point<spacedim>,
+           types::global_dof_index,
+           VTKUtils::PointComparator<spacedim>>
+    serial_map;
+  for (const auto &pair : serial_support_points)
+    serial_map[pair.second] = pair.first;
+
+
+  // First, partition the serial triangulation
+  GridTools::partition_triangulation(
+    Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_tria);
+
+  // Create description for fully distributed triangulation
+  const TriangulationDescription::Description<dim, spacedim> description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial_tria, MPI_COMM_WORLD);
+
+  // Create the parallel triangulation
+  parallel::fullydistributed::Triangulation<dim, spacedim> parallel_tria(
+    MPI_COMM_WORLD);
+  parallel_tria.create_triangulation(description);
+
+
+  DoFHandler<dim, spacedim> parallel_dof_handler(parallel_tria);
+  parallel_dof_handler.distribute_dofs(serial_dof_handler.get_fe());
+
+  // point-to-DoF mapping for parallel mesh
+  std::map<types::global_dof_index, Point<spacedim>> parallel_support_points;
+  DoFTools::map_dofs_to_support_points(mapping,
+                                       parallel_dof_handler,
+                                       parallel_support_points);
+
+  std::map<Point<spacedim>,
+           types::global_dof_index,
+           VTKUtils::PointComparator<spacedim>>
+    parallel_map;
+  for (const auto &pair : parallel_support_points)
+    parallel_map[pair.second] = pair.first;
+
+
+  LA::distributed::Vector<double> parallel_data;
+  VTKUtils::fill_distributed_vector_from_serial(
+    parallel_dof_handler.locally_owned_dofs(),
+    serial_data,
+    serial_map,
+    parallel_data,
+    parallel_map,
+    MPI_COMM_WORLD);
+
+  //  compare norms
+  double local_norm_sq = 0.0;
+  for (const auto &pair : parallel_map)
+    {
+      const auto &dof_index = pair.second;
+
+      if (parallel_dof_handler.locally_owned_dofs().is_element(dof_index))
+        local_norm_sq += parallel_data[dof_index] * parallel_data[dof_index];
+    }
+
+  const double global_norm_sq =
+    Utilities::MPI::sum(local_norm_sq, MPI_COMM_WORLD);
+  const double parallel_norm = std::sqrt(global_norm_sq);
+
+  // Assert that the parallel norm matches the serial norm
+  ASSERT_NEAR(serial_norm, parallel_norm, 1e-10)
+    << "Data transfer failed: serial norm = " << serial_norm
+    << ", parallel norm = " << parallel_norm;
+
+  // Additional verification: check sizes match properly
+  EXPECT_EQ(serial_tria.n_active_cells(),
+            parallel_tria.n_global_active_cells());
+  EXPECT_EQ(serial_dof_handler.n_dofs(), parallel_dof_handler.n_dofs());
 }
 
 #endif // DEAL_II_WITH_VTK
