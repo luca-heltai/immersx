@@ -11,11 +11,14 @@
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
 
 #include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/lac/vector.h>
+
+#include <mpi.h>
 
 #include <string>
 #include <vector>
@@ -51,6 +54,110 @@ TEST(VTKUtils, ReadPointDataScalar)
   EXPECT_EQ(output_vector.size(), 10);
 }
 
+TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
+{
+  std::string    vtk_filename    = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string    point_data_name = "path_distance";
+  Vector<double> output_vector;
+  ASSERT_NO_THROW(
+    VTKUtils::read_point_data(vtk_filename, point_data_name, output_vector));
+  // Optionally, check expected size or values
+  EXPECT_EQ(output_vector.size(), 10);
+
+  Triangulation<1, 3> triangulation;
+  GridIn<1, 3>        grid_in;
+  grid_in.attach_triangulation(triangulation);
+  std::ifstream f(vtk_filename);
+  grid_in.read_vtk(f);
+
+  for (const auto &cell : triangulation.active_cell_iterators())
+    for (unsigned int i = 0; i < 1; ++i)
+      std::cout << "Global vertex index " << cell->vertex_index(i)
+                << " has data " << output_vector[cell->vertex_index(i)]
+                << std::endl;
+}
+
+TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
+{
+  std::string    vtk_filename    = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string    point_data_name = "path_distance";
+  Vector<double> output_vector;
+  ASSERT_NO_THROW(
+    VTKUtils::read_point_data(vtk_filename, point_data_name, output_vector));
+  EXPECT_EQ(output_vector.size(), 10);
+
+  Triangulation<1, 3> serial_tria;
+  GridIn<1, 3>        grid_in;
+  grid_in.attach_triangulation(serial_tria);
+  std::ifstream f(vtk_filename);
+  grid_in.read_vtk(f);
+
+  ASSERT_GT(serial_tria.n_vertices(), 0);
+  ASSERT_GT(serial_tria.n_active_cells(), 0);
+  std::cout << "Serial triangulation: " << serial_tria.n_vertices()
+            << " vertices, " << serial_tria.n_active_cells() << " cells"
+            << std::endl;
+
+  GridTools::partition_triangulation(
+    Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_tria);
+
+  const auto construction_data =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial_tria, MPI_COMM_WORLD);
+  parallel::fullydistributed::Triangulation<1, 3> dist_tria(MPI_COMM_WORLD);
+  dist_tria.create_triangulation(construction_data);
+
+  ASSERT_GT(dist_tria.n_active_cells(), 0);
+  std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+            << ": Distributed triangulation has "
+            << dist_tria.n_locally_owned_active_cells() << " local cells"
+            << std::endl;
+
+  // Verify mapping
+  auto dist_to_serial_mapping =
+    VTKUtils::create_vertex_mapping(serial_tria, dist_tria);
+  ASSERT_GT(dist_to_serial_mapping.size(), 0);
+  std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+            << ": Created mapping for " << dist_to_serial_mapping.size()
+            << " vertices" << std::endl;
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  unsigned int verified_vertices = 0;
+
+  for (const auto &cell : dist_tria.active_cell_iterators())
+    {
+      if (cell->is_locally_owned())
+        {
+          {
+            for (unsigned int v = 0; v < cell->n_vertices(); ++v)
+              {
+                const unsigned int dist_vertex_index = cell->vertex_index(v);
+
+                //  corresponding serial index
+                auto it = dist_to_serial_mapping.find(dist_vertex_index);
+                if (it != dist_to_serial_mapping.end())
+                  {
+                    const unsigned int serial_vertex_index = it->second;
+                    const double       data_value =
+                      output_vector[serial_vertex_index];
+
+                    std::cout << "Vertex " << dist_vertex_index
+                              << " (serial: " << serial_vertex_index
+                              << ") with location " << cell->vertex(v)
+                              << " data: " << data_value << std::endl;
+                    verified_vertices++;
+                  }
+              }
+          }
+        }
+    }
+  // Verify we accessed at least some vertices
+  ASSERT_GT(verified_vertices, 0);
+  std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+            << ": Successfully accessed data for " << verified_vertices
+            << " vertices" << std::endl;
+}
+
 TEST(VTKUtils, ReadVtkMesh)
 {
   std::string         vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
@@ -60,7 +167,6 @@ TEST(VTKUtils, ReadVtkMesh)
   EXPECT_EQ(tria.n_vertices(), 10);
   EXPECT_EQ(tria.n_active_cells(), 9);
 }
-
 
 
 TEST(VTKUtils, ReadVtkDH)
@@ -284,8 +390,8 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
     << "Data transfer failed: serial norm = " << serial_norm
     << ", parallel norm = " << parallel_norm;
 
-  // point value verification: Each process checks if it owns any of the sample
-  // points, then verifies values
+  // point value verification: Each process checks if it owns any of the
+  // sample points, then verifies values
   for (size_t i = 0; i < sample_points.size(); ++i)
     {
       const Point<spacedim> &point          = sample_points[i];
