@@ -4,6 +4,8 @@
 #include <vector>
 
 #ifdef DEAL_II_WITH_VTK
+#  include <deal.II/distributed/fully_distributed_tria.h>
+
 #  include <deal.II/dofs/dof_renumbering.h>
 
 #  include <deal.II/fe/fe.h>
@@ -58,7 +60,7 @@ namespace VTKUtils
     std::vector<Point<spacedim>> points(n_points);
     for (vtkIdType i = 0; i < n_points; ++i)
       {
-        std::array<double, 3> coords = {0, 0, 0};
+        std::array<double, 3> coords = {{0, 0, 0}};
         vtk_points->GetPoint(i, coords.data());
         for (unsigned int d = 0; d < spacedim; ++d)
           points[i][d] = coords[d];
@@ -376,6 +378,64 @@ namespace VTKUtils
     parallel_vec.compress(VectorOperation::insert);
   }
 
+  template <int dim, int spacedim>
+  std::map<unsigned int, unsigned int>
+  create_vertex_mapping(
+    const Triangulation<dim, spacedim>                             &serial_tria,
+    const parallel::fullydistributed::Triangulation<dim, spacedim> &dist_tria)
+  {
+    // Define a point comparator with tolerance for floating point comparison
+    struct PointComparator
+    {
+      bool
+      operator()(const Point<spacedim> &p1, const Point<spacedim> &p2) const
+      {
+        const double tolerance = 1e-12;
+        for (unsigned int d = 0; d < spacedim; ++d)
+          {
+            if (std::abs(p1[d] - p2[d]) > tolerance)
+              return p1[d] < p2[d];
+          }
+        return false; // Points are considered equal
+      }
+    };
+
+    // Create maps from coordinates to indices
+    std::map<Point<spacedim>, unsigned int, PointComparator>
+      serial_point_to_index;
+    std::map<Point<spacedim>, unsigned int, PointComparator>
+      dist_point_to_index;
+
+    // Fill serial map
+    for (unsigned int i = 0; i < serial_tria.n_vertices(); ++i)
+      {
+        serial_point_to_index[serial_tria.get_vertices()[i]] = i;
+      }
+
+    // Fill distributed map
+    for (unsigned int i = 0; i < dist_tria.n_vertices(); ++i)
+      {
+        if (dist_tria.get_vertices()[i].norm() > 0) // Skip invalid vertices
+          dist_point_to_index[dist_tria.get_vertices()[i]] = i;
+      }
+
+    // Create the mapping from distributed vertex index to serial vertex index
+    std::map<unsigned int, unsigned int> dist_to_serial_mapping;
+    for (const auto &pair : dist_point_to_index)
+      {
+        const Point<spacedim> &point    = pair.first;
+        const unsigned int     dist_idx = pair.second;
+
+        auto it = serial_point_to_index.find(point);
+        if (it != serial_point_to_index.end())
+          {
+            dist_to_serial_mapping[dist_idx] = it->second;
+          }
+      }
+
+    return dist_to_serial_mapping;
+  }
+
 } // namespace VTKUtils
 
 
@@ -451,5 +511,30 @@ VTKUtils::fill_distributed_vector_from_serial<3>(
   LinearAlgebra::distributed::Vector<double> &,
   const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
   MPI_Comm);
+
+template std::map<unsigned int, unsigned int>
+VTKUtils::create_vertex_mapping(
+  const Triangulation<1, 1> &,
+  const parallel::fullydistributed::Triangulation<1, 1> &);
+template std::map<unsigned int, unsigned int>
+VTKUtils::create_vertex_mapping(
+  const Triangulation<1, 2> &,
+  const parallel::fullydistributed::Triangulation<1, 2> &);
+template std::map<unsigned int, unsigned int>
+VTKUtils::create_vertex_mapping(
+  const Triangulation<1, 3> &,
+  const parallel::fullydistributed::Triangulation<1, 3> &);
+template std::map<unsigned int, unsigned int>
+VTKUtils::create_vertex_mapping(
+  const Triangulation<2, 2> &,
+  const parallel::fullydistributed::Triangulation<2, 2> &);
+template std::map<unsigned int, unsigned int>
+VTKUtils::create_vertex_mapping(
+  const Triangulation<2, 3> &,
+  const parallel::fullydistributed::Triangulation<2, 3> &);
+template std::map<unsigned int, unsigned int>
+VTKUtils::create_vertex_mapping(
+  const Triangulation<3, 3> &,
+  const parallel::fullydistributed::Triangulation<3, 3> &);
 
 #endif // DEAL_II_WITH_VTK
