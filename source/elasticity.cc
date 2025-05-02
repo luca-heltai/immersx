@@ -39,6 +39,8 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "augmented_lagrangian_preconditioner.h"
+
 template <int dim, int spacedim>
 ElasticityProblem<dim, spacedim>::ElasticityProblem(
   const ElasticityProblemParameters<dim, spacedim> &par)
@@ -609,13 +611,30 @@ ElasticityProblem<dim, spacedim>::solve()
     data.symmetric_operator = true;
 #endif
     // informo il precondizionatore dei modi costanti del problema elastico
-    std::vector<std::vector<bool>>   constant_modes;
-    const FEValuesExtractors::Vector displacement_components(0); // gia in .h
-    DoFTools::extract_constant_modes(
-      dh, fe->component_mask(displacement_components), constant_modes);
-    data.constant_modes = constant_modes;
+    // std::vector<std::vector<bool>>   constant_modes;
+    // const FEValuesExtractors::Vector displacement_components(0); // gia in .h
+    // DoFTools::extract_constant_modes(
+    //   dh, fe->component_mask(displacement_components), constant_modes);
+    // data.constant_modes = constant_modes;
 
-    prec_A.initialize(stiffness_matrix, data);
+    Teuchos::ParameterList parameter_list;
+    parameter_list.set("smoother: type", "Chebyshev");
+    parameter_list.set("smoother: sweeps", 2);
+    parameter_list.set("smoother: pre or post", "both");
+    parameter_list.set("coarse: type", "Amesos-KLU");
+    parameter_list.set("coarse: max size", 2000);
+    parameter_list.set("aggregation: threshold", 0.02);
+
+    MappingQ1<spacedim>              mapping;
+    std::vector<std::vector<double>> rigid_body_modes =
+      DoFTools::extract_rigid_body_modes(mapping, dh);
+
+    std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
+    UtilitiesAL::set_null_space<spacedim>(parameter_list,
+                                          ptr_operator_modes,
+                                          stiffness_matrix.trilinos_matrix(),
+                                          rigid_body_modes);
+    prec_A.initialize(stiffness_matrix, parameter_list);
   }
 
   const auto A    = linear_operator<LA::MPI::Vector>(stiffness_matrix);
