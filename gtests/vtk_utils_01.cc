@@ -158,6 +158,74 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
             << " vertices" << std::endl;
 }
 
+
+TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
+{
+  std::string    vtk_filename   = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string    cell_data_name = "edge_length";
+  Vector<double> output_vector;
+  ASSERT_NO_THROW(
+    VTKUtils::read_cell_data(vtk_filename, cell_data_name, output_vector));
+  EXPECT_EQ(output_vector.size(), 9);
+
+  Triangulation<1, 3> serial_tria;
+  GridIn<1, 3>        grid_in;
+  grid_in.attach_triangulation(serial_tria);
+  std::ifstream f(vtk_filename);
+  grid_in.read_vtk(f);
+
+  ASSERT_GT(serial_tria.n_vertices(), 0);
+  ASSERT_GT(serial_tria.n_active_cells(), 0);
+  std::cout << "Serial triangulation: " << serial_tria.n_vertices()
+            << " vertices, " << serial_tria.n_active_cells() << " cells"
+            << std::endl;
+
+  GridTools::partition_triangulation(
+    Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_tria);
+
+  const auto construction_data =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial_tria, MPI_COMM_WORLD);
+  parallel::fullydistributed::Triangulation<1, 3> dist_tria(MPI_COMM_WORLD);
+  dist_tria.create_triangulation(construction_data);
+
+  ASSERT_GT(dist_tria.n_active_cells(), 0);
+  std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+            << ": Distributed triangulation has "
+            << dist_tria.n_locally_owned_active_cells() << " local cells"
+            << std::endl;
+
+  // Verify mapping
+  auto dist_to_serial_mapping =
+    VTKUtils::create_vertex_mapping(serial_tria, dist_tria);
+  ASSERT_GT(dist_to_serial_mapping.size(), 0);
+  std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+            << ": Created mapping for " << dist_to_serial_mapping.size()
+            << " vertices" << std::endl;
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  unsigned int verified_cells = 0;
+
+  for (const auto &cell : dist_tria.active_cell_iterators())
+    {
+      if (cell->is_locally_owned())
+        {
+          std::cout << "Process "
+                    << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+                    << ": Cell with index " << cell->index()
+                    << " reads cell data"
+                    << output_vector[cell->id().get_coarse_cell_id()]
+                    << std::endl;
+        }
+    }
+
+  // Verify we accessed at least some vertices
+  ASSERT_GT(verified_cells, 0);
+  std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
+            << ": Successfully accessed data for " << verified_cells
+            << " vertices" << std::endl;
+}
+
 TEST(VTKUtils, ReadVtkMesh)
 {
   std::string         vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
