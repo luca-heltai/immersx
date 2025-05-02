@@ -216,6 +216,7 @@ TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
                     << " reads cell data"
                     << output_vector[cell->id().get_coarse_cell_id()]
                     << std::endl;
+          ++verified_cells;
         }
     }
 
