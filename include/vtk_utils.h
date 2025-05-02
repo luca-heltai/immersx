@@ -178,6 +178,23 @@ namespace VTKUtils
             &parallel_map,
     MPI_Comm comm);
 
+  /**
+   * @brief Create a mapping from distributed triangulation vertex indices to serial triangulation vertex indices.
+   *
+   * This function creates a map that translates vertex indices from a
+   * distributed triangulation to the corresponding vertex indices in a serial
+   * triangulation. The mapping is based on matching vertex coordinates with a
+   * small tolerance to account for floating-point errors.
+   *
+   * @param serial_tria The serial triangulation.
+   * @param dist_tria The distributed triangulation.
+   * @return A map from distributed vertex indices to serial vertex indices.
+   */
+  template <int dim, int spacedim>
+  std::map<unsigned int, unsigned int>
+  create_vertex_mapping(
+    const Triangulation<dim, spacedim>                             &serial_tria,
+    const parallel::fullydistributed::Triangulation<dim, spacedim> &dist_tria);
 
 } // namespace VTKUtils
 
