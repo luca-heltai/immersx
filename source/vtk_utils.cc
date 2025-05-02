@@ -15,6 +15,7 @@
 
 #  include <deal.II/grid/grid_in.h>
 #  include <deal.II/grid/grid_out.h>
+#  include <deal.II/grid/grid_tools.h>
 #  include <deal.II/grid/tria.h>
 #  include <deal.II/grid/tria_accessor.h>
 #  include <deal.II/grid/tria_description.h>
@@ -412,12 +413,17 @@ namespace VTKUtils
         serial_point_to_index[serial_tria.get_vertices()[i]] = i;
       }
 
-    // Fill distributed map
+    // Get locally owned vertices
+    std::vector<bool> locally_owned_vertices =
+      GridTools::get_locally_owned_vertices(dist_tria);
+
+    // Fill distributed map with only locally owned vertices
+    const std::vector<Point<spacedim>> &distributed_vertices =
+      dist_tria.get_vertices();
     for (unsigned int i = 0; i < dist_tria.n_vertices(); ++i)
-      {
-        if (dist_tria.get_vertices()[i].norm() > 0) // Skip invalid vertices
-          dist_point_to_index[dist_tria.get_vertices()[i]] = i;
-      }
+      if (i < locally_owned_vertices.size() && locally_owned_vertices[i])
+        dist_point_to_index[distributed_vertices[i]] = i;
+
 
     // Create the mapping from distributed vertex index to serial vertex index
     std::map<unsigned int, unsigned int> dist_to_serial_mapping;
