@@ -1,5 +1,8 @@
+#include <deal.II/base/config.h>
 
 #include <deal.II/base/exceptions.h>
+
+#include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/linear_operator.h>
@@ -171,6 +174,74 @@ namespace UtilitiesAL
     (void)augmented_matrix;
 #  endif
   }
+
+
+  /**
+   * @brief Set the null space of the matrix using a pre-computed set of
+   * vectors. Needed for the AMG preconditioner to work properly with linear
+   * elasticity. In particular, parameter_list will be filled by this function.
+   */
+  template <int spacedim, typename VectorType>
+  void
+  set_null_space(Teuchos::ParameterList              &parameter_list,
+                 std::unique_ptr<Epetra_MultiVector> &ptr_distributed_modes,
+                 const Epetra_RowMatrix              &matrix,
+                 const std::vector<VectorType>       &modes)
+  {
+    static_assert((spacedim == 2 || spacedim == 3),
+                  "This function only works for 2D and 3D.");
+
+#  ifdef DEAL_II_WITH_TRILINOS
+
+
+    using size_type = TrilinosWrappers::PreconditionAMG::size_type;
+    const Epetra_Map   &domain_map      = matrix.OperatorDomainMap();
+    constexpr size_type modes_dimension = spacedim == 3 ? 6 : 3;
+
+    ptr_distributed_modes.reset(
+      new Epetra_MultiVector(domain_map, modes_dimension));
+    Assert(ptr_distributed_modes, ExcNotInitialized());
+    Epetra_MultiVector &distributed_modes = *ptr_distributed_modes;
+
+    const size_type global_size = TrilinosWrappers::n_global_rows(matrix);
+
+    Assert(global_size == static_cast<size_type>(
+                            TrilinosWrappers::global_length(distributed_modes)),
+           ExcDimensionMismatch(
+             global_size, TrilinosWrappers::global_length(distributed_modes)));
+
+    const size_type my_size = domain_map.NumMyElements();
+
+    // Reshape null space as a contiguous vector of doubles so that
+    // Trilinos can read from it.
+    [[maybe_unused]] const size_type expected_mode_size = global_size;
+    for (size_type d = 0; d < modes_dimension; ++d)
+      {
+        Assert(modes[d].size() == expected_mode_size,
+               ExcDimensionMismatch(modes[d].size(), expected_mode_size));
+        for (size_type row = 0; row < my_size; ++row)
+          {
+            const TrilinosWrappers::types::int_type mode_index =
+              TrilinosWrappers::global_index(domain_map, row);
+            distributed_modes[d][row] =
+              static_cast<double>(modes[d][mode_index]);
+          }
+      }
+
+    parameter_list.set("null space: type", "pre-computed");
+    parameter_list.set("null space: dimension", distributed_modes.NumVectors());
+    parameter_list.set("null space: vectors", distributed_modes.Values());
+
+
+#  else
+    AssertThrow(
+      false,
+      ExcMessage(
+        "This function requires deal.II to be configured with Trilinos."));
+
+#  endif
+  }
+
 } // namespace UtilitiesAL
 
 #endif
