@@ -14,30 +14,12 @@
 //
 // ---------------------------------------------------------------------
 
-/* ---------------------------------------------------------------------
- *
- * Copyright (C) 2000 - 2020 by the deal.II authors
- *
- * This file is part of the deal.II library.
- *
- * The deal.II library is free software; you can use it, redistribute
- * it, and/or modify it under the terms of the GNU Lesser General
- * Public License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- * The full text of the license can be found in the file LICENSE.md at
- * the top level directory of deal.II.
- *
- * ---------------------------------------------------------------------
- *
- * Author: Wolfgang Bangerth, University of Heidelberg, 2000
- * Modified by: Luca Heltai, 2020
- */
-
-
 
 #include "elasticity.h"
 
 #include <boost/algorithm/string.hpp>
+
+#include "augmented_lagrangian_preconditioner.h"
 
 template <int dim, int spacedim>
 ElasticityProblem<dim, spacedim>::ElasticityProblem(
@@ -608,14 +590,41 @@ ElasticityProblem<dim, spacedim>::solve()
 #ifdef USE_PETSC_LA
     data.symmetric_operator = true;
 #endif
-    // informo il precondizionatore dei modi costanti del problema elastico
-    std::vector<std::vector<bool>>   constant_modes;
-    const FEValuesExtractors::Vector displacement_components(0); // gia in .h
-    DoFTools::extract_constant_modes(
-      dh, fe->component_mask(displacement_components), constant_modes);
-    data.constant_modes = constant_modes;
 
-    prec_A.initialize(stiffness_matrix, data);
+
+    Teuchos::ParameterList              parameter_list;
+    std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
+    parameter_list.set("smoother: type", "Chebyshev");
+    parameter_list.set("smoother: sweeps", 2);
+    parameter_list.set("smoother: pre or post", "both");
+    parameter_list.set("coarse: type", "Amesos-KLU");
+    parameter_list.set("coarse: max size", 2000);
+    parameter_list.set("aggregation: threshold", 0.02);
+
+#if DEAL_II_VERSION_GTE(9, 7, 0)
+    using VectorType = std::vector<double>;
+    MappingQ1<spacedim>              mapping;
+    std::vector<std::vector<double>> rigid_body_modes =
+      DoFTools::extract_rigid_body_modes(mapping, dh);
+#else
+    // Ad-hoc null space for  elasticity
+    using VectorType = LinearAlgebra::distributed::Vector<double>;
+    std::vector<LinearAlgebra::distributed::Vector<double>> rigid_body_modes(
+      spacedim == 3 ? 6 : 3);
+    for (unsigned int i = 0; i < rigid_body_modes.size(); ++i)
+      {
+        rigid_body_modes[i].reinit(dh.locally_owned_dofs(), mpi_communicator);
+        RigidBodyMotion<spacedim> rbm(i);
+        VectorTools::interpolate(dh, rbm, rigid_body_modes[i]);
+      }
+#endif
+
+    UtilitiesAL::set_null_space<spacedim, VectorType>(
+      parameter_list,
+      ptr_operator_modes,
+      stiffness_matrix.trilinos_matrix(),
+      rigid_body_modes);
+    prec_A.initialize(stiffness_matrix, parameter_list);
   }
 
   const auto A    = linear_operator<LA::MPI::Vector>(stiffness_matrix);
