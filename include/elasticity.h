@@ -116,6 +116,71 @@ namespace LA
 #include <memory>
 
 
+/**
+ * Definition of the Rigid body motions for linear elasticity.
+ */
+template <int dim>
+class RigidBodyMotion : public Function<dim>
+{
+public:
+  RigidBodyMotion(const unsigned int type_);
+
+  virtual double
+  value(const Point<dim> &p, const unsigned int component) const override;
+
+private:
+  const unsigned int type;
+};
+
+
+template <int dim>
+RigidBodyMotion<dim>::RigidBodyMotion(const unsigned int _type)
+  : Function<dim>(dim)
+  , type(_type)
+{
+  Assert(dim == 2 || dim == 3, ExcNotImplemented());
+  Assert((dim == 2 && type <= 2) || (dim == 3 && type <= 5),
+         ExcNotImplemented());
+}
+
+
+
+template <int dim>
+double
+RigidBodyMotion<dim>::value(const Point<dim>  &p,
+                            const unsigned int component) const
+{
+  if constexpr (dim == 2)
+    {
+      // 2D rigid body modes: 2 translations and 1 rotation
+      const std::array<double, 3> modes{{static_cast<double>(component == 0),
+                                         static_cast<double>(component == 1),
+                                         (component == 0) ? -p[1] :
+                                         (component == 1) ? p[0] :
+                                                            0.}};
+
+      return modes[type];
+    }
+  else // dim == 3
+    {
+      // 3D rigid body modes: 3 translations and 3 rotations
+      const std::array<double, 6> modes{{static_cast<double>(component == 0),
+                                         static_cast<double>(component == 1),
+                                         static_cast<double>(component == 2),
+                                         (component == 0) ? 0. :
+                                         (component == 1) ? p[2] :
+                                                            -p[1],
+                                         (component == 0) ? -p[2] :
+                                         (component == 1) ? 0. :
+                                                            p[0],
+                                         (component == 0) ? p[1] :
+                                         (component == 1) ? -p[0] :
+                                                            0.}};
+
+      return modes[type];
+    }
+}
+
 template <int dim, int spacedim = dim>
 class ElasticityProblemParameters : public ParameterAcceptor
 {

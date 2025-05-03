@@ -181,12 +181,12 @@ namespace UtilitiesAL
    * vectors. Needed for the AMG preconditioner to work properly with linear
    * elasticity. In particular, parameter_list will be filled by this function.
    */
-  template <int spacedim>
+  template <int spacedim, typename VectorType>
   void
-  set_null_space(Teuchos::ParameterList                 &parameter_list,
-                 std::unique_ptr<Epetra_MultiVector>    &ptr_distributed_modes,
-                 const Epetra_RowMatrix                 &matrix,
-                 const std::vector<std::vector<double>> &modes)
+  set_null_space(Teuchos::ParameterList              &parameter_list,
+                 std::unique_ptr<Epetra_MultiVector> &ptr_distributed_modes,
+                 const Epetra_RowMatrix              &matrix,
+                 const std::vector<VectorType>       &modes)
   {
     static_assert((spacedim == 2 || spacedim == 3),
                   "This function only works for 2D and 3D.");
