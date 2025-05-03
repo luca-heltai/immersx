@@ -601,7 +601,7 @@ ElasticityProblem<dim, spacedim>::solve()
     parameter_list.set("coarse: max size", 2000);
     parameter_list.set("aggregation: threshold", 0.02);
 
-#if DEAL_II_VERSION_GTE(9, 6, 0)
+#if DEAL_II_VERSION_GTE(9, 7, 0)
     using VectorType = std::vector<double>;
     MappingQ1<spacedim>              mapping;
     std::vector<std::vector<double>> rigid_body_modes =
