@@ -131,6 +131,20 @@ public:
   unsigned int
   n_quadrature_points() const;
 
+  /// Initializes the reference inclusion domain.
+
+  void
+  initialize();
+
+  /// Compute the cross section measure for the inclusion. The returned value is
+  /// exact w.r.t. to the used quadrature formula, i.e., it is the integral of
+  /// one on the cross section. If a scale is provided, the measure is
+  /// multiplied by the scale^dim.
+  ///
+  /// @param scale The scaling factor for the measure.
+  double
+  measure(const double scale = 1.0) const;
+
 private:
   /// Builds the mesh for the reference inclusion domain.
   void
@@ -179,6 +193,9 @@ private:
 
   /// Quadrature rule in the embedding space.
   Quadrature<spacedim> global_quadrature;
+
+  /// Reference measure for the inclusion.
+  double reference_measure;
 
   /// The basis functions computed on the quadrature points.
   FullMatrix<double> basis_functions_on_qpoints;
