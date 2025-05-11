@@ -31,9 +31,28 @@ TEST(ReducedPoisson, MPI_OneCylinder) // NOLINT
     SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder.prm");
 
   par.reduced_coupling_parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder.vtk";
+    SOURCE_DIR "/data/tests/one_cylinder.vtk";
   par.output_directory = SOURCE_DIR "/data/tests/tests_results";
   par.output_name      = "reduced_poisson_01_one_cylinder";
+
+  ReducedPoisson<3> problem(par);
+  problem.run();
+}
+
+
+TEST(ReducedPoisson, MPI_OneCylinderP1) // NOLINT
+{
+  ParameterAcceptor::clear();
+  ReducedPoissonParameters<3> par;
+  ParameterAcceptor::initialize(
+    SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder_p1.prm");
+
+  par.reduced_coupling_parameters.reduced_grid_name =
+    SOURCE_DIR "/data/tests/one_cylinder.vtk";
+  par.output_directory = SOURCE_DIR "/data/tests/tests_results";
+  par.output_name      = "reduced_poisson_01_one_cylinder_p1";
+  par.reduced_coupling_parameters.tensor_product_space_parameters.section
+    .inclusion_degree = 1;
 
   ReducedPoisson<3> problem(par);
   problem.run();

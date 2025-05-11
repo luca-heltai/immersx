@@ -121,9 +121,11 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   coupling_rhs = std::make_unique<FunctionParser<spacedim>>(
     this->get_reference_cross_section().n_selected_basis());
 
-  coupling_rhs->initialize(FunctionParser<spacedim>::default_variable_names(),
+  coupling_rhs->initialize(FunctionParser<spacedim>::default_variable_names() +
+                             ",t",
                            par.coupling_rhs_expressions,
-                           constants);
+                           constants,
+                           true);
 
   // This should be true. Let's double check
   AssertDimension(coupling_rhs->n_components,
@@ -131,6 +133,13 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
     {
+      std::cout
+        << "Selected degree: "
+        << par.tensor_product_space_parameters.section.inclusion_degree
+        << ", selected basis functions: "
+        << Patterns::Tools::to_string(
+             par.tensor_product_space_parameters.section.selected_coefficients)
+        << std::endl;
       std::cout << "Reduced coupling initialized" << std::endl;
       std::cout << "Reduced grid name: " << par.reduced_grid_name << std::endl;
     }

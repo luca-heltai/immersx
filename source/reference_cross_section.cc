@@ -37,7 +37,6 @@
 
 #include <string>
 
-
 template <int dim, int spacedim, int n_components>
 ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
   const ReferenceCrossSectionParameters<dim, spacedim, n_components> &par)
@@ -48,9 +47,7 @@ ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
   , mapping(fe.degree)
   , dof_handler(triangulation)
 {
-  make_grid();
-  setup_dofs();
-  compute_basis();
+  initialize();
 }
 
 
@@ -112,6 +109,7 @@ ReferenceCrossSection<dim, spacedim, n_components>::setup_dofs()
                                     quadrature_formula,
                                     update_quadrature_points |
                                       update_JxW_values);
+  reference_measure = 0;
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
       fe_values.reinit(cell);
@@ -121,6 +119,8 @@ ReferenceCrossSection<dim, spacedim, n_components>::setup_dofs()
       weights.insert(weights.end(),
                      fe_values.get_JxW_values().begin(),
                      fe_values.get_JxW_values().end());
+      for (const auto &w : fe_values.get_JxW_values())
+        reference_measure += w;
     }
   global_quadrature = Quadrature<spacedim>(points, weights);
 }
@@ -153,7 +153,9 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
           const auto coeff =
             mass_matrix.matrix_scalar_product(basis_functions[i],
                                               basis_functions[j]);
-          basis_functions[i].sadd(1, -coeff, basis_functions[j]);
+          basis_functions[i].sadd(1,
+                                  -coeff / reference_measure,
+                                  basis_functions[j]);
         }
       const auto coeff = mass_matrix.matrix_scalar_product(basis_functions[i],
                                                            basis_functions[i]);
@@ -161,7 +163,7 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
       // If the basis functions are on a plane, and we are in 3d, they may be
       // zero
       if (coeff > 1e-10)
-        basis_functions[i] /= std::sqrt(coeff);
+        basis_functions[i] *= std::sqrt(reference_measure) / std::sqrt(coeff);
       else
         is_zero[i] = true;
     }
@@ -198,7 +200,6 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
         basis_functions[par.selected_coefficients[i]];
     }
 
-
   // Now compute the Matrix of the selected basis functions evaluated on the
   // quadrature points
   basis_functions_on_qpoints.reinit(global_quadrature.size(),
@@ -234,6 +235,15 @@ ReferenceCrossSection<dim, spacedim, n_components>::compute_basis()
         }
     }
 }
+
+
+template <int dim, int spacedim, int n_components>
+double
+ReferenceCrossSection<dim, spacedim, n_components>::measure(
+  const double scale) const
+{
+  return reference_measure * std::pow(scale, dim);
+};
 
 
 
@@ -390,6 +400,17 @@ unsigned int
 ReferenceCrossSection<dim, spacedim, n_components>::n_quadrature_points() const
 {
   return global_quadrature.size();
+}
+
+template <int dim, int spacedim, int n_components>
+void
+ReferenceCrossSection<dim, spacedim, n_components>::initialize()
+{
+  dof_handler.clear();
+  triangulation.clear();
+  make_grid();
+  setup_dofs();
+  compute_basis();
 }
 
 
