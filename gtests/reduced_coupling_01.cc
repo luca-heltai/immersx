@@ -28,6 +28,7 @@
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
 
+#include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
@@ -81,8 +82,10 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
-  par.reduced_grid_name        = SOURCE_DIR "/data/tests/mstree_100.vtk";
-  par.coupling_rhs_expressions = {"1.0"};
+  par.reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+  // This should be the scaling factor for the coupling
+  par.coupling_rhs_expressions               = {"1"};
+  par.tensor_product_space_parameters.radius = 0.01;
 
   ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
     background_tria, par);
@@ -133,7 +136,36 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
   // Now take the difference and check the L2 norm. It should be zero.
   res -= immersed_vector;
   const double norm = res.l2_norm();
-  // ASSERT_NEAR(norm, 0.0, 1e-10)
-  //   << "The L2 norm of the difference between the two vectors is: " << norm;
-  // FIXME.
+  ASSERT_NEAR(norm, 0.0, 1e-10)
+    << "The L2 norm of the difference between the two vectors is: " << norm;
+}
+
+
+TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
+{
+  ParameterAcceptor::clear();
+  static constexpr int reduced_dim  = 1;
+  static constexpr int dim          = 2;
+  static constexpr int spacedim     = 3;
+  static constexpr int n_components = 1;
+
+  // Create a background grid (hypercube)
+  parallel::distributed::Triangulation<spacedim> background_tria(
+    MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
+  background_tria.refine_global(5);
+
+  ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
+
+  ParameterAcceptor::initialize("", "reduced_coupling_01.prm");
+
+  par.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  par.tensor_product_space_parameters.section.inclusion_degree = 1;
+  par.coupling_rhs_expressions = {"1", "0", "0"};
+
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
+    background_tria, par);
+
+  // Initialize everything
+  coupling.initialize();
 }

@@ -1,5 +1,6 @@
 import pyvista as pv
 import numpy as np
+from pyvista import CellType
 
 # Load additional data from split files
 
@@ -83,8 +84,33 @@ polydata.cell_data['flowrate'] = flowrate
 polydata.cell_data['hematocrit'] = hematocrit
 # polydata.cell_data['pressure'] = pressure
 
+# Build VTK cell array and cell types for VTK_LINE
+n_lines = len(num_edge_points)
+cells = []
+for i in range(n_lines):
+    start = 0 if i == 0 else ids[i-1]
+    end = ids[i]
+    point_ids = np.arange(start, end)
+    cells.extend([len(point_ids)])
+    cells.extend(point_ids)
+cells = np.array(cells, dtype=np.int64)
+celltypes = np.full(n_lines, CellType.LINE, dtype=np.uint8)
+
+# Create UnstructuredGrid
+ugrid = pv.UnstructuredGrid(cells, celltypes, edge_point_coordinates)
+
+# Add data arrays
+ugrid.cell_data['labels'] = art_ven_cap_label
+ugrid.cell_data['thickness'] = edge_thickness
+ugrid.point_data['point_thickness'] = point_thickness
+ugrid.cell_data['length'] = length
+ugrid.cell_data['fictional'] = fictional_edge
+ugrid.cell_data['concentration'] = concentration
+ugrid.cell_data['flowrate'] = flowrate
+ugrid.cell_data['hematocrit'] = hematocrit
+
 # Save to VTK file
-pv.UnstructuredGrid(polydata).save('Network2.vtk', binary=False)
+ugrid.save('Network2.vtk', binary=False)
 polydata.save('Network1.vtk', binary=False)
 grid = pv.UnstructuredGrid(polydata)
 
