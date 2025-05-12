@@ -87,6 +87,16 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   unsigned int fe_degree = 1;
 
   /**
+   * Number of quadrature points to be used in the reduced domain.
+   *
+   * This parameter controls the accuracy of the numerical integration
+   * in the reduced domain. If left to zero, the number of quadrature
+   * points will be set to the minimum required for the finite element
+   * degree.
+   */
+  unsigned int n_q_points = 0;
+
+  /**
    * Radius of the inclusion.
    */
   double radius = 0.01;
@@ -187,6 +197,9 @@ public:
   const std::vector<std::vector<double>> &
   get_locally_owned_reduced_weights() const;
 
+  const std::vector<std::vector<double>> &
+  get_locally_owned_section_measure() const;
+
   /**
    * Update the relevant local dof_indices.
    *
@@ -246,16 +259,6 @@ public:
 
   const parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &
   get_triangulation() const;
-
-
-  /// the component comp of the ith selected weight basis function, at the
-  /// global reduced quadrature point index global_reduced_q, and section
-  /// quadrature point index section_q
-  double
-  weight_shape_value(const unsigned int i,
-                     const unsigned int global_reduced_q,
-                     const unsigned int section_q,
-                     const unsigned int comp) const;
 
   double
   get_scaling(const unsigned int) const;

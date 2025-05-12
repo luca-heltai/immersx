@@ -11,8 +11,8 @@ end
 subsection Reduced Poisson
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
-  set Initial refinement                 = 4
-  set Output directory                   = .
+  set Initial refinement                 = 5
+  set Output directory                   = ../data/tests/tests_results
   set Output name                        = reduced_poisson_01_one_cylinder
   set Output results also before solving = false
   set Solver type                        = AL
@@ -57,7 +57,7 @@ subsection Reduced Poisson
     subsection Reduced coupling
       subsection Cross section
         set Inclusion type           = hyper_ball
-        set Maximum inclusion degree = 0
+        set Maximum inclusion degree = 1
         set Refinement level         = 3
         set Selected indices         =
       end
@@ -66,10 +66,10 @@ subsection Reduced Poisson
       end
       subsection Representative domain
         set Finite element degree   = 1
-        set Pre-refinement level    = 4
+        set Pre-refinement level    = 2
         set Radius                  = 0.1
-        set Reduced grid name       =
-        set Reduced right hand side = 1
+        set Reduced grid name       = ../data/tests/one_cylinder.vtk
+        set Reduced right hand side = 1; 0; 0 
       end
     end
   end

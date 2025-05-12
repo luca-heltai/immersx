@@ -61,14 +61,13 @@ TEST(ReferenceCrossSection, CheckBasisOrthogonality) // NOLINT
         << "Basis function " << i << " is zero.";
       for (unsigned int j = 0; j < n_basis_functions; ++j)
         {
-          mass_matrix.vmult(tmp, basis[j]); // tmp = M * basis_j
           const double dot_product =
-            basis[i] * tmp; // dot = basis_i^T * M * basis_j
+            mass_matrix.matrix_scalar_product(basis[i], basis[j]);
 
           if (i == j)
             {
-              // Diagonal elements should be close to 1 for orthonormal basis
-              ASSERT_NEAR(dot_product, 1.0, 1e-10)
+              // Diagonal elements should be close to |D| for orthogonal basis
+              ASSERT_NEAR(dot_product, ref_inclusion.measure(), 1e-10)
                 << "Basis functions " << i << " and " << j
                 << " are not M-orthonormal (diagonal check).";
             }
@@ -339,4 +338,63 @@ TEST(ReferenceCrossSection, CheckP1) // NOLINT
   ASSERT_EQ(ref_inclusion.max_n_basis(), 3);
   ASSERT_EQ(ref_inclusion.n_selected_basis(), 3)
     << "P1 inclusion should have 3 selected basis functions";
+}
+
+TEST(ReferenceCrossSection, CheckMeasure) // NOLINT
+{
+  // Test case 1: 1D inclusion in 2D space (Disk, effectively a line segment)
+  {
+    const int          dim          = 1;
+    const int          spacedim     = 2;
+    const int          n_components = 1;
+    const unsigned int degree = 2; // Degree doesn't affect measure directly
+
+    ReferenceCrossSectionParameters<dim, spacedim, n_components> par;
+    par.inclusion_degree = degree;
+    par.inclusion_type   = "hyper_ball";
+    par.refinement_level = 3; // Sufficient refinement for measure
+
+    ReferenceCrossSection<dim, spacedim, n_components> ref_inclusion(par);
+
+    // Check non-scaled measure (length of the boundary of a unit disk is 2*pi)
+    double expected_measure_non_scaled = 2.0 * numbers::PI;
+    ASSERT_NEAR(ref_inclusion.measure(), expected_measure_non_scaled, 1e-5)
+      << "Non-scaled measure for 1D hyper_ball (dim=1, spacedim=2) is incorrect.";
+
+    // Check scaled measure
+    const double scale = 2.5;
+    double       expected_measure_scaled =
+      expected_measure_non_scaled * std::pow(scale, dim);
+    ASSERT_NEAR(ref_inclusion.measure(scale), expected_measure_scaled, 1e-4)
+      << "Scaled measure for 1D hyper_ball (dim=1, spacedim=2) is incorrect.";
+  }
+
+  // Test case 2: 2D inclusion in 2D space (Circle)
+  {
+    const int          dim          = 2;
+    const int          spacedim     = 2;
+    const int          n_components = 1;
+    const unsigned int degree = 2; // Degree doesn't affect measure directly
+
+    ReferenceCrossSectionParameters<dim, spacedim, n_components> par;
+    par.inclusion_degree = degree;
+    par.inclusion_type   = "hyper_ball";
+    par.refinement_level = 5; // Higher refinement for better area approximation
+
+    ReferenceCrossSection<dim, spacedim, n_components> ref_inclusion(par);
+
+    // Check non-scaled measure (area of a unit circle is pi)
+    double expected_measure_non_scaled = numbers::PI;
+    ASSERT_NEAR(ref_inclusion.measure(),
+                expected_measure_non_scaled,
+                1e-2) // Tolerance might need adjustment based on refinement
+      << "Non-scaled measure for 2D hyper_ball (circle) is incorrect.";
+
+    // Check scaled measure
+    const double scale = 1.5;
+    double       expected_measure_scaled =
+      expected_measure_non_scaled * std::pow(scale, dim);
+    ASSERT_NEAR(ref_inclusion.measure(scale), expected_measure_scaled, 1e-2)
+      << "Scaled measure for 2D hyper_ball (circle) is incorrect.";
+  }
 }
