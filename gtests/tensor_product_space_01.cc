@@ -165,7 +165,7 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.radius = 0.125;
+  params.thickness = 0.125;
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
@@ -217,7 +217,7 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
           {
             ASSERT_NEAR(integral,
                         tps.get_reference_cross_section().measure(
-                          params.radius),
+                          params.thickness),
                         1e-10)
               << "Integral of phi_" << i << " and phi_" << j
               << " should be one.";

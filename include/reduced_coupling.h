@@ -33,6 +33,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
+#include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/sparsity_pattern.h>
 #include <deal.II/lac/vector.h>
@@ -85,11 +86,12 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   std::string reduced_grid_name = "";
 
   /**
-   * Name of the field name to use for the radius of the inclusion. This is read
-   * from the reduced_grid_name file. If empty, the radius is assumed to be
-   * constant, and taken from the tensor_product_space_parameters.
+   * Name of the field name to use for the thickness of the inclusion. This is
+   * read from the reduced_grid_name file. If empty, the thickness is assumed to
+   * be constant, and taken from the tensor_product_space_parameters.radius
+   * argument.
    */
-  std::string radius_field_name = "";
+  std::string thickness_field_name = "";
 
   /**
    * @brief Number of pre-refinements to apply to the grid before distribution.
@@ -226,6 +228,21 @@ private:
    * @brief The right-hand side function for the coupling.
    */
   std::unique_ptr<FunctionParser<spacedim>> coupling_rhs;
+
+  /**
+   * The properties of the inclusion.
+   */
+  LinearAlgebra::distributed::Vector<double> properties;
+
+  /**
+   * The finite element system used for the properties of the inclusion.
+   */
+  DoFHandler<reduced_dim, spacedim> properties_dh;
+
+  /**
+   * The names of the properties stored in the input file.
+   */
+  std::vector<std::string> properties_names;
 };
 
 
@@ -368,7 +385,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
               local_rhs(i) += rhs_values[q][comp_i] *
                               fe_values.shape_value(i, q) * JxW[q] *
                               this->get_reference_cross_section().measure(
-                                par.tensor_product_space_parameters.radius);
+                                par.tensor_product_space_parameters.thickness);
             }
         cell->get_dof_indices(dof_indices);
         coupling_constraints.distribute_local_to_global(local_rhs,

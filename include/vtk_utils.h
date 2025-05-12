@@ -152,6 +152,27 @@ namespace VTKUtils
 
 
   /**
+   * Map a serial vector to a distributed vector.
+   *
+   * This function transfers data from a serial vector (the one returned by
+   * read_vtk() above) to a distributed vector. The underlying assumption is
+   * that the serial vector contains data for all vertices in the mesh, and that
+   * the global cell indices are preserved in the distributed vector.
+   *
+   * @param serial_dof_handler The serial DoFHandler.
+   * @param parallel_dof_handler The parallel DoFHandler.
+   * @param serial_vec The serial vector containing the data.
+   * @param parallel_vec The distributed vector to be filled.
+   */
+  template <int dim, int spacedim>
+  void
+  serial_vector_to_distributed_vector(
+    const DoFHandler<dim, spacedim>            &serial_dh,
+    const DoFHandler<dim, spacedim>            &parallel_dh,
+    const Vector<double>                       &serial_vec,
+    LinearAlgebra::distributed::Vector<double> &parallel_vec);
+
+  /**
    * Fill a distributed vector from a serial vector using a mapping of
    * points to DoF indices.
    *

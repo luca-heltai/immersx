@@ -31,7 +31,7 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
 {
   add_parameter("Finite element degree", fe_degree);
   add_parameter("Number of quadrature points", n_q_points);
-  add_parameter("Radius", radius);
+  add_parameter("Radius", thickness);
 }
 
 // Constructor for TensorProductSpace
@@ -378,7 +378,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
             auto cross_section_qpoints =
               reference_cross_section.get_transformed_quadrature(qpoint,
                                                                  new_vertical,
-                                                                 par.radius);
+                                                                 par.thickness);
             all_qpoints.insert(all_qpoints.end(),
                                cross_section_qpoints.get_points().begin(),
                                cross_section_qpoints.get_points().end());
@@ -402,7 +402,7 @@ double
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_scaling(
   const unsigned int) const
 {
-  return std::pow(par.radius, -((dim - reduced_dim) / 2.0));
+  return std::pow(par.thickness, -((dim - reduced_dim) / 2.0));
 }
 
 
