@@ -213,8 +213,8 @@ namespace VTKUtils
 
   void
   read_vertex_data(const std::string &vtk_filename,
-                  const std::string &point_data_name,
-                  Vector<double>    &output_vector)
+                   const std::string &point_data_name,
+                   Vector<double>    &output_vector)
   {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());
@@ -336,6 +336,60 @@ namespace VTKUtils
         dof_offset += n_tuples * n_comp;
       }
   }
+
+  template <int dim, int spacedim>
+  void
+  serial_vector_to_distributed_vector(
+    const DoFHandler<dim, spacedim>            &serial_dh,
+    const DoFHandler<dim, spacedim>            &parallel_dh,
+    const Vector<double>                       &serial_vec,
+    LinearAlgebra::distributed::Vector<double> &parallel_vec)
+  {
+    AssertDimension(serial_vec.size(), serial_dh.n_dofs());
+    AssertDimension(parallel_vec.size(), parallel_dh.n_dofs());
+    AssertDimension(parallel_dh.n_dofs(), serial_dh.n_dofs());
+
+    // Check that the two fe are the same
+    AssertThrow(serial_dh.get_fe() == parallel_dh.get_fe(),
+                ExcMessage("The finite element systems of the serial and "
+                           "parallel DoFHandlers must be the same."));
+
+    std::vector<types::global_dof_index> serial_dof_indices(
+      serial_dh.get_fe().n_dofs_per_cell());
+    std::vector<types::global_dof_index> parallel_dof_indices(
+      parallel_dh.get_fe().n_dofs_per_cell());
+
+    // Assumption: serial and parallel meshes have the same ordering of cells.
+    auto serial_cell   = serial_dh.begin_active();
+    auto parallel_cell = parallel_dh.begin_active();
+    for (; parallel_cell != parallel_dh.end(); ++parallel_cell)
+      if (parallel_cell->is_locally_owned())
+        {
+          // Advanced serial cell until we reach the sama cell index of the
+          // parallel cell
+          while (serial_cell->global_active_cell_index() <
+                 parallel_cell->global_active_cell_index())
+            {
+              ++serial_cell;
+              if (serial_cell == serial_dh.end())
+                serial_cell = serial_dh.begin_active();
+            }
+          serial_cell->get_dof_indices(serial_dof_indices);
+          parallel_cell->get_dof_indices(parallel_dof_indices);
+          unsigned int serial_index = 0;
+          for (const auto &i : parallel_dof_indices)
+            {
+              if (parallel_vec.in_local_range(i))
+                {
+                  parallel_vec[i] =
+                    serial_vec[serial_dof_indices[serial_index]];
+                }
+              ++serial_index;
+            }
+        }
+    parallel_vec.compress(VectorOperation::insert);
+  }
+
 
   template <int dim>
   void
@@ -544,5 +598,42 @@ template std::map<unsigned int, unsigned int>
 VTKUtils::create_vertex_mapping(
   const Triangulation<3, 3> &,
   const parallel::fullydistributed::Triangulation<3, 3> &);
+
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<1, 1> &,
+  const DoFHandler<1, 1> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<1, 2> &,
+  const DoFHandler<1, 2> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<1, 3> &,
+  const DoFHandler<1, 3> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<2, 2> &,
+  const DoFHandler<2, 2> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<2, 3> &,
+  const DoFHandler<2, 3> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<3, 3> &,
+  const DoFHandler<3, 3> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
 
 #endif // DEAL_II_WITH_VTK

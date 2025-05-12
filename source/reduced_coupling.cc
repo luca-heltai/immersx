@@ -8,6 +8,7 @@
 #include <fstream>
 
 #include "immersed_repartitioner.h"
+#include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
@@ -50,16 +51,26 @@ background_tria.get_mpi_communicator()
         )
   , par(par)
   , background_tria(&background_tria)
+  , properties_dh(this->get_triangulation())
 {
   this->make_reduced_grid = [&](auto &tria) {
     // First create a serial triangulation with the VTK file
     GridIn<reduced_dim, spacedim>        gridin;
     Triangulation<reduced_dim, spacedim> serial_tria;
-    gridin.attach_triangulation(serial_tria);
-    std::ifstream f(par.reduced_grid_name);
-    AssertThrow(f, ExcIO());
-    gridin.read_vtk(f);
-    serial_tria.refine_global(par.pre_refinement);
+    DoFHandler<reduced_dim, spacedim>    serial_properties_dh(serial_tria);
+    Vector<double>                       serial_properties;
+    VTKUtils::read_vtk(par.reduced_grid_name,
+                       serial_properties_dh,
+                       serial_properties,
+                       properties_names);
+
+    // gridin.attach_triangulation(serial_tria);
+    // std::ifstream f(par.reduced_grid_name);
+    // AssertThrow(f, ExcIO());
+    // gridin.read_vtk(f);
+    // serial_tria.refine_global(par.pre_refinement);
+
+    // [TODO] pre_refinement is not working
 
     // Create an unpartitioned fully distributed triangulation
     parallel::fullydistributed::Triangulation<reduced_dim, spacedim>
@@ -82,6 +93,16 @@ background_tria.get_mpi_communicator()
       std::cout << "Process "
                 << Utilities::MPI::this_mpi_process(mpi_communicator)
                 << " has no locally owned cells." << std::endl;
+
+    // Now move the serial properties to the distributed triangulation
+    properties_dh.distribute_dofs(serial_properties_dh.get_fe());
+    properties.reinit(properties_dh.locally_owned_dofs(),
+                      DoFTools::extract_locally_relevant_dofs(properties_dh),
+                      properties_dh.get_mpi_communicator());
+    VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
+                                                  properties_dh,
+                                                  serial_properties,
+                                                  properties);
   };
 }
 
