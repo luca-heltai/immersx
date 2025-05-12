@@ -97,9 +97,9 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   unsigned int n_q_points = 0;
 
   /**
-   * Radius of the inclusion.
+   * Thickness of the inclusion.
    */
-  double radius = 0.01;
+  double thickness = 0.01;
 };
 
 

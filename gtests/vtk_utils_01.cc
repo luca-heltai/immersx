@@ -525,4 +525,102 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   EXPECT_EQ(serial_dof_handler.n_dofs(), parallel_dof_handler.n_dofs());
 }
 
+
+
+TEST(VTKUtils, MPI_SerialToDistributed)
+{
+  const int          dim       = 2;
+  const unsigned int fe_degree = 1;
+  FE_Q<dim>          fe(fe_degree);
+  MappingQ1<dim>     mapping;
+
+
+  // Setup serial tria
+  Triangulation<dim> serial_tria;
+  GridGenerator::hyper_cube(serial_tria, 0, 1);
+  serial_tria.refine_global(2);
+
+  DoFHandler<dim> serial_dof_handler(serial_tria);
+  serial_dof_handler.distribute_dofs(fe);
+
+  // Build support point map (serial)
+  std::map<types::global_dof_index, Point<dim>> serial_support_points;
+  DoFTools::map_dofs_to_support_points(mapping,
+                                       serial_dof_handler,
+                                       serial_support_points);
+  std::map<Point<dim>, types::global_dof_index, VTKUtils::PointComparator<dim>>
+    serial_map;
+  for (const auto &pair : serial_support_points)
+    serial_map[pair.second] = pair.first;
+
+
+  // Fill serial vector with position-dependent values
+  Vector<double> serial_vec(serial_dof_handler.n_dofs());
+  for (const auto &pair : serial_map)
+    {
+      const Point<dim>             &pt           = pair.first;
+      const types::global_dof_index serial_index = pair.second;
+
+      // Calculate value based on point coordinates
+      double value             = 10.0 * pt[0] + 1. * pt[1];
+      serial_vec[serial_index] = value;
+    }
+
+  // First, partition the serial triangulation
+  GridTools::partition_triangulation(
+    Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_tria);
+
+  // Create description for fully distributed triangulation
+  const TriangulationDescription::Description<dim> description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial_tria, MPI_COMM_WORLD);
+
+  // Create the parallel triangulation
+  parallel::fullydistributed::Triangulation<dim> parallel_tria(MPI_COMM_WORLD);
+  parallel_tria.create_triangulation(description);
+
+  DoFHandler<dim> parallel_dof_handler(parallel_tria);
+  parallel_dof_handler.distribute_dofs(fe);
+
+  // Build support point map (parallel)
+
+  std::map<types::global_dof_index, Point<dim>> parallel_support_points;
+  DoFTools::map_dofs_to_support_points(mapping,
+                                       parallel_dof_handler,
+                                       parallel_support_points);
+  std::map<Point<dim>, types::global_dof_index, VTKUtils::PointComparator<dim>>
+    parallel_map;
+  for (const auto &pair : parallel_support_points)
+    parallel_map[pair.second] = pair.first;
+
+  // Fill parallel vector using the utility function
+  LA::distributed::Vector<double> parallel_vec;
+
+  parallel_vec.reinit(parallel_dof_handler.locally_owned_dofs(),
+                      MPI_COMM_WORLD);
+
+  VTKUtils::serial_vector_to_distributed_vector(serial_dof_handler,
+                                                parallel_dof_handler,
+                                                serial_vec,
+                                                parallel_vec);
+
+  // Check values in distributed vector
+  for (const auto &p_pair : parallel_map)
+    {
+      const auto &pt             = p_pair.first;
+      const auto &parallel_index = p_pair.second;
+
+      if (!parallel_dof_handler.locally_owned_dofs().is_element(parallel_index))
+        continue;
+
+      // Calculate expected value based on point coordinates
+      double expected_value = 10.0 * pt[0] + 1.0 * pt[1];
+
+      // Check if vector has correct value
+      ASSERT_NEAR(parallel_vec[parallel_index], expected_value, 1e-10)
+        << "Mismatch at point " << pt;
+    }
+}
+
+
 #endif // DEAL_II_WITH_VTK
