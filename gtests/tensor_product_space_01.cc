@@ -192,18 +192,18 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
   const auto &weigths         = tps.get_locally_owned_weights();
   const auto &reduced_weights = tps.get_locally_owned_reduced_weights();
 
-  for (size_t i = 0; i < tps.get_reference_cross_section().n_selected_basis();
-       ++i)
-    for (size_t j = 0; i < tps.get_reference_cross_section().n_selected_basis();
-         ++i)
+  const auto &cross = tps.get_reference_cross_section();
+
+  for (size_t i = 0; i < cross.n_selected_basis(); ++i)
+    for (size_t j = 0; i < cross.n_selected_basis(); ++i)
       {
         double integral = 0.0;
         for (size_t q = 0;
              q < tps.get_reference_cross_section().n_quadrature_points();
              ++q)
           {
-            auto phi_i = tps.weight_shape_value(i, 0, q, 0);
-            auto phi_j = tps.weight_shape_value(j, 0, q, 0);
+            auto phi_i = cross.shape_value(i, q, 0);
+            auto phi_j = cross.shape_value(j, q, 0);
 
             integral += phi_i * phi_j * weigths[q][0] / reduced_weights[0][0];
           }
@@ -215,7 +215,10 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
           }
         else
           {
-            ASSERT_NEAR(integral, 1.0, 1e-10)
+            ASSERT_NEAR(integral,
+                        tps.get_reference_cross_section().measure(
+                          params.radius),
+                        1e-10)
               << "Integral of phi_" << i << " and phi_" << j
               << " should be one.";
           }
