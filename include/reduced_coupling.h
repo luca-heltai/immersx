@@ -85,6 +85,13 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   std::string reduced_grid_name = "";
 
   /**
+   * Name of the field name to use for the radius of the inclusion. This is read
+   * from the reduced_grid_name file. If empty, the radius is assumed to be
+   * constant, and taken from the tensor_product_space_parameters.
+   */
+  std::string radius_field_name = "";
+
+  /**
    * @brief Number of pre-refinements to apply to the grid before distribution.
    */
   unsigned int pre_refinement = 0;
@@ -159,6 +166,26 @@ struct ReducedCoupling
 
   /**
    * @brief Assemble the right-hand side vector for the reduced space.
+   *
+   * Computes the right-hand side vector for the reduced space based on the
+   * following assumption: we would like to assemble the following $<Rg, w> =
+   * \sum_i \int_Gamma \phi_i\cdot g w_i \circ \Pi$ for a function $g$ defined
+   * on the full domain $\Gamma$.
+   *
+   * Our assumption here is that the user does not provide $g$, but rather a
+   * function $\bar g$ defined on the reduced domain $\gamma$, such that $g =
+   * R^T \bar g$. With such a construction, we can specify, for example, a
+   * constant expression on the reduced domain by saying $g_0 = 1$, and we'd
+   * get $g = 1$ on the full domain. What we are actually assembling here is
+   * then
+   * $<R R^T \bar g, w> = <R^T \bar g, R^T w> = \sum_i \int_gamma \bar g_i \cdot
+   * w_i \int_D \phi_i^2 dD  d\gamma$.
+   *
+   * We know that $\int_D \phi_i^2 dD =
+   * \int_{\hat D} \hat{\phi}_i^2 J d\hat{D} = |\hat{D}| a^d = |D|$
+   * is the scaling factor of the basis functions, where $a$ is the scaling of
+   * the cross-section.
+   *
    * @tparam VectorType The vector type (e.g., Vector<double>).
    * @param reduced_rhs The right-hand side vector to assemble.
    */
@@ -243,11 +270,6 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
           const auto [immersed_cell_id, immersed_q, section_q] =
             this->particle_id_to_cell_and_qpoint_indices(p.get_id());
 
-          // FIXME: this is not correct, we need to use the local
-          // immersed_cell_id index.
-          const auto global_reduced_qpoint_index = 0;
-          // immersed_cell_id * this->get_quadrature().size() + immersed_q;
-
           const auto &background_p = p.get_reference_location();
           const auto  immersed_p   = this->get_quadrature().point(immersed_q);
           const auto &JxW          = p.get_properties()[0];
@@ -280,8 +302,9 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
                       const auto comp_j =
                         immersed_fe.system_to_component_index(j).first;
 
-                      const auto phi_comp_j_comp_i = this->weight_shape_value(
-                        comp_j, global_reduced_qpoint_index, section_q, comp_i);
+                      const auto phi_comp_j_comp_i =
+                        this->get_reference_cross_section().shape_value(
+                          comp_j, section_q, comp_i);
 
                       const auto w_j_comp_j =
                         immersed_fe.shape_value(j, immersed_p);
@@ -310,11 +333,48 @@ inline void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
   VectorType &reduced_rhs) const
 {
-  VectorTools::create_right_hand_side(this->get_dof_handler(),
-                                      this->get_quadrature(),
-                                      *coupling_rhs,
-                                      reduced_rhs,
-                                      coupling_constraints);
+  FEValues<reduced_dim, spacedim> fe_values(this->get_dof_handler().get_fe(),
+                                            this->get_quadrature(),
+                                            update_values |
+                                              update_quadrature_points |
+                                              update_JxW_values);
+
+  Vector<double> local_rhs(this->get_dof_handler().get_fe().n_dofs_per_cell());
+  std::vector<Vector<double>> rhs_values(
+    this->get_quadrature().size(),
+    Vector<double>(this->get_reference_cross_section().n_selected_basis()));
+  std::vector<types::global_dof_index> dof_indices(
+    this->get_dof_handler().get_fe().n_dofs_per_cell());
+
+  // VectorTools::create_right_hand_side(this->get_dof_handler(),
+  //                                     this->get_quadrature(),
+  //                                     *coupling_rhs,
+  //                                     reduced_rhs,
+  //                                     coupling_constraints);
+  for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        fe_values.reinit(cell);
+        const auto &JxW      = fe_values.get_JxW_values();
+        const auto &q_points = fe_values.get_quadrature_points();
+        coupling_rhs->vector_value_list(q_points, rhs_values);
+
+        local_rhs = 0;
+        for (const auto q : fe_values.quadrature_point_indices())
+          for (const auto i : fe_values.dof_indices())
+            {
+              const auto comp_i =
+                fe_values.get_fe().system_to_component_index(i).first;
+              local_rhs(i) += rhs_values[q][comp_i] *
+                              fe_values.shape_value(i, q) * JxW[q] *
+                              this->get_reference_cross_section().measure(
+                                par.tensor_product_space_parameters.radius);
+            }
+        cell->get_dof_indices(dof_indices);
+        coupling_constraints.distribute_local_to_global(local_rhs,
+                                                        dof_indices,
+                                                        reduced_rhs);
+      }
 
   reduced_rhs.compress(VectorOperation::add);
 }

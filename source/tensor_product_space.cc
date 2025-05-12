@@ -30,6 +30,7 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
   : ParameterAcceptor("Representative domain")
 {
   add_parameter("Finite element degree", fe_degree);
+  add_parameter("Number of quadrature points", n_q_points);
   add_parameter("Radius", radius);
 }
 
@@ -46,7 +47,8 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   , triangulation(mpi_communicator)
   , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
        reference_cross_section.n_selected_basis())
-  , quadrature_formula(2 * par.fe_degree + 1)
+  , quadrature_formula(par.n_q_points == 0 ? 2 * par.fe_degree + 1 :
+                                             par.n_q_points)
   , dof_handler(triangulation)
 {
   make_reduced_grid =
@@ -68,6 +70,8 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize()
   // empty
   if (triangulation.n_active_cells() == 0)
     {
+      reference_cross_section.initialize();
+
       make_reduced_grid(triangulation);
 
       // Setup degrees of freedom
@@ -391,21 +395,6 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_triangulation() const
 {
   return triangulation;
-}
-
-template <int reduced_dim, int dim, int spacedim, int n_components>
-double
-TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-  weight_shape_value(const unsigned int i,
-                     const unsigned int global_reduced_q,
-                     const unsigned int section_q,
-                     const unsigned int comp) const
-{
-  AssertIndexRange(i, reference_cross_section.n_selected_basis());
-  AssertIndexRange(section_q, reference_cross_section.n_quadrature_points());
-  AssertIndexRange(comp, n_components);
-  return reference_cross_section.shape_value(i, section_q, comp) *
-         get_scaling(global_reduced_q);
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
