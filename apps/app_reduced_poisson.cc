@@ -53,7 +53,11 @@ main(int argc, char *argv[])
       if (prm_file.find("3d") != std::string::npos)
         {
           ReducedPoissonParameters<3> par;
-          ParameterAcceptor::initialize(prm_file);
+          ParameterAcceptor::initialize(prm_file,
+                                        "",
+                                        ParameterHandler::Short,
+                                        ParameterAcceptor::prm,
+                                        ParameterHandler::Short);
           ReducedPoisson<3> problem(par);
           problem.run();
         }
