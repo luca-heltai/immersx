@@ -383,7 +383,7 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   std::vector<double>          sample_values;
 
   // Select some specific points to verify (first, middle, last)
-  int count = 0;
+  unsigned int count = 0;
   for (const auto &pair : serial_map)
     {
       // Take the first point, a point in the middle, and the last point
