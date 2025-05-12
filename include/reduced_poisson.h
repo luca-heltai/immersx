@@ -141,7 +141,7 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
 
   bool        output_results_before_solving = false;
-  std::string solver_name                   = "Schur";
+  std::string solver_name                   = "AL";
 
   mutable ParsedConvergenceTable convergence_table;
 

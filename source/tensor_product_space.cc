@@ -30,6 +30,7 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
   : ParameterAcceptor("Representative domain")
 {
   add_parameter("Finite element degree", fe_degree);
+  add_parameter("Number of quadrature points", n_q_points);
   add_parameter("Radius", radius);
 }
 
@@ -46,7 +47,8 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   , triangulation(mpi_communicator)
   , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
        reference_cross_section.n_selected_basis())
-  , quadrature_formula(2 * par.fe_degree + 1)
+  , quadrature_formula(par.n_q_points == 0 ? 2 * par.fe_degree + 1 :
+                                             par.n_q_points)
   , dof_handler(triangulation)
 {
   make_reduced_grid =

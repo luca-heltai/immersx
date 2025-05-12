@@ -85,6 +85,13 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   std::string reduced_grid_name = "";
 
   /**
+   * Name of the field name to use for the radius of the inclusion. This is read
+   * from the reduced_grid_name file. If empty, the radius is assumed to be
+   * constant, and taken from the tensor_product_space_parameters.
+   */
+  std::string radius_field_name = "";
+
+  /**
    * @brief Number of pre-refinements to apply to the grid before distribution.
    */
   unsigned int pre_refinement = 0;

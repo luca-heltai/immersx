@@ -87,6 +87,16 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   unsigned int fe_degree = 1;
 
   /**
+   * Number of quadrature points to be used in the reduced domain.
+   *
+   * This parameter controls the accuracy of the numerical integration
+   * in the reduced domain. If left to zero, the number of quadrature
+   * points will be set to the minimum required for the finite element
+   * degree.
+   */
+  unsigned int n_q_points = 0;
+
+  /**
    * Radius of the inclusion.
    */
   double radius = 0.01;
