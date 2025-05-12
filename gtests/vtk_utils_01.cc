@@ -45,22 +45,22 @@ TEST(VTKUtils, ReadCellData)
 
 TEST(VTKUtils, ReadPointDataScalar)
 {
-  std::string    vtk_filename    = SOURCE_DIR "/data/tests/mstree_10.vtk";
-  std::string    point_data_name = "path_distance";
+  std::string    vtk_filename     = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string    vertex_data_name = "path_distance";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
-    VTKUtils::read_point_data(vtk_filename, point_data_name, output_vector));
+    VTKUtils::read_vertex_data(vtk_filename, vertex_data_name, output_vector));
   // Optionally, check expected size or values
   EXPECT_EQ(output_vector.size(), 10);
 }
 
 TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
 {
-  std::string    vtk_filename    = SOURCE_DIR "/data/tests/mstree_10.vtk";
-  std::string    point_data_name = "path_distance";
+  std::string    vtk_filename     = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string    vertex_data_name = "path_distance";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
-    VTKUtils::read_point_data(vtk_filename, point_data_name, output_vector));
+    VTKUtils::read_vertex_data(vtk_filename, vertex_data_name, output_vector));
   // Optionally, check expected size or values
   EXPECT_EQ(output_vector.size(), 10);
 
@@ -79,11 +79,11 @@ TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
 
 TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
 {
-  std::string    vtk_filename    = SOURCE_DIR "/data/tests/mstree_10.vtk";
-  std::string    point_data_name = "path_distance";
+  std::string    vtk_filename     = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string    vertex_data_name = "path_distance";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
-    VTKUtils::read_point_data(vtk_filename, point_data_name, output_vector));
+    VTKUtils::read_vertex_data(vtk_filename, vertex_data_name, output_vector));
   EXPECT_EQ(output_vector.size(), 10);
 
   Triangulation<1, 3> serial_tria;
