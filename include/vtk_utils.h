@@ -90,19 +90,19 @@ namespace VTKUtils
                  Vector<double>    &output_vector);
 
   /**
-   * @brief Read point data from a VTK file and store it in the output vector.
+   * @brief Read vertex data from a VTK file and store it in the output vector.
    *
-   * This function reads the specified point data array (scalar or vector) from
+   * This function reads the specified vertex data array (scalar or vector) from
    * the given VTK file and stores it in the provided output vector.
    *
    * @param vtk_filename The name of the input VTK file.
-   * @param point_data_name The name of the point data array to read.
-   * @param output_vector The vector to store the point data values.
+   * @param vertex_data_name The name of the vertex data array to read.
+   * @param output_vector The vector to store the vertex data values.
    */
   void
-  read_point_data(const std::string &vtk_filename,
-                  const std::string &point_data_name,
-                  Vector<double>    &output_vector);
+  read_vertex_data(const std::string &vtk_filename,
+                   const std::string &vertex_data_name,
+                   Vector<double>    &output_vector);
 
   /**
    * @brief Read a VTK mesh and all data fields into a DoFHandler and output
@@ -110,8 +110,8 @@ namespace VTKUtils
    *
    * This function reads the mesh from the specified VTK file, populates the
    * Triangulation associated to the given DoFHandler, and queries all cell and
-   * point data fields. For each data field, a suitable FESystem is constructed
-   * (using FE_DGQ for cell data and FE_Q for point data, with the correct
+   * vertex data fields. For each data field, a suitable FESystem is constructed
+   * (using FE_DGQ for cell data and FE_Q for vertex data, with the correct
    * number of components). DoFs are distributed and renumbered block-wise. All
    * data is read into the output_vector, and the names of the fields are stored
    * in data_names.

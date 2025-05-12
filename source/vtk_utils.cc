@@ -212,7 +212,7 @@ namespace VTKUtils
   }
 
   void
-  read_point_data(const std::string &vtk_filename,
+  read_vertex_data(const std::string &vtk_filename,
                   const std::string &point_data_name,
                   Vector<double>    &output_vector)
   {
@@ -308,6 +308,8 @@ namespace VTKUtils
     // Cell data
     for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i, ++field_idx)
       {
+        AssertIndexRange(i, fe_system.n_blocks());
+
         vtkDataArray *arr = cell_data->GetArray(i);
         if (!arr)
           continue;
