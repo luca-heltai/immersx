@@ -365,15 +365,10 @@ namespace VTKUtils
     for (; parallel_cell != parallel_dh.end(); ++parallel_cell)
       if (parallel_cell->is_locally_owned())
         {
-          // Advanced serial cell until we reach the sama cell index of the
+          // Advanced serial cell until we reach the same cell index of the
           // parallel cell
-          while (serial_cell->global_active_cell_index() <
-                 parallel_cell->global_active_cell_index())
-            {
-              ++serial_cell;
-              if (serial_cell == serial_dh.end())
-                serial_cell = serial_dh.begin_active();
-            }
+          while (serial_cell->id() < parallel_cell->id())
+            ++serial_cell;
           serial_cell->get_dof_indices(serial_dof_indices);
           parallel_cell->get_dof_indices(parallel_dof_indices);
           unsigned int serial_index = 0;
