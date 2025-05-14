@@ -387,7 +387,7 @@ namespace VTKUtils
 
   template <int dim, int spacedim>
   std::vector<types::global_vertex_index>
-  distributed_vertex_indices_to_serial_vertex_indices(
+  distributed_to_serial_vertex_indices(
     const Triangulation<dim, spacedim>               &serial_tria,
     const parallel::TriangulationBase<dim, spacedim> &parallel_tria)
   {
@@ -463,70 +463,6 @@ namespace VTKUtils
 
     parallel_vec.compress(VectorOperation::insert);
   }
-
-  template <int dim, int spacedim>
-  std::map<unsigned int, unsigned int>
-  create_vertex_mapping(
-    const Triangulation<dim, spacedim>                             &serial_tria,
-    const parallel::fullydistributed::Triangulation<dim, spacedim> &dist_tria)
-  {
-    // Define a point comparator with tolerance for floating point comparison
-    struct PointComparator
-    {
-      bool
-      operator()(const Point<spacedim> &p1, const Point<spacedim> &p2) const
-      {
-        const double tolerance = 1e-12;
-        for (unsigned int d = 0; d < spacedim; ++d)
-          {
-            if (std::abs(p1[d] - p2[d]) > tolerance)
-              return p1[d] < p2[d];
-          }
-        return false; // Points are considered equal
-      }
-    };
-
-    // Create maps from coordinates to indices
-    std::map<Point<spacedim>, unsigned int, PointComparator>
-      serial_point_to_index;
-    std::map<Point<spacedim>, unsigned int, PointComparator>
-      dist_point_to_index;
-
-    // Fill serial map
-    for (unsigned int i = 0; i < serial_tria.n_vertices(); ++i)
-      {
-        serial_point_to_index[serial_tria.get_vertices()[i]] = i;
-      }
-
-    // Get locally owned vertices
-    std::vector<bool> locally_owned_vertices =
-      GridTools::get_locally_owned_vertices(dist_tria);
-
-    // Fill distributed map with only locally owned vertices
-    const std::vector<Point<spacedim>> &distributed_vertices =
-      dist_tria.get_vertices();
-    for (unsigned int i = 0; i < dist_tria.n_vertices(); ++i)
-      if (i < locally_owned_vertices.size() && locally_owned_vertices[i])
-        dist_point_to_index[distributed_vertices[i]] = i;
-
-
-    // Create the mapping from distributed vertex index to serial vertex index
-    std::map<unsigned int, unsigned int> dist_to_serial_mapping;
-    for (const auto &pair : dist_point_to_index)
-      {
-        const Point<spacedim> &point    = pair.first;
-        const unsigned int     dist_idx = pair.second;
-
-        auto it = serial_point_to_index.find(point);
-        if (it != serial_point_to_index.end())
-          {
-            dist_to_serial_mapping[dist_idx] = it->second;
-          }
-      }
-
-    return dist_to_serial_mapping;
-  }
-
 } // namespace VTKUtils
 
 
@@ -603,30 +539,6 @@ VTKUtils::fill_distributed_vector_from_serial<3>(
   const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
   MPI_Comm);
 
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<1, 1> &,
-  const parallel::fullydistributed::Triangulation<1, 1> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<1, 2> &,
-  const parallel::fullydistributed::Triangulation<1, 2> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<1, 3> &,
-  const parallel::fullydistributed::Triangulation<1, 3> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<2, 2> &,
-  const parallel::fullydistributed::Triangulation<2, 2> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<2, 3> &,
-  const parallel::fullydistributed::Triangulation<2, 3> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<3, 3> &,
-  const parallel::fullydistributed::Triangulation<3, 3> &);
 
 template void
 VTKUtils::serial_vector_to_distributed_vector(
@@ -666,27 +578,27 @@ VTKUtils::serial_vector_to_distributed_vector(
   LinearAlgebra::distributed::Vector<double> &);
 
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+VTKUtils::distributed_to_serial_vertex_indices(
   const Triangulation<1, 1> &,
   const parallel::TriangulationBase<1, 1> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+VTKUtils::distributed_to_serial_vertex_indices(
   const Triangulation<1, 2> &,
   const parallel::TriangulationBase<1, 2> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+VTKUtils::distributed_to_serial_vertex_indices(
   const Triangulation<1, 3> &,
   const parallel::TriangulationBase<1, 3> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+VTKUtils::distributed_to_serial_vertex_indices(
   const Triangulation<2, 2> &,
   const parallel::TriangulationBase<2, 2> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+VTKUtils::distributed_to_serial_vertex_indices(
   const Triangulation<2, 3> &,
   const parallel::TriangulationBase<2, 3> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+VTKUtils::distributed_to_serial_vertex_indices(
   const Triangulation<3, 3> &,
   const parallel::TriangulationBase<3, 3> &);
 
