@@ -178,7 +178,8 @@ namespace VTKUtils
    *
    * The returned vector has size parallel_tria.n_vertices(). For each locally
    * owned vertex, it contains the corresponding vertex index of the serial
-   * Triangulation.
+   * Triangulation. If a vertex is not locally owned, the corresponding serial
+   * index is `numbers::invalid_unsigned_int`
    *
    * The parallel Triangulation must have been generated from the serial one for
    * this function to be any meaningful at all.
@@ -188,9 +189,10 @@ namespace VTKUtils
    */
   template <int dim, int spacedim>
   std::vector<types::global_vertex_index>
-  distributed_vertex_indices_to_serial_vertex_indices(
+  distributed_to_serial_vertex_indices(
     const Triangulation<dim, spacedim>               &serial_tria,
     const parallel::TriangulationBase<dim, spacedim> &parallel_tria);
+
   /**
    * Fill a distributed vector from a serial vector using a mapping of
    * points to DoF indices.
@@ -217,25 +219,6 @@ namespace VTKUtils
     const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
             &parallel_map,
     MPI_Comm comm);
-
-  /**
-   * @brief Create a mapping from distributed triangulation vertex indices to serial triangulation vertex indices.
-   *
-   * This function creates a map that translates vertex indices from a
-   * distributed triangulation to the corresponding vertex indices in a serial
-   * triangulation. The mapping is based on matching vertex coordinates with a
-   * small tolerance to account for floating-point errors.
-   *
-   * @param serial_tria The serial triangulation.
-   * @param dist_tria The distributed triangulation.
-   * @return A map from distributed vertex indices to serial vertex indices.
-   */
-  template <int dim, int spacedim>
-  std::map<unsigned int, unsigned int>
-  create_vertex_mapping(
-    const Triangulation<dim, spacedim>                             &serial_tria,
-    const parallel::fullydistributed::Triangulation<dim, spacedim> &dist_tria);
-
 } // namespace VTKUtils
 
 #endif // DEAL_II_WITH_VTK
