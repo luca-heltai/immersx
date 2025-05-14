@@ -669,4 +669,23 @@ TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
     }
 }
 
+
+TEST(VTKUtils, VtkToFiniteElement)
+{
+  std::string vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  const auto [fe, data_names] =
+    VTKUtils::vtk_to_finite_element<1, 3>(vtk_filename);
+
+  EXPECT_EQ(data_names[0], "path_distance");
+  EXPECT_EQ(data_names[1], "edge_length");
+
+  EXPECT_EQ(fe->n_blocks(), 2);
+  EXPECT_EQ(fe->n_components(), 2);
+  EXPECT_EQ(fe->n_dofs_per_cell(), 3);
+  EXPECT_EQ(fe->base_element(0).dofs_per_vertex, 1);
+  EXPECT_EQ(fe->base_element(1).dofs_per_vertex, 0);
+  EXPECT_EQ(fe->base_element(0).dofs_per_line, 0);
+  EXPECT_EQ(fe->base_element(1).dofs_per_line, 1);
+}
+
 #endif // DEAL_II_WITH_VTK
