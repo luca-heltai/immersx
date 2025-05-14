@@ -172,6 +172,25 @@ namespace VTKUtils
     const Vector<double>                       &serial_vec,
     LinearAlgebra::distributed::Vector<double> &parallel_vec);
 
+
+  /**
+   * Map distributed vertex indices to serial vertex indices.
+   *
+   * The returned vector has size parallel_tria.n_vertices(). For each locally
+   * owned vertex, it contains the corresponding vertex index of the serial
+   * Triangulation.
+   *
+   * The parallel Triangulation must have been generated from the serial one for
+   * this function to be any meaningful at all.
+   *
+   * @param serial_tria The serial Triangulation
+   * @param parallel_tria The parallel Triangulation
+   */
+  template <int dim, int spacedim>
+  std::vector<types::global_vertex_index>
+  distributed_vertex_indices_to_serial_vertex_indices(
+    const Triangulation<dim, spacedim>               &serial_tria,
+    const parallel::TriangulationBase<dim, spacedim> &parallel_tria);
   /**
    * Fill a distributed vector from a serial vector using a mapping of
    * points to DoF indices.
