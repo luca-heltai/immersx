@@ -385,6 +385,40 @@ namespace VTKUtils
     parallel_vec.compress(VectorOperation::insert);
   }
 
+  template <int dim, int spacedim>
+  std::vector<types::global_vertex_index>
+  distributed_vertex_indices_to_serial_vertex_indices(
+    const Triangulation<dim, spacedim>               &serial_tria,
+    const parallel::TriangulationBase<dim, spacedim> &parallel_tria)
+  {
+    const auto locally_owned_indices =
+      GridTools::get_locally_owned_vertices(parallel_tria);
+    std::vector<types::global_vertex_index>
+      distributed_to_serial_vertex_indices(parallel_tria.n_vertices(),
+                                           numbers::invalid_unsigned_int);
+
+    // Assumption: serial and parallel meshes have the same ordering of cells.
+    auto serial_cell   = serial_tria.begin_active();
+    auto parallel_cell = parallel_tria.begin_active();
+    for (; parallel_cell != parallel_tria.end(); ++parallel_cell)
+      if (parallel_cell->is_locally_owned())
+        {
+          // Advanced serial cell until we reach the same cell index of the
+          // parallel cell
+          while (serial_cell->id() < parallel_cell->id())
+            ++serial_cell;
+          for (const unsigned int &v : serial_cell->vertex_indices())
+            {
+              const auto serial_index   = serial_cell->vertex_index(v);
+              const auto parallel_index = parallel_cell->vertex_index(v);
+              if (locally_owned_indices[parallel_index])
+                distributed_to_serial_vertex_indices[parallel_index] =
+                  serial_index;
+            }
+        }
+    return distributed_to_serial_vertex_indices;
+  }
+
 
   template <int dim>
   void
@@ -630,5 +664,31 @@ VTKUtils::serial_vector_to_distributed_vector(
   const DoFHandler<3, 3> &,
   const Vector<double> &,
   LinearAlgebra::distributed::Vector<double> &);
+
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+  const Triangulation<1, 1> &,
+  const parallel::TriangulationBase<1, 1> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+  const Triangulation<1, 2> &,
+  const parallel::TriangulationBase<1, 2> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+  const Triangulation<1, 3> &,
+  const parallel::TriangulationBase<1, 3> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+  const Triangulation<2, 2> &,
+  const parallel::TriangulationBase<2, 2> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+  const Triangulation<2, 3> &,
+  const parallel::TriangulationBase<2, 3> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+  const Triangulation<3, 3> &,
+  const parallel::TriangulationBase<3, 3> &);
+
 
 #endif // DEAL_II_WITH_VTK

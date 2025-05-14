@@ -1,3 +1,4 @@
+#include <deal.II/base/index_set.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/point.h>
 
@@ -14,6 +15,7 @@
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/lac/vector.h>
@@ -622,5 +624,52 @@ TEST(VTKUtils, MPI_SerialToDistributed)
     }
 }
 
+TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
+{
+  const int dim = 2;
+
+  // Setup serial tria
+  Triangulation<dim> serial_tria;
+  GridGenerator::hyper_cube(serial_tria, 0, 1);
+  serial_tria.refine_global(2);
+
+  // First, partition the serial triangulation
+  GridTools::partition_triangulation(
+    Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_tria);
+
+  // Create description for fully distributed triangulation
+  const TriangulationDescription::Description<dim> description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial_tria, MPI_COMM_WORLD);
+
+  // Create the parallel triangulation
+  parallel::fullydistributed::Triangulation<dim> parallel_tria(MPI_COMM_WORLD);
+  parallel_tria.create_triangulation(description);
+
+  std::vector<types::global_vertex_index> distributed_to_serial_vertex_indices =
+    VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
+      serial_tria, parallel_tria);
+
+  const std::vector<Point<dim>> &serial_vertices = serial_tria.get_vertices();
+  const std::vector<Point<dim>> &parallel_vertices =
+    parallel_tria.get_vertices();
+
+  unsigned int local_vertices_checked = 0;
+  for (unsigned int i = 0; i < parallel_vertices.size(); ++i)
+    {
+      const auto &serial_index = distributed_to_serial_vertex_indices[i];
+      if (serial_index != numbers::invalid_unsigned_int)
+        {
+          const Point<dim> &parallel_vertex = parallel_vertices[i];
+          const Point<dim> &serial_vertex   = serial_vertices[serial_index];
+
+          ASSERT_LT(parallel_vertex.distance(serial_vertex), 1e-10)
+            << "Mismatch for parallel vertex " << i << " (serial vertex "
+            << serial_index << "). Coordinates: " << parallel_vertex << " vs "
+            << serial_vertex;
+          local_vertices_checked++;
+        }
+    }
+}
 
 #endif // DEAL_II_WITH_VTK
