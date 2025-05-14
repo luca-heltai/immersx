@@ -28,6 +28,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -103,6 +104,29 @@ namespace VTKUtils
   read_vertex_data(const std::string &vtk_filename,
                    const std::string &vertex_data_name,
                    Vector<double>    &output_vector);
+
+  /**
+   * Map vtk fields to a FiniteElement object.
+   *
+   * This function reads the vtk file and constructs a suitable FiniteElement
+   * object that can be later used to store the data field values contained in
+   * the vtk file. The function returns a pair containing the FESystem object
+   * with one block for each field found in the vtk file, and a vector of
+   * strings with the names of the fields.
+   *
+   * VTK point data is stored in blocks of FE_Q elements or FE_System(FE_Q,
+   * n_comps), while cell data is stored in FE_DGQ or FE_System(FE_DGQ,
+   * n_comps). The number of components is determined by the number of
+   * components in the data field.
+   *
+   * @param vtk_filename The name of the input VTK file
+   */
+  template <int dim, int spacedim>
+  std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
+            std::vector<std::string>>
+  vtk_to_finite_element(const std::string &vtk_filename);
+
+
 
   /**
    * @brief Read a VTK mesh and all data fields into a DoFHandler and output
