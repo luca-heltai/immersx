@@ -117,7 +117,7 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
 
   // Verify mapping
   auto dist_to_serial_mapping =
-    VTKUtils::create_vertex_mapping(serial_tria, dist_tria);
+    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, dist_tria);
   ASSERT_GT(dist_to_serial_mapping.size(), 0);
   std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
             << ": Created mapping for " << dist_to_serial_mapping.size()
@@ -136,11 +136,11 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
                 const unsigned int dist_vertex_index = cell->vertex_index(v);
 
                 //  corresponding serial index
-                auto it = dist_to_serial_mapping.find(dist_vertex_index);
-                if (it != dist_to_serial_mapping.end())
+                const auto serial_vertex_index =
+                  dist_to_serial_mapping[dist_vertex_index];
+                if (serial_vertex_index != numbers::invalid_unsigned_int)
                   {
-                    const unsigned int serial_vertex_index = it->second;
-                    const double       data_value =
+                    const double data_value =
                       output_vector[serial_vertex_index];
 
                     std::cout << "Vertex " << dist_vertex_index
@@ -199,7 +199,7 @@ TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
 
   // Verify mapping
   auto dist_to_serial_mapping =
-    VTKUtils::create_vertex_mapping(serial_tria, dist_tria);
+    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, dist_tria);
   ASSERT_GT(dist_to_serial_mapping.size(), 0);
   std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
             << ": Created mapping for " << dist_to_serial_mapping.size()
@@ -647,14 +647,12 @@ TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
   parallel_tria.create_triangulation(description);
 
   std::vector<types::global_vertex_index> distributed_to_serial_vertex_indices =
-    VTKUtils::distributed_vertex_indices_to_serial_vertex_indices(
-      serial_tria, parallel_tria);
+    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, parallel_tria);
 
   const std::vector<Point<dim>> &serial_vertices = serial_tria.get_vertices();
   const std::vector<Point<dim>> &parallel_vertices =
     parallel_tria.get_vertices();
 
-  unsigned int local_vertices_checked = 0;
   for (unsigned int i = 0; i < parallel_vertices.size(); ++i)
     {
       const auto &serial_index = distributed_to_serial_vertex_indices[i];
@@ -667,7 +665,6 @@ TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
             << "Mismatch for parallel vertex " << i << " (serial vertex "
             << serial_index << "). Coordinates: " << parallel_vertex << " vs "
             << serial_vertex;
-          local_vertices_checked++;
         }
     }
 }
