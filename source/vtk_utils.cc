@@ -53,6 +53,8 @@ namespace VTKUtils
         cleaner->SetInputData(grid);
         cleaner->Update();
         grid = cleaner->GetOutput();
+        AssertThrow(grid,
+                    ExcMessage("Failed to clean VTK file: " + vtk_filename));
       }
 
     // Read points
@@ -234,7 +236,57 @@ namespace VTKUtils
         output_vector[i * n_components + j] = data_array->GetComponent(i, j);
   }
 
+  void
+  read_data(const std::string &vtk_filename, Vector<double> &output_vector)
+  {
+    auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
+    reader->SetFileName(vtk_filename.c_str());
+    reader->Update();
+    vtkUnstructuredGrid *grid = reader->GetOutput();
+    AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
 
+    std::vector<double> data;
+
+    vtkPointData *point_data = grid->GetPointData();
+    if (point_data)
+      {
+        for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
+          {
+            vtkDataArray *data_array = point_data->GetArray(i);
+            if (!data_array)
+              continue;
+            vtkIdType    n_tuples     = data_array->GetNumberOfTuples();
+            int          n_components = data_array->GetNumberOfComponents();
+            unsigned int current_size = data.size();
+            data.resize(current_size + n_tuples * n_components, 0.0);
+            for (vtkIdType tuple_idx = 0; tuple_idx < n_tuples; ++tuple_idx)
+              for (int comp_idx = 0; comp_idx < n_components; ++comp_idx)
+                data[current_size + tuple_idx * n_components + comp_idx] =
+                  data_array->GetComponent(tuple_idx, comp_idx);
+          }
+      }
+
+    vtkCellData *cell_data = grid->GetCellData();
+    if (cell_data)
+      {
+        for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
+          {
+            vtkDataArray *data_array = cell_data->GetArray(i);
+            if (!data_array)
+              continue;
+            vtkIdType    n_tuples     = data_array->GetNumberOfTuples();
+            int          n_components = data_array->GetNumberOfComponents();
+            unsigned int current_size = data.size();
+            data.resize(current_size + n_tuples * n_components, true);
+            for (vtkIdType tuple_idx = 0; tuple_idx < n_tuples; ++tuple_idx)
+              for (int comp_idx = 0; comp_idx < n_components; ++comp_idx)
+                data[current_size + tuple_idx * n_components + comp_idx] =
+                  data_array->GetComponent(tuple_idx, comp_idx);
+          }
+      }
+    output_vector.reinit(data.size());
+    std::copy(data.begin(), data.end(), output_vector.begin());
+  }
 
   template <int dim, int spacedim>
   std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
@@ -454,8 +506,8 @@ namespace VTKUtils
   template <int dim, int spacedim>
   std::vector<types::global_vertex_index>
   distributed_to_serial_vertex_indices(
-    const Triangulation<dim, spacedim>               &serial_tria,
-    const parallel::TriangulationBase<dim, spacedim> &parallel_tria)
+    const Triangulation<dim, spacedim> &serial_tria,
+    const Triangulation<dim, spacedim> &parallel_tria)
   {
     const auto locally_owned_indices =
       GridTools::get_locally_owned_vertices(parallel_tria);
@@ -663,29 +715,23 @@ VTKUtils::serial_vector_to_distributed_vector(
   LinearAlgebra::distributed::Vector<double> &);
 
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(
-  const Triangulation<1, 1> &,
-  const parallel::TriangulationBase<1, 1> &);
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 1> &,
+                                               const Triangulation<1, 1> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(
-  const Triangulation<1, 2> &,
-  const parallel::TriangulationBase<1, 2> &);
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 2> &,
+                                               const Triangulation<1, 2> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(
-  const Triangulation<1, 3> &,
-  const parallel::TriangulationBase<1, 3> &);
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 3> &,
+                                               const Triangulation<1, 3> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(
-  const Triangulation<2, 2> &,
-  const parallel::TriangulationBase<2, 2> &);
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<2, 2> &,
+                                               const Triangulation<2, 2> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(
-  const Triangulation<2, 3> &,
-  const parallel::TriangulationBase<2, 3> &);
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<2, 3> &,
+                                               const Triangulation<2, 3> &);
 template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(
-  const Triangulation<3, 3> &,
-  const parallel::TriangulationBase<3, 3> &);
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<3, 3> &,
+                                               const Triangulation<3, 3> &);
 
 
 #endif // DEAL_II_WITH_VTK
