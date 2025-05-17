@@ -204,28 +204,6 @@ namespace VTKUtils
            Vector<double>            &output_vector,
            std::vector<std::string>  &data_names);
 
-
-  // Custom comparator for Point<dim>.
-  template <int dim>
-  struct PointComparator
-  {
-    bool
-    operator()(const Point<dim> &p1, const Point<dim> &p2) const
-    {
-      const double tol = (p1.norm() + p2.norm()) * .5e-7;
-      // Compare lexicographically
-      for (unsigned int i = 0; i < dim; ++i)
-        {
-          if (p1[i] < p2[i] - tol)
-            return true;
-          if (p2[i] < p1[i] - tol)
-            return false;
-        }
-      return false; // Points are considered equal
-    }
-  };
-
-
   /**
    * Map a serial vector to a distributed vector.
    *
@@ -268,34 +246,9 @@ namespace VTKUtils
     const Triangulation<dim, spacedim> &serial_tria,
     const Triangulation<dim, spacedim> &parallel_tria);
 
-  /**
-   * Fill a distributed vector from a serial vector using a mapping of
-   * points to DoF indices.
-   *
-   * This function transfers data from a serial vector (the one returned by
-   * read_vtk() above) to a distributed vector based on the mapping of points to
-   * DoF indices for both the serial and parallel DoFHandler objects.
-   *
-   * @param parallel_dof_handler The parallel DoFHandler.
-   * @param serial_vec The serial vector containing the data.
-   * @param mapping The mapping used for support points.
-   * @param parallel_vec The distributed vector to be filled.
-   * @param parallel_map The mapping of points to DoF indices for the parallel DoFHandler.
-   * @param comm The MPI communicator.
-   */
-  template <int dim>
-  void
-  fill_distributed_vector_from_serial(
-    const IndexSet       &owned_dofs,
-    const Vector<double> &serial_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-                                               &serial_map,
-    LinearAlgebra::distributed::Vector<double> &parallel_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-            &parallel_map,
-    MPI_Comm comm);
+#  ifndef DOXYGEN
+  // Explicit implementation of template functions
 
-  // Template functions
   template <int dim, int spacedim, typename VectorType>
   void
   data_to_dealii_vector(const Triangulation<dim, spacedim> &serial_tria,
@@ -378,6 +331,7 @@ namespace VTKUtils
           }
       }
   }
+#  endif
 } // namespace VTKUtils
 #endif // DEAL_II_WITH_VTK
 

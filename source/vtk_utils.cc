@@ -362,97 +362,24 @@ namespace VTKUtils
     // Get a non-const reference to the triangulation
     auto &tria = const_cast<Triangulation<dim, spacedim> &>(
       dof_handler.get_triangulation());
+
+    // Clear the triangulation to ensure it is empty before reading
+    tria.clear();
     // Read the mesh from the VTK file
     read_vtk(vtk_filename, tria, /*cleanup=*/true);
 
-    auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-    reader->SetFileName(vtk_filename.c_str());
-    reader->Update();
-    vtkUnstructuredGrid *grid = reader->GetOutput();
-    AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
+    Vector<double> data_vector;
+    read_data(vtk_filename, data_vector);
 
-    vtkCellData  *cell_data  = grid->GetCellData();
-    vtkPointData *point_data = grid->GetPointData();
+    auto [fe, data_names_from_fe] =
+      vtk_to_finite_element<dim, spacedim>(vtk_filename);
 
-    std::vector<std::shared_ptr<FiniteElement<dim, spacedim>>> fe_collection;
-    std::vector<unsigned int> n_components_collection;
-    data_names.clear();
-
-    // Query cell data fields
-    for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
-      {
-        vtkDataArray *arr = cell_data->GetArray(i);
-        if (!arr)
-          continue;
-        std::string name   = arr->GetName();
-        int         n_comp = arr->GetNumberOfComponents();
-        fe_collection.push_back(
-          std::make_shared<FESystem<dim, spacedim>>(FE_DGQ<dim, spacedim>(0),
-                                                    n_comp));
-        n_components_collection.push_back(n_comp);
-        data_names.push_back(name);
-      }
-    // Query point data fields
-    for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
-      {
-        vtkDataArray *arr = point_data->GetArray(i);
-        if (!arr)
-          continue;
-        std::string name   = arr->GetName();
-        int         n_comp = arr->GetNumberOfComponents();
-        fe_collection.push_back(
-          std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
-                                                    n_comp));
-        n_components_collection.push_back(n_comp);
-        data_names.push_back(name);
-      }
-
-    // Build a FESystem with all fields
-    std::vector<const FiniteElement<dim, spacedim> *> fe_ptrs;
-    std::vector<unsigned int>                         multiplicities;
-    for (const auto &fe : fe_collection)
-      {
-        fe_ptrs.push_back(fe.get());
-        multiplicities.push_back(1);
-      }
-    FESystem<dim, spacedim> fe_system(fe_ptrs, multiplicities);
-    dof_handler.distribute_dofs(fe_system);
-    DoFRenumbering::block_wise(dof_handler);
-
-    // Read all data into output_vector
+    dof_handler.distribute_dofs(*fe);
     output_vector.reinit(dof_handler.n_dofs());
-    unsigned int dof_offset = 0;
-    unsigned int field_idx  = 0;
-    // Cell data
-    for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i, ++field_idx)
-      {
-        AssertIndexRange(i, fe_system.n_blocks());
 
-        vtkDataArray *arr = cell_data->GetArray(i);
-        if (!arr)
-          continue;
-        vtkIdType n_tuples = arr->GetNumberOfTuples();
-        int       n_comp   = arr->GetNumberOfComponents();
-        for (vtkIdType j = 0; j < n_tuples; ++j)
-          for (int k = 0; k < n_comp; ++k)
-            output_vector[dof_offset + j * n_comp + k] =
-              arr->GetComponent(j, k);
-        dof_offset += n_tuples * n_comp;
-      }
-    // Point data
-    for (int i = 0; i < point_data->GetNumberOfArrays(); ++i, ++field_idx)
-      {
-        vtkDataArray *arr = point_data->GetArray(i);
-        if (!arr)
-          continue;
-        vtkIdType n_tuples = arr->GetNumberOfTuples();
-        int       n_comp   = arr->GetNumberOfComponents();
-        for (vtkIdType j = 0; j < n_tuples; ++j)
-          for (int k = 0; k < n_comp; ++k)
-            output_vector[dof_offset + j * n_comp + k] =
-              arr->GetComponent(j, k);
-        dof_offset += n_tuples * n_comp;
-      }
+    AssertDimension(dof_handler.n_dofs(), output_vector.size());
+    AssertDimension(dof_handler.get_fe().n_blocks(), data_names_from_fe.size());
+    data_names = data_names_from_fe;
   }
 
   template <int dim, int spacedim>
@@ -536,51 +463,6 @@ namespace VTKUtils
         }
     return distributed_to_serial_vertex_indices;
   }
-
-
-  template <int dim>
-  void
-  fill_distributed_vector_from_serial(
-    const IndexSet       &owned_dofs,
-    const Vector<double> &serial_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-                                               &serial_map,
-    LinearAlgebra::distributed::Vector<double> &parallel_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-            &parallel_map,
-    MPI_Comm comm)
-  {
-    Assert(parallel_vec.size() == 0,
-           ExcMessage("The parallel vector must be empty before filling it."));
-    AssertThrow(owned_dofs.n_elements() > 0,
-                ExcMessage("The owned DoF index set must not be empty."));
-    // Initialize parallel layout of the vector using DoFHandler
-    parallel_vec.reinit(owned_dofs, comm);
-
-    // Transfer data from serial to parallel vector
-    for (const auto &p_pair : parallel_map)
-      {
-        const auto &pt             = p_pair.first;
-        const auto &parallel_index = p_pair.second;
-
-        if (!owned_dofs.is_element(parallel_index))
-          continue;
-
-        auto it = serial_map.find(pt);
-        if (it != serial_map.end())
-          {
-            types::global_dof_index serial_index = it->second;
-            parallel_vec[parallel_index]         = serial_vec[serial_index];
-          }
-        else
-          {
-            std::cerr << "No match found for point: " << pt << std::endl;
-            AssertThrow(false, ExcInternalError());
-          }
-      }
-
-    parallel_vec.compress(VectorOperation::insert);
-  }
 } // namespace VTKUtils
 
 
@@ -648,34 +530,6 @@ VTKUtils::read_vtk(const std::string &,
                    DoFHandler<3, 3> &,
                    Vector<double> &,
                    std::vector<std::string> &);
-
-template void
-VTKUtils::fill_distributed_vector_from_serial<1>(
-  const IndexSet &,
-  const Vector<double> &,
-  const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
-  LinearAlgebra::distributed::Vector<double> &,
-  const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
-  MPI_Comm);
-
-template void
-VTKUtils::fill_distributed_vector_from_serial<2>(
-  const IndexSet &,
-  const Vector<double> &,
-  const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
-  LinearAlgebra::distributed::Vector<double> &,
-  const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
-  MPI_Comm);
-
-template void
-VTKUtils::fill_distributed_vector_from_serial<3>(
-  const IndexSet &,
-  const Vector<double> &,
-  const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
-  LinearAlgebra::distributed::Vector<double> &,
-  const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
-  MPI_Comm);
-
 
 template void
 VTKUtils::serial_vector_to_distributed_vector(
