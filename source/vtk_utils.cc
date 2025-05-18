@@ -10,6 +10,7 @@
 
 #  include <deal.II/fe/fe.h>
 #  include <deal.II/fe/fe_dgq.h>
+#  include <deal.II/fe/fe_nothing.h>
 #  include <deal.II/fe/fe_q.h>
 #  include <deal.II/fe/fe_system.h>
 
@@ -314,9 +315,13 @@ namespace VTKUtils
           continue;
         std::string name   = arr->GetName();
         int         n_comp = arr->GetNumberOfComponents();
-        fe_collection.push_back(
-          std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
-                                                    n_comp));
+        if (n_comp == 1)
+          fe_collection.push_back(std::make_shared<FE_Q<dim, spacedim>>(1));
+        else
+          // Use FESystem for vector fields
+          fe_collection.push_back(
+            std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
+                                                      n_comp));
         n_components_collection.push_back(n_comp);
         data_names.push_back(name);
       }
@@ -329,9 +334,13 @@ namespace VTKUtils
           continue;
         std::string name   = arr->GetName();
         int         n_comp = arr->GetNumberOfComponents();
-        fe_collection.push_back(
-          std::make_shared<FESystem<dim, spacedim>>(FE_DGQ<dim, spacedim>(0),
-                                                    n_comp));
+        if (n_comp == 1)
+          fe_collection.push_back(std::make_shared<FE_DGQ<dim, spacedim>>(0));
+        else
+          // Use FESystem for vector fields
+          fe_collection.push_back(
+            std::make_shared<FESystem<dim, spacedim>>(FE_DGQ<dim, spacedim>(0),
+                                                      n_comp));
         n_components_collection.push_back(n_comp);
         data_names.push_back(name);
       }
@@ -345,9 +354,15 @@ namespace VTKUtils
         fe_ptrs.push_back(fe.get());
         multiplicities.push_back(1);
       }
-    return std::make_pair(
-      std::make_unique<FESystem<dim, spacedim>>(fe_ptrs, multiplicities),
-      data_names);
+    if (fe_ptrs.empty())
+      return std::make_pair(std::make_unique<FE_Nothing<dim, spacedim>>(),
+                            std::vector<std::string>());
+    else
+      {
+        return std::make_pair(
+          std::make_unique<FESystem<dim, spacedim>>(fe_ptrs, multiplicities),
+          data_names);
+      }
   }
 
 
