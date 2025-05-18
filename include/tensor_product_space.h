@@ -18,6 +18,7 @@
 #define tensor_product_space_h
 
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/fully_distributed_tria.h>
@@ -28,7 +29,10 @@
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_q1.h>
 
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
+
+#include <deal.II/numerics/vector_tools.h>
 
 #include <deal.II/particles/particle_handler.h>
 #include <deal.II/particles/utilities.h>
@@ -97,9 +101,22 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   unsigned int n_q_points = 0;
 
   /**
-   * Radius of the inclusion.
+   * Thickness of the inclusion.
    */
-  double radius = 0.01;
+  double thickness = 0.01;
+
+  /**
+   * Name of the field name to use for the thickness of the inclusion. This is
+   * read from the reduced_grid_name file. If empty, the thickness is assumed to
+   * be constant, and taken from the tensor_product_space_parameters.thickness
+   * argument.
+   */
+  std::string thickness_field_name = "";
+
+  /**
+   * @brief Name of the grid to read from a file.
+   */
+  std::string reduced_grid_name = "";
 };
 
 
@@ -151,14 +168,17 @@ public:
   static constexpr int cross_section_dim = dim - reduced_dim;
 
   /**
-   * A function to create the reduced grid.
+   * Modify the partitioner for the triangulation.
    *
-   * This function is used to generate the triangulation for the
-   * reduced-dimensional domain.
+   * This function is used to generate a fully distributed triangulation from a
+   * serial triangulation. The user can overload the default behavior to
+   * partition the grid differently. This function is called after the serial
+   * triangulation is generated, and before the triangulation is copied to the
+   * fully distributed triangulation.
    */
   std::function<void(
     parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &)>
-    make_reduced_grid;
+    set_partitioner = [](auto &) {};
 
   /**
    * Initializes the tensor product space.
@@ -176,6 +196,10 @@ public:
    */
   const ReferenceCrossSection<dim - reduced_dim, spacedim, n_components> &
   get_reference_cross_section() const;
+
+
+  void
+  make_reduced_grid_and_properties();
 
   /**
    * Retrieves the DoFHandler for the reduced domain.
@@ -263,7 +287,22 @@ public:
   double
   get_scaling(const unsigned int) const;
 
-private:
+  const LinearAlgebra::distributed::Vector<double> &
+  get_properties() const;
+
+  const DoFHandler<reduced_dim, spacedim> &
+  get_properties_dh() const;
+
+  DoFHandler<reduced_dim, spacedim> &
+  get_properties_dh();
+
+  const std::vector<std::string> &
+  get_properties_names() const;
+
+  std::vector<std::string> &
+  get_properties_names();
+
+protected:
   /**
    * Sets up the degrees of freedom (DoFs) for the reduced domain.
    *
@@ -346,6 +385,21 @@ private:
 
   std::vector<Point<spacedim>>     reduced_qpoints;
   std::vector<std::vector<double>> reduced_weights;
+
+  /**
+   * The properties of the inclusion.
+   */
+  LinearAlgebra::distributed::Vector<double> properties;
+
+  /**
+   * The finite element system used for the properties of the inclusion.
+   */
+  DoFHandler<reduced_dim, spacedim> properties_dh;
+
+  /**
+   * The names of the properties stored in the input file.
+   */
+  std::vector<std::string> properties_names;
 };
 
 

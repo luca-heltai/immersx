@@ -9,7 +9,7 @@ subsection Error
   set Rate mode                        = reduction_rate_log2
 end
 subsection Reduced Poisson
-  set Dirichlet boundary ids             = 0
+  set Dirichlet boundary ids             = 0,1,2,3
   set FE degree                          = 1
   set Initial refinement                 = 4
   set Output directory                   = .
@@ -23,7 +23,7 @@ subsection Reduced Poisson
   end
   subsection Grid generation
     set Grid generator           = hyper_cube
-    set Grid generator arguments = 0: 1: false
+    set Grid generator arguments = 0: 1: true
   end
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
@@ -43,22 +43,22 @@ subsection Reduced Poisson
       set Log history   = false
       set Log result    = true
       set Max steps     = 100
-      set Reduction     = 1.e-2
-      set Tolerance     = 1.e-10
+      set Reduction     = 1.e-8
+      set Tolerance     = 1.e-2
     end
     subsection Outer control
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
       set Max steps     = 100
-      set Reduction     = 1.e-2
-      set Tolerance     = 1.e-10
+      set Reduction     = 1.e-8
+      set Tolerance     = 1.e-8
     end
     subsection Reduced coupling
       subsection Cross section
         set Inclusion type           = hyper_ball
         set Maximum inclusion degree = 0
-        set Refinement level         = 3
+        set Refinement level         = 5
         set Selected indices         =
       end
       subsection Particle coupling
@@ -66,8 +66,9 @@ subsection Reduced Poisson
       end
       subsection Representative domain
         set Finite element degree   = 1
+        set Number of quadrature points = 32
         set Pre-refinement level    = 4
-        set Radius                  = 0.1
+        set Thickness               = 0.1
         set Reduced grid name       =
         set Reduced right hand side = 1
       end
