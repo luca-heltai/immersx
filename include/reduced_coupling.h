@@ -45,6 +45,7 @@
 #include "immersed_repartitioner.h"
 #include "particle_coupling.h"
 #include "tensor_product_space.h"
+#include "vtk_utils.h"
 
 using namespace dealii;
 
@@ -371,7 +372,8 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
   const auto thickness_start =
     thickness_field_index >= this->properties_names.size() ?
       numbers::invalid_unsigned_int :
-      properties_fe.block_indices().block_start(thickness_field_index);
+      VTKUtils::get_block_indices(properties_fe)
+        .block_start(thickness_field_index);
 
   FEValuesExtractors::Scalar thickness(thickness_start);
 
@@ -460,7 +462,9 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
   const auto thickness_start =
     thickness_field_index >= this->properties_names.size() ?
       numbers::invalid_unsigned_int :
-      properties_fe.block_indices().block_start(thickness_field_index);
+      VTKUtils::get_block_indices(properties_fe)
+        .block_start(thickness_field_index);
+  ;
 
   FEValuesExtractors::Scalar thickness(thickness_start);
 
