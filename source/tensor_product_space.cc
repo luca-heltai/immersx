@@ -95,14 +95,17 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   make_reduced_grid_and_properties()
 {
   // First create a serial triangulation with the VTK file
-  GridIn<reduced_dim, spacedim>        gridin;
   Triangulation<reduced_dim, spacedim> serial_tria;
   DoFHandler<reduced_dim, spacedim>    serial_properties_dh(serial_tria);
   Vector<double>                       serial_properties;
   VTKUtils::read_vtk(par.reduced_grid_name,
                      serial_properties_dh,
                      serial_properties,
-                     this->get_properties_names());
+                     properties_names);
+
+  std::cout << "Read VTK file: " << par.reduced_grid_name
+            << ", properties norm: " << serial_properties.l2_norm()
+            << std::endl;
 
   // Then make sure the partitioner is what the user wants
   set_partitioner(triangulation);
@@ -117,6 +120,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
               << " has no locally owned cells." << std::endl;
 
   properties_dh.distribute_dofs(serial_properties_dh.get_fe());
+
+  AssertDimension(serial_properties_dh.n_dofs(), properties_dh.n_dofs());
+
   properties.reinit(properties_dh.locally_owned_dofs(),
                     DoFTools::extract_locally_relevant_dofs(properties_dh),
                     properties_dh.get_mpi_communicator());
@@ -124,6 +130,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                                                 properties_dh,
                                                 serial_properties,
                                                 properties);
+  // Make sure we have ghost values
+  properties.update_ghost_values();
+
   const auto &properties_fe = properties_dh.get_fe();
   const auto  block_indices = VTKUtils::get_block_indices(properties_fe);
 
@@ -135,6 +144,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                 << ", block start: " << block_indices.block_start(i)
                 << std::endl;
     }
+  std::cout << "Properties norm: " << properties.l2_norm() << std::endl;
+  std::cout << "Serial properties norm: " << serial_properties.l2_norm()
+            << std::endl;
   AssertDimension(block_indices.total_size(), properties_fe.n_components());
   AssertDimension(block_indices.size(), properties_names.size());
 };
@@ -418,7 +430,8 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   const auto thickness_start =
     thickness_field_index >= properties_names.size() ?
       numbers::invalid_unsigned_int :
-      properties_fe.block_indices().block_start(thickness_field_index);
+      VTKUtils::get_block_indices(properties_fe)
+        .block_start(thickness_field_index);
 
   FEValuesExtractors::Scalar thickness(thickness_start);
 
@@ -438,7 +451,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
             properties_fe_values.reinit(
               cell->as_dof_handler_iterator(this->properties_dh));
             properties_fe_values[thickness].get_function_values(
-              this->properties, thickness_values);
+              properties, thickness_values);
           }
 
         reduced_qpoints.insert(reduced_qpoints.end(),
