@@ -1,3 +1,5 @@
+#include <deal.II/base/function_parser.h> // Added for FunctionParser
+#include <deal.II/base/index_set.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/point.h>
 
@@ -14,12 +16,17 @@
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/lac/vector.h>
 
+#include <deal.II/numerics/vector_tools.h> // Added for VectorTools
+
 #include <mpi.h>
 
+#include <cstdio>  // For std::remove
+#include <fstream> // For writing temporary VTK file
 #include <string>
 #include <vector>
 
@@ -115,7 +122,7 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
 
   // Verify mapping
   auto dist_to_serial_mapping =
-    VTKUtils::create_vertex_mapping(serial_tria, dist_tria);
+    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, dist_tria);
   ASSERT_GT(dist_to_serial_mapping.size(), 0);
   std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
             << ": Created mapping for " << dist_to_serial_mapping.size()
@@ -134,11 +141,11 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
                 const unsigned int dist_vertex_index = cell->vertex_index(v);
 
                 //  corresponding serial index
-                auto it = dist_to_serial_mapping.find(dist_vertex_index);
-                if (it != dist_to_serial_mapping.end())
+                const auto serial_vertex_index =
+                  dist_to_serial_mapping[dist_vertex_index];
+                if (serial_vertex_index != numbers::invalid_unsigned_int)
                   {
-                    const unsigned int serial_vertex_index = it->second;
-                    const double       data_value =
+                    const double data_value =
                       output_vector[serial_vertex_index];
 
                     std::cout << "Vertex " << dist_vertex_index
@@ -197,7 +204,7 @@ TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
 
   // Verify mapping
   auto dist_to_serial_mapping =
-    VTKUtils::create_vertex_mapping(serial_tria, dist_tria);
+    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, dist_tria);
   ASSERT_GT(dist_to_serial_mapping.size(), 0);
   std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
             << ": Created mapping for " << dist_to_serial_mapping.size()
@@ -252,11 +259,34 @@ TEST(VTKUtils, ReadVtkDH)
   EXPECT_EQ(tria.n_active_cells(), 9);
   EXPECT_EQ(dof_handler.n_dofs(), 19);
   EXPECT_EQ(data_names.size(), 2);
-  EXPECT_EQ(data_names[0], "edge_length");
-  EXPECT_EQ(data_names[1], "path_distance");
+  EXPECT_EQ(data_names[0], "path_distance");
+  EXPECT_EQ(data_names[1], "edge_length");
   EXPECT_EQ(output_vector.size(), 19);
   std::cout << "output vector norm: " << output_vector.l2_norm() << std::endl;
 }
+
+
+TEST(VTKUtils, ReadVtkWithData)
+{
+  std::string vtk_filename =
+    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+  Triangulation<1, 3>      tria;
+  DoFHandler<1, 3>         dof_handler(tria);
+  Vector<double>           output_vector;
+  std::vector<std::string> data_names;
+  ASSERT_NO_THROW(
+    VTKUtils::read_vtk(vtk_filename, dof_handler, output_vector, data_names));
+
+  EXPECT_EQ(tria.n_vertices(), 2);
+  EXPECT_EQ(tria.n_active_cells(), 1);
+  EXPECT_EQ(dof_handler.n_dofs(), 4);
+  EXPECT_EQ(data_names.size(), 2);
+  EXPECT_EQ(data_names[0], "path_distance");
+  EXPECT_EQ(data_names[1], "radius");
+  EXPECT_EQ(output_vector.size(), 4);
+  EXPECT_GT(output_vector.l2_norm(), 0.0);
+}
+
 
 TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
 {
@@ -274,29 +304,18 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
   DoFHandler<dim> serial_dof_handler(serial_tria);
   serial_dof_handler.distribute_dofs(fe);
 
-  // Build support point map (serial)
-  std::map<types::global_dof_index, Point<dim>> serial_support_points;
-  DoFTools::map_dofs_to_support_points(mapping,
-                                       serial_dof_handler,
-                                       serial_support_points);
-  std::map<Point<dim>, types::global_dof_index, VTKUtils::PointComparator<dim>>
-    serial_map;
-  for (const auto &pair : serial_support_points)
-    serial_map[pair.second] = pair.first;
-
-
   // Fill serial vector with position-dependent values
   Vector<double> serial_vec(serial_dof_handler.n_dofs());
-  for (const auto &pair : serial_map)
-    {
-      const Point<dim>             &pt           = pair.first;
-      const types::global_dof_index serial_index = pair.second;
 
-      // Calculate value based on point coordinates
-      double value             = 10.0 * pt[0] + 1. * pt[1];
-      serial_vec[serial_index] = value;
-    }
-
+  // 7. Create ParsedFunction
+  FunctionParser<dim>           function_parser;
+  std::string                   parsed_function_str = "x + 10.0 * y";
+  std::map<std::string, double> constants;
+  function_parser.initialize(FunctionParser<dim>::default_variable_names(),
+                             parsed_function_str,
+                             constants,
+                             false);
+  VectorTools::interpolate(serial_dof_handler, function_parser, serial_vec);
 
   // Parallel tria, it must be identical to the one I generated above
 
@@ -307,44 +326,34 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
   DoFHandler<dim> parallel_dof_handler(parallel_tria);
   parallel_dof_handler.distribute_dofs(fe);
 
-  // Build support point map (parallel)
-
-  std::map<types::global_dof_index, Point<dim>> parallel_support_points;
-  DoFTools::map_dofs_to_support_points(mapping,
-                                       parallel_dof_handler,
-                                       parallel_support_points);
-  std::map<Point<dim>, types::global_dof_index, VTKUtils::PointComparator<dim>>
-    parallel_map;
-  for (const auto &pair : parallel_support_points)
-    parallel_map[pair.second] = pair.first;
-
   // Fill parallel vector using the utility function
   LA::distributed::Vector<double> parallel_vec;
-  VTKUtils::fill_distributed_vector_from_serial(
-    parallel_dof_handler.locally_owned_dofs(),
-    serial_vec,
-    serial_map,
-    parallel_vec,
-    parallel_map,
-    MPI_COMM_WORLD);
+  LA::distributed::Vector<double> parallel_vec_expected;
 
 
-  // Check values in distributed vector
-  for (const auto &p_pair : parallel_map)
-    {
-      const auto &pt             = p_pair.first;
-      const auto &parallel_index = p_pair.second;
+  parallel_vec.reinit(parallel_dof_handler.locally_owned_dofs(),
+                      MPI_COMM_WORLD);
+  parallel_vec_expected.reinit(parallel_dof_handler.locally_owned_dofs(),
+                               DoFTools::extract_locally_relevant_dofs(
+                                 parallel_dof_handler),
+                               MPI_COMM_WORLD);
 
-      if (!parallel_dof_handler.locally_owned_dofs().is_element(parallel_index))
-        continue;
+  VectorTools::interpolate(parallel_dof_handler,
+                           function_parser,
+                           parallel_vec_expected);
 
-      // Calculate expected value based on point coordinates
-      double expected_value = 10.0 * pt[0] + 1.0 * pt[1];
-
-      // Check if vector has correct value
-      ASSERT_NEAR(parallel_vec[parallel_index], expected_value, 1e-10)
-        << "Mismatch at point " << pt;
-    }
+  VTKUtils::serial_vector_to_distributed_vector(serial_dof_handler,
+                                                parallel_dof_handler,
+                                                serial_vec,
+                                                parallel_vec);
+  ASSERT_EQ(parallel_vec.size(), serial_vec.size());
+  // Check that the norms match
+  const double serial_norm   = serial_vec.l2_norm();
+  const double parallel_norm = parallel_vec.l2_norm();
+  ASSERT_DOUBLE_EQ(serial_norm, parallel_norm);
+  parallel_vec_expected -= parallel_vec;
+  const double error_norm = parallel_vec_expected.l2_norm();
+  ASSERT_NEAR(error_norm, 0.0, 1e-12);
 }
 
 TEST(VTKUtils, MPI_TransferVTKDataToParallel)
@@ -361,42 +370,6 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   std::vector<std::string>     data_names;
 
   VTKUtils::read_vtk(vtk_filename, serial_dof_handler, serial_data, data_names);
-
-  // original L2 norm for comparison
-  const double serial_norm = serial_data.l2_norm();
-
-  MappingQ1<dim, spacedim>                           mapping;
-  std::map<types::global_dof_index, Point<spacedim>> serial_support_points;
-  DoFTools::map_dofs_to_support_points(mapping,
-                                       serial_dof_handler,
-                                       serial_support_points);
-
-  std::map<Point<spacedim>,
-           types::global_dof_index,
-           VTKUtils::PointComparator<spacedim>>
-    serial_map;
-  for (const auto &pair : serial_support_points)
-    serial_map[pair.second] = pair.first;
-
-  // Store few sample points and their values for later verification
-  std::vector<Point<spacedim>> sample_points;
-  std::vector<double>          sample_values;
-
-  // Select some specific points to verify (first, middle, last)
-  unsigned int count = 0;
-  for (const auto &pair : serial_map)
-    {
-      // Take the first point, a point in the middle, and the last point
-      if (count == 0 || count == serial_map.size() / 2 ||
-          count == serial_map.size() - 1)
-        {
-          sample_points.push_back(pair.first);
-          sample_values.push_back(serial_data[pair.second]);
-          std::cout << "Serial point " << pair.first << " has value "
-                    << serial_data[pair.second] << std::endl;
-        }
-      count++;
-    }
 
 
   // First, partition the serial triangulation
@@ -417,112 +390,324 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   DoFHandler<dim, spacedim> parallel_dof_handler(parallel_tria);
   parallel_dof_handler.distribute_dofs(serial_dof_handler.get_fe());
 
-  // point-to-DoF mapping for parallel mesh
-  std::map<types::global_dof_index, Point<spacedim>> parallel_support_points;
-  DoFTools::map_dofs_to_support_points(mapping,
-                                       parallel_dof_handler,
-                                       parallel_support_points);
-
-  std::map<Point<spacedim>,
-           types::global_dof_index,
-           VTKUtils::PointComparator<spacedim>>
-    parallel_map;
-  for (const auto &pair : parallel_support_points)
-    parallel_map[pair.second] = pair.first;
-
-
   LA::distributed::Vector<double> parallel_data;
-  VTKUtils::fill_distributed_vector_from_serial(
-    parallel_dof_handler.locally_owned_dofs(),
-    serial_data,
-    serial_map,
-    parallel_data,
-    parallel_map,
-    MPI_COMM_WORLD);
+  parallel_data.reinit(parallel_dof_handler.locally_owned_dofs(),
+                       MPI_COMM_WORLD);
+  VTKUtils::serial_vector_to_distributed_vector(serial_dof_handler,
+                                                parallel_dof_handler,
+                                                serial_data,
+                                                parallel_data);
 
-  // compute and compare norms
-  double local_norm_sq = 0.0;
-  for (const auto &pair : parallel_map)
+  ASSERT_EQ(parallel_data.size(), serial_data.size());
+  // Check that the norms match
+  const double serial_norm   = serial_data.l2_norm();
+  const double parallel_norm = parallel_data.l2_norm();
+  ASSERT_DOUBLE_EQ(serial_norm, parallel_norm);
+}
+
+
+
+TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
+{
+  const int dim = 2;
+
+  // Setup serial tria
+  Triangulation<dim> serial_tria;
+  GridGenerator::hyper_cube(serial_tria, 0, 1);
+  serial_tria.refine_global(2);
+
+  // First, partition the serial triangulation
+  GridTools::partition_triangulation(
+    Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_tria);
+
+  // Create description for fully distributed triangulation
+  const TriangulationDescription::Description<dim> description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial_tria, MPI_COMM_WORLD);
+
+  // Create the parallel triangulation
+  parallel::fullydistributed::Triangulation<dim> parallel_tria(MPI_COMM_WORLD);
+  parallel_tria.create_triangulation(description);
+
+  std::vector<types::global_vertex_index> distributed_to_serial_vertex_indices =
+    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, parallel_tria);
+
+  const std::vector<Point<dim>> &serial_vertices = serial_tria.get_vertices();
+  const std::vector<Point<dim>> &parallel_vertices =
+    parallel_tria.get_vertices();
+
+  for (unsigned int i = 0; i < parallel_vertices.size(); ++i)
     {
-      const auto &dof_index = pair.second;
-
-      if (parallel_dof_handler.locally_owned_dofs().is_element(dof_index))
-        local_norm_sq += parallel_data[dof_index] * parallel_data[dof_index];
-    }
-
-  const double global_norm_sq =
-    Utilities::MPI::sum(local_norm_sq, MPI_COMM_WORLD);
-  const double parallel_norm = std::sqrt(global_norm_sq);
-
-  // Assert that the parallel norm matches the serial norm
-  ASSERT_NEAR(serial_norm, parallel_norm, 1e-10)
-    << "Data transfer failed: serial norm = " << serial_norm
-    << ", parallel norm = " << parallel_norm;
-
-  // point value verification: Each process checks if it owns any of the
-  // sample points, then verifies values
-  for (size_t i = 0; i < sample_points.size(); ++i)
-    {
-      const Point<spacedim> &point          = sample_points[i];
-      const double           expected_value = sample_values[i];
-
-      // Find this point in the parallel mesh
-      auto it = parallel_map.find(point);
-      if (it != parallel_map.end())
+      const auto &serial_index = distributed_to_serial_vertex_indices[i];
+      if (serial_index != numbers::invalid_unsigned_int)
         {
-          const types::global_dof_index dof_index = it->second;
+          const Point<dim> &parallel_vertex = parallel_vertices[i];
+          const Point<dim> &serial_vertex   = serial_vertices[serial_index];
 
-          // Check if this process owns this DoF
-          if (parallel_dof_handler.locally_owned_dofs().is_element(dof_index))
-            {
-              const double actual_value = parallel_data[dof_index];
-              std::cout << "Process "
-                        << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
-                        << " owns point " << point << " with value "
-                        << actual_value << " (expected: " << expected_value
-                        << ")" << std::endl;
-
-              ASSERT_NEAR(expected_value, actual_value, 1e-10)
-                << "Point data transfer failed at " << point;
-            }
+          ASSERT_LT(parallel_vertex.distance(serial_vertex), 1e-10)
+            << "Mismatch for parallel vertex " << i << " (serial vertex "
+            << serial_index << "). Coordinates: " << parallel_vertex << " vs "
+            << serial_vertex;
         }
     }
+}
 
-  // Gather all point verification results to ensure all points were checked
-  std::vector<int> points_verified_local(sample_points.size(), 0);
-  std::vector<int> points_verified_global(sample_points.size(), 0);
 
-  for (size_t i = 0; i < sample_points.size(); ++i)
+TEST(VTKUtils, VtkToFiniteElement)
+{
+  std::string vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  const auto [fe, data_names] =
+    VTKUtils::vtk_to_finite_element<1, 3>(vtk_filename);
+
+  EXPECT_EQ(data_names[0], "path_distance");
+  EXPECT_EQ(data_names[1], "edge_length");
+
+  EXPECT_EQ(fe->n_blocks(), 2);
+  EXPECT_EQ(fe->n_components(), 2);
+  EXPECT_EQ(fe->n_dofs_per_cell(), 3);
+  EXPECT_EQ(fe->base_element(0).dofs_per_vertex, 1);
+  EXPECT_EQ(fe->base_element(1).dofs_per_vertex, 0);
+  EXPECT_EQ(fe->base_element(0).dofs_per_line, 0);
+  EXPECT_EQ(fe->base_element(1).dofs_per_line, 1);
+}
+
+TEST(VTKUtils, ReadData)
+{
+  const std::string vtk_filename = SOURCE_DIR "/data/tests/simple_1d_grid.vtk";
+  Vector<double>    actual_data;
+  VTKUtils::read_data(vtk_filename, actual_data);
+
+  // 4. Verify the data
+  // Expected order: All PointData arrays first, then all CellData arrays.
+  // Within PointData: "x", then "xyz".
+  // Within CellData: "center_x", then "center_xyz".
+  // Sizes for simple_1d_grid.vtk:
+  // PointData "x": 10 values
+  // PointData "xyz": 10 points * 3 components = 30 values
+  // CellData "center_x": 9 values
+  // CellData "center_xyz": 9 cells * 3 components = 27 values
+  // Total = 10 + 30 + 9 + 27 = 76 values
+  Vector<double> expected_data(76);
+  unsigned int   k = 0;
+
+  // PointData "x" (10 points * 1 component)
+  for (int i = 0; i < 10; ++i)
+    expected_data[k++] = i / 9.0;
+
+  // PointData "xyz" (10 points * 3 components)
+  for (int i = 0; i < 10; ++i)
     {
-      const Point<spacedim> &point = sample_points[i];
-      auto                   it    = parallel_map.find(point);
-      if (it != parallel_map.end() &&
-          parallel_dof_handler.locally_owned_dofs().is_element(it->second))
-        {
-          points_verified_local[i] = 1;
-        }
+      expected_data[k++] = 0 + i / 9.0; // x component
+      expected_data[k++] = 1 + i / 9.0; // y component
+      expected_data[k++] = 2 + i / 9.0; // z component
     }
 
-  // Sum up verification status across processes
-  Utilities::MPI::sum(points_verified_local,
-                      MPI_COMM_WORLD,
-                      points_verified_global);
+  // CellData "center_x" (9 cells * 1 component)
+  for (int i = 0; i < 9;
+       ++i) // Cell centers are ( (i/9.0) + ((i+1)/9.0) ) / 2.0 = (2i+1)/18.0
+    expected_data[k++] = (2.0 * i + 1.0) / 18.0;
 
-  // On root process, verify all points were checked
-  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+  // CellData "center_xyz" (9 cells * 3 components)
+  for (int i = 0; i < 9; ++i)
     {
-      for (size_t i = 0; i < sample_points.size(); ++i)
-        {
-          ASSERT_GT(points_verified_global[i], 0)
-            << "Sample point " << sample_points[i]
-            << " was not verified by any process";
-        }
+      expected_data[k++] = 0.0 + (2.0 * i + 1.0) / 18.0; // x component
+      expected_data[k++] = 1.0 + (2.0 * i + 1.0) / 18.0; // y component
+      expected_data[k++] = 2.0 + (2.0 * i + 1.0) / 18.0; // z component
     }
 
-  // Additional verification: check sizes match properly
-  EXPECT_EQ(serial_tria.n_active_cells(),
-            parallel_tria.n_global_active_cells());
-  EXPECT_EQ(serial_dof_handler.n_dofs(), parallel_dof_handler.n_dofs());
+
+  ASSERT_EQ(actual_data.size(), expected_data.size())
+    << "Actual data size: " << actual_data.size()
+    << ", Expected data size: " << expected_data.size();
+
+  for (unsigned int i = 0; i < actual_data.size(); ++i)
+    {
+      EXPECT_NEAR(actual_data[i], expected_data[i], 1e-9)
+        << "Mismatch at index " << i << "; actual value: " << actual_data[i]
+        << ", expected value: " << expected_data[i];
+    }
+}
+
+
+TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
+{
+  const int         dim      = 1;
+  const int         spacedim = 3;
+  const std::string temp_vtk_filename =
+    SOURCE_DIR "/data/tests/simple_1d_grid.vtk";
+
+  Triangulation<dim, spacedim> tria;
+  ASSERT_NO_THROW(
+    VTKUtils::read_vtk(temp_vtk_filename, tria, /*cleanup=*/true));
+  ASSERT_EQ(tria.n_vertices(), 10);
+  ASSERT_EQ(tria.n_active_cells(), 9);
+
+  // 3. Read data using VTKUtils::read_data
+  Vector<double> raw_data_vector;
+  ASSERT_NO_THROW(VTKUtils::read_data(temp_vtk_filename, raw_data_vector));
+  // Expected size: x(10*1) + xyz(10*3) + center_x(9*1) + center_xyz(9*3) =
+  // 10+30+9+27 = 76
+  ASSERT_EQ(raw_data_vector.size(), 76);
+
+  // 4. Create FiniteElement using VTKUtils::vtk_to_finite_element
+  auto [fe_system_ptr, data_names_from_fe] =
+    VTKUtils::vtk_to_finite_element<dim, spacedim>(temp_vtk_filename);
+  ASSERT_TRUE(fe_system_ptr);
+  ASSERT_EQ(data_names_from_fe.size(), 4);
+  EXPECT_EQ(data_names_from_fe[0], "x");
+  EXPECT_EQ(data_names_from_fe[1], "xyz");
+  EXPECT_EQ(data_names_from_fe[2], "center_x");
+  EXPECT_EQ(data_names_from_fe[3], "center_xyz");
+  ASSERT_EQ(fe_system_ptr->n_blocks(), 4);
+  // x(1) + xyz(3) + center_x(1) + center_xyz(3) = 8 components
+  ASSERT_EQ(fe_system_ptr->n_components(), 8);
+
+  std::cout << "FiniteElement: " << fe_system_ptr->get_name()
+            << ", n_blocks: " << fe_system_ptr->n_blocks()
+            << ", n_components: " << fe_system_ptr->n_components() << std::endl;
+
+  const auto block_indices = VTKUtils::get_block_indices(*fe_system_ptr);
+  ASSERT_EQ(block_indices.total_size(), 8);
+  ASSERT_EQ(block_indices.size(), 4);
+  ASSERT_EQ(block_indices.block_size(0), 1);
+  ASSERT_EQ(block_indices.block_size(1), 3);
+  ASSERT_EQ(block_indices.block_size(2), 1);
+  ASSERT_EQ(block_indices.block_size(3), 3);
+
+  // 5. Create DoFHandler and distribute DoFs
+  DoFHandler<dim, spacedim> dof_handler(tria);
+  dof_handler.distribute_dofs(*fe_system_ptr);
+  // DoFs: Q1 for "x" (10*1), Q1 for "xyz" (10*3), DG0 for "center_x" (9*1), DG0
+  // for "center_xyz" (9*3)
+  // Total = 10 + 30 + 9 + 27 = 76
+  ASSERT_EQ(dof_handler.n_dofs(), 76);
+  ASSERT_EQ(dof_handler.n_dofs(), raw_data_vector.size());
+
+
+  // 6. Call data_to_dealii_vector
+  Vector<double> vector_from_data_to_dealii(dof_handler.n_dofs());
+  ASSERT_NO_THROW(VTKUtils::data_to_dealii_vector(
+    tria, raw_data_vector, dof_handler, vector_from_data_to_dealii));
+
+  // 7. Create ParsedFunction
+  FunctionParser<spacedim> function_parser(fe_system_ptr->n_components());
+  // FE blocks order from vtk_to_finite_element: x, xyz, center_x, center_xyz
+  // Corresponding expressions:
+  // "x" (Q1, 1 comp) -> "x"
+  // "xyz" (Q1, 3 comps) -> "x;y;z" (mesh on x-axis)
+  // "center_x" (DG0, 1 comp) -> "x" (eval at cell center)
+  // "center_xyz" (DG0, 3 comps) -> "x;y;z" (eval at cell center)
+  std::string                   parsed_function_str = "x; x;y;z; x; x;y;z";
+  std::map<std::string, double> constants;
+  function_parser.initialize(FunctionParser<spacedim>::default_variable_names(),
+                             parsed_function_str,
+                             constants,
+                             false);
+
+
+  // 8. Interpolate ParsedFunction
+  Vector<double>           interpolated_vector(dof_handler.n_dofs());
+  MappingQ1<dim, spacedim> mapping; // Standard mapping
+  ASSERT_NO_THROW(VectorTools::interpolate(
+    mapping, dof_handler, function_parser, interpolated_vector));
+
+  // 9. Compare vectors
+  ASSERT_EQ(vector_from_data_to_dealii.size(), interpolated_vector.size());
+  bool mismatch_found = false;
+  for (unsigned int i = 0; i < vector_from_data_to_dealii.size(); ++i)
+    {
+      if (std::abs(vector_from_data_to_dealii(i) - interpolated_vector(i)) >
+          1e-9)
+        {
+          std::cerr << "Mismatch at index " << i << ": data_to_dealii_vector = "
+                    << vector_from_data_to_dealii(i)
+                    << ", interpolated_vector = " << interpolated_vector(i)
+                    << "\\n"; // Replaced std::endl
+          mismatch_found = true;
+        }
+      // Use EXPECT_NEAR for individual checks to see all failures if any
+      EXPECT_NEAR(vector_from_data_to_dealii(i), interpolated_vector(i), 1e-9);
+    }
+  ASSERT_FALSE(mismatch_found) << "Vectors do not match.";
+
+
+  // 10. Delete temporary file - REMOVED
+}
+
+TEST(VTKUtils, DataFromSimpleVtkToDealiiVectorAndInterpolate)
+{
+  const int         dim          = 1;
+  const int         spacedim     = 3;
+  const std::string vtk_filename = SOURCE_DIR "/data/tests/simple_1d_grid.vtk";
+
+  // 1. Read VTK mesh
+  Triangulation<dim, spacedim> tria;
+  ASSERT_NO_THROW(VTKUtils::read_vtk(vtk_filename, tria, /*cleanup=*/true));
+  ASSERT_EQ(tria.n_vertices(), 10);
+  ASSERT_EQ(tria.n_active_cells(), 9);
+
+  // 2. Read data using VTKUtils::read_data
+  Vector<double> raw_data_vector;
+  ASSERT_NO_THROW(VTKUtils::read_data(vtk_filename, raw_data_vector));
+  // Expected size: x(10*1) + xyz(10*3) + center_x(9*1) + center_xyz(9*3) =
+  // 10+30+9+27 = 76
+  ASSERT_EQ(raw_data_vector.size(), 76);
+
+  // 3. Create FiniteElement using VTKUtils::vtk_to_finite_element
+  auto [fe_system_ptr, data_names_from_fe] =
+    VTKUtils::vtk_to_finite_element<dim, spacedim>(vtk_filename);
+  ASSERT_TRUE(fe_system_ptr);
+  ASSERT_EQ(data_names_from_fe.size(), 4);
+  EXPECT_EQ(data_names_from_fe[0], "x");
+  EXPECT_EQ(data_names_from_fe[1], "xyz");
+  EXPECT_EQ(data_names_from_fe[2], "center_x");
+  EXPECT_EQ(data_names_from_fe[3], "center_xyz");
+  ASSERT_EQ(fe_system_ptr->n_blocks(), 4);
+  ASSERT_EQ(fe_system_ptr->n_components(), 8);
+
+  // 4. Create DoFHandler and distribute DoFs
+  DoFHandler<dim, spacedim> dof_handler(tria);
+  dof_handler.distribute_dofs(*fe_system_ptr);
+  ASSERT_EQ(dof_handler.n_dofs(), 76);
+
+  // 5. Call data_to_dealii_vector
+  Vector<double> vector_from_data_to_dealii(dof_handler.n_dofs());
+  ASSERT_NO_THROW(VTKUtils::data_to_dealii_vector(
+    tria, raw_data_vector, dof_handler, vector_from_data_to_dealii));
+
+  // 6. Create ParsedFunction
+  FunctionParser<spacedim>      function_parser(fe_system_ptr->n_components());
+  std::string                   parsed_function_str = "x; x;y;z; x; x;y;z";
+  std::map<std::string, double> constants;
+  function_parser.initialize(FunctionParser<spacedim>::default_variable_names(),
+                             parsed_function_str,
+                             constants,
+                             false);
+
+  // 7. Interpolate ParsedFunction
+  Vector<double>           interpolated_vector(dof_handler.n_dofs());
+  MappingQ1<dim, spacedim> mapping;
+  ASSERT_NO_THROW(VectorTools::interpolate(
+    mapping, dof_handler, function_parser, interpolated_vector));
+
+  // 8. Compare vectors
+  ASSERT_EQ(vector_from_data_to_dealii.size(), interpolated_vector.size());
+  bool mismatch_found = false;
+  for (unsigned int i = 0; i < vector_from_data_to_dealii.size(); ++i)
+    {
+      if (std::abs(vector_from_data_to_dealii(i) - interpolated_vector(i)) >
+          1e-9)
+        {
+          std::cerr << "Mismatch at global DoF index " << i
+                    << ": data_to_dealii_vector = "
+                    << vector_from_data_to_dealii(i)
+                    << ", interpolated_vector = " << interpolated_vector(i)
+                    << "\n";
+          mismatch_found = true;
+        }
+      EXPECT_NEAR(vector_from_data_to_dealii(i), interpolated_vector(i), 1e-9);
+    }
+  ASSERT_FALSE(mismatch_found) << "Vectors do not match. See cerr for details.";
 }
 
 #endif // DEAL_II_WITH_VTK

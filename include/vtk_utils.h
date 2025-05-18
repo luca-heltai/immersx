@@ -28,6 +28,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -51,9 +52,31 @@
 using namespace dealii;
 
 namespace VTKUtils
+/**
+ * @namespace VTKUtils
+ * @brief Utility functions for interfacing between VTK mesh/data files and deal.II data structures.
+ *
+ * This namespace provides a collection of functions to read VTK mesh files and
+ * associated data fields, and to map them into deal.II Triangulation,
+ * DoFHandler, and vector objects. The utilities support reading mesh geometry,
+ * cell and vertex data, mapping VTK fields to deal.II finite elements, and
+ * transferring data between serial and distributed representations.
+ *
+ * Main functionalities include:
+ * - Reading VTK mesh files and populating deal.II Triangulation objects.
+ * - Reading cell and vertex data arrays from VTK files into deal.II vectors.
+ * - Mapping VTK data fields to suitable deal.II FiniteElement objects.
+ * - Translating VTK data arrays into deal.II vectors associated with DoFHandler
+ * objects.
+ * - Transferring data between serial and distributed deal.II vectors.
+ * - Mapping distributed vertex indices to serial indices for parallel
+ * computations.
+ *
+ * These utilities are intended to facilitate the import of VTK-based mesh and
+ * data into deal.II-based finite element workflows, supporting both serial and
+ * parallel computations.
+ */
 {
-
-
   /**
    * @brief Read a VTK mesh file and populate a deal.II Triangulation.
    *
@@ -104,6 +127,98 @@ namespace VTKUtils
                    const std::string &vertex_data_name,
                    Vector<double>    &output_vector);
 
+
+  /**
+   * @brief Read all field data from a VTK file and store it in the output vector.
+   *
+   * This function reads all field data arrays (scalar or vector, cell or point
+   * data) from the given VTK file and stores it in the provided output vector.
+   *
+   * The data is output in the following way:
+   * - first all vertex data (point data) in the order they are found in the
+   *   VTK file, with all components stored in row-major order (vertex0_comp0,
+   *   vertex0_comp1, ..., vertex1_comp0, ...)
+   * - then all cell data (cell data) in the order they are found in the VTK
+   * file, with all components stored in row-major order (cell0_comp0,
+   * cell0_comp1, ...).
+   *
+   * This is equivalent to calling read_vertex_data() for each vertex data
+   * field, and then read_cell_data() for each cell data field, and
+   * concatenating the resulting vectors in a single long vector.
+   *
+   * @param vtk_filename The name of the input VTK file.
+   * @param output_vector The vector to store the vertex data values.
+   */
+  void
+  read_data(const std::string &vtk_filename, Vector<double> &output_vector);
+
+  /**
+   * Map vtk fields to a FiniteElement object.
+   *
+   * This function reads the vtk file and constructs a suitable FiniteElement
+   * object that can be later used to store the data field values contained in
+   * the vtk file. The function returns a pair containing the FESystem object
+   * with one block for each field found in the vtk file, and a vector of
+   * strings with the names of the fields.
+   *
+   * VTK point data is stored in blocks of FE_Q elements or FE_System(FE_Q,
+   * n_comps), while cell data is stored in FE_DGQ or FE_System(FE_DGQ,
+   * n_comps). The number of components is determined by the number of
+   * components in the data field.
+   *
+   * @param vtk_filename The name of the input VTK file
+   */
+  template <int dim, int spacedim>
+  std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
+            std::vector<std::string>>
+  vtk_to_finite_element(const std::string &vtk_filename);
+
+  /**
+   * @brief Retrieves the block indices associated with a given finite element.
+   *
+   * This function returns a BlockIndices object that represents the mapping of
+   * components of the finite element to blocks for the specified finite
+   * element.
+   *
+   * This should be equivalent to fe.block_indices(), but that function has a
+   * bug in 9.6.
+   *
+   * @tparam dim      The topological dimension of the finite element.
+   * @tparam spacedim The space dimension in which the finite element is embedded.
+   * @param fe        Reference to the finite element for which block indices are requested.
+   * @return BlockIndices object corresponding to the provided finite element.
+   */
+  template <int dim, int spacedim>
+  BlockIndices
+  get_block_indices(const FiniteElement<dim, spacedim> &fe);
+
+  /**
+   * Translate a vtk data file (obtained through read_data()) to a dealii vector
+   * type, associated with the given DoFHandler object.
+   *
+   * The input data refers to the serial triangulation (obtained through the
+   * read_vtk() method). The DoFHandler dh may be serial or parallel.
+   *
+   * The DoFHandler must be already initialized with the finite element obtained
+   * through the vtk_to_finite_element() method. The grid underlying the
+   * DoFHandler dh must be generated by the serial_tria for this method to work.
+   *
+   * @tparam dim
+   * @tparam spacedim
+   * @tparam VectorType
+   * @param serial_tria
+   * @param data
+   * @param dh
+   * @param output_vector
+   */
+  template <int dim, int spacedim, typename VectorType>
+  void
+  data_to_dealii_vector(const Triangulation<dim, spacedim> &serial_tria,
+                        const Vector<double>               &data,
+                        const DoFHandler<dim, spacedim>    &dh,
+                        VectorType                         &output_vector);
+
+
   /**
    * @brief Read a VTK mesh and all data fields into a DoFHandler and output
    * vector.
@@ -129,75 +244,148 @@ namespace VTKUtils
            Vector<double>            &output_vector,
            std::vector<std::string>  &data_names);
 
-
-  // Custom comparator for Point<dim>.
-  template <int dim>
-  struct PointComparator
-  {
-    bool
-    operator()(const Point<dim> &p1, const Point<dim> &p2) const
-    {
-      const double tol = (p1.norm() + p2.norm()) * .5e-7;
-      // Compare lexicographically
-      for (unsigned int i = 0; i < dim; ++i)
-        {
-          if (p1[i] < p2[i] - tol)
-            return true;
-          if (p2[i] < p1[i] - tol)
-            return false;
-        }
-      return false; // Points are considered equal
-    }
-  };
-
-
   /**
-   * Fill a distributed vector from a serial vector using a mapping of
-   * points to DoF indices.
+   * Map a serial vector to a distributed vector.
    *
    * This function transfers data from a serial vector (the one returned by
-   * read_vtk() above) to a distributed vector based on the mapping of points to
-   * DoF indices for both the serial and parallel DoFHandler objects.
+   * read_vtk() above) to a distributed vector. The underlying assumption is
+   * that the serial vector contains data for all vertices in the mesh, and that
+   * the global cell indices are preserved in the distributed vector.
    *
+   * @param serial_dof_handler The serial DoFHandler.
    * @param parallel_dof_handler The parallel DoFHandler.
    * @param serial_vec The serial vector containing the data.
-   * @param mapping The mapping used for support points.
    * @param parallel_vec The distributed vector to be filled.
-   * @param parallel_map The mapping of points to DoF indices for the parallel DoFHandler.
-   * @param comm The MPI communicator.
-   */
-  template <int dim>
-  void
-  fill_distributed_vector_from_serial(
-    const IndexSet       &owned_dofs,
-    const Vector<double> &serial_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-                                               &serial_map,
-    LinearAlgebra::distributed::Vector<double> &parallel_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-            &parallel_map,
-    MPI_Comm comm);
-
-  /**
-   * @brief Create a mapping from distributed triangulation vertex indices to serial triangulation vertex indices.
-   *
-   * This function creates a map that translates vertex indices from a
-   * distributed triangulation to the corresponding vertex indices in a serial
-   * triangulation. The mapping is based on matching vertex coordinates with a
-   * small tolerance to account for floating-point errors.
-   *
-   * @param serial_tria The serial triangulation.
-   * @param dist_tria The distributed triangulation.
-   * @return A map from distributed vertex indices to serial vertex indices.
    */
   template <int dim, int spacedim>
-  std::map<unsigned int, unsigned int>
-  create_vertex_mapping(
-    const Triangulation<dim, spacedim>                             &serial_tria,
-    const parallel::fullydistributed::Triangulation<dim, spacedim> &dist_tria);
+  void
+  serial_vector_to_distributed_vector(
+    const DoFHandler<dim, spacedim>            &serial_dh,
+    const DoFHandler<dim, spacedim>            &parallel_dh,
+    const Vector<double>                       &serial_vec,
+    LinearAlgebra::distributed::Vector<double> &parallel_vec);
 
+
+  /**
+   * Map distributed vertex indices to serial vertex indices.
+   *
+   * The returned vector has size parallel_tria.n_vertices(). For each locally
+   * owned vertex, it contains the corresponding vertex index of the serial
+   * Triangulation. If a vertex is not locally owned, the corresponding serial
+   * index is `numbers::invalid_unsigned_int`
+   *
+   * The parallel Triangulation must have been generated from the serial one for
+   * this function to be any meaningful at all.
+   *
+   * @param serial_tria The serial Triangulation
+   * @param parallel_tria The parallel Triangulation
+   */
+  template <int dim, int spacedim>
+  std::vector<types::global_vertex_index>
+  distributed_to_serial_vertex_indices(
+    const Triangulation<dim, spacedim> &serial_tria,
+    const Triangulation<dim, spacedim> &parallel_tria);
+
+#  ifndef DOXYGEN
+  // Explicit implementation of template functions
+
+  template <int dim, int spacedim, typename VectorType>
+  void
+  data_to_dealii_vector(const Triangulation<dim, spacedim> &serial_tria,
+                        const Vector<double>               &data,
+                        const DoFHandler<dim, spacedim>    &dh,
+                        VectorType                         &output_vector)
+  {
+    AssertDimension(dh.n_dofs(), output_vector.size());
+    const auto &fe = dh.get_fe();
+
+    const auto dist_to_serial_vertices =
+      distributed_to_serial_vertex_indices(serial_tria, dh.get_triangulation());
+
+    const auto &locally_owned_dofs = dh.locally_owned_dofs();
+
+    types::global_dof_index dofs_offset        = 0;
+    unsigned int            vertex_comp_offset = 0;
+    unsigned int            cell_comp_offset   = 0;
+    for (unsigned int field = 0; field < fe.n_blocks(); ++field)
+      {
+        const auto        &field_fe = fe.base_element(field);
+        const unsigned int n_comps  = field_fe.n_components();
+        if (field_fe.n_dofs_per_vertex() > 0)
+          {
+            // This is a vertex data field
+            const types::global_dof_index n_local_dofs =
+              n_comps * serial_tria.n_vertices();
+            for (const auto &cell : dh.active_cell_iterators())
+              if (cell->is_locally_owned())
+                for (const auto v : cell->vertex_indices())
+                  {
+                    const types::global_dof_index serial_vertex_index =
+                      dist_to_serial_vertices[cell->vertex_index(v)];
+                    if (serial_vertex_index != numbers::invalid_unsigned_int)
+                      for (unsigned int c = 0; c < n_comps; ++c)
+                        {
+                          const types::global_dof_index dof_index =
+                            cell->vertex_dof_index(v, vertex_comp_offset + c);
+                          Assert(locally_owned_dofs.is_element(dof_index),
+                                 ExcInternalError());
+                          output_vector[dof_index] =
+                            data[dofs_offset + n_comps * serial_vertex_index +
+                                 c];
+                        }
+                  }
+            dofs_offset += n_local_dofs;
+            vertex_comp_offset += n_comps;
+          }
+        else if (field_fe.template n_dofs_per_object<dim>() > 0)
+          {
+            // this is a cell data field
+            const types::global_dof_index n_local_dofs =
+              n_comps * serial_tria.n_global_active_cells();
+
+            // Assumption: serial and parallel meshes have the same ordering of
+            // cells.
+            auto serial_cell   = serial_tria.begin_active();
+            auto parallel_cell = dh.begin_active();
+            for (; parallel_cell != dh.end(); ++parallel_cell)
+              if (parallel_cell->is_locally_owned())
+                {
+                  // Advanced serial cell until we reach the same cell index of
+                  // the parallel cell
+                  while (serial_cell->id() < parallel_cell->id())
+                    ++serial_cell;
+                  const auto serial_cell_index =
+                    serial_cell->global_active_cell_index();
+                  for (unsigned int c = 0; c < n_comps; ++c)
+                    {
+                      const types::global_dof_index dof_index =
+                        parallel_cell->dof_index(cell_comp_offset + c);
+                      Assert(locally_owned_dofs.is_element(dof_index),
+                             ExcInternalError());
+                      output_vector[dof_index] =
+                        data[dofs_offset + n_comps * serial_cell_index + c];
+                    }
+                }
+            dofs_offset += n_local_dofs;
+            cell_comp_offset += n_comps;
+          }
+      }
+  }
+
+  template <int dim, int spacedim>
+  BlockIndices
+  get_block_indices(const FiniteElement<dim, spacedim> &fe)
+  {
+    BlockIndices block_indices;
+    for (unsigned int i = 0; i < fe.n_blocks(); ++i)
+      {
+        const auto &block_fe = fe.base_element(i);
+        block_indices.push_back(block_fe.n_components());
+      }
+    return block_indices;
+  };
+#  endif
 } // namespace VTKUtils
-
 #endif // DEAL_II_WITH_VTK
 
 

@@ -10,6 +10,7 @@
 
 #  include <deal.II/fe/fe.h>
 #  include <deal.II/fe/fe_dgq.h>
+#  include <deal.II/fe/fe_nothing.h>
 #  include <deal.II/fe/fe_q.h>
 #  include <deal.II/fe/fe_system.h>
 
@@ -53,6 +54,8 @@ namespace VTKUtils
         cleaner->SetInputData(grid);
         cleaner->Update();
         grid = cleaner->GetOutput();
+        AssertThrow(grid,
+                    ExcMessage("Failed to clean VTK file: " + vtk_filename));
       }
 
     // Read points
@@ -213,8 +216,8 @@ namespace VTKUtils
 
   void
   read_vertex_data(const std::string &vtk_filename,
-                  const std::string &point_data_name,
-                  Vector<double>    &output_vector)
+                   const std::string &point_data_name,
+                   Vector<double>    &output_vector)
   {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());
@@ -234,19 +237,64 @@ namespace VTKUtils
         output_vector[i * n_components + j] = data_array->GetComponent(i, j);
   }
 
-  template <int dim, int spacedim>
   void
-  read_vtk(const std::string         &vtk_filename,
-           DoFHandler<dim, spacedim> &dof_handler,
-           Vector<double>            &output_vector,
-           std::vector<std::string>  &data_names)
+  read_data(const std::string &vtk_filename, Vector<double> &output_vector)
   {
-    // Get a non-const reference to the triangulation
-    auto &tria = const_cast<Triangulation<dim, spacedim> &>(
-      dof_handler.get_triangulation());
-    // Read the mesh from the VTK file
-    read_vtk(vtk_filename, tria, /*cleanup=*/true);
+    auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
+    reader->SetFileName(vtk_filename.c_str());
+    reader->Update();
+    vtkUnstructuredGrid *grid = reader->GetOutput();
+    AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
 
+    std::vector<double> data;
+
+    vtkPointData *point_data = grid->GetPointData();
+    if (point_data)
+      {
+        for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
+          {
+            vtkDataArray *data_array = point_data->GetArray(i);
+            if (!data_array)
+              continue;
+            vtkIdType    n_tuples     = data_array->GetNumberOfTuples();
+            int          n_components = data_array->GetNumberOfComponents();
+            unsigned int current_size = data.size();
+            data.resize(current_size + n_tuples * n_components, 0.0);
+            for (vtkIdType tuple_idx = 0; tuple_idx < n_tuples; ++tuple_idx)
+              for (int comp_idx = 0; comp_idx < n_components; ++comp_idx)
+                data[current_size + tuple_idx * n_components + comp_idx] =
+                  data_array->GetComponent(tuple_idx, comp_idx);
+          }
+      }
+
+    vtkCellData *cell_data = grid->GetCellData();
+    if (cell_data)
+      {
+        for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
+          {
+            vtkDataArray *data_array = cell_data->GetArray(i);
+            if (!data_array)
+              continue;
+            vtkIdType    n_tuples     = data_array->GetNumberOfTuples();
+            int          n_components = data_array->GetNumberOfComponents();
+            unsigned int current_size = data.size();
+            data.resize(current_size + n_tuples * n_components, true);
+            for (vtkIdType tuple_idx = 0; tuple_idx < n_tuples; ++tuple_idx)
+              for (int comp_idx = 0; comp_idx < n_components; ++comp_idx)
+                data[current_size + tuple_idx * n_components + comp_idx] =
+                  data_array->GetComponent(tuple_idx, comp_idx);
+          }
+      }
+    output_vector.reinit(data.size());
+    std::copy(data.begin(), data.end(), output_vector.begin());
+  }
+
+  template <int dim, int spacedim>
+  std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
+            std::vector<std::string>>
+  vtk_to_finite_element(const std::string &vtk_filename)
+  {
+    std::vector<std::string> data_names;
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());
     reader->Update();
@@ -258,7 +306,25 @@ namespace VTKUtils
 
     std::vector<std::shared_ptr<FiniteElement<dim, spacedim>>> fe_collection;
     std::vector<unsigned int> n_components_collection;
-    data_names.clear();
+
+    // Query point data fields
+    for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
+      {
+        vtkDataArray *arr = point_data->GetArray(i);
+        if (!arr)
+          continue;
+        std::string name   = arr->GetName();
+        int         n_comp = arr->GetNumberOfComponents();
+        if (n_comp == 1)
+          fe_collection.push_back(std::make_shared<FE_Q<dim, spacedim>>(1));
+        else
+          // Use FESystem for vector fields
+          fe_collection.push_back(
+            std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
+                                                      n_comp));
+        n_components_collection.push_back(n_comp);
+        data_names.push_back(name);
+      }
 
     // Query cell data fields
     for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
@@ -268,26 +334,17 @@ namespace VTKUtils
           continue;
         std::string name   = arr->GetName();
         int         n_comp = arr->GetNumberOfComponents();
-        fe_collection.push_back(
-          std::make_shared<FESystem<dim, spacedim>>(FE_DGQ<dim, spacedim>(0),
-                                                    n_comp));
+        if (n_comp == 1)
+          fe_collection.push_back(std::make_shared<FE_DGQ<dim, spacedim>>(0));
+        else
+          // Use FESystem for vector fields
+          fe_collection.push_back(
+            std::make_shared<FESystem<dim, spacedim>>(FE_DGQ<dim, spacedim>(0),
+                                                      n_comp));
         n_components_collection.push_back(n_comp);
         data_names.push_back(name);
       }
-    // Query point data fields
-    for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
-      {
-        vtkDataArray *arr = point_data->GetArray(i);
-        if (!arr)
-          continue;
-        std::string name   = arr->GetName();
-        int         n_comp = arr->GetNumberOfComponents();
-        fe_collection.push_back(
-          std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
-                                                    n_comp));
-        n_components_collection.push_back(n_comp);
-        data_names.push_back(name);
-      }
+
 
     // Build a FESystem with all fields
     std::vector<const FiniteElement<dim, spacedim> *> fe_ptrs;
@@ -297,153 +354,138 @@ namespace VTKUtils
         fe_ptrs.push_back(fe.get());
         multiplicities.push_back(1);
       }
-    FESystem<dim, spacedim> fe_system(fe_ptrs, multiplicities);
-    dof_handler.distribute_dofs(fe_system);
-    DoFRenumbering::block_wise(dof_handler);
-
-    // Read all data into output_vector
-    output_vector.reinit(dof_handler.n_dofs());
-    unsigned int dof_offset = 0;
-    unsigned int field_idx  = 0;
-    // Cell data
-    for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i, ++field_idx)
+    if (fe_ptrs.empty())
+      return std::make_pair(std::make_unique<FE_Nothing<dim, spacedim>>(),
+                            std::vector<std::string>());
+    else
       {
-        AssertIndexRange(i, fe_system.n_blocks());
-
-        vtkDataArray *arr = cell_data->GetArray(i);
-        if (!arr)
-          continue;
-        vtkIdType n_tuples = arr->GetNumberOfTuples();
-        int       n_comp   = arr->GetNumberOfComponents();
-        for (vtkIdType j = 0; j < n_tuples; ++j)
-          for (int k = 0; k < n_comp; ++k)
-            output_vector[dof_offset + j * n_comp + k] =
-              arr->GetComponent(j, k);
-        dof_offset += n_tuples * n_comp;
-      }
-    // Point data
-    for (int i = 0; i < point_data->GetNumberOfArrays(); ++i, ++field_idx)
-      {
-        vtkDataArray *arr = point_data->GetArray(i);
-        if (!arr)
-          continue;
-        vtkIdType n_tuples = arr->GetNumberOfTuples();
-        int       n_comp   = arr->GetNumberOfComponents();
-        for (vtkIdType j = 0; j < n_tuples; ++j)
-          for (int k = 0; k < n_comp; ++k)
-            output_vector[dof_offset + j * n_comp + k] =
-              arr->GetComponent(j, k);
-        dof_offset += n_tuples * n_comp;
+        return std::make_pair(
+          std::make_unique<FESystem<dim, spacedim>>(fe_ptrs, multiplicities),
+          data_names);
       }
   }
 
-  template <int dim>
+
+
+  template <int dim, int spacedim>
   void
-  fill_distributed_vector_from_serial(
-    const IndexSet       &owned_dofs,
-    const Vector<double> &serial_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-                                               &serial_map,
-    LinearAlgebra::distributed::Vector<double> &parallel_vec,
-    const std::map<Point<dim>, types::global_dof_index, PointComparator<dim>>
-            &parallel_map,
-    MPI_Comm comm)
+  read_vtk(const std::string         &vtk_filename,
+           DoFHandler<dim, spacedim> &dof_handler,
+           Vector<double>            &output_vector,
+           std::vector<std::string>  &data_names)
   {
-    Assert(parallel_vec.size() == 0,
-           ExcMessage("The parallel vector must be empty before filling it."));
-    AssertThrow(owned_dofs.n_elements() > 0,
-                ExcMessage("The owned DoF index set must not be empty."));
-    // Initialize parallel layout of the vector using DoFHandler
-    parallel_vec.reinit(owned_dofs, comm);
+    // Get a non-const reference to the triangulation
+    auto &tria = const_cast<Triangulation<dim, spacedim> &>(
+      dof_handler.get_triangulation());
 
-    // Transfer data from serial to parallel vector
-    for (const auto &p_pair : parallel_map)
-      {
-        const auto &pt             = p_pair.first;
-        const auto &parallel_index = p_pair.second;
+    // Make sure the triangulation is actually a serial triangulation
+    auto parallel_tria =
+      dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(&tria);
+    AssertThrow(parallel_tria == nullptr,
+                ExcMessage(
+                  "The input triangulation must be a serial triangulation."));
 
-        if (!owned_dofs.is_element(parallel_index))
-          continue;
+    // Clear the triangulation to ensure it is empty before reading
+    tria.clear();
+    // Read the mesh from the VTK file
+    read_vtk(vtk_filename, tria, /*cleanup=*/true);
 
-        auto it = serial_map.find(pt);
-        if (it != serial_map.end())
-          {
-            types::global_dof_index serial_index = it->second;
-            parallel_vec[parallel_index]         = serial_vec[serial_index];
-          }
-        else
-          {
-            std::cerr << "No match found for point: " << pt << std::endl;
-            AssertThrow(false, ExcInternalError());
-          }
-      }
+    Vector<double> raw_data_vector;
+    read_data(vtk_filename, raw_data_vector);
 
+    auto [fe, data_names_from_fe] =
+      vtk_to_finite_element<dim, spacedim>(vtk_filename);
+
+    dof_handler.distribute_dofs(*fe);
+    output_vector.reinit(dof_handler.n_dofs());
+    data_to_dealii_vector(tria, raw_data_vector, dof_handler, output_vector);
+
+    AssertDimension(dof_handler.n_dofs(), output_vector.size());
+    AssertDimension(dof_handler.get_fe().n_blocks(), data_names_from_fe.size());
+    data_names = data_names_from_fe;
+  }
+
+  template <int dim, int spacedim>
+  void
+  serial_vector_to_distributed_vector(
+    const DoFHandler<dim, spacedim>            &serial_dh,
+    const DoFHandler<dim, spacedim>            &parallel_dh,
+    const Vector<double>                       &serial_vec,
+    LinearAlgebra::distributed::Vector<double> &parallel_vec)
+  {
+    AssertDimension(serial_vec.size(), serial_dh.n_dofs());
+    AssertDimension(parallel_vec.size(), parallel_dh.n_dofs());
+    AssertDimension(parallel_dh.n_dofs(), serial_dh.n_dofs());
+
+    // Check that the two fe are the same
+    AssertThrow(serial_dh.get_fe() == parallel_dh.get_fe(),
+                ExcMessage("The finite element systems of the serial and "
+                           "parallel DoFHandlers must be the same."));
+
+    std::vector<types::global_dof_index> serial_dof_indices(
+      serial_dh.get_fe().n_dofs_per_cell());
+    std::vector<types::global_dof_index> parallel_dof_indices(
+      parallel_dh.get_fe().n_dofs_per_cell());
+
+    // Assumption: serial and parallel meshes have the same ordering of cells.
+    auto serial_cell   = serial_dh.begin_active();
+    auto parallel_cell = parallel_dh.begin_active();
+    for (; parallel_cell != parallel_dh.end(); ++parallel_cell)
+      if (parallel_cell->is_locally_owned())
+        {
+          // Advanced serial cell until we reach the same cell index of the
+          // parallel cell
+          while (serial_cell->id() < parallel_cell->id())
+            ++serial_cell;
+          serial_cell->get_dof_indices(serial_dof_indices);
+          parallel_cell->get_dof_indices(parallel_dof_indices);
+          unsigned int serial_index = 0;
+          for (const auto &i : parallel_dof_indices)
+            {
+              if (parallel_vec.in_local_range(i))
+                {
+                  parallel_vec[i] =
+                    serial_vec[serial_dof_indices[serial_index]];
+                }
+              ++serial_index;
+            }
+        }
     parallel_vec.compress(VectorOperation::insert);
   }
 
   template <int dim, int spacedim>
-  std::map<unsigned int, unsigned int>
-  create_vertex_mapping(
-    const Triangulation<dim, spacedim>                             &serial_tria,
-    const parallel::fullydistributed::Triangulation<dim, spacedim> &dist_tria)
+  std::vector<types::global_vertex_index>
+  distributed_to_serial_vertex_indices(
+    const Triangulation<dim, spacedim> &serial_tria,
+    const Triangulation<dim, spacedim> &parallel_tria)
   {
-    // Define a point comparator with tolerance for floating point comparison
-    struct PointComparator
-    {
-      bool
-      operator()(const Point<spacedim> &p1, const Point<spacedim> &p2) const
-      {
-        const double tolerance = 1e-12;
-        for (unsigned int d = 0; d < spacedim; ++d)
-          {
-            if (std::abs(p1[d] - p2[d]) > tolerance)
-              return p1[d] < p2[d];
-          }
-        return false; // Points are considered equal
-      }
-    };
+    const auto locally_owned_indices =
+      GridTools::get_locally_owned_vertices(parallel_tria);
+    std::vector<types::global_vertex_index>
+      distributed_to_serial_vertex_indices(parallel_tria.n_vertices(),
+                                           numbers::invalid_unsigned_int);
 
-    // Create maps from coordinates to indices
-    std::map<Point<spacedim>, unsigned int, PointComparator>
-      serial_point_to_index;
-    std::map<Point<spacedim>, unsigned int, PointComparator>
-      dist_point_to_index;
-
-    // Fill serial map
-    for (unsigned int i = 0; i < serial_tria.n_vertices(); ++i)
-      {
-        serial_point_to_index[serial_tria.get_vertices()[i]] = i;
-      }
-
-    // Get locally owned vertices
-    std::vector<bool> locally_owned_vertices =
-      GridTools::get_locally_owned_vertices(dist_tria);
-
-    // Fill distributed map with only locally owned vertices
-    const std::vector<Point<spacedim>> &distributed_vertices =
-      dist_tria.get_vertices();
-    for (unsigned int i = 0; i < dist_tria.n_vertices(); ++i)
-      if (i < locally_owned_vertices.size() && locally_owned_vertices[i])
-        dist_point_to_index[distributed_vertices[i]] = i;
-
-
-    // Create the mapping from distributed vertex index to serial vertex index
-    std::map<unsigned int, unsigned int> dist_to_serial_mapping;
-    for (const auto &pair : dist_point_to_index)
-      {
-        const Point<spacedim> &point    = pair.first;
-        const unsigned int     dist_idx = pair.second;
-
-        auto it = serial_point_to_index.find(point);
-        if (it != serial_point_to_index.end())
-          {
-            dist_to_serial_mapping[dist_idx] = it->second;
-          }
-      }
-
-    return dist_to_serial_mapping;
+    // Assumption: serial and parallel meshes have the same ordering of cells.
+    auto serial_cell   = serial_tria.begin_active();
+    auto parallel_cell = parallel_tria.begin_active();
+    for (; parallel_cell != parallel_tria.end(); ++parallel_cell)
+      if (parallel_cell->is_locally_owned())
+        {
+          // Advanced serial cell until we reach the same cell index of the
+          // parallel cell
+          while (serial_cell->id() < parallel_cell->id())
+            ++serial_cell;
+          for (const unsigned int &v : serial_cell->vertex_indices())
+            {
+              const auto serial_index   = serial_cell->vertex_index(v);
+              const auto parallel_index = parallel_cell->vertex_index(v);
+              if (locally_owned_indices[parallel_index])
+                distributed_to_serial_vertex_indices[parallel_index] =
+                  serial_index;
+            }
+        }
+    return distributed_to_serial_vertex_indices;
   }
-
 } // namespace VTKUtils
 
 
@@ -461,6 +503,25 @@ template void
 VTKUtils::read_vtk(const std::string &, Triangulation<2, 3> &, const bool);
 template void
 VTKUtils::read_vtk(const std::string &, Triangulation<3, 3> &, const bool);
+
+template std::pair<std::unique_ptr<FiniteElement<1, 1>>,
+                   std::vector<std::string>>
+VTKUtils::vtk_to_finite_element(const std::string &);
+template std::pair<std::unique_ptr<FiniteElement<1, 2>>,
+                   std::vector<std::string>>
+VTKUtils::vtk_to_finite_element(const std::string &);
+template std::pair<std::unique_ptr<FiniteElement<1, 3>>,
+                   std::vector<std::string>>
+VTKUtils::vtk_to_finite_element(const std::string &);
+template std::pair<std::unique_ptr<FiniteElement<2, 2>>,
+                   std::vector<std::string>>
+VTKUtils::vtk_to_finite_element(const std::string &);
+template std::pair<std::unique_ptr<FiniteElement<2, 3>>,
+                   std::vector<std::string>>
+VTKUtils::vtk_to_finite_element(const std::string &);
+template std::pair<std::unique_ptr<FiniteElement<3, 3>>,
+                   std::vector<std::string>>
+VTKUtils::vtk_to_finite_element(const std::string &);
 
 template void
 VTKUtils::read_vtk(const std::string &,
@@ -494,55 +555,60 @@ VTKUtils::read_vtk(const std::string &,
                    std::vector<std::string> &);
 
 template void
-VTKUtils::fill_distributed_vector_from_serial<1>(
-  const IndexSet &,
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<1, 1> &,
+  const DoFHandler<1, 1> &,
   const Vector<double> &,
-  const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
-  LinearAlgebra::distributed::Vector<double> &,
-  const std::map<Point<1>, types::global_dof_index, PointComparator<1>> &,
-  MPI_Comm);
-
+  LinearAlgebra::distributed::Vector<double> &);
 template void
-VTKUtils::fill_distributed_vector_from_serial<2>(
-  const IndexSet &,
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<1, 2> &,
+  const DoFHandler<1, 2> &,
   const Vector<double> &,
-  const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
-  LinearAlgebra::distributed::Vector<double> &,
-  const std::map<Point<2>, types::global_dof_index, PointComparator<2>> &,
-  MPI_Comm);
-
+  LinearAlgebra::distributed::Vector<double> &);
 template void
-VTKUtils::fill_distributed_vector_from_serial<3>(
-  const IndexSet &,
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<1, 3> &,
+  const DoFHandler<1, 3> &,
   const Vector<double> &,
-  const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
-  LinearAlgebra::distributed::Vector<double> &,
-  const std::map<Point<3>, types::global_dof_index, PointComparator<3>> &,
-  MPI_Comm);
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<2, 2> &,
+  const DoFHandler<2, 2> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<2, 3> &,
+  const DoFHandler<2, 3> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
+template void
+VTKUtils::serial_vector_to_distributed_vector(
+  const DoFHandler<3, 3> &,
+  const DoFHandler<3, 3> &,
+  const Vector<double> &,
+  LinearAlgebra::distributed::Vector<double> &);
 
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<1, 1> &,
-  const parallel::fullydistributed::Triangulation<1, 1> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<1, 2> &,
-  const parallel::fullydistributed::Triangulation<1, 2> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<1, 3> &,
-  const parallel::fullydistributed::Triangulation<1, 3> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<2, 2> &,
-  const parallel::fullydistributed::Triangulation<2, 2> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<2, 3> &,
-  const parallel::fullydistributed::Triangulation<2, 3> &);
-template std::map<unsigned int, unsigned int>
-VTKUtils::create_vertex_mapping(
-  const Triangulation<3, 3> &,
-  const parallel::fullydistributed::Triangulation<3, 3> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 1> &,
+                                               const Triangulation<1, 1> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 2> &,
+                                               const Triangulation<1, 2> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 3> &,
+                                               const Triangulation<1, 3> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<2, 2> &,
+                                               const Triangulation<2, 2> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<2, 3> &,
+                                               const Triangulation<2, 3> &);
+template std::vector<types::global_vertex_index>
+VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<3, 3> &,
+                                               const Triangulation<3, 3> &);
+
 
 #endif // DEAL_II_WITH_VTK
