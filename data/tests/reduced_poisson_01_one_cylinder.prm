@@ -67,7 +67,7 @@ subsection Reduced Poisson
       subsection Representative domain
         set Finite element degree   = 1
         set Pre-refinement level    = 4
-        set Radius                  = 0.1
+        set Thickness               = 0.1
         set Reduced grid name       =
         set Reduced right hand side = 1
       end

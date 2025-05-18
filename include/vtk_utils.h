@@ -52,9 +52,31 @@
 using namespace dealii;
 
 namespace VTKUtils
+/**
+ * @namespace VTKUtils
+ * @brief Utility functions for interfacing between VTK mesh/data files and deal.II data structures.
+ *
+ * This namespace provides a collection of functions to read VTK mesh files and
+ * associated data fields, and to map them into deal.II Triangulation,
+ * DoFHandler, and vector objects. The utilities support reading mesh geometry,
+ * cell and vertex data, mapping VTK fields to deal.II finite elements, and
+ * transferring data between serial and distributed representations.
+ *
+ * Main functionalities include:
+ * - Reading VTK mesh files and populating deal.II Triangulation objects.
+ * - Reading cell and vertex data arrays from VTK files into deal.II vectors.
+ * - Mapping VTK data fields to suitable deal.II FiniteElement objects.
+ * - Translating VTK data arrays into deal.II vectors associated with DoFHandler
+ * objects.
+ * - Transferring data between serial and distributed deal.II vectors.
+ * - Mapping distributed vertex indices to serial indices for parallel
+ * computations.
+ *
+ * These utilities are intended to facilitate the import of VTK-based mesh and
+ * data into deal.II-based finite element workflows, supporting both serial and
+ * parallel computations.
+ */
 {
-
-
   /**
    * @brief Read a VTK mesh file and populate a deal.II Triangulation.
    *
@@ -151,6 +173,24 @@ namespace VTKUtils
             std::vector<std::string>>
   vtk_to_finite_element(const std::string &vtk_filename);
 
+  /**
+   * @brief Retrieves the block indices associated with a given finite element.
+   *
+   * This function returns a BlockIndices object that represents the mapping of
+   * components of the finite element to blocks for the specified finite
+   * element.
+   *
+   * This should be equivalent to fe.block_indices(), but that function has a
+   * bug in 9.6.
+   *
+   * @tparam dim      The topological dimension of the finite element.
+   * @tparam spacedim The space dimension in which the finite element is embedded.
+   * @param fe        Reference to the finite element for which block indices are requested.
+   * @return BlockIndices object corresponding to the provided finite element.
+   */
+  template <int dim, int spacedim>
+  BlockIndices
+  get_block_indices(const FiniteElement<dim, spacedim> &fe);
 
   /**
    * Translate a vtk data file (obtained through read_data()) to a dealii vector
@@ -331,6 +371,19 @@ namespace VTKUtils
           }
       }
   }
+
+  template <int dim, int spacedim>
+  BlockIndices
+  get_block_indices(const FiniteElement<dim, spacedim> &fe)
+  {
+    BlockIndices block_indices;
+    for (unsigned int i = 0; i < fe.n_blocks(); ++i)
+      {
+        const auto &block_fe = fe.base_element(i);
+        block_indices.push_back(block_fe.n_components());
+      }
+    return block_indices;
+  };
 #  endif
 } // namespace VTKUtils
 #endif // DEAL_II_WITH_VTK

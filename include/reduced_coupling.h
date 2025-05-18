@@ -42,6 +42,7 @@
 
 #include <fstream>
 
+#include "immersed_repartitioner.h"
 #include "particle_coupling.h"
 #include "tensor_product_space.h"
 
@@ -81,14 +82,9 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   ParticleCouplingParameters<spacedim> particle_coupling_parameters;
 
   /**
-   * @brief Name of the grid to read from a file.
-   */
-  std::string reduced_grid_name = "";
-
-  /**
    * Name of the field name to use for the thickness of the inclusion. This is
    * read from the reduced_grid_name file. If empty, the thickness is assumed to
-   * be constant, and taken from the tensor_product_space_parameters.radius
+   * be constant, and taken from the tensor_product_space_parameters.thickness
    * argument.
    */
   std::string thickness_field_name = "";
@@ -166,6 +162,10 @@ struct ReducedCoupling
                            const DoFHandler<spacedim>      &dh,
                            const AffineConstraints<double> &constraints) const;
 
+  template <typename MatrixType>
+  void
+  assemble_coupling_mass_matrix(MatrixType &mass_matrix) const;
+
   /**
    * @brief Assemble the right-hand side vector for the reduced space.
    *
@@ -186,7 +186,9 @@ struct ReducedCoupling
    * We know that $\int_D \phi_i^2 dD =
    * \int_{\hat D} \hat{\phi}_i^2 J d\hat{D} = |\hat{D}| a^d = |D|$
    * is the scaling factor of the basis functions, where $a$ is the scaling of
-   * the cross-section.
+   * the cross-section. Notice that this means, in particular, that
+   * $||\phi_i||^2 = |D|$, and that this is the scaling that should be used in
+   * the mass matrix.
    *
    * @tparam VectorType The vector type (e.g., Vector<double>).
    * @param reduced_rhs The right-hand side vector to assemble.
@@ -230,24 +232,15 @@ private:
   std::unique_ptr<FunctionParser<spacedim>> coupling_rhs;
 
   /**
-   * The properties of the inclusion.
+   * An ImmersedRepartitioner object that handles the repartitioning of the
+   * triangulation.
    */
-  LinearAlgebra::distributed::Vector<double> properties;
-
-  /**
-   * The finite element system used for the properties of the inclusion.
-   */
-  DoFHandler<reduced_dim, spacedim> properties_dh;
-
-  /**
-   * The names of the properties stored in the input file.
-   */
-  std::vector<std::string> properties_names;
+  ImmersedRepartitioner<reduced_dim, spacedim> immersed_partitioner;
 };
 
 
 // Template specializations
-
+#ifndef DOXYGEN
 template <int reduced_dim, int dim, int spacedim, int n_components>
 template <typename MatrixType>
 inline void
@@ -343,6 +336,94 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
   coupling_matrix.compress(VectorOperation::add);
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+template <typename MatrixType>
+inline void
+ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+  assemble_coupling_mass_matrix(MatrixType &mass_matrix) const
+{
+  AssertDimension(mass_matrix.m(), this->get_dof_handler().n_dofs());
+  AssertDimension(mass_matrix.n(), this->get_dof_handler().n_dofs());
+
+  mass_matrix    = 0;
+  const auto &fe = this->get_dof_handler().get_fe();
+
+  FullMatrix<double>                   local_mass_matrix(fe.n_dofs_per_cell(),
+                                       fe.n_dofs_per_cell());
+  std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
+  FEValues<reduced_dim, spacedim>      fe_values(fe,
+                                            this->get_quadrature(),
+                                            update_values | update_JxW_values);
+
+
+  const auto                     &properties_fe = this->properties_dh.get_fe();
+  FEValues<reduced_dim, spacedim> properties_fe_values(properties_fe,
+                                                       this->get_quadrature(),
+                                                       update_values);
+
+  // Find the index of the thickness field in the properties
+  const unsigned int thickness_field_index =
+    std::distance(this->properties_names.begin(),
+                  std::find(this->properties_names.begin(),
+                            this->properties_names.end(),
+                            par.thickness_field_name));
+
+  const auto thickness_start =
+    thickness_field_index >= this->properties_names.size() ?
+      numbers::invalid_unsigned_int :
+      properties_fe.block_indices().block_start(thickness_field_index);
+
+  FEValuesExtractors::Scalar thickness(thickness_start);
+
+  // Initialize the thickness values with the constant thickness
+  std::vector<double> thickness_values(
+    this->get_quadrature().size(),
+    par.tensor_product_space_parameters.thickness);
+
+  for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        fe_values.reinit(cell);
+        const auto &JxW = fe_values.get_JxW_values();
+
+        if (thickness_start != numbers::invalid_unsigned_int)
+          {
+            properties_fe_values.reinit(
+              cell->as_dof_handler_iterator(this->properties_dh));
+            properties_fe_values[thickness].get_function_values(
+              this->properties, thickness_values);
+          }
+
+        local_mass_matrix = 0;
+        for (const auto q : fe_values.quadrature_point_indices())
+          {
+            const auto section_measure =
+              this->get_reference_cross_section().measure(thickness_values[q]);
+
+            for (const auto i : fe_values.dof_indices())
+              {
+                const auto comp_i =
+                  fe_values.get_fe().system_to_component_index(i).first;
+                for (const auto j : fe_values.dof_indices())
+                  {
+                    const auto comp_j =
+                      fe_values.get_fe().system_to_component_index(j).first;
+                    if (comp_i == comp_j)
+                      local_mass_matrix(i, j) += fe_values.shape_value(i, q) *
+                                                 fe_values.shape_value(j, q) *
+                                                 JxW[q] * section_measure;
+                  }
+              }
+          }
+        cell->get_dof_indices(dof_indices);
+        coupling_constraints.distribute_local_to_global(local_mass_matrix,
+                                                        dof_indices,
+                                                        mass_matrix);
+      }
+  mass_matrix.compress(VectorOperation::add);
+}
+
+
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 template <typename VectorType>
@@ -363,6 +444,31 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
   std::vector<types::global_dof_index> dof_indices(
     this->get_dof_handler().get_fe().n_dofs_per_cell());
 
+
+  const auto                     &properties_fe = this->properties_dh.get_fe();
+  FEValues<reduced_dim, spacedim> properties_fe_values(properties_fe,
+                                                       this->get_quadrature(),
+                                                       update_values);
+
+  // Find the index of the thickness field in the properties
+  const unsigned int thickness_field_index =
+    std::distance(this->properties_names.begin(),
+                  std::find(this->properties_names.begin(),
+                            this->properties_names.end(),
+                            par.thickness_field_name));
+
+  const auto thickness_start =
+    thickness_field_index >= this->properties_names.size() ?
+      numbers::invalid_unsigned_int :
+      properties_fe.block_indices().block_start(thickness_field_index);
+
+  FEValuesExtractors::Scalar thickness(thickness_start);
+
+  // Initialize the thickness values with the constant thickness
+  std::vector<double> thickness_values(
+    this->get_quadrature().size(),
+    par.tensor_product_space_parameters.thickness);
+
   // VectorTools::create_right_hand_side(this->get_dof_handler(),
   //                                     this->get_quadrature(),
   //                                     *coupling_rhs,
@@ -376,6 +482,15 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
         const auto &q_points = fe_values.get_quadrature_points();
         coupling_rhs->vector_value_list(q_points, rhs_values);
 
+
+        if (thickness_start != numbers::invalid_unsigned_int)
+          {
+            properties_fe_values.reinit(
+              cell->as_dof_handler_iterator(this->properties_dh));
+            properties_fe_values[thickness].get_function_values(
+              this->properties, thickness_values);
+          }
+
         local_rhs = 0;
         for (const auto q : fe_values.quadrature_point_indices())
           for (const auto i : fe_values.dof_indices())
@@ -385,7 +500,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
               local_rhs(i) += rhs_values[q][comp_i] *
                               fe_values.shape_value(i, q) * JxW[q] *
                               this->get_reference_cross_section().measure(
-                                par.tensor_product_space_parameters.thickness);
+                                thickness_values[q]);
             }
         cell->get_dof_indices(dof_indices);
         coupling_constraints.distribute_local_to_global(local_rhs,
@@ -395,5 +510,6 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
 
   reduced_rhs.compress(VectorOperation::add);
 }
+#endif
 
 #endif

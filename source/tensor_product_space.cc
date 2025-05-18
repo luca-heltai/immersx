@@ -20,9 +20,14 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_tools.h>
 
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/utilities.h>
+
+#include "immersed_repartitioner.h"
+#include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
@@ -31,7 +36,9 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
 {
   add_parameter("Finite element degree", fe_degree);
   add_parameter("Number of quadrature points", n_q_points);
-  add_parameter("Radius", thickness);
+  add_parameter("Thickness", thickness);
+  add_parameter("Thickness field name", thickness_field_name);
+  add_parameter("Reduced grid name", reduced_grid_name);
 }
 
 // Constructor for TensorProductSpace
@@ -50,16 +57,8 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   , quadrature_formula(par.n_q_points == 0 ? 2 * par.fe_degree + 1 :
                                              par.n_q_points)
   , dof_handler(triangulation)
-{
-  make_reduced_grid =
-    [&](
-      parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &tria) {
-      Triangulation<reduced_dim, spacedim> serial_tria;
-      GridGenerator::hyper_cube(tria, 0, 1);
-      serial_tria.refine_global(3);
-      tria.copy_triangulation(serial_tria);
-    };
-}
+  , properties_dh(triangulation)
+{}
 
 // Initialize the tensor product space
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -72,7 +71,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize()
     {
       reference_cross_section.initialize();
 
-      make_reduced_grid(triangulation);
+      make_reduced_grid_and_properties();
 
       // Setup degrees of freedom
       setup_dofs();
@@ -89,6 +88,56 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 {
   return reference_cross_section;
 }
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+void
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  make_reduced_grid_and_properties()
+{
+  // First create a serial triangulation with the VTK file
+  GridIn<reduced_dim, spacedim>        gridin;
+  Triangulation<reduced_dim, spacedim> serial_tria;
+  DoFHandler<reduced_dim, spacedim>    serial_properties_dh(serial_tria);
+  Vector<double>                       serial_properties;
+  VTKUtils::read_vtk(par.reduced_grid_name,
+                     serial_properties_dh,
+                     serial_properties,
+                     this->get_properties_names());
+
+  // Then make sure the partitioner is what the user wants
+  set_partitioner(triangulation);
+
+  // Once the triangulation is created, copy it to the distributed
+  // triangulation
+  triangulation.copy_triangulation(serial_tria);
+
+  if (triangulation.n_locally_owned_active_cells() == 0)
+    std::cout << "Process "
+              << Utilities::MPI::this_mpi_process(mpi_communicator)
+              << " has no locally owned cells." << std::endl;
+
+  properties_dh.distribute_dofs(serial_properties_dh.get_fe());
+  properties.reinit(properties_dh.locally_owned_dofs(),
+                    DoFTools::extract_locally_relevant_dofs(properties_dh),
+                    properties_dh.get_mpi_communicator());
+  VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
+                                                properties_dh,
+                                                serial_properties,
+                                                properties);
+  const auto &properties_fe = properties_dh.get_fe();
+  const auto  block_indices = VTKUtils::get_block_indices(properties_fe);
+
+  for (unsigned int i = 0; i < block_indices.size(); ++i)
+    {
+      const auto &name = properties_names[i];
+      std::cout << "Property name: " << name << ", block index: " << i
+                << ", block size: " << block_indices.block_size(i)
+                << ", block start: " << block_indices.block_start(i)
+                << std::endl;
+    }
+  AssertDimension(block_indices.total_size(), properties_fe.n_components());
+  AssertDimension(block_indices.size(), properties_names.size());
+};
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 const DoFHandler<reduced_dim, spacedim> &
@@ -403,6 +452,46 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_scaling(
   const unsigned int) const
 {
   return std::pow(par.thickness, -((dim - reduced_dim) / 2.0));
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const LinearAlgebra::distributed::Vector<double> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_properties()
+  const
+{
+  return properties;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const DoFHandler<reduced_dim, spacedim> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_properties_dh() const
+{
+  return properties_dh;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+DoFHandler<reduced_dim, spacedim> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_properties_dh()
+{
+  return properties_dh;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<std::string> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_properties_names() const
+{
+  return properties_names;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+std::vector<std::string> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_properties_names()
+{
+  return properties_names;
 }
 
 

@@ -8,6 +8,7 @@
 #include <fstream>
 
 #include "immersed_repartitioner.h"
+#include "tensor_product_space.h"
 #include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -16,7 +17,6 @@ ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   : ParameterAcceptor("Reduced coupling/")
 {
   this->enter_subsection("Representative domain");
-  this->add_parameter("Reduced grid name", reduced_grid_name);
   this->add_parameter("Pre-refinement level", pre_refinement);
   this->add_parameter("Reduced right hand side",
                       coupling_rhs_expressions,
@@ -51,58 +51,11 @@ background_tria.get_mpi_communicator()
         )
   , par(par)
   , background_tria(&background_tria)
-  , properties_dh(this->get_triangulation())
+  , immersed_partitioner(background_tria)
 {
-  this->make_reduced_grid = [&](auto &tria) {
-    // First create a serial triangulation with the VTK file
-    GridIn<reduced_dim, spacedim>        gridin;
-    Triangulation<reduced_dim, spacedim> serial_tria;
-    DoFHandler<reduced_dim, spacedim>    serial_properties_dh(serial_tria);
-    Vector<double>                       serial_properties;
-    VTKUtils::read_vtk(par.reduced_grid_name,
-                       serial_properties_dh,
-                       serial_properties,
-                       properties_names);
-
-    // gridin.attach_triangulation(serial_tria);
-    // std::ifstream f(par.reduced_grid_name);
-    // AssertThrow(f, ExcIO());
-    // gridin.read_vtk(f);
-    // serial_tria.refine_global(par.pre_refinement);
-
-    // [TODO] pre_refinement is not working
-
-    // Create an unpartitioned fully distributed triangulation
-    parallel::fullydistributed::Triangulation<reduced_dim, spacedim>
-      serial_tria_fully_distributed(mpi_communicator);
-    serial_tria_fully_distributed.copy_triangulation(serial_tria);
-
-    // Now use ImmersedRepartitioner to partition the grid
-    ImmersedRepartitioner<reduced_dim, spacedim> repartitioner(
-      *this->background_tria);
-
-    // Apply the repartitioner to create a partitioned grid
-    auto partition = repartitioner.partition(serial_tria_fully_distributed);
-
-    const auto construction_data = TriangulationDescription::Utilities::
-      create_description_from_triangulation(serial_tria_fully_distributed,
-                                            partition);
-    tria.create_triangulation(construction_data);
-
-    if (tria.n_locally_owned_active_cells() == 0)
-      std::cout << "Process "
-                << Utilities::MPI::this_mpi_process(mpi_communicator)
-                << " has no locally owned cells." << std::endl;
-
-    // Now move the serial properties to the distributed triangulation
-    properties_dh.distribute_dofs(serial_properties_dh.get_fe());
-    properties.reinit(properties_dh.locally_owned_dofs(),
-                      DoFTools::extract_locally_relevant_dofs(properties_dh),
-                      properties_dh.get_mpi_communicator());
-    VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
-                                                  properties_dh,
-                                                  serial_properties,
-                                                  properties);
+  this->set_partitioner = [&](auto &tria) {
+    tria.set_partitioner(immersed_partitioner,
+                         TriangulationDescription::Settings());
   };
 }
 
@@ -162,7 +115,9 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
              par.tensor_product_space_parameters.section.selected_coefficients)
         << std::endl;
       std::cout << "Reduced coupling initialized" << std::endl;
-      std::cout << "Reduced grid name: " << par.reduced_grid_name << std::endl;
+      std::cout << "Reduced grid name: "
+                << par.tensor_product_space_parameters.reduced_grid_name
+                << std::endl;
     }
 }
 

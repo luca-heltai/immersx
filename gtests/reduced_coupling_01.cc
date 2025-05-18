@@ -55,7 +55,8 @@ TEST(ReducedCoupling, MPI_Constructor) // NOLINT
 
   ParameterAcceptor::initialize("", "reduced_coupling_01.prm");
 
-  par.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  par.tensor_product_space_parameters.reduced_grid_name =
+    SOURCE_DIR "/data/tests/mstree_100.vtk";
 
   ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
     background_tria, par);
@@ -82,7 +83,8 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
-  par.reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+  par.tensor_product_space_parameters.reduced_grid_name =
+    SOURCE_DIR "/data/tests/one_cylinder.vtk";
   // This should be the scaling factor for the coupling
   par.coupling_rhs_expressions                  = {"1"};
   par.tensor_product_space_parameters.thickness = 0.01;
@@ -159,7 +161,8 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
 
   ParameterAcceptor::initialize("", "reduced_coupling_01.prm");
 
-  par.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  par.tensor_product_space_parameters.reduced_grid_name =
+    SOURCE_DIR "/data/tests/mstree_100.vtk";
   par.tensor_product_space_parameters.section.inclusion_degree = 1;
   par.coupling_rhs_expressions = {"1", "0", "0"};
 
