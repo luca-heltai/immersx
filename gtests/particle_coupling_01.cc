@@ -42,37 +42,16 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
   background_tria.refine_global(5);
+  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
 
-  // Set the make_reduced_grid function to read from a VTK file and use
-  // ImmersedRepartitioner
-  tps.make_reduced_grid = [&](auto &tria) {
-    // First create a serial triangulation with the VTK file
-    const std::string filename = SOURCE_DIR "/data/tests/mstree_100.vtk";
-    GridIn<reduced_dim, spacedim>        gridin;
-    Triangulation<reduced_dim, spacedim> serial_tria;
-    gridin.attach_triangulation(serial_tria);
-    std::ifstream f(filename);
-    ASSERT_TRUE(f.good()) << "Failed to open file: " << filename;
-    gridin.read_vtk(f);
-
-    // Create an unpartitioned fully distributed triangulation
-    parallel::fullydistributed::Triangulation<reduced_dim, spacedim>
-      serial_tria_fully_distributed(MPI_COMM_WORLD);
-    serial_tria_fully_distributed.copy_triangulation(serial_tria);
-
-    // Now use ImmersedRepartitioner to partition the grid
-    ImmersedRepartitioner<reduced_dim, spacedim> repartitioner(background_tria);
-
-    // Apply the repartitioner to create a partitioned grid
-    auto partition = repartitioner.partition(serial_tria_fully_distributed);
-
-    const auto construction_data = TriangulationDescription::Utilities::
-      create_description_from_triangulation(serial_tria_fully_distributed,
-                                            partition);
-    tria.create_triangulation(construction_data);
+  ImmersedRepartitioner<reduced_dim, spacedim> immersed_partitioner(
+    background_tria);
+  tps.set_partitioner = [&](auto &tria) {
+    tria.set_partitioner(immersed_partitioner,
+                         TriangulationDescription::Settings());
   };
 
   // Initialize the tensor product space
@@ -128,37 +107,19 @@ TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
   background_tria.refine_global(5);
+  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
 
   // Set the make_reduced_grid function to read from a VTK file and use
   // ImmersedRepartitioner
-  tps.make_reduced_grid = [&](auto &tria) {
-    // First create a serial triangulation with the VTK file
-    const std::string filename = SOURCE_DIR "/data/tests/mstree_100.vtk";
-    GridIn<reduced_dim, spacedim>        gridin;
-    Triangulation<reduced_dim, spacedim> serial_tria;
-    gridin.attach_triangulation(serial_tria);
-    std::ifstream f(filename);
-    ASSERT_TRUE(f.good()) << "Failed to open file: " << filename;
-    gridin.read_vtk(f);
 
-    // Create an unpartitioned fully distributed triangulation
-    parallel::fullydistributed::Triangulation<reduced_dim, spacedim>
-      serial_tria_fully_distributed(MPI_COMM_WORLD);
-    serial_tria_fully_distributed.copy_triangulation(serial_tria);
-
-    // Now use ImmersedRepartitioner to partition the grid
-    ImmersedRepartitioner<reduced_dim, spacedim> repartitioner(background_tria);
-
-    // Apply the repartitioner to create a partitioned grid
-    auto partition = repartitioner.partition(serial_tria_fully_distributed);
-
-    const auto construction_data = TriangulationDescription::Utilities::
-      create_description_from_triangulation(serial_tria_fully_distributed,
-                                            partition);
-    tria.create_triangulation(construction_data);
+  ImmersedRepartitioner<reduced_dim, spacedim> immersed_partitioner(
+    background_tria);
+  tps.set_partitioner = [&](auto &tria) {
+    tria.set_partitioner(immersed_partitioner,
+                         TriangulationDescription::Settings());
   };
 
   tps.initialize();

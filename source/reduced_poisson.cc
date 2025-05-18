@@ -718,14 +718,11 @@ ReducedPoisson<dim, spacedim>::solve()
                                      mpi_communicator);
 
           // Create mass matrix associated with the reduced dof handler
-          MatrixTools::create_mass_matrix(reduced_dh,
-                                          reduced_coupling.get_quadrature(),
-                                          reduced_mass_matrix);
-          reduced_mass_matrix.compress(VectorOperation::add);
-
+          reduced_coupling.assemble_coupling_mass_matrix(reduced_mass_matrix);
 
           pcout << "Reduced mass matrix size: " << reduced_mass_matrix.m()
-                << " x " << reduced_mass_matrix.n() << std::endl;
+                << " x " << reduced_mass_matrix.n()
+                << ", norm: " << reduced_mass_matrix.linfty_norm() << std::endl;
 
 
           const auto M = linear_operator<LA::MPI::Vector>(reduced_mass_matrix);
@@ -737,9 +734,15 @@ ReducedPoisson<dim, spacedim>::solve()
           TrilinosWrappers::MPI::Vector inverse_squares_reduced; // diag(M)^{-2}
           inverse_squares_reduced.reinit(owned_dofs[1], mpi_communicator);
           for (const types::global_dof_index local_idx : owned_dofs[1])
-            inverse_squares_reduced(local_idx) =
-              1. / (reduced_mass_matrix.diag_element(local_idx) *
-                    reduced_mass_matrix.diag_element(local_idx));
+            {
+              const double el = reduced_mass_matrix.diag_element(local_idx);
+              Assert(std::abs(el) > 1e-10,
+                     ExcMessage(
+                       "Diagonal element " + std::to_string(local_idx) +
+                       " of reduced mass matrix (" + std::to_string(el) +
+                       ") is close to zero. Cannot compute inverse square."));
+              inverse_squares_reduced(local_idx) = 1. / (el * el);
+            }
 
           inverse_squares_reduced.compress(VectorOperation::insert);
 

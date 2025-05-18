@@ -125,7 +125,7 @@ public:
   insert_points(const std::vector<Point<dim>>          &points,
                 const std::vector<std::vector<double>> &properties = {});
 
-private:
+protected:
   /**
    * @brief Parameters for particle coupling.
    *
