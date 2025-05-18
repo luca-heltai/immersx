@@ -106,7 +106,7 @@ def build_tree_mesh(root_node, skin=False):
     return (vertices, edges)
 
 
-def write_vtk(filename, vertices, edges, dict={}):
+def write_vtk(filename, vertices, edges, dict={}, binary=False):
     """ Write a VTK file """
 
     # Build VTK cell array and cell types for VTK_LINE
@@ -126,7 +126,7 @@ def write_vtk(filename, vertices, edges, dict={}):
             ugrid.cell_data[key] = data
 
     # Save to VTK file
-    ugrid.save(filename, binary=False)
+    ugrid.save(filename, binary=binary)
 
 
 if __name__ == "__main__":
@@ -148,6 +148,8 @@ if __name__ == "__main__":
                         help="Maximum coordinate value for random points.")
     parser.add_argument("--output-file", type=str,
                         required=True, help="Path to the output VTK file.")
+    parser.add_argument("--binary", type=bool, default=False,
+                        help="Whether to save the VTK file in binary format.")
 
     args = parser.parse_args()
 
@@ -170,5 +172,5 @@ if __name__ == "__main__":
     radii = [node.radius for node in all_nodes]
     data_to_write["radius"] = radii
 
-    write_vtk(args.output_file, vertices, edges, data_to_write)
+    write_vtk(args.output_file, vertices, edges, data_to_write, args.binary)
     print(f"Generated MST and saved to {args.output_file}")
