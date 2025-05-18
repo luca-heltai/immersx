@@ -401,12 +401,45 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 
   FEValues<reduced_dim, spacedim> fev(fe, quadrature_formula, flags);
 
+
+
+  const auto                     &properties_fe = properties_dh.get_fe();
+  FEValues<reduced_dim, spacedim> properties_fe_values(properties_fe,
+                                                       get_quadrature(),
+                                                       update_values);
+
+  // Find the index of the thickness field in the properties
+  const unsigned int thickness_field_index =
+    std::distance(properties_names.begin(),
+                  std::find(properties_names.begin(),
+                            properties_names.end(),
+                            par.thickness_field_name));
+
+  const auto thickness_start =
+    thickness_field_index >= properties_names.size() ?
+      numbers::invalid_unsigned_int :
+      properties_fe.block_indices().block_start(thickness_field_index);
+
+  FEValuesExtractors::Scalar thickness(thickness_start);
+
+  // Initialize the thickness values with the constant thickness
+  std::vector<double> thickness_values(get_quadrature().size(), par.thickness);
+
   for (const auto &cell : triangulation.active_cell_iterators())
     if (cell->is_locally_owned())
       {
         fev.reinit(cell);
         const auto &qpoints = fev.get_quadrature_points();
         const auto &JxW     = fev.get_JxW_values();
+
+
+        if (thickness_start != numbers::invalid_unsigned_int)
+          {
+            properties_fe_values.reinit(
+              cell->as_dof_handler_iterator(this->properties_dh));
+            properties_fe_values[thickness].get_function_values(
+              this->properties, thickness_values);
+          }
 
         reduced_qpoints.insert(reduced_qpoints.end(),
                                qpoints.begin(),
@@ -425,9 +458,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
               new_vertical = fev.normal_vector(q);
             // [TODO] Make radius a function of the cell
             auto cross_section_qpoints =
-              reference_cross_section.get_transformed_quadrature(qpoint,
-                                                                 new_vertical,
-                                                                 par.thickness);
+              reference_cross_section.get_transformed_quadrature(
+                qpoint, new_vertical, thickness_values[q]);
+
             all_qpoints.insert(all_qpoints.end(),
                                cross_section_qpoints.get_points().begin(),
                                cross_section_qpoints.get_points().end());
