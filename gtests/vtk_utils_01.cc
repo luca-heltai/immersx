@@ -265,6 +265,29 @@ TEST(VTKUtils, ReadVtkDH)
   std::cout << "output vector norm: " << output_vector.l2_norm() << std::endl;
 }
 
+
+TEST(VTKUtils, ReadVtkWithData)
+{
+  std::string vtk_filename =
+    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+  Triangulation<1, 3>      tria;
+  DoFHandler<1, 3>         dof_handler(tria);
+  Vector<double>           output_vector;
+  std::vector<std::string> data_names;
+  ASSERT_NO_THROW(
+    VTKUtils::read_vtk(vtk_filename, dof_handler, output_vector, data_names));
+
+  EXPECT_EQ(tria.n_vertices(), 2);
+  EXPECT_EQ(tria.n_active_cells(), 1);
+  EXPECT_EQ(dof_handler.n_dofs(), 4);
+  EXPECT_EQ(data_names.size(), 2);
+  EXPECT_EQ(data_names[0], "path_distance");
+  EXPECT_EQ(data_names[1], "radius");
+  EXPECT_EQ(output_vector.size(), 4);
+  EXPECT_GT(output_vector.l2_norm(), 0.0);
+}
+
+
 TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
 {
   const int          dim       = 2;

@@ -378,19 +378,27 @@ namespace VTKUtils
     auto &tria = const_cast<Triangulation<dim, spacedim> &>(
       dof_handler.get_triangulation());
 
+    // Make sure the triangulation is actually a serial triangulation
+    auto parallel_tria =
+      dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(&tria);
+    AssertThrow(parallel_tria == nullptr,
+                ExcMessage(
+                  "The input triangulation must be a serial triangulation."));
+
     // Clear the triangulation to ensure it is empty before reading
     tria.clear();
     // Read the mesh from the VTK file
     read_vtk(vtk_filename, tria, /*cleanup=*/true);
 
-    Vector<double> data_vector;
-    read_data(vtk_filename, data_vector);
+    Vector<double> raw_data_vector;
+    read_data(vtk_filename, raw_data_vector);
 
     auto [fe, data_names_from_fe] =
       vtk_to_finite_element<dim, spacedim>(vtk_filename);
 
     dof_handler.distribute_dofs(*fe);
     output_vector.reinit(dof_handler.n_dofs());
+    data_to_dealii_vector(tria, raw_data_vector, dof_handler, output_vector);
 
     AssertDimension(dof_handler.n_dofs(), output_vector.size());
     AssertDimension(dof_handler.get_fe().n_blocks(), data_names_from_fe.size());
