@@ -539,6 +539,17 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
   // x(1) + xyz(3) + center_x(1) + center_xyz(3) = 8 components
   ASSERT_EQ(fe_system_ptr->n_components(), 8);
 
+  std::cout << "FiniteElement: " << fe_system_ptr->get_name()
+            << ", n_blocks: " << fe_system_ptr->n_blocks()
+            << ", n_components: " << fe_system_ptr->n_components() << std::endl;
+
+  const auto block_indices = VTKUtils::get_block_indices(*fe_system_ptr);
+  ASSERT_EQ(block_indices.total_size(), 8);
+  ASSERT_EQ(block_indices.size(), 4);
+  ASSERT_EQ(block_indices.block_size(0), 1);
+  ASSERT_EQ(block_indices.block_size(1), 3);
+  ASSERT_EQ(block_indices.block_size(2), 1);
+  ASSERT_EQ(block_indices.block_size(3), 3);
 
   // 5. Create DoFHandler and distribute DoFs
   DoFHandler<dim, spacedim> dof_handler(tria);

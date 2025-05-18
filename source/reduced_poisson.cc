@@ -718,11 +718,7 @@ ReducedPoisson<dim, spacedim>::solve()
                                      mpi_communicator);
 
           // Create mass matrix associated with the reduced dof handler
-          MatrixTools::create_mass_matrix(reduced_dh,
-                                          reduced_coupling.get_quadrature(),
-                                          reduced_mass_matrix);
-          reduced_mass_matrix.compress(VectorOperation::add);
-
+          reduced_coupling.assemble_coupling_mass_matrix(reduced_mass_matrix);
 
           pcout << "Reduced mass matrix size: " << reduced_mass_matrix.m()
                 << " x " << reduced_mass_matrix.n() << std::endl;
