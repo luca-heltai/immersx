@@ -125,7 +125,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 
   properties.reinit(properties_dh.locally_owned_dofs(),
                     DoFTools::extract_locally_relevant_dofs(properties_dh),
-                    properties_dh.get_mpi_communicator());
+                    mpi_communicator);
   VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
                                                 properties_dh,
                                                 serial_properties,
