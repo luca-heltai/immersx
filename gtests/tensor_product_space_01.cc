@@ -24,6 +24,7 @@
 
 #include "immersed_repartitioner.h"
 #include "tensor_product_space.h"
+#include "utils.h"
 
 using namespace dealii;
 
