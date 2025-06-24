@@ -9,6 +9,7 @@
 
 #include "immersed_repartitioner.h"
 #include "tensor_product_space.h"
+#include "utils.h"
 #include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -31,7 +32,7 @@ ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::ReducedCoupling(
-  const parallel::TriangulationBase<spacedim> &background_tria,
+  parallel::TriangulationBase<spacedim> &background_tria,
   const ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>
     &par)
   : TensorProductSpace<reduced_dim, dim, spacedim, n_components>(
@@ -53,6 +54,12 @@ background_tria.get_mpi_communicator()
   , background_tria(&background_tria)
   , immersed_partitioner(background_tria)
 {
+  this->preprocess_serial_triangulation =
+    [&](Triangulation<reduced_dim, spacedim> &tria) {
+      // Preprocess the serial triangulation before setting up the partitioner
+      adjust_grids(*(this->background_tria), tria, par.refinement_parameters);
+    };
+
   this->set_partitioner = [&](auto &tria) {
     tria.set_partitioner(immersed_partitioner,
                          TriangulationDescription::Settings());

@@ -55,7 +55,6 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   add_parameter("Output results also before solving",
                 output_results_before_solving);
   add_parameter("Solver type", solver_name);
-  add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   enter_subsection("Grid generation");
   {
@@ -174,7 +173,6 @@ ReducedPoisson<dim, spacedim>::make_grid()
             << "Trying to read from file name." << std::endl;
       read_grid_and_cad_files(par.name_of_grid, par.arguments_for_grid, tria);
     }
-  tria.refine_global(par.initial_refinement);
 }
 
 
@@ -194,6 +192,9 @@ void
 ReducedPoisson<dim, spacedim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
+
+  reduced_coupling.initialize(mapping);
+
   dh.distribute_dofs(*fe);
 #ifdef MATRIX_FREE_PATH
   dh.distribute_mg_dofs();
@@ -280,9 +281,6 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
 
 #endif
   }
-  // Initialize the coupling object
-  reduced_coupling.initialize(mapping);
-
   const auto &reduced_dh = reduced_coupling.get_dof_handler();
   owned_dofs[1]          = reduced_dh.locally_owned_dofs();
   DoFTools::extract_locally_relevant_dofs(reduced_dh, relevant_dofs[1]);
