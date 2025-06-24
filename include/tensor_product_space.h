@@ -168,6 +168,12 @@ public:
   static constexpr int cross_section_dim = dim - reduced_dim;
 
   /**
+   * Preprocess serial triangulation before setting up the partitioner.
+   */
+  std::function<void(Triangulation<reduced_dim, spacedim> &)>
+    preprocess_serial_triangulation = [](auto &) {};
+
+  /**
    * Modify the partitioner for the triangulation.
    *
    * This function is used to generate a fully distributed triangulation from a

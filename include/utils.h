@@ -17,7 +17,9 @@
 #ifndef utils_h
 #define utils_h
 
+#include <deal.II/base/logstream.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
@@ -25,22 +27,31 @@
 
 using namespace dealii;
 
-struct RefinementParameters
+struct RefinementParameters : public ParameterAcceptor
 {
   RefinementParameters()
+    : ParameterAcceptor("Local refinement parameters")
   {
-    use_space                       = false;
-    use_embedded                    = false;
-    apply_delta_refinements         = false;
-    space_pre_refinement_cycles     = 1;
-    embedded_post_refinement_cycles = 1;
+    this->add_parameter("Refinement strategy",
+                        refinement_strategy,
+                        "",
+                        this->prm,
+                        Patterns::Selection("space|embedded"));
+    this->add_parameter("Space post-refinement cycles",
+                        space_post_refinement_cycles);
+    this->add_parameter("Embedded post-refinement cycles",
+                        embedded_post_refinement_cycles);
+    this->add_parameter("Space pre-refinement cycles",
+                        space_pre_refinement_cycles);
+    this->add_parameter("Embedded pre-refinement cycles",
+                        embedded_pre_refinement_cycles);
   }
 
-  bool         use_space                       = false;
-  bool         use_embedded                    = false;
-  bool         apply_delta_refinements         = false;
-  unsigned int space_pre_refinement_cycles     = 1;
-  int          embedded_post_refinement_cycles = 0;
+  std::string  refinement_strategy             = "space";
+  unsigned int space_post_refinement_cycles    = 0;
+  unsigned int embedded_post_refinement_cycles = 0;
+  unsigned int space_pre_refinement_cycles     = 0;
+  unsigned int embedded_pre_refinement_cycles  = 0;
 };
 
 
@@ -58,6 +69,10 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
       "The embedded triangulation must not be distributed. It will be partitioned later."));
 
   namespace bgi = boost::geometry::index;
+
+  space_triangulation.refine_global(parameters.space_pre_refinement_cycles);
+  embedded_triangulation.refine_global(
+    parameters.embedded_pre_refinement_cycles);
 
   // build caches so that we can get local trees
   GridTools::Cache<spacedim, spacedim>    space_cache{space_triangulation};
@@ -81,18 +96,12 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
         const auto &tree =
           space_cache.get_locally_owned_cell_bounding_boxes_rtree();
 
-        // Bounding boxes of the embedded grid
         const auto &embedded_tree =
           embedded_cache.get_cell_bounding_boxes_rtree();
 
-        // Let's check all cells whose bounding box contains an embedded
         // bounding box
-        const bool use_space    = parameters.use_space;
-        const bool use_embedded = parameters.use_embedded;
-
-        AssertThrow(!(use_embedded && use_space),
-                    ExcMessage("You can't refine both the embedded and "
-                               "the space grid at the same time."));
+        const bool use_space    = parameters.refinement_strategy == "space";
+        const bool use_embedded = parameters.refinement_strategy == "embedded";
 
         for (const auto &[embedded_box, embedded_cell] : embedded_tree)
           {
@@ -132,16 +141,23 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
           {
             if (use_embedded)
               {
-                // Compute again the embedded displacement grid
                 embedded_triangulation.execute_coarsening_and_refinement();
               }
             if (use_space)
               {
-                // Compute again the embedded displacement grid
                 space_triangulation.execute_coarsening_and_refinement();
               }
           }
       }
+
+    deallog << std::setw(20) << std::left << "Min space: " << std::setw(12)
+            << std::right << min_space << std::setw(20) << std::left
+            << ", max space: " << std::setw(12) << std::right << max_space
+            << std::setw(25) << std::left << ", min embedded: " << std::setw(12)
+            << std::right << min_embedded << std::setw(25) << std::left
+            << ", max embedded: " << std::setw(12) << std::right << max_embedded
+            << std::endl;
+
     return std::make_tuple(min_space, max_space, min_embedded, max_embedded);
   };
 
@@ -150,9 +166,8 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
 
 
   // Pre refine the space grid according to the delta refinement
-  if (parameters.apply_delta_refinements &&
-      parameters.space_pre_refinement_cycles != 0)
-    for (unsigned int i = 0; i < parameters.space_pre_refinement_cycles; ++i)
+  if (parameters.space_post_refinement_cycles > 0)
+    for (unsigned int i = 0; i < parameters.space_post_refinement_cycles; ++i)
       {
         const auto &tree =
           space_cache.get_locally_owned_cell_bounding_boxes_rtree();
@@ -171,13 +186,8 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
         refine();
       }
 
-  // Post refinement on embedded grid is easy
-  if (parameters.apply_delta_refinements &&
-      parameters.embedded_post_refinement_cycles != 0)
-    {
-      embedded_triangulation.refine_global(
-        parameters.embedded_post_refinement_cycles);
-    }
+  embedded_triangulation.refine_global(
+    parameters.embedded_post_refinement_cycles);
 
   // Check once again we satisfy our criterion, and record min/max
   const auto [sm, sM, em, eM] = refine();
