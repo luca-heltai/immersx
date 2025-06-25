@@ -802,12 +802,6 @@ ReducedPoisson<dim, spacedim>::solve()
           auto Aug_inv =
             inverse_operator(Aug, solver_lagrangian, prec_amg_augmented_block);
 
-          // auto tmpvmult = Aug_inv.vmult;
-          // Aug_inv.vmult = [tmpvmult](auto &dst, const auto &src) {
-          //   dst = 0.0;
-          //   tmpvmult(dst, src);
-          // };
-
           SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
           UtilitiesAL::BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
             augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
