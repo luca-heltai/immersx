@@ -88,10 +88,18 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
     double min_space    = 1e10;
     double max_space    = 0;
 
+    // bounding box
+    const bool use_space    = parameters.refinement_strategy == "space";
+    const bool use_embedded = parameters.refinement_strategy == "embedded";
+
+    AssertThrow(use_space || use_embedded,
+                ExcMessage("One of the two must be true"));
+    unsigned int n_space_cells = space_triangulation.n_global_active_cells();
+    unsigned int n_embedded_cells =
+      embedded_triangulation.n_global_active_cells();
     while (global_done == false)
       {
         done = true;
-
         // Bounding boxes of the space grid
         const auto &tree =
           space_cache.get_locally_owned_cell_bounding_boxes_rtree();
@@ -99,9 +107,7 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
         const auto &embedded_tree =
           embedded_cache.get_cell_bounding_boxes_rtree();
 
-        // bounding box
-        const bool use_space    = parameters.refinement_strategy == "space";
-        const bool use_embedded = parameters.refinement_strategy == "embedded";
+        unsigned int n_refs = 0;
 
         for (const auto &[embedded_box, embedded_cell] : embedded_tree)
           {
@@ -121,16 +127,18 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
                 if (use_embedded && space_diameter < diameter)
                   {
                     embedded_cell->set_refine_flag();
+                    ++n_refs;
                     done = false;
                   }
                 if (use_space && diameter < space_diameter)
                   {
                     space_cell->set_refine_flag();
+                    ++n_refs;
                     done = false;
                   }
               }
           }
-
+        deallog << "Cells marked for refinement: " << n_refs;
         // Synchronize done variable across all processes, otherwise we might
         // deadlock
         global_done =
@@ -141,11 +149,24 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
           {
             if (use_embedded)
               {
+                n_embedded_cells =
+                  embedded_triangulation.n_global_active_cells();
+                deallog << " out of " << n_embedded_cells
+                        << " (embedded) cells." << std::endl;
                 embedded_triangulation.execute_coarsening_and_refinement();
+                if (n_embedded_cells ==
+                    embedded_triangulation.n_global_active_cells())
+                  break;
               }
             if (use_space)
               {
+                n_space_cells = space_triangulation.n_global_active_cells();
+                deallog << " out of " << n_space_cells << " (space) cells."
+                        << std::endl;
                 space_triangulation.execute_coarsening_and_refinement();
+                if (n_space_cells ==
+                    space_triangulation.n_global_active_cells())
+                  break;
               }
           }
       }

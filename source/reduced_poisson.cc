@@ -55,6 +55,7 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   add_parameter("Output results also before solving",
                 output_results_before_solving);
   add_parameter("Solver type", solver_name);
+  add_parameter("Assemble full AL system", assemble_full_AL_system);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   enter_subsection("Grid generation");
   {
@@ -755,17 +756,28 @@ ReducedPoisson<dim, spacedim>::solve()
           auto         Aug   = A + gamma * Bt * invW * B;
 
           TrilinosWrappers::SparseMatrix augmented_matrix;
-          pcout << "Building augmented matrix..." << std::endl;
-          UtilitiesAL::create_augmented_block(stiffness_matrix,
-                                              coupling_matrix,
-                                              inverse_squares_reduced,
-                                              gamma,
-                                              augmented_matrix);
-          pcout << "done." << std::endl;
 
           TrilinosWrappers::PreconditionAMG prec_amg_augmented_block;
           TrilinosWrappers::PreconditionAMG::AdditionalData data;
-          prec_amg_augmented_block.initialize(augmented_matrix, data);
+
+          if (par.assemble_full_AL_system)
+            {
+              pcout << "Building augmented matrix..." << std::endl;
+              UtilitiesAL::create_augmented_block(stiffness_matrix,
+                                                  coupling_matrix,
+                                                  inverse_squares_reduced,
+                                                  gamma,
+                                                  augmented_matrix);
+              prec_amg_augmented_block.initialize(augmented_matrix, data);
+              pcout << "done." << std::endl;
+              Aug = linear_operator<VectorType, VectorType, Payload>(
+                augmented_matrix);
+            }
+          else
+            {
+              prec_amg_augmented_block.initialize(stiffness_matrix, data);
+            }
+
 
           auto Zero = M * 0.0;
           auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
@@ -789,8 +801,14 @@ ReducedPoisson<dim, spacedim>::solve()
 
           auto Aug_inv =
             inverse_operator(Aug, solver_lagrangian, prec_amg_augmented_block);
-          SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
+          // auto tmpvmult = Aug_inv.vmult;
+          // Aug_inv.vmult = [tmpvmult](auto &dst, const auto &src) {
+          //   dst = 0.0;
+          //   tmpvmult(dst, src);
+          // };
+
+          SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
           UtilitiesAL::BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
             augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
 

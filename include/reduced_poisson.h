@@ -141,6 +141,7 @@ public:
 
   bool        output_results_before_solving = false;
   std::string solver_name                   = "AL";
+  bool        assemble_full_AL_system       = false;
 
   mutable ParsedConvergenceTable convergence_table;
 
