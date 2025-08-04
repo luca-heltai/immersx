@@ -11,7 +11,7 @@ end
 subsection Reduced Poisson
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
-  set Initial refinement                 = 5
+  # set Initial refinement                 = 5
   set Output directory                   = ../data/tests/tests_results
   set Output name                        = reduced_poisson_01_one_cylinder
   set Output results also before solving = false
