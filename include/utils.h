@@ -45,6 +45,8 @@ struct RefinementParameters : public ParameterAcceptor
                         space_pre_refinement_cycles);
     this->add_parameter("Embedded pre-refinement cycles",
                         embedded_pre_refinement_cycles);
+    this->add_parameter("Refinement factor", refinement_factor);
+    this->add_parameter("Max refinement level", max_refinement_level);
   }
 
   std::string  refinement_strategy             = "space";
@@ -52,6 +54,8 @@ struct RefinementParameters : public ParameterAcceptor
   unsigned int embedded_post_refinement_cycles = 0;
   unsigned int space_pre_refinement_cycles     = 0;
   unsigned int embedded_pre_refinement_cycles  = 0;
+  double       refinement_factor               = 1.0;
+  int          max_refinement_level            = 10;
 };
 
 
@@ -124,13 +128,17 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
                 min_space                 = std::min(min_space, space_diameter);
                 max_space                 = std::max(max_space, space_diameter);
 
-                if (use_embedded && space_diameter < diameter)
+                if (use_embedded &&
+                    embedded_cell->level() < parameters.max_refinement_level &&
+                    parameters.refinement_factor * space_diameter < diameter)
                   {
                     embedded_cell->set_refine_flag();
                     ++n_refs;
                     done = false;
                   }
-                if (use_space && diameter < space_diameter)
+                if (use_space &&
+                    space_cell->level() < parameters.max_refinement_level &&
+                    parameters.refinement_factor * diameter < space_diameter)
                   {
                     space_cell->set_refine_flag();
                     ++n_refs;
