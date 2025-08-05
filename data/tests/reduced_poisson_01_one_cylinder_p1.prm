@@ -65,10 +65,18 @@ subsection Reduced Poisson
       end
       subsection Representative domain
         set Finite element degree   = 1
-        set Pre-refinement level    = 2
         set Thickness               = 0.1
         set Reduced grid name       = ../data/tests/one_cylinder.vtk
         set Reduced right hand side = 1; 0; 0 
+      end
+      subsection Local refinement parameters
+        set Refinement strategy              = space
+        set Space pre-refinement cycles      = 4
+        set Space post-refinement cycles     = 0
+        set Embedded post-refinement cycles  = 0
+        set Embedded pre-refinement cycles   = 3
+        set Refinement factor                = 1.0
+        set Max refinement level             = 10
       end
     end
   end

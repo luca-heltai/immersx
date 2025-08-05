@@ -28,7 +28,8 @@ TEST(ReducedPoisson, MPI_OneCylinder) // NOLINT
   ParameterAcceptor::clear();
   ReducedPoissonParameters<3> par;
   ParameterAcceptor::initialize(
-    SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder.prm");
+    SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder.prm",
+    "reduced_poisson_01_one_cylinder.prm");
 
   par.reduced_coupling_parameters.tensor_product_space_parameters
     .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
