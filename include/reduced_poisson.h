@@ -122,10 +122,9 @@ class ReducedPoissonParameters : public ParameterAcceptor
 public:
   ReducedPoissonParameters();
 
-  std::string                   output_directory   = ".";
-  std::string                   output_name        = "solution";
-  unsigned int                  fe_degree          = 1;
-  unsigned int                  initial_refinement = 5;
+  std::string                   output_directory = ".";
+  std::string                   output_name      = "solution";
+  unsigned int                  fe_degree        = 1;
   std::list<types::boundary_id> dirichlet_ids{0};
   std::string                   name_of_grid        = "hyper_cube";
   std::string                   arguments_for_grid  = "-1: 1: false";
@@ -142,6 +141,7 @@ public:
 
   bool        output_results_before_solving = false;
   std::string solver_name                   = "AL";
+  bool        assemble_full_AL_system       = false;
 
   mutable ParsedConvergenceTable convergence_table;
 
