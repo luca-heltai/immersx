@@ -55,7 +55,7 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   add_parameter("Output results also before solving",
                 output_results_before_solving);
   add_parameter("Solver type", solver_name);
-  add_parameter("Initial refinement", initial_refinement);
+  add_parameter("Assemble full AL system", assemble_full_AL_system);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   enter_subsection("Grid generation");
   {
@@ -174,7 +174,6 @@ ReducedPoisson<dim, spacedim>::make_grid()
             << "Trying to read from file name." << std::endl;
       read_grid_and_cad_files(par.name_of_grid, par.arguments_for_grid, tria);
     }
-  tria.refine_global(par.initial_refinement);
 }
 
 
@@ -194,6 +193,9 @@ void
 ReducedPoisson<dim, spacedim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
+
+  reduced_coupling.initialize(mapping);
+
   dh.distribute_dofs(*fe);
 #ifdef MATRIX_FREE_PATH
   dh.distribute_mg_dofs();
@@ -280,9 +282,6 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
 
 #endif
   }
-  // Initialize the coupling object
-  reduced_coupling.initialize(mapping);
-
   const auto &reduced_dh = reduced_coupling.get_dof_handler();
   owned_dofs[1]          = reduced_dh.locally_owned_dofs();
   DoFTools::extract_locally_relevant_dofs(reduced_dh, relevant_dofs[1]);
@@ -757,17 +756,28 @@ ReducedPoisson<dim, spacedim>::solve()
           auto         Aug   = A + gamma * Bt * invW * B;
 
           TrilinosWrappers::SparseMatrix augmented_matrix;
-          pcout << "Building augmented matrix..." << std::endl;
-          UtilitiesAL::create_augmented_block(stiffness_matrix,
-                                              coupling_matrix,
-                                              inverse_squares_reduced,
-                                              gamma,
-                                              augmented_matrix);
-          pcout << "done." << std::endl;
 
           TrilinosWrappers::PreconditionAMG prec_amg_augmented_block;
           TrilinosWrappers::PreconditionAMG::AdditionalData data;
-          prec_amg_augmented_block.initialize(augmented_matrix, data);
+
+          if (par.assemble_full_AL_system)
+            {
+              pcout << "Building augmented matrix..." << std::endl;
+              UtilitiesAL::create_augmented_block(stiffness_matrix,
+                                                  coupling_matrix,
+                                                  inverse_squares_reduced,
+                                                  gamma,
+                                                  augmented_matrix);
+              prec_amg_augmented_block.initialize(augmented_matrix, data);
+              pcout << "done." << std::endl;
+              Aug = linear_operator<VectorType, VectorType, Payload>(
+                augmented_matrix);
+            }
+          else
+            {
+              prec_amg_augmented_block.initialize(stiffness_matrix, data);
+            }
+
 
           auto Zero = M * 0.0;
           auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
@@ -791,8 +801,8 @@ ReducedPoisson<dim, spacedim>::solve()
 
           auto Aug_inv =
             inverse_operator(Aug, solver_lagrangian, prec_amg_augmented_block);
-          SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
+          SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
           UtilitiesAL::BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
             augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
 

@@ -9,9 +9,9 @@ subsection Error
   set Rate mode                        = reduction_rate_log2
 end
 subsection Reduced Poisson
+  set Assemble full AL system            = false
   set Dirichlet boundary ids             = 0,1,2,3
   set FE degree                          = 1
-  set Initial refinement                 = 4
   set Output directory                   = .
   set Output name                        = reduced_poisson_01_one_cylinder
   set Output results also before solving = false
@@ -61,16 +61,25 @@ subsection Reduced Poisson
         set Refinement level         = 5
         set Selected indices         =
       end
+      subsection Local refinement parameters
+        set Refinement strategy             = space
+        set Space pre-refinement cycles     = 4
+        set Embedded pre-refinement cycles  = 4
+        set Max refinement level            = 10
+        set Refinement factor               = 1
+        set Space post-refinement cycles    = 0
+        set Embedded post-refinement cycles = 0
+      end
       subsection Particle coupling
         set RTree extraction level = 1
       end
       subsection Representative domain
-        set Finite element degree   = 1
+        set Finite element degree       = 1
         set Number of quadrature points = 32
-        set Pre-refinement level    = 4
-        set Thickness               = 0.1
-        set Reduced grid name       =
-        set Reduced right hand side = 1
+        set Reduced grid name           =
+        set Reduced right hand side     = 1
+        set Thickness                   = 0.1
+        set Thickness field name        =
       end
     end
   end
