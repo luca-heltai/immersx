@@ -103,9 +103,11 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                      serial_properties,
                      properties_names);
 
-  std::cout << "Read VTK file: " << par.reduced_grid_name
-            << ", properties norm: " << serial_properties.l2_norm()
-            << std::endl;
+  deallog << "Read VTK file: " << par.reduced_grid_name
+          << ", properties norm: " << serial_properties.l2_norm() << std::endl;
+
+  // Preprocess the serial triangulation
+  preprocess_serial_triangulation(serial_tria);
 
   // Then make sure the partitioner is what the user wants
   set_partitioner(triangulation);
@@ -115,21 +117,28 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   triangulation.copy_triangulation(serial_tria);
 
   if (triangulation.n_locally_owned_active_cells() == 0)
-    std::cout << "Process "
-              << Utilities::MPI::this_mpi_process(mpi_communicator)
-              << " has no locally owned cells." << std::endl;
+    deallog << "Process " << Utilities::MPI::this_mpi_process(mpi_communicator)
+            << " has no locally owned cells." << std::endl;
 
   properties_dh.distribute_dofs(serial_properties_dh.get_fe());
-
-  AssertDimension(serial_properties_dh.n_dofs(), properties_dh.n_dofs());
 
   properties.reinit(properties_dh.locally_owned_dofs(),
                     DoFTools::extract_locally_relevant_dofs(properties_dh),
                     mpi_communicator);
-  VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
-                                                properties_dh,
-                                                serial_properties,
-                                                properties);
+
+  if (serial_properties_dh.n_dofs() == properties_dh.n_dofs())
+    {
+      VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
+                                                    properties_dh,
+                                                    serial_properties,
+                                                    properties);
+    }
+  else
+    {
+      // TODO: transfer from coarse serial grid to fine distributed grid
+      deallog << "PROPERTIES ARE ZERO. DO NOT REFINE INPUT GRID" << std::endl;
+    }
+
   // Make sure we have ghost values
   properties.update_ghost_values();
 
@@ -139,14 +148,13 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   for (unsigned int i = 0; i < block_indices.size(); ++i)
     {
       const auto &name = properties_names[i];
-      std::cout << "Property name: " << name << ", block index: " << i
-                << ", block size: " << block_indices.block_size(i)
-                << ", block start: " << block_indices.block_start(i)
-                << std::endl;
+      deallog << "Property name: " << name << ", block index: " << i
+              << ", block size: " << block_indices.block_size(i)
+              << ", block start: " << block_indices.block_start(i) << std::endl;
     }
-  std::cout << "Properties norm: " << properties.l2_norm() << std::endl;
-  std::cout << "Serial properties norm: " << serial_properties.l2_norm()
-            << std::endl;
+  deallog << "Properties norm: " << properties.l2_norm() << std::endl;
+  deallog << "Serial properties norm: " << serial_properties.l2_norm()
+          << std::endl;
   AssertDimension(block_indices.total_size(), properties_fe.n_components());
   AssertDimension(block_indices.size(), properties_names.size());
 };

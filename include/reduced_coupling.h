@@ -45,6 +45,7 @@
 #include "immersed_repartitioner.h"
 #include "particle_coupling.h"
 #include "tensor_product_space.h"
+#include "utils.h"
 #include "vtk_utils.h"
 
 using namespace dealii;
@@ -83,17 +84,17 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   ParticleCouplingParameters<spacedim> particle_coupling_parameters;
 
   /**
+   * Refinement parameters for the tensor product space.
+   */
+  RefinementParameters refinement_parameters;
+
+  /**
    * Name of the field name to use for the thickness of the inclusion. This is
    * read from the reduced_grid_name file. If empty, the thickness is assumed to
    * be constant, and taken from the tensor_product_space_parameters.thickness
    * argument.
    */
   std::string thickness_field_name = "";
-
-  /**
-   * @brief Number of pre-refinements to apply to the grid before distribution.
-   */
-  unsigned int pre_refinement = 0;
 
   /**
    * @brief Right hand side expressions for the reduced coupling.
@@ -126,7 +127,7 @@ struct ReducedCoupling
    * @param par The parameters for reduced coupling.
    */
   ReducedCoupling(
-    const parallel::TriangulationBase<spacedim> &background_tria,
+    parallel::TriangulationBase<spacedim> &background_tria,
     const ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>
       &par);
 
@@ -220,7 +221,7 @@ private:
   /**
    * @brief The triangulation of the background domain.
    */
-  SmartPointer<const parallel::TriangulationBase<spacedim>> background_tria;
+  SmartPointer<parallel::TriangulationBase<spacedim>> background_tria;
 
   /**
    * @brief Affine constraints for the coupling.
