@@ -97,11 +97,6 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   std::string thickness_field_name = "";
 
   /**
-   * @brief Number of pre-refinements to apply to the grid before distribution.
-   */
-  unsigned int pre_refinement = 0;
-
-  /**
    * @brief Right hand side expressions for the reduced coupling.
    */
   std::vector<std::string> coupling_rhs_expressions = {"0"};
