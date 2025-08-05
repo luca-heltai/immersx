@@ -18,7 +18,6 @@ ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   : ParameterAcceptor("Reduced coupling/")
 {
   this->enter_subsection("Representative domain");
-  this->add_parameter("Pre-refinement level", pre_refinement);
   this->add_parameter("Reduced right hand side",
                       coupling_rhs_expressions,
                       "",
