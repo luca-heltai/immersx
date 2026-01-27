@@ -1,5 +1,5 @@
-#ifndef augmented_lagrangian_prec_h
-#define augmented_lagrangian_prec_h
+#ifndef rdlm_augmented_lagrangian_h
+#define rdlm_augmented_lagrangian_h
 
 #include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/linear_operator.h>
