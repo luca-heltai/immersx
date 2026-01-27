@@ -316,6 +316,10 @@ TEST(ElasticityTest3, Displacement3D)
   problemZ.run();
 
   const double tol = 0.1;
-  ASSERT_NEAR(problemX.solution.block(0).l2_norm(), problemZ.solution.block(0).l2_norm(), tol);
-  ASSERT_NEAR(problemX.solution.block(1).l2_norm(), problemZ.solution.block(1).l2_norm(), tol);
+  ASSERT_NEAR(problemX.solution.block(0).l2_norm(),
+              problemZ.solution.block(0).l2_norm(),
+              tol);
+  ASSERT_NEAR(problemX.solution.block(1).l2_norm(),
+              problemZ.solution.block(1).l2_norm(),
+              tol);
 }
