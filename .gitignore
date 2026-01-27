@@ -28,9 +28,10 @@
 *.app
 
 # CMake garbage
-CMakeFiles
+CMakeFiles/
 CMakeCache.txt
 CTestTestfile.cmake
+cmake_install.cmake
 Makefile
 
 # VSCode stuff
@@ -57,6 +58,9 @@ doc/html/*
 *vtu
 *pvd
 *checkpoint*
+*.pvsm
+*.vtk
+*.blend
 
 # Backup files
 *blend1
