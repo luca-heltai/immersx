@@ -14,6 +14,8 @@
 //
 // ---------------------------------------------------------------------
 
+#include <deal.II/base/mutex.h>
+
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria.h>
 
@@ -53,11 +55,13 @@ get_default_test_parameters(ElasticityProblemParameters<dim> &par)
 
 TEST(ElasticityTest, DisplacementX)
 {
+  ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
+
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
     subsection Immersed Problem
@@ -79,6 +83,7 @@ TEST(ElasticityTest, DisplacementX)
       end
     end
   )");
+
   ParameterAcceptor::parse_all_parameters();
   problem.run();
   ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 5e-2);
@@ -88,11 +93,13 @@ TEST(ElasticityTest, DisplacementX)
 
 TEST(ElasticityTest, DisplacementY)
 {
+  ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
+
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
     subsection Immersed Problem
@@ -114,6 +121,7 @@ TEST(ElasticityTest, DisplacementY)
       end
     end
   )");
+
   ParameterAcceptor::parse_all_parameters();
   problem.run();
   ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
@@ -123,11 +131,13 @@ TEST(ElasticityTest, DisplacementY)
 
 TEST(ElasticityTest, DisplacementXScaled)
 {
+  ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
+
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
     subsection Immersed Problem
@@ -149,6 +159,7 @@ TEST(ElasticityTest, DisplacementXScaled)
       end
     end
   )");
+
   ParameterAcceptor::parse_all_parameters();
   problem.run();
   ASSERT_NEAR(problem.solution.block(0).linfty_norm(), .1, 2e-1);
@@ -158,11 +169,13 @@ TEST(ElasticityTest, DisplacementXScaled)
 
 TEST(ElasticityTest, DisplacementYScaled)
 {
+  ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
+
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
     subsection Immersed Problem
@@ -184,6 +197,7 @@ TEST(ElasticityTest, DisplacementYScaled)
       end
     end
   )");
+
   ParameterAcceptor::parse_all_parameters();
   problem.run();
   ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 0.1, 2e-1);
@@ -195,11 +209,13 @@ TEST(ElasticityTest, DisplacementYScaled)
  */
 TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
 {
+  ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
   ParameterAcceptor::initialize();
+
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
     subsection Immersed Problem
@@ -218,6 +234,7 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
       end
     end
   )");
+
   ParameterAcceptor::parse_all_parameters();
   problem.run();
   // ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
@@ -240,4 +257,69 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
   inclusions = B * displacement;
 
   inclusions.print(std::cout);
+}
+
+TEST(ElasticityTest3, Displacement3D)
+{
+  ParameterAcceptor::clear();
+  static constexpr int             dim = 3;
+  ElasticityProblemParameters<dim> parX;
+  get_default_test_parameters(parX);
+  ElasticityProblem<dim> problemX(parX);
+
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+      subsection Immersed Problem
+        set Dirichlet boundary ids             = 0
+        set Initial refinement                 = 4
+        set Output name                        = solution_3D_X
+        subsection Immersed inclusions
+          set Data file                         =
+          set Inclusions                        = 0., 0., 0., 1., 0., 0., 0.5, 0
+          set Inclusions file                   = 
+          set Inclusions refinement             = 100 
+          set Number of fourier coefficients    = 2
+          set Reference inclusion data          = 0, 0, 0, 0.1, 0, 0, 0, 0.1, 0,0, 0,0 
+          set Selection of Fourier coefficients = 3,7
+        end
+      end
+    )");
+
+  ParameterAcceptor::parse_all_parameters();
+  problemX.run();
+
+  ElasticityProblemParameters<dim> parZ;
+  get_default_test_parameters(parZ);
+  ElasticityProblem<dim> problemZ(parZ);
+
+  ParameterAcceptor::initialize();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+      subsection Immersed Problem
+        set Dirichlet boundary ids             = 0
+        set Initial refinement                 = 4
+        set Output name                        = solution_3D_Z
+        subsection Immersed inclusions
+          set Data file                         =
+          set Inclusions                        = 0., 0., 0., 0., 0., 1., 0.5, 0
+          set Inclusions file                   = 
+          set Inclusions refinement             = 100 
+          set Number of fourier coefficients    = 2
+          set Reference inclusion data          = 0, 0, 0, 0.1, 0, 0, 0, 0.1, 0,0, 0,0 
+          set Selection of Fourier coefficients = 3,7
+        end
+      end
+    )");
+
+  ParameterAcceptor::parse_all_parameters();
+  problemZ.run();
+
+  const double tol = 0.1;
+  ASSERT_NEAR(problemX.solution.block(0).l2_norm(),
+              problemZ.solution.block(0).l2_norm(),
+              tol);
+  ASSERT_NEAR(problemX.solution.block(1).l2_norm(),
+              problemZ.solution.block(1).l2_norm(),
+              tol);
 }
