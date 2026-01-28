@@ -406,7 +406,8 @@ public:
   }
 
   /**
-   * @brief Get the Fourier data for the given local dof index.
+   * @brief Get the Fourier data for the given local dof index, computed at the
+   * given quadrature point.
    *
    * @param inclusion_id A number in [0,n_inclusions())
    * @param dof_index A number in [0,n_dofs_per_inclusion())
@@ -439,7 +440,7 @@ public:
       }
     else
       {
-        return inclusions_rhs.value(point, get_fourier_component(dof_index));
+        return inclusions_rhs.value(point, get_component(dof_index));
       }
   }
 
