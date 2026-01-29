@@ -31,6 +31,8 @@
  *
  */
 
+#ifdef DEAL_II_WITH_VTK
+
 #include "reduced_poisson.h"
 
 #include <boost/algorithm/string.hpp>
@@ -1039,3 +1041,6 @@ template class ReducedPoissonParameters<3>;
 
 template class ReducedPoisson<2>;
 template class ReducedPoisson<3>;
+
+
+#endif // DEAL_II_WITH_VTK

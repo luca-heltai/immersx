@@ -33,7 +33,11 @@
  * Modified by: Luca Heltai, 2020
  */
 
+
+#ifdef DEAL_II_WITH_VTK
+
 #include "../tests/tests.h"
+
 #include "reduced_poisson.h"
 int
 main(int argc, char *argv[])
@@ -96,3 +100,11 @@ main(int argc, char *argv[])
     }
   return 0;
 }
+
+#else
+int
+main()
+{
+  return 0;
+}
+#endif // DEAL_II_WITH_VTK
