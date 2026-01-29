@@ -103,6 +103,12 @@ FOREACH(_build_type ${_d2_build_types})
       IF(ENABLE_COUPLED_PROBLEMS)
         TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC ENABLE_COUPLED_PROBLEMS)
       ENDIF()
+
+      TARGET_COMPILE_OPTIONS(${_lib} PRIVATE
+        $<$<CXX_COMPILER_ID:AppleClang>:-Wno-cpp>
+        $<$<CXX_COMPILER_ID:Clang>:-Wno-cpp>
+        $<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>
+      )
       
       DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
       SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
@@ -125,6 +131,12 @@ FOREACH(_build_type ${_d2_build_types})
         ELSE()
           TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
         ENDIF()
+
+        TARGET_COMPILE_OPTIONS(${_exe} PRIVATE
+          $<$<CXX_COMPILER_ID:AppleClang>:-Wno-cpp>
+          $<$<CXX_COMPILER_ID:Clang>:-Wno-cpp>
+          $<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>
+        )
 
         DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     ENDFOREACH()
