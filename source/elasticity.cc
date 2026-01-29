@@ -19,8 +19,8 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include "augmented_lagrangian_preconditioner.h"
 #include "augmented_lagrangian.h"
+#include "augmented_lagrangian_preconditioner.h"
 
 template <int dim, int spacedim>
 ElasticityProblem<dim, spacedim>::ElasticityProblem(
@@ -695,8 +695,8 @@ ElasticityProblem<dim, spacedim>::solve()
 
         auto CCt = B * Bt;
 
-      pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
-            << std::endl;
+        pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
+              << std::endl;
         LA::MPI::Vector u;
         u.reinit(system_rhs.block(1));
         u = 0.;

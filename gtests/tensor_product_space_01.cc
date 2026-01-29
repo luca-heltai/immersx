@@ -24,9 +24,9 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "immersed_repartitioner.h"
-#include "tensor_product_space.h"
-#include "utils.h"
+#  include "immersed_repartitioner.h"
+#  include "tensor_product_space.h"
+#  include "utils.h"
 
 using namespace dealii;
 

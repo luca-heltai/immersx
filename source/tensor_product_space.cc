@@ -30,7 +30,7 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "vtk_utils.h"
+#  include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
