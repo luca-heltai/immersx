@@ -105,6 +105,8 @@ namespace LA
 
 #include <matrix_free_utils.h>
 
+#ifdef DEAL_II_WITH_VTK
+
 #include "reduced_coupling.h"
 
 #ifdef DEAL_II_WITH_OPENCASCADE
@@ -237,3 +239,5 @@ private:
 
 
 #endif
+
+#endif // DEAL_II_WITH_VTK
