@@ -83,8 +83,8 @@ test(const std::vector<std::vector<double>> &inclusions,
 
   LinearAlgebra::distributed::Vector<double> src, dst;
 
-  IndexSet locally_relevant_dofs;
-  DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
+  IndexSet locally_relevant_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
   src.reinit(dof_handler.locally_owned_dofs(), locally_relevant_dofs, mpi_comm);
   Tensor<1, dim> exponents;
   exponents[0] = 1;

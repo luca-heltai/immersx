@@ -207,7 +207,7 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
   owned_dofs.resize(2);
   owned_dofs[0] = dh.locally_owned_dofs();
   relevant_dofs.resize(2);
-  DoFTools::extract_locally_relevant_dofs(dh, relevant_dofs[0]);
+  relevant_dofs[0] = DoFTools::extract_locally_relevant_dofs(dh);
   {
     constraints.reinit(owned_dofs[0], relevant_dofs[0]);
     DoFTools::make_hanging_node_constraints(dh, constraints);
@@ -287,7 +287,7 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
   }
   const auto &reduced_dh = reduced_coupling.get_dof_handler();
   owned_dofs[1]          = reduced_dh.locally_owned_dofs();
-  DoFTools::extract_locally_relevant_dofs(reduced_dh, relevant_dofs[1]);
+  relevant_dofs[1]       = DoFTools::extract_locally_relevant_dofs(reduced_dh);
 
   coupling_matrix.clear();
 
