@@ -239,7 +239,7 @@ CoupledElasticityProblem<dim, spacedim>::setup_dofs()
   owned_dofs.resize(2);
   owned_dofs[0] = dh.locally_owned_dofs();
   relevant_dofs.resize(2);
-  DoFTools::extract_locally_relevant_dofs(dh, relevant_dofs[0]);
+  relevant_dofs[0] = DoFTools::extract_locally_relevant_dofs(dh);
 
   FEFaceValues<spacedim> fe_face_values(*fe,
                                         *face_quadrature_formula,
@@ -248,7 +248,7 @@ CoupledElasticityProblem<dim, spacedim>::setup_dofs()
                                           update_normal_vectors);
 
   {
-    constraints.reinit(relevant_dofs[0]);
+    constraints.reinit(owned_dofs[0], relevant_dofs[0]);
     DoFTools::make_hanging_node_constraints(dh, constraints);
     for (const auto id : par.dirichlet_ids)
       {
