@@ -36,9 +36,8 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "../tests/tests.h"
-
-#include "reduced_poisson.h"
+#  include "../tests/tests.h"
+#  include "reduced_poisson.h"
 int
 main(int argc, char *argv[])
 {

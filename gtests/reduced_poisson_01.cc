@@ -21,7 +21,7 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "reduced_poisson.h"
+#  include "reduced_poisson.h"
 
 using namespace dealii;
 

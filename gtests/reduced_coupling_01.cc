@@ -35,7 +35,7 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "reduced_coupling.h"
+#  include "reduced_coupling.h"
 
 using namespace dealii;
 
