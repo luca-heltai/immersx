@@ -23,9 +23,11 @@
 
 #include <gtest/gtest.h>
 
-#include "immersed_repartitioner.h"
-#include "particle_coupling.h"
-#include "tensor_product_space.h"
+#ifdef DEAL_II_WITH_VTK
+
+#  include "immersed_repartitioner.h"
+#  include "particle_coupling.h"
+#  include "tensor_product_space.h"
 
 TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 {
@@ -157,3 +159,5 @@ TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
         << "locally relevant indices.";
     }
 }
+
+#endif // DEAL_II_WITH_VTK

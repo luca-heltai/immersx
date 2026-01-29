@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
-#include "reduced_poisson.h"
+#ifdef DEAL_II_WITH_VTK
+
+#  include "reduced_poisson.h"
 
 using namespace dealii;
 
@@ -58,3 +60,5 @@ TEST(ReducedPoisson, MPI_OneCylinderP1) // NOLINT
   ReducedPoisson<3> problem(par);
   problem.run();
 }
+
+#endif // DEAL_II_WITH_VTK

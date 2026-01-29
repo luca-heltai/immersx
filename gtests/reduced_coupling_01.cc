@@ -33,7 +33,9 @@
 
 #include <gtest/gtest.h>
 
-#include "reduced_coupling.h"
+#ifdef DEAL_II_WITH_VTK
+
+#  include "reduced_coupling.h"
 
 using namespace dealii;
 
@@ -172,3 +174,5 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
   // Initialize everything
   coupling.initialize();
 }
+
+#endif // DEAL_II_WITH_VTK

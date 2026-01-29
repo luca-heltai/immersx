@@ -33,8 +33,14 @@
  * Modified by: Luca Heltai, 2020
  */
 
-#include "../tests/tests.h"
-#include "reduced_poisson.h"
+#include <deal.II/base/config.h>
+
+#include <iostream>
+
+#ifdef DEAL_II_WITH_VTK
+
+#  include "../tests/tests.h"
+#  include "reduced_poisson.h"
 int
 main(int argc, char *argv[])
 {
@@ -96,3 +102,15 @@ main(int argc, char *argv[])
     }
   return 0;
 }
+
+#else
+int
+main()
+{
+  std::cerr
+    << "app_reduced_poisson requires deal.II to be configured with VTK support "
+       "(DEAL_II_WITH_VTK)."
+    << std::endl;
+  return 0;
+}
+#endif // DEAL_II_WITH_VTK
