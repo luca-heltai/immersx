@@ -1,6 +1,6 @@
-// Filename :   FFT.H
-// Author   :   Jonathan Valvano
-// Date     :   Feb 12, 2008
+// Filename :   FFT.H             
+// Author   :   Jonathan Valvano           
+// Date     :   Feb 12, 2008               
 // derived from Numerical Recipes in C, Cambridge University Press
 
 /*  Example
@@ -38,9 +38,9 @@ void TestFFT(void){
 // xyData[12] will be 0,  xyData[13] will be 0.0;
 // xyData[14] will be 0,  xyData[15] will be 0.0;
   for(int k=0; k<8; k++){
-  v[k]     = fftMagnitude(xyData,16,k);
-  dB[k]    = fftMagdB(xyData,16,k,2.0); // largest component is 2V
-  phase[k] = fftPhase(xyData,16,k);
+	v[k]     = fftMagnitude(xyData,16,k);
+	dB[k]    = fftMagdB(xyData,16,k,2.0); // largest component is 2V
+	phase[k] = fftPhase(xyData,16,k);
   }
 // very approximate results
 // v[0] will be 2,   dB[0] will be    0,   phase[0] will be 0.0;
@@ -53,38 +53,36 @@ void TestFFT(void){
 // v[7] will be 0,   dB[7] will be -200,   phase[7] will be 0.0;
 
   for( k=0; k<16; k++){
-  freq[k]  = fftFrequency(16,k,1600);
+	freq[k]  = fftFrequency(16,k,1600);
   }
 // expected results
 // freq = 0,100,200,300,400,500,600,700,800,-700,-600,-500,-400,-300,-200,-100
 }
 */
 
-// Input: nn is the number of points in the data and in the FFT,
+// Input: nn is the number of points in the data and in the FFT, 
 //           nn must be a power of 2
 // Input: data is sampled voltage v(0),0,v(1),0,v(2),...v(nn-1),0 versus time
 // Output: data is complex FFT Re[V(0)],Im[V(0)], Re[V(1)],Im[V(1)],...
 // data is an array of 2*nn elements
-void
-fft(double data[], unsigned long nn);
+void fft(double data[], unsigned long nn);
 
 //-----------------------------------------------------------
-// Calculates the FFT magnitude at a given frequency index.
+// Calculates the FFT magnitude at a given frequency index. 
 // Input: data is complex FFT Re[V(0)],Im[V(0)], Re[V(1)],Im[V(1)],...
-// Input: nn is the number of points in the data and in the FFT,
+// Input: nn is the number of points in the data and in the FFT, 
 //           nn must be a power of 2
 // Input: k is frequency index 0 to nn/2-1
 //        E.g., if nn=16384, then k can be 0 to 8191
 // Output: Magnitude in volts at this frequency (volts)
 // data is an array of 2*nn elements
 // returns 0 if k >= nn/2
-double
-fftMagnitude(double data[], unsigned long nn, unsigned long k);
+double fftMagnitude(double data[], unsigned long nn, unsigned long k);
 
 //-----------------------------------------------------------
-// Calculates the FFT magnitude in db full scale at a given frequency index.
+// Calculates the FFT magnitude in db full scale at a given frequency index. 
 // Input: data is complex FFT Re[V(0)],Im[V(0)], Re[V(1)],Im[V(1)],...
-// Input: nn is the number of points in the data and in the FFT,
+// Input: nn is the number of points in the data and in the FFT, 
 //           nn must be a power of 2
 // Input: k is frequency index 0 to nn/2-1
 //        E.g., if nn=16384, then k can be 0 to 8191
@@ -92,30 +90,27 @@ fftMagnitude(double data[], unsigned long nn, unsigned long k);
 // Output: Magnitude in db full scale at this frequency
 // data is an array of 2*nn elements
 // returns -200 if k >= nn/2
-double
-fftMagdB(double data[], unsigned long nn, unsigned long k, double fullScale);
+double fftMagdB(double data[], unsigned long nn, unsigned long k, double fullScale);
 
 //-----------------------------------------------------------
-// Calculates the FFT phase at a given frequency index.
+// Calculates the FFT phase at a given frequency index. 
 // Input: data is complex FFT Re[V(0)],Im[V(0)], Re[V(1)],Im[V(1)],...
-// Input: nn is the number of points in the data and in the FFT,
+// Input: nn is the number of points in the data and in the FFT, 
 //           nn must be a power of 2
 // Input: k is frequency index 0 to nn/2-1
 //        E.g., if nn=16384, then k can be 0 to 8191
 // Output: Phase at this frequency
 // data is an array of 2*nn elements
 // returns 0 if k >= nn/2
-double
-fftPhase(double data[], unsigned long nn, unsigned long k);
+double fftPhase(double data[], unsigned long nn, unsigned long k);
 
 //-----------------------------------------------------------
-// Calculates equivalent frequency in Hz at a given frequency index.
+// Calculates equivalent frequency in Hz at a given frequency index. 
 // Input: fs is sampling rate in Hz
-// Input: nn is the number of points in the data and in the FFT,
+// Input: nn is the number of points in the data and in the FFT, 
 //           nn must be a power of 2
 // Input: k is frequency index 0 to nn-1
 //        E.g., if nn=16384, then k can be 0 to 16383
 // Output: Equivalent frequency in Hz
 // returns 0 if k >= nn
-double
-fftFrequency(unsigned long nn, unsigned long k, double fs);
+double fftFrequency (unsigned long nn, unsigned long k, double fs);
