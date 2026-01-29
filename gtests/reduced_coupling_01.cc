@@ -101,9 +101,8 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
   DoFHandler<spacedim> dh(background_tria);
   dh.distribute_dofs(fe);
 
-  IndexSet owned_dofs = dh.locally_owned_dofs();
-  IndexSet relevant_dofs;
-  DoFTools::extract_locally_relevant_dofs(dh, relevant_dofs);
+  IndexSet owned_dofs    = dh.locally_owned_dofs();
+  IndexSet relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
 
   AffineConstraints<double> constraints(owned_dofs, relevant_dofs);
   constraints.close();
