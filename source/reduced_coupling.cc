@@ -10,7 +10,10 @@
 #include "immersed_repartitioner.h"
 #include "tensor_product_space.h"
 #include "utils.h"
-#include "vtk_utils.h"
+
+#ifdef DEAL_II_WITH_VTK
+
+#  include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
@@ -36,18 +39,18 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::ReducedCoupling(
     &par)
   : TensorProductSpace<reduced_dim, dim, spacedim, n_components>(
       par.tensor_product_space_parameters,
-#if DEAL_II_VERSION_GTE(9, 6, 0)
+#  if DEAL_II_VERSION_GTE(9, 6, 0)
       background_tria.get_communicator())
-#else 
+#  else 
 background_tria.get_mpi_communicator()
-#endif
+#  endif
   , ParticleCoupling<spacedim>(par.particle_coupling_parameters)
   , mpi_communicator(
-#if DEAL_II_VERSION_GTE(9, 6, 0)
+#  if DEAL_II_VERSION_GTE(9, 6, 0)
       background_tria.get_communicator()
-#else 
+#  else 
   background_tria.get_mpi_communicator()
-#endif
+#  endif
         )
   , par(par)
   , background_tria(&background_tria)
@@ -202,3 +205,5 @@ template struct ReducedCoupling<1, 2, 2, 2>;
 template struct ReducedCoupling<1, 2, 3, 3>;
 template struct ReducedCoupling<1, 3, 3, 3>;
 template struct ReducedCoupling<2, 3, 3, 3>;
+
+#endif // DEAL_II_WITH_VTK

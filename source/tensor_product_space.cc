@@ -27,7 +27,10 @@
 #include <deal.II/particles/utilities.h>
 
 #include "immersed_repartitioner.h"
-#include "vtk_utils.h"
+
+#ifdef DEAL_II_WITH_VTK
+
+#  include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
@@ -569,3 +572,5 @@ template class TensorProductSpace<1, 2, 2, 2>;
 template class TensorProductSpace<1, 2, 3, 3>;
 template class TensorProductSpace<1, 3, 3, 3>;
 template class TensorProductSpace<2, 3, 3, 3>;
+
+#endif // DEAL_II_WITH_VTK

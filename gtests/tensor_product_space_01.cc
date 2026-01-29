@@ -22,9 +22,11 @@
 
 #include <gtest/gtest.h>
 
-#include "immersed_repartitioner.h"
-#include "tensor_product_space.h"
-#include "utils.h"
+#ifdef DEAL_II_WITH_VTK
+
+#  include "immersed_repartitioner.h"
+#  include "tensor_product_space.h"
+#  include "utils.h"
 
 using namespace dealii;
 
@@ -184,3 +186,5 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
           }
       }
 }
+
+#endif // DEAL_II_WITH_VTK
