@@ -31,15 +31,16 @@
  *
  */
 
-#ifdef DEAL_II_WITH_VTK
+#include <deal.II/base/config.h>
 
-#  include "reduced_poisson.h"
+#ifdef DEAL_II_WITH_VTK
 
 #  include <boost/algorithm/string.hpp>
 
 #  include <type_traits>
 
 #  include "augmented_lagrangian_preconditioner.h"
+#  include "reduced_poisson.h"
 
 
 

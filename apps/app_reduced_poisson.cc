@@ -33,6 +33,9 @@
  * Modified by: Luca Heltai, 2020
  */
 
+#include <deal.II/base/config.h>
+
+#include <iostream>
 
 #ifdef DEAL_II_WITH_VTK
 
@@ -104,6 +107,10 @@ main(int argc, char *argv[])
 int
 main()
 {
+  std::cerr
+    << "app_reduced_poisson requires deal.II to be configured with VTK support "
+       "(DEAL_II_WITH_VTK)."
+    << std::endl;
   return 0;
 }
 #endif // DEAL_II_WITH_VTK
