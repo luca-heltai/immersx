@@ -279,8 +279,6 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
                               owned_dofs[1],
                               idsp,
                               mpi_communicator);
-
-      mass_matrix.reinit(owned_dofs[1], owned_dofs[1], idsp, mpi_communicator);
     }
 
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
@@ -466,9 +464,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
   FullMatrix<double> local_inclusion_matrix(inclusions.n_dofs_per_inclusion(),
                                             inclusions.n_dofs_per_inclusion());
 
-  FullMatrix<double> local_mass_matrix(inclusions.n_dofs_per_inclusion(),
-                                       inclusions.n_dofs_per_inclusion());
-
   Vector<double> local_rhs(inclusions.n_dofs_per_inclusion());
 
   auto particle = inclusions.inclusions_as_particles.begin();
@@ -490,7 +485,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
           inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
           local_coupling_matrix   = 0;
           local_inclusion_matrix  = 0;
-          local_mass_matrix       = 0;
           local_rhs               = 0;
 
           auto Rotation = inclusions.get_rotation(inclusion_id);
@@ -563,10 +557,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                     }
                   local_inclusion_matrix(j, j) +=
                     (inclusion_fe_values[j] * inclusion_fe_values[j] * ds);
-
-
-                  local_mass_matrix(j, j) +=
-                    inclusion_fe_values[j] * inclusion_fe_values[j] * ds;
                 }
               ++p;
             }
@@ -583,15 +573,10 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
           inclusion_constraints.distribute_local_to_global(
             local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
-
-
-          inclusion_constraints.distribute_local_to_global(
-            local_mass_matrix, inclusion_dof_indices, mass_matrix);
         }
       particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
-  mass_matrix.compress(VectorOperation::add);
   inclusion_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
 }
@@ -761,10 +746,10 @@ ElasticityProblem<dim, spacedim>::solve()
       }
 #endif
       {
-        const auto M = linear_operator<LA::MPI::Vector>(mass_matrix);
+        const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
 
         TrilinosWrappers::PreconditionILU M_inv_ilu;
-        M_inv_ilu.initialize(mass_matrix);
+        M_inv_ilu.initialize(inclusion_matrix);
 
         SolverControl solver_control(100, 1e-15, false, false);
         SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(solver_control);
