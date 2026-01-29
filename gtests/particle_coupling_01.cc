@@ -25,9 +25,9 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "immersed_repartitioner.h"
-#include "particle_coupling.h"
-#include "tensor_product_space.h"
+#  include "immersed_repartitioner.h"
+#  include "particle_coupling.h"
+#  include "tensor_product_space.h"
 
 TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 {

@@ -49,7 +49,7 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "vtk_utils.h"
+#  include "vtk_utils.h"
 
 using namespace dealii;
 
@@ -245,7 +245,7 @@ private:
 
 
 // Template specializations
-#ifndef DOXYGEN
+#  ifndef DOXYGEN
 template <int reduced_dim, int dim, int spacedim, int n_components>
 template <typename MatrixType>
 inline void
@@ -518,9 +518,8 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
 
   reduced_rhs.compress(VectorOperation::add);
 }
-#endif
+#  endif
 
 #endif // DEAL_II_WITH_VTK
 
 #endif
-

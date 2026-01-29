@@ -107,15 +107,15 @@ namespace LA
 
 #ifdef DEAL_II_WITH_VTK
 
-#include "reduced_coupling.h"
+#  include "reduced_coupling.h"
 
-#ifdef DEAL_II_WITH_OPENCASCADE
-#  include <TopoDS.hxx>
-#endif
-#include <cmath>
-#include <fstream>
-#include <iostream>
-#include <memory>
+#  ifdef DEAL_II_WITH_OPENCASCADE
+#    include <TopoDS.hxx>
+#  endif
+#  include <cmath>
+#  include <fstream>
+#  include <iostream>
+#  include <memory>
 
 
 template <int spacedim>
@@ -163,13 +163,13 @@ public:
   setup_fe();
   void
   setup_dofs();
-#ifndef MATRIX_FREE_PATH
+#  ifndef MATRIX_FREE_PATH
   void
   assemble_poisson_system();
-#else
+#  else
   void
                         assemble_rhs();
-#endif
+#  endif
   void
   run();
 
@@ -211,7 +211,7 @@ private:
   LA::MPI::SparseMatrix coupling_matrix_transpose;
   LA::MPI::SparseMatrix inclusion_matrix;
   MappingQ<spacedim>    mapping;
-#ifdef MATRIX_FREE_PATH
+#  ifdef MATRIX_FREE_PATH
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
   std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
@@ -224,11 +224,11 @@ private:
     LinearAlgebra::distributed::Vector<float>>;
   MGLevelObject<LevelMatrixType> mg_matrices;
   MGConstrainedDoFs              mg_constrained_dofs;
-#else
+#  else
   LA::MPI::SparseMatrix stiffness_matrix;
   using VectorType      = LA::MPI::Vector;
   using BlockVectorType = LA::MPI::BlockVector;
-#endif
+#  endif
 
   BlockVectorType                                 solution;
   BlockVectorType                                 locally_relevant_solution;
