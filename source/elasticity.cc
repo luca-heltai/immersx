@@ -175,7 +175,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
   owned_dofs.resize(2);
   owned_dofs[0] = dh.locally_owned_dofs();
   relevant_dofs.resize(2);
-  DoFTools::extract_locally_relevant_dofs(dh, relevant_dofs[0]);
+  relevant_dofs[0] = DoFTools::extract_locally_relevant_dofs(dh);
 
   FEFaceValues<spacedim> fe_face_values(*fe,
                                         *face_quadrature_formula,
@@ -184,7 +184,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
                                           update_normal_vectors);
 
   {
-    constraints.reinit(relevant_dofs[0]);
+    constraints.reinit(owned_dofs[0], relevant_dofs[0]);
     DoFTools::make_hanging_node_constraints(dh, constraints);
     for (const auto id : par.dirichlet_ids)
       {
@@ -664,8 +664,8 @@ ElasticityProblem<dim, spacedim>::solve()
   invA = inverse_operator(A, cg_stiffness, amgA);
 
   // Some aliases
-  auto &u      = solution.block(0);
-  auto &lambda = solution.block(1);
+  auto                  &u      = solution.block(0);
+  [[maybe_unused]] auto &lambda = solution.block(1);
 
   const auto &f = system_rhs.block(0);
   auto       &g = system_rhs.block(1);
