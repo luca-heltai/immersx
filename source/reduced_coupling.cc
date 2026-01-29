@@ -10,6 +10,9 @@
 #include "immersed_repartitioner.h"
 #include "tensor_product_space.h"
 #include "utils.h"
+
+#ifdef DEAL_II_WITH_VTK
+
 #include "vtk_utils.h"
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -202,3 +205,5 @@ template struct ReducedCoupling<1, 2, 2, 2>;
 template struct ReducedCoupling<1, 2, 3, 3>;
 template struct ReducedCoupling<1, 3, 3, 3>;
 template struct ReducedCoupling<2, 3, 3, 3>;
+
+#endif // DEAL_II_WITH_VTK

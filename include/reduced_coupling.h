@@ -46,6 +46,9 @@
 #include "particle_coupling.h"
 #include "tensor_product_space.h"
 #include "utils.h"
+
+#ifdef DEAL_II_WITH_VTK
+
 #include "vtk_utils.h"
 
 using namespace dealii;
@@ -517,4 +520,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
 }
 #endif
 
+#endif // DEAL_II_WITH_VTK
+
 #endif
+
