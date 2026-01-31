@@ -18,6 +18,7 @@
  */
 
 #include "laplacian.h"
+#include "utils.h"
 int
 main(int argc, char *argv[])
 {
@@ -35,21 +36,21 @@ main(int argc, char *argv[])
         {
           ProblemParameters<2, 3> par;
           PoissonProblem<2, 3>    problem(par);
-          ParameterAcceptor::initialize(prm_file);
+          initialize_parameters(prm_file);
           problem.run();
         }
       else if (prm_file.find("3d") != std::string::npos)
         {
           ProblemParameters<3> par;
           PoissonProblem<3>    problem(par);
-          ParameterAcceptor::initialize(prm_file);
+          initialize_parameters(prm_file);
           problem.run();
         }
       else
         {
           ProblemParameters<2> par;
           PoissonProblem<2>    problem(par);
-          ParameterAcceptor::initialize(prm_file);
+          initialize_parameters(prm_file);
           problem.run();
         }
     }

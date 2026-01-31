@@ -106,12 +106,20 @@
         {
             "name": "GoogleTest Debug",
             "pattern": "build/gtests/gtests_debug",
-            "framework": "googleTest"
+            "framework": "googleTest",
+            "sourceFileMap": {
+                "/src/": "${workspaceFolder}/",
+                "/src": "${workspaceFolder}"
+            }
         },
         {
             "name": "GoogleTest Release",
             "pattern": "build/gtests/gtests",
-            "framework": "googleTest"
+            "framework": "googleTest",
+            "sourceFileMap": {
+                "/src/": "${workspaceFolder}/",
+                "/src": "${workspaceFolder}"
+            }
         },
     ]
 }
