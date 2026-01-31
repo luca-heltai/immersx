@@ -231,5 +231,69 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
 }
 
 
+inline void
+initialize_parameters(const std::string &filename        = "",
+                      const std::string &output_filename = "")
+{
+  // Two-pass initialization:
+  // 1. Parse the file ignoring undeclared entries
+  // 2. From file to parameters
+  // 3. Declare additional acceptors
+  // 4. Parse again to create additional acceptors
+  // 5. From file to parameters
+  auto &prm = ParameterAcceptor::prm;
+  ParameterAcceptor::declare_all_parameters(prm);
 
+  if (!filename.empty())
+    {
+      try
+        {
+          prm.parse_input(filename, "", true);
+          ParameterAcceptor::parse_all_parameters(prm);
+
+          // Second pass.
+          ParameterAcceptor::declare_all_parameters(prm);
+          prm.parse_input(filename, "", true);
+          ParameterAcceptor::parse_all_parameters(prm);
+        }
+      catch (const ::ExcFileNotOpen &)
+        {
+          prm.print_parameters(filename, ParameterHandler::DefaultStyle);
+          AssertThrow(false,
+                      ExcMessage("You specified <" + filename + "> as input " +
+                                 "parameter file, but it does not exist. " +
+                                 "We created it for you."));
+        }
+    }
+
+  if (!output_filename.empty())
+    prm.print_parameters(output_filename, ParameterHandler::Short);
+}
+
+
+inline void
+initialize_parameters_from_string(const std::string &prm_content,
+                                  const std::string &output_filename = "")
+{
+  // Two-pass initialization:
+  // 1) Parse the prm_content ignoring undeclared entries, so we can still read
+  //    parameters that control the creation of additional acceptors
+  //    (e.g., material tags).
+  // 2) Parse once to let acceptors create additional acceptors.
+  // 3) Parse again, now that the additional acceptors exist and have
+  //    declared their parameters.
+  auto &prm = ParameterAcceptor::prm;
+  ParameterAcceptor::declare_all_parameters(prm);
+
+  prm.parse_input_from_string(prm_content, "", true);
+  ParameterAcceptor::parse_all_parameters(prm);
+
+  // Second pass.
+  ParameterAcceptor::declare_all_parameters(prm);
+  prm.parse_input_from_string(prm_content, "", true);
+  ParameterAcceptor::parse_all_parameters(prm);
+
+  if (!output_filename.empty())
+    prm.print_parameters(output_filename, ParameterHandler::Short);
+}
 #endif

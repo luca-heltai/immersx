@@ -113,8 +113,11 @@ namespace LA
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <string>
 
+#include "material_properties.h"
 
 /**
  * Definition of the Rigid body motions for linear elasticity.
@@ -187,22 +190,33 @@ class ElasticityProblemParameters : public ParameterAcceptor
 public:
   ElasticityProblemParameters();
 
+  const MaterialProperties &
+  get_material_properties(const types::material_id material_id) const;
+
   std::string                   output_directory   = ".";
   std::string                   output_name        = "solution";
   unsigned int                  fe_degree          = 1;
   unsigned int                  initial_refinement = 5;
   std::list<types::boundary_id> dirichlet_ids{0};
+  std::list<types::boundary_id> weak_dirichlet_ids{};
   std::list<types::boundary_id> neumann_ids{};
   std::set<types::boundary_id>  normal_flux_ids{};
-  std::string                   domain_type         = "generate";
-  std::string                   name_of_grid        = "hyper_cube";
-  std::string                   arguments_for_grid  = "-1: 1: false";
-  std::string                   refinement_strategy = "fixed_fraction";
-  double                        coarsening_fraction = 0.0;
-  double                        refinement_fraction = 0.3;
-  unsigned int                  n_refinement_cycles = 1;
-  unsigned int                  max_cells           = 20000;
-  bool                          output_pressure     = false;
+
+  MaterialProperties default_material_properties{"default"};
+  std::map<types::material_id, std::string> material_tags_by_material_id;
+
+  std::map<types::material_id, std::unique_ptr<MaterialProperties>>
+    material_properties_by_id;
+
+  std::string  domain_type         = "generate";
+  std::string  name_of_grid        = "hyper_cube";
+  std::string  arguments_for_grid  = "-1: 1: false";
+  std::string  refinement_strategy = "fixed_fraction";
+  double       coarsening_fraction = 0.0;
+  double       refinement_fraction = 0.3;
+  unsigned int n_refinement_cycles = 1;
+  unsigned int max_cells           = 20000;
+  bool         output_pressure     = false;
 
   double Lame_mu     = 1;
   double Lame_lambda = 1;
@@ -249,6 +263,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                 output_results_before_solving);
   add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
+  add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);
   add_parameter("Neumann boundary ids", neumann_ids);
   add_parameter("Normal flux boundary ids", normal_flux_ids);
   add_parameter("Output pressure", output_pressure);
@@ -282,6 +297,9 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     add_parameter("Lame lambda", Lame_lambda);
   }
   leave_subsection();
+  enter_subsection("Material properties");
+  add_parameter("Material tags by material id", material_tags_by_material_id);
+  leave_subsection();
   enter_subsection("Exact solution");
   {
     add_parameter("Weight expression", weight_expression);
@@ -306,6 +324,27 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   exact_solution.declare_parameters_call_back.connect(reset_function);
   Neumann_bc.declare_parameters_call_back.connect(reset_function);
   bc.declare_parameters_call_back.connect(reset_function);
+
+  this->parse_parameters_call_back.connect([this]() {
+    if (!material_properties_by_id.empty() ||
+        material_tags_by_material_id.empty())
+      {
+        // Already initialized. Just check consistency.
+        AssertDimension(material_properties_by_id.size(),
+                        material_tags_by_material_id.size());
+        return;
+      }
+    // Make sure we exit our subsection first, so that registration of the new
+    // classes works properly.
+    this->leave_my_subsection(this->prm);
+    for (const auto &[material_id, tag] : material_tags_by_material_id)
+      {
+        material_properties_by_id[material_id] =
+          std::make_unique<MaterialProperties>(tag);
+      }
+    // Go back to our subsection, so we can continue parsing parameters.
+    this->enter_my_subsection(this->prm);
+  });
 }
 
 

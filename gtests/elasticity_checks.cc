@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "elasticity.h"
+#include "utils.h"
 
 using namespace dealii;
 
@@ -60,7 +61,7 @@ TEST(ElasticityTest, DisplacementX)
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
-  ParameterAcceptor::initialize();
+  initialize_parameters();
 
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -98,7 +99,7 @@ TEST(ElasticityTest, DisplacementY)
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
-  ParameterAcceptor::initialize();
+  initialize_parameters();
 
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -136,7 +137,7 @@ TEST(ElasticityTest, DisplacementXScaled)
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
-  ParameterAcceptor::initialize();
+  initialize_parameters();
 
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -174,7 +175,7 @@ TEST(ElasticityTest, DisplacementYScaled)
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
-  ParameterAcceptor::initialize();
+  initialize_parameters();
 
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -214,7 +215,7 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
   ElasticityProblem<dim> problem(par);
-  ParameterAcceptor::initialize();
+  initialize_parameters();
 
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
@@ -267,7 +268,7 @@ TEST(ElasticityTest3, Displacement3D)
   get_default_test_parameters(parX);
   ElasticityProblem<dim> problemX(parX);
 
-  ParameterAcceptor::initialize();
+  initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
       subsection Immersed Problem
@@ -293,7 +294,7 @@ TEST(ElasticityTest3, Displacement3D)
   get_default_test_parameters(parZ);
   ElasticityProblem<dim> problemZ(parZ);
 
-  ParameterAcceptor::initialize();
+  initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
       subsection Immersed Problem
