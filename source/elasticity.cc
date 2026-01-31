@@ -94,6 +94,17 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
 }
 
 
+template <int dim, int spacedim>
+inline const MaterialProperties &
+ElasticityProblemParameters<dim, spacedim>::get_material_properties(
+  const types::material_id material_id) const
+{
+  auto it = material_properties_by_id.find(material_id);
+  if (it != material_properties_by_id.end())
+    return *(it->second);
+  else
+    return default_material_properties;
+}
 
 template <int dim, int spacedim>
 void
@@ -329,6 +340,7 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
         fe_values.reinit(cell);
         par.rhs.vector_value_list(fe_values.get_quadrature_points(),
                                   rhs_values);
+        const auto &mp = par.get_material_properties(cell->material_id());
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
@@ -342,9 +354,9 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     cell_matrix(i, j) +=
-                      (2 * par.Lame_mu *
+                      (2 * mp.Lame_mu *
                          scalar_product(grad_phi_u[i], grad_phi_u[j]) +
-                       par.Lame_lambda * div_phi_u[i] * div_phi_u[j]) *
+                       mp.Lame_lambda * div_phi_u[i] * div_phi_u[j]) *
                       fe_values.JxW(q);
                   }
                 const auto comp_i = fe->system_to_component_index(i).first;
