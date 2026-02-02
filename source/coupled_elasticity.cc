@@ -68,6 +68,12 @@ CoupledElasticityProblemParameters<dim, spacedim>::
   {
     add_parameter("Lame mu", Lame_mu);
     add_parameter("Lame lambda", Lame_lambda);
+    enter_subsection("Material properties");
+    {
+      add_parameter("Material tags by material id",
+                    material_tags_by_material_id);
+    }
+    leave_subsection();
   }
   leave_subsection();
   enter_subsection("Exact solution");
@@ -86,6 +92,19 @@ CoupledElasticityProblemParameters<dim, spacedim>::
   this->prm.enter_subsection("Error");
   convergence_table.add_parameters(this->prm);
   this->prm.leave_subsection();
+
+  this->parse_parameters_call_back.connect([this]() {
+    if (!material_properties_by_id.empty())
+      return;
+
+    for (const auto &[material_id, tag] : material_tags_by_material_id)
+      {
+        auto &tag_ptr = material_properties_by_tag[tag];
+        if (!tag_ptr)
+          tag_ptr = std::make_unique<MaterialProperties>(tag);
+        material_properties_by_id[material_id] = tag_ptr.get();
+      }
+  });
 }
 
 

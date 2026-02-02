@@ -36,6 +36,7 @@
 #ifdef DEAL_II_WITH_VTK
 
 #  include "reduced_coupling.h"
+#  include "utils.h"
 
 using namespace dealii;
 
@@ -55,7 +56,7 @@ TEST(ReducedCoupling, MPI_Constructor) // NOLINT
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
-  ParameterAcceptor::initialize("", "reduced_coupling_01.prm");
+  initialize_parameters("", "reduced_coupling_01.prm");
 
   par.tensor_product_space_parameters.reduced_grid_name =
     SOURCE_DIR "/data/tests/mstree_100.vtk";
@@ -160,7 +161,7 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
-  ParameterAcceptor::initialize("", "reduced_coupling_01.prm");
+  initialize_parameters("", "reduced_coupling_01.prm");
 
   par.tensor_product_space_parameters.reduced_grid_name =
     SOURCE_DIR "/data/tests/mstree_100.vtk";
