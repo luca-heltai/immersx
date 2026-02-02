@@ -25,6 +25,7 @@
 #  else
 #    include "coupledModel1d.h"
 #  endif
+#  include "utils.h"
 
 int
 main(int argc, char *argv[])
@@ -71,7 +72,7 @@ main(int argc, char *argv[])
 
               CoupledElasticityProblemParameters<3> par;
               CoupledElasticityProblem<3>           problem3D(par);
-              ParameterAcceptor::initialize(prm_file);
+              initialize_parameters(prm_file);
               problem3D.run_timestep0();
 
               {
@@ -362,7 +363,7 @@ main(int argc, char *argv[])
             std::cout << "Running uncoupled 3D problem" << std::endl;
           CoupledElasticityProblemParameters<3> par;
           CoupledElasticityProblem<3>           problem3D(par);
-          ParameterAcceptor::initialize(prm_file);
+          initialize_parameters(prm_file);
           problem3D.run_timestep0();
           problem3D.run_timestep();
         }

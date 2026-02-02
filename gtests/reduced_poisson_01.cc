@@ -22,6 +22,7 @@
 #ifdef DEAL_II_WITH_VTK
 
 #  include "reduced_poisson.h"
+#  include "utils.h"
 
 using namespace dealii;
 
@@ -29,9 +30,9 @@ TEST(ReducedPoisson, MPI_OneCylinder) // NOLINT
 {
   ParameterAcceptor::clear();
   ReducedPoissonParameters<3> par;
-  ParameterAcceptor::initialize(
-    SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder.prm",
-    "reduced_poisson_01_one_cylinder.prm");
+  initialize_parameters(SOURCE_DIR
+                        "/data/tests/reduced_poisson_01_one_cylinder.prm",
+                        "reduced_poisson_01_one_cylinder.prm");
 
   par.reduced_coupling_parameters.tensor_product_space_parameters
     .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
@@ -47,8 +48,8 @@ TEST(ReducedPoisson, MPI_OneCylinderP1) // NOLINT
 {
   ParameterAcceptor::clear();
   ReducedPoissonParameters<3> par;
-  ParameterAcceptor::initialize(
-    SOURCE_DIR "/data/tests/reduced_poisson_01_one_cylinder_p1.prm");
+  initialize_parameters(SOURCE_DIR
+                        "/data/tests/reduced_poisson_01_one_cylinder_p1.prm");
 
   par.reduced_coupling_parameters.tensor_product_space_parameters
     .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
