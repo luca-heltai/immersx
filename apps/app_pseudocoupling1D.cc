@@ -26,6 +26,7 @@
 #    include "coupled_elasticity.h"
 #  endif
 // #  include "coupledModel1d.h"
+#  include "utils.h"
 
 
 int
@@ -58,7 +59,7 @@ main(int argc, char *argv[])
 
           CoupledElasticityProblemParameters<3> par;
           CoupledElasticityProblem<3>           problem3D(par);
-          ParameterAcceptor::initialize(prm_file);
+          initialize_parameters(prm_file);
           problem3D.run_timestep0();
 
           {

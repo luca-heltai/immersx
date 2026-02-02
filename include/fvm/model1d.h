@@ -2084,5 +2084,7 @@ class Model1d
 
 
 
+using CoupledModel1d = Model1d;
+
 #endif
 

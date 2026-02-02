@@ -41,6 +41,7 @@
 
 #  include "../tests/tests.h"
 #  include "reduced_poisson.h"
+#  include "utils.h"
 int
 main(int argc, char *argv[])
 {
@@ -59,18 +60,14 @@ main(int argc, char *argv[])
       if (prm_file.find("3d") != std::string::npos)
         {
           ReducedPoissonParameters<3> par;
-          ParameterAcceptor::initialize(prm_file,
-                                        "",
-                                        ParameterHandler::Short,
-                                        ParameterAcceptor::prm,
-                                        ParameterHandler::Short);
+          initialize_parameters(prm_file);
           ReducedPoisson<3> problem(par);
           problem.run();
         }
       else
         {
           ReducedPoissonParameters<2> par;
-          ParameterAcceptor::initialize(prm_file);
+          initialize_parameters(prm_file);
           ReducedPoisson<2> problem(par);
           problem.run();
         }
