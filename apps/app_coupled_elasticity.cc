@@ -22,9 +22,8 @@
 
 #  if 1
 #    include "coupled_elasticity.h"
-#  else
-#    include "coupledModel1d.h"
 #  endif
+#    include "coupledModel1d.h"
 #  include "utils.h"
 
 int
@@ -117,12 +116,6 @@ main(int argc, char *argv[])
                     // solve time step
                     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
                       {
-                        // write files for Sarah
-                        if (pb1D.NV < 10)
-                          {
-                            pb1D.writePressure();
-                            pb1D.writeEXTPressure();
-                          }
                         pb1D.solveTimeStep(pb1D.dtMaxLTSLIMIT);
                       }
                     MPI_Barrier(MPI_COMM_WORLD);
@@ -289,21 +282,12 @@ main(int argc, char *argv[])
                           }
                       }
 
-                    // write files for Sarah
-                    if (pb1D.NV < 10)
-                      {
-                        pb1D.writeArea();
-                        pb1D.writeFlow();
-                      }
-
                     iter++;
                     pb1D.iT += 1;
                     timestep += dt;
                   }
                 if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
                   {
-                    if (pb1D.NV < 10)
-                      pb1D.closeFilesPlot();
                     pb1D.end();
                   }
               }
@@ -333,27 +317,12 @@ main(int argc, char *argv[])
               while (timestep < tEnd)
                 {
                   // solve time step
-                  // write files for Sarah
-                  if (pb1D.NV < 10)
-                    {
-                      pb1D.writePressure();
-                      pb1D.writeEXTPressure();
-                    }
                   pb1D.solveTimeStep(pb1D.dtMaxLTSLIMIT);
-
-                  // write files for Sarah
-                  if (pb1D.NV < 10)
-                    {
-                      pb1D.writeArea();
-                      pb1D.writeFlow();
-                    }
 
                   iter++;
                   pb1D.iT += 1;
                   timestep += dt;
                 }
-              if (pb1D.NV < 10)
-                pb1D.closeFilesPlot();
               pb1D.end();
             }
         }
