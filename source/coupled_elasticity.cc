@@ -591,8 +591,8 @@ CoupledElasticityProblem<dim, spacedim>::assemble_coupling()
                         {
                           auto temp =
                             inclusion_fe_values[j] * inclusion_fe_values[j] *
-                            inclusions.get_rotated_inclusion_data(
-                              inclusion_id)[j] /
+                            inclusions.get_inclusion_data(
+                              inclusion_id,j) /
                             // inclusions.inclusions_data[inclusion_id][j] / //
                             // data is always prescribed in relative coordinates
                             inclusions.get_radius(inclusion_id) * ds;
@@ -698,8 +698,8 @@ CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
                         {
                           auto temp =
                             inclusion_fe_values[j] * inclusion_fe_values[j] *
-                            inclusions.get_rotated_inclusion_data(
-                              inclusion_id)[j] /
+                            inclusions.get_inclusion_data(
+                              inclusion_id,j) /
                             // inclusions.inclusions_data[inclusion_id][j] / //
                             // data is always prescribed in relative coordinates
                             inclusions.get_radius(inclusion_id) * ds;
