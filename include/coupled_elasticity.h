@@ -100,7 +100,7 @@ namespace LA
 #  include <memory>
 
 
-
+#  ifdef ENABLE_COUPLED_PROBLEMS
 template <int dim, int spacedim = dim>
 class CoupledElasticityProblemParameters : public ParameterAcceptor
 {
@@ -286,5 +286,7 @@ private:
   // std::ofstream forces_file;
 };
 
+#  endif
 #endif
+
 #endif

@@ -17,10 +17,10 @@
  * Modified by: Luca Heltai, 2020
  */
 
+#ifdef ENABLE_COUPLED_PROBLEMS
+#  include "coupled_elasticity.h"
 
-#include "coupled_elasticity.h"
-
-#include <deal.II/grid/grid_tools.h>
+#  include <deal.II/grid/grid_tools.h>
 
 
 template <int dim, int spacedim>
@@ -117,7 +117,7 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
   GridIn<dim, spacedim> grid_in;
   grid_in.attach_triangulation(tria);
   grid_in.read(grid_file_name);
-#ifdef DEAL_II_WITH_OPENCASCADE
+#  ifdef DEAL_II_WITH_OPENCASCADE
   using map_type  = std::map<types::manifold_id, std::string>;
   using Converter = Patterns::Tools::Convert<map_type>;
   for (const auto &pair : Converter::to_value(ids_and_cad_file_names))
@@ -153,10 +153,10 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
                           OpenCASCADE::NURBSPatchManifold<dim, spacedim>(
                             TopoDS::Face(shape)));
     }
-#else
+#  else
   (void)ids_and_cad_file_names;
   AssertThrow(false, ExcNotImplemented("Generation of the grid failed."));
-#endif
+#  endif
 }
 
 
@@ -742,9 +742,9 @@ CoupledElasticityProblem<dim, spacedim>::solve()
   {
     // LA::MPI::PreconditionAMG::AdditionalData data;
     TrilinosWrappers::PreconditionAMG::AdditionalData data;
-#ifdef USE_PETSC_LA
+#  ifdef USE_PETSC_LA
     data.symmetric_operator = true;
-#endif
+#  endif
     // informo il precondizionatore dei modi costanti del problema elastico
     std::vector<std::vector<bool>>   constant_modes;
     const FEValuesExtractors::Vector displacement_components(0); // gia in .h
@@ -1051,15 +1051,15 @@ template <int dim, int spacedim>
 void
 CoupledElasticityProblem<dim, spacedim>::print_parameters() const
 {
-#ifdef USE_PETSC_LA
+#  ifdef USE_PETSC_LA
   pcout << "Running CoupledElasticityProblem<"
         << Utilities::dim_string(dim, spacedim) << "> using PETSc."
         << std::endl;
-#else
+#  else
   pcout << "Running CoupledElasticityProblem<"
         << Utilities::dim_string(dim, spacedim) << "> using Trilinos."
         << std::endl;
-#endif
+#  endif
   par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
                              std::to_string(dim) + std::to_string(spacedim) +
                              ".prm",
@@ -1592,7 +1592,7 @@ CoupledElasticityProblem<dim, spacedim>::output_coupling_pressure(
         // print .h5
         if (par.initial_time == par.final_time)
           {
-#ifdef DEAL_II_WITH_HDF5
+#  ifdef DEAL_II_WITH_HDF5
             const std::string FILE_NAME(par.output_directory +
                                         "/externalPressure.h5");
 
@@ -1640,10 +1640,10 @@ CoupledElasticityProblem<dim, spacedim>::output_coupling_pressure(
               }
             else
               dataset.write_none<int>();
-#else
+#  else
 
             AssertThrow(false, ExcNeedsHDF5());
-#endif
+#  endif
           }
         else
           {
@@ -1916,3 +1916,6 @@ template class CoupledElasticityProblemParameters<3>;
 template class CoupledElasticityProblem<2>;
 template class CoupledElasticityProblem<2, 3>; // dim != spacedim
 template class CoupledElasticityProblem<3>;
+
+
+#endif
