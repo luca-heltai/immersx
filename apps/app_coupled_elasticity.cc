@@ -23,7 +23,7 @@
 #  if 1
 #    include "coupled_elasticity.h"
 #  endif
-#    include "coupledModel1d.h"
+#  include "coupledModel1d.h"
 #  include "utils.h"
 
 int
