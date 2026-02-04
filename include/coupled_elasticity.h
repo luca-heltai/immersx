@@ -1,5 +1,6 @@
 /* ---------------------------------------------------------------------
  */
+#ifdef ENABLE_COUPLED_PROBLEMS
 
 #ifndef dealii_distributed_lagrange_multiplier_coupled_elasticity_h
 #define dealii_distributed_lagrange_multiplier_coupled_elasticity_h
@@ -281,5 +282,7 @@ private:
   // std::ofstream pressure_file;
   // std::ofstream forces_file;
 };
+
+#endif
 
 #endif
