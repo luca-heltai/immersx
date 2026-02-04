@@ -427,7 +427,8 @@ public:
                                 [get_fourier_component(dof_index)];
         else if (n_vector_components == spacedim)
           {
-            return inclusions_data[inclusion_id][get_fourier_component(dof_index)];
+            return inclusions_data[inclusion_id]
+                                  [get_fourier_component(dof_index)];
           }
         else
           {

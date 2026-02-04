@@ -816,8 +816,8 @@ ElasticityProblem<dim, spacedim>::solve()
       }
     }
 
-    pcout << "   u norm: " << solution.block(0).l2_norm()
-              << ", lambda norm: " << solution.block(1).l2_norm() << std::endl;
+  pcout << "   u norm: " << solution.block(0).l2_norm()
+        << ", lambda norm: " << solution.block(1).l2_norm() << std::endl;
 
   // pcout << "   Solved for u in " << par.inner_control.last_step()
   //       << " iterations." << std::endl;
