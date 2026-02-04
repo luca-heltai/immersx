@@ -16,6 +16,7 @@
  * Author: Wolfgang Bangerth, University of Heidelberg, 2000
  * Modified by: Luca Heltai, 2020
  */
+#ifdef ENABLE_COUPLED_PROBLEMS
 
 #include "coupled_elasticity.h"
 
@@ -1913,3 +1914,5 @@ template class CoupledElasticityProblemParameters<3>;
 template class CoupledElasticityProblem<2>;
 template class CoupledElasticityProblem<2, 3>; // dim != spacedim
 template class CoupledElasticityProblem<3>;
+
+#endif
