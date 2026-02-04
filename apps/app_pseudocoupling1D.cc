@@ -38,23 +38,31 @@ main(int argc, char *argv[])
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
       std::string                      prm_file;
       std::string                      input_file_name;
-      unsigned int                     couplingSampling = 1;
-      unsigned int                     couplingStart    = 9;
+      unsigned int                     couplingSampling           = 1;
+      unsigned int                     couplingStart              = 9;
+      unsigned int                     pseudocoupling_coefficient = 1;
+      ConditionalOStream               pcout(
+        std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
 
-      if (argc > 1)
-        prm_file = argv[1];
-      else
-        prm_file = "parameters.prm";
-
-      if (argc > 2)
+      if (argc > 5)
         {
-          std::cout << "Running pseudo coupled problem" << std::endl;
-          input_file_name = argv[2];
-          if (argc > 4)
+          prm_file                   = argv[1];
+          input_file_name            = argv[2];
+          couplingSampling           = std::strtol(argv[3], NULL, 10);
+          couplingStart              = std::strtol(argv[4], NULL, 10);
+          pseudocoupling_coefficient = std::strtol(argv[5], NULL, 10);
+
+          if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
             {
-              couplingSampling = std::strtol(argv[3], NULL, 10);
-              couplingStart    = std::strtol(argv[4], NULL, 10);
+              std::cout
+                << "Running PSEUDO coupled problem with parameters: Sampling = "
+                << couplingSampling << " Start = " << couplingStart
+                << std::endl;
             }
+          TimerOutput timer(MPI_COMM_WORLD,
+                            pcout,
+                            TimerOutput::summary,
+                            TimerOutput::wall_times);
 
           CoupledElasticityProblemParameters<3> par;
           CoupledElasticityProblem<3>           problem3D(par);
@@ -84,12 +92,14 @@ main(int argc, char *argv[])
             MPI_Barrier(MPI_COMM_WORLD);
             while (timestep < (tEnd - tIni))
               {
+                timer.enter_subsection("1 timestep 1d");
                 // solve time step
                 if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
                   {
                     pb1D.solveTimeStep(pb1D.dtMaxLTSLIMIT);
                   }
                 MPI_Barrier(MPI_COMM_WORLD);
+                timer.leave_subsection();
                 // every iterSampling we aso perform the 3D
                 if (timestep > couplingStart && iter % couplingSampling == 0)
                   {
@@ -104,26 +114,33 @@ main(int argc, char *argv[])
                                                 pb1D.new_displacement);
 
                     problem3D.update_inclusions_data(new_displacement_data);
+                    timer.enter_subsection("3 3d timestep");
                     problem3D.run_timestep();
+                    timer.leave_subsection();
 
-                    pb1D.solvePseudo3D(0);
+                    pb1D.solvePseudo3D(pseudocoupling_coefficient);
 
-                    for (int i = 0; i < pb1D.NV; i++)
-                      {
-                        if (pb1D.vess[i].bcType[0] > 1)
+                    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                      { // update the junction
+                        for (int i = 0; i < pb1D.NV; i++)
                           {
-                            const auto iJunc      = pb1D.vess[i].iJuncL;
-                            const auto iJuncOrder = pb1D.vess[i].iJuncLorder;
-                            pb1D.junctionsData[iJunc].peJ[iJuncOrder] =
-                              pb1D.vess[i].getpe(0, 0);
-                          }
-                        if (pb1D.vess[i].bcType[1] > 1)
-                          {
-                            const auto iJunc      = pb1D.vess[i].iJuncR;
-                            const auto iJuncOrder = pb1D.vess[i].iJuncRorder;
-                            pb1D.junctionsData[iJunc].peJ[iJuncOrder] =
-                              pb1D.vess[i].getpe(pb1D.vess[i].NCELLS - 1,
-                                                 pb1D.vess[i].nDOFs - 1);
+                            if (pb1D.vess[i].bcType[0] > 1)
+                              {
+                                const auto iJunc = pb1D.vess[i].iJuncL;
+                                const auto iJuncOrder =
+                                  pb1D.vess[i].iJuncLorder;
+                                pb1D.junctionsData[iJunc].peJ[iJuncOrder] =
+                                  pb1D.vess[i].getpe(0, 0);
+                              }
+                            if (pb1D.vess[i].bcType[1] > 1)
+                              {
+                                const auto iJunc = pb1D.vess[i].iJuncR;
+                                const auto iJuncOrder =
+                                  pb1D.vess[i].iJuncRorder;
+                                pb1D.junctionsData[iJunc].peJ[iJuncOrder] =
+                                  pb1D.vess[i].getpe(pb1D.vess[i].NCELLS - 1,
+                                                     pb1D.vess[i].nDOFs - 1);
+                              }
                           }
                       }
                   }
@@ -137,6 +154,11 @@ main(int argc, char *argv[])
                 pb1D.end();
               }
           }
+        }
+      else
+        {
+          std::cout << "insufficient number of input parameters" << std::endl;
+          return 1;
         }
     }
   catch (std::exception &exc)
