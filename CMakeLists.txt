@@ -48,7 +48,7 @@ FIND_PACKAGE(deal.II 9.2 REQUIRED
 HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
-OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." OFF)
+OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." ON)
 
 IF(${ENABLE_COUPLED_PROBLEMS})
   MESSAGE("-- Looking for 1dsolver library")
@@ -80,7 +80,7 @@ OPTION(ENABLE_GOOGLE_TESTING
 SET(_d2_build_types "Release;Debug")
 SET(Release_postfix "")
 SET(Debug_postfix "_debug")
-SET(CMAKE_C_FLAGS -fopenmp)
+# SET(CMAKE_C_FLAGS -fopenmp)
 SET(CMAKE_CXX_FLAGS -fopenmp)
 
 FOREACH(_build_type ${_d2_build_types})
