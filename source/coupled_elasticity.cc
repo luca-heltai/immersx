@@ -34,7 +34,8 @@ CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
 
   this->system_rhs.block(1) = 0;
 
-  std::vector<types::global_dof_index> fe_dof_indices(this->fe->n_dofs_per_cell());
+  std::vector<types::global_dof_index> fe_dof_indices(
+    this->fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices(
     this->inclusions.n_dofs_per_inclusion());
 
@@ -55,14 +56,15 @@ CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
       auto next_p = pic.begin();
       while (p != pic.end())
         {
-          const auto inclusion_id = this->inclusions.get_inclusion_id(p->get_id());
-          inclusion_dof_indices   = this->inclusions.get_dof_indices(p->get_id());
-          local_rhs               = 0;
+          const auto inclusion_id =
+            this->inclusions.get_inclusion_id(p->get_id());
+          inclusion_dof_indices = this->inclusions.get_dof_indices(p->get_id());
+          local_rhs             = 0;
 
           // Extract all points that refer to the same inclusion
           std::vector<Point<spacedim>> ref_q_points;
-          for (; next_p != pic.end() &&
-                 this->inclusions.get_inclusion_id(next_p->get_id()) == inclusion_id;
+          for (; next_p != pic.end() && this->inclusions.get_inclusion_id(
+                                          next_p->get_id()) == inclusion_id;
                ++next_p)
             ref_q_points.push_back(next_p->get_reference_location());
           FEValues<spacedim, spacedim> fev(*this->fe,
@@ -72,23 +74,27 @@ CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
           // double temp = 0;
           for (unsigned int q = 0; q < ref_q_points.size(); ++q)
             {
-              const auto  id                  = p->get_id();
-              const auto &inclusion_fe_values = this->inclusions.get_fe_values(id);
-              const auto &real_q              = p->get_location();
-              const auto  ds =
-                this->inclusions.get_JxW(id); // /inclusions.get_radius(inclusion_id);
+              const auto  id = p->get_id();
+              const auto &inclusion_fe_values =
+                this->inclusions.get_fe_values(id);
+              const auto &real_q = p->get_location();
+              const auto  ds     = this->inclusions.get_JxW(
+                id); // /inclusions.get_radius(inclusion_id);
 
               // Coupling and inclusions matrix
-              for (unsigned int j = 0; j < this->inclusions.n_dofs_per_inclusion();
+              for (unsigned int j = 0;
+                   j < this->inclusions.n_dofs_per_inclusion();
                    ++j)
                 {
                   if (this->inclusions.data_file != "")
                     {
-                      if (this->inclusions.inclusions_data[inclusion_id].size() > j)
+                      if (this->inclusions.inclusions_data[inclusion_id]
+                            .size() > j)
                         {
                           auto temp =
                             inclusion_fe_values[j] * inclusion_fe_values[j] *
-                            this->inclusions.get_inclusion_data(inclusion_id, j) /
+                            this->inclusions.get_inclusion_data(inclusion_id,
+                                                                j) /
                             // inclusions.inclusions_data[inclusion_id][j] / //
                             // data is always prescribed in relative coordinates
                             this->inclusions.get_radius(inclusion_id) * ds;
@@ -100,10 +106,11 @@ CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
                     }
                   else
                     {
-                      local_rhs(j) += inclusion_fe_values[j] *
-                                      this->inclusions.inclusions_rhs.value(
-                                        real_q, this->inclusions.get_component(j)) /
-                                      this->inclusions.get_radius(inclusion_id) * ds;
+                      local_rhs(j) +=
+                        inclusion_fe_values[j] *
+                        this->inclusions.inclusions_rhs.value(
+                          real_q, this->inclusions.get_component(j)) /
+                        this->inclusions.get_radius(inclusion_id) * ds;
                     }
                 }
               ++p;
@@ -118,8 +125,6 @@ CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
     }
   this->system_rhs.compress(VectorOperation::add);
 }
-
-
 
 
 
@@ -151,17 +156,18 @@ CoupledElasticityProblem<dim, spacedim>::run_timestep()
           this->refine_and_transfer_around_inclusions();
           std::cout << "refining around inclusions" << std::endl;
 
-          this->assemble_elasticity_system(); // questo mi serve perche sto raffinando
+          this->assemble_elasticity_system(); // we need to refine A too
           this->assemble_coupling();
           this->solve();
         }
       else
         {
-          for (unsigned int ref_cycle = 0; ref_cycle < this->par.n_refinement_cycles;
+          for (unsigned int ref_cycle = 0;
+               ref_cycle < this->par.n_refinement_cycles;
                ++ref_cycle)
             {
               this->assemble_elasticity_system(); // questo mi serve perche sto
-                                            // raffinando
+                                                  // raffinando
               this->assemble_coupling();
               this->solve();
               if (ref_cycle != this->par.n_refinement_cycles - 1)
@@ -176,8 +182,8 @@ CoupledElasticityProblem<dim, spacedim>::run_timestep()
     }
 
 
-//   if (this->par.output_results)
-//     this->output_results();
+  //   if (this->par.output_results)
+  //     this->output_results();
 
   coupling_pressure.clear();
   coupling_pressure_at_inclusions.clear();
@@ -275,12 +281,12 @@ CoupledElasticityProblem<dim, spacedim>::refine_and_transfer_around_inclusions()
 {
   TimerOutput::Scope t(this->computing_timer, "Refine");
   Vector<float>      error_per_cell(this->tria.n_active_cells());
-  KellyErrorEstimator<spacedim>::estimate(this->dh,
-                                          QGauss<spacedim - 1>(this->par.fe_degree +
-                                                               1),
-                                          {},
-                                          this->locally_relevant_solution.block(0),
-                                          error_per_cell);
+  KellyErrorEstimator<spacedim>::estimate(
+    this->dh,
+    QGauss<spacedim - 1>(this->par.fe_degree + 1),
+    {},
+    this->locally_relevant_solution.block(0),
+    error_per_cell);
 
   const int material_id = 1;
 
@@ -311,7 +317,8 @@ CoupledElasticityProblem<dim, spacedim>::refine_and_transfer_around_inclusions()
                   neigh_i->set_material_id(material_id);
                   for (auto vertey : neigh_i->vertex_indices())
                     for (const auto &neigh_j :
-                         GridTools::find_cells_adjacent_to_vertex(this->dh, vertey))
+                         GridTools::find_cells_adjacent_to_vertex(this->dh,
+                                                                  vertey))
                       // for (auto neigh_j =
                       // cell->neighbor(neigh_i)->begin_face(); neigh_j <
                       // cell->neighbor(neigh_i)->end_face(); ++neigh_j)
@@ -327,7 +334,8 @@ CoupledElasticityProblem<dim, spacedim>::refine_and_transfer_around_inclusions()
     }
   this->execute_actual_refine_and_transfer();
 
-  for (unsigned int ref_cycle = 0; ref_cycle < this->par.n_refinement_cycles - 1;
+  for (unsigned int ref_cycle = 0;
+       ref_cycle < this->par.n_refinement_cycles - 1;
        ++ref_cycle)
     {
       for (const auto &cell : this->tria.active_cell_iterators())
