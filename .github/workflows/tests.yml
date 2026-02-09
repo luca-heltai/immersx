@@ -41,14 +41,12 @@ jobs:
     - name: Serial gtests debug
       run: |
          cd build_linux_debug
-         cd gtests 
-         ./gtests_debug
+         ./gtests/gtests_debug
 
     - name: Parallel gtests debug
       run: |
          cd build_linux_debug
-         cd gtests 
-         mpirun -n 2 ./gtests_debug --gtest_filter="*.MPI_*"
+         mpirun -n 2 ./gtests/gtests_debug --gtest_filter="*.MPI_*"
 
   release:
 
@@ -83,11 +81,9 @@ jobs:
     - name: Serial gtests release
       run: |
        cd build_linux_release
-       cd gtests 
-       ./gtests
+       ./gtests/gtests
 
     - name: Parallel gtests release
       run: |
        cd build_linux_release
-       cd gtests 
-       mpirun -n 2 ./gtests --gtest_filter="*.MPI_*"
+       mpirun -n 2 ./gtests/gtests --gtest_filter="*.MPI_*"
