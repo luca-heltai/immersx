@@ -397,8 +397,7 @@ public:
   print_parameters() const;
 
   void
-  compute_internal_and_boundary_stress(
-    bool openfilefirsttime) const;
+  compute_internal_and_boundary_stress(bool) const;
 
   void
   output_pressure(bool openfilefirsttime) const;

@@ -65,7 +65,7 @@ main(int argc, char *argv[])
                             TimerOutput::wall_times);
 
           ElasticityProblemParameters<3> par;
-          CoupledElasticityProblem<3>           problem3D(par);
+          CoupledElasticityProblem<3>    problem3D(par);
           initialize_parameters(prm_file);
           problem3D.run_timestep0();
 
