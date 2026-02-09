@@ -5,8 +5,7 @@
 #  ifndef dealii_distributed_lagrange_multiplier_coupled_elasticity_h
 #    define dealii_distributed_lagrange_multiplier_coupled_elasticity_h
 
-#include "elasticity.h"
-
+#    include "elasticity.h"
 
 
 
@@ -101,8 +100,6 @@ private:
   // // output_pressure(bool openfilefirsttime) /*const*/;
   // void
   // output_coupling_pressure(bool) const;
-
-
 };
 
 #  endif
