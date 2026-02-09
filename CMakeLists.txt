@@ -79,6 +79,33 @@ IF(OpenMP_CXX_FOUND)
 ELSE()
   MESSAGE(STATUS "OpenMP not found for CXX; building without OpenMP")
 ENDIF()
+
+INCLUDE(CheckCXXSourceCompiles)
+IF(ENABLE_COUPLED_PROBLEMS AND FVM_LIB)
+  SET(_FVM_RTTI_TEST_SOURCE
+    "#include <typeinfo>\n"
+    "#include \"model1d.h\"\n"
+    "int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0; }\n")
+  SET(CMAKE_REQUIRED_INCLUDES
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/include/fvm")
+  SET(CMAKE_REQUIRED_LIBRARIES "${FVM_LIB}")
+  IF(OpenMP_CXX_FOUND AND OpenMP_CXX_FLAGS)
+    SET(CMAKE_REQUIRED_FLAGS "${OpenMP_CXX_FLAGS}")
+  ENDIF()
+  CHECK_CXX_SOURCE_COMPILES("${_FVM_RTTI_TEST_SOURCE}" FVM_LIB_HAS_RTTI)
+  UNSET(CMAKE_REQUIRED_INCLUDES)
+  UNSET(CMAKE_REQUIRED_LIBRARIES)
+  UNSET(CMAKE_REQUIRED_FLAGS)
+  UNSET(_FVM_RTTI_TEST_SOURCE)
+  IF(NOT FVM_LIB_HAS_RTTI)
+    MESSAGE(WARNING
+      "Found 1dsolver library but RTTI for Model1d is missing. "
+      "Please rebuild lib1dsolver with RTTI enabled (no -fno-rtti). "
+      "Disabling coupled problems.")
+    SET(ENABLE_COUPLED_PROBLEMS OFF)
+  ENDIF()
+ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 OPTION(ENABLE_DEAL_II_APP_TESTING 
 "Enable deal.II style tests in this application." ON)
