@@ -76,7 +76,7 @@ main(int argc, char *argv[])
                                 TimerOutput::summary,
                                 TimerOutput::wall_times);
 
-              CoupledElasticityProblemParameters<3> par;
+              ElasticityProblemParameters<3> par;
               CoupledElasticityProblem<3>           problem3D(par);
               initialize_parameters(prm_file);
               problem3D.run_timestep0();
@@ -296,7 +296,7 @@ main(int argc, char *argv[])
         {
           if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
             std::cout << "Running uncoupled 3D problem" << std::endl;
-          CoupledElasticityProblemParameters<3> par;
+          ElasticityProblemParameters<3> par;
           CoupledElasticityProblem<3>           problem3D(par);
           initialize_parameters(prm_file);
           problem3D.run_timestep0();
