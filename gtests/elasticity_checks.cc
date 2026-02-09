@@ -260,7 +260,7 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
   inclusions.print(std::cout);
 }
 
-TEST(ElasticityTest3, Displacement3D)
+TEST(ElasticityTest3, Rotation3D)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 3;
@@ -323,4 +323,59 @@ TEST(ElasticityTest3, Displacement3D)
   ASSERT_NEAR(problemX.solution.block(1).l2_norm(),
               problemZ.solution.block(1).l2_norm(),
               tol);
+}
+
+
+TEST(ElasticityTest3, Displacement3D)
+{
+  ParameterAcceptor::clear();
+  static constexpr int             dim = 3;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
+
+
+  initialize_parameters();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0
+  set Initial refinement                 = 3
+  set Normal flux boundary ids           = 1,2
+  set Output name                        = Displacement3D
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = subdivided_cylinder
+    set Grid generator arguments = 2:2:2
+  end
+  subsection Immersed inclusions
+    set Inclusions file                     = ../data/tests/cylinder_x.txt
+    set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
+    set Inclusions refinement               = 50
+    set Number of fourier coefficients      = 2
+    set Selection of Fourier coefficients   = 3,7
+  end
+  subsection Physical constants
+    set Lame lambda = 50
+    set Lame mu = 2
+  end
+  subsection Solver
+    subsection Inner control
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
+    end
+    subsection Outer control
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
+    end
+  end
+end
+    )");
+
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+
+  const double tol = 1e-4;
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.71201, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 4.60961, tol);
 }
