@@ -381,6 +381,12 @@ public:
   void
   refine_and_transfer();
 
+  void
+  refine_and_transfer_around_inclusions();
+
+  void
+  execute_actual_refine_and_transfer();
+
   std::string
   output_solution() const;
 
@@ -391,8 +397,7 @@ public:
   print_parameters() const;
 
   void
-  compute_internal_and_boundary_stress(
-    bool openfilefirsttime) const; // make const
+  compute_internal_and_boundary_stress(bool) const;
 
   void
   output_pressure(bool openfilefirsttime) const;

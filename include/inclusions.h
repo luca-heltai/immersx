@@ -295,7 +295,6 @@ public:
   {
     mpi_communicator = tria.get_communicator();
     initialize();
-    // compute_rotated_inclusion_data();
 
     inclusions_as_particles.initialize(tria,
                                        StaticMappingQ1<spacedim>::mapping);
@@ -401,8 +400,7 @@ public:
     AssertIndexRange(inclusion_id, n_inclusions());
     AssertIndexRange(dof_index, n_dofs());
     // return dof_index % n_vector_components;
-    return get_rotated_inclusion_data(
-      inclusion_id)[get_fourier_component(dof_index)];
+    return inclusions_data[inclusion_id][get_fourier_component(dof_index)];
   }
 
   /**
@@ -429,8 +427,8 @@ public:
                                 [get_fourier_component(dof_index)];
         else if (n_vector_components == spacedim)
           {
-            return get_rotated_inclusion_data(
-              inclusion_id)[get_fourier_component(dof_index)];
+            return inclusions_data[inclusion_id]
+                                  [get_fourier_component(dof_index)];
           }
         else
           {
@@ -742,10 +740,6 @@ public:
         AssertThrow(l.size() == N, ExcDimensionMismatch(l.size(), N));
       }
 
-      // data from file should respect the input file standard, i.e. be given in
-      // relative coordinates then we need to rotate it to obtain data in
-      // absolute coordinates compute_rotated_inclusion_data();
-
 #else
     AssertThrow(false, ExcNeedsHDF5());
 #endif
@@ -788,8 +782,6 @@ public:
         new_data.size() == 0,
         ExcMessage(
           "dimensions of new data for the update does not match the inclusions"));
-
-    // compute_rotated_inclusion_data();
   }
 
   void
@@ -857,8 +849,6 @@ public:
             // }
           }
       }
-
-    // compute_rotated_inclusion_data();
   }
 
   /**
@@ -938,75 +928,46 @@ public:
     return s;
   }
 
-  void
-  compute_rotated_inclusion_data()
-  {
-    rotated_inclusion_data.resize(inclusions_data.size());
-    if constexpr (spacedim == 3)
-      {
-        // const auto locally_owned_inclusions =
-        //   Utilities::MPI::create_evenly_distributed_partitioning(
-        //     mpi_communicator, n_inclusions());
-        //
-        // for (const auto inclusion_id : locally_owned_inclusions)
-        for (long unsigned int inclusion_id = 0;
-             inclusion_id < inclusions_data.size();
-             ++inclusion_id)
+  // void
+  // compute_rotated_inclusion_data()
+  // {
+  //   rotated_inclusion_data.resize(inclusions_data.size());
+  //   if constexpr (spacedim == 3)
+  //     {
+  //       // const auto locally_owned_inclusions =
+  //       //   Utilities::MPI::create_evenly_distributed_partitioning(
+  //       //     mpi_communicator, n_inclusions());
+  //       //
+  //       // for (const auto inclusion_id : locally_owned_inclusions)
+  //       for (long unsigned int inclusion_id = 0;
+  //            inclusion_id < inclusions_data.size();
+  //            ++inclusion_id)
 
-          {
-            auto tensorR = get_rotation(inclusion_id);
-            //             std::cout << "tensor: " << tensorR << ", norm :" <<
-            //             tensorR.norm() << std::endl; std::cout << "inclusions
-            //             data: "; for (auto i : inclusions_data[inclusion_id])
-            //               std::cout << i << " ";
-            //             std::cout << std::endl;
-            std::vector<double> rotated_phi(
-              inclusions_data[inclusion_id].size());
-            for (long unsigned int phi_i = 0;
-                 (phi_i * spacedim + spacedim - 1) <
-                 inclusions_data[inclusion_id].size();
-                 ++phi_i)
-              {
-                Tensor<1, spacedim> coef_phii;
-                for (unsigned int d = 0; d < spacedim; ++d)
-                  coef_phii[d] =
-                    inclusions_data[inclusion_id][phi_i * spacedim + d];
+  //         {
+  //           auto tensorR = get_rotation(inclusion_id);
 
-                auto rotated_phi_i = tensorR * coef_phii;
-                rotated_phi_i.unroll(&rotated_phi[phi_i * spacedim],
-                                     &rotated_phi[phi_i * spacedim + 3]);
-                //                 std::cout << "rotated_phi: ";
-                //                 for (auto i : rotated_phi)
-                //                   std::cout << i << " ";
-                //                 std::cout << std::endl;
-              }
-            AssertIndexRange(inclusion_id, rotated_inclusion_data.size());
-            rotated_inclusion_data[inclusion_id] = rotated_phi;
-            //             std::cout << "rotated inclusions data: ";
-            //             for (auto i : rotated_inclusion_data[inclusion_id])
-            //               std::cout << i << " ";
-            //             std::cout << std::endl;
-          }
-      }
-  }
+  //           std::vector<double> rotated_phi(
+  //             inclusions_data[inclusion_id].size());
+  //           for (long unsigned int phi_i = 0;
+  //                (phi_i * spacedim + spacedim - 1) <
+  //                inclusions_data[inclusion_id].size();
+  //                ++phi_i)
+  //             {
+  //               Tensor<1, spacedim> coef_phii;
+  //               for (unsigned int d = 0; d < spacedim; ++d)
+  //                 coef_phii[d] =
+  //                   inclusions_data[inclusion_id][phi_i * spacedim + d];
 
-  /**
-   * @brief return the rotate the data of a given inclusion
-   *
-   * @param inclusion_id
-   * @return std::vector<double> rotated data
-   */
-  std::vector<double>
-  get_rotated_inclusion_data(const types::global_dof_index &inclusion_id) const
-  {
-    AssertIndexRange(inclusion_id, inclusions.size());
+  //               auto rotated_phi_i = tensorR * coef_phii;
+  //               rotated_phi_i.unroll(&rotated_phi[phi_i * spacedim],
+  //                                    &rotated_phi[phi_i * spacedim + 3]);
+  //             }
+  //           AssertIndexRange(inclusion_id, rotated_inclusion_data.size());
+  //           rotated_inclusion_data[inclusion_id] = rotated_phi;
+  //         }
+  //     }
+  // }
 
-    // if constexpr (spacedim == 2)
-    return inclusions_data[inclusion_id];
-
-    // if constexpr (spacedim == 3)
-    // return rotated_inclusion_data[inclusion_id];
-  }
 
   void
   set_n_q_points(unsigned int n_q)
@@ -1032,7 +993,6 @@ public:
 #endif
   std::vector<std::vector<double>> inclusions_data;
   std::vector<double>              reference_inclusion_data;
-  std::vector<std::vector<double>> rotated_inclusion_data;
 
   std::map<unsigned int, std::vector<types::global_dof_index>>
     map_vessel_inclusions;

@@ -810,10 +810,14 @@ ElasticityProblem<dim, spacedim>::solve()
               << " iterations." << std::endl;
 
         solution.block(0) = solution_block.block(0);
+        solution.block(1) = solution_block.block(1);
 
         constraints.distribute(solution_block.block(0));
       }
     }
+
+  pcout << "   u norm: " << solution.block(0).l2_norm()
+        << ", lambda norm: " << solution.block(1).l2_norm() << std::endl;
 
   // pcout << "   Solved for u in " << par.inner_control.last_step()
   //       << " iterations." << std::endl;
@@ -858,6 +862,12 @@ ElasticityProblem<dim, spacedim>::refine_and_transfer()
     for (const auto &cell : tria.active_cell_iterators())
       cell->set_refine_flag();
 
+  execute_actual_refine_and_transfer();
+}
+template <int dim, int spacedim>
+void
+ElasticityProblem<dim, spacedim>::execute_actual_refine_and_transfer()
+{
   parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector> transfer(
     dh);
   tria.prepare_coarsening_and_refinement();
