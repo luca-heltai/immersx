@@ -48,7 +48,7 @@ FIND_PACKAGE(deal.II 9.2 REQUIRED
 HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
-OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." OFF)
+OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." ON)
 
 IF(${ENABLE_COUPLED_PROBLEMS})
   MESSAGE("-- Looking for 1dsolver library")
@@ -67,6 +67,45 @@ ELSE()
 ENDIF()
 
 PROJECT(${_main_target})
+FIND_PACKAGE(OpenMP)
+IF(OpenMP_CXX_FOUND)
+  MESSAGE(STATUS "OpenMP found for CXX: flags='${OpenMP_CXX_FLAGS}', libs='${OpenMP_CXX_LIBRARIES}'")
+  IF(TARGET OpenMP::OpenMP_CXX)
+    SET(_OPENMP_CXX_TARGET OpenMP::OpenMP_CXX)
+  ELSE()
+    SET(_OPENMP_CXX_COMPILE_OPTS "${OpenMP_CXX_FLAGS}")
+    SET(_OPENMP_CXX_LINK_LIBS "${OpenMP_CXX_LIBRARIES}")
+  ENDIF()
+ELSE()
+  MESSAGE(STATUS "OpenMP not found for CXX; building without OpenMP")
+ENDIF()
+
+INCLUDE(CheckCXXSourceCompiles)
+IF(ENABLE_COUPLED_PROBLEMS AND FVM_LIB)
+  SET(_FVM_RTTI_TEST_SOURCE
+    "#include <typeinfo>\n"
+    "#include \"model1d.h\"\n"
+    "int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0; }\n")
+  SET(CMAKE_REQUIRED_INCLUDES
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "${CMAKE_CURRENT_SOURCE_DIR}/include/fvm")
+  SET(CMAKE_REQUIRED_LIBRARIES "${FVM_LIB}")
+  IF(OpenMP_CXX_FOUND AND OpenMP_CXX_FLAGS)
+    SET(CMAKE_REQUIRED_FLAGS "${OpenMP_CXX_FLAGS}")
+  ENDIF()
+  CHECK_CXX_SOURCE_COMPILES("${_FVM_RTTI_TEST_SOURCE}" FVM_LIB_HAS_RTTI)
+  UNSET(CMAKE_REQUIRED_INCLUDES)
+  UNSET(CMAKE_REQUIRED_LIBRARIES)
+  UNSET(CMAKE_REQUIRED_FLAGS)
+  UNSET(_FVM_RTTI_TEST_SOURCE)
+  IF(NOT FVM_LIB_HAS_RTTI)
+    MESSAGE(WARNING
+      "Found 1dsolver library but RTTI for Model1d is missing. "
+      "Please rebuild lib1dsolver with RTTI enabled (no -fno-rtti). "
+      "Disabling coupled problems.")
+    SET(ENABLE_COUPLED_PROBLEMS OFF)
+  ENDIF()
+ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 OPTION(ENABLE_DEAL_II_APP_TESTING 
 "Enable deal.II style tests in this application." ON)
@@ -80,6 +119,7 @@ OPTION(ENABLE_GOOGLE_TESTING
 SET(_d2_build_types "Release;Debug")
 SET(Release_postfix "")
 SET(Debug_postfix "_debug")
+# SET(CMAKE_C_FLAGS -fopenmp)
 
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
@@ -111,6 +151,18 @@ FOREACH(_build_type ${_d2_build_types})
       )
       
       DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
+      IF(OpenMP_CXX_FOUND)
+        IF(DEFINED _OPENMP_CXX_TARGET)
+          TARGET_LINK_LIBRARIES(${_lib} ${_OPENMP_CXX_TARGET})
+        ELSE()
+          IF(_OPENMP_CXX_COMPILE_OPTS)
+            TARGET_COMPILE_OPTIONS(${_lib} PUBLIC ${_OPENMP_CXX_COMPILE_OPTS})
+          ENDIF()
+          IF(_OPENMP_CXX_LINK_LIBS)
+            TARGET_LINK_LIBRARIES(${_lib} ${_OPENMP_CXX_LINK_LIBS})
+          ENDIF()
+        ENDIF()
+      ENDIF()
       SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
 
       
@@ -139,6 +191,18 @@ FOREACH(_build_type ${_d2_build_types})
         )
 
         DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
+        IF(OpenMP_CXX_FOUND)
+          IF(DEFINED _OPENMP_CXX_TARGET)
+            TARGET_LINK_LIBRARIES(${_exe} ${_OPENMP_CXX_TARGET})
+          ELSE()
+            IF(_OPENMP_CXX_COMPILE_OPTS)
+              TARGET_COMPILE_OPTIONS(${_exe} PUBLIC ${_OPENMP_CXX_COMPILE_OPTS})
+            ENDIF()
+            IF(_OPENMP_CXX_LINK_LIBS)
+              TARGET_LINK_LIBRARIES(${_exe} ${_OPENMP_CXX_LINK_LIBS})
+            ENDIF()
+          ENDIF()
+        ENDIF()
     ENDFOREACH()
   ENDIF()
 ENDFOREACH()

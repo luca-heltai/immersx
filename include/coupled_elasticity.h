@@ -1,160 +1,20 @@
 /* ---------------------------------------------------------------------
  */
-
-#ifndef dealii_distributed_lagrange_multiplier_coupled_elasticity_h
-#define dealii_distributed_lagrange_multiplier_coupled_elasticity_h
-
 #ifdef ENABLE_COUPLED_PROBLEMS
 
-#  include <deal.II/base/function.h>
-#  include <deal.II/base/parsed_convergence_table.h>
-#  include <deal.II/base/quadrature_lib.h>
-#  include <deal.II/base/timer.h>
+#  ifndef dealii_distributed_lagrange_multiplier_coupled_elasticity_h
+#    define dealii_distributed_lagrange_multiplier_coupled_elasticity_h
 
-#  include <deal.II/lac/block_linear_operator.h>
-#  include <deal.II/lac/generic_linear_algebra.h>
-#  include <deal.II/lac/linear_operator.h>
-#  include <deal.II/lac/linear_operator_tools.h>
-#  define FORCE_USE_OF_TRILINOS
-namespace LA
-{
-#  if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
-    !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
-  using namespace dealii::LinearAlgebraPETSc;
-#    define USE_PETSC_LA
-#  elif defined(DEAL_II_WITH_TRILINOS)
-  using namespace dealii::LinearAlgebraTrilinos;
-#  else
-#    error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
-#  endif
-} // namespace LA
-#  include <deal.II/base/conditional_ostream.h>
-#  include <deal.II/base/index_set.h>
-#  include <deal.II/base/parameter_acceptor.h>
-#  include <deal.II/base/parsed_function.h>
-#  include <deal.II/base/utilities.h>
-#  include <deal.II/base/work_stream.h>
-
-#  include <deal.II/distributed/grid_refinement.h>
-#  include <deal.II/distributed/solution_transfer.h>
-#  include <deal.II/distributed/tria.h>
-
-#  include <deal.II/dofs/dof_handler.h>
-#  include <deal.II/dofs/dof_renumbering.h>
-#  include <deal.II/dofs/dof_tools.h>
-
-#  include <deal.II/fe/fe_nothing.h>
-#  include <deal.II/fe/fe_q.h>
-#  include <deal.II/fe/fe_system.h>
-#  include <deal.II/fe/fe_values.h>
-#  include <deal.II/fe/mapping_fe_field.h>
-#  include <deal.II/fe/mapping_q.h>
-
-#  include <deal.II/grid/grid_generator.h>
-#  include <deal.II/grid/grid_in.h>
-#  include <deal.II/grid/grid_out.h>
-#  include <deal.II/grid/grid_refinement.h>
-#  include <deal.II/grid/manifold_lib.h>
-#  include <deal.II/grid/tria.h>
-#  include <deal.II/grid/tria_accessor.h>
-#  include <deal.II/grid/tria_iterator.h>
-
-#  include <deal.II/lac/affine_constraints.h>
-#  include <deal.II/lac/dynamic_sparsity_pattern.h>
-#  include <deal.II/lac/full_matrix.h>
-#  include <deal.II/lac/petsc_precondition.h>
-#  include <deal.II/lac/petsc_solver.h>
-#  include <deal.II/lac/petsc_sparse_matrix.h>
-#  include <deal.II/lac/petsc_vector.h>
-#  include <deal.II/lac/solver_cg.h>
-#  include <deal.II/lac/solver_gmres.h>
-#  include <deal.II/lac/solver_minres.h>
-#  include <deal.II/lac/sparsity_tools.h>
-#  include <deal.II/lac/vector.h>
-
-#  include <deal.II/meshworker/dof_info.h>
-#  include <deal.II/meshworker/integration_info.h>
-#  include <deal.II/meshworker/loop.h>
-#  include <deal.II/meshworker/scratch_data.h>
-#  include <deal.II/meshworker/simple.h>
-
-#  include <deal.II/numerics/data_out.h>
-#  include <deal.II/numerics/error_estimator.h>
-#  include <deal.II/numerics/vector_tools.h>
-
-#  include <deal.II/opencascade/manifold_lib.h>
-#  include <deal.II/opencascade/utilities.h>
-
-#  include "inclusions.h"
-
-
-#  ifdef DEAL_II_WITH_OPENCASCADE
-#    include <TopoDS.hxx>
-#  endif
-#  include <deal.II/base/hdf5.h>
-
-#  include <cmath>
-#  include <fstream>
-#  include <iomanip>
-#  include <iostream>
-#  include <memory>
+#    include "elasticity.h"
 
 
 
 template <int dim, int spacedim = dim>
-class CoupledElasticityProblemParameters : public ParameterAcceptor
-{
-public:
-  CoupledElasticityProblemParameters();
-
-  std::string                   output_directory   = ".";
-  std::string                   output_name        = "solution";
-  unsigned int                  fe_degree          = 1;
-  unsigned int                  initial_refinement = 5;
-  std::list<types::boundary_id> dirichlet_ids{0};
-  std::list<types::boundary_id> neumann_ids{};
-  std::set<types::boundary_id>  normal_flux_ids{};
-  std::string                   domain_type         = "";
-  std::string                   name_of_grid        = "hyper_cube";
-  std::string                   arguments_for_grid  = "-1: 1: false";
-  std::string                   refinement_strategy = "fixed_fraction";
-  double                        coarsening_fraction = 0.0;
-  double                        refinement_fraction = 0.3;
-  unsigned int                  n_refinement_cycles = 1;
-  unsigned int                  max_cells           = 20000;
-
-  double Lame_mu     = 1;
-  double Lame_lambda = 1;
-
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
-    exact_solution;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
-    Neumann_bc;
-
-  std::string weight_expression = "1.";
-
-  mutable ParameterAcceptorProxy<ReductionControl> inner_control;
-  mutable ParameterAcceptorProxy<ReductionControl> outer_control;
-
-  bool output_results = false;
-
-  mutable ParsedConvergenceTable convergence_table;
-
-  // Time dependency.
-  double initial_time = 0.0;
-  double final_time   = 0.0;
-  double dt           = 5e-3;
-};
-
-
-template <int dim, int spacedim = dim>
-class CoupledElasticityProblem : public Subscriptor
+class CoupledElasticityProblem : public ElasticityProblem<dim, spacedim>
 {
 public:
   CoupledElasticityProblem(
-    const CoupledElasticityProblemParameters<dim, spacedim> &par);
+    const ElasticityProblemParameters<dim, spacedim> &par);
 
   void
   run();
@@ -177,7 +37,7 @@ public:
   unsigned int
   n_vessels() const
   {
-    return inclusions.get_n_vessels();
+    return this->inclusions.get_n_vessels();
   };
 
   TrilinosWrappers::MPI::Vector coupling_pressure;
@@ -186,105 +46,62 @@ public:
     coupling_pressure_at_inclusions;
 
 private:
-  void
-  make_grid();
-  void
-  setup_fe();
-  void
-  setup_dofs();
-  void
-  assemble_elasticity_system();
-  void
-  assemble_coupling();
+  // void
+  // make_grid();
+  // void
+  // setup_fe();
+  // void
+  // setup_dofs();
+  // void
+  // assemble_elasticity_system();
+  // void
+  // assemble_coupling();
   void
   reassemble_coupling_rhs();
 
-  void
-  check_boundary_ids();
+  // void
+  // check_boundary_ids();
 
-  /**
-   * Builds coupling sparsity, and returns locally relevant inclusion dofs.
-   */
-  IndexSet
-  assemble_coupling_sparsity(DynamicSparsityPattern &dsp);
+  // /**
+  //  * Builds coupling sparsity, and returns locally relevant inclusion dofs.
+  //  */
+  // IndexSet
+  // assemble_coupling_sparsity(DynamicSparsityPattern &dsp);
 
-  void
-  solve();
+  // void
+  // solve();
 
-  void
-  refine_and_transfer();
+  // void
+  // refine_and_transfer();
 
   void
   refine_and_transfer_around_inclusions();
 
-  void
-  execute_actual_refine_and_transfer();
+  // void
+  // execute_actual_refine_and_transfer();
 
-  std::string
-  output_solution() const;
+  // std::string
+  // output_solution() const;
 
-  void
-  output_results() const;
+  // void
+  // output_results() const;
 
-  void
-  print_parameters() const;
+  // void
+  // print_parameters() const;
 
-  void
-  compute_internal_and_boundary_stress(bool openfilefirsttime) const;
+  // void
+  // compute_internal_and_boundary_stress(
+  //   bool openfilefirsttime) const;
 
-  void
-  compute_face_stress(bool /* openfilefirsttime */){};
+  // void
+  // compute_face_stress(bool /* openfilefirsttime */){};
 
-  // TrilinosWrappers::MPI::Vector
-  // output_pressure(bool openfilefirsttime) /*const*/;
-  void
-  output_coupling_pressure(bool) const;
-
-  // std::vector<types::global_dof_index>
-  // get_inclusions_of_vessel() const;
-
-  const CoupledElasticityProblemParameters<dim, spacedim> &par;
-  MPI_Comm                                                 mpi_communicator;
-  ConditionalOStream                                       pcout;
-  mutable TimerOutput                                      computing_timer;
-  parallel::distributed::Triangulation<spacedim>           tria;
-  std::unique_ptr<FiniteElement<spacedim>>                 fe;
-  Inclusions<spacedim>                                     inclusions;
-  std::unique_ptr<Quadrature<spacedim>>                    quadrature;
-  std::unique_ptr<Quadrature<spacedim - 1>> face_quadrature_formula;
-  DoFHandler<spacedim>                      dh;
-  std::vector<IndexSet>                     owned_dofs;
-  std::vector<IndexSet>                     relevant_dofs;
-
-  AffineConstraints<double> constraints;
-  AffineConstraints<double> inclusion_constraints;
-  AffineConstraints<double> mean_value_constraints;
-
-  LA::MPI::SparseMatrix                           stiffness_matrix;
-  LA::MPI::SparseMatrix                           coupling_matrix;
-  LA::MPI::SparseMatrix                           inclusion_matrix;
-  LA::MPI::BlockVector                            solution;
-  LA::MPI::BlockVector                            locally_relevant_solution;
-  LA::MPI::BlockVector                            system_rhs;
-  std::vector<std::vector<BoundingBox<spacedim>>> global_bounding_boxes;
-  unsigned int                                    cycle = 0;
-
-  FEValuesExtractors::Vector displacement;
-
-  // Postprocessing values
-  std::map<types::boundary_id, Tensor<1, spacedim>> forces;
-  std::map<types::boundary_id, Tensor<1, spacedim>> average_displacements;
-  std::map<types::boundary_id, Tensor<1, spacedim>> average_normals;
-  std::map<types::boundary_id, double>              areas;
-  // std::vector<BaseClass::BlockType>                 pressure_records;
-
-  // Time dependency.
-  double current_time = 0.0;
-
-  // mutable std::unique_ptr<HDF5::File> pressure_file;
-  // std::ofstream pressure_file;
-  // std::ofstream forces_file;
+  // // TrilinosWrappers::MPI::Vector
+  // // output_pressure(bool openfilefirsttime) /*const*/;
+  // void
+  // output_coupling_pressure(bool) const;
 };
 
-#endif
+#  endif
+
 #endif
