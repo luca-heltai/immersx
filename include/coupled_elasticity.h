@@ -41,65 +41,17 @@ public:
   };
 
   TrilinosWrappers::MPI::Vector coupling_pressure;
-  TrilinosWrappers::MPI::Vector
-    // Vector<double>
-    coupling_pressure_at_inclusions;
+  TrilinosWrappers::MPI::Vector coupling_pressure_at_inclusions;
 
 private:
-  // void
-  // make_grid();
-  // void
-  // setup_fe();
-  // void
-  // setup_dofs();
-  // void
-  // assemble_elasticity_system();
-  // void
-  // assemble_coupling();
   void
   reassemble_coupling_rhs();
-
-  // void
-  // check_boundary_ids();
-
-  // /**
-  //  * Builds coupling sparsity, and returns locally relevant inclusion dofs.
-  //  */
-  // IndexSet
-  // assemble_coupling_sparsity(DynamicSparsityPattern &dsp);
-
-  // void
-  // solve();
-
-  // void
-  // refine_and_transfer();
 
   void
   refine_and_transfer_around_inclusions();
 
-  // void
-  // execute_actual_refine_and_transfer();
-
-  // std::string
-  // output_solution() const;
-
-  // void
-  // output_results() const;
-
-  // void
-  // print_parameters() const;
-
-  // void
-  // compute_internal_and_boundary_stress(
-  //   bool openfilefirsttime) const;
-
-  // void
-  // compute_face_stress(bool /* openfilefirsttime */){};
-
-  // // TrilinosWrappers::MPI::Vector
-  // // output_pressure(bool openfilefirsttime) /*const*/;
-  // void
-  // output_coupling_pressure(bool) const;
+  void
+  output_coupling_pressure(bool openfilefirsttime) const;
 };
 
 #  endif
