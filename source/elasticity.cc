@@ -1202,18 +1202,21 @@ ElasticityProblem<dim, spacedim>::compute_internal_and_boundary_stress(
             {
               forces_file << "cycle area";
               // forces_file
-              //   << " meanInternalStressxx meanInternalStressxy meanInternalStressyx meanInternalStressyy avg_u_x avg_u_y";
+              //   << " meanInternalStressxx meanInternalStressxy
+              //   meanInternalStressyx meanInternalStressyy avg_u_x avg_u_y";
               for (auto id : all_ids)
-                forces_file // << " perimeter" << id 
-                            << " boundaryStressX_" << id << " boundaryStressY_" << id << " uDotN_" << id;
+                forces_file // << " perimeter" << id
+                  << " boundaryStressX_" << id << " boundaryStressY_" << id
+                  << " uDotN_" << id;
               forces_file << std::endl;
             }
           else
             {
               forces_file << "cycle";
               for (auto id : all_ids)
-                forces_file // << " perimeter" << id 
-                            << " sigmanX_" << id << " sigmanY_" << id << " sigmanZ_" << id << " uDotN_" << id;
+                forces_file // << " perimeter" << id
+                  << " sigmanX_" << id << " sigmanY_" << id << " sigmanZ_" << id
+                  << " uDotN_" << id;
               forces_file << std::endl;
             }
         }
@@ -1223,18 +1226,19 @@ ElasticityProblem<dim, spacedim>::compute_internal_and_boundary_stress(
       if constexpr (spacedim == 2)
         {
           forces_file << cycle << " " << internal_area << " ";
-          // forces_file << internal_stress << " " << average_displacement << " ";
+          // forces_file << internal_stress << " " << average_displacement << "
+          // ";
           for (auto id : all_ids)
-            forces_file // << perimeter[id] << " " 
-                        << boundary_stress[id] << " " << u_dot_n[id] << " ";
+            forces_file // << perimeter[id] << " "
+              << boundary_stress[id] << " " << u_dot_n[id] << " ";
           forces_file << std::endl;
         }
       else // spacedim = 3
         {
           forces_file << cycle << " ";
           for (auto id : all_ids)
-            forces_file // << perimeter[id] << " " 
-                        << boundary_stress[id] << " " << u_dot_n[id] << " ";
+            forces_file // << perimeter[id] << " "
+              << boundary_stress[id] << " " << u_dot_n[id] << " ";
           forces_file << std::endl;
         }
       forces_file.close();
@@ -1374,7 +1378,7 @@ ElasticityProblem<dim, spacedim>::run()
           output_results();
 
           // if (par.domain_type == "generate")
-            compute_internal_and_boundary_stress(cycle == 0 ? true : false);
+          compute_internal_and_boundary_stress(cycle == 0 ? true : false);
         }
     }
 }

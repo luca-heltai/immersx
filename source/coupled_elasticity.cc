@@ -137,8 +137,8 @@ template <int dim, int spacedim>
 void
 CoupledElasticityProblem<dim, spacedim>::compute_coupling_pressure()
 {
-  
-  TimerOutput::Scope t(this->computing_timer, "Postprocessing: Computing Pressure");
+  TimerOutput::Scope t(this->computing_timer,
+                       "Postprocessing: Computing Pressure");
 
   if (this->inclusions.n_inclusions() > 0
       // &&
@@ -175,7 +175,8 @@ CoupledElasticityProblem<dim, spacedim>::compute_coupling_pressure()
               const unsigned inclusion_number = (unsigned int)floor(
                 element_of_local_lambda / (used_number_modes));
 
-              AssertIndexRange(inclusion_number, this->inclusions.n_inclusions());
+              AssertIndexRange(inclusion_number,
+                               this->inclusions.n_inclusions());
               pressure[this->inclusions.get_vesselID(inclusion_number)] +=
                 lambda_to_pressure[element_of_local_lambda];
 
@@ -192,7 +193,8 @@ CoupledElasticityProblem<dim, spacedim>::compute_coupling_pressure()
               const unsigned inclusion_number = (unsigned int)floor(
                 element_of_local_lambda / (used_number_modes));
 
-              AssertIndexRange(inclusion_number, this->inclusions.n_inclusions());
+              AssertIndexRange(inclusion_number,
+                               this->inclusions.n_inclusions());
               pressure_at_inc[inclusion_number] +=
                 lambda_to_pressure[element_of_local_lambda];
             }
@@ -209,101 +211,100 @@ void
 CoupledElasticityProblem<dim, spacedim>::output_coupling_pressure(
   bool openfilefirsttime) const
 {
-  TimerOutput::Scope t(this->computing_timer, "Postprocessing: output Pressure");
-  if (this->par.output_pressure == false || this->inclusions.n_inclusions() == 0)
-  {
-    std::cout << "no output" << std::endl;
-    return;
-  }
+  TimerOutput::Scope t(this->computing_timer,
+                       "Postprocessing: output Pressure");
+  if (this->par.output_pressure == false ||
+      this->inclusions.n_inclusions() == 0)
+    {
+      std::cout << "no output" << std::endl;
+      return;
+    }
   if (this->par.initial_time != this->par.final_time)
-          {
-            this->pcout
-              << "output_pressure file for time dependent simulation not implemented in MPI"
-              << std::endl;
-          }
-
-      const auto &pressure = coupling_pressure;
-
-      // print .txt only sequential
-      if (Utilities::MPI::n_mpi_processes(this->mpi_communicator) == 1)
-        {
-          const std::string filename(this->par.output_directory +
-                                     "/externalPressure.txt");
-          std::ofstream     pressure_file;
-          if (openfilefirsttime)
-            {
-              pressure_file.open(filename);
-              pressure_file << "cycle ";
-              for (unsigned int num = 0; num < pressure.size(); ++num)
-                pressure_file << "vessel" << num << " ";
-              pressure_file << std::endl;
-            }
-          else
-            pressure_file.open(filename, std::ios_base::app);
-
-          pressure_file << this->cycle << " ";
-          pressure.print(pressure_file);
-          pressure_file.close();
-        }
-      else
-        // print .h5
-          {
-#ifdef DEAL_II_WITH_HDF5
-            const std::string FILE_NAME(this->par.output_directory +
-                                        "/externalPressure.h5");
-
-            auto accessMode = HDF5::File::FileAccessMode::create;
-            if (!openfilefirsttime)
-              accessMode = HDF5::File::FileAccessMode::open;
-
-            HDF5::File        file_h5(FILE_NAME, accessMode, this->mpi_communicator);
-            const std::string DATASET_NAME("externalPressure_" +
-                                           std::to_string(this->cycle));
-
-            HDF5::DataSet dataset =
-              file_h5.create_dataset<double>(DATASET_NAME,
-                                             {this->inclusions.get_n_vessels()});
-
-            std::vector<double> data_to_write;
-            // std::vector<hsize_t> coordinates;
-            data_to_write.reserve(pressure.locally_owned_size());
-            // coordinates.reserve(pressure.locally_owned_size());
-                        const auto locally_owned_vessels =
-              Utilities::MPI::create_evenly_distributed_partitioning(
-                this->mpi_communicator, this->inclusions.get_n_vessels());
-
-            for (const auto &el : locally_owned_vessels)
-              {
-                // coordinates.emplace_back(el);
-                data_to_write.emplace_back(pressure[el]);
-              }
-            if (pressure.locally_owned_size() > 0)
-              {
-                hsize_t prefix = 0;
-                hsize_t los    = pressure.locally_owned_size();
-                int     ierr   = MPI_Exscan(&los,
-                                      &prefix,
-                                      1,
-                                      MPI_UNSIGNED_LONG_LONG,
-                                      MPI_SUM,
-                                      this->mpi_communicator);
-                AssertThrowMPI(ierr);
-
-                std::vector<hsize_t> offset = {prefix, 1};
-                std::vector<hsize_t> count = {pressure.locally_owned_size(), 1};
-                // data.write_selection(data_to_write, coordinates);
-                dataset.write_hyperslab(data_to_write, offset, count);
-              }
-            else
-              dataset.write_none<int>();
-#else
-            AssertThrow(false, ExcNeedsHDF5());
-#endif
-          }
-
+    {
+      this->pcout
+        << "output_pressure file for time dependent simulation not implemented in MPI"
+        << std::endl;
     }
 
+  const auto &pressure = coupling_pressure;
 
+  // print .txt only sequential
+  if (Utilities::MPI::n_mpi_processes(this->mpi_communicator) == 1)
+    {
+      const std::string filename(this->par.output_directory +
+                                 "/externalPressure.txt");
+      std::ofstream     pressure_file;
+      if (openfilefirsttime)
+        {
+          pressure_file.open(filename);
+          pressure_file << "cycle ";
+          for (unsigned int num = 0; num < pressure.size(); ++num)
+            pressure_file << "vessel" << num << " ";
+          pressure_file << std::endl;
+        }
+      else
+        pressure_file.open(filename, std::ios_base::app);
+
+      pressure_file << this->cycle << " ";
+      pressure.print(pressure_file);
+      pressure_file.close();
+    }
+  else
+    // print .h5
+    {
+#  ifdef DEAL_II_WITH_HDF5
+      const std::string FILE_NAME(this->par.output_directory +
+                                  "/externalPressure.h5");
+
+      auto accessMode = HDF5::File::FileAccessMode::create;
+      if (!openfilefirsttime)
+        accessMode = HDF5::File::FileAccessMode::open;
+
+      HDF5::File        file_h5(FILE_NAME, accessMode, this->mpi_communicator);
+      const std::string DATASET_NAME("externalPressure_" +
+                                     std::to_string(this->cycle));
+
+      HDF5::DataSet dataset =
+        file_h5.create_dataset<double>(DATASET_NAME,
+                                       {this->inclusions.get_n_vessels()});
+
+      std::vector<double> data_to_write;
+      // std::vector<hsize_t> coordinates;
+      data_to_write.reserve(pressure.locally_owned_size());
+      // coordinates.reserve(pressure.locally_owned_size());
+      const auto locally_owned_vessels =
+        Utilities::MPI::create_evenly_distributed_partitioning(
+          this->mpi_communicator, this->inclusions.get_n_vessels());
+
+      for (const auto &el : locally_owned_vessels)
+        {
+          // coordinates.emplace_back(el);
+          data_to_write.emplace_back(pressure[el]);
+        }
+      if (pressure.locally_owned_size() > 0)
+        {
+          hsize_t prefix = 0;
+          hsize_t los    = pressure.locally_owned_size();
+          int     ierr   = MPI_Exscan(&los,
+                                &prefix,
+                                1,
+                                MPI_UNSIGNED_LONG_LONG,
+                                MPI_SUM,
+                                this->mpi_communicator);
+          AssertThrowMPI(ierr);
+
+          std::vector<hsize_t> offset = {prefix, 1};
+          std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
+          // data.write_selection(data_to_write, coordinates);
+          dataset.write_hyperslab(data_to_write, offset, count);
+        }
+      else
+        dataset.write_none<int>();
+#  else
+      AssertThrow(false, ExcNeedsHDF5());
+#  endif
+    }
+}
 
 
 
@@ -361,15 +362,15 @@ CoupledElasticityProblem<dim, spacedim>::run_timestep()
     }
 
 
-    // if (this->par.output_results)
-      this->output_results();
+  // if (this->par.output_results)
+  this->output_results();
 
   coupling_pressure.clear();
   coupling_pressure_at_inclusions.clear();
-  // coupling_pressure = 
+  // coupling_pressure =
   // output_pressure(cycle == 0 ? true : false);
-    compute_coupling_pressure();
-    output_coupling_pressure(this->cycle == 0 ? true : false);
+  compute_coupling_pressure();
+  output_coupling_pressure(this->cycle == 0 ? true : false);
 
   this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);
   this->cycle++;
