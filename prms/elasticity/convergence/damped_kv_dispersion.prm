@@ -1,0 +1,77 @@
+subsection Error
+  set Error file name = dynamic_convergence/errors_damped_kv.txt
+  set Error precision = 8
+end
+subsection Functions
+  subsection Dirichlet boundary conditions
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = A*exp(-ki*x)*sin(kr*x - omega*t); 0
+  end
+  subsection Exact solution
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = A*exp(-ki*x)*sin(kr*x - omega*t); 0
+  end
+  subsection Initial displacement
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = A*exp(-ki*x)*sin(kr*x - omega*t); 0
+  end
+  subsection Initial velocity
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = -A*omega*exp(-ki*x)*cos(kr*x - omega*t); 0
+  end
+  subsection Neumann boundary conditions
+    set Function expression = 0; 0
+  end
+  subsection Right hand side
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = 0; 0
+  end
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             =
+  set Initial refinement                 = 4
+  set Output directory                   = dynamic_convergence
+  set Output name                        = damped_kv
+  set Weak Dirichlet boundary ids        = 0,1,2,3
+  set Weak Dirichlet penalty coefficient = 100
+  subsection Grid generation
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Immersed inclusions
+    subsection Boundary data
+      set Function expression = 0; 0
+    end
+  end
+  subsection Material properties
+    subsection default
+      set Density       = 1.0
+      set Lame lambda   = 2.0
+      set Lame mu       = 1.0
+      set Viscosity eta = 0.1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 4
+    set Strategy                    = global
+  end
+  subsection Time dependency
+    set Final time       = 1.0
+    set Initial time     = 0.0
+    set Refine time step = true
+    set Time step        = 0.05
+  end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Reduction = 1.e-10
+  end
+  subsection Displacement
+    set Reduction = 1.e-10
+  end
+  subsection Reduced mass
+    set Reduction = 1.e-10
+  end
+  subsection Schur complement
+    set Reduction = 1.e-10
+  end
+end

@@ -35,12 +35,11 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include <boost/algorithm/string.hpp>
-
 #  include <type_traits>
 
 #  include "augmented_lagrangian_preconditioner.h"
 #  include "reduced_poisson.h"
+#  include "utils.h"
 
 
 
@@ -106,58 +105,6 @@ ReducedPoisson<dim, spacedim>::ReducedPoisson(
   , reduced_coupling(tria, par.reduced_coupling_parameters)
   , mapping(1)
 {}
-
-
-template <int dim, int spacedim>
-void
-read_grid_and_cad_files(const std::string            &grid_file_name,
-                        const std::string            &ids_and_cad_file_names,
-                        Triangulation<dim, spacedim> &tria)
-{
-  GridIn<dim, spacedim> grid_in;
-  grid_in.attach_triangulation(tria);
-  grid_in.read(grid_file_name);
-#  ifdef DEAL_II_WITH_OPENCASCADE
-  using map_type  = std::map<types::manifold_id, std::string>;
-  using Converter = Patterns::Tools::Convert<map_type>;
-  for (const auto &pair : Converter::to_value(ids_and_cad_file_names))
-    {
-      const auto &manifold_id   = pair.first;
-      const auto &cad_file_name = pair.second;
-      const auto  extension     = boost::to_lower_copy(
-        cad_file_name.substr(cad_file_name.find_last_of('.') + 1));
-      TopoDS_Shape shape;
-      if (extension == "iges" || extension == "igs")
-        shape = OpenCASCADE::read_IGES(cad_file_name);
-      else if (extension == "step" || extension == "stp")
-        shape = OpenCASCADE::read_STEP(cad_file_name);
-      else
-        AssertThrow(false,
-                    ExcNotImplemented("We found an extension that we "
-                                      "do not recognize as a CAD file "
-                                      "extension. Bailing out."));
-      const auto n_elements = OpenCASCADE::count_elements(shape);
-      if ((std::get<0>(n_elements) == 0))
-        tria.set_manifold(
-          manifold_id,
-          OpenCASCADE::ArclengthProjectionLineManifold<dim, spacedim>(shape));
-      else if (spacedim == 3)
-        {
-          const auto t = reinterpret_cast<Triangulation<dim, 3> *>(&tria);
-          t->set_manifold(manifold_id,
-                          OpenCASCADE::NormalToMeshProjectionManifold<dim, 3>(
-                            shape));
-        }
-      else
-        tria.set_manifold(manifold_id,
-                          OpenCASCADE::NURBSPatchManifold<dim, spacedim>(
-                            TopoDS::Face(shape)));
-    }
-#  else
-  (void)ids_and_cad_file_names;
-  AssertThrow(false, ExcNotImplemented("Generation of the grid failed."));
-#  endif
-}
 
 
 
