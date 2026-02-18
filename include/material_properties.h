@@ -34,9 +34,23 @@ struct MaterialProperties : public ParameterAcceptor
     add_parameter("Lame lambda", Lame_lambda);
     add_parameter("Density", rho);
     add_parameter("Viscosity eta", neta);
-    add_parameter("Relaxation time", relaxation_time);
     add_parameter("Rayleigh alpha", rayleigh_alpha);
     add_parameter("Rayleigh beta", rayleigh_beta);
+
+    parse_parameters_call_back.connect([this]() {
+      // Elastic modulus for isotropic materials in 3D
+      elastic_modulus =
+        Lame_mu * (3 * Lame_lambda + 2 * Lame_mu) / (Lame_lambda + Lame_mu);
+
+      // Poisson ratio for isotropic materials in 3D
+      poisson_ratio = Lame_lambda / (2 * (Lame_lambda + Lame_mu));
+
+      // Bulk modulus for isotropic materials in 3D
+      bulk_modulus = Lame_lambda + (2.0 / 3.0) * Lame_mu;
+
+      // Shear modulus is just Lame mu
+      shear_modulus = Lame_mu;
+    });
   }
 
   std::string material_tag    = "default";
@@ -44,9 +58,12 @@ struct MaterialProperties : public ParameterAcceptor
   double      Lame_lambda     = 1.0;
   double      rho             = 0.0;
   double      neta            = 0.0;
-  double      relaxation_time = 0.0;
   double      rayleigh_alpha  = 0.0;
   double      rayleigh_beta   = 0.0;
+  double      elastic_modulus = 0.0;
+  double      poisson_ratio   = 0.0;
+  double      bulk_modulus    = 0.0;
+  double      shear_modulus   = 0.0;
 };
 
 #endif

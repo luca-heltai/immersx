@@ -203,28 +203,45 @@ namespace UtilitiesAL
     Assert(ptr_distributed_modes, ExcNotInitialized());
     Epetra_MultiVector &distributed_modes = *ptr_distributed_modes;
 
-    const size_type global_size = TrilinosWrappers::n_global_rows(matrix);
+    const size_type global_size =
+      static_cast<size_type>(domain_map.NumGlobalElements());
+    const size_type my_size =
+      static_cast<size_type>(domain_map.NumMyElements());
 
     Assert(global_size == static_cast<size_type>(
                             TrilinosWrappers::global_length(distributed_modes)),
            ExcDimensionMismatch(
              global_size, TrilinosWrappers::global_length(distributed_modes)));
 
-    const size_type my_size = domain_map.NumMyElements();
-
     // Reshape null space as a contiguous vector of doubles so that
     // Trilinos can read from it.
-    [[maybe_unused]] const size_type expected_mode_size = global_size;
     for (size_type d = 0; d < modes_dimension; ++d)
       {
-        Assert(modes[d].size() == expected_mode_size,
-               ExcDimensionMismatch(modes[d].size(), expected_mode_size));
+        const size_type mode_size = static_cast<size_type>(modes[d].size());
+        Assert(mode_size == my_size || mode_size == global_size,
+               ExcMessage("Rigid body mode vector has the wrong size. "
+                          "Expected either locally-owned size (" +
+                          std::to_string(my_size) + ") or global size (" +
+                          std::to_string(global_size) + "), but got " +
+                          std::to_string(mode_size) + "."));
         for (size_type row = 0; row < my_size; ++row)
           {
-            const TrilinosWrappers::types::int_type mode_index =
-              TrilinosWrappers::global_index(domain_map, row);
-            distributed_modes[d][row] =
-              static_cast<double>(modes[d][mode_index]);
+            if (mode_size == my_size)
+              {
+                distributed_modes[d][row] = static_cast<double>(modes[d][row]);
+              }
+            else
+              {
+                const TrilinosWrappers::types::int_type gid =
+                  domain_map.GID(static_cast<int>(row));
+                Assert(gid >= 0 && static_cast<size_type>(gid) < global_size,
+                       ExcMessage("Invalid global index " +
+                                  std::to_string(gid) +
+                                  " for mode vector of size " +
+                                  std::to_string(global_size) + "."));
+                distributed_modes[d][row] =
+                  static_cast<double>(modes[d][static_cast<size_type>(gid)]);
+              }
           }
       }
 
