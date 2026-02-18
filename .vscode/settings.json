@@ -107,6 +107,7 @@
             "name": "GoogleTest Debug",
             "pattern": "build/gtests/gtests_debug",
             "framework": "googleTest",
+            "cwd": "${workspaceFolder}/build",
             "sourceFileMap": {
                 "/src/": "${workspaceFolder}/",
                 "/src": "${workspaceFolder}"
@@ -116,6 +117,7 @@
             "name": "GoogleTest Release",
             "pattern": "build/gtests/gtests",
             "framework": "googleTest",
+            "cwd": "${workspaceFolder}/build",
             "sourceFileMap": {
                 "/src/": "${workspaceFolder}/",
                 "/src": "${workspaceFolder}"

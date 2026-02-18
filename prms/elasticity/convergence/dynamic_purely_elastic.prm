@@ -1,0 +1,77 @@
+subsection Error
+  set Error file name = dynamic_convergence/errors_purely_elastic.txt
+  set Error precision = 8
+end
+subsection Functions
+  subsection Dirichlet boundary conditions
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
+    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+  end
+  subsection Exact solution
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
+    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+  end
+  subsection Initial displacement
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
+    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+  end
+  subsection Initial velocity
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
+    set Function expression = -1.21212121212121*pi*sqrt((lambda + 2*mu)/rho)*cos(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+  end
+  subsection Neumann boundary conditions
+    set Function expression = 0; 0
+  end
+  subsection Right hand side
+    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
+    set Function expression = pi^2*(7.34618916437098*lambda + 14.692378328742*mu - 29.3847566574839*rho)*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x))/rho; 0
+  end
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             =
+  set Initial refinement                 = 4
+  set Output directory                   = dynamic_convergence
+  set Output name                        = purely_elastic
+  set Weak Dirichlet boundary ids        = 0,1,2,3
+  set Weak Dirichlet penalty coefficient = 1000
+  subsection Grid generation
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Immersed inclusions
+    subsection Boundary data
+      set Function expression = 0; 0
+    end
+  end
+  subsection Material properties
+    subsection default
+      set Density       = 1.0
+      set Lame lambda   = 2.0
+      set Lame mu       = 1.0
+      set Viscosity eta = 0.0
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 4
+    set Strategy                    = global
+  end
+  subsection Time dependency
+    set Final time       = .25
+    set Initial time     = 0.0
+    set Refine time step = true
+    set Time step        = 0.0125
+  end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Reduction = 1.e-10
+  end
+  subsection Displacement
+    set Reduction = 1.e-10
+  end
+  subsection Reduced mass
+    set Reduction = 1.e-10
+  end
+  subsection Schur complement
+    set Reduction = 1.e-10
+  end
+end
