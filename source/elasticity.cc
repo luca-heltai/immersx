@@ -608,11 +608,12 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
       DoFTools::extract_rigid_body_modes(mapping, dh);
 #else
     using VectorType = LinearAlgebra::distributed::Vector<double>;
-    std::vector<LinearAlgebra::distributed::Vector<double>> rigid_body_modes(
+    std::vector<VectorType> rigid_body_modes(
       spacedim == 3 ? 6 : 3);
+    auto locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
     for (unsigned int i = 0; i < rigid_body_modes.size(); ++i)
       {
-        rigid_body_modes[i].reinit(dh.locally_owned_dofs(), mpi_communicator);
+        rigid_body_modes[i].reinit(dh.locally_owned_dofs(), locally_relevant_dofs, mpi_communicator);
         RigidBodyMotion<spacedim> rbm(i);
         VectorTools::interpolate(dh, rbm, rigid_body_modes[i]);
       }
