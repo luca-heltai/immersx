@@ -820,43 +820,15 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
   std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
   std::vector<types::global_dof_index> inclusion_dof_indices;
 
-  // auto particle = inclusions.inclusions_as_particles.begin();
-  // while (particle != inclusions.inclusions_as_particles.end())
-  //   {
-  //     const auto &cell = particle->get_surrounding_cell();
-  //     const auto  dh_cell =
-  //       typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-  //     dh_cell->get_dof_indices(dof_indices);
-  //     const auto pic =
-  //       inclusions.inclusions_as_particles.particles_in_cell(cell);
-  //     Assert(pic.begin() == particle, ExcInternalError());
-  //     std::set<types::global_dof_index> inclusion_dof_indices_set;
-  //     for (const auto &p : pic)
-  //       {
-  //         const auto ids = inclusions.get_dof_indices(p.get_id());
-  //         inclusion_dof_indices_set.insert(ids.begin(), ids.end());
-  //       }
-  //     inclusion_dof_indices.resize(0);
-  //     inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
-  //                                  inclusion_dof_indices_set.begin(),
-  //                                  inclusion_dof_indices_set.end());
-  //     constraints.add_entries_local_to_global(dof_indices,
-  //                                             inclusion_constraints,
-  //                                             inclusion_dof_indices,
-  //                                             dsp);
-  //     relevant.add_indices(inclusion_dof_indices.begin(),
-  //                          inclusion_dof_indices.end());
-  //     particle = pic.end();
-  //   }
-  auto particle = inclusions.particles_on_centerline.begin();
-  while (particle != inclusions.particles_on_centerline.end())
+  auto particle = inclusions.inclusions_as_particles.begin();
+  while (particle != inclusions.inclusions_as_particles.end())
     {
       const auto &cell = particle->get_surrounding_cell();
       const auto  dh_cell =
         typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
       dh_cell->get_dof_indices(dof_indices);
       const auto pic =
-        inclusions.particles_on_centerline.particles_in_cell(cell);
+        inclusions.inclusions_as_particles.particles_in_cell(cell);
       Assert(pic.begin() == particle, ExcInternalError());
       std::set<types::global_dof_index> inclusion_dof_indices_set;
       for (const auto &p : pic)
@@ -876,6 +848,34 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
                            inclusion_dof_indices.end());
       particle = pic.end();
     }
+  // auto particle = inclusions.particles_on_centerline.begin();
+  // while (particle != inclusions.particles_on_centerline.end())
+  //   {
+  //     const auto &cell = particle->get_surrounding_cell();
+  //     const auto  dh_cell =
+  //       typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
+  //     dh_cell->get_dof_indices(dof_indices);
+  //     const auto pic =
+  //       inclusions.particles_on_centerline.particles_in_cell(cell);
+  //     Assert(pic.begin() == particle, ExcInternalError());
+  //     std::set<types::global_dof_index> inclusion_dof_indices_set;
+  //     for (const auto &p : pic)
+  //       {
+  //         const auto ids = inclusions.get_dof_indices(p.get_id());
+  //         inclusion_dof_indices_set.insert(ids.begin(), ids.end());
+  //       }
+  //     inclusion_dof_indices.resize(0);
+  //     inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
+  //                                  inclusion_dof_indices_set.begin(),
+  //                                  inclusion_dof_indices_set.end());
+  //     constraints.add_entries_local_to_global(dof_indices,
+  //                                             inclusion_constraints,
+  //                                             inclusion_dof_indices,
+  //                                             dsp);
+  //     relevant.add_indices(inclusion_dof_indices.begin(),
+  //                          inclusion_dof_indices.end());
+  //     particle = pic.end();
+  //   }
   return relevant;
 }
 
@@ -916,12 +916,13 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
       auto next_p = pic.begin();
       while (p != pic.end())
         {
-          //inclusions_id_to_segment_id[p->get_id()] = segment_index;
+          // inclusions_id_to_segment_id[p->get_id()] = segment_index;
           const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
-          inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());  // segment index
-          local_coupling_matrix   = 0;
-          local_inclusion_matrix  = 0;
-          local_rhs               = 0;
+          inclusion_dof_indices =
+            inclusions.get_dof_indices(p->get_id()); // segment index
+          local_coupling_matrix  = 0;
+          local_inclusion_matrix = 0;
+          local_rhs              = 0;
 
           const auto section_measure =
             inclusions.get_section_measure(inclusion_id);
@@ -1021,7 +1022,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
           inclusion_constraints.distribute_local_to_global(
             local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
         }
-        // segment_index++;
+      // segment_index++;
       particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
@@ -1048,7 +1049,7 @@ inline void
 output_double_number(double input, const std::string &text)
 {
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-  std::cout << text << input << std::endl;
+    std::cout << text << input << std::endl;
 }
 
 
@@ -1117,8 +1118,7 @@ ElasticityProblem<dim, spacedim>::solve_static()
             // Estimate condition number:
             pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
                   << std::endl;
-            pcout << "Estimate condition number of CCt using CG"
-                      << std::endl;
+            pcout << "Estimate condition number of CCt using CG" << std::endl;
             SolverControl             solver_control(2000, 1e-12);
             SolverCG<LA::MPI::Vector> solver_cg(solver_control);
 
@@ -1144,11 +1144,11 @@ ElasticityProblem<dim, spacedim>::solve_static()
             catch (...)
               {
                 if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-                {
-                std::cerr
-                  << "***CCt solve not successfull (see condition number above)***"
-                  << std::endl;
-                }
+                  {
+                    std::cerr
+                      << "***CCt solve not successfull (see condition number above)***"
+                      << std::endl;
+                  }
               }
           }
 
@@ -1428,10 +1428,12 @@ ElasticityProblem<dim, spacedim>::refine_and_transfer()
     for (const auto &cell : tria.active_cell_iterators())
       cell->set_refine_flag();
   else if (par.refinement_strategy == "inclusions")
-  {
-    pcout << " Refinement around inclusions only implemented for coupled elasticity" << std::endl;
-    cycle = par.n_refinement_cycles;
-  }
+    {
+      pcout
+        << " Refinement around inclusions only implemented for coupled elasticity"
+        << std::endl;
+      cycle = par.n_refinement_cycles;
+    }
 
 
   execute_actual_refine_and_transfer();
