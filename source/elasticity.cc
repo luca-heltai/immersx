@@ -608,12 +608,13 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
       DoFTools::extract_rigid_body_modes(mapping, dh);
 #else
     using VectorType = LinearAlgebra::distributed::Vector<double>;
-    std::vector<VectorType> rigid_body_modes(
-      spacedim == 3 ? 6 : 3);
+    std::vector<VectorType> rigid_body_modes(spacedim == 3 ? 6 : 3);
     auto locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
     for (unsigned int i = 0; i < rigid_body_modes.size(); ++i)
       {
-        rigid_body_modes[i].reinit(dh.locally_owned_dofs(), locally_relevant_dofs, mpi_communicator);
+        rigid_body_modes[i].reinit(dh.locally_owned_dofs(),
+                                   locally_relevant_dofs,
+                                   mpi_communicator);
         RigidBodyMotion<spacedim> rbm(i);
         VectorTools::interpolate(dh, rbm, rigid_body_modes[i]);
       }
@@ -1141,11 +1142,6 @@ ElasticityProblem<dim, spacedim>::solve_static()
             //                     SolverGMRES<Vector<double>>::AdditionalData(20));
             invS = inverse_operator(S, cg_schur, S_inv_prec);
 
-            pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
-                  << std::endl;
-            // pcout << "   g: ";
-            // g.print(std::cout);
-
             // Compute Lambda first
             lambda = invS * (B * invA * f - g);
             pcout << "   Solved for lambda in " << par.schur_control.last_step()
@@ -1153,10 +1149,9 @@ ElasticityProblem<dim, spacedim>::solve_static()
 
             // Then compute u
             u = invA * (f - Bt * lambda);
-            pcout << "   u norm: " << u.l2_norm()
-                  << ", lambda norm: " << lambda.l2_norm() << std::endl;
-            // std::cout << "   lambda: ";
-            // lambda.print(std::cout);
+            pcout << "   Solved for u in "
+                  << par.displacement_solver_control.last_step()
+                  << " iterations." << std::endl;
           }
 #endif
           {
@@ -1212,11 +1207,7 @@ ElasticityProblem<dim, spacedim>::solve_static()
             pcout << "Solver with FGMRES in "
                   << par.augmented_lagrange_solver_control.last_step()
                   << " iterations." << std::endl;
-            constraints.distribute(solution_block.block(0));
-            inclusion_constraints.distribute(solution_block.block(1));
           }
-
-          return;
         }
       else
         {
@@ -1246,6 +1237,8 @@ ElasticityProblem<dim, spacedim>::solve_static()
                 << std::endl;
         }
     }
+  pcout << "   u norm: " << u.l2_norm() << ", lambda norm: " << lambda.l2_norm()
+        << std::endl;
 
 
   constraints.distribute(u);
