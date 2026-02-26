@@ -282,7 +282,10 @@ public:
   {
     AssertIndexRange(quadrature_id, n_particles());
     std::vector<types::global_dof_index> dofs(n_dofs_per_inclusion());
-    auto start_index = (quadrature_id / n_q_points) * n_dofs_per_inclusion();
+    auto                                 start_index =
+      get_segment_index(quadrature_id) * n_dofs_per_inclusion();
+    // auto start_index = get_inclusion_id(quadrature_id) *
+    // n_dofs_per_inclusion();
     for (auto &d : dofs)
       d = start_index++;
     return dofs;
@@ -302,6 +305,8 @@ public:
 
     inclusions_as_particles.initialize(tria,
                                        StaticMappingQ1<spacedim>::mapping);
+    particles_on_centerline.initialize(tria,
+                                       StaticMappingQ1<spacedim>::mapping);
 
     if (n_dofs() == 0)
       return;
@@ -312,13 +317,16 @@ public:
                                                              n_inclusions());
 
     std::vector<Point<spacedim>> particles_positions;
+    std::vector<Point<spacedim>> central_particle_positions;
     particles_positions.reserve(n_particles());
+    central_particle_positions.reserve(n_inclusions());
     for (const auto i : inclusions_set)
       {
         const auto &p = get_current_support_points(i);
         particles_positions.insert(particles_positions.end(),
                                    p.begin(),
                                    p.end());
+        central_particle_positions.push_back(get_center(i));
       }
 
     std::vector<BoundingBox<spacedim>> all_boxes;
@@ -340,10 +348,16 @@ public:
              "here. Bailing out."));
     inclusions_as_particles.insert_global_particles(particles_positions,
                                                     global_bounding_boxes);
+    particles_on_centerline.insert_global_particles(central_particle_positions,
+                                                    global_bounding_boxes);
 
     // Sanity check.
     AssertDimension(inclusions_as_particles.n_global_particles(),
                     n_particles());
+    AssertDimension(particles_on_centerline.n_global_particles(),
+                    n_inclusions());
+
+    build_segment_index_vector();
   }
 
   /**
@@ -954,6 +968,12 @@ public:
     return s;
   }
 
+  std::vector<unsigned int>
+  get_selected_coefficients() const
+  {
+    return selected_coefficients;
+  }
+
   // void
   // compute_rotated_inclusion_data()
   // {
@@ -1014,9 +1034,48 @@ public:
     this->n_coefficients = n_coefficients;
   }
 
-  /**
-   * Boundary data function evaluated when external data are not provided.
-   */
+  void
+  set_Fourier_coefficients(std::vector<unsigned int> temp)
+  {
+    this->selected_coefficients = temp;
+  }
+
+
+  void
+  build_segment_index_vector()
+  {
+    segment_indices.reserve(n_inclusions());
+    auto         particle        = particles_on_centerline.begin();
+    unsigned int current_segment = 0;
+    while (particle != particles_on_centerline.end())
+      {
+        const auto        &cell0 = particle->get_surrounding_cell();
+        const unsigned int n_pic =
+          particles_on_centerline.n_particles_in_cell(cell0);
+        const auto pic = particles_on_centerline.particles_in_cell(cell0);
+
+        for (unsigned int i = 0; i < n_pic; i++)
+          {
+            segment_indices.push_back(current_segment);
+          }
+        particle = pic.end();
+        current_segment++;
+      }
+
+    std::cout << "segment_indices: ";
+    for (auto i : segment_indices)
+      std::cout << i << " ";
+    std::cout << std::endl;
+    return;
+  }
+
+
+  unsigned int
+  get_segment_index(const types::global_dof_index &quadrature_id) const
+  {
+    return segment_indices[get_inclusion_id(quadrature_id)];
+  }
+
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
   /**
    * Frequency used to modulate inclusion boundary data in time.
@@ -1027,10 +1086,8 @@ public:
    * Particle representation of inclusion quadrature points.
    */
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
-  /**
-   * Inclusion geometric descriptors read from input.
-   */
-  std::vector<std::vector<double>> inclusions;
+  Particles::ParticleHandler<spacedim> particles_on_centerline;
+  std::vector<std::vector<double>>     inclusions;
 
   /**
    * Optional ASCII file containing coefficient data.
@@ -1110,6 +1167,8 @@ private:
    * Depth used when extracting R-tree bounding-box coverings.
    */
   unsigned int rtree_extraction_level = 1;
+
+  std::vector<unsigned int> segment_indices;
 
   /**
    * @brief Check that all vesselsID are present
