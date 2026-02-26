@@ -75,7 +75,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                   refinement_strategy,
                   "",
                   this->prm,
-                  Patterns::Selection("fixed_fraction|fixed_number|global"));
+                  Patterns::Selection("fixed_fraction|fixed_number|global|inclusions"));
     add_parameter("Coarsening fraction", coarsening_fraction);
     add_parameter("Refinement fraction", refinement_fraction);
     add_parameter("Maximum number of cells", max_cells);
