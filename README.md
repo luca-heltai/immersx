@@ -1,83 +1,120 @@
-Reduced Lagrange Multipliers Method
-===================================
+# Reduced Lagrange Multipliers
 
 ![GitHub CI](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/tests.yml/badge.svg)
 ![Documentation](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/doxygen.yml/badge.svg)
 ![Indent](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/indentation.yml/badge.svg)
 
-This repository implements the Reduced Lagrange Multiplier method for non-matching coupling of mixed-dimensional domains, as described in the paper:
+This repository contains C++ implementations of reduced Lagrange multiplier methods for mixed-dimensional coupling problems, built on top of [deal.II](https://www.dealii.org).
 
-**Reduced Lagrange multiplier approach for non-matching coupling of mixed-dimensional domains**  
-Authors: Luca Heltai, Paolo Zunino  
-Published in *Mathematical Models and Methods in Applied Sciences* (2023)  
-DOI: [10.1142/S0218202523500525](https://dx.doi.org/10.1142/S0218202523500525)
+Primary reference:
 
-## Overview
+- Luca Heltai, Paolo Zunino, *Reduced Lagrange multiplier approach for non-matching coupling of mixed-dimensional domains*, Mathematical Models and Methods in Applied Sciences (2023).
+- DOI: <https://dx.doi.org/10.1142/S0218202523500525>
 
-In many physical problems, especially those involving heterogeneous spatial scales, we encounter coupled partial differential equations (PDEs) defined on domains of different dimensions embedded into each other. Examples include:
+## What is in this repository
 
-- Flow through fractured porous media
-- Fiber-reinforced materials
-- Modeling small circulation in biological tissues
+Core code:
 
-This repository provides a computational framework for coupling PDEs across dimensions using a reduced Lagrange multiplier approach. The method ensures stability and robustness, with particular attention to the smallest characteristic length of the embedded domain.
+- `include/`: public headers for solvers, coupling operators, parameter classes, and utilities.
+- `source/`: implementations for the core classes.
+- `apps/`: executable entry points (`app_elasticity.cc`, `app_laplacian.cc`, `app_reduced_poisson.cc`, `app_coupled_elasticity.cc`, `app_pseudocoupling1D.cc`).
 
-## Features
+Testing:
 
-- **General Mathematical Framework**: This framework provides tools for analyzing and approximating coupled PDEs across different dimensions.
-- **Non-Matching Coupling**: The method applies to non-matching interfaces, where coupling constraints are enforced via Lagrange multipliers.
-- **Dimensionality Reduction**: Supports model reduction techniques that simplify complex 3D problems into more tractable ones by working in lower-dimensional spaces, and employing a *reduced Lagrange multiplier* space.
-- **Inf-Sup Stability**: Ensures stable and robust numerical solutions across a range of configurations and mesh sizes.
+- `tests/`: deal.II-style regression tests.
+- `gtests/`: GoogleTest-based unit/integration tests.
 
-## Installation
+Documentation and scripts:
 
-To use this code, you need a working deal.II version (at least version 9.5). Clone the repository and run the following commands:
+- `doc/`: Doxygen configuration.
+- `scripts/`: helper scripts for formatting, checks, and parameter generation.
+
+Inputs, benchmarks, and datasets:
+
+- `prms/`: parameter files for many benchmark setups.
+- `benchmarks/`: benchmark geometry/mesh/data files.
+- `blood/`: 1D hemodynamics-related assets and scripts used by coupled workflows.
+- `notebooks/`: exploratory notebooks and preprocessing utilities.
+- `blender/`, `cgal_utilities/`: geometry-generation and geometry-processing helpers.
+
+## Main components
+
+- `ElasticityProblem` (`include/elasticity.h`): bulk elasticity solver with optional transient integration and immersed coupling.
+- `PoissonProblem` (`include/laplacian.h`): scalar Poisson/Laplacian immersed-coupling solver.
+- `ReducedPoisson` / `ReducedCoupling` / `TensorProductSpace` (`include/reduced_poisson.h`, `include/reduced_coupling.h`, `include/tensor_product_space.h`): reduced-order coupling workflow.
+- `Inclusions` (`include/inclusions.h`): immersed geometry, quadrature points, reduced basis data, and coupling metadata.
+- `ReferenceCrossSection` (`include/reference_cross_section.h`): reference reduced basis and quadrature construction.
+- `ParticleCoupling` (`include/particle_coupling.h`): particle insertion and distributed ownership mapping for coupling points.
+
+## Build requirements
+
+Required:
+
+- CMake >= 3.10
+- A C++ compiler supported by your deal.II build
+- deal.II (project currently uses APIs compatible with >= 9.2; many workflows target 9.5+)
+
+Optional:
+
+- Trilinos / PETSc as enabled in deal.II
+- OpenMP
+- GoogleTest (for `gtests`)
+- Doxygen (for docs)
+- OpenCASCADE, HDF5 (for specific features used by some modules)
+- `lib1dsolver` (for coupled 3D/1D executables)
+
+## Build
 
 ```bash
-git clone https://github.com/luca-heltai/reduced_lagrange_multiplier.git
-cd reduced_lagrange_multiplier
-mkdir build
+mkdir -p build
 cd build
 cmake -DDEAL_II_DIR=/path/to/deal.II ..
-make
+cmake --build . -j
 ```
 
-## Online documentation
+Executables are generated from files in `apps/` with names derived from `app_*.cc` (for example `elasticity`, `laplacian`, `reduced_poisson`, `coupled_elasticity`, depending on configuration and build type suffix).
 
-The documentation is built and deployed at each merge to master. You can
-find the latest documentation here:
+## Running
 
-<https://luca-heltai.github.io/reduced_lagrange_multipliers/>
+Typical single-run pattern:
 
-Licence
-=======
+```bash
+./elasticity path/to/input.prm
+```
 
-See the file [LICENSE.md](./LICENSE.md) for details
+or
 
-## USE OF COUPLED ELASTICITY
-=========================
+```bash
+./laplacian path/to/input.prm
+```
 
-### Install FVM(1D)
+For coupled workflows, use the expected app-specific argument list from the corresponding `apps/app_*.cc` file and matching files in `prms/` or `benchmarks/`.
 
-- Clone the fvm repo
-- run docker: `docker run -ti -v ./:/fvm --platform linux/amd64 dealii/dealii:v9.6.0-jammy`
-- `cd /fvm/`
-- `make -f MakefileGCCDesktop clean all`
+## Tests
 
-### Compile the coupled code
+From the build directory:
 
-- create the `build` directory with cmake `cmake -DCMAKE_CXX_FLAGS=-fopenmp .` (this includes OMP, necessary for the 1D)
-- `cd build`
-- compile with `ninja -jX` (X = number of proc)
+```bash
+ctest --output-on-failure
+```
 
+`tests/` are integrated through deal.II testing macros. `gtests/` are enabled when GoogleTest is found.
 
+## Documentation
 
-run in parallel as
+Generate API docs with:
 
-export OMP_NUM_THREADS=1
+```bash
+doxygen doc/Doxyfile
+```
 
-mpirun -np n ./build/coupled_elasticity_debug <path_to_input_3d> <path_to_input_1d> <couplingSampling> <couplingStart> 0
-if we only want the the 1D simulation then set coupling Start to 100
-if we only want the 3D Simulation then only give <path_to_input_3d>
+The generated site is written under `doc/` output directories configured in `doc/Doxyfile`.
 
-random error "invalid template argument" solved by changing the order od #include in app_*
+## Repository notes
+
+- This repository may contain large benchmark/data files and local experiment artifacts.
+- Some coupled-elasticity paths depend on an external `lib1dsolver` library and related inputs under `blood/`.
+
+## License
+
+See `LICENSE.md`.

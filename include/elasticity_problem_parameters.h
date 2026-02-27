@@ -62,11 +62,20 @@ enum class ElasticityModel
 };
 
 template <int dim, int spacedim = dim>
+/**
+ * Parameter set driving mesh generation, constitutive model, and solvers.
+ */
 class ElasticityProblemParameters : public ParameterAcceptor
 {
 public:
+  /**
+   * Build and register all parameter subsections used by the elasticity model.
+   */
   ElasticityProblemParameters();
 
+  /**
+   * Return material parameters associated with a material id.
+   */
   const MaterialProperties &
   get_material_properties(const types::material_id material_id) const;
 
@@ -100,76 +109,125 @@ public:
    */
   ElasticityModel elasticity_model = ElasticityModel::LinearElasticity;
 
-  std::string                  output_directory   = ".";
-  std::string                  output_name        = "solution";
-  unsigned int                 fe_degree          = 1;
-  unsigned int                 initial_refinement = 5;
-  std::set<types::boundary_id> dirichlet_ids{0};
-  std::set<types::boundary_id> weak_dirichlet_ids{};
-  std::set<types::boundary_id> neumann_ids{};
-  std::set<types::boundary_id> normal_flux_ids{};
+  /**
+   * Output, mesh, and finite-element setup parameters.
+   */
+  /// @{
+  std::string                  output_directory = "."; ///< Output folder.
+  std::string                  output_name      = "solution"; ///< Output stem.
+  unsigned int                 fe_degree        = 1;          ///< FE degree.
+  unsigned int                 initial_refinement = 5; ///< Global refinements.
+  std::set<types::boundary_id> dirichlet_ids{0};     ///< Strong Dirichlet ids.
+  std::set<types::boundary_id> weak_dirichlet_ids{}; ///< Weak Dirichlet ids.
+  std::set<types::boundary_id> neumann_ids{};        ///< Neumann ids.
+  std::set<types::boundary_id> normal_flux_ids{};    ///< Flux-constraint ids.
 
-  MaterialProperties default_material_properties{"default"};
-  std::map<types::material_id, std::string> material_tags_by_material_id;
+  MaterialProperties default_material_properties{
+    "default"}; ///< Fallback material.
+  std::map<types::material_id, std::string>
+    material_tags_by_material_id; ///< Id->tag map.
 
   std::map<types::material_id, std::unique_ptr<MaterialProperties>>
-    material_properties_by_id;
+    material_properties_by_id; ///< Runtime material table.
 
-  std::string  domain_type         = "generate";
-  std::string  name_of_grid        = "hyper_cube";
-  std::string  arguments_for_grid  = "-1: 1: false";
-  std::string  refinement_strategy = "fixed_fraction";
-  double       coarsening_fraction = 0.0;
-  double       refinement_fraction = 0.3;
-  unsigned int n_refinement_cycles = 1;
-  unsigned int max_cells           = 20000;
-  bool         output_pressure     = false;
-  double       penalty_term        = 1.0e4;
+  std::string domain_type  = "generate";   ///< Grid source mode.
+  std::string name_of_grid = "hyper_cube"; ///< Grid generator/input name.
+  std::string arguments_for_grid =
+    "-1: 1: false"; ///< Grid generator arguments.
+  std::string  refinement_strategy = "fixed_fraction"; ///< Adaptivity strategy.
+  double       coarsening_fraction = 0.0;              ///< Coarsening fraction.
+  double       refinement_fraction = 0.3;              ///< Refinement fraction.
+  unsigned int n_refinement_cycles = 1;     ///< Number of adapt cycles.
+  unsigned int max_cells           = 20000; ///< Global cell cap.
+  bool         output_pressure     = false; ///< Enable pressure output.
+  double       penalty_term        = 1.0e4; ///< Weak-Dirichlet penalty.
+  /// @}
 
+  /**
+   * Toggle load transfer through inclusion pressure projection.
+   */
   bool pressure_coupling = false;
 
+  /**
+   * Volumetric forcing and forcing modulation.
+   */
+  /// @{
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
-  double rhs_modulation = 0.0;
+  double rhs_modulation = 0.0; ///< Forcing modulation amplitude/factor.
+  /// @}
 
+  /**
+   * Exact solution used for error postprocessing.
+   */
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
     exact_solution;
 
+  /**
+   * Initial displacement for time-dependent runs.
+   */
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
     initial_displacement;
 
+  /**
+   * Initial velocity for time-dependent runs.
+   */
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
     initial_velocity;
 
+  /**
+   * Dirichlet and Neumann boundary data with modulation factors.
+   */
+  /// @{
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
-  double bc_modulation = 0.0;
+  double bc_modulation = 0.0; ///< Boundary-condition modulation factor.
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
-         Neumann_bc;
-  double neumann_bc_modulation = 0.0;
+         Neumann_bc;                  ///< Neumann boundary data function.
+  double neumann_bc_modulation = 0.0; ///< Neumann modulation factor.
+  /// @}
 
+  /**
+   * Expression used to define quadrature weights on inclusions.
+   */
   std::string weight_expression = "1.";
 
+  /**
+   * Solver controls for different linear blocks.
+   */
+  /// @{
   mutable ParameterAcceptorProxy<ReductionControl> displacement_solver_control;
 
-  mutable ParameterAcceptorProxy<ReductionControl> reduced_mass_solver_control;
+  mutable ParameterAcceptorProxy<ReductionControl>
+    reduced_mass_solver_control; ///< Mass solve control.
 
   mutable ParameterAcceptorProxy<ReductionControl>
-    augmented_lagrange_solver_control;
+    augmented_lagrange_solver_control; ///< Augmented-Lagrangian solve control.
 
   mutable ParameterAcceptorProxy<ReductionControl>
-    schur_complement_solver_control;
+    schur_complement_solver_control; ///< Schur-complement solve control.
+  /// @}
 
+  /**
+   * Emit output before each solve step.
+   */
   bool output_results_before_solving = false;
 
+  /**
+   * Convergence table used for run summaries.
+   */
   mutable ParsedConvergenceTable convergence_table;
 
-  // Time dependency.
-  double         initial_time     = 0.0;
-  double         final_time       = 0.0;
-  mutable double dt               = 5e-3;
-  bool           refine_time_step = false;
-  double         beta             = 0.25;
-  double         gamma            = 0.5;
+  /**
+   * Time-integration parameters.
+   */
+  /// @{
+  double         initial_time     = 0.0;   ///< Initial physical time.
+  double         final_time       = 0.0;   ///< Final physical time.
+  mutable double dt               = 5e-3;  ///< Time-step size.
+  bool           refine_time_step = false; ///< Enable adaptive time step.
+  double         beta             = 0.25;  ///< Newmark beta.
+  double         gamma            = 0.5;   ///< Newmark gamma.
+  /// @}
 };
 
 #endif
