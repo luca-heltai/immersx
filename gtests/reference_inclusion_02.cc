@@ -29,7 +29,7 @@ TEST(Inclusion2, CheckComponents) // NOLINT
   Inclusions<2>       ref(2);
   ref.set_n_q_points(4);
   ref.set_n_coefficients(2);
-  ref.set_Fourier_coefficients({{2,5}});
+  ref.set_fourier_coefficients({{2,5}});
   ref.inclusions.push_back({{0, 0, 1.0}});
   ref.initialize();
   const auto N = ref.n_dofs();
@@ -52,7 +52,7 @@ TEST(Inclusion3, CheckComponents) // NOLINT
   Inclusions<3>       ref(3);
   ref.set_n_q_points(4);
   ref.set_n_coefficients(2);
-  ref.set_Fourier_coefficients({{3,7}});
+  ref.set_fourier_coefficients({{3,7}});
   ref.inclusions.push_back(inc1);
   ref.inclusions.push_back(inc2);
   ref.initialize();
