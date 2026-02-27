@@ -918,11 +918,10 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
         {
           // inclusions_id_to_segment_id[p->get_id()] = segment_index;
           const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
-          inclusion_dof_indices =
-            inclusions.get_dof_indices(p->get_id()); // segment index
-          local_coupling_matrix  = 0;
-          local_inclusion_matrix = 0;
-          local_rhs              = 0;
+          inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
+          local_coupling_matrix   = 0;
+          local_inclusion_matrix  = 0;
+          local_rhs               = 0;
 
           const auto section_measure =
             inclusions.get_section_measure(inclusion_id);

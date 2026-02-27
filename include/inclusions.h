@@ -1035,7 +1035,7 @@ public:
   }
 
   void
-  set_Fourier_coefficients(std::vector<unsigned int> temp)
+  set_fourier_coefficients(std::vector<unsigned int> temp)
   {
     this->selected_coefficients = temp;
   }
