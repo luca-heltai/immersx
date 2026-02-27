@@ -22,16 +22,23 @@
 #include "inclusions.h"
 #include "reference_cross_section.h" // Add include for ReferenceCrossSection
 
+
 using namespace dealii;
 
 TEST(Inclusion2, CheckComponents) // NOLINT
 {
+  parallel::distributed::Triangulation<2> tria(
+    MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(tria, -1, 1);
+  tria.refine_global(2);
+
   Inclusions<2>       ref(2);
   ref.set_n_q_points(4);
   ref.set_n_coefficients(2);
   ref.set_fourier_coefficients({{2,5}});
-  ref.inclusions.push_back({{0, 0, 1.0}});
+  ref.inclusions.push_back({{0, 0, .5}});
   ref.initialize();
+  ref.setup_inclusions_particles(tria);
   const auto N = ref.n_dofs();
 
   std::vector<unsigned int> exact_component({0,1});
@@ -46,9 +53,14 @@ TEST(Inclusion2, CheckComponents) // NOLINT
 
 TEST(Inclusion3, CheckComponents) // NOLINT
 {
+  parallel::distributed::Triangulation<3> tria(
+    MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(tria, -1, 1);
+  tria.refine_global(2);
+
   // cx, cy, cz, dx, dy, dz, r
-  std::vector<double> inc1({{0, 0, 0, 0, 0, 1, 1.0, 0}});
-  std::vector<double> inc2({{0, 0, 0.1, 0, 0, 1, 1.0, 0}});
+  std::vector<double> inc1({{0, 0, 0, 0, 0, 1, .5, 0}});
+  std::vector<double> inc2({{0, 0, 0.1, 0, 0, 1, .5, 0}});
   Inclusions<3>       ref(3);
   ref.set_n_q_points(4);
   ref.set_n_coefficients(2);
@@ -56,6 +68,7 @@ TEST(Inclusion3, CheckComponents) // NOLINT
   ref.inclusions.push_back(inc1);
   ref.inclusions.push_back(inc2);
   ref.initialize();
+  ref.setup_inclusions_particles(tria);
   const auto N = ref.n_dofs();
 
   std::vector<unsigned int> exact_component({0,1, 0,1});
