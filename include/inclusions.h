@@ -471,7 +471,7 @@ public:
   /**
    * @brief return weight for integration normal direction of an inclusion at a quadrature point
    *
-   * @param quadrature_id
+   * @param particle_id
    * @return const Tensor<1, spacedim>&
    */
   inline double
@@ -680,8 +680,9 @@ public:
       }
   }
 
-
-
+  /**
+   * Return support points of one inclusion in current configuration.
+   */
   const std::vector<Point<spacedim>> &
   get_current_support_points(const types::global_dof_index &inclusion_id) const
   {
@@ -788,6 +789,9 @@ public:
           "dimensions of new data for the update does not match the inclusions"));
   }
 
+  /**
+   * Update inclusion data by vessel-wise sampled profiles.
+   */
   void
   update_inclusions_data(std::vector<std::vector<double>> new_data)
   {
@@ -878,6 +882,9 @@ public:
       }
   }
 
+  /**
+   * Update one inclusion using a scalar normal-displacement value.
+   */
   void
   update_single_inclusion_data_along_normal(
     const types::global_dof_index &inclusion_id,
@@ -901,29 +908,44 @@ public:
     inclusions_data[inclusion_id] = {nd, 0, 0, 0, nd, 0, 0, 0, 0};
   }
 
+  /**
+   * Placeholder for vessel-wise updates with vector-valued payloads.
+   */
   void
   update_single_vessel_data(const types::global_dof_index &,
                             const std::vector<double>)
   {}
 
+  /**
+   * Return number of vessel groups currently detected.
+   */
   unsigned int
   get_n_vessels() const
   {
     return n_vessels;
   }
 
+  /**
+   * Return number of retained Fourier coefficients.
+   */
   unsigned int
   get_n_coefficients() const
   {
     return n_coefficients;
   }
 
+  /**
+   * Return coefficient offset used for harmonic indexing.
+   */
   unsigned int
   get_offset_coefficients() const
   {
     return offset_coefficients;
   }
 
+  /**
+   * Return number of inclusions mapped to a given vessel id.
+   */
   unsigned int
   get_inclusions_in_vessel(unsigned int vessel_id) const
   {
@@ -973,6 +995,9 @@ public:
   // }
 
 
+  /**
+   * Override the number of quadrature points used on each inclusion.
+   */
   void
   set_n_q_points(unsigned int n_q)
   {
@@ -980,47 +1005,110 @@ public:
   }
 
 
+  /**
+   * Override the number of Fourier coefficients per inclusion.
+   */
   void
   set_n_coefficients(unsigned int n_coefficients)
   {
     this->n_coefficients = n_coefficients;
   }
 
+  /**
+   * Boundary data function evaluated when external data are not provided.
+   */
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
+  /**
+   * Frequency used to modulate inclusion boundary data in time.
+   */
   double modulation_frequency = 0.0;
 
+  /**
+   * Particle representation of inclusion quadrature points.
+   */
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
-  std::vector<std::vector<double>>     inclusions;
+  /**
+   * Inclusion geometric descriptors read from input.
+   */
+  std::vector<std::vector<double>> inclusions;
 
+  /**
+   * Optional ASCII file containing coefficient data.
+   */
   std::string data_file = "";
 #ifdef DEAL_II_WITH_HDF5
+  /**
+   * Optional HDF5 handle used for time-updated inclusion data.
+   */
   mutable std::unique_ptr<HDF5::File> data_file_h;
 #endif
+  /**
+   * Per-inclusion coefficient vectors used by coupling assembly.
+   */
   std::vector<std::vector<double>> inclusions_data;
-  std::vector<double>              reference_inclusion_data;
+  /**
+   * Default coefficients replicated when no data file is provided.
+   */
+  std::vector<double> reference_inclusion_data;
 
+  /**
+   * Mapping from vessel id to indices of associated inclusions.
+   */
   std::map<unsigned int, std::vector<types::global_dof_index>>
     map_vessel_inclusions;
 
 private:
-  unsigned int              n_q_points          = 100;
-  unsigned int              n_coefficients      = 1;
-  unsigned int              offset_coefficients = 0;
-  std::vector<unsigned int> selected_coefficients;
+  /**
+   * Inclusion quadrature and harmonic-space settings.
+   */
+  /// @{
+  unsigned int n_q_points          = 100;
+  unsigned int n_coefficients      = 1; ///< Number of Fourier coefficients.
+  unsigned int offset_coefficients = 0; ///< Optional harmonic index offset.
+  std::vector<unsigned int>
+    selected_coefficients; ///< Active coefficient indices.
+  /// @}
 
-  const unsigned int           n_vector_components;
-  MPI_Comm                     mpi_communicator;
+  /**
+   * Fixed number of vector components in the coupled bulk field.
+   */
+  const unsigned int n_vector_components;
+  /**
+   * MPI communicator associated with the background triangulation.
+   */
+  MPI_Comm mpi_communicator;
+  /**
+   * Reference support points on the unit cross-section.
+   */
   std::vector<Point<spacedim>> support_points;
-  std::vector<double>          theta;
+  /**
+   * Angular coordinates used for Fourier basis evaluation.
+   */
+  std::vector<double> theta;
 
-  // Current configuration
+  /**
+   * Cached geometric data in current inclusion configuration.
+   */
+  /// @{
   mutable std::vector<Tensor<1, spacedim>> normals;
-  mutable std::vector<Point<spacedim>>     current_support_points;
-  mutable std::vector<double>              current_fe_values;
+  mutable std::vector<Point<spacedim>>
+    current_support_points; ///< Cached moved support points.
+  mutable std::vector<double>
+    current_fe_values; ///< Cached basis values at one point.
+  /// @}
 
+  /**
+   * Number of vessel groups inferred from inclusion metadata.
+   */
   unsigned int n_vessels = 1;
 
-  std::string  inclusions_file        = "";
+  /**
+   * Input file for inclusion geometry and vessel metadata.
+   */
+  std::string inclusions_file = "";
+  /**
+   * Depth used when extracting R-tree bounding-box coverings.
+   */
   unsigned int rtree_extraction_level = 1;
 
   /**

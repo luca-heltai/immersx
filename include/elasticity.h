@@ -139,13 +139,19 @@ template <int dim>
 class RigidBodyMotion : public Function<dim>
 {
 public:
+  /**
+   * Select one rigid-body mode by index.
+   */
   RigidBodyMotion(const unsigned int type_);
 
+  /**
+   * Evaluate selected rigid-body mode component.
+   */
   virtual double
   value(const Point<dim> &p, const unsigned int component) const override;
 
 private:
-  const unsigned int type;
+  const unsigned int type; ///< Rigid-body mode selector.
 };
 
 /**
@@ -419,22 +425,49 @@ template <int dim, int spacedim = dim>
 class ElasticityProblem : public Subscriptor
 {
 public:
+  /**
+   * Build the elasticity problem from parsed parameters.
+   */
   ElasticityProblem(const ElasticityProblemParameters<dim, spacedim> &par);
 
+  /**
+   * Create or import computational mesh and manifolds.
+   */
   void
   make_grid();
+  /**
+   * Initialize finite element and quadrature objects.
+   */
   void
   setup_fe();
+  /**
+   * Distribute DoFs and initialize matrices/vectors.
+   */
   void
   setup_dofs();
+  /**
+   * Assemble bulk operators (stiffness/mass/damping) and basic right-hand side.
+   */
   void
   assemble_elasticity_system();
+  /**
+   * Assemble external forcing terms only.
+   */
   void
   assemble_forcing_terms();
+  /**
+   * Rebuild the system right-hand side from component vectors.
+   */
   void
   compute_system_rhs();
+  /**
+   * Assemble immersed coupling operators and multiplier data.
+   */
   void
   assemble_coupling();
+  /**
+   * Execute the run mode selected from parsed parameters.
+   */
   void
   run();
 
@@ -449,9 +482,15 @@ public:
   void
   run_static();
 
+  /**
+   * Execute quasi-static time stepping.
+   */
   void
   run_quasistatic();
 
+  /**
+   * Execute dynamic Newmark time stepping.
+   */
   void
   run_newmark();
 
@@ -461,6 +500,9 @@ public:
   IndexSet
   assemble_coupling_sparsity(DynamicSparsityPattern &dsp);
 
+  /**
+   * Solve the linear system for the active time mode.
+   */
   void
   solve();
 
@@ -470,97 +512,200 @@ public:
   void
   solve_static();
 
+  /**
+   * Solve one quasi-static step.
+   */
   void
   solve_quasistatic();
 
+  /**
+   * Solve one dynamic Newmark step.
+   */
   void
   solve_newmark();
 
+  /**
+   * Perform adaptive refinement and transfer state vectors.
+   */
   void
   refine_and_transfer();
 
+  /**
+   * Mark cells around inclusions and transfer state vectors.
+   */
   void
   refine_and_transfer_around_inclusions();
 
+  /**
+   * Execute the pending refinement/coarsening and transfer.
+   */
   void
   execute_actual_refine_and_transfer();
 
+  /**
+   * Return output base filename for current cycle/time step.
+   */
   std::string
   output_solution() const;
 
+  /**
+   * Write current solution and diagnostics to output files.
+   */
   void
   output_results() const;
 
+  /**
+   * Print selected runtime and model parameters.
+   */
   void
   print_parameters() const;
 
   void
   compute_internal_and_boundary_stress(bool) const;
 
+  /**
+   * Write multiplier field values to disk.
+   */
   void
   output_lambda() const;
 
+  /**
+   * Write stress quantities and return produced filename stem.
+   */
   std::string
   output_stresses() const;
 
   // void
   // compute_face_stress();
 
-  // protected:
+  /**
+   * Parsed parameter object.
+   */
   const ElasticityProblemParameters<dim, spacedim> &par;
-  MPI_Comm                                          mpi_communicator;
-  ConditionalOStream                                pcout;
-  mutable TimerOutput                               computing_timer;
-  parallel::distributed::Triangulation<spacedim>    tria;
-  std::unique_ptr<FiniteElement<spacedim>>          fe;
-  Inclusions<spacedim>                              inclusions;
-  std::unique_ptr<Quadrature<spacedim>>             quadrature;
-  std::unique_ptr<Quadrature<spacedim - 1>>         face_quadrature_formula;
-  DoFHandler<spacedim>                              dh;
-  std::vector<IndexSet>                             owned_dofs;
-  std::vector<IndexSet>                             relevant_dofs;
+  /**
+   * MPI communicator used by distributed data structures.
+   */
+  MPI_Comm mpi_communicator;
+  /**
+   * Stream that prints only on rank zero.
+   */
+  ConditionalOStream pcout;
+  /**
+   * Timer collecting wall times by section.
+   */
+  mutable TimerOutput computing_timer;
+  /**
+   * Distributed bulk triangulation.
+   */
+  parallel::distributed::Triangulation<spacedim> tria;
+  /**
+   * Finite element used for displacement.
+   */
+  std::unique_ptr<FiniteElement<spacedim>> fe;
+  /**
+   * Inclusion geometry and reduced basis data.
+   */
+  Inclusions<spacedim> inclusions;
+  /**
+   * Cell quadrature for bulk assembly.
+   */
+  std::unique_ptr<Quadrature<spacedim>> quadrature;
+  /**
+   * Face quadrature for boundary terms.
+   */
+  std::unique_ptr<Quadrature<spacedim - 1>> face_quadrature_formula;
+  /**
+   * DoF metadata for displacement field.
+   */
+  /// @{
+  DoFHandler<spacedim>  dh;
+  std::vector<IndexSet> owned_dofs;    ///< Locally-owned DoF sets.
+  std::vector<IndexSet> relevant_dofs; ///< Locally-relevant DoF sets.
+  /// @}
 
+  /**
+   * Affine constraints in bulk and coupling spaces.
+   */
+  /// @{
   AffineConstraints<double> constraints;
-  AffineConstraints<double> inclusion_constraints;
-  AffineConstraints<double> mean_value_constraints;
+  AffineConstraints<double>
+    inclusion_constraints; ///< Inclusion multiplier constraints.
+  AffineConstraints<double> mean_value_constraints; ///< Mean-value constraints.
+  /// @}
 
+  /**
+   * Assembled sparse operators.
+   */
+  /// @{
   LA::MPI::SparseMatrix stiffness_matrix;
-  LA::MPI::SparseMatrix newmark_matrix;
-  LA::MPI::SparseMatrix mass_matrix;
-  LA::MPI::SparseMatrix coupling_matrix;
-  LA::MPI::SparseMatrix damping_matrix;
+  LA::MPI::SparseMatrix
+    newmark_matrix;                  ///< Effective matrix for Newmark solves.
+  LA::MPI::SparseMatrix mass_matrix; ///< Bulk mass matrix.
+  LA::MPI::SparseMatrix coupling_matrix; ///< Coupling matrix B^T.
+  LA::MPI::SparseMatrix damping_matrix;  ///< Viscous/Rayleigh damping matrix.
+  /// @}
 
+  /**
+   * AMG preconditioners for displacement, Newmark, coupling, and mass blocks.
+   */
+  /// @{
   LA::MPI::PreconditionAMG prec_A;
-  LA::MPI::PreconditionAMG prec_newmark;
-  LA::MPI::PreconditionAMG prec_C;
-  LA::MPI::PreconditionAMG prec_M;
+  LA::MPI::PreconditionAMG prec_newmark; ///< AMG for Newmark matrix.
+  LA::MPI::PreconditionAMG prec_C;       ///< AMG for coupling-related solves.
+  LA::MPI::PreconditionAMG prec_M;       ///< AMG for inclusion mass matrix.
+  /// @}
 
-  LA::MPI::SparseMatrix                           inclusion_matrix;
-  LA::MPI::BlockVector                            solution;
-  LA::MPI::BlockVector                            velocity;
-  LA::MPI::BlockVector                            acceleration;
-  LA::MPI::BlockVector                            predictor;
-  LA::MPI::BlockVector                            corrector;
-  LA::MPI::BlockVector                            locally_relevant_solution;
-  LA::MPI::BlockVector                            force_rhs;
-  LA::MPI::BlockVector                            bc_rhs;
-  LA::MPI::BlockVector                            neumann_bc_rhs;
-  LA::MPI::BlockVector                            system_rhs;
+  /**
+   * Coupling mass matrix and block vectors for state and rhs quantities.
+   */
+  /// @{
+  LA::MPI::SparseMatrix inclusion_matrix;
+  LA::MPI::BlockVector  solution;                  ///< Current solution.
+  LA::MPI::BlockVector  velocity;                  ///< Current velocity.
+  LA::MPI::BlockVector  acceleration;              ///< Current acceleration.
+  LA::MPI::BlockVector  predictor;                 ///< Newmark predictor.
+  LA::MPI::BlockVector  corrector;                 ///< Newmark corrector.
+  LA::MPI::BlockVector  locally_relevant_solution; ///< Ghosted solution.
+  LA::MPI::BlockVector  force_rhs;                 ///< Volumetric forcing rhs.
+  LA::MPI::BlockVector  bc_rhs;                    ///< Dirichlet-penalty rhs.
+  LA::MPI::BlockVector  neumann_bc_rhs; ///< Neumann rhs contribution.
+  LA::MPI::BlockVector  system_rhs;     ///< Total rhs.
+  /// @}
+  /**
+   * Process-local coverings of the background mesh for particle insertion.
+   */
   std::vector<std::vector<BoundingBox<spacedim>>> global_bounding_boxes;
-  unsigned int                                    cycle     = 0;
-  unsigned int                                    time_step = 0;
+  /**
+   * Current adaptive-refinement cycle index.
+   */
+  unsigned int cycle = 0;
+  /**
+   * Current time-step index.
+   */
+  unsigned int time_step = 0;
 
+  /**
+   * Extractor for displacement components in FEValues.
+   */
   FEValuesExtractors::Vector displacement;
 
-  // Postprocessing values
+  /**
+   * Boundary postprocessing accumulators and stress output vectors.
+   */
+  /// @{
   std::map<types::boundary_id, Tensor<1, spacedim>> forces;
-  std::map<types::boundary_id, Tensor<1, spacedim>> average_displacements;
-  std::map<types::boundary_id, Tensor<1, spacedim>> average_normals;
-  std::map<types::boundary_id, double>              areas;
-  TrilinosWrappers::MPI::Vector                     sigma_n;
-  // std::vector<BaseClass::BlockType>                 pressure_records;
+  std::map<types::boundary_id, Tensor<1, spacedim>>
+    average_displacements; ///< Mean displacement per boundary id.
+  std::map<types::boundary_id, Tensor<1, spacedim>>
+    average_normals; ///< Mean normal per boundary id.
+  std::map<types::boundary_id, double>
+                                areas;   ///< Integrated boundary area/measure.
+  TrilinosWrappers::MPI::Vector sigma_n; ///< Normal stress samples.
+  /// @}
 
-  // Time dependency.
+  /**
+   * Current physical time for transient simulations.
+   */
   double current_time = 0.0;
 
   class Postprocessor;
