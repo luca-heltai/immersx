@@ -28,6 +28,7 @@
 #define rdlm_inclusions
 
 #include <deal.II/base/hdf5.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
 
@@ -35,6 +36,8 @@
 
 #include <deal.II/fe/mapping_q.h>
 #include <deal.II/fe/mapping_q1.h>
+
+#include <deal.II/lac/trilinos_vector.h>
 
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/generators.h>
@@ -1007,31 +1010,97 @@ public:
   void
   build_segment_index_vector()
   {
-    segment_indices.reserve(n_inclusions());
-    auto         particle        = particles_on_centerline.begin();
-    unsigned int current_segment = 0;
-    while (particle != particles_on_centerline.end())
-      {
-        const auto        &cell0 = particle->get_surrounding_cell();
-        const unsigned int n_pic =
-          particles_on_centerline.n_particles_in_cell(cell0);
-        const auto pic = particles_on_centerline.particles_in_cell(cell0);
+    // if (false)
+    // {
+    // segment_indices.reserve(n_inclusions());
+    // auto particle = particles_on_centerline.begin();
+    // unsigned int current_segment = 0;
+    // while (particle != particles_on_centerline.end())
+    // {
+    //   const auto &cell0 = particle->get_surrounding_cell();
+    //   const unsigned int n_pic =
+    //   particles_on_centerline.n_particles_in_cell(cell0); const auto pic =
+    //   particles_on_centerline.particles_in_cell(cell0);
 
-        for (unsigned int i = 0; i < n_pic; i++)
-          {
-            segment_indices.push_back(current_segment);
-          }
-        particle = pic.end();
-        current_segment++;
-      }
+    //   for (unsigned int i = 0; i < n_pic; i++)
+    //     {
+    //       segment_indices.push_back(current_segment);
+    //     }
+    //   particle = pic.end();
+    //   current_segment++;
+    // }
 
-    max_segment_index = current_segment;
+    // max_segment_index = current_segment;
 
-    std::cout << "segment_indices: ";
-    for (auto i : segment_indices)
-      std::cout << i << " ";
-    std::cout << " total: " << max_segment_index << std::endl;
-    return;
+    // std::cout << "segment_indices: ";
+    // for (auto i : segment_indices)
+    //   std::cout << i << " ";
+    // std::cout << " total: " << max_segment_index << std::endl;
+    // return;
+    // }
+
+    {
+      auto inclusions_segment_set =
+        Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
+                                                               n_inclusions());
+
+      segment_indices.reinit(inclusions_segment_set, mpi_communicator);
+      auto         particle        = particles_on_centerline.begin();
+      unsigned int current_segment = 0;
+      while (particle != particles_on_centerline.end())
+        {
+          const auto &cell0 = particle->get_surrounding_cell();
+          // const unsigned int n_pic =
+          // particles_on_centerline.n_particles_in_cell(cell0);
+          const auto pic = particles_on_centerline.particles_in_cell(cell0);
+          if (cell0->is_locally_owned())
+            {
+              for (const auto &p : pic)
+                {
+                  segment_indices[p.get_id()] = (current_segment);
+                }
+              particle = pic.end();
+              current_segment++;
+            }
+        }
+
+      max_segment_index = current_segment;
+
+      std::cout << "segment_indices: ";
+      segment_indices.print(std::cout);
+      std::cout << " total: " << max_segment_index << std::endl;
+      return;
+    }
+
+    // // if the indices are saved in a indexSet
+    //     {
+    //     segment_indices.set_size(n_inclusions());
+    //     auto particle = particles_on_centerline.begin();
+    //     unsigned int current_segment = 0;
+    //     while (particle != particles_on_centerline.end())
+    //     {
+    //       const auto &cell0 = particle->get_surrounding_cell();
+    //       const unsigned int n_pic =
+    //       particles_on_centerline.n_particles_in_cell(cell0); const auto
+    //       pic = particles_on_centerline.particles_in_cell(cell0);
+    // if (cell0->is_locally_owned())
+    //       {
+    //       for (unsigned int i = 0; i < n_pic; i++)
+    //         {
+    //           segment_indices.add_index(current_segment);
+    //         }
+    //     }
+    //       particle = pic.end();
+    //       current_segment++;
+    //     }
+
+    //     max_segment_index = current_segment;
+
+    //     std::cout << "segment_indices: ";
+    //     segment_indices.print(std::cout);
+    //     std::cout << " total: " << max_segment_index << std::endl;
+    //     return;
+    //     }
   }
 
 
@@ -1039,6 +1108,9 @@ public:
   get_segment_index(const types::global_dof_index &quadrature_id) const
   {
     return segment_indices[get_inclusion_id(quadrature_id)];
+    // AssertIndexRange(get_inclusion_id(quadrature_id), n_inclusions());
+    // return
+    // segment_indices.nth_index_in_set(get_inclusion_id(quadrature_id));
   }
 
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
@@ -1128,7 +1200,9 @@ private:
    */
   unsigned int rtree_extraction_level = 1;
 
-  std::vector<unsigned int> segment_indices;
+  // std::vector<unsigned int> segment_indices;
+  TrilinosWrappers::MPI::Vector segment_indices;
+  // IndexSet segment_indices;
 
   /**
    * @brief Check that all vesselsID are present
@@ -1138,7 +1212,8 @@ private:
   check_vessels()
   {
     // TODO:
-    // vessel sanity check: that vessel with same label have the same direction
+    // vessel sanity check: that vessel with same label have the same
+    // direction
     if (inclusions.size() == 0)
       return;
 
@@ -1170,7 +1245,8 @@ private:
     /*
     {
     std::set<double> vessel_id_is_present;
-    for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
+    for (types::global_dof_index inc_number = 0; inc_number <
+    inclusions.size();
          ++inc_number)
         vessel_id_is_present.insert(get_vesselID(inc_number));
 
