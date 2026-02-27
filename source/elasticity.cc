@@ -263,11 +263,11 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
 
   if (inclusions.n_dofs() > 0)
     {
-      auto inclusions_set =
+      auto inclusions_segment_set =
         Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, inclusions.n_inclusions());
+          mpi_communicator, inclusions.n_segments());
 
-      owned_dofs[1] = inclusions_set.tensor_product(
+      owned_dofs[1] = inclusions_segment_set.tensor_product(
         complete_index_set(inclusions.n_dofs_per_inclusion()));
 
       DynamicSparsityPattern dsp(dh.n_dofs(),
@@ -901,7 +901,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
   Vector<double> local_rhs(inclusions.n_dofs_per_inclusion());
 
   auto particle = inclusions.inclusions_as_particles.begin();
-  // unsigned int segment_index = 0.;
+
   while (particle != inclusions.inclusions_as_particles.end())
     {
       const auto &cell = particle->get_surrounding_cell();
@@ -916,7 +916,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
       auto next_p = pic.begin();
       while (p != pic.end())
         {
-          // inclusions_id_to_segment_id[p->get_id()] = segment_index;
           const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
           inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
           local_coupling_matrix   = 0;
@@ -938,7 +937,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                                            ref_q_points,
                                            update_values | update_gradients);
           fev.reinit(dh_cell);
-          // double temp = 0;
+
           for (unsigned int q = 0; q < ref_q_points.size(); ++q)
             {
               const auto  id                  = p->get_id();
@@ -980,8 +979,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
                           if (par.initial_time != par.final_time)
                             {
-                              // temp=temp;
-
                               temp *= inclusions.inclusions_rhs.value(
                                 real_q, inclusions.get_component(j));
                             }
@@ -1021,7 +1018,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
           inclusion_constraints.distribute_local_to_global(
             local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
         }
-      // segment_index++;
       particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
