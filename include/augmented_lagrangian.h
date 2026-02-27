@@ -12,11 +12,17 @@
 
 using namespace dealii;
 
+/**
+ * Two-by-two block preconditioner for augmented Lagrangian systems.
+ */
 template <typename VectorType,
           typename BlockVectorType = TrilinosWrappers::MPI::BlockVector>
 class BlockPreconditionerAugmentedLagrangian
 {
 public:
+  /**
+   * Build the block preconditioner from linear-operator building blocks.
+   */
   BlockPreconditionerAugmentedLagrangian(
     const LinearOperator<VectorType> Aug_inv_,
     const LinearOperator<VectorType> C_,
@@ -31,6 +37,9 @@ public:
     gamma   = gamma_;
   }
 
+  /**
+   * Apply the block preconditioner to a two-block vector.
+   */
   void
   vmult(BlockVectorType &v, const BlockVectorType &u) const
   {
@@ -41,12 +50,30 @@ public:
     v.block(0) = Aug_inv * (u.block(0) - Ct * v.block(1));
   }
 
+  /**
+   * Unused placeholder linear operator kept for backward compatibility.
+   */
   LinearOperator<VectorType> K;
+  /**
+   * Approximate inverse of the augmented displacement block.
+   */
   LinearOperator<VectorType> Aug_inv;
+  /**
+   * Coupling operator from displacement to multipliers.
+   */
   LinearOperator<VectorType> C;
+  /**
+   * Inverse scaling/mass operator on multiplier space.
+   */
   LinearOperator<VectorType> invW;
+  /**
+   * Transpose coupling operator from multipliers to displacement.
+   */
   LinearOperator<VectorType> Ct;
-  double                     gamma;
+  /**
+   * Augmentation/scaling parameter for the multiplier block.
+   */
+  double gamma;
 };
 
 #endif
