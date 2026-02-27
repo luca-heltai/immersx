@@ -848,34 +848,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling_sparsity(
                            inclusion_dof_indices.end());
       particle = pic.end();
     }
-  // auto particle = inclusions.particles_on_centerline.begin();
-  // while (particle != inclusions.particles_on_centerline.end())
-  //   {
-  //     const auto &cell = particle->get_surrounding_cell();
-  //     const auto  dh_cell =
-  //       typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-  //     dh_cell->get_dof_indices(dof_indices);
-  //     const auto pic =
-  //       inclusions.particles_on_centerline.particles_in_cell(cell);
-  //     Assert(pic.begin() == particle, ExcInternalError());
-  //     std::set<types::global_dof_index> inclusion_dof_indices_set;
-  //     for (const auto &p : pic)
-  //       {
-  //         const auto ids = inclusions.get_dof_indices(p.get_id());
-  //         inclusion_dof_indices_set.insert(ids.begin(), ids.end());
-  //       }
-  //     inclusion_dof_indices.resize(0);
-  //     inclusion_dof_indices.insert(inclusion_dof_indices.begin(),
-  //                                  inclusion_dof_indices_set.begin(),
-  //                                  inclusion_dof_indices_set.end());
-  //     constraints.add_entries_local_to_global(dof_indices,
-  //                                             inclusion_constraints,
-  //                                             inclusion_dof_indices,
-  //                                             dsp);
-  //     relevant.add_indices(inclusion_dof_indices.begin(),
-  //                          inclusion_dof_indices.end());
-  //     particle = pic.end();
-  //   }
   return relevant;
 }
 
