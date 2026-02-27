@@ -126,7 +126,8 @@ public:
    */
   n_dofs() const
   {
-    return inclusions.size() * n_dofs_per_inclusion();
+    // return inclusions.size() * n_dofs_per_inclusion();
+    return n_segments() * n_dofs_per_inclusion();
   }
 
 
@@ -151,6 +152,12 @@ public:
   n_inclusions() const
   {
     return inclusions.size();
+  }
+
+  unsigned int
+  n_segments() const
+  {
+    return max_segment_index;
   }
 
   /**
@@ -974,50 +981,6 @@ public:
     return selected_coefficients;
   }
 
-  // void
-  // compute_rotated_inclusion_data()
-  // {
-  //   rotated_inclusion_data.resize(inclusions_data.size());
-  //   if constexpr (spacedim == 3)
-  //     {
-  //       // const auto locally_owned_inclusions =
-  //       //   Utilities::MPI::create_evenly_distributed_partitioning(
-  //       //     mpi_communicator, n_inclusions());
-  //       //
-  //       // for (const auto inclusion_id : locally_owned_inclusions)
-  //       for (long unsigned int inclusion_id = 0;
-  //            inclusion_id < inclusions_data.size();
-  //            ++inclusion_id)
-
-  //         {
-  //           auto tensorR = get_rotation(inclusion_id);
-
-  //           std::vector<double> rotated_phi(
-  //             inclusions_data[inclusion_id].size());
-  //           for (long unsigned int phi_i = 0;
-  //                (phi_i * spacedim + spacedim - 1) <
-  //                inclusions_data[inclusion_id].size();
-  //                ++phi_i)
-  //             {
-  //               Tensor<1, spacedim> coef_phii;
-  //               for (unsigned int d = 0; d < spacedim; ++d)
-  //                 coef_phii[d] =
-  //                   inclusions_data[inclusion_id][phi_i * spacedim + d];
-
-  //               auto rotated_phi_i = tensorR * coef_phii;
-  //               rotated_phi_i.unroll(&rotated_phi[phi_i * spacedim],
-  //                                    &rotated_phi[phi_i * spacedim + 3]);
-  //             }
-  //           AssertIndexRange(inclusion_id, rotated_inclusion_data.size());
-  //           rotated_inclusion_data[inclusion_id] = rotated_phi;
-  //         }
-  //     }
-  // }
-
-
-  /**
-   * Override the number of quadrature points used on each inclusion.
-   */
   void
   set_n_q_points(unsigned int n_q)
   {
@@ -1062,10 +1025,12 @@ public:
         current_segment++;
       }
 
+    max_segment_index = current_segment;
+
     std::cout << "segment_indices: ";
     for (auto i : segment_indices)
       std::cout << i << " ";
-    std::cout << std::endl;
+    std::cout << " total: " << max_segment_index << std::endl;
     return;
   }
 
@@ -1115,16 +1080,11 @@ public:
     map_vessel_inclusions;
 
 private:
-  /**
-   * Inclusion quadrature and harmonic-space settings.
-   */
-  /// @{
-  unsigned int n_q_points          = 100;
-  unsigned int n_coefficients      = 1; ///< Number of Fourier coefficients.
-  unsigned int offset_coefficients = 0; ///< Optional harmonic index offset.
-  std::vector<unsigned int>
-    selected_coefficients; ///< Active coefficient indices.
-  /// @}
+  unsigned int              n_q_points          = 100;
+  unsigned int              n_coefficients      = 1;
+  unsigned int              offset_coefficients = 0;
+  std::vector<unsigned int> selected_coefficients;
+  unsigned int              max_segment_index;
 
   /**
    * Fixed number of vector components in the coupled bulk field.
