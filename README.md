@@ -115,6 +115,11 @@ The generated site is written under `doc/` output directories configured in `doc
 - This repository may contain large benchmark/data files and local experiment artifacts.
 - Some coupled-elasticity paths depend on an external `lib1dsolver` library and related inputs under `blood/`.
 
+## Coupled 3D/1D workflow
+
+For setup/build/run notes specific to the coupled elasticity problem, see
+`COUPLED_PROBLEM.md`.
+
 ## License
 
 See `LICENSE.md`.
