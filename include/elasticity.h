@@ -537,7 +537,7 @@ public:
   refine_and_transfer_around_inclusions();
 
   /**
-   * Execute the pending refinement/coarsening and transfer.
+   * Execute the pending refinement/coarsening and transfer on the cells marked by either "refine_and_transfer()" or "refine_and_transfer_around_inclusions()"
    */
   void
   execute_actual_refine_and_transfer();
