@@ -525,7 +525,7 @@ public:
   solve_newmark();
 
   /**
-   * Perform adaptive refinement and transfer state vectors.
+   * Mark cells for refinement according to deal.ii routines fixed_number, fixed_fraction or global.
    */
   void
   refine_and_transfer();
