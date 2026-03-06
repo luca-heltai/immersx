@@ -27,34 +27,30 @@ using namespace dealii;
 
 TEST(Inclusion2, CheckComponents) // NOLINT
 {
-  parallel::distributed::Triangulation<2> tria(
-    MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> tria(MPI_COMM_WORLD);
   GridGenerator::hyper_cube(tria, -1, 1);
   tria.refine_global(2);
 
-  Inclusions<2>       ref(2);
+  Inclusions<2> ref(2);
   ref.set_n_q_points(4);
   ref.set_n_coefficients(2);
-  ref.set_fourier_coefficients({{2,5}});
+  ref.set_fourier_coefficients({{2, 5}});
   ref.inclusions.push_back({{0, 0, .5}});
   ref.initialize();
   ref.setup_inclusions_particles(tria);
   const auto N = ref.n_dofs();
 
-  std::vector<unsigned int> exact_component({0,1});
+  std::vector<unsigned int> exact_component({0, 1});
 
   ASSERT_NEAR(exact_component.size(), N, 0.1);
 
   for (unsigned int i = 0; i < N; ++i)
-  {
     ASSERT_NEAR(ref.get_component(i), exact_component[i], 0.1);
-  }
 }
 
 TEST(Inclusion3, CheckComponents) // NOLINT
 {
-  parallel::distributed::Triangulation<3> tria(
-    MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<3> tria(MPI_COMM_WORLD);
   GridGenerator::hyper_cube(tria, -1, 1);
   tria.refine_global(2);
 
@@ -64,19 +60,17 @@ TEST(Inclusion3, CheckComponents) // NOLINT
   Inclusions<3>       ref(3);
   ref.set_n_q_points(4);
   ref.set_n_coefficients(2);
-  ref.set_fourier_coefficients({{3,7}});
+  ref.set_fourier_coefficients({{3, 7}});
   ref.inclusions.push_back(inc1);
   ref.inclusions.push_back(inc2);
   ref.initialize();
   ref.setup_inclusions_particles(tria);
   const auto N = ref.n_dofs();
 
-  std::vector<unsigned int> exact_component({0,1, 0,1});
+  std::vector<unsigned int> exact_component({0, 1, 0, 1});
 
   ASSERT_NEAR(exact_component.size(), N, 0.1);
 
   for (unsigned int i = 0; i < N; ++i)
-  {
     ASSERT_NEAR(ref.get_component(i), exact_component[i], 0.1);
-  }
 }
