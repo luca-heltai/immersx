@@ -573,8 +573,8 @@ ReducedPoisson<dim, spacedim>::solve()
     pcout << "done." << std::endl;
   }
   const auto amgA = linear_operator<VectorType, VectorType, Payload>(A, prec_A);
-  auto       invA = A;
-  invA            = inverse_operator(A, cg_stiffness, amgA);
+  auto invA = A;
+  invA = inverse_operator(A, cg_stiffness, amgA);
 #  endif
 
 
