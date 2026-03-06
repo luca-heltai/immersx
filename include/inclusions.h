@@ -130,7 +130,7 @@ public:
   n_dofs() const
   {
     // return inclusions.size() * n_dofs_per_inclusion();
-    return n_segments() * n_dofs_per_inclusion();
+    return n_global_segments() * n_dofs_per_inclusion();
   }
 
 
@@ -158,9 +158,15 @@ public:
   }
 
   unsigned int
-  n_segments() const
+  n_global_segments() const
   {
-    return max_segment_index;
+    return global_max_segment_index;
+  }
+
+  unsigned int
+  n_local_segments() const
+  {
+    return local_max_segment_index;
   }
 
   /**
@@ -1010,7 +1016,6 @@ public:
   void
   build_segment_index_vector()
   {
-    // if (false)
     // {
     // segment_indices.reserve(n_inclusions());
     // auto particle = particles_on_centerline.begin();
@@ -1040,77 +1045,68 @@ public:
     // }
 
     {
-      auto inclusions_segment_set =
-        Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
-                                                               n_inclusions());
-
-      segment_indices.reinit(inclusions_segment_set, mpi_communicator);
+      segment_indices.reserve(n_inclusions());
       auto         particle        = particles_on_centerline.begin();
       unsigned int current_segment = 0;
       while (particle != particles_on_centerline.end())
         {
-          const auto &cell0 = particle->get_surrounding_cell();
-          // const unsigned int n_pic =
-          // particles_on_centerline.n_particles_in_cell(cell0);
+          const auto        &cell0 = particle->get_surrounding_cell();
+          const unsigned int n_pic =
+            particles_on_centerline.n_particles_in_cell(cell0);
           const auto pic = particles_on_centerline.particles_in_cell(cell0);
-          if (cell0->is_locally_owned())
+
+          for (unsigned int i = 0; i < n_pic; i++)
             {
-              for (const auto &p : pic)
-                {
-                  segment_indices[p.get_id()] = (current_segment);
-                }
-              particle = pic.end();
-              current_segment++;
+              segment_indices.push_back(current_segment);
             }
+          particle = pic.end();
+          current_segment++;
         }
+      local_max_segment_index = current_segment;
+      // TODO: change, here we should have some sort of check, it's a problem if
+      // some processors don'have
+      if (n_inclusions() == 1)
+        {
+          segment_indices =
+            Utilities::MPI::broadcast(mpi_communicator, segment_indices, 0);
+          global_max_segment_index = segment_indices.size();
+        }
+      else
+        {
+          std::vector<unsigned int> segments_per_processor(
+            Utilities::MPI::n_mpi_processes(mpi_communicator));
+          segments_per_processor[Utilities::MPI::this_mpi_process(
+            mpi_communicator)] = local_max_segment_index;
+          MPI_Barrier(mpi_communicator);
+          auto [local_shift, global_size] =
+            Utilities::MPI::partial_and_total_sum(local_max_segment_index,
+                                                  mpi_communicator);
 
-      max_segment_index = current_segment;
+          // for (auto & i : segment_indices)
+          // {
+          //   i = i + local_shift;
+          // }
 
-      std::cout << "segment_indices: ";
-      segment_indices.print(std::cout);
-      std::cout << " total: " << max_segment_index << std::endl;
+          global_max_segment_index =
+            global_size; // Utilities::MPI::max(local_max_segment_index,
+                         // mpi_communicator);
+        }
+      // std::cout << Utilities::MPI::this_mpi_process(mpi_communicator) << ":
+      // segment_indices: "; for (auto i : segment_indices)
+      //   std::cout << i << " ";
+      // std::cout << " total: " << local_max_segment_index << std::endl;
+
       return;
     }
-
-    // // if the indices are saved in a indexSet
-    //     {
-    //     segment_indices.set_size(n_inclusions());
-    //     auto particle = particles_on_centerline.begin();
-    //     unsigned int current_segment = 0;
-    //     while (particle != particles_on_centerline.end())
-    //     {
-    //       const auto &cell0 = particle->get_surrounding_cell();
-    //       const unsigned int n_pic =
-    //       particles_on_centerline.n_particles_in_cell(cell0); const auto
-    //       pic = particles_on_centerline.particles_in_cell(cell0);
-    // if (cell0->is_locally_owned())
-    //       {
-    //       for (unsigned int i = 0; i < n_pic; i++)
-    //         {
-    //           segment_indices.add_index(current_segment);
-    //         }
-    //     }
-    //       particle = pic.end();
-    //       current_segment++;
-    //     }
-
-    //     max_segment_index = current_segment;
-
-    //     std::cout << "segment_indices: ";
-    //     segment_indices.print(std::cout);
-    //     std::cout << " total: " << max_segment_index << std::endl;
-    //     return;
-    //     }
   }
 
 
   unsigned int
   get_segment_index(const types::global_dof_index &quadrature_id) const
   {
+    AssertIndexRange(get_inclusion_id(quadrature_id), n_inclusions());
     return segment_indices[get_inclusion_id(quadrature_id)];
-    // AssertIndexRange(get_inclusion_id(quadrature_id), n_inclusions());
-    // return
-    // segment_indices.nth_index_in_set(get_inclusion_id(quadrature_id));
+    // return segment_indices.nth_index_in_set(get_inclusion_id(quadrature_id));
   }
 
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
@@ -1156,7 +1152,8 @@ private:
   unsigned int              n_coefficients      = 1;
   unsigned int              offset_coefficients = 0;
   std::vector<unsigned int> selected_coefficients;
-  unsigned int              max_segment_index;
+  unsigned int              global_max_segment_index;
+  unsigned int              local_max_segment_index;
 
   /**
    * Fixed number of vector components in the coupled bulk field.
@@ -1200,9 +1197,7 @@ private:
    */
   unsigned int rtree_extraction_level = 1;
 
-  // std::vector<unsigned int> segment_indices;
-  TrilinosWrappers::MPI::Vector segment_indices;
-  // IndexSet segment_indices;
+  std::vector<unsigned int> segment_indices;
 
   /**
    * @brief Check that all vesselsID are present
