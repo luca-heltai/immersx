@@ -94,9 +94,18 @@ test(const std::vector<std::vector<double>> &inclusions,
   VectorTools::interpolate(dof_handler, Functions::Monomial{exponents}, src);
 
 
-  auto inclusions_set = Utilities::MPI::create_evenly_distributed_partitioning(
-    mpi_comm, inclusion.n_inclusions());
-  IndexSet owned_dofs = inclusions_set.tensor_product(
+  // auto inclusions_set =
+  // Utilities::MPI::create_evenly_distributed_partitioning(
+  //   mpi_comm, inclusion.n_inclusions());
+
+  auto inclusions_segment_set_vector =
+    Utilities::MPI::create_ascending_partitioning(mpi_comm,
+                                                  inclusion.n_local_segments());
+
+  auto inclusions_segment_set =
+    inclusions_segment_set_vector[Utilities::MPI::this_mpi_process(mpi_comm)];
+
+  IndexSet owned_dofs = inclusions_segment_set.tensor_product(
     complete_index_set(inclusion.get_n_coefficients()));
 
   dst.reinit(owned_dofs, relevant, mpi_comm);

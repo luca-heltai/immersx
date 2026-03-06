@@ -263,9 +263,17 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
 
   if (inclusions.n_dofs() > 0)
     {
+      // auto inclusions_segment_set =
+      //   Utilities::MPI::create_evenly_distributed_partitioning(
+      //     mpi_communicator, inclusions.n_global_segments());
+
+      auto inclusions_segment_set_vector =
+        Utilities::MPI::create_ascending_partitioning(
+          mpi_communicator, inclusions.n_local_segments());
+
       auto inclusions_segment_set =
-        Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, inclusions.n_segments());
+        inclusions_segment_set_vector[Utilities::MPI::this_mpi_process(
+          mpi_communicator)];
 
       owned_dofs[1] = inclusions_segment_set.tensor_product(
         complete_index_set(inclusions.n_dofs_per_inclusion()));
