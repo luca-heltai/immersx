@@ -1090,8 +1090,8 @@ public:
           // global_max_segment_index =
           // Utilities::MPI::max(local_max_segment_index, mpi_communicator);
         }
-      // std::cout << Utilities::MPI::this_mpi_process(mpi_communicator) << ": segment_indices: "; 
-      // for (auto i : segment_indices)
+      // std::cout << Utilities::MPI::this_mpi_process(mpi_communicator) << ":
+      // segment_indices: "; for (auto i : segment_indices)
       //   std::cout << i << " ";
       // std::cout << " total: " << local_max_segment_index << std::endl;
 
