@@ -598,7 +598,7 @@ PoissonProblem<dim, spacedim>::solve()
     prec_A.initialize(stiffness_matrix, data);
   }
   const auto amgA = linear_operator<VectorType, VectorType>(A, prec_A);
-  auto invA = inverse_operator(A, cg_stiffness, amgA);
+  auto       invA = inverse_operator(A, cg_stiffness, amgA);
 #endif
 
 
