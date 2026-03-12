@@ -1294,7 +1294,7 @@ ElasticityProblem<dim, spacedim>::solve_static()
             // VERSION 1
             // auto                          invS = S;
             // SolverFGMRES<LA::MPI::Vector> cg_schur(par.outer_control);
-            SolverMinRes<LA::MPI::Vector> cg_schur(par.schur_control);
+            SolverMinRes<LA::MPI::Vector> cg_schur(par.schur_complement_solver_control);
             // invS = inverse_operator(S, cg_schur);
             // VERSION2
             auto invS       = S;
@@ -1309,7 +1309,7 @@ ElasticityProblem<dim, spacedim>::solve_static()
 
             // Compute Lambda first
             lambda = invS * (B * invA * f - g);
-            pcout << "   Solved for lambda in " << par.schur_control.last_step()
+            pcout << "   Solved for lambda in " << par.schur_complement_solver_control.last_step()
                   << " iterations." << std::endl;
 
             // Then compute u
