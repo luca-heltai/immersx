@@ -1,0 +1,6 @@
+sphinx>=7,<9
+furo>=2024.8.6
+breathe>=4.35
+exhale>=0.3.7
+myst-parser>=3,<5
+sphinxcontrib-bibtex>=2.6
