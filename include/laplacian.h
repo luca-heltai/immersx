@@ -116,31 +116,56 @@ namespace LA
 
 
 template <int dim, int spacedim = dim>
+/**
+ * Parameter set for the immersed Poisson benchmark.
+ */
 class ProblemParameters : public ParameterAcceptor
 {
 public:
+  /**
+   * Register all parameters required by the immersed Poisson benchmark.
+   */
   ProblemParameters();
 
-  std::string                   output_directory   = ".";
-  std::string                   output_name        = "solution";
-  unsigned int                  fe_degree          = 1;
-  unsigned int                  initial_refinement = 5;
-  std::list<types::boundary_id> dirichlet_ids{0};
-  std::string                   name_of_grid        = "hyper_cube";
-  std::string                   arguments_for_grid  = "-1: 1: false";
-  std::string                   refinement_strategy = "fixed_fraction";
-  double                        coarsening_fraction = 0.0;
-  double                        refinement_fraction = 0.3;
-  unsigned int                  n_refinement_cycles = 1;
-  unsigned int                  max_cells           = 20000;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
+  /**
+   * Output, mesh, discretization, and boundary-condition settings.
+   */
+  /// @{
+  std::string                   output_directory = "."; ///< Output folder.
+  std::string                   output_name      = "solution"; ///< Output stem.
+  unsigned int                  fe_degree        = 1;          ///< FE degree.
+  unsigned int                  initial_refinement = 5; ///< Global refinements.
+  std::list<types::boundary_id> dirichlet_ids{0}; ///< Dirichlet boundary ids.
+  std::string  name_of_grid = "hyper_cube"; ///< Grid generator/input name.
+  std::string  arguments_for_grid  = "-1: 1: false";   ///< Grid arguments.
+  std::string  refinement_strategy = "fixed_fraction"; ///< Adaptivity strategy.
+  double       coarsening_fraction = 0.0;              ///< Coarsening fraction.
+  double       refinement_fraction = 0.3;              ///< Refinement fraction.
+  unsigned int n_refinement_cycles = 1;                ///< Adapt cycles.
+  unsigned int max_cells           = 20000;            ///< Cell cap.
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+    rhs; ///< RHS function.
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+    bc; ///< Dirichlet data.
+  /// @}
 
+  /**
+   * Inner/outer Krylov solver controls.
+   */
+  /// @{
   mutable ParameterAcceptorProxy<ReductionControl> inner_control;
-  mutable ParameterAcceptorProxy<ReductionControl> outer_control;
+  mutable ParameterAcceptorProxy<ReductionControl>
+    outer_control; ///< Outer solver control.
+  /// @}
 
+  /**
+   * Emit output once before linear-system solution.
+   */
   bool output_results_before_solving = false;
 
+  /**
+   * Convergence table used to report global error and timing quantities.
+   */
   mutable ParsedConvergenceTable convergence_table;
 };
 
@@ -189,25 +214,52 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
 
 
 template <int dim, int spacedim = dim>
+/**
+ * Solver for Poisson problems with reduced Lagrange multiplier coupling.
+ */
 class PoissonProblem : public Subscriptor
 {
 public:
+  /**
+   * Build the problem from parsed parameters.
+   */
   PoissonProblem(const ProblemParameters<dim, spacedim> &par);
+  /**
+   * Create or import the computational mesh.
+   */
   void
   make_grid();
+  /**
+   * Initialize finite element and quadrature objects.
+   */
   void
   setup_fe();
+  /**
+   * Distribute DoFs and initialize matrices/vectors.
+   */
   void
   setup_dofs();
 #ifndef MATRIX_FREE_PATH
+  /**
+   * Assemble the bulk Poisson matrix and forcing block.
+   */
   void
   assemble_poisson_system();
 #else
+  /**
+   * Assemble only the right-hand side when using matrix-free operators.
+   */
   void
-                        assemble_rhs();
+  assemble_rhs();
 #endif
+  /**
+   * Assemble immersed coupling matrix and multiplier right-hand side.
+   */
   void
   assemble_coupling();
+  /**
+   * Run the full solve/refinement pipeline.
+   */
   void
   run();
 
@@ -217,43 +269,102 @@ public:
   IndexSet
   assemble_coupling_sparsity(DynamicSparsityPattern &dsp) const;
 
+  /**
+   * Solve the coupled linear system.
+   */
   void
   solve();
 
+  /**
+   * Perform adaptive refinement and transfer block vectors.
+   */
   void
   refine_and_transfer();
 
+  /**
+   * Return output base filename for the current cycle.
+   */
   std::string
   output_solution() const;
 
+  /**
+   * Write current solution fields to disk.
+   */
   void
   output_results() const;
 
+  /**
+   * Print selected runtime and parameter values.
+   */
   void
   print_parameters() const;
 
 private:
-  const ProblemParameters<dim, spacedim>        &par;
-  MPI_Comm                                       mpi_communicator;
-  ConditionalOStream                             pcout;
-  mutable TimerOutput                            computing_timer;
+  /**
+   * Parsed parameter object.
+   */
+  const ProblemParameters<dim, spacedim> &par;
+  /**
+   * MPI communicator used by distributed data structures.
+   */
+  MPI_Comm mpi_communicator;
+  /**
+   * Stream that prints only on rank zero.
+   */
+  ConditionalOStream pcout;
+  /**
+   * Timer collecting wall times by section.
+   */
+  mutable TimerOutput computing_timer;
+  /**
+   * Distributed bulk triangulation.
+   */
   parallel::distributed::Triangulation<spacedim> tria;
-  std::unique_ptr<FiniteElement<spacedim>>       fe;
-  Inclusions<spacedim>                           inclusions;
-  std::unique_ptr<Quadrature<spacedim>>          quadrature;
+  /**
+   * Finite element used for the background field.
+   */
+  std::unique_ptr<FiniteElement<spacedim>> fe;
+  /**
+   * Inclusion geometry and reduced basis data.
+   */
+  Inclusions<spacedim> inclusions;
+  /**
+   * Quadrature on the background mesh.
+   */
+  std::unique_ptr<Quadrature<spacedim>> quadrature;
 
+  /**
+   * DoF metadata for the background field.
+   */
+  /// @{
   DoFHandler<spacedim>  dh;
-  std::vector<IndexSet> owned_dofs;
-  std::vector<IndexSet> relevant_dofs;
+  std::vector<IndexSet> owned_dofs;    ///< Locally-owned DoF sets per block.
+  std::vector<IndexSet> relevant_dofs; ///< Locally-relevant DoF sets per block.
+  /// @}
 
+  /**
+   * Constraints in bulk and multiplier blocks.
+   */
+  /// @{
   AffineConstraints<double> constraints;
-  AffineConstraints<double> inclusion_constraints;
+  AffineConstraints<double>
+    inclusion_constraints; ///< Inclusion multiplier constraints.
+  /// @}
 
+  /**
+   * Assembled sparse operators and mapping.
+   */
+  /// @{
   LA::MPI::SparseMatrix coupling_matrix;
-  LA::MPI::SparseMatrix inclusion_matrix;
-  LA::MPI::SparseMatrix mass_matrix;
-  MappingQ<spacedim>    mapping;
+  LA::MPI::SparseMatrix inclusion_matrix; ///< Multiplier mass/scaling matrix.
+  LA::MPI::SparseMatrix mass_matrix;      ///< Bulk mass matrix.
+  MappingQ<spacedim>    mapping; ///< Geometry mapping for coupling points.
+  /// @}
 #ifdef MATRIX_FREE_PATH
+  /**
+   * Vector and operator types for matrix-free mode.
+   */
+  /// @{
   using VectorType      = LinearAlgebra::distributed::Vector<double>;
   using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
   std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
@@ -266,17 +377,34 @@ private:
     LinearAlgebra::distributed::Vector<float>>;
   MGLevelObject<LevelMatrixType> mg_matrices;
   MGConstrainedDoFs              mg_constrained_dofs;
+  /// @}
 #else
+  /**
+   * Matrix/vector types for assembled sparse mode.
+   */
+  /// @{
   LA::MPI::SparseMatrix stiffness_matrix;
-  using VectorType      = LA::MPI::Vector;
-  using BlockVectorType = LA::MPI::BlockVector;
+  using VectorType      = LA::MPI::Vector;      ///< Monolithic vector type.
+  using BlockVectorType = LA::MPI::BlockVector; ///< Two-block vector type.
+                                                /// @}
 #endif
 
-  BlockVectorType                                 solution;
-  BlockVectorType                                 locally_relevant_solution;
-  BlockVectorType                                 system_rhs;
+  /**
+   * Solution and right-hand side vectors.
+   */
+  /// @{
+  BlockVectorType solution;
+  BlockVectorType locally_relevant_solution; ///< Ghosted solution copy.
+  BlockVectorType system_rhs;                ///< Coupled rhs vector.
+  /// @}
+  /**
+   * Process-local coverings of the background mesh for particle insertion.
+   */
   std::vector<std::vector<BoundingBox<spacedim>>> global_bounding_boxes;
-  unsigned int                                    cycle = 0;
+  /**
+   * Current adaptive-refinement cycle index.
+   */
+  unsigned int cycle = 0;
 };
 
 

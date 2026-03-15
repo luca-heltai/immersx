@@ -153,6 +153,7 @@ public:
    * Initializes the tensor product space using the provided parameters.
    *
    * @param par The parameters defining the tensor product space.
+   * @param mpi_communicator Communicator used for distributed setup.
    */
   TensorProductSpace(
     const TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>
@@ -203,7 +204,9 @@ public:
   const ReferenceCrossSection<dim - reduced_dim, spacedim, n_components> &
   get_reference_cross_section() const;
 
-
+  /**
+   * Build reduced grid and read optional reduced properties from file.
+   */
   void
   make_reduced_grid_and_properties();
 
@@ -215,18 +218,33 @@ public:
   const DoFHandler<reduced_dim, spacedim> &
   get_dof_handler() const;
 
+  /**
+   * Return lifted quadrature points owned by this rank.
+   */
   const std::vector<Point<spacedim>> &
   get_locally_owned_qpoints() const;
 
+  /**
+   * Return lifted quadrature weights owned by this rank.
+   */
   const std::vector<std::vector<double>> &
   get_locally_owned_weights() const;
 
+  /**
+   * Return reduced-manifold quadrature points owned by this rank.
+   */
   const std::vector<Point<spacedim>> &
   get_locally_owned_reduced_qpoints() const;
 
+  /**
+   * Return reduced-manifold quadrature weights owned by this rank.
+   */
   const std::vector<std::vector<double>> &
   get_locally_owned_reduced_weights() const;
 
+  /**
+   * Return reduced cross-section measures associated with local points.
+   */
   const std::vector<std::vector<double>> &
   get_locally_owned_section_measure() const;
 
@@ -241,6 +259,9 @@ public:
     const std::map<unsigned int, IndexSet> &remote_q_point_indices);
 
 
+  /**
+   * Return DoF indices associated with one reduced cell.
+   */
   const std::vector<types::global_dof_index> &
   get_dof_indices(const types::global_cell_index cell_index) const;
 
@@ -249,7 +270,7 @@ public:
    * Convert a global particle id to a global cell index, and the local
    * quadrature indices on the reduce triangulation and on the cross-section.
    *
-   * @param particle_id The global particle id.
+   * @param qpoint_index The global quadrature-point index.
    * @return std::tuple<unsigned int, unsigned int, unsigned int> cell_index,
    * q_index, qpoint_index_in_section
    */
@@ -284,27 +305,51 @@ public:
   auto
   get_quadrature() const -> const QGauss<reduced_dim> &;
 
+  /**
+   * Compute and cache lifted/reduced quadrature points and weights.
+   */
   void
   compute_points_and_weights();
 
+  /**
+   * Return distributed reduced triangulation.
+   */
   const parallel::fullydistributed::Triangulation<reduced_dim, spacedim> &
   get_triangulation() const;
 
+  /**
+   * Return the scaling associated with one reduced cell.
+   */
   double
   get_scaling(const unsigned int) const;
 
+  /**
+   * Return interpolated reduced-grid properties.
+   */
   const LinearAlgebra::distributed::Vector<double> &
   get_properties() const;
 
+  /**
+   * Return DoFHandler used to represent reduced-grid properties.
+   */
   const DoFHandler<reduced_dim, spacedim> &
   get_properties_dh() const;
 
+  /**
+   * Mutable access to the property DoFHandler.
+   */
   DoFHandler<reduced_dim, spacedim> &
   get_properties_dh();
 
+  /**
+   * Return names of reduced-grid property fields.
+   */
   const std::vector<std::string> &
   get_properties_names() const;
 
+  /**
+   * Mutable access to property field names.
+   */
   std::vector<std::string> &
   get_properties_names();
 
@@ -386,10 +431,22 @@ protected:
   std::map<types::global_cell_index, std::vector<types::global_dof_index>>
     global_cell_to_dof_indices;
 
-  std::vector<Point<spacedim>>     all_qpoints;
+  /**
+   * All quadrature points lifted in ambient coordinates.
+   */
+  std::vector<Point<spacedim>> all_qpoints;
+  /**
+   * Weights associated with all lifted quadrature points.
+   */
   std::vector<std::vector<double>> all_weights;
 
-  std::vector<Point<spacedim>>     reduced_qpoints;
+  /**
+   * Quadrature points on the reduced manifold.
+   */
+  std::vector<Point<spacedim>> reduced_qpoints;
+  /**
+   * Weights associated with reduced-manifold quadrature points.
+   */
   std::vector<std::vector<double>> reduced_weights;
 
   /**

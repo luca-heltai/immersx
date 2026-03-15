@@ -123,11 +123,13 @@ public:
   unsigned int
   max_n_basis() const;
 
+  /// Returns quadrature transformed by translation, orientation, and scale.
   Quadrature<spacedim>
   get_transformed_quadrature(const Point<spacedim>     &new_origin,
                              const Tensor<1, spacedim> &new_vertical,
                              const double               scale) const;
 
+  /// Returns number of quadrature points in the global quadrature.
   unsigned int
   n_quadrature_points() const;
 
@@ -173,7 +175,7 @@ private:
   /// Finite element space for the inclusion.
   FESystem<dim, spacedim> fe;
 
-  // Mapping space for the inclusion.
+  /// Mapping used to transform reference-cell quadrature points.
   MappingQ<dim, spacedim> mapping;
 
   /// Degree of freedom handler for the inclusion.

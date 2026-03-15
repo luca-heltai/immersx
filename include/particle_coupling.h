@@ -118,6 +118,7 @@ public:
   /**
    * Insert global points into the particle handler.
    * @param points The points to be inserted.
+   * @param properties Optional property vectors stored on inserted particles.
    * @return A map of processor to local indices corresponding to the processor
    * where the local qpoints ended up being locate w.r.t. the background grid.
    */
