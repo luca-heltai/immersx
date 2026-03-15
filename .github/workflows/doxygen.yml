@@ -1,28 +1,48 @@
-name: Doxygen
+name: Documentation
 
 on:
   push:
     branches: [ master ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Get deal.tag
+    - uses: actions/checkout@v4
+    - uses: actions/configure-pages@v5
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install system dependencies
       run: |
-        wget https://www.dealii.org/developer/doxygen/deal.tag
-        
-    - name: Build Doxygen documentation
-      uses: mattnotmitt/doxygen-action@v1.1.0
+        sudo apt-get update
+        sudo apt-get install -y doxygen graphviz
+
+    - name: Install Sphinx dependencies
+      run: pip install -r doc/requirements.txt
+
+    - name: Build documentation site
+      run: ./scripts/build_doc.sh
+
+    - uses: actions/upload-pages-artifact@v4
       with:
-        doxyfile-path: "./doc/Doxyfile"
-        working-directory: "."
-    
-    - name: Publish Doxygen documentation
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./doc/html/
+        path: build/docs/site
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      uses: actions/deploy-pages@v4
         
