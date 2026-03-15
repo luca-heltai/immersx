@@ -49,8 +49,14 @@
 
 using namespace dealii;
 
+/**
+ * Controls local refinement synchronization between bulk and embedded meshes.
+ */
 struct RefinementParameters : public ParameterAcceptor
 {
+  /**
+   * Register local refinement configuration parameters.
+   */
   RefinementParameters()
     : ParameterAcceptor("Local refinement parameters")
   {
@@ -71,13 +77,34 @@ struct RefinementParameters : public ParameterAcceptor
     this->add_parameter("Max refinement level", max_refinement_level);
   }
 
-  std::string  refinement_strategy             = "space";
-  unsigned int space_post_refinement_cycles    = 0;
+  /**
+   * Select whether space or embedded grid drives refinement.
+   */
+  std::string refinement_strategy = "space";
+  /**
+   * Number of global post-refinement cycles for the space grid.
+   */
+  unsigned int space_post_refinement_cycles = 0;
+  /**
+   * Number of global post-refinement cycles for the embedded grid.
+   */
   unsigned int embedded_post_refinement_cycles = 0;
-  unsigned int space_pre_refinement_cycles     = 0;
-  unsigned int embedded_pre_refinement_cycles  = 0;
-  double       refinement_factor               = 1.0;
-  int          max_refinement_level            = 10;
+  /**
+   * Number of global pre-refinement cycles for the space grid.
+   */
+  unsigned int space_pre_refinement_cycles = 0;
+  /**
+   * Number of global pre-refinement cycles for the embedded grid.
+   */
+  unsigned int embedded_pre_refinement_cycles = 0;
+  /**
+   * Target ratio between intersecting cell diameters.
+   */
+  double refinement_factor = 1.0;
+  /**
+   * Hard cap on local refinement level.
+   */
+  int max_refinement_level = 10;
 };
 
 template <int dim, int spacedim>

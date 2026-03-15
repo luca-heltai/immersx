@@ -74,7 +74,7 @@ PROJECT_ICON           =
 # entered, it will be relative to the location where Doxygen was started. If
 # left blank the current directory will be used.
 
-OUTPUT_DIRECTORY       = ./doc
+OUTPUT_DIRECTORY       = ./build
 
 # If the CREATE_SUBDIRS tag is set to YES then Doxygen will create up to 4096
 # sub-directories (in 2 levels) under the output directory of each output format
@@ -180,7 +180,7 @@ FULL_PATH_NAMES        = YES
 # will be relative from the directory where Doxygen is started.
 # This tag requires that the tag FULL_PATH_NAMES is set to YES.
 
-STRIP_FROM_PATH        = @PROJECT_SOURCE_DIR@
+STRIP_FROM_PATH        = .
 
 # The STRIP_FROM_INC_PATH tag can be used to strip a user-defined part of the
 # path mentioned in the documentation of a class, which tells the reader which
@@ -205,7 +205,7 @@ SHORT_NAMES            = NO
 # description.)
 # The default value is: NO.
 
-JAVADOC_AUTOBRIEF      = NO
+JAVADOC_AUTOBRIEF      = YES
 
 # If the JAVADOC_BANNER tag is set to YES then Doxygen will interpret a line
 # such as
@@ -223,7 +223,7 @@ JAVADOC_BANNER         = NO
 # requiring an explicit \brief command for a brief description.)
 # The default value is: NO.
 
-QT_AUTOBRIEF           = NO
+QT_AUTOBRIEF           = YES
 
 # The MULTILINE_CPP_IS_BRIEF tag can be set to YES to make Doxygen treat a
 # multi-line C++ special comment block (i.e. a block of //! or /// comments) as
@@ -957,7 +957,8 @@ WARN_LOGFILE           =
 
 INPUT                  = ./source \
                          ./include \
-                         ./README.md
+                         ./README.md \
+                         ./COUPLED_PROBLEM.md
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses
@@ -1003,7 +1004,7 @@ FILE_PATTERNS          =
 # be searched for input files as well.
 # The default value is: NO.
 
-RECURSIVE              = NO
+RECURSIVE              = YES
 
 # The EXCLUDE tag can be used to specify files and/or directories that should be
 # excluded from the INPUT source files. This way you can easily exclude a
@@ -1012,7 +1013,7 @@ RECURSIVE              = NO
 # Note that relative paths are relative to the directory from which Doxygen is
 # run.
 
-EXCLUDE                =
+EXCLUDE                = ./include/fvm
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded
@@ -1036,7 +1037,22 @@ EXCLUDE_PATTERNS       =
 # wildcard * is used, a substring. Examples: ANamespace, AClass,
 # ANamespace::AClass, ANamespace::*Test
 
-EXCLUDE_SYMBOLS        =
+EXCLUDE_SYMBOLS        = FORCE_USE_OF_TRILINOS \
+                         dealii \
+                         LA \
+                         RepartitioningPolicyTools \
+                         std \
+                         output_double_number \
+                         preprocess_serial_triangulation \
+                         set_partitioner \
+                         fft \
+                         fftMagnitude \
+                         fftMagdB \
+                         fftPhase \
+                         predictorfd_ \
+                         dgetrf_ \
+                         dgetri_ \
+                         dgesv_
 
 # The EXAMPLE_PATH tag can be used to specify one or more files or directories
 # that contain example code fragments that are included (see the \include
@@ -1248,7 +1264,7 @@ IGNORE_PREFIX          =
 # If the GENERATE_HTML tag is set to YES, Doxygen will generate HTML output
 # The default value is: YES.
 
-GENERATE_HTML          = YES
+GENERATE_HTML          = NO
 
 # The HTML_OUTPUT tag is used to specify where the HTML docs will be put. If a
 # relative path is entered the value of OUTPUT_DIRECTORY will be put in front of
@@ -1256,7 +1272,7 @@ GENERATE_HTML          = YES
 # The default directory is: html.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_OUTPUT            = html
+HTML_OUTPUT            = docs-html
 
 # The HTML_FILE_EXTENSION tag can be used to specify the file extension for each
 # generated HTML page (for example: .htm, .php, .asp).
@@ -2212,7 +2228,7 @@ MAN_LINKS              = NO
 # captures the structure of the code including all documentation.
 # The default value is: NO.
 
-GENERATE_XML           = NO
+GENERATE_XML           = YES
 
 # The XML_OUTPUT tag is used to specify where the XML pages will be put. If a
 # relative path is entered the value of OUTPUT_DIRECTORY will be put in front of
@@ -2220,7 +2236,7 @@ GENERATE_XML           = NO
 # The default directory is: xml.
 # This tag requires that the tag GENERATE_XML is set to YES.
 
-XML_OUTPUT             = xml
+XML_OUTPUT             = docs-xml
 
 # If the XML_PROGRAMLISTING tag is set to YES, Doxygen will dump the program
 # listings (including syntax highlighting and cross-referencing information) to
@@ -2428,7 +2444,7 @@ SKIP_FUNCTION_MACROS   = YES
 # the path). If a tag file is not located in the directory in which Doxygen is
 # run, you must also specify the path to the tagfile here.
 
-TAGFILES               = deal.tag=http://www.dealii.org/developer/doxygen/deal.II
+TAGFILES               =
 
 # When a file name is specified after GENERATE_TAGFILE, Doxygen will create a
 # tag file that is based on the input files it reads. See section "Linking to
@@ -2717,7 +2733,7 @@ INTERACTIVE_SVG        = NO
 # found. If left blank, it is assumed the dot tool can be found in the path.
 # This tag requires that the tag HAVE_DOT is set to YES.
 
-DOT_PATH               = @DOXYGEN_DOT_PATH@
+DOT_PATH               =
 
 # The DOTFILE_DIRS tag can be used to specify one or more directories that
 # contain dot files that are included in the documentation (see the \dotfile

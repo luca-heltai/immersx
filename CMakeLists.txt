@@ -222,17 +222,21 @@ IF(ENABLE_GOOGLE_TESTING)
   endif ()
 ENDIF()
 
-# Doxygen
-IF(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in)
-  find_package(Doxygen)
-  if(DOXYGEN_FOUND)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
-    add_custom_target(doc
-    ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Generating API documentation with Doxygen" VERBATIM)
-    MESSAGE("-- Configured Doxygen")
-  endif(DOXYGEN_FOUND)
+# Documentation site
+find_package(Doxygen QUIET)
+find_program(SPHINX_EXECUTABLE NAMES sphinx-build)
+
+if(DOXYGEN_FOUND AND SPHINX_EXECUTABLE)
+  add_custom_target(doc
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_doc.sh
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Generating documentation site with Doxygen and Sphinx"
+    VERBATIM)
+  add_custom_target(doc-site DEPENDS doc)
+  message(STATUS "Configured documentation site target")
+else()
+  message(STATUS
+    "Documentation site target disabled. Required tools: doxygen, sphinx-build.")
 endif()
 
 add_custom_target(indent ./scripts/indent WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

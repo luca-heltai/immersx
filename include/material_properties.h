@@ -23,8 +23,14 @@
 
 using namespace dealii;
 
+/**
+ * Material constants and derived elastic moduli used by the bulk model.
+ */
 struct MaterialProperties : public ParameterAcceptor
 {
+  /**
+   * Construct and register one material-parameter subsection.
+   */
   MaterialProperties(const std::string &material_tag = "default")
     : ParameterAcceptor("/Immersed Problem/Material properties/" +
                         material_tag + "/")
@@ -53,17 +59,50 @@ struct MaterialProperties : public ParameterAcceptor
     });
   }
 
-  std::string material_tag    = "default";
-  double      Lame_mu         = 1.0;
-  double      Lame_lambda     = 1.0;
-  double      rho             = 0.0;
-  double      neta            = 0.0;
-  double      rayleigh_alpha  = 0.0;
-  double      rayleigh_beta   = 0.0;
-  double      elastic_modulus = 0.0;
-  double      poisson_ratio   = 0.0;
-  double      bulk_modulus    = 0.0;
-  double      shear_modulus   = 0.0;
+  /**
+   * User-facing material identifier used in parameter subsections.
+   */
+  std::string material_tag = "default";
+  /**
+   * First Lame parameter \f$\mu\f$.
+   */
+  double Lame_mu = 1.0;
+  /**
+   * Second Lame parameter \f$\lambda\f$.
+   */
+  double Lame_lambda = 1.0;
+  /**
+   * Mass density.
+   */
+  double rho = 0.0;
+  /**
+   * Kelvin-Voigt viscosity coefficient.
+   */
+  double neta = 0.0;
+  /**
+   * Rayleigh damping mass coefficient.
+   */
+  double rayleigh_alpha = 0.0;
+  /**
+   * Rayleigh damping stiffness coefficient.
+   */
+  double rayleigh_beta = 0.0;
+  /**
+   * Derived Young's modulus.
+   */
+  double elastic_modulus = 0.0;
+  /**
+   * Derived Poisson ratio.
+   */
+  double poisson_ratio = 0.0;
+  /**
+   * Derived bulk modulus.
+   */
+  double bulk_modulus = 0.0;
+  /**
+   * Derived shear modulus.
+   */
+  double shear_modulus = 0.0;
 };
 
 #endif
