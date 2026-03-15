@@ -17,9 +17,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
     - uses: actions/checkout@v5
@@ -44,8 +41,16 @@ jobs:
       with:
         path: build/docs/site
 
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
     - name: Deploy to GitHub Pages
       id: deployment
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       uses: actions/deploy-pages@v4
         
