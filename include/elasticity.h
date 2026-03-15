@@ -525,7 +525,8 @@ public:
   solve_newmark();
 
   /**
-   * Mark cells for refinement according to deal.ii routines fixed_number, fixed_fraction or global.
+   * Mark cells for refinement according to deal.ii routines fixed_number,
+   * fixed_fraction or global.
    */
   void
   refine_and_transfer();
@@ -537,7 +538,9 @@ public:
   refine_and_transfer_around_inclusions();
 
   /**
-   * Execute the pending refinement/coarsening and transfer on the cells marked by either "refine_and_transfer()" or "refine_and_transfer_around_inclusions()"
+   * Execute the pending refinement/coarsening and transfer on the cells marked
+   * by either "refine_and_transfer()" or
+   * "refine_and_transfer_around_inclusions()"
    */
   void
   execute_actual_refine_and_transfer();
