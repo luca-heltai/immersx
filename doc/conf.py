@@ -19,7 +19,6 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "html"]
 
 html_theme = "furo"
 html_title = project
-html_static_path = ["_static"]
 html_theme_options = {
     "source_repository": "https://github.com/luca-heltai/reduced_lagrange_multipliers/",
     "source_branch": "master",
