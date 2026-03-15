@@ -1,83 +1,61 @@
-Reduced Lagrange Multipliers Method
-===================================
+# Reduced Lagrange Multipliers
 
 ![GitHub CI](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/tests.yml/badge.svg)
 ![Documentation](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/doxygen.yml/badge.svg)
 ![Indent](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/indentation.yml/badge.svg)
 
-This repository implements the Reduced Lagrange Multiplier method for non-matching coupling of mixed-dimensional domains, as described in the paper:
-
-**Reduced Lagrange multiplier approach for non-matching coupling of mixed-dimensional domains**  
-Authors: Luca Heltai, Paolo Zunino  
-Published in *Mathematical Models and Methods in Applied Sciences* (2023)  
-DOI: [10.1142/S0218202523500525](https://dx.doi.org/10.1142/S0218202523500525)
+This repository contains C++ implementations of reduced Lagrange multiplier methods for mixed-dimensional coupling problems, built on top of [deal.II](https://www.dealii.org).
 
 ## Overview
 
-In many physical problems, especially those involving heterogeneous spatial scales, we encounter coupled partial differential equations (PDEs) defined on domains of different dimensions embedded into each other. Examples include:
+The codebase is centered on:
 
-- Flow through fractured porous media
-- Fiber-reinforced materials
-- Modeling small circulation in biological tissues
+- bulk elasticity and Poisson solvers with immersed coupling;
+- reduced-order coupling operators and tensor-product spaces;
+- benchmark parameter sets and coupled workflows built around `deal.II`.
 
-This repository provides a computational framework for coupling PDEs across dimensions using a reduced Lagrange multiplier approach. The method ensures stability and robustness, with particular attention to the smallest characteristic length of the embedded domain.
-
-## Features
-
-- **General Mathematical Framework**: This framework provides tools for analyzing and approximating coupled PDEs across different dimensions.
-- **Non-Matching Coupling**: The method applies to non-matching interfaces, where coupling constraints are enforced via Lagrange multipliers.
-- **Dimensionality Reduction**: Supports model reduction techniques that simplify complex 3D problems into more tractable ones by working in lower-dimensional spaces, and employing a *reduced Lagrange multiplier* space.
-- **Inf-Sup Stability**: Ensures stable and robust numerical solutions across a range of configurations and mesh sizes.
-
-## Installation
-
-To use this code, you need a working deal.II version (at least version 9.5). Clone the repository and run the following commands:
+## Quick Start
 
 ```bash
-git clone https://github.com/luca-heltai/reduced_lagrange_multiplier.git
-cd reduced_lagrange_multiplier
-mkdir build
+mkdir -p build
 cd build
 cmake -DDEAL_II_DIR=/path/to/deal.II ..
-make
+cmake --build . -j
+./elasticity path/to/input.prm
+cd ..
+python3 -m pip install -r doc/requirements.txt
+./scripts/build_doc.sh
 ```
 
-## Online documentation
+## Repository Layout
 
-The documentation is built and deployed at each merge to master. You can
-find the latest documentation here:
+- `include/`, `source/`: library headers and implementations.
+- `apps/`: executable entry points derived from `app_*.cc`.
+- `tests/`, `gtests/`: regression and GoogleTest-based test suites.
+- `doc/`: Doxygen and Sphinx source for the published documentation site.
+- `scripts/`: helper scripts, including `scripts/build_doc.sh`.
+- `prms/`, `benchmarks/`: parameter files, meshes, and benchmark assets.
+- `blood/`: auxiliary 1D hemodynamics code and data used by coupled workflows.
 
-<https://luca-heltai.github.io/reduced_lagrange_multipliers/>
+## Notes
 
-Licence
-=======
+- This repository may contain large benchmark/data files and local experiment artifacts.
+- Some coupled-elasticity paths depend on an external `lib1dsolver` library and related inputs under `blood/`.
 
-See the file [LICENSE.md](./LICENSE.md) for details
+## Coupled 3D/1D workflow
 
-## USE OF COUPLED ELASTICITY
-=========================
+For setup/build/run notes specific to the coupled elasticity problem, see
+`COUPLED_PROBLEM.md`.
 
-### Install FVM(1D)
+## References
 
-- Clone the fvm repo
-- run docker: `docker run -ti -v ./:/fvm --platform linux/amd64 dealii/dealii:v9.6.0-jammy`
-- `cd /fvm/`
-- `make -f MakefileGCCDesktop clean all`
+- Giovanni Alzetta and Luca Heltai, *Multiscale modeling of fiber reinforced materials via non-matching immersed methods*, Computers & Structures, 239 (2020), 106334. DOI: <https://doi.org/10.1016/j.compstruc.2020.106334>
+- Camilla Belponer, Alfonso Caiazzo, and Luca Heltai, *Mixed-dimensional modeling of vascular tissues with reduced Lagrange multipliers* (2025). Local PDF: `doc/papers/2309.06797v2.pdf`
+- Luca Heltai and Alfonso Caiazzo, *Multiscale modeling of vascularized tissues via nonmatching immersed methods*, International Journal for Numerical Methods in Biomedical Engineering, 35(12) (2019), e3264. DOI: <https://doi.org/10.1002/cnm.3264>
+- Luca Heltai, Alfonso Caiazzo, and Lucas O. Muller, *Multiscale Coupling of One-dimensional Vascular Models and Elastic Tissues*, Annals of Biomedical Engineering, 49 (2021), 3243-3254. DOI: <https://doi.org/10.1007/s10439-021-02804-0>
+- Luca Heltai and Paolo Zunino, *Reduced Lagrange multiplier approach for non-matching coupling of mixed-dimensional domains*, Mathematical Models and Methods in Applied Sciences, 33(12) (2023), 2425-2462. DOI: <https://doi.org/10.1142/S0218202523500525>
+- Yashasvi Verma, Jakob Schattenfroh, Ingolf Sack, Silvia Budday, Paul Steinmann, and Luca Heltai, *Simulation Platform to Evaluate Inversion Techniques for Magnetic Resonance Elastography Data* (2026).
 
-### Compile the coupled code
+## License
 
-- create the `build` directory with cmake `cmake -DCMAKE_CXX_FLAGS=-fopenmp .` (this includes OMP, necessary for the 1D)
-- `cd build`
-- compile with `ninja -jX` (X = number of proc)
-
-
-
-run in parallel as
-
-export OMP_NUM_THREADS=1
-
-mpirun -np n ./build/coupled_elasticity_debug <path_to_input_3d> <path_to_input_1d> <couplingSampling> <couplingStart> 0
-if we only want the the 1D simulation then set coupling Start to 100
-if we only want the 3D Simulation then only give <path_to_input_3d>
-
-random error "invalid template argument" solved by changing the order od #include in app_*
+See `LICENSE.md`.

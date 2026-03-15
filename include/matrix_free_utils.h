@@ -52,6 +52,9 @@ template <int dim, typename number, int n_components = 1>
 class CouplingOperator
 {
 public:
+  /**
+   * Distributed vector type used by matrix-free operator application.
+   */
   using VectorType = LinearAlgebra::distributed::Vector<number>;
 
   /**
@@ -66,30 +69,66 @@ public:
     const MappingQ<dim>             &mapping     = MappingQ1<dim>(),
     const FiniteElement<dim>        &fe          = FE_Q<dim>(1));
 
+  /**
+   * Initialize a vector with the layout expected by this operator.
+   */
   void
   initialize_dof_vector(VectorType &vec) const;
 
+  /**
+   * Apply the coupling operator.
+   */
   void
   vmult(VectorType &dst, const VectorType &src) const;
 
+  /**
+   * Apply the transpose coupling operator.
+   */
   void
   Tvmult(VectorType &dst, const VectorType &src) const;
 
+  /**
+   * Add the operator action to an existing destination vector.
+   */
   void
   vmult_add(VectorType &dst, const VectorType &src) const;
 
+  /**
+   * Add the transpose operator action to an existing destination vector.
+   */
   void
   Tvmult_add(VectorType &dst, const VectorType &src) const;
 
 
 private:
-  Utilities::MPI::RemotePointEvaluation<dim>       rpe;
-  ObserverPointer<const Mapping<dim>>              mapping;
-  ObserverPointer<const FiniteElement<dim>>        fe;
-  ObserverPointer<const DoFHandler<dim>>           dof_handler;
-  ObserverPointer<const Inclusions<dim>>           inclusions;
+  /**
+   * Remote point-evaluation backend used to map points to cells.
+   */
+  Utilities::MPI::RemotePointEvaluation<dim> rpe;
+  /**
+   * Mapping used to evaluate basis functions at remote points.
+   */
+  ObserverPointer<const Mapping<dim>> mapping;
+  /**
+   * Finite element used by the coupled background field.
+   */
+  ObserverPointer<const FiniteElement<dim>> fe;
+  /**
+   * DoF handler associated with the background field.
+   */
+  ObserverPointer<const DoFHandler<dim>> dof_handler;
+  /**
+   * Inclusion geometry and reduced-basis data.
+   */
+  ObserverPointer<const Inclusions<dim>> inclusions;
+  /**
+   * Constraints applied after matrix-free operator evaluation.
+   */
   ObserverPointer<const AffineConstraints<number>> constraints;
-  const unsigned int                               n_coefficients;
+  /**
+   * Number of reduced coefficients per inclusion.
+   */
+  const unsigned int n_coefficients;
 };
 
 

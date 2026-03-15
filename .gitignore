@@ -48,9 +48,14 @@ execute/*
 compile_commands.json
 */.DS_Store
 .cache/
+env/
 
 # Documentation
 doc/html/*
+doc/xml/*
+build/docs/
+site/
+doc/api/
 .aider*
 .env
 
