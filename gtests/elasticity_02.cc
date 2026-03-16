@@ -137,11 +137,12 @@ TEST(ElasticityTest, MultiInclusionsInCell)
   set Enable computation of the errors = false
 end
 subsection Immersed Problem
-  set Dirichlet boundary ids             = 0
-  set Initial refinement                 = 3
+  set Dirichlet boundary ids             = 2,3,4,5
+  set Initial refinement                 = 4
+  set Normal flux boundary ids           = 0,1
   set Output name                        = MultiInclusionsInCell
   subsection Grid generation
-    set Grid generator arguments = -2:2:false
+    set Grid generator arguments = -2:2:true
   end
   subsection Immersed inclusions
     set Inclusions file                     = ../data/tests/cylinder_x.txt
