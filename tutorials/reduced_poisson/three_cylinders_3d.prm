@@ -1,3 +1,81 @@
+subsection Reduced Poisson
+  set Assemble full AL system            = false
+  set Dirichlet boundary ids             = 0
+  set FE degree                          = 1
+  set Output directory                   = ./output/reduced_poisson_three_cylinders
+  set Output name                        = three_cylinders
+  set Output results also before solving = false
+  set Solver type                        = AL
+  subsection Dirichlet boundary conditions
+    set Function constants  =
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 20000
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_fraction
+  end
+  subsection Right hand side
+    set Function constants  =
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Solver
+    subsection Inner control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-10
+    end
+    subsection Outer control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-10
+    end
+  end
+end
+subsection Reduced coupling
+  subsection Cross section
+    set Inclusion type           = hyper_ball
+    set Maximum inclusion degree = 0
+    set Refinement level         = 3
+    set Selected indices         =
+  end
+  subsection Local refinement parameters
+    set Embedded post-refinement cycles = 0
+    set Embedded pre-refinement cycles  = 0
+    set Max refinement level            = 10
+    set Refinement factor               = 1
+    set Refinement strategy             = space
+    set Space post-refinement cycles    = 1
+    set Space pre-refinement cycles     = 3
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Finite element degree            = 1
+    set Number of quadrature points      = 0
+    set Number of quadrature repetitions = 32
+    set Quadrature type                  = trapez
+    set Reduced grid name                = ../data/three_cylinders_R005.vtk
+    set Reduced right hand side          = 1
+    set Thickness                        = 0.2
+    set Thickness field name             =
+  end
+end
 subsection Error
   set Enable computation of the errors = true
   set Error file name                  =
@@ -7,71 +85,4 @@ subsection Error
   set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
   set Rate key                         = dofs
   set Rate mode                        = reduction_rate_log2
-end
-
-subsection Reduced Poisson
-  set FE degree = 1
-  set Dirichlet boundary ids = 0
-  set Output directory = ./output/reduced_poisson_three_cylinders
-  set Output name = three_cylinders
-  set Output results also before solving = false
-  set Solver type = AL
-  set Assemble full AL system = false
-
-  subsection Grid generation
-    set Grid generator = hyper_cube
-    set Grid generator arguments = -1: 1: false
-  end
-
-  subsection Refinement and remeshing
-    set Strategy = fixed_fraction
-    set Coarsening fraction = 0.0
-    set Refinement fraction = 0.2
-    set Maximum number of cells = 30000
-    set Number of refinement cycles = 1
-  end
-
-  subsection Right hand side
-    set Function constants =
-    set Function expression = 0
-    set Variable names = x,y,z,t
-  end
-
-  subsection Dirichlet boundary conditions
-    set Function constants =
-    set Function expression = 0
-    set Variable names = x,y,z,t
-  end
-end
-
-subsection Reduced coupling
-  subsection Cross section
-    set Inclusion type = hyper_ball
-    set Maximum inclusion degree = 0
-    set Refinement level = 2
-    set Selected indices = 0
-  end
-
-  subsection Local refinement parameters
-    set Embedded post-refinement cycles = 0
-    set Embedded pre-refinement cycles = 0
-    set Max refinement level = 10
-    set Refinement factor = 1
-    set Refinement strategy = embedded
-    set Space post-refinement cycles = 0
-    set Space pre-refinement cycles = 0
-  end
-
-  subsection Particle coupling
-    set RTree extraction level = 1
-  end
-
-  subsection Representative domain
-    set Finite element degree = 1
-    set Number of quadrature points = 3
-    set Reduced grid name = data/three_cylinders_R005.vtk
-    set Reduced right hand side = 1
-    set Thickness = 0.05
-    set Thickness field name =
-  end
 end
