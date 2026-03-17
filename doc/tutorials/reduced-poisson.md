@@ -415,6 +415,12 @@ For this class of example:
 - use adaptive bulk refinement only after the geometry and solver settings are
   stable.
 
+```{image} assets/reduced_poisson_medium_tree.png
+:alt: ReducedPoisson medium-tree tutorial example
+:width: 70%
+:align: center
+```
+
 ## How To Read A ReducedPoisson Parameter File
 
 A good reading order is:
