@@ -1,18 +1,9 @@
-subsection Error
-  set Enable computation of the errors = true
-  set Error file name                  =
-  set Error precision                  = 3
-  set Exponent for p-norms             = 2
-  set Extra columns                    = cells, dofs
-  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
-  set Rate key                         = dofs
-  set Rate mode                        = reduction_rate_log2
-end
 subsection Reduced Poisson
+  set Assemble full AL system            = false
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
-  set Output directory                   = ../data/tests/tests_results
-  set Output name                        = reduced_poisson_01_one_cylinder
+  set Output directory                   = ./output/reduced_poisson_three_cylinders
+  set Output name                        = three_cylinders
   set Output results also before solving = false
   set Solver type                        = AL
   subsection Dirichlet boundary conditions
@@ -22,7 +13,7 @@ subsection Reduced Poisson
   end
   subsection Grid generation
     set Grid generator           = hyper_cube
-    set Grid generator arguments = 0: 1: false
+    set Grid generator arguments = -1: 1: false
   end
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
@@ -42,7 +33,7 @@ subsection Reduced Poisson
       set Log history   = false
       set Log result    = true
       set Max steps     = 100
-      set Reduction     = 1.e-2
+      set Reduction     = 1.e-10
       set Tolerance     = 1.e-10
     end
     subsection Outer control
@@ -58,26 +49,40 @@ end
 subsection Reduced coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
-    set Maximum inclusion degree = 1
+    set Maximum inclusion degree = 0
     set Refinement level         = 3
     set Selected indices         =
+  end
+  subsection Local refinement parameters
+    set Embedded post-refinement cycles = 0
+    set Embedded pre-refinement cycles  = 0
+    set Max refinement level            = 10
+    set Refinement factor               = 1
+    set Refinement strategy             = space
+    set Space post-refinement cycles    = 1
+    set Space pre-refinement cycles     = 3
   end
   subsection Particle coupling
     set RTree extraction level = 1
   end
   subsection Representative domain
-    set Finite element degree   = 1
-    set Thickness               = 0.1
-    set Reduced grid name       = ../data/tests/one_cylinder.vtk
-    set Reduced right hand side = 1; 0; 0 
+    set Finite element degree            = 1
+    set Number of quadrature points      = 0
+    set Number of quadrature repetitions = 32
+    set Quadrature type                  = trapez
+    set Reduced grid name                = ../data/three_cylinders_R005.vtk
+    set Reduced right hand side          = 1
+    set Thickness                        = 0.2
+    set Thickness field name             =
   end
-  subsection Local refinement parameters
-    set Refinement strategy              = space
-    set Space pre-refinement cycles      = 4
-    set Space post-refinement cycles     = 0
-    set Embedded post-refinement cycles  = 0
-    set Embedded pre-refinement cycles   = 3
-    set Refinement factor                = 1.0
-    set Max refinement level             = 10
-  end
+end
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  =
+  set Error precision                  = 3
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
 end

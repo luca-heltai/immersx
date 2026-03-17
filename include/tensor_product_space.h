@@ -91,6 +91,14 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   unsigned int fe_degree = 1;
 
   /**
+   * Type of 1D quadrature used to build the reduced-domain rule.
+   *
+   * This is passed to dealii::QuadratureSelector and then repeated through
+   * QIterated on each reduced cell.
+   */
+  std::string quadrature_type = "gauss";
+
+  /**
    * Number of quadrature points to be used in the reduced domain.
    *
    * This parameter controls the accuracy of the numerical integration
@@ -99,6 +107,14 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    * degree.
    */
   unsigned int n_q_points = 0;
+
+  /**
+   * Number of times to repeat the reduced-domain quadrature formula.
+   *
+   * A value of 1 keeps the standard Gauss rule. Larger values build an
+   * iterated Gauss quadrature on each reduced cell.
+   */
+  unsigned int n_quadrature_repetitions = 1;
 
   /**
    * Thickness of the inclusion.
@@ -303,7 +319,7 @@ public:
    * @return A constant reference to the quadrature formula.
    */
   auto
-  get_quadrature() const -> const QGauss<reduced_dim> &;
+  get_quadrature() const -> const Quadrature<reduced_dim> &;
 
   /**
    * Compute and cache lifted/reduced quadrature points and weights.
@@ -415,7 +431,7 @@ protected:
   /**
    * The quadrature formula used for integration in the reduced domain.
    */
-  QGauss<reduced_dim> quadrature_formula;
+  Quadrature<reduced_dim> quadrature_formula;
 
   /**
    * The DoFHandler for the reduced domain.

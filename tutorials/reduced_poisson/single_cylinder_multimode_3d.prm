@@ -1,21 +1,11 @@
-subsection Error
-  set Enable computation of the errors = true
-  set Error file name                  =
-  set Error precision                  = 3
-  set Exponent for p-norms             = 2
-  set Extra columns                    = cells, dofs
-  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
-  set Rate key                         = dofs
-  set Rate mode                        = reduction_rate_log2
-end
 subsection Reduced Poisson
   set Assemble full AL system            = false
-  set Dirichlet boundary ids             = 0,1,2,3
+  set Dirichlet boundary ids             = 0,1,2,3,4
   set FE degree                          = 1
-  set Output directory                   = .
-  set Output name                        = reduced_poisson_01_one_cylinder
+  set Output directory                   = ./output/reduced_poisson_single_cylinder_multimode
+  set Output name                        = single_cylinder_multimode
   set Output results also before solving = false
-  set Solver type                        = AL
+  set Solver type                        = Schur
   subsection Dirichlet boundary conditions
     set Function constants  =
     set Function expression = 0
@@ -26,7 +16,7 @@ subsection Reduced Poisson
     set Grid generator arguments = 0: 1: true
   end
   subsection Refinement and remeshing
-    set Coarsening fraction         = 0
+    set Coarsening fraction         = 0.0
     set Maximum number of cells     = 20000
     set Number of refinement cycles = 1
     set Refinement fraction         = 0.3
@@ -42,45 +32,56 @@ subsection Reduced Poisson
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 100
-      set Reduction     = 1.e-8
-      set Tolerance     = 1.e-2
+      set Max steps     = 200
+      set Reduction     = 1e-10
+      set Tolerance     = 1e-12
     end
     subsection Outer control
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 100
-      set Reduction     = 1.e-8
-      set Tolerance     = 1.e-8
+      set Max steps     = 200
+      set Reduction     = 1e-10
+      set Tolerance     = 1e-12
     end
   end
 end
 subsection Reduced coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
-    set Maximum inclusion degree = 0
-    set Refinement level         = 5
-    set Selected indices         =
+    set Maximum inclusion degree = 1
+    set Refinement level         = 3
+    set Selected indices         = 0, 1, 2
   end
   subsection Local refinement parameters
-    set Refinement strategy             = space
-    set Space pre-refinement cycles     = 4
+    set Embedded post-refinement cycles = 0
     set Embedded pre-refinement cycles  = 4
     set Max refinement level            = 10
     set Refinement factor               = 1
-    set Space post-refinement cycles    = 0
-    set Embedded post-refinement cycles = 0
+    set Refinement strategy             = space
+    set Space post-refinement cycles    = 1
+    set Space pre-refinement cycles     = 3
   end
   subsection Particle coupling
     set RTree extraction level = 1
   end
   subsection Representative domain
     set Finite element degree       = 1
-    set Number of quadrature points = 32
-    set Reduced grid name           =
-    set Reduced right hand side     = 1
-    set Thickness                   = 0.1
+    set Quadrature type             = trapez
+    set Number of quadrature repetitions = 3
+    set Reduced grid name           = ../data/tests/one_cylinder.vtk
+    set Reduced right hand side     = 1; 1; 2
+    set Thickness                   = 0.05
     set Thickness field name        =
   end
+end
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  =
+  set Error precision                  = 3
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
 end
