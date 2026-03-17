@@ -83,13 +83,12 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   , triangulation(mpi_communicator)
   , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
        reference_cross_section.n_selected_basis())
-  , quadrature_formula(
-      QIterated<reduced_dim>(
-        QuadratureSelector<1>(par.quadrature_type,
-                              quadrature_selector_order(par.quadrature_type,
-                                                        par.n_q_points,
-                                                        par.fe_degree)),
-                             par.n_quadrature_repetitions))
+  , quadrature_formula(QIterated<reduced_dim>(
+      QuadratureSelector<1>(par.quadrature_type,
+                            quadrature_selector_order(par.quadrature_type,
+                                                      par.n_q_points,
+                                                      par.fe_degree)),
+      par.n_quadrature_repetitions))
   , dof_handler(triangulation)
   , properties_dh(triangulation)
 {}

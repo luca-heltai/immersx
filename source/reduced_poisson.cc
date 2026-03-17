@@ -35,8 +35,8 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include <type_traits>
 #  include <filesystem>
+#  include <type_traits>
 
 #  include "augmented_lagrangian_preconditioner.h"
 #  include "reduced_poisson.h"
