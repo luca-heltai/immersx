@@ -155,13 +155,7 @@ The entry point is `apps/app_reduced_poisson.cc`.
 After building the project, run:
 
 ```bash
-./build/reduced_poisson path/to/input.prm
-```
-
-or, depending on your build layout:
-
-```bash
-./build/app_reduced_poisson path/to/input.prm
+./build/reduced_poisson[_debug] ../tutorials/reduced_poisson/<input_file.prm>
 ```
 
 The program decides whether to instantiate the 2D or 3D version from the
@@ -177,8 +171,8 @@ name 3D input files something like `my_case_3d.prm`.
 
 Each run writes:
 
-- a bulk solution file such as `solution_0.vtu`;
-- a particle/interface file such as `solution_particles_0.vtu`;
+- a bulk solution file for each cycle such as `solution_0.vtu`;
+- a particle/interface file for each cycle such as `solution_particles_0.vtu`;
 - a `.pvd` collection for both outputs;
 - a dumped parameter file `used_parameters_*.prm`.
 
@@ -229,14 +223,20 @@ augmented-Lagrangian preconditioned solve.
 
 ### Reduced coupling
 
-The reduced interface data come from the `Reduced coupling` subtree:
+The reduced interface data comes from the `Reduced coupling` subtree:
 
 - `Representative domain/Reduced grid name`: the VTK file containing the
   reduced geometry.
 - `Representative domain/Finite element degree`: FE degree along the reduced
   manifold $\gamma$.
+- `Representative domain/Quadrature type`: 1D quadrature family used by
+  `QuadratureSelector` before applying the iterated rule. The default is
+  `gauss`.
 - `Representative domain/Number of quadrature points`: quadrature order on
   $\gamma$.
+- `Representative domain/Number of quadrature repetitions`: how many times to
+  repeat the reduced-cell Gauss quadrature. The default value `1` keeps the
+  standard Gauss rule.
 - `Representative domain/Thickness`: constant radius or half-thickness.
 - `Representative domain/Thickness field name`: field to read from the VTK
   file instead of a constant thickness.
@@ -367,7 +367,7 @@ This is the first setting where the reduced interface condition is more than a
 simple averaged trace.
 
 ```{image} assets/reduced_poisson_single_cylinder_multimode.png
-:alt: ReducedPoisson single-cylinder tutorial example
+:alt: ReducedPoisson single-cylinder multimode tutorial example
 :width: 70%
 :align: center
 ```
@@ -388,6 +388,12 @@ Compared with the single-cylinder case, only the reduced geometry changes. That
 is one of the main advantages of this workflow: the bulk solver and background
 mesh setup stay the same while the embedded geometry can become much more
 complex.
+
+```{image} assets/reduced_poisson_three_cylinders.png
+:alt: ReducedPoisson three-cylinder tutorial example
+:width: 70%
+:align: center
+```
 
 ## Complex Network Example
 

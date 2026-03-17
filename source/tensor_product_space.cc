@@ -16,6 +16,9 @@
 
 #include "tensor_product_space.h"
 
+#include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/quadrature_selector.h>
+
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_values.h>
 
@@ -32,13 +35,36 @@
 
 #  include "vtk_utils.h"
 
+namespace
+{
+  unsigned int
+  quadrature_selector_order(const std::string &quadrature_type,
+                            const unsigned int requested_n_q_points,
+                            const unsigned int fe_degree)
+  {
+    return quadrature_type == "gauss" ?
+             (requested_n_q_points == 0 ? 2 * fe_degree + 1 :
+                                          requested_n_q_points) :
+             0;
+  }
+} // namespace
+
 template <int reduced_dim, int dim, int spacedim, int n_components>
 TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
   TensorProductSpaceParameters()
   : ParameterAcceptor("Representative domain")
 {
   add_parameter("Finite element degree", fe_degree);
+  add_parameter("Quadrature type",
+                quadrature_type,
+                "1D quadrature family used by QuadratureSelector.",
+                this->prm,
+                Patterns::Selection(
+                  QuadratureSelector<1>::get_quadrature_names()));
   add_parameter("Number of quadrature points", n_q_points);
+  add_parameter("Number of quadrature repetitions",
+                n_quadrature_repetitions,
+                "How many times to repeat the quadrature formula.");
   add_parameter("Thickness", thickness);
   add_parameter("Thickness field name", thickness_field_name);
   add_parameter("Reduced grid name", reduced_grid_name);
@@ -57,8 +83,13 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   , triangulation(mpi_communicator)
   , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
        reference_cross_section.n_selected_basis())
-  , quadrature_formula(par.n_q_points == 0 ? 2 * par.fe_degree + 1 :
-                                             par.n_q_points)
+  , quadrature_formula(
+      QIterated<reduced_dim>(
+        QuadratureSelector<1>(par.quadrature_type,
+                              quadrature_selector_order(par.quadrature_type,
+                                                        par.n_q_points,
+                                                        par.fe_degree)),
+                             par.n_quadrature_repetitions))
   , dof_handler(triangulation)
   , properties_dh(triangulation)
 {}
@@ -395,7 +426,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 template <int reduced_dim, int dim, int spacedim, int n_components>
 auto
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_quadrature()
-  const -> const QGauss<reduced_dim> &
+  const -> const Quadrature<reduced_dim> &
 {
   return quadrature_formula;
 }

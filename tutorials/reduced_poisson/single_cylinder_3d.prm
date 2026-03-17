@@ -67,7 +67,8 @@ subsection Reduced coupling
   end
   subsection Representative domain
     set Finite element degree       = 1
-    set Number of quadrature points = 3
+    set Quadrature type             = trapezoid
+    set Number of quadrature repetitions = 3
     set Reduced grid name           = ../data/tests/one_cylinder.vtk
     set Reduced right hand side     = 1
     set Thickness                   = 0.05

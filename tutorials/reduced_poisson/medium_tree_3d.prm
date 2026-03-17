@@ -87,7 +87,8 @@ subsection Reduced coupling
 
   subsection Representative domain
     set Finite element degree = 1
-    set Number of quadrature points = 3
+    set Quadrature type = trapezoid
+    set Number of quadrature repetitions = 3
     set Reduced grid name = data/medium_tree_8_3d.vtk
     set Reduced right hand side = 1
     set Thickness = 0.03
