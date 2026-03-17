@@ -53,31 +53,31 @@ subsection Reduced Poisson
       set Reduction     = 1.e-2
       set Tolerance     = 1.e-10
     end
-    subsection Reduced coupling
-      subsection Cross section
-        set Inclusion type           = hyper_ball
-        set Maximum inclusion degree = 1
-        set Refinement level         = 3
-        set Selected indices         =
-      end
-      subsection Particle coupling
-        set RTree extraction level = 1
-      end
-      subsection Representative domain
-        set Finite element degree   = 1
-        set Thickness               = 0.1
-        set Reduced grid name       = ../data/tests/one_cylinder.vtk
-        set Reduced right hand side = 1; 0; 0 
-      end
-      subsection Local refinement parameters
-        set Refinement strategy              = space
-        set Space pre-refinement cycles      = 4
-        set Space post-refinement cycles     = 0
-        set Embedded post-refinement cycles  = 0
-        set Embedded pre-refinement cycles   = 3
-        set Refinement factor                = 1.0
-        set Max refinement level             = 10
-      end
-    end
+  end
+end
+subsection Reduced coupling
+  subsection Cross section
+    set Inclusion type           = hyper_ball
+    set Maximum inclusion degree = 1
+    set Refinement level         = 3
+    set Selected indices         =
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Finite element degree   = 1
+    set Thickness               = 0.1
+    set Reduced grid name       = ../data/tests/one_cylinder.vtk
+    set Reduced right hand side = 1; 0; 0 
+  end
+  subsection Local refinement parameters
+    set Refinement strategy              = space
+    set Space pre-refinement cycles      = 4
+    set Space post-refinement cycles     = 0
+    set Embedded post-refinement cycles  = 0
+    set Embedded pre-refinement cycles   = 3
+    set Refinement factor                = 1.0
+    set Max refinement level             = 10
   end
 end
