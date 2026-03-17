@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------
 //
-// Copyright (C) 2024 by Luca Heltai
+// Copyright (C) 2026 by Luca Heltai
 //
 // This file is part of the reduced_lagrange_multipliers application, based on
 // the deal.II library.
@@ -151,7 +151,69 @@ public:
 };
 
 
-
+/**
+ * Solver for a Poisson problem in a bulk domain coupled to a reduced
+ * Lagrange-multiplier space supported on an immersed tubular interface.
+ *
+ * Let $\Omega \subset \mathbb{R}^{\texttt{spacedim}}$ be the background domain
+ * and let $\gamma$ be the reduced manifold read from
+ * `reduced_coupling_parameters.tensor_product_space_parameters.reduced_grid_name`.
+ * The class `ReducedCoupling<1,2,spacedim,1>` builds an interface
+ * $\Gamma_\gamma$ by sweeping a one-dimensional reference cross section $D$
+ * along $\gamma$. A scalar multiplier on $\Gamma_\gamma$ is approximated in the
+ * reduced tensor-product form \f[ \lambda(s,y) \approx \sum_{i=1}^N
+ * \lambda_i(s)\,\phi_i(y), \qquad (s,y)\in \gamma\times D, \f] where $\phi_i$
+ * are the selected cross-section modes provided by `ReferenceCrossSection`, and
+ * $\lambda_i$ are finite element unknowns on $\gamma$.
+ *
+ * The bulk unknown is the scalar field $u : \Omega \to \mathbb{R}$ solving \f[
+ * -\Delta u = f \qquad \text{in } \Omega, \f] with Dirichlet data $u = u_D$ on
+ * the boundary ids listed in `dirichlet_ids`. The immersed constraint is not
+ * imposed pointwise on the full interface. Instead, the trace of $u$ on
+ * $\Gamma_\gamma$ is required to match a prescribed reduced datum \f[ g(s,y) =
+ * \sum_{i=1}^N \bar g_i(s)\,\phi_i(y), \f] where the coefficient functions
+ * $\bar g_i$ are given by
+ * `reduced_coupling_parameters.coupling_rhs_expressions`.
+ *
+ * The formulation implemented by this class is: find $(u,\lambda)\in V\times
+ * Q_{\mathrm{red}}$ such that
+ *
+ * \f[ \int_\Omega \nabla u \cdot \nabla v \, dx
+ * + \int_\gamma \int_D \lambda(s,y)\, v(X(s,y)) \, dy\, ds = \int_\Omega
+ *   f\,v\,dx \qquad \forall v \in V_0, \f] and \f[ \int_\gamma \int_D
+ *   u(X(s,y))\, \mu(s,y) \, dy\, ds = \int_\gamma \int_D
+ *   g(s,y)\,\mu(s,y)\,dy\,ds \qquad \forall \mu \in Q_{\mathrm{red}}, \f]
+ *
+ * where $X(s,y)$ is the geometric lifting from the reduced manifold and the
+ * reference cross section to the immersed interface $\Gamma_\gamma$.
+ *
+ * Because both $g$ and $\mu$ are expanded in the same transverse basis
+ * $\{\phi_i\}_{i=1}^N$, the second equation is assembled in reduced coordinates
+ * as \f[ \sum_{i=1}^N \int_\gamma |D_s|\, \bar g_i(s)\,\mu_i(s)\,ds, \f] with
+ * $|D_s|$ the measure of the local cross section. This is what
+ * `ReducedCoupling::assemble_reduced_rhs()` computes.
+ *
+ * After discretization, the class solves the saddle-point linear system
+ *
+ * \f[ \begin{bmatrix} A & B^T \\
+ * B & 0 \end{bmatrix} \begin{bmatrix} u \\
+ * \lambda \end{bmatrix}
+ * =
+ * \begin{bmatrix} f \\
+ * g \end{bmatrix}, \f]
+ *
+ * where:
+ * - $A$ is the bulk Poisson stiffness matrix assembled in
+ *   `assemble_poisson_system()`;
+ * - $B$ is the reduced trace/projection operator assembled in
+ *   `ReducedCoupling::assemble_coupling_matrix()`;
+ * - $g$ is the reduced right-hand side assembled in
+ *   `ReducedCoupling::assemble_reduced_rhs()`.
+ *
+ * Therefore, `ReducedPoisson` computes a harmonic field in the bulk whose trace
+ * on the immersed interface matches, in the reduced modal sense defined by
+ * `TensorProductSpace`, the prescribed lower-dimensional data.
+ */
 template <int dim, int spacedim = dim>
 class ReducedPoisson : public Subscriptor
 {

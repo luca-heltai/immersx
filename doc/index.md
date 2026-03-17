@@ -8,6 +8,7 @@ overview
 background
 getting-started
 build-and-run
+tutorials/index
 testing
 documentation
 repository-layout

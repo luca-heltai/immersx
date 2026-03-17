@@ -18,7 +18,7 @@
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   ReducedCouplingParameters()
-  : ParameterAcceptor("Reduced coupling/")
+  : ParameterAcceptor("/Reduced coupling/")
 {
   this->enter_subsection("Representative domain");
   this->add_parameter("Reduced right hand side",

@@ -36,6 +36,7 @@
 #ifdef DEAL_II_WITH_VTK
 
 #  include <type_traits>
+#  include <filesystem>
 
 #  include "augmented_lagrangian_preconditioner.h"
 #  include "reduced_poisson.h"
@@ -82,6 +83,15 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   this->prm.enter_subsection("Error");
   convergence_table.add_parameters(this->prm);
   this->prm.leave_subsection();
+
+  this->parse_parameters_call_back.connect([this]() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(output_directory, ec);
+    AssertThrow(!ec,
+                ExcMessage("Could not create output directory '" +
+                           output_directory + "': " + ec.message()));
+  });
 }
 
 
