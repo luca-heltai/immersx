@@ -1015,83 +1015,93 @@ public:
   void
   build_segment_index_vector()
   {
-      std::vector<unsigned int> owned_segment_indices;
-      owned_segment_indices.reserve(particles_on_centerline.n_locally_owned_particles());
-      auto         particle        = particles_on_centerline.begin();
-      unsigned int current_segment = 0;
-      while (particle != particles_on_centerline.end())
-        {
-          const auto        &cell0 = particle->get_surrounding_cell();
-          const unsigned int n_pic =
-            particles_on_centerline.n_particles_in_cell(cell0);
-          const auto pic = particles_on_centerline.particles_in_cell(cell0);
+    std::vector<unsigned int> owned_segment_indices;
+    owned_segment_indices.reserve(
+      particles_on_centerline.n_locally_owned_particles());
+    auto         particle        = particles_on_centerline.begin();
+    unsigned int current_segment = 0;
+    while (particle != particles_on_centerline.end())
+      {
+        const auto        &cell0 = particle->get_surrounding_cell();
+        const unsigned int n_pic =
+          particles_on_centerline.n_particles_in_cell(cell0);
+        const auto pic = particles_on_centerline.particles_in_cell(cell0);
 
-          for (unsigned int i = 0; i < n_pic; i++)
-            {
-              owned_segment_indices.push_back(current_segment);
-            }
-          particle = pic.end();
-          current_segment++;
-        }
-      MPI_Barrier(mpi_communicator);
-
-          
-      local_max_segment_index = current_segment;
-      auto [local_shift, global_size] =
-            Utilities::MPI::partial_and_total_sum(local_max_segment_index,
-                                                  mpi_communicator);
-
-      global_max_segment_index = global_size;
-            
-          auto owned_particle_indices = particles_on_centerline.locally_owned_particle_ids().get_index_vector();
-          AssertDimension(owned_particle_indices.size(), owned_segment_indices.size());
-
-          std::vector<int> send_buffer;
-          for (unsigned int i = 0; i < owned_segment_indices.size(); i++)
+        for (unsigned int i = 0; i < n_pic; i++)
           {
-              send_buffer.push_back(owned_particle_indices[i]);
-              send_buffer.push_back(owned_segment_indices[i]);
+            owned_segment_indices.push_back(current_segment);
           }
+        particle = pic.end();
+        current_segment++;
+      }
+    MPI_Barrier(mpi_communicator);
 
-          int send_count = send_buffer.size();
 
-          std::vector<int> recv_counts(Utilities::MPI::n_mpi_processes(mpi_communicator));
-          MPI_Allgather(&send_count, 1, MPI_INT,
-                        recv_counts.data(), 1, MPI_INT,
-                        mpi_communicator);
+    local_max_segment_index = current_segment;
+    auto [local_shift, global_size] =
+      Utilities::MPI::partial_and_total_sum(local_max_segment_index,
+                                            mpi_communicator);
 
-          // Compute displacements
-          std::vector<int> displs(Utilities::MPI::n_mpi_processes(mpi_communicator), 0);
-          int total_size = 0;
-          for (unsigned int i = 0; i < Utilities::MPI::n_mpi_processes(mpi_communicator); i++) {
-              displs[i] = total_size;
-              total_size += recv_counts[i];
-          }
+    global_max_segment_index = global_size;
 
-          // Allocate receive buffer
-          std::vector<int> recv_buffer(total_size);
+    // now we build segment_indices out of the local vectors each processor has
+    auto owned_particle_indices =
+      particles_on_centerline.locally_owned_particle_ids().get_index_vector();
+    AssertDimension(owned_particle_indices.size(),
+                    owned_segment_indices.size());
 
-          // -------------------------------
-          // Step 3: gather all data
-          // -------------------------------
-          MPI_Allgatherv(
-              send_buffer.data(), send_count, MPI_INT,
-              recv_buffer.data(), recv_counts.data(), displs.data(),
-              MPI_INT,
-              mpi_communicator
-          );
+    std::vector<int> send_buffer;
+    for (unsigned int i = 0; i < owned_segment_indices.size(); i++)
+      {
+        send_buffer.push_back(owned_particle_indices[i]);
+        send_buffer.push_back(owned_segment_indices[i]);
+      }
 
-          // -------------------------------
-          // Step 4: reconstruct global vector
-          // -------------------------------
-          segment_indices.resize(n_inclusions());
-          for (int i = 0; i < total_size; i += 2) {
-              int idx = recv_buffer[i];
-              int val = recv_buffer[i + 1];
-              segment_indices[idx] = val;
-          }
+    int send_count = send_buffer.size();
 
-      return;
+    std::vector<int> recv_counts(
+      Utilities::MPI::n_mpi_processes(mpi_communicator));
+    MPI_Allgather(&send_count,
+                  1,
+                  MPI_INT,
+                  recv_counts.data(),
+                  1,
+                  MPI_INT,
+                  mpi_communicator);
+
+    // displacements
+    std::vector<int> displs(Utilities::MPI::n_mpi_processes(mpi_communicator),
+                            0);
+    int              total_size = 0;
+    for (unsigned int i = 0;
+         i < Utilities::MPI::n_mpi_processes(mpi_communicator);
+         i++)
+      {
+        displs[i] = total_size;
+        total_size += recv_counts[i];
+      }
+
+    // receive buffer
+    std::vector<int> recv_buffer(total_size);
+
+    MPI_Allgatherv(send_buffer.data(),
+                   send_count,
+                   MPI_INT,
+                   recv_buffer.data(),
+                   recv_counts.data(),
+                   displs.data(),
+                   MPI_INT,
+                   mpi_communicator);
+
+    segment_indices.resize(n_inclusions());
+    for (int i = 0; i < total_size; i += 2)
+      {
+        int idx              = recv_buffer[i];
+        int val              = recv_buffer[i + 1];
+        segment_indices[idx] = val;
+      }
+
+    return;
   }
 
 
