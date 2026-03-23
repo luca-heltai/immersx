@@ -183,9 +183,7 @@ end
   ParameterAcceptor::parse_all_parameters();
   problem.run();
 
-  std::cout << problem.solution.block(0).l2_norm() << std::endl;
-  std::cout << problem.solution.block(1).l2_norm() << std::endl;
-  // const double tol = 1e-4;
-  // ASSERT_NEAR(problem.solution.block(0).l2_norm(), 0.677138, tol);
-  // ASSERT_NEAR(problem.solution.block(1).l2_norm(), 3.09713, tol);
+  const double tol = 1e-4;
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 12.5827, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 25.2899, tol);
 }

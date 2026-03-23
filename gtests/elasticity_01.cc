@@ -406,8 +406,8 @@ TEST(ElasticityTest3, Displacement3D)
   problem.run();
 
   const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6763217, tol);
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 81.839722544, tol);
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6725816506288398, tol); // 3.6763217 without segments
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 88.883923832715752, tol); // 81.839722544 without segments
 }
 
 TEST(ElasticityTest, ExactLambda)
