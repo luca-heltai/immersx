@@ -406,12 +406,82 @@ TEST(ElasticityTest3, Displacement3D)
   problem.run();
 
   const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(),
-              3.6725816506288398,
-              tol); // 3.6763217 without segments
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(),
-              88.883923832715752,
-              tol); // 81.839722544 without segments
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6763217, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 81.839722544, tol);
+}
+
+TEST(ElasticityTest3, Displacement3D_wSegments)
+{
+  ParameterAcceptor::clear();
+  static constexpr int             dim = 3;
+  ElasticityProblemParameters<dim> par;
+  get_default_test_parameters(par);
+  ElasticityProblem<dim> problem(par);
+
+
+  initialize_parameters();
+  ParameterAcceptor::prm.parse_input_from_string(
+    R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids             = 0
+      set Initial refinement                 = 3
+      set Normal flux boundary ids           = 1,2
+      set Output name                        = Displacement3D
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = subdivided_cylinder
+        set Grid generator arguments = 2:2:2
+      end
+      subsection Immersed inclusions
+        set Inclusions file                     = ../data/tests/cylinder_x.txt
+        set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
+        set Inclusions refinement               = 50
+        set Number of fourier coefficients      = 2
+        set Selection of Fourier coefficients   = 3,7
+        set Cluster inclusions with segments    = true
+      end
+      subsection Material properties
+        set Material tags by material id =
+        subsection default
+          set Lame lambda     = 50.0
+          set Lame mu         = 2.0
+        end
+      end
+    end
+    subsection Solvers
+      subsection Augmented Lagrange
+        set Log frequency = 1
+        set Log history   = false
+        set Log result    = true
+        set Max steps     = 1000
+        set Reduction     = 1.e-10
+        set Tolerance     = 1.e-10
+      end
+      subsection Displacement
+        set Log frequency = 1
+        set Log history   = false
+        set Log result    = true
+        set Max steps     = 1000
+        set Reduction     = 1.e-8
+        set Tolerance     = 1.e-10
+      end
+      subsection Reduced mass
+        set Log frequency = 1
+        set Log history   = false
+        set Log result    = true
+        set Max steps     = 100
+        set Reduction     = 1.e-10
+        set Tolerance     = 1.e-12
+      end
+    end
+    )");
+
+  ParameterAcceptor::parse_all_parameters();
+  problem.run();
+
+  const double tol = 1e-4;
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6725816506288398, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 88.883923832715752, tol);
 }
 
 TEST(ElasticityTest, ExactLambda)

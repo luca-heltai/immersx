@@ -108,6 +108,7 @@ public:
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
+    add_parameter("Cluster inclusions with segments", cluster_with_segments);
 
     enter_subsection("Boundary data");
     add_parameter("Modulation frequency", modulation_frequency);
@@ -129,8 +130,10 @@ public:
    */
   n_dofs() const
   {
-    // return inclusions.size() * n_dofs_per_inclusion();
-    return n_global_segments() * n_dofs_per_inclusion();
+    if (cluster_with_segments)
+      return n_global_segments() * n_dofs_per_inclusion();
+    else
+      return inclusions.size() * n_dofs_per_inclusion();
   }
 
 
@@ -298,10 +301,11 @@ public:
   {
     AssertIndexRange(quadrature_id, n_particles());
     std::vector<types::global_dof_index> dofs(n_dofs_per_inclusion());
-    auto                                 start_index =
-      get_segment_index(quadrature_id) * n_dofs_per_inclusion();
-    // auto start_index = get_inclusion_id(quadrature_id) *
-    // n_dofs_per_inclusion();
+    unsigned int                         start_index;
+    if (cluster_with_segments)
+      start_index = get_segment_index(quadrature_id) * n_dofs_per_inclusion();
+    else
+      start_index = get_inclusion_id(quadrature_id) * n_dofs_per_inclusion();
     for (auto &d : dofs)
       d = start_index++;
     return dofs;
@@ -372,7 +376,8 @@ public:
     AssertDimension(particles_on_centerline.n_global_particles(),
                     n_inclusions());
 
-    build_segment_index_vector();
+    if (cluster_with_segments)
+      build_segment_index_vector();
   }
 
   /**
@@ -1150,6 +1155,11 @@ public:
    */
   std::map<unsigned int, std::vector<types::global_dof_index>>
     map_vessel_inclusions;
+
+  /**
+   * Switch for the clustering of inclusions dofs into segments
+   */
+  bool cluster_with_segments = false; // make const
 
 private:
   unsigned int              n_q_points          = 100;
