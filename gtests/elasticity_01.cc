@@ -406,8 +406,12 @@ TEST(ElasticityTest3, Displacement3D)
   problem.run();
 
   const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6725816506288398, tol); // 3.6763217 without segments
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 88.883923832715752, tol); // 81.839722544 without segments
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(),
+              3.6725816506288398,
+              tol); // 3.6763217 without segments
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(),
+              88.883923832715752,
+              tol); // 81.839722544 without segments
 }
 
 TEST(ElasticityTest, ExactLambda)
@@ -476,8 +480,8 @@ TEST(ElasticityTest, ExactLambda)
   ParameterAcceptor::parse_all_parameters();
   problem.run();
 
-  const double tol = 1e-3;
-  const double theoretical_lambda = -12*M_PI*0.1/ (1-0.04);
+  const double tol                = 1e-3;
+  const double theoretical_lambda = -12 * M_PI * 0.1 / (1 - 0.04);
 
   ASSERT_NEAR(problem.solution.block(0).l2_norm(), 7.5520240146374107, tol);
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 5.5728, tol);
