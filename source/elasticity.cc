@@ -263,20 +263,28 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
 
   if (inclusions.n_dofs() > 0)
     {
-      // auto inclusions_segment_set =
-      //   Utilities::MPI::create_evenly_distributed_partitioning(
-      //     mpi_communicator, inclusions.n_global_segments());
+      if (inclusions.cluster_with_segments)
+        {
+          auto inclusions_segment_set_vector =
+            Utilities::MPI::create_ascending_partitioning(
+              mpi_communicator, inclusions.n_local_segments());
 
-      auto inclusions_segment_set_vector =
-        Utilities::MPI::create_ascending_partitioning(
-          mpi_communicator, inclusions.n_local_segments());
+          auto inclusions_segment_set =
+            inclusions_segment_set_vector[Utilities::MPI::this_mpi_process(
+              mpi_communicator)];
 
-      auto inclusions_segment_set =
-        inclusions_segment_set_vector[Utilities::MPI::this_mpi_process(
-          mpi_communicator)];
+          owned_dofs[1] = inclusions_segment_set.tensor_product(
+            complete_index_set(inclusions.n_dofs_per_inclusion()));
+        }
+      else
+        {
+          auto inclusions_set =
+            Utilities::MPI::create_evenly_distributed_partitioning(
+              mpi_communicator, inclusions.n_inclusions());
+          owned_dofs[1] = inclusions_set.tensor_product(
+            complete_index_set(inclusions.n_dofs_per_inclusion()));
+        }
 
-      owned_dofs[1] = inclusions_segment_set.tensor_product(
-        complete_index_set(inclusions.n_dofs_per_inclusion()));
 
       DynamicSparsityPattern dsp(dh.n_dofs(),
                                  inclusions.n_dofs(),

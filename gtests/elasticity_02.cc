@@ -83,6 +83,7 @@ subsection Immersed Problem
     set Inclusions refinement               = 50
     set Number of fourier coefficients      = 2
     set Selection of Fourier coefficients   = 3,7
+    set Cluster inclusions with segments    = true
   end
 end
 subsection Solvers
@@ -150,6 +151,7 @@ subsection Immersed Problem
     set Inclusions refinement               = 50
     set Number of fourier coefficients      = 2
     set Selection of Fourier coefficients   = 3,7
+    set Cluster inclusions with segments    = true
   end
 end
 subsection Solvers
