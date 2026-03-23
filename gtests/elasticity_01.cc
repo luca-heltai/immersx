@@ -445,6 +445,30 @@ TEST(ElasticityTest, ExactLambda)
         set Inclusions                          = 0,0,0.2
         set Number of fourier coefficients      = 2
         set Selection of Fourier coefficients   = 2,5
+        set Inclusions refinement               = 400
+      end
+      subsection Refinement and remeshing
+        set Number of refinement cycles = 6
+        set Refinement fraction         = 0.3
+        set Strategy                    = fixed_number # or global
+      end
+    end
+    subsection Solvers
+      subsection Augmented Lagrange
+        set Log frequency = 1
+        set Log history   = false
+        set Log result    = true
+        set Max steps     = 10000
+        set Reduction     = 1.e-10
+        set Tolerance     = 1.e-12
+      end
+      subsection Displacement
+        set Log frequency = 1
+        set Log history   = false
+        set Log result    = true
+        set Max steps     = 10000
+        set Reduction     = 1.e-10
+        set Tolerance     = 1.e-12
       end
     end
     )");
@@ -452,9 +476,10 @@ TEST(ElasticityTest, ExactLambda)
   ParameterAcceptor::parse_all_parameters();
   problem.run();
 
-  const double tol = 1e-4;
-  // ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6763217, tol);
-  // ASSERT_NEAR(problem.solution.block(1).l2_norm(), 81.839722544, tol);
-  std::cout << problem.solution.block(0).l2_norm() << std::endl;
-  std::cout << problem.solution.block(1).l2_norm() << std::endl;
+  const double tol = 1e-3;
+  const double theoretical_lambda = -12*M_PI*0.1/ (1-0.04);
+
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 7.5520240146374107, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 5.5728, tol);
+  ASSERT_NEAR(problem.solution.block(1)[0], theoretical_lambda, 1e-1);
 }
