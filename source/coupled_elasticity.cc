@@ -315,7 +315,6 @@ CoupledElasticityProblem<dim, spacedim>::run_timestep0()
   this->print_parameters();
   this->make_grid();
   this->setup_fe();
-  this->check_boundary_ids();
   {
     TimerOutput::Scope t(this->computing_timer, "Setup inclusion");
     this->inclusions.setup_inclusions_particles(this->tria);
@@ -334,7 +333,7 @@ CoupledElasticityProblem<dim, spacedim>::run_timestep()
       if (this->par.refinement_strategy == "inclusions")
         {
           this->refine_and_transfer_around_inclusions();
-          std::cout << "refining around inclusions" << std::endl;
+          // this->pcout << "refining around inclusions" << std::endl;
 
           this->assemble_elasticity_system(); // we need to refine A too
           this->assemble_coupling();

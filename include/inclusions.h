@@ -28,6 +28,7 @@
 #define rdlm_inclusions
 
 #include <deal.II/base/hdf5.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
 
@@ -35,6 +36,8 @@
 
 #include <deal.II/fe/mapping_q.h>
 #include <deal.II/fe/mapping_q1.h>
+
+#include <deal.II/lac/trilinos_vector.h>
 
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/generators.h>
@@ -105,6 +108,7 @@ public:
     add_parameter("Bounding boxes extraction level", rtree_extraction_level);
     add_parameter("Inclusions file", inclusions_file);
     add_parameter("Data file", data_file);
+    add_parameter("Cluster inclusions with segments", cluster_with_segments);
 
     enter_subsection("Boundary data");
     add_parameter("Modulation frequency", modulation_frequency);
@@ -126,7 +130,10 @@ public:
    */
   n_dofs() const
   {
-    return inclusions.size() * n_dofs_per_inclusion();
+    if (cluster_with_segments)
+      return n_global_segments() * n_dofs_per_inclusion();
+    else
+      return inclusions.size() * n_dofs_per_inclusion();
   }
 
 
@@ -151,6 +158,18 @@ public:
   n_inclusions() const
   {
     return inclusions.size();
+  }
+
+  unsigned int
+  n_global_segments() const
+  {
+    return global_max_segment_index;
+  }
+
+  unsigned int
+  n_local_segments() const
+  {
+    return local_max_segment_index;
   }
 
   /**
@@ -282,7 +301,11 @@ public:
   {
     AssertIndexRange(quadrature_id, n_particles());
     std::vector<types::global_dof_index> dofs(n_dofs_per_inclusion());
-    auto start_index = (quadrature_id / n_q_points) * n_dofs_per_inclusion();
+    unsigned int                         start_index;
+    if (cluster_with_segments)
+      start_index = get_segment_index(quadrature_id) * n_dofs_per_inclusion();
+    else
+      start_index = get_inclusion_id(quadrature_id) * n_dofs_per_inclusion();
     for (auto &d : dofs)
       d = start_index++;
     return dofs;
@@ -302,8 +325,9 @@ public:
 
     inclusions_as_particles.initialize(tria,
                                        StaticMappingQ1<spacedim>::mapping);
-
-    if (n_dofs() == 0)
+    particles_on_centerline.initialize(tria,
+                                       StaticMappingQ1<spacedim>::mapping);
+    if (n_inclusions() == 0)
       return;
 
     // Only add particles once.
@@ -312,13 +336,16 @@ public:
                                                              n_inclusions());
 
     std::vector<Point<spacedim>> particles_positions;
+    std::vector<Point<spacedim>> central_particle_positions;
     particles_positions.reserve(n_particles());
+    central_particle_positions.reserve(n_inclusions());
     for (const auto i : inclusions_set)
       {
         const auto &p = get_current_support_points(i);
         particles_positions.insert(particles_positions.end(),
                                    p.begin(),
                                    p.end());
+        central_particle_positions.push_back(get_center(i));
       }
 
     std::vector<BoundingBox<spacedim>> all_boxes;
@@ -340,10 +367,17 @@ public:
              "here. Bailing out."));
     inclusions_as_particles.insert_global_particles(particles_positions,
                                                     global_bounding_boxes);
+    particles_on_centerline.insert_global_particles(central_particle_positions,
+                                                    global_bounding_boxes);
 
     // Sanity check.
     AssertDimension(inclusions_as_particles.n_global_particles(),
                     n_particles());
+    AssertDimension(particles_on_centerline.n_global_particles(),
+                    n_inclusions());
+
+    if (cluster_with_segments)
+      build_segment_index_vector();
   }
 
   /**
@@ -954,50 +988,12 @@ public:
     return s;
   }
 
-  // void
-  // compute_rotated_inclusion_data()
-  // {
-  //   rotated_inclusion_data.resize(inclusions_data.size());
-  //   if constexpr (spacedim == 3)
-  //     {
-  //       // const auto locally_owned_inclusions =
-  //       //   Utilities::MPI::create_evenly_distributed_partitioning(
-  //       //     mpi_communicator, n_inclusions());
-  //       //
-  //       // for (const auto inclusion_id : locally_owned_inclusions)
-  //       for (long unsigned int inclusion_id = 0;
-  //            inclusion_id < inclusions_data.size();
-  //            ++inclusion_id)
+  std::vector<unsigned int>
+  get_selected_coefficients() const
+  {
+    return selected_coefficients;
+  }
 
-  //         {
-  //           auto tensorR = get_rotation(inclusion_id);
-
-  //           std::vector<double> rotated_phi(
-  //             inclusions_data[inclusion_id].size());
-  //           for (long unsigned int phi_i = 0;
-  //                (phi_i * spacedim + spacedim - 1) <
-  //                inclusions_data[inclusion_id].size();
-  //                ++phi_i)
-  //             {
-  //               Tensor<1, spacedim> coef_phii;
-  //               for (unsigned int d = 0; d < spacedim; ++d)
-  //                 coef_phii[d] =
-  //                   inclusions_data[inclusion_id][phi_i * spacedim + d];
-
-  //               auto rotated_phi_i = tensorR * coef_phii;
-  //               rotated_phi_i.unroll(&rotated_phi[phi_i * spacedim],
-  //                                    &rotated_phi[phi_i * spacedim + 3]);
-  //             }
-  //           AssertIndexRange(inclusion_id, rotated_inclusion_data.size());
-  //           rotated_inclusion_data[inclusion_id] = rotated_phi;
-  //         }
-  //     }
-  // }
-
-
-  /**
-   * Override the number of quadrature points used on each inclusion.
-   */
   void
   set_n_q_points(unsigned int n_q)
   {
@@ -1014,9 +1010,114 @@ public:
     this->n_coefficients = n_coefficients;
   }
 
-  /**
-   * Boundary data function evaluated when external data are not provided.
-   */
+  void
+  set_fourier_coefficients(std::vector<unsigned int> temp)
+  {
+    this->selected_coefficients = temp;
+  }
+
+
+  void
+  build_segment_index_vector()
+  {
+    std::vector<unsigned int> owned_segment_indices;
+    owned_segment_indices.reserve(
+      particles_on_centerline.n_locally_owned_particles());
+    auto         particle        = particles_on_centerline.begin();
+    unsigned int current_segment = 0;
+    while (particle != particles_on_centerline.end())
+      {
+        const auto        &cell0 = particle->get_surrounding_cell();
+        const unsigned int n_pic =
+          particles_on_centerline.n_particles_in_cell(cell0);
+        const auto pic = particles_on_centerline.particles_in_cell(cell0);
+
+        for (unsigned int i = 0; i < n_pic; i++)
+          {
+            owned_segment_indices.push_back(current_segment);
+          }
+        particle = pic.end();
+        current_segment++;
+      }
+    MPI_Barrier(mpi_communicator);
+
+
+    local_max_segment_index = current_segment;
+    auto [local_shift, global_size] =
+      Utilities::MPI::partial_and_total_sum(local_max_segment_index,
+                                            mpi_communicator);
+
+    global_max_segment_index = global_size;
+
+    // now we build segment_indices out of the local vectors each processor has
+    auto owned_particle_indices =
+      particles_on_centerline.locally_owned_particle_ids().get_index_vector();
+    AssertDimension(owned_particle_indices.size(),
+                    owned_segment_indices.size());
+
+    std::vector<int> send_buffer;
+    for (unsigned int i = 0; i < owned_segment_indices.size(); i++)
+      {
+        send_buffer.push_back(owned_particle_indices[i]);
+        send_buffer.push_back(owned_segment_indices[i]);
+      }
+
+    int send_count = send_buffer.size();
+
+    std::vector<int> recv_counts(
+      Utilities::MPI::n_mpi_processes(mpi_communicator));
+    MPI_Allgather(&send_count,
+                  1,
+                  MPI_INT,
+                  recv_counts.data(),
+                  1,
+                  MPI_INT,
+                  mpi_communicator);
+
+    // displacements
+    std::vector<int> displs(Utilities::MPI::n_mpi_processes(mpi_communicator),
+                            0);
+    int              total_size = 0;
+    for (unsigned int i = 0;
+         i < Utilities::MPI::n_mpi_processes(mpi_communicator);
+         i++)
+      {
+        displs[i] = total_size;
+        total_size += recv_counts[i];
+      }
+
+    // receive buffer
+    std::vector<int> recv_buffer(total_size);
+
+    MPI_Allgatherv(send_buffer.data(),
+                   send_count,
+                   MPI_INT,
+                   recv_buffer.data(),
+                   recv_counts.data(),
+                   displs.data(),
+                   MPI_INT,
+                   mpi_communicator);
+
+    segment_indices.resize(n_inclusions());
+    for (int i = 0; i < total_size; i += 2)
+      {
+        int idx              = recv_buffer[i];
+        int val              = recv_buffer[i + 1];
+        segment_indices[idx] = val;
+      }
+
+    return;
+  }
+
+
+  unsigned int
+  get_segment_index(const types::global_dof_index &quadrature_id) const
+  {
+    AssertIndexRange(get_inclusion_id(quadrature_id), n_inclusions());
+    return segment_indices[get_inclusion_id(quadrature_id)];
+    // return segment_indices.nth_index_in_set(get_inclusion_id(quadrature_id));
+  }
+
   ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
   /**
    * Frequency used to modulate inclusion boundary data in time.
@@ -1027,10 +1128,8 @@ public:
    * Particle representation of inclusion quadrature points.
    */
   Particles::ParticleHandler<spacedim> inclusions_as_particles;
-  /**
-   * Inclusion geometric descriptors read from input.
-   */
-  std::vector<std::vector<double>> inclusions;
+  Particles::ParticleHandler<spacedim> particles_on_centerline;
+  std::vector<std::vector<double>>     inclusions;
 
   /**
    * Optional ASCII file containing coefficient data.
@@ -1057,17 +1156,18 @@ public:
   std::map<unsigned int, std::vector<types::global_dof_index>>
     map_vessel_inclusions;
 
-private:
   /**
-   * Inclusion quadrature and harmonic-space settings.
+   * Switch for the clustering of inclusions dofs into segments
    */
-  /// @{
-  unsigned int n_q_points          = 100;
-  unsigned int n_coefficients      = 1; ///< Number of Fourier coefficients.
-  unsigned int offset_coefficients = 0; ///< Optional harmonic index offset.
-  std::vector<unsigned int>
-    selected_coefficients; ///< Active coefficient indices.
-  /// @}
+  bool cluster_with_segments = false; // make const
+
+private:
+  unsigned int              n_q_points          = 100;
+  unsigned int              n_coefficients      = 1;
+  unsigned int              offset_coefficients = 0;
+  std::vector<unsigned int> selected_coefficients;
+  unsigned int              global_max_segment_index;
+  unsigned int              local_max_segment_index;
 
   /**
    * Fixed number of vector components in the coupled bulk field.
@@ -1111,6 +1211,8 @@ private:
    */
   unsigned int rtree_extraction_level = 1;
 
+  std::vector<unsigned int> segment_indices;
+
   /**
    * @brief Check that all vesselsID are present
    and create the map vessel_inclusions
@@ -1119,7 +1221,8 @@ private:
   check_vessels()
   {
     // TODO:
-    // vessel sanity check: that vessel with same label have the same direction
+    // vessel sanity check: that vessel with same label have the same
+    // direction
     if (inclusions.size() == 0)
       return;
 
@@ -1151,7 +1254,8 @@ private:
     /*
     {
     std::set<double> vessel_id_is_present;
-    for (types::global_dof_index inc_number = 0; inc_number < inclusions.size();
+    for (types::global_dof_index inc_number = 0; inc_number <
+    inclusions.size();
          ++inc_number)
         vessel_id_is_present.insert(get_vesselID(inc_number));
 
