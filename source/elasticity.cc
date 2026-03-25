@@ -263,12 +263,28 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
 
   if (inclusions.n_dofs() > 0)
     {
-      auto inclusions_set =
-        Utilities::MPI::create_evenly_distributed_partitioning(
-          mpi_communicator, inclusions.n_inclusions());
+      if (inclusions.cluster_with_segments)
+        {
+          auto inclusions_segment_set_vector =
+            Utilities::MPI::create_ascending_partitioning(
+              mpi_communicator, inclusions.n_local_segments());
 
-      owned_dofs[1] = inclusions_set.tensor_product(
-        complete_index_set(inclusions.n_dofs_per_inclusion()));
+          auto inclusions_segment_set =
+            inclusions_segment_set_vector[Utilities::MPI::this_mpi_process(
+              mpi_communicator)];
+
+          owned_dofs[1] = inclusions_segment_set.tensor_product(
+            complete_index_set(inclusions.n_dofs_per_inclusion()));
+        }
+      else
+        {
+          auto inclusions_set =
+            Utilities::MPI::create_evenly_distributed_partitioning(
+              mpi_communicator, inclusions.n_inclusions());
+          owned_dofs[1] = inclusions_set.tensor_product(
+            complete_index_set(inclusions.n_dofs_per_inclusion()));
+        }
+
 
       DynamicSparsityPattern dsp(dh.n_dofs(),
                                  inclusions.n_dofs(),
@@ -873,6 +889,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
   Vector<double> local_rhs(inclusions.n_dofs_per_inclusion());
 
   auto particle = inclusions.inclusions_as_particles.begin();
+
   while (particle != inclusions.inclusions_as_particles.end())
     {
       const auto &cell = particle->get_surrounding_cell();
@@ -908,7 +925,7 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
                                            ref_q_points,
                                            update_values | update_gradients);
           fev.reinit(dh_cell);
-          // double temp = 0;
+
           for (unsigned int q = 0; q < ref_q_points.size(); ++q)
             {
               const auto  id                  = p->get_id();
@@ -950,8 +967,6 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 
                           if (par.initial_time != par.final_time)
                             {
-                              // temp=temp;
-
                               temp *= inclusions.inclusions_rhs.value(
                                 real_q, inclusions.get_component(j));
                             }
@@ -1016,7 +1031,8 @@ ElasticityProblem<dim, spacedim>::assemble_coupling()
 inline void
 output_double_number(double input, const std::string &text)
 {
-  std::cout << text << input << std::endl;
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    std::cout << text << input << std::endl;
 }
 
 
@@ -1085,8 +1101,7 @@ ElasticityProblem<dim, spacedim>::solve_static()
             // Estimate condition number:
             pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
                   << std::endl;
-            std::cout << "Estimate condition number of CCt using CG"
-                      << std::endl;
+            pcout << "Estimate condition number of CCt using CG" << std::endl;
             SolverControl             solver_control(2000, 1e-12);
             SolverCG<LA::MPI::Vector> solver_cg(solver_control);
 
@@ -1111,9 +1126,12 @@ ElasticityProblem<dim, spacedim>::solve_static()
               }
             catch (...)
               {
-                std::cerr
-                  << "***CCt solve not successfull (see condition number above)***"
-                  << std::endl;
+                if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                  {
+                    std::cerr
+                      << "***CCt solve not successfull (see condition number above)***"
+                      << std::endl;
+                  }
               }
           }
 
@@ -1392,6 +1410,14 @@ ElasticityProblem<dim, spacedim>::refine_and_transfer()
   else if (par.refinement_strategy == "global")
     for (const auto &cell : tria.active_cell_iterators())
       cell->set_refine_flag();
+  else if (par.refinement_strategy == "inclusions")
+    {
+      pcout
+        << " Refinement around inclusions only implemented for coupled elasticity"
+        << std::endl;
+      cycle = par.n_refinement_cycles;
+    }
+
 
   execute_actual_refine_and_transfer();
 }
