@@ -65,6 +65,11 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                   "",
                   this->prm,
                   Patterns::Selection("generate|file|cheese|cylinder"));
+    add_parameter("Triangulation type",
+                  triangulation_type,
+                  "",
+                  this->prm,
+                  Patterns::Selection("distributed|fullydistributed"));
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
   }

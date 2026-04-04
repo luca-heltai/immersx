@@ -26,6 +26,20 @@
 
 using namespace dealii;
 
+namespace
+{
+  class Elasticity02TriangulationTypeTest
+    : public ::testing::TestWithParam<const char *>
+  {};
+
+  std::string
+  current_triangulation_type(
+    const Elasticity02TriangulationTypeTest &test_instance)
+  {
+    return test_instance.GetParam();
+  }
+} // namespace
+
 template <int dim>
 void
 get_default_test_parameters(ElasticityProblemParameters<dim> &par)
@@ -58,12 +72,13 @@ get_default_test_parameters(ElasticityProblemParameters<dim> &par)
 
 
 
-TEST(ElasticityTest, TwoInclusionsInCell)
+TEST_P(Elasticity02TriangulationTypeTest, MPI_TwoInclusionsInCell)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 3;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
+  par.triangulation_type = current_triangulation_type(*this);
   ElasticityProblem<dim> problem(par);
 
 
@@ -122,12 +137,13 @@ end
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 3.09713, tol);
 }
 
-TEST(ElasticityTest, MultiInclusionsInCell)
+TEST_P(Elasticity02TriangulationTypeTest, MPI_MultiInclusionsInCell)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 3;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
+  par.triangulation_type = current_triangulation_type(*this);
   ElasticityProblem<dim> problem(par);
 
 
@@ -189,3 +205,7 @@ end
   ASSERT_NEAR(problem.solution.block(0).l2_norm(), 12.5827, tol);
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 25.2899, tol);
 }
+
+INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
+                         Elasticity02TriangulationTypeTest,
+                         ::testing::Values("distributed", "fullydistributed"));

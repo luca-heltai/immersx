@@ -130,8 +130,9 @@ public:
   std::map<types::material_id, std::unique_ptr<MaterialProperties>>
     material_properties_by_id; ///< Runtime material table.
 
-  std::string domain_type  = "generate";   ///< Grid source mode.
-  std::string name_of_grid = "hyper_cube"; ///< Grid generator/input name.
+  std::string domain_type        = "generate";    ///< Grid source mode.
+  std::string triangulation_type = "distributed"; ///< Parallel tria backend.
+  std::string name_of_grid       = "hyper_cube"; ///< Grid generator/input name.
   std::string arguments_for_grid =
     "-1: 1: false"; ///< Grid generator arguments.
   std::string  refinement_strategy = "fixed_fraction"; ///< Adaptivity strategy.
