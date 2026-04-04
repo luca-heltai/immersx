@@ -4,15 +4,9 @@
 ![Documentation](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/doxygen.yml/badge.svg)
 ![Indent](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/indentation.yml/badge.svg)
 
-This repository contains C++ implementations of reduced Lagrange multiplier methods for mixed-dimensional coupling problems, built on top of [deal.II](https://www.dealii.org).
+This repository contains C++ implementations of reduced Lagrange multiplier methods for mixed-dimensional coupling problems, built on top of [deal.II](https://www.dealii.org). Required version: 9.7.1 or later.
 
-## Overview
-
-The codebase is centered on:
-
-- bulk elasticity and Poisson solvers with immersed coupling;
-- reduced-order coupling operators and tensor-product spaces;
-- benchmark parameter sets and coupled workflows built around `deal.II`.
+The website documentation is available at <https://luca-heltai.github.io/reduced_lagrange_multipliers/>.
 
 ## Quick Start
 
@@ -21,7 +15,7 @@ mkdir -p build
 cd build
 cmake -DDEAL_II_DIR=/path/to/deal.II ..
 cmake --build . -j
-./elasticity path/to/input.prm
+./elasticity path/to/input.prm # or any other app_*.cc executable
 cd ..
 python3 -m pip install -r doc/requirements.txt
 ./scripts/build_doc.sh
@@ -39,8 +33,7 @@ python3 -m pip install -r doc/requirements.txt
 
 ## Notes
 
-- This repository may contain large benchmark/data files and local experiment artifacts.
-- Some coupled-elasticity paths depend on an external `lib1dsolver` library and related inputs under `blood/`.
+- This repository contains large benchmark/data files
 
 ## Coupled 3D/1D workflow
 

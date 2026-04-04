@@ -23,7 +23,6 @@
 #  include <deal.II/grid/tria_iterator.h>
 
 #  include <vtkCellData.h>
-#  include <vtkCleanUnstructuredGrid.h>
 #  include <vtkDataArray.h>
 #  include <vtkPointData.h>
 #  include <vtkSmartPointer.h>
@@ -45,18 +44,6 @@ namespace VTKUtils
     reader->Update();
     vtkUnstructuredGrid *grid = reader->GetOutput();
     AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
-
-    auto cleaner = vtkSmartPointer<vtkCleanUnstructuredGrid>::New();
-
-    // Cleanup the triangulation if requested
-    if (cleanup)
-      {
-        cleaner->SetInputData(grid);
-        cleaner->Update();
-        grid = cleaner->GetOutput();
-        AssertThrow(grid,
-                    ExcMessage("Failed to clean VTK file: " + vtk_filename));
-      }
 
     // Read points
     vtkPoints                   *vtk_points = grid->GetPoints();
