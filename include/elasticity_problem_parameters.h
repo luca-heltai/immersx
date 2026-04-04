@@ -134,7 +134,7 @@ public:
   std::string triangulation_type = "distributed"; ///< Parallel tria backend.
   std::string name_of_grid       = "hyper_cube"; ///< Grid generator/input name.
   std::string arguments_for_grid =
-    "-1: 1: false"; ///< Grid generator arguments.
+    "-1: 1: false";              ///< Grid generator arguments.
   double       grid_scale = 1.0; ///< Uniform scaling applied after grid input.
   std::string  refinement_strategy = "fixed_fraction"; ///< Adaptivity strategy.
   double       coarsening_fraction = 0.0;              ///< Coarsening fraction.
