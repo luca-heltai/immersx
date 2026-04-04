@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <numbers>
 #include <sstream>
 
 #include "elasticity.h"
@@ -82,4 +83,189 @@ TEST(MaterialParameters, StiffTagReadsSection)
   EXPECT_NEAR(par.material_properties_by_id.at(0)->Lame_lambda, 3.0, 1e-14);
   EXPECT_NEAR(par.material_properties_by_id.at(1)->Lame_mu, 20.0, 1e-14);
   EXPECT_NEAR(par.material_properties_by_id.at(1)->Lame_lambda, 30.0, 1e-14);
+}
+
+TEST(BoundaryConditionParameters, DirichletFallbackCopiesDefaultConfiguration)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 501
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = 1 + t; 2 - x + t
+        set Modulation frequency = 2.0
+        set Phase shift = 0.3
+      end
+    end
+  )");
+
+  const auto &default_bc  = par.bc;
+  const auto &override_bc = par.get_dirichlet_bc(501);
+
+  ASSERT_EQ(par.dirichlet_bc_by_id.size(), 1);
+  ASSERT_NE(par.dirichlet_bc_by_id.at(501), nullptr);
+  EXPECT_NE(&override_bc, &default_bc);
+
+  const Point<dim> p(0.25, 0.5);
+  par.set_boundary_condition_times(0.125);
+
+  EXPECT_NEAR(override_bc.value(p, 0), default_bc.value(p, 0), 1e-14);
+  EXPECT_NEAR(override_bc.value(p, 1), default_bc.value(p, 1), 1e-14);
+  EXPECT_NEAR(override_bc.scale(0.125), default_bc.scale(0.125), 1e-14);
+}
+
+TEST(BoundaryConditionParameters, DirichletOverrideUsesBoundarySpecificSection)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 501, 502
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = 1; 2
+        set Modulation frequency = 1.0
+        set Phase shift = 0.0
+      end
+      subsection Dirichlet boundary conditions 501
+        set Function expression = 10; 20
+        set Modulation frequency = 3.0
+        set Phase shift = 1.5707963267948966
+      end
+    end
+  )");
+
+  const Point<dim> p;
+  const auto      &bc_501 = par.get_dirichlet_bc(501);
+  const auto      &bc_502 = par.get_dirichlet_bc(502);
+
+  par.set_boundary_condition_times(0.0);
+
+  EXPECT_NEAR(bc_501.value(p, 0), 10.0, 1e-14);
+  EXPECT_NEAR(bc_501.value(p, 1), 20.0, 1e-14);
+  EXPECT_NEAR(bc_501.scale(0.0), 1.0, 1e-14);
+
+  EXPECT_NEAR(bc_502.value(p, 0), 1.0, 1e-14);
+  EXPECT_NEAR(bc_502.value(p, 1), 2.0, 1e-14);
+  EXPECT_NEAR(bc_502.scale(0.25), 1.0, 1e-14);
+}
+
+TEST(BoundaryConditionParameters, NeumannOverrideUsesBoundarySpecificSection)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Neumann boundary ids = 7, 8
+    end
+
+    subsection Functions
+      subsection Neumann boundary conditions
+        set Function expression = x + t; y - t
+        set Modulation frequency = 0.0
+        set Phase shift = 0.7
+      end
+      subsection Neumann boundary conditions 7
+        set Function expression = 3 * x; 4 * y
+        set Modulation frequency = 4.0
+        set Phase shift = 0.25
+      end
+    end
+  )");
+
+  const Point<dim> p(2.0, 3.0);
+  const auto      &bc_7 = par.get_neumann_bc(7);
+  const auto      &bc_8 = par.get_neumann_bc(8);
+
+  par.set_boundary_condition_times(0.5);
+
+  EXPECT_NEAR(bc_7.value(p, 0), 6.0, 1e-14);
+  EXPECT_NEAR(bc_7.value(p, 1), 12.0, 1e-14);
+  EXPECT_NEAR(bc_7.scale(0.0), std::sin(0.25), 1e-14);
+
+  EXPECT_NEAR(bc_8.value(p, 0), 2.5, 1e-14);
+  EXPECT_NEAR(bc_8.value(p, 1), 2.5, 1e-14);
+  EXPECT_NEAR(bc_8.scale(0.5), 1.0, 1e-14);
+}
+
+TEST(RhsParameters, MaterialFallbackCopiesDefaultConfiguration)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Rhs material ids = 1
+    end
+
+    subsection Functions
+      subsection Right hand side
+        set Function expression = x + t; y - t
+        set Modulation frequency = 2.0
+        set Phase shift = 0.3
+      end
+    end
+  )");
+
+  const auto &default_rhs  = par.rhs;
+  const auto &override_rhs = par.get_rhs(1);
+
+  ASSERT_EQ(par.rhs_by_material_id.size(), 1);
+  ASSERT_NE(par.rhs_by_material_id.at(1), nullptr);
+  EXPECT_NE(&override_rhs, &default_rhs);
+
+  const Point<dim> p(0.25, 0.5);
+  par.set_rhs_times(0.125);
+
+  EXPECT_NEAR(override_rhs.value(p, 0), default_rhs.value(p, 0), 1e-14);
+  EXPECT_NEAR(override_rhs.value(p, 1), default_rhs.value(p, 1), 1e-14);
+  EXPECT_NEAR(override_rhs.scale(0.125), default_rhs.scale(0.125), 1e-14);
+}
+
+TEST(RhsParameters, MaterialOverrideUsesMaterialSpecificSection)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Rhs material ids = 1, 2
+    end
+
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 1; 2
+        set Modulation frequency = 1.0
+        set Phase shift = 0.0
+      end
+      subsection Right hand side 1
+        set Function expression = 10; 20
+        set Modulation frequency = 3.0
+        set Phase shift = 1.5707963267948966
+      end
+    end
+  )");
+
+  const Point<dim> p;
+  const auto      &rhs_1 = par.get_rhs(1);
+  const auto      &rhs_2 = par.get_rhs(2);
+
+  par.set_rhs_times(0.0);
+
+  EXPECT_NEAR(rhs_1.value(p, 0), 10.0, 1e-14);
+  EXPECT_NEAR(rhs_1.value(p, 1), 20.0, 1e-14);
+  EXPECT_NEAR(rhs_1.scale(0.0), 1.0, 1e-14);
+
+  EXPECT_NEAR(rhs_2.value(p, 0), 1.0, 1e-14);
+  EXPECT_NEAR(rhs_2.value(p, 1), 2.0, 1e-14);
+  EXPECT_NEAR(rhs_2.scale(0.25), 1.0, 1e-14);
 }
