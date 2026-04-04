@@ -112,6 +112,7 @@ public:
 
     enter_subsection("Boundary data");
     add_parameter("Modulation frequency", modulation_frequency);
+    add_parameter("Phase shift", phase_shift);
     leave_subsection();
 
     auto reset_function = [this]() {
@@ -1123,6 +1124,7 @@ public:
    * Frequency used to modulate inclusion boundary data in time.
    */
   double modulation_frequency = 0.0;
+  double phase_shift          = 0.0;
 
   /**
    * Particle representation of inclusion quadrature points.
