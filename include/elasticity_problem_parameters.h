@@ -31,6 +31,7 @@
 #include <string>
 
 #include "material_properties.h"
+#include "modulated_parsed_function.h"
 
 /**
  * Time integration mode inferred from user parameters and material densities.
@@ -152,8 +153,7 @@ public:
    * Volumetric forcing and forcing modulation.
    */
   /// @{
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
-  double rhs_modulation = 0.0; ///< Forcing modulation amplitude/factor.
+  mutable ModulatedParsedFunction<spacedim> rhs;
   /// @}
 
   /**
@@ -178,12 +178,10 @@ public:
    * Dirichlet and Neumann boundary data with modulation factors.
    */
   /// @{
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
-  double bc_modulation = 0.0; ///< Boundary-condition modulation factor.
+  mutable ModulatedParsedFunction<spacedim> bc;
 
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
-         Neumann_bc;                  ///< Neumann boundary data function.
-  double neumann_bc_modulation = 0.0; ///< Neumann modulation factor.
+  mutable ModulatedParsedFunction<spacedim>
+    Neumann_bc; ///< Neumann boundary data function.
   /// @}
 
   /**

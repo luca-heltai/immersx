@@ -105,34 +105,20 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   // Make sure all functions have reasonable defaults, and add their modulation
   // frequencies
   {
-    const auto set_modulation = [this](auto &acceptor, auto &arg) {
-      acceptor.declare_parameters_call_back.connect([this, &arg]() {
-        this->prm.add_parameter("Modulation frequency", arg);
-      });
-    };
-
     auto reset_function = [this]() {
       this->prm.declare_entry(
         "Function expression",
         (spacedim == 2 ? "0; 0" : "0; 0; 0"),
         Patterns::List(Patterns::Anything(), spacedim, spacedim, ";"));
     };
-    rhs.declare_parameters_call_back.connect(reset_function);
-    set_modulation(rhs, rhs_modulation);
 
     exact_solution.declare_parameters_call_back.connect(reset_function);
     exact_solution.declare_parameters_call_back.connect([this]() {
       this->prm.add_parameter("Weight expression", weight_expression);
     });
 
-    Neumann_bc.declare_parameters_call_back.connect(reset_function);
-    set_modulation(Neumann_bc, neumann_bc_modulation);
-
     initial_displacement.declare_parameters_call_back.connect(reset_function);
     initial_velocity.declare_parameters_call_back.connect(reset_function);
-
-    bc.declare_parameters_call_back.connect(reset_function);
-    set_modulation(bc, bc_modulation);
   }
   {
     auto reduction = [&]() {

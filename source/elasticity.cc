@@ -2163,18 +2163,18 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::compute_system_rhs()
 {
-  const auto get_scale = [](const double modulation, const double time) {
-    return (modulation == 0.0) ? 1.0 :
-                                 std::sin(numbers::PI * 2 * modulation * time);
-  };
+  const auto get_scale =
+    [](const double modulation, const double phase_shift, const double time) {
+      return (modulation == 0.0) ?
+               1.0 :
+               std::sin(numbers::PI * 2.0 * modulation * time + phase_shift);
+    };
 
-  const auto is_zero = [](const double x) { return std::abs(x) == 0.0; };
-
-  const bool rhs_has_any_zero_modulation = is_zero(par.rhs_modulation) ||
-                                           is_zero(par.bc_modulation) ||
-                                           is_zero(par.neumann_bc_modulation);
+  const bool rhs_has_any_zero_modulation = par.rhs.has_zero_modulation() ||
+                                           par.bc.has_zero_modulation() ||
+                                           par.Neumann_bc.has_zero_modulation();
   const bool inclusion_has_zero_modulation =
-    is_zero(inclusions.modulation_frequency);
+    std::abs(inclusions.modulation_frequency) == 0.0;
 
   pcout << "Time: " << current_time << std::endl;
 
@@ -2187,12 +2187,12 @@ ElasticityProblem<dim, spacedim>::compute_system_rhs()
       assemble_coupling();
     }
 
-
-  const auto rhs_scale     = get_scale(par.rhs_modulation, current_time);
-  const auto bc_scale      = get_scale(par.bc_modulation, current_time);
-  const auto neumann_scale = get_scale(par.neumann_bc_modulation, current_time);
-  const auto inclusion_scale =
-    get_scale(inclusions.modulation_frequency, current_time);
+  const auto rhs_scale       = par.rhs.scale(current_time);
+  const auto bc_scale        = par.bc.scale(current_time);
+  const auto neumann_scale   = par.Neumann_bc.scale(current_time);
+  const auto inclusion_scale = get_scale(inclusions.modulation_frequency,
+                                         inclusions.phase_shift,
+                                         current_time);
 
   system_rhs.block(0) = 0.0;
   system_rhs.block(0).add(rhs_scale, force_rhs.block(0));
