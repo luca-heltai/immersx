@@ -70,3 +70,5 @@ doc/api/
 # Backup files
 *blend1
 Untitled*
+benchmarks/**/*png
+benchmarks/**/*mp4
