@@ -72,6 +72,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                   Patterns::Selection("distributed|fullydistributed"));
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
+    add_parameter("Grid scale", grid_scale);
   }
   leave_subsection();
   enter_subsection("Refinement and remeshing");

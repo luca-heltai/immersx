@@ -188,6 +188,9 @@ ElasticityProblem<dim, spacedim>::make_grid()
             }
         }
 
+      if (par.grid_scale != 1.0)
+        GridTools::scale(par.grid_scale, distributed_tria);
+
       distributed_tria.refine_global(par.initial_refinement);
       return;
     }
@@ -247,6 +250,9 @@ ElasticityProblem<dim, spacedim>::make_grid()
         }
     }
 
+  if (par.grid_scale != 1.0)
+    GridTools::scale(par.grid_scale, serial_tria);
+
   serial_tria.refine_global(par.initial_refinement);
   auto &fully_distributed_tria =
     std::get<FullyDistributedTriangulation>(triangulation_storage);
@@ -256,6 +262,24 @@ ElasticityProblem<dim, spacedim>::make_grid()
         manifold_id, serial_tria.get_manifold(manifold_id));
 
   fully_distributed_tria.copy_triangulation(serial_tria);
+
+  pcout << "Number of active cells: " << tria->n_active_cells() << std::endl
+        << "   Boundary ids: "
+        << Patterns::Tools::to_string(tria->get_boundary_ids()) << std::endl;
+
+  std::set<types::material_id> material_ids;
+  for (const auto &cell : tria->active_cell_iterators())
+    material_ids.insert(cell->material_id());
+  pcout << "   Material ids: " << Patterns::Tools::to_string(material_ids)
+        << std::endl;
+
+  pcout << "   Grid volume: " << GridTools::volume(*tria) << std::endl
+        << "   Dirichlet boundary ids: "
+        << Patterns::Tools::to_string(par.dirichlet_ids) << std::endl
+        << "   Weak Dirichlet boundary ids: "
+        << Patterns::Tools::to_string(par.weak_dirichlet_ids) << std::endl
+        << "   Neumann boundary ids: "
+        << Patterns::Tools::to_string(par.neumann_ids) << std::endl;
 }
 
 
