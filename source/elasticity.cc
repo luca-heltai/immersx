@@ -182,7 +182,9 @@ ElasticityProblem<dim, spacedim>::make_grid()
             }
           catch (...)
             {
-              Assert(false, ExcInternalError());
+              // Try standard readers if msh reader fails, in case the file is
+              // not actually a file that msh understands
+              gi.read(par.name_of_grid);
             }
         }
 
@@ -239,7 +241,9 @@ ElasticityProblem<dim, spacedim>::make_grid()
         }
       catch (...)
         {
-          Assert(false, ExcInternalError());
+          // Try standard readers if msh reader fails, in case the file is not
+          // actually a file that msh understands
+          gi.read(par.name_of_grid);
         }
     }
 

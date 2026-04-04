@@ -303,10 +303,6 @@ ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
       any_neta_positive |= (mp.neta > 0.0);
     }
 
-  AssertThrow(!(any_neta_zero && any_neta_positive),
-              ExcMessage("Inconsistent viscosities: either all materials must "
-                         "have eta == 0 or all must have eta > 0."));
-
   if (any_neta_positive)
     elasticity_model = ElasticityModel::KelvinVoigt;
   else
