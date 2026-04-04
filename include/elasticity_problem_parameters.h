@@ -80,6 +80,21 @@ public:
   const MaterialProperties &
   get_material_properties(const types::material_id material_id) const;
 
+  const ModulatedParsedFunction<spacedim> &
+  get_dirichlet_bc(const types::boundary_id boundary_id) const;
+
+  const ModulatedParsedFunction<spacedim> &
+  get_neumann_bc(const types::boundary_id boundary_id) const;
+
+  const ModulatedParsedFunction<spacedim> &
+  get_rhs(const types::material_id material_id) const;
+
+  void
+  set_rhs_times(const double time) const;
+
+  void
+  set_boundary_condition_times(const double time) const;
+
   /**
    * Check model consistency and infer derived modes after parameter parsing.
    *
@@ -129,7 +144,8 @@ public:
     material_tags_by_material_id; ///< Id->tag map.
 
   std::map<types::material_id, std::unique_ptr<MaterialProperties>>
-    material_properties_by_id; ///< Runtime material table.
+    material_properties_by_id;                     ///< Runtime material table.
+  std::set<types::material_id> rhs_material_ids{}; ///< Material-specific rhs.
 
   std::string domain_type  = "generate";   ///< Grid source mode.
   std::string name_of_grid = "hyper_cube"; ///< Grid generator/input name.
@@ -154,6 +170,9 @@ public:
    */
   /// @{
   mutable ModulatedParsedFunction<spacedim> rhs;
+  std::map<types::material_id,
+           std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+    rhs_by_material_id;
   /// @}
 
   /**
@@ -179,9 +198,15 @@ public:
    */
   /// @{
   mutable ModulatedParsedFunction<spacedim> bc;
+  std::map<types::boundary_id,
+           std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+    dirichlet_bc_by_id;
 
   mutable ModulatedParsedFunction<spacedim>
     Neumann_bc; ///< Neumann boundary data function.
+  std::map<types::boundary_id,
+           std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+    neumann_bc_by_id;
   /// @}
 
   /**
