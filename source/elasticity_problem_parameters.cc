@@ -157,37 +157,58 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
       return parts;
     };
 
+    struct SubsectionScope
+    {
+      SubsectionScope(ParameterHandler               &prm,
+                      const std::vector<std::string> &subsections)
+        : prm(prm)
+        , n_subsections(subsections.size())
+      {
+        for (const auto &subsection : subsections)
+          prm.enter_subsection(subsection);
+      }
+
+      ~SubsectionScope()
+      {
+        for (unsigned int i = 0; i < n_subsections; ++i)
+          prm.leave_subsection();
+      }
+
+      ParameterHandler &prm;
+      unsigned int      n_subsections;
+    };
+
     const auto get_entry_from_subsection =
       [this, &split_subsection_path](const std::string &path,
                                      const std::string &entry) {
-        const auto subsections = split_subsection_path(path);
-        for (const auto &subsection : subsections)
-          this->prm.enter_subsection(subsection);
-        const auto value = this->prm.get(entry);
-        for (unsigned int i = 0; i < subsections.size(); ++i)
-          this->prm.leave_subsection();
-        return value;
+        const SubsectionScope scope(this->prm, split_subsection_path(path));
+        return this->prm.get(entry);
       };
 
     const auto set_entry_in_subsection =
       [this, &split_subsection_path](const std::string &path,
                                      const std::string &entry,
                                      const std::string &value) {
-        const auto subsections = split_subsection_path(path);
-        for (const auto &subsection : subsections)
-          this->prm.enter_subsection(subsection);
+        const SubsectionScope scope(this->prm, split_subsection_path(path));
         this->prm.set(entry, value);
-        for (unsigned int i = 0; i < subsections.size(); ++i)
-          this->prm.leave_subsection();
       };
 
-    const auto ensure_boundary_condition_overrides =
-      [this,
-       &created_dynamic_acceptors,
-       &get_entry_from_subsection,
-       &set_entry_in_subsection](const std::set<types::boundary_id> &ids,
-                                 auto                               &map,
-                                 const std::string                  &prefix) {
+    const auto copy_modulated_function_entries =
+      [&get_entry_from_subsection,
+       &set_entry_in_subsection](const std::string &from_section,
+                                 const std::string &to_section) {
+        for (const auto &entry : {"Function constants",
+                                  "Function expression",
+                                  "Variable names",
+                                  "Modulation frequency",
+                                  "Phase shift"})
+          set_entry_in_subsection(
+            to_section, entry, get_entry_from_subsection(from_section, entry));
+      };
+
+    const auto ensure_function_overrides =
+      [this, &created_dynamic_acceptors, &copy_modulated_function_entries](
+        const auto &ids, auto &map, const std::string &prefix) {
         for (const auto id : ids)
           if (map.find(id) == map.end())
             {
@@ -198,68 +219,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
               ptr->enter_my_subsection(this->prm);
               ptr->declare_parameters(this->prm);
               ptr->leave_my_subsection(this->prm);
-              set_entry_in_subsection(
-                override_section,
-                "Function constants",
-                get_entry_from_subsection(prefix, "Function constants"));
-              set_entry_in_subsection(
-                override_section,
-                "Function expression",
-                get_entry_from_subsection(prefix, "Function expression"));
-              set_entry_in_subsection(
-                override_section,
-                "Variable names",
-                get_entry_from_subsection(prefix, "Variable names"));
-              set_entry_in_subsection(
-                override_section,
-                "Modulation frequency",
-                get_entry_from_subsection(prefix, "Modulation frequency"));
-              set_entry_in_subsection(override_section,
-                                      "Phase shift",
-                                      get_entry_from_subsection(prefix,
-                                                                "Phase shift"));
-              map[id]                   = ptr;
-              created_dynamic_acceptors = true;
-            }
-      };
-
-    const auto ensure_rhs_overrides =
-      [this,
-       &created_dynamic_acceptors,
-       &get_entry_from_subsection,
-       &set_entry_in_subsection](const std::set<types::material_id> &ids,
-                                 auto                               &map,
-                                 const std::string                  &prefix) {
-        for (const auto id : ids)
-          if (map.find(id) == map.end())
-            {
-              const auto override_section =
-                prefix + " " + std::to_string(static_cast<unsigned int>(id));
-              auto ptr = std::make_shared<ModulatedParsedFunction<spacedim>>(
-                override_section, spacedim);
-              ptr->enter_my_subsection(this->prm);
-              ptr->declare_parameters(this->prm);
-              ptr->leave_my_subsection(this->prm);
-              set_entry_in_subsection(
-                override_section,
-                "Function constants",
-                get_entry_from_subsection(prefix, "Function constants"));
-              set_entry_in_subsection(
-                override_section,
-                "Function expression",
-                get_entry_from_subsection(prefix, "Function expression"));
-              set_entry_in_subsection(
-                override_section,
-                "Variable names",
-                get_entry_from_subsection(prefix, "Variable names"));
-              set_entry_in_subsection(
-                override_section,
-                "Modulation frequency",
-                get_entry_from_subsection(prefix, "Modulation frequency"));
-              set_entry_in_subsection(override_section,
-                                      "Phase shift",
-                                      get_entry_from_subsection(prefix,
-                                                                "Phase shift"));
+              copy_modulated_function_entries(prefix, override_section);
               map[id]                   = ptr;
               created_dynamic_acceptors = true;
             }
@@ -268,24 +228,22 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     {
       this->leave_my_subsection(this->prm);
 
-      ensure_rhs_overrides(rhs_material_ids,
-                           rhs_by_material_id,
-                           "/Functions/Right hand side");
+      ensure_function_overrides(rhs_material_ids,
+                                rhs_by_material_id,
+                                "/Functions/Right hand side");
 
       std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
       dirichlet_bc_ids.insert(weak_dirichlet_ids.begin(),
                               weak_dirichlet_ids.end());
-      ensure_boundary_condition_overrides(
-        dirichlet_bc_ids,
-        dirichlet_bc_by_id,
-        "/Functions/Dirichlet boundary conditions");
+      ensure_function_overrides(dirichlet_bc_ids,
+                                dirichlet_bc_by_id,
+                                "/Functions/Dirichlet boundary conditions");
 
       std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
       neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
-      ensure_boundary_condition_overrides(
-        neumann_bc_ids,
-        neumann_bc_by_id,
-        "/Functions/Neumann boundary conditions");
+      ensure_function_overrides(neumann_bc_ids,
+                                neumann_bc_by_id,
+                                "/Functions/Neumann boundary conditions");
 
       this->enter_my_subsection(this->prm);
     }
