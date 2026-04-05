@@ -44,7 +44,7 @@ jobs:
       - name: Parallel gtests debug
         run: |
           cd build_linux_debug
-          mpirun -n 2 ./gtests/gtests_debug --gtest_filter="*.MPI_*"
+          mpirun -n 2 ./gtests/gtests_debug
 
   release:
     runs-on: ubuntu-latest
@@ -83,4 +83,4 @@ jobs:
       - name: Parallel gtests release
         run: |
           cd build_linux_release
-          mpirun -n 2 ./gtests/gtests --gtest_filter="*.MPI_*"
+          mpirun -n 2 ./gtests/gtests
