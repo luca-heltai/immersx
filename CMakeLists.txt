@@ -37,8 +37,8 @@ SET(_main_target reduced_lagrange)
 # Normally you shouldn't need to change anything below.
 ############################################################
 # Declare all source files the target consists of:
-file(GLOB _files source/*cc include/*.h)
-file(GLOB _main_files apps/*cc)
+file(GLOB _files CONFIGURE_DEPENDS source/*cc include/*.h)
+file(GLOB _main_files CONFIGURE_DEPENDS apps/*cc)
 
 INCLUDE_DIRECTORIES(include)
 

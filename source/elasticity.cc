@@ -321,7 +321,10 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
     DoFTools::make_hanging_node_constraints(dh, constraints);
 
     for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh, id, par.bc, constraints);
+      VectorTools::interpolate_boundary_values(dh,
+                                               id,
+                                               par.get_dirichlet_bc(id),
+                                               constraints);
 
     std::map<types::boundary_id, const Function<spacedim, double> *>
       function_map;
@@ -329,7 +332,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
       {
         function_map.insert(
           std::pair<types::boundary_id, const Function<spacedim, double> *>(
-            id, &par.Neumann_bc));
+            id, &par.get_neumann_bc(id)));
       }
     VectorTools::compute_nonzero_normal_flux_constraints(
       dh, 0, par.normal_flux_ids, function_map, constraints);
@@ -487,8 +490,7 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
     }
 
   par.rhs.set_time(current_time);
-  par.bc.set_time(current_time);
-  par.Neumann_bc.set_time(current_time);
+  par.set_boundary_condition_times(current_time);
 
   FEValues<spacedim>     fe_values(*fe,
                                *quadrature,
@@ -593,6 +595,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
               if (par.weak_dirichlet_ids.find(cell->face(f)->boundary_id()) !=
                   par.weak_dirichlet_ids.end())
                 {
+                  const auto &dirichlet_bc =
+                    par.get_dirichlet_bc(cell->face(f)->boundary_id());
                   fe_face_values.reinit(cell, f);
                   const auto cell_diameter = cell->diameter();
 
@@ -629,9 +633,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
                           const auto comp_i =
                             fe->system_to_component_index(i).first;
                           Tensor<1, spacedim> g;
-                          g[comp_i] =
-                            par.bc.value(fe_face_values.quadrature_point(q),
-                                         comp_i);
+                          g[comp_i] = dirichlet_bc.value(
+                            fe_face_values.quadrature_point(q), comp_i);
 
                           cell_penalty_value_rhs(i) +=
                             par.penalty_term * (1.0 / cell_diameter) * g *
@@ -649,6 +652,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
               else if (par.neumann_ids.find(cell->face(f)->boundary_id()) !=
                        par.neumann_ids.end())
                 {
+                  const auto &neumann_bc =
+                    par.get_neumann_bc(cell->face(f)->boundary_id());
                   fe_face_values.reinit(cell, f);
                   for (unsigned int q = 0;
                        q < fe_face_values.n_quadrature_points;
@@ -658,8 +663,9 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
                         {
                           const auto comp_i =
                             fe->system_to_component_index(i).first;
-                          const auto un = par.Neumann_bc.value(
-                            fe_face_values.quadrature_point(q), comp_i);
+                          const auto un =
+                            neumann_bc.value(fe_face_values.quadrature_point(q),
+                                             comp_i);
                           cell_rhs(i) += un * fe_face_values.shape_value(i, q) *
                                          fe_face_values.JxW(q);
                         }
@@ -801,9 +807,8 @@ void
 ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
 {
   const auto evaluation_time = current_time + par.dt;
-  par.rhs.set_time(evaluation_time);
-  par.bc.set_time(evaluation_time);
-  par.Neumann_bc.set_time(evaluation_time);
+  par.set_rhs_times(evaluation_time);
+  par.set_boundary_condition_times(evaluation_time);
 
   force_rhs      = 0;
   bc_rhs         = 0;
@@ -843,8 +848,10 @@ ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
         cell_force_rhs      = 0;
 
         fe_values.reinit(cell);
-        par.rhs.vector_value_list(fe_values.get_quadrature_points(),
-                                  rhs_values);
+        const auto &rhs_function = par.get_rhs(cell->material_id());
+        const auto  rhs_scale    = rhs_function.scale(evaluation_time);
+        rhs_function.vector_value_list(fe_values.get_quadrature_points(),
+                                       rhs_values);
 
         // Assemble bulk contributions, no constants yet
         for (unsigned int q = 0; q < n_q_points; ++q)
@@ -852,7 +859,7 @@ ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
             for (unsigned int i = 0; i < dofs_per_cell; ++i)
               {
                 const auto comp_i = fe->system_to_component_index(i).first;
-                cell_force_rhs(i) += fe_values.shape_value(i, q) *
+                cell_force_rhs(i) += rhs_scale * fe_values.shape_value(i, q) *
                                      rhs_values[q][comp_i] * fe_values.JxW(q);
               }
           }
@@ -865,6 +872,10 @@ ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
               if (par.weak_dirichlet_ids.find(cell->face(f)->boundary_id()) !=
                   par.weak_dirichlet_ids.end())
                 {
+                  const auto &dirichlet_bc =
+                    par.get_dirichlet_bc(cell->face(f)->boundary_id());
+                  const auto dirichlet_scale =
+                    dirichlet_bc.scale(evaluation_time);
                   fe_face_values.reinit(cell, f);
                   const auto cell_diameter = cell->diameter();
 
@@ -886,8 +897,9 @@ ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
                           const auto comp_i =
                             fe->system_to_component_index(i).first;
                           const auto g_value =
-                            par.bc.value(fe_face_values.quadrature_point(q),
-                                         comp_i);
+                            dirichlet_scale *
+                            dirichlet_bc.value(
+                              fe_face_values.quadrature_point(q), comp_i);
                           Tensor<1, spacedim> g;
                           g[comp_i] = g_value;
                           cell_bc_rhs(i) += par.penalty_term *
@@ -907,6 +919,9 @@ ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
               else if (par.neumann_ids.find(cell->face(f)->boundary_id()) !=
                        par.neumann_ids.end())
                 {
+                  const auto &neumann_bc =
+                    par.get_neumann_bc(cell->face(f)->boundary_id());
+                  const auto neumann_scale = neumann_bc.scale(evaluation_time);
                   fe_face_values.reinit(cell, f);
                   for (unsigned int q = 0;
                        q < fe_face_values.n_quadrature_points;
@@ -915,8 +930,9 @@ ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
                       double neumann_value = 0;
                       for (int d = 0; d < spacedim; ++d)
                         neumann_value +=
-                          par.Neumann_bc.value(
-                            fe_face_values.quadrature_point(q), d) *
+                          neumann_scale *
+                          neumann_bc.value(fe_face_values.quadrature_point(q),
+                                           d) *
                           fe_face_values.normal_vector(q)[d];
                       neumann_value /= spacedim;
                       for (unsigned int i = 0; i < dofs_per_cell; ++i)
@@ -2323,41 +2339,27 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::compute_system_rhs()
 {
-  const auto get_scale = [](const double modulation, const double time) {
-    return (modulation == 0.0) ? 1.0 :
-                                 std::sin(numbers::PI * 2 * modulation * time);
-  };
-
-  const auto is_zero = [](const double x) { return std::abs(x) == 0.0; };
-
-  const bool rhs_has_any_zero_modulation = is_zero(par.rhs_modulation) ||
-                                           is_zero(par.bc_modulation) ||
-                                           is_zero(par.neumann_bc_modulation);
-  const bool inclusion_has_zero_modulation =
-    is_zero(inclusions.modulation_frequency);
+  const auto get_scale =
+    [](const double modulation, const double phase_shift, const double time) {
+      return (modulation == 0.0) ?
+               1.0 :
+               std::sin(numbers::PI * 2.0 * modulation * time + phase_shift);
+    };
 
   pcout << "Time: " << current_time << std::endl;
 
-  if (rhs_has_any_zero_modulation)
-    assemble_forcing_terms();
+  assemble_forcing_terms();
+  inclusions.inclusions_rhs.set_time(current_time);
+  assemble_coupling();
 
-  if (inclusion_has_zero_modulation)
-    {
-      inclusions.inclusions_rhs.set_time(current_time);
-      assemble_coupling();
-    }
-
-
-  const auto rhs_scale     = get_scale(par.rhs_modulation, current_time);
-  const auto bc_scale      = get_scale(par.bc_modulation, current_time);
-  const auto neumann_scale = get_scale(par.neumann_bc_modulation, current_time);
-  const auto inclusion_scale =
-    get_scale(inclusions.modulation_frequency, current_time);
+  const auto inclusion_scale = get_scale(inclusions.modulation_frequency,
+                                         inclusions.phase_shift,
+                                         current_time);
 
   system_rhs.block(0) = 0.0;
-  system_rhs.block(0).add(rhs_scale, force_rhs.block(0));
-  system_rhs.block(0).add(bc_scale, bc_rhs.block(0));
-  system_rhs.block(0).add(neumann_scale, neumann_bc_rhs.block(0));
+  system_rhs.block(0).add(1.0, force_rhs.block(0));
+  system_rhs.block(0).add(1.0, bc_rhs.block(0));
+  system_rhs.block(0).add(1.0, neumann_bc_rhs.block(0));
 
   system_rhs.block(1) = force_rhs.block(1);
   system_rhs.block(1) *= inclusion_scale;

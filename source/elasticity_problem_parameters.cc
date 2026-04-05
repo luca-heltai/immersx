@@ -21,6 +21,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <sstream>
 #include <system_error>
 #include <vector>
 
@@ -51,6 +52,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   add_parameter("Weak Dirichlet penalty coefficient", penalty_term);
   add_parameter("Neumann boundary ids", neumann_ids);
   add_parameter("Normal flux boundary ids", normal_flux_ids);
+  add_parameter("Rhs material ids", rhs_material_ids);
   add_parameter("Output pressure", output_pressure);
   add_parameter(
     "Pressure coupling",
@@ -111,34 +113,20 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   // Make sure all functions have reasonable defaults, and add their modulation
   // frequencies
   {
-    const auto set_modulation = [this](auto &acceptor, auto &arg) {
-      acceptor.declare_parameters_call_back.connect([this, &arg]() {
-        this->prm.add_parameter("Modulation frequency", arg);
-      });
-    };
-
     auto reset_function = [this]() {
       this->prm.declare_entry(
         "Function expression",
         (spacedim == 2 ? "0; 0" : "0; 0; 0"),
         Patterns::List(Patterns::Anything(), spacedim, spacedim, ";"));
     };
-    rhs.declare_parameters_call_back.connect(reset_function);
-    set_modulation(rhs, rhs_modulation);
 
     exact_solution.declare_parameters_call_back.connect(reset_function);
     exact_solution.declare_parameters_call_back.connect([this]() {
       this->prm.add_parameter("Weight expression", weight_expression);
     });
 
-    Neumann_bc.declare_parameters_call_back.connect(reset_function);
-    set_modulation(Neumann_bc, neumann_bc_modulation);
-
     initial_displacement.declare_parameters_call_back.connect(reset_function);
     initial_velocity.declare_parameters_call_back.connect(reset_function);
-
-    bc.declare_parameters_call_back.connect(reset_function);
-    set_modulation(bc, bc_modulation);
   }
   {
     auto reduction = [&]() {
@@ -161,6 +149,109 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
       AssertThrow(!ec,
                   ExcMessage("Could not create output directory '" +
                              output_directory + "': " + ec.message()));
+    }
+
+    bool created_dynamic_acceptors = false;
+
+    const auto split_subsection_path = [](const std::string &path) {
+      std::vector<std::string> parts;
+      std::stringstream        stream(path);
+      std::string              part;
+      while (std::getline(stream, part, '/'))
+        if (!part.empty())
+          parts.emplace_back(part);
+      return parts;
+    };
+
+    struct SubsectionScope
+    {
+      SubsectionScope(ParameterHandler               &prm,
+                      const std::vector<std::string> &subsections)
+        : prm(prm)
+        , n_subsections(subsections.size())
+      {
+        for (const auto &subsection : subsections)
+          prm.enter_subsection(subsection);
+      }
+
+      ~SubsectionScope()
+      {
+        for (unsigned int i = 0; i < n_subsections; ++i)
+          prm.leave_subsection();
+      }
+
+      ParameterHandler &prm;
+      unsigned int      n_subsections;
+    };
+
+    const auto get_entry_from_subsection =
+      [this, &split_subsection_path](const std::string &path,
+                                     const std::string &entry) {
+        const SubsectionScope scope(this->prm, split_subsection_path(path));
+        return this->prm.get(entry);
+      };
+
+    const auto set_entry_in_subsection =
+      [this, &split_subsection_path](const std::string &path,
+                                     const std::string &entry,
+                                     const std::string &value) {
+        const SubsectionScope scope(this->prm, split_subsection_path(path));
+        this->prm.set(entry, value);
+      };
+
+    const auto copy_modulated_function_entries =
+      [&get_entry_from_subsection,
+       &set_entry_in_subsection](const std::string &from_section,
+                                 const std::string &to_section) {
+        for (const auto &entry : {"Function constants",
+                                  "Function expression",
+                                  "Variable names",
+                                  "Modulation frequency",
+                                  "Phase shift"})
+          set_entry_in_subsection(
+            to_section, entry, get_entry_from_subsection(from_section, entry));
+      };
+
+    const auto ensure_function_overrides =
+      [this, &created_dynamic_acceptors, &copy_modulated_function_entries](
+        const auto &ids, auto &map, const std::string &prefix) {
+        for (const auto id : ids)
+          if (map.find(id) == map.end())
+            {
+              const auto override_section =
+                prefix + " " + std::to_string(static_cast<unsigned int>(id));
+              auto ptr = std::make_shared<ModulatedParsedFunction<spacedim>>(
+                override_section, spacedim);
+              ptr->enter_my_subsection(this->prm);
+              ptr->declare_parameters(this->prm);
+              ptr->leave_my_subsection(this->prm);
+              copy_modulated_function_entries(prefix, override_section);
+              map[id]                   = ptr;
+              created_dynamic_acceptors = true;
+            }
+      };
+
+    {
+      this->leave_my_subsection(this->prm);
+
+      ensure_function_overrides(rhs_material_ids,
+                                rhs_by_material_id,
+                                "/Functions/Right hand side");
+
+      std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
+      dirichlet_bc_ids.insert(weak_dirichlet_ids.begin(),
+                              weak_dirichlet_ids.end());
+      ensure_function_overrides(dirichlet_bc_ids,
+                                dirichlet_bc_by_id,
+                                "/Functions/Dirichlet boundary conditions");
+
+      std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
+      neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
+      ensure_function_overrides(neumann_bc_ids,
+                                neumann_bc_by_id,
+                                "/Functions/Neumann boundary conditions");
+
+      this->enter_my_subsection(this->prm);
     }
 
     // Ensure material properties acceptors exist when material tags are
@@ -193,6 +284,9 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
         check_model_consistency();
         return;
       }
+
+    if (created_dynamic_acceptors)
+      return;
 
     // No dynamic material tags: all information is already available.
     check_model_consistency();
@@ -321,6 +415,75 @@ ElasticityProblemParameters<dim, spacedim>::get_material_properties(
     return *(it->second);
   else
     return default_material_properties;
+}
+
+template <int dim, int spacedim>
+const ModulatedParsedFunction<spacedim> &
+ElasticityProblemParameters<dim, spacedim>::get_dirichlet_bc(
+  const types::boundary_id boundary_id) const
+{
+  const auto it = dirichlet_bc_by_id.find(boundary_id);
+  if (it != dirichlet_bc_by_id.end())
+    return *(it->second);
+
+  return bc;
+}
+
+template <int dim, int spacedim>
+const ModulatedParsedFunction<spacedim> &
+ElasticityProblemParameters<dim, spacedim>::get_neumann_bc(
+  const types::boundary_id boundary_id) const
+{
+  const auto it = neumann_bc_by_id.find(boundary_id);
+  if (it != neumann_bc_by_id.end())
+    return *(it->second);
+
+  return Neumann_bc;
+}
+
+template <int dim, int spacedim>
+const ModulatedParsedFunction<spacedim> &
+ElasticityProblemParameters<dim, spacedim>::get_rhs(
+  const types::material_id material_id) const
+{
+  const auto it = rhs_by_material_id.find(material_id);
+  if (it != rhs_by_material_id.end())
+    return *(it->second);
+
+  return rhs;
+}
+
+template <int dim, int spacedim>
+void
+ElasticityProblemParameters<dim, spacedim>::set_rhs_times(
+  const double time) const
+{
+  rhs.set_time(time);
+  for (const auto &[id, ptr] : rhs_by_material_id)
+    {
+      (void)id;
+      ptr->set_time(time);
+    }
+}
+
+template <int dim, int spacedim>
+void
+ElasticityProblemParameters<dim, spacedim>::set_boundary_condition_times(
+  const double time) const
+{
+  bc.set_time(time);
+  for (const auto &[id, ptr] : dirichlet_bc_by_id)
+    {
+      (void)id;
+      ptr->set_time(time);
+    }
+
+  Neumann_bc.set_time(time);
+  for (const auto &[id, ptr] : neumann_bc_by_id)
+    {
+      (void)id;
+      ptr->set_time(time);
+    }
 }
 
 
