@@ -65,8 +65,14 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                   "",
                   this->prm,
                   Patterns::Selection("generate|file|cheese|cylinder"));
+    add_parameter("Triangulation type",
+                  triangulation_type,
+                  "",
+                  this->prm,
+                  Patterns::Selection("distributed|fullydistributed"));
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
+    add_parameter("Grid scale", grid_scale);
   }
   leave_subsection();
   enter_subsection("Refinement and remeshing");
@@ -297,10 +303,6 @@ ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
       any_neta_zero |= (mp.neta == 0.0);
       any_neta_positive |= (mp.neta > 0.0);
     }
-
-  AssertThrow(!(any_neta_zero && any_neta_positive),
-              ExcMessage("Inconsistent viscosities: either all materials must "
-                         "have eta == 0 or all must have eta > 0."));
 
   if (any_neta_positive)
     elasticity_model = ElasticityModel::KelvinVoigt;

@@ -28,6 +28,8 @@
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
+
+#include <variant>
 #define FORCE_USE_OF_TRILINOS
 namespace LA
 {
@@ -48,9 +50,11 @@ namespace LA
 #include <deal.II/base/utilities.h>
 #include <deal.II/base/work_stream.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/grid_refinement.h>
 #include <deal.II/distributed/solution_transfer.h>
 #include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_renumbering.h>
@@ -566,6 +570,9 @@ public:
   void
   compute_internal_and_boundary_stress(bool) const;
 
+  bool
+  uses_fully_distributed_triangulation() const;
+
   /**
    * Write multiplier field values to disk.
    */
@@ -597,26 +604,43 @@ public:
    * Timer collecting wall times by section.
    */
   mutable TimerOutput computing_timer;
+  using DistributedTriangulation =
+    parallel::distributed::Triangulation<spacedim>;
+  using FullyDistributedTriangulation =
+    parallel::fullydistributed::Triangulation<spacedim>;
+  using TriangulationVariant =
+    std::variant<DistributedTriangulation, FullyDistributedTriangulation>;
+
   /**
-   * Distributed bulk triangulation.
+   * Storage for the selected bulk triangulation backend.
    */
-  parallel::distributed::Triangulation<spacedim> tria;
+  TriangulationVariant triangulation_storage;
+
+  /**
+   * Selected bulk triangulation as a common parallel base reference.
+   */
+  parallel::TriangulationBase<spacedim> *tria;
+
   /**
    * Finite element used for displacement.
    */
   std::unique_ptr<FiniteElement<spacedim>> fe;
+
   /**
    * Inclusion geometry and reduced basis data.
    */
   Inclusions<spacedim> inclusions;
+
   /**
    * Cell quadrature for bulk assembly.
    */
   std::unique_ptr<Quadrature<spacedim>> quadrature;
+
   /**
    * Face quadrature for boundary terms.
    */
   std::unique_ptr<Quadrature<spacedim - 1>> face_quadrature_formula;
+
   /**
    * DoF metadata for displacement field.
    */

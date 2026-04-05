@@ -85,27 +85,127 @@ ElasticityProblem<dim, spacedim>::ElasticityProblem(
                     pcout,
                     TimerOutput::summary,
                     TimerOutput::wall_times)
-  , tria(mpi_communicator,
-         typename Triangulation<spacedim>::MeshSmoothing(
-           Triangulation<spacedim>::smoothing_on_refinement |
-           Triangulation<spacedim>::smoothing_on_coarsening))
+  , triangulation_storage(std::in_place_type<DistributedTriangulation>,
+                          mpi_communicator,
+                          typename Triangulation<spacedim>::MeshSmoothing(
+                            Triangulation<spacedim>::smoothing_on_refinement |
+                            Triangulation<spacedim>::smoothing_on_coarsening),
+                          parallel::distributed::Triangulation<
+                            spacedim>::construct_multigrid_hierarchy)
+  , tria(&std::get<DistributedTriangulation>(triangulation_storage))
   , inclusions(spacedim)
-  , dh(tria)
+  , dh()
   , displacement(0)
 {}
 
-
+template <int dim, int spacedim>
+bool
+ElasticityProblem<dim, spacedim>::uses_fully_distributed_triangulation() const
+{
+  return std::holds_alternative<FullyDistributedTriangulation>(
+    triangulation_storage);
+}
 
 template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::make_grid()
 {
+  const bool need_fully_distributed =
+    (par.triangulation_type == "fullydistributed");
+
+  if (need_fully_distributed && !uses_fully_distributed_triangulation())
+    triangulation_storage.template emplace<FullyDistributedTriangulation>(
+      mpi_communicator);
+  else if (!need_fully_distributed && uses_fully_distributed_triangulation())
+    triangulation_storage.template emplace<DistributedTriangulation>(
+      mpi_communicator,
+      typename Triangulation<spacedim>::MeshSmoothing(
+        Triangulation<spacedim>::smoothing_on_refinement |
+        Triangulation<spacedim>::smoothing_on_coarsening),
+      parallel::distributed::Triangulation<
+        spacedim>::construct_multigrid_hierarchy);
+
+  tria = &std::visit(
+    [](auto &selected_tria) -> parallel::TriangulationBase<spacedim> & {
+      return selected_tria;
+    },
+    triangulation_storage);
+
+  dh.reinit(*tria);
+
+  if (!uses_fully_distributed_triangulation())
+    {
+      auto &distributed_tria =
+        std::get<DistributedTriangulation>(triangulation_storage);
+
+      if (par.domain_type == "generate")
+        {
+          try
+            {
+              GridGenerator::generate_from_name_and_arguments(
+                distributed_tria, par.name_of_grid, par.arguments_for_grid);
+            }
+          catch (...)
+            {
+              pcout << "Generating from name and argument failed." << std::endl
+                    << "Trying to read from file name." << std::endl;
+              read_grid_and_cad_files(par.name_of_grid,
+                                      par.arguments_for_grid,
+                                      distributed_tria);
+            }
+        }
+      else if (par.domain_type == "cylinder")
+        {
+          Assert(spacedim == 2, ExcInternalError());
+          GridGenerator::hyper_ball(distributed_tria, Point<spacedim>(), 1.);
+          std::cout << " ATTENTION: GRID: cirle of radius 1." << std::endl;
+        }
+      else if (par.domain_type == "cheese")
+        {
+          Assert(spacedim == 2, ExcInternalError());
+          GridGenerator::cheese(distributed_tria,
+                                std::vector<unsigned int>(2, 2));
+        }
+      else if (par.domain_type == "file")
+        {
+          GridIn<spacedim> gi;
+          gi.attach_triangulation(distributed_tria);
+#ifdef DEAL_II_WITH_GMSH_API
+          std::string infile(par.name_of_grid);
+#else
+          std::ifstream infile(par.name_of_grid);
+          Assert(infile.good(), ExcIO());
+#endif
+          try
+            {
+              gi.read_msh(infile);
+            }
+          catch (...)
+            {
+              // Try standard readers if msh reader fails, in case the file is
+              // not actually a file that msh understands
+              gi.read(par.name_of_grid);
+            }
+        }
+
+      if (par.grid_scale != 1.0)
+        GridTools::scale(par.grid_scale, distributed_tria);
+
+      distributed_tria.refine_global(par.initial_refinement);
+      return;
+    }
+
+  Triangulation<spacedim> serial_tria(
+    typename Triangulation<spacedim>::MeshSmoothing(
+      Triangulation<spacedim>::smoothing_on_refinement |
+      Triangulation<spacedim>::smoothing_on_coarsening));
+
   if (par.domain_type == "generate")
     {
       try
         {
           GridGenerator::generate_from_name_and_arguments(
-            tria, par.name_of_grid, par.arguments_for_grid);
+            serial_tria, par.name_of_grid, par.arguments_for_grid);
         }
       catch (...)
         {
@@ -113,24 +213,24 @@ ElasticityProblem<dim, spacedim>::make_grid()
                 << "Trying to read from file name." << std::endl;
           read_grid_and_cad_files(par.name_of_grid,
                                   par.arguments_for_grid,
-                                  tria);
+                                  serial_tria);
         }
     }
   else if (par.domain_type == "cylinder")
     {
       Assert(spacedim == 2, ExcInternalError());
-      GridGenerator::hyper_ball(tria, Point<spacedim>(), 1.);
+      GridGenerator::hyper_ball(serial_tria, Point<spacedim>(), 1.);
       std::cout << " ATTENTION: GRID: cirle of radius 1." << std::endl;
     }
   else if (par.domain_type == "cheese")
     {
       Assert(spacedim == 2, ExcInternalError());
-      GridGenerator::cheese(tria, std::vector<unsigned int>(2, 2));
+      GridGenerator::cheese(serial_tria, std::vector<unsigned int>(2, 2));
     }
   else if (par.domain_type == "file")
     {
       GridIn<spacedim> gi;
-      gi.attach_triangulation(tria);
+      gi.attach_triangulation(serial_tria);
 #ifdef DEAL_II_WITH_GMSH_API
       std::string infile(par.name_of_grid);
 #else
@@ -144,11 +244,42 @@ ElasticityProblem<dim, spacedim>::make_grid()
         }
       catch (...)
         {
-          Assert(false, ExcInternalError());
+          // Try standard readers if msh reader fails, in case the file is not
+          // actually a file that msh understands
+          gi.read(par.name_of_grid);
         }
     }
 
-  tria.refine_global(par.initial_refinement);
+  if (par.grid_scale != 1.0)
+    GridTools::scale(par.grid_scale, serial_tria);
+
+  serial_tria.refine_global(par.initial_refinement);
+  auto &fully_distributed_tria =
+    std::get<FullyDistributedTriangulation>(triangulation_storage);
+  for (const auto manifold_id : serial_tria.get_manifold_ids())
+    if (manifold_id != numbers::flat_manifold_id)
+      fully_distributed_tria.set_manifold(
+        manifold_id, serial_tria.get_manifold(manifold_id));
+
+  fully_distributed_tria.copy_triangulation(serial_tria);
+
+  pcout << "Number of active cells: " << tria->n_active_cells() << std::endl
+        << "   Boundary ids: "
+        << Patterns::Tools::to_string(tria->get_boundary_ids()) << std::endl;
+
+  std::set<types::material_id> material_ids;
+  for (const auto &cell : tria->active_cell_iterators())
+    material_ids.insert(cell->material_id());
+  pcout << "   Material ids: " << Patterns::Tools::to_string(material_ids)
+        << std::endl;
+
+  pcout << "   Grid volume: " << GridTools::volume(*tria) << std::endl
+        << "   Dirichlet boundary ids: "
+        << Patterns::Tools::to_string(par.dirichlet_ids) << std::endl
+        << "   Weak Dirichlet boundary ids: "
+        << Patterns::Tools::to_string(par.weak_dirichlet_ids) << std::endl
+        << "   Neumann boundary ids: "
+        << Patterns::Tools::to_string(par.neumann_ids) << std::endl;
 }
 
 
@@ -1385,61 +1516,89 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::refine_and_transfer()
 {
-  TimerOutput::Scope t(computing_timer, "Refine");
-  Vector<float>      error_per_cell(tria.n_active_cells());
-  KellyErrorEstimator<spacedim>::estimate(dh,
-                                          QGauss<spacedim - 1>(par.fe_degree +
-                                                               1),
-                                          {},
-                                          locally_relevant_solution.block(0),
-                                          error_per_cell);
-  if (par.refinement_strategy == "fixed_fraction")
+  if (!uses_fully_distributed_triangulation())
     {
-      parallel::distributed::GridRefinement::refine_and_coarsen_fixed_fraction(
-        tria, error_per_cell, par.refinement_fraction, par.coarsening_fraction);
-    }
-  else if (par.refinement_strategy == "fixed_number")
-    {
-      parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
-        tria,
-        error_per_cell,
-        par.refinement_fraction,
-        par.coarsening_fraction,
-        par.max_cells);
-    }
-  else if (par.refinement_strategy == "global")
-    for (const auto &cell : tria.active_cell_iterators())
-      cell->set_refine_flag();
-  else if (par.refinement_strategy == "inclusions")
-    {
-      pcout
-        << " Refinement around inclusions only implemented for coupled elasticity"
-        << std::endl;
-      cycle = par.n_refinement_cycles;
+      TimerOutput::Scope t(computing_timer, "Refine");
+      Vector<float>      error_per_cell(tria->n_active_cells());
+      KellyErrorEstimator<spacedim>::estimate(
+        dh,
+        QGauss<spacedim - 1>(par.fe_degree + 1),
+        {},
+        locally_relevant_solution.block(0),
+        error_per_cell);
+      if (par.refinement_strategy == "fixed_fraction")
+        {
+          parallel::distributed::GridRefinement::
+            refine_and_coarsen_fixed_fraction(
+              std::get<DistributedTriangulation>(triangulation_storage),
+              error_per_cell,
+              par.refinement_fraction,
+              par.coarsening_fraction);
+        }
+      else if (par.refinement_strategy == "fixed_number")
+        {
+          parallel::distributed::GridRefinement::
+            refine_and_coarsen_fixed_number(std::get<DistributedTriangulation>(
+                                              triangulation_storage),
+                                            error_per_cell,
+                                            par.refinement_fraction,
+                                            par.coarsening_fraction,
+                                            par.max_cells);
+        }
+      else if (par.refinement_strategy == "global")
+        for (const auto &cell : tria->active_cell_iterators())
+          cell->set_refine_flag();
+      else if (par.refinement_strategy == "inclusions")
+        {
+          pcout << " Refinement around inclusions only implemented for coupled "
+                   "elasticity"
+                << std::endl;
+          cycle = par.n_refinement_cycles;
+        }
+
+      execute_actual_refine_and_transfer();
+      return;
     }
 
-
-  execute_actual_refine_and_transfer();
+  AssertThrow(
+    false,
+    ExcMessage(
+      "Adaptive refinement is not implemented with "
+      "parallel::fullydistributed::Triangulation in ElasticityProblem. "
+      "The current setup supports serial mesh construction, serial refinement, "
+      "and then copy_triangulation() before distribute_dofs()."));
 }
 template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::execute_actual_refine_and_transfer()
 {
-  parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector> transfer(
-    dh);
-  tria.prepare_coarsening_and_refinement();
-  inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
-  transfer.prepare_for_coarsening_and_refinement(
-    locally_relevant_solution.block(0));
-  // transfer.prepare_for_coarsening_and_refinement(
-  //  locally_relevant_solution.block(1));
-  tria.execute_coarsening_and_refinement();
-  inclusions.inclusions_as_particles.unpack_after_coarsening_and_refinement();
-  setup_dofs();
-  transfer.interpolate(solution.block(0));
-  constraints.distribute(solution.block(0));
-  locally_relevant_solution.block(0) = solution.block(0);
-  locally_relevant_solution.block(1) = solution.block(1);
+  if (!uses_fully_distributed_triangulation())
+    {
+      parallel::distributed::SolutionTransfer<spacedim, LA::MPI::Vector>
+        transfer(dh);
+      std::get<DistributedTriangulation>(triangulation_storage)
+        .prepare_coarsening_and_refinement();
+      inclusions.inclusions_as_particles
+        .prepare_for_coarsening_and_refinement();
+      transfer.prepare_for_coarsening_and_refinement(
+        locally_relevant_solution.block(0));
+      std::get<DistributedTriangulation>(triangulation_storage)
+        .execute_coarsening_and_refinement();
+      inclusions.inclusions_as_particles
+        .unpack_after_coarsening_and_refinement();
+      setup_dofs();
+      transfer.interpolate(solution.block(0));
+      constraints.distribute(solution.block(0));
+      locally_relevant_solution.block(0) = solution.block(0);
+      locally_relevant_solution.block(1) = solution.block(1);
+      return;
+    }
+
+  AssertThrow(
+    false,
+    ExcMessage(
+      "Adaptive refinement is not implemented with "
+      "parallel::fullydistributed::Triangulation in ElasticityProblem."));
 }
 
 
@@ -1481,15 +1640,15 @@ ElasticityProblem<dim, spacedim>::output_solution() const
                            DataOut<spacedim>::type_dof_data,
                            data_component_interpretation);
 
-  Vector<float> subdomain(tria.n_active_cells());
+  Vector<float> subdomain(tria->n_active_cells());
   for (unsigned int i = 0; i < subdomain.size(); ++i)
-    subdomain(i) = tria.locally_owned_subdomain();
+    subdomain(i) = tria->locally_owned_subdomain();
   data_out.add_data_vector(subdomain, "subdomain");
 
-  Vector<double> material_ids(tria.n_active_cells());
+  Vector<double> material_ids(tria->n_active_cells());
   {
-    auto cell = tria.begin_active();
-    auto endc = tria.end();
+    auto cell = tria->begin_active();
+    auto endc = tria->end();
     for (unsigned int i = 0; cell != endc; ++cell, ++i)
       {
         material_ids[i] = cell->material_id();
@@ -1651,6 +1810,7 @@ ElasticityProblem<dim, spacedim>::print_parameters() const
   pcout << "Running ElasticityProblem<" << Utilities::dim_string(dim, spacedim)
         << "> using Trilinos." << std::endl;
 #endif
+  pcout << "   Triangulation backend: " << par.triangulation_type << std::endl;
   par.prm.print_parameters(par.output_directory + "/" + par.output_name + "_" +
                              std::to_string(dim) + std::to_string(spacedim) +
                              ".prm",
@@ -1685,7 +1845,7 @@ ElasticityProblem<dim, spacedim>::compute_internal_and_boundary_stress(
   std::map<types::boundary_id, Tensor<1, spacedim>> boundary_stress;
   std::map<types::boundary_id, double>              u_dot_n;
 
-  auto                                 all_ids = tria.get_boundary_ids();
+  auto                                 all_ids = tria->get_boundary_ids();
   std::map<types::boundary_id, double> perimeter;
   for (auto id : all_ids)
     // for (const auto id : par.dirichlet_ids)
@@ -1958,7 +2118,7 @@ ElasticityProblem<dim, spacedim>::run_static()
 
   {
     TimerOutput::Scope t(computing_timer, "Setup inclusion");
-    inclusions.setup_inclusions_particles(tria);
+    inclusions.setup_inclusions_particles(*tria);
   }
 
   setup_dofs(); // called inside refine_and_transfer
@@ -2012,7 +2172,7 @@ ElasticityProblem<dim, spacedim>::run_quasistatic()
   cycle = 0;
   {
     TimerOutput::Scope t(computing_timer, "Setup inclusion");
-    inclusions.setup_inclusions_particles(tria);
+    inclusions.setup_inclusions_particles(*tria);
   }
 
   setup_dofs();
@@ -2062,7 +2222,7 @@ ElasticityProblem<dim, spacedim>::run_newmark()
   cycle = 0;
   {
     TimerOutput::Scope t(computing_timer, "Setup inclusion");
-    inclusions.setup_inclusions_particles(tria);
+    inclusions.setup_inclusions_particles(*tria);
   }
 
   setup_dofs();

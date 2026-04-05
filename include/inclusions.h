@@ -33,6 +33,7 @@
 #include <deal.II/base/parsed_function.h>
 
 #include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/fe/mapping_q.h>
 #include <deal.II/fe/mapping_q1.h>
@@ -317,8 +318,7 @@ public:
    * @param tria The triangulation to set up the inclusions particles for.
    */
   void
-  setup_inclusions_particles(
-    const parallel::distributed::Triangulation<spacedim> &tria)
+  setup_inclusions_particles(const parallel::TriangulationBase<spacedim> &tria)
   {
     mpi_communicator = tria.get_communicator();
     initialize();
@@ -1048,6 +1048,9 @@ public:
                                             mpi_communicator);
 
     global_max_segment_index = global_size;
+
+    for (auto &segment_index : owned_segment_indices)
+      segment_index += local_shift;
 
     // now we build segment_indices out of the local vectors each processor has
     auto owned_particle_indices =
