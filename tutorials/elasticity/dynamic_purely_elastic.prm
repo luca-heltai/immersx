@@ -4,27 +4,27 @@ subsection Error
 end
 subsection Functions
   subsection Dirichlet boundary conditions
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
-    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.0, rho0=1.0
+    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lam + 2*mu0)/rho0) - 6.06060606060606*x)); 0
   end
   subsection Exact solution
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
-    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.0, rho0=1.0
+    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lam + 2*mu0)/rho0) - 6.06060606060606*x)); 0
   end
   subsection Initial displacement
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
-    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.0, rho0=1.0
+    set Function expression = -0.2*sin(pi*(6.06060606060606*t*sqrt((lam + 2*mu0)/rho0) - 6.06060606060606*x)); 0
   end
   subsection Initial velocity
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
-    set Function expression = -1.21212121212121*pi*sqrt((lambda + 2*mu)/rho)*cos(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x)); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.0, rho0=1.0
+    set Function expression = -1.21212121212121*pi*sqrt((lam + 2*mu0)/rho0)*cos(pi*(6.06060606060606*t*sqrt((lam + 2*mu0)/rho0) - 6.06060606060606*x)); 0
   end
   subsection Neumann boundary conditions
     set Function expression = 0; 0
   end
   subsection Right hand side
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.0, rho=1.0
-    set Function expression = pi^2*(7.34618916437098*lambda + 14.692378328742*mu - 29.3847566574839*rho)*sin(pi*(6.06060606060606*t*sqrt((lambda + 2*mu)/rho) - 6.06060606060606*x))/rho; 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.0, rho0=1.0
+    set Function expression = pi^2*(7.34618916437098*lam + 14.692378328742*mu0 - 29.3847566574839*rho0)*sin(pi*(6.06060606060606*t*sqrt((lam + 2*mu0)/rho0) - 6.06060606060606*x))/rho0; 0
   end
 end
 subsection Immersed Problem
