@@ -53,12 +53,6 @@ subsection Immersed Problem
   set Output results also before solving = false
   set Pressure coupling                  = false
   set Weak Dirichlet penalty coefficient = 100
-  subsection Dirichlet boundary conditions
-    set Modulation frequency = 0
-  end
-  subsection Exact solution
-    set Weight expression = 1.
-  end
   subsection Grid generation
     set Domain type              = generate
     set Grid generator           = hyper_cube
@@ -91,18 +85,12 @@ subsection Immersed Problem
       set Viscosity eta   = 0.0
     end
   end
-  subsection Neumann boundary conditions
-    set Modulation frequency = 0
-  end
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
     set Maximum number of cells     = 20000
     set Number of refinement cycles = 6
     set Refinement fraction         = 0.3
     set Strategy                    = global
-  end
-  subsection Right hand side
-    set Modulation frequency = 0
   end
   subsection Time dependency
     set Final time    = 0.0

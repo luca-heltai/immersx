@@ -269,3 +269,293 @@ TEST(RhsParameters, MaterialOverrideUsesMaterialSpecificSection)
   EXPECT_NEAR(rhs_2.value(p, 1), 2.0, 1e-14);
   EXPECT_NEAR(rhs_2.scale(0.25), 1.0, 1e-14);
 }
+
+TEST(BoundaryConditionParameters, DirichletOverrideInheritsBaseConstants)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 41, 42
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function constants = a=2.0, b=3.0
+        set Function expression = a * x; b * y
+        set Modulation frequency = 1.5
+        set Phase shift = 0.1
+      end
+      subsection Dirichlet boundary conditions 41
+        set Function expression = b * x; a * y
+      end
+    end
+  )");
+
+  const Point<dim> p(0.5, 0.25);
+  const auto      &bc_41 = par.get_dirichlet_bc(41);
+  const auto      &bc_42 = par.get_dirichlet_bc(42);
+
+  par.set_boundary_condition_times(0.125);
+
+  EXPECT_NEAR(bc_41.value(p, 0), 1.5, 1e-14);
+  EXPECT_NEAR(bc_41.value(p, 1), 0.5, 1e-14);
+  EXPECT_NEAR(bc_41.scale(0.125), std::sin(numbers::PI * 0.375 + 0.1), 1e-14);
+
+  EXPECT_NEAR(bc_42.value(p, 0), 1.0, 1e-14);
+  EXPECT_NEAR(bc_42.value(p, 1), 0.75, 1e-14);
+  EXPECT_NEAR(bc_42.scale(0.125), std::sin(numbers::PI * 0.375 + 0.1), 1e-14);
+}
+
+// Tests with symbolic constants
+
+TEST(BoundaryConditionParameters, DirichletWithSymbolicConstants)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 100
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function constants = a=1.0, b=2.0
+        set Function expression = a * x; b * y
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(0.5, 0.75);
+  const auto      &bc = par.get_dirichlet_bc(100);
+
+  par.set_boundary_condition_times(0.0);
+
+  EXPECT_NEAR(bc.value(p, 0), 0.5, 1e-14);
+  EXPECT_NEAR(bc.value(p, 1), 1.5, 1e-14);
+  EXPECT_NEAR(bc.scale(0.0), 1.0, 1e-14);
+}
+
+TEST(BoundaryConditionParameters,
+     DirichletBaseWithSymbolicConstantsMultipleBoundaries)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 100, 101
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function constants = c=0.5
+        set Function expression = c * x; c * y
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(2.0, 4.0);
+  const auto      &bc_100 = par.get_dirichlet_bc(100);
+  const auto      &bc_101 = par.get_dirichlet_bc(101);
+
+  par.set_boundary_condition_times(0.0);
+
+  EXPECT_NEAR(bc_100.value(p, 0), 1.0, 1e-14);
+  EXPECT_NEAR(bc_100.value(p, 1), 2.0, 1e-14);
+  EXPECT_NEAR(bc_101.value(p, 0), 1.0, 1e-14);
+  EXPECT_NEAR(bc_101.value(p, 1), 2.0, 1e-14);
+}
+
+TEST(BoundaryConditionParameters, NeumannWithSymbolicConstants)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Neumann boundary ids = 50
+    end
+
+    subsection Functions
+      subsection Neumann boundary conditions
+        set Function constants = nx=1.5, ny=2.5
+        set Function expression = nx * x; ny * y
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(1.0, 2.0);
+  const auto      &bc = par.get_neumann_bc(50);
+
+  par.set_boundary_condition_times(0.0);
+
+  EXPECT_NEAR(bc.value(p, 0), 1.5, 1e-14);
+  EXPECT_NEAR(bc.value(p, 1), 5.0, 1e-14);
+  EXPECT_NEAR(bc.scale(0.0), 1.0, 1e-14);
+}
+
+TEST(BoundaryConditionParameters,
+     NeumannBaseWithSymbolicConstantsMultipleBoundaries)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Neumann boundary ids = 50, 51
+    end
+
+    subsection Functions
+      subsection Neumann boundary conditions
+        set Function constants = cx=1.0, cy=1.0
+        set Function expression = cx * x; cy * y
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(2.0, 3.0);
+  const auto      &bc_50 = par.get_neumann_bc(50);
+  const auto      &bc_51 = par.get_neumann_bc(51);
+
+  par.set_boundary_condition_times(0.0);
+
+  EXPECT_NEAR(bc_50.value(p, 0), 2.0, 1e-14);
+  EXPECT_NEAR(bc_50.value(p, 1), 3.0, 1e-14);
+  EXPECT_NEAR(bc_51.value(p, 0), 2.0, 1e-14);
+  EXPECT_NEAR(bc_51.value(p, 1), 3.0, 1e-14);
+}
+
+TEST(RhsParameters, RhsWithSymbolicConstants)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Rhs material ids = 10
+    end
+
+    subsection Functions
+      subsection Right hand side
+        set Function constants = alpha=2.0, beta=3.0
+        set Function expression = alpha * x; beta * y
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(0.5, 1.5);
+  const auto      &rhs = par.get_rhs(10);
+
+  par.set_rhs_times(0.0);
+
+  EXPECT_NEAR(rhs.value(p, 0), 1.0, 1e-14);
+  EXPECT_NEAR(rhs.value(p, 1), 4.5, 1e-14);
+  EXPECT_NEAR(rhs.scale(0.0), 1.0, 1e-14);
+}
+
+TEST(RhsParameters, RhsBaseWithSymbolicConstantsMultipleMaterials)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Rhs material ids = 10, 11
+    end
+
+    subsection Functions
+      subsection Right hand side
+        set Function constants = gamma=0.1
+        set Function expression = gamma * x; gamma * y
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(2.0, 3.0);
+  const auto      &rhs_10 = par.get_rhs(10);
+  const auto      &rhs_11 = par.get_rhs(11);
+
+  par.set_rhs_times(0.0);
+
+  EXPECT_NEAR(rhs_10.value(p, 0), 0.2, 1e-14);
+  EXPECT_NEAR(rhs_10.value(p, 1), 0.3, 1e-14);
+  EXPECT_NEAR(rhs_11.value(p, 0), 0.2, 1e-14);
+  EXPECT_NEAR(rhs_11.value(p, 1), 0.3, 1e-14);
+}
+
+TEST(BoundaryConditionParameters, DirichletWithComplexSymbolicExpression)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 200
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function constants = A=1.0, B=0.5, k=1.57079632679
+        set Function expression = A * sin(k*x); B * cos(k*y)
+        set Modulation frequency = 1.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(0.5, 0.0);
+  const auto      &bc = par.get_dirichlet_bc(200);
+
+  par.set_boundary_condition_times(0.0);
+
+  EXPECT_NEAR(bc.value(p, 0), std::sin(1.57079632679 * 0.5), 1e-14);
+  EXPECT_NEAR(bc.value(p, 1), 0.5, 1e-14);
+  EXPECT_NEAR(bc.scale(0.0), 0.0, 1e-14);
+}
+
+TEST(RhsParameters, RhsWithTimeAndSymbolicConstants)
+{
+  static constexpr int dim = 2;
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      set Rhs material ids = 20
+    end
+
+    subsection Functions
+      subsection Right hand side
+        set Function constants = f0=1.0, omega=2.0
+        set Function expression = f0 * sin(omega*t); f0 * cos(omega*t)
+        set Modulation frequency = 0.0
+        set Phase shift = 0.0
+      end
+    end
+  )");
+
+  const Point<dim> p(1.0, 1.0);
+  const auto      &rhs = par.get_rhs(20);
+
+  par.set_rhs_times(0.0);
+  EXPECT_NEAR(rhs.value(p, 0), 0.0, 1e-14);
+  EXPECT_NEAR(rhs.value(p, 1), 1.0, 1e-14);
+
+  par.set_rhs_times(numbers::PI / 4.0);
+  EXPECT_NEAR(rhs.value(p, 0), std::sin(numbers::PI / 2.0), 1e-14);
+  EXPECT_NEAR(rhs.value(p, 1), std::cos(numbers::PI / 2.0), 1e-14);
+}

@@ -18,4 +18,5 @@ tutorials grouped here scales well as more guides are added for `laplacian`,
 :maxdepth: 1
 
 reduced-poisson
+elasticity
 ```

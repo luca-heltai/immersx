@@ -37,7 +37,7 @@ namespace VTKUtils
   void
   read_vtk(const std::string            &vtk_filename,
            Triangulation<dim, spacedim> &tria,
-           const bool                    cleanup)
+           const bool)
   {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());

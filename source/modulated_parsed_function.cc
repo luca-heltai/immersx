@@ -28,6 +28,26 @@ ModulatedParsedFunction<spacedim>::declare_parameters(ParameterHandler &prm)
                                                           function_expression);
   prm.add_parameter("Modulation frequency", modulation_frequency);
   prm.add_parameter("Phase shift", phase_shift);
+  prm.add_action(
+    "Function constants",
+    [this](const std::string &) { function_constants_explicitly_set = true; },
+    false);
+  prm.add_action(
+    "Function expression",
+    [this](const std::string &) { function_expression_explicitly_set = true; },
+    false);
+  prm.add_action(
+    "Variable names",
+    [this](const std::string &) { variable_names_explicitly_set = true; },
+    false);
+  prm.add_action(
+    "Modulation frequency",
+    [this](const std::string &) { modulation_frequency_explicitly_set = true; },
+    false);
+  prm.add_action(
+    "Phase shift",
+    [this](const std::string &) { phase_shift_explicitly_set = true; },
+    false);
 }
 
 template <int spacedim>
@@ -40,6 +60,8 @@ ModulatedParsedFunction<spacedim>::parse_parameters(ParameterHandler &prm)
       function_expression = prm.get("Function expression");
       variable_names      = prm.get("Variable names");
       Functions::ParsedFunction<spacedim>::parse_parameters(prm);
+      if (fallback_source != nullptr)
+        inherit_missing_configuration_from(*fallback_source);
     }
   catch (const dealii::ExceptionBase &)
     {
@@ -47,6 +69,8 @@ ModulatedParsedFunction<spacedim>::parse_parameters(ParameterHandler &prm)
       // parameter pass and only declare their entries on the second pass.
       // Ignore the intermediate parse and let the second pass populate them.
     }
+
+  reset_explicit_flags();
 }
 
 template <int spacedim>
@@ -74,6 +98,14 @@ ModulatedParsedFunction<spacedim>::copy_configuration_from(
 
 template <int spacedim>
 void
+ModulatedParsedFunction<spacedim>::set_fallback_configuration_source(
+  const ModulatedParsedFunction<spacedim> *source)
+{
+  fallback_source = source;
+}
+
+template <int spacedim>
+void
 ModulatedParsedFunction<spacedim>::parse_stored_function()
 {
   ParameterHandler prm;
@@ -84,6 +116,52 @@ ModulatedParsedFunction<spacedim>::parse_stored_function()
   prm.set("Function expression", function_expression);
   prm.set("Variable names", variable_names);
   Functions::ParsedFunction<spacedim>::parse_parameters(prm);
+}
+
+template <int spacedim>
+void
+ModulatedParsedFunction<spacedim>::inherit_missing_configuration_from(
+  const ModulatedParsedFunction<spacedim> &source)
+{
+  bool parser_configuration_changed = false;
+
+  if (!function_constants_explicitly_set)
+    {
+      function_constants           = source.function_constants;
+      parser_configuration_changed = true;
+    }
+
+  if (!function_expression_explicitly_set)
+    {
+      function_expression          = source.function_expression;
+      parser_configuration_changed = true;
+    }
+
+  if (!variable_names_explicitly_set)
+    {
+      variable_names               = source.variable_names;
+      parser_configuration_changed = true;
+    }
+
+  if (!modulation_frequency_explicitly_set)
+    modulation_frequency = source.modulation_frequency;
+
+  if (!phase_shift_explicitly_set)
+    phase_shift = source.phase_shift;
+
+  if (parser_configuration_changed)
+    parse_stored_function();
+}
+
+template <int spacedim>
+void
+ModulatedParsedFunction<spacedim>::reset_explicit_flags()
+{
+  function_constants_explicitly_set   = false;
+  function_expression_explicitly_set  = false;
+  variable_names_explicitly_set       = false;
+  modulation_frequency_explicitly_set = false;
+  phase_shift_explicitly_set          = false;
 }
 
 template class ModulatedParsedFunction<1>;

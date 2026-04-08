@@ -213,22 +213,33 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
       };
 
     const auto ensure_function_overrides =
-      [this, &created_dynamic_acceptors, &copy_modulated_function_entries](
-        const auto &ids, auto &map, const std::string &prefix) {
+      [this,
+       &created_dynamic_acceptors,
+       &copy_modulated_function_entries](const auto        &ids,
+                                         auto              &map,
+                                         const auto        &base_function,
+                                         const std::string &prefix) {
         for (const auto id : ids)
-          if (map.find(id) == map.end())
-            {
-              const auto override_section =
-                prefix + " " + std::to_string(static_cast<unsigned int>(id));
-              auto ptr = std::make_shared<ModulatedParsedFunction<spacedim>>(
-                override_section, spacedim);
-              ptr->enter_my_subsection(this->prm);
-              ptr->declare_parameters(this->prm);
-              ptr->leave_my_subsection(this->prm);
-              copy_modulated_function_entries(prefix, override_section);
-              map[id]                   = ptr;
-              created_dynamic_acceptors = true;
-            }
+          {
+            const auto override_section =
+              prefix + " " + std::to_string(static_cast<unsigned int>(id));
+
+            if (map.find(id) == map.end())
+              {
+                auto ptr = std::make_shared<ModulatedParsedFunction<spacedim>>(
+                  override_section, spacedim);
+                ptr->set_fallback_configuration_source(&base_function);
+                ptr->enter_my_subsection(this->prm);
+                ptr->declare_parameters(this->prm);
+                ptr->leave_my_subsection(this->prm);
+                map[id]                   = ptr;
+                created_dynamic_acceptors = true;
+
+                // Initialize newly created override sections with base section
+                // values so they have defaults if not overridden in the file.
+                copy_modulated_function_entries(prefix, override_section);
+              }
+          }
       };
 
     {
@@ -236,6 +247,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
 
       ensure_function_overrides(rhs_material_ids,
                                 rhs_by_material_id,
+                                rhs,
                                 "/Functions/Right hand side");
 
       std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
@@ -243,12 +255,14 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
                               weak_dirichlet_ids.end());
       ensure_function_overrides(dirichlet_bc_ids,
                                 dirichlet_bc_by_id,
+                                bc,
                                 "/Functions/Dirichlet boundary conditions");
 
       std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
       neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
       ensure_function_overrides(neumann_bc_ids,
                                 neumann_bc_by_id,
+                                Neumann_bc,
                                 "/Functions/Neumann boundary conditions");
 
       this->enter_my_subsection(this->prm);
@@ -387,14 +401,12 @@ ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
     }
 
   // --- Infer ElasticityModel ------------------------------------------------
-  bool any_neta_zero     = false;
   bool any_neta_positive = false;
   for (const auto &mp_ref : materials)
     {
       const auto &mp = mp_ref.get();
       AssertThrow(mp.neta >= 0.0,
                   ExcMessage("Material viscosity (eta/neta) must be >= 0."));
-      any_neta_zero |= (mp.neta == 0.0);
       any_neta_positive |= (mp.neta > 0.0);
     }
 

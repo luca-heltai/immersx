@@ -4,26 +4,26 @@ subsection Error
 end
 subsection Functions
   subsection Dirichlet boundary conditions
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
-    set Function expression = A*exp(-ki*x)*sin(kr*x - omega*t); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.1, rho0=1.0, a=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = a*exp(-ki*x)*sin(kr*x - omega*t); 0
   end
   subsection Exact solution
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
-    set Function expression = A*exp(-ki*x)*sin(kr*x - omega*t); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.1, rho0=1.0, a=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = a*exp(-ki*x)*sin(kr*x - omega*t); 0
   end
   subsection Initial displacement
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
-    set Function expression = A*exp(-ki*x)*sin(kr*x - omega*t); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.1, rho0=1.0, a=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = a*exp(-ki*x)*sin(kr*x - omega*t); 0
   end
   subsection Initial velocity
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
-    set Function expression = -A*omega*exp(-ki*x)*cos(kr*x - omega*t); 0
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.1, rho0=1.0, a=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function expression = -a*omega*exp(-ki*x)*cos(kr*x - omega*t); 0
   end
   subsection Neumann boundary conditions
     set Function expression = 0; 0
   end
   subsection Right hand side
-    set Function constants  = lambda=2.0, mu=1.0, eta=0.1, rho=1.0, A=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
+    set Function constants  = lam=2.0, mu0=1.0, eta0=0.1, rho0=1.0, a=0.2, omega=12.566370614359172, kr=6.066118580856262, ki=0.9304459659323195
     set Function expression = 0; 0
   end
 end
