@@ -390,21 +390,6 @@ ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
       time_mode = any_rho_positive ? TimeMode::Dynamic : TimeMode::QuasiStatic;
     }
 
-  // --- Validate BCs for time-dependent problems ---------------------------
-  if (time_mode != TimeMode::Static)
-    {
-      AssertThrow(dirichlet_ids.empty(),
-                  ExcMessage("Time-dependent problems (initial_time != "
-                             "final_time) do not support strong Dirichlet "
-                             "boundary conditions. Use weak Dirichlet and/or "
-                             "Neumann boundary conditions instead."));
-      AssertThrow(normal_flux_ids.empty(),
-                  ExcMessage("Time-dependent problems (initial_time != "
-                             "final_time) do not support normal-flux "
-                             "constraints. Use weak Dirichlet and/or "
-                             "Neumann boundary conditions instead."));
-    }
-
   // --- Infer ElasticityModel ------------------------------------------------
   bool any_neta_positive = false;
   for (const auto &mp_ref : materials)
