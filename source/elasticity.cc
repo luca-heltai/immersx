@@ -300,6 +300,104 @@ ElasticityProblem<dim, spacedim>::setup_fe()
 
 template <int dim, int spacedim>
 void
+ElasticityProblem<dim, spacedim>::setup_constraints()
+{
+  constraints.clear();
+  constraints.reinit(owned_dofs[0], relevant_dofs[0]);
+  DoFTools::make_hanging_node_constraints(dh, constraints);
+
+  for (const auto id : par.dirichlet_ids)
+    VectorTools::interpolate_boundary_values(dh,
+                                             id,
+                                             par.get_dirichlet_bc(id),
+                                             constraints);
+
+  std::map<types::boundary_id, const Function<spacedim, double> *> function_map;
+  for (const auto id : par.normal_flux_ids)
+    {
+      function_map.insert(
+        std::pair<types::boundary_id, const Function<spacedim, double> *>(
+          id, &par.get_neumann_bc(id)));
+    }
+  VectorTools::compute_nonzero_normal_flux_constraints(
+    dh, 0, par.normal_flux_ids, function_map, constraints);
+  constraints.close();
+
+  /*{
+    mean_value_constraints.clear();
+    mean_value_constraints.reinit(relevant_dofs[0]);
+
+    for (const auto id : par.normal_flux_ids)
+    {
+      const std::set<types::boundary_id > &boundary_ids={id};
+      const ComponentMask &component_mask=ComponentMask();
+      const IndexSet boundary_dofs = DoFTools::extract_boundary_dofs(dh,
+  component_mask, boundary_ids);
+
+      const types::global_dof_index first_boundary_dof =
+        boundary_dofs.nth_index_in_set(0);
+
+      mean_value_constraints.add_line(first_boundary_dof);
+      for (types::global_dof_index i : boundary_dofs)
+        if (i != first_boundary_dof)
+          mean_value_constraints.add_entry(first_boundary_dof, i, -1);
+    }
+      mean_value_constraints.close();
+
+      constraints.merge(mean_value_constraints);
+  }*/
+}
+
+
+
+template <int dim, int spacedim>
+void
+ElasticityProblem<dim, spacedim>::make_newmark_acceleration_constraints(
+  const LA::MPI::Vector      &displacement_predictor,
+  AffineConstraints<double> &acceleration_constraints) const
+{
+  AssertThrow(par.beta != 0.0 && par.dt != 0.0,
+              ExcMessage("Newmark acceleration constraints require nonzero "
+                         "beta and time step."));
+
+  LA::MPI::Vector locally_relevant_predictor;
+  locally_relevant_predictor.reinit(owned_dofs[0],
+                                    relevant_dofs[0],
+                                    mpi_communicator);
+  locally_relevant_predictor = displacement_predictor;
+  locally_relevant_predictor.update_ghost_values();
+
+  acceleration_constraints.clear();
+  acceleration_constraints.reinit(owned_dofs[0], relevant_dofs[0]);
+
+  const double newmark_factor = par.beta * par.dt * par.dt;
+  for (const auto &line : constraints.get_lines())
+    {
+      acceleration_constraints.add_line(line.index);
+
+      double constrained_predictor = line.inhomogeneity;
+      for (const auto &entry : line.entries)
+        {
+          acceleration_constraints.add_entry(line.index,
+                                             entry.first,
+                                             entry.second);
+          constrained_predictor +=
+            entry.second * locally_relevant_predictor(entry.first);
+        }
+
+      acceleration_constraints.set_inhomogeneity(
+        line.index,
+        (constrained_predictor - locally_relevant_predictor(line.index)) /
+          newmark_factor);
+    }
+
+  acceleration_constraints.close();
+}
+
+
+
+template <int dim, int spacedim>
+void
 ElasticityProblem<dim, spacedim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
@@ -325,62 +423,20 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
   relevant_dofs.resize(2);
   relevant_dofs[0] = DoFTools::extract_locally_relevant_dofs(dh);
 
-  FEFaceValues<spacedim> fe_face_values(*fe,
-                                        *face_quadrature_formula,
-                                        update_values | update_JxW_values |
-                                          update_quadrature_points |
-                                          update_normal_vectors);
+  par.set_boundary_condition_times(current_time);
+  setup_constraints();
 
-  {
-    constraints.reinit(owned_dofs[0], relevant_dofs[0]);
-    DoFTools::make_hanging_node_constraints(dh, constraints);
-
-    for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh,
-                                               id,
-                                               par.get_dirichlet_bc(id),
-                                               constraints);
-
-    std::map<types::boundary_id, const Function<spacedim, double> *>
-      function_map;
-    for (const auto id : par.normal_flux_ids)
-      {
-        function_map.insert(
-          std::pair<types::boundary_id, const Function<spacedim, double> *>(
-            id, &par.get_neumann_bc(id)));
-      }
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dh, 0, par.normal_flux_ids, function_map, constraints);
-    constraints.close();
-
-
-    /*{
-      mean_value_constraints.clear();
-      mean_value_constraints.reinit(relevant_dofs[0]);
-
-      for (const auto id : par.normal_flux_ids)
-      {
-        const std::set<types::boundary_id > &boundary_ids={id};
-        const ComponentMask &component_mask=ComponentMask();
-        const IndexSet boundary_dofs = DoFTools::extract_boundary_dofs(dh,
-    component_mask, boundary_ids);
-
-        const types::global_dof_index first_boundary_dof =
-          boundary_dofs.nth_index_in_set(0);
-
-        mean_value_constraints.add_line(first_boundary_dof);
-        for (types::global_dof_index i : boundary_dofs)
-          if (i != first_boundary_dof)
-            mean_value_constraints.add_entry(first_boundary_dof, i, -1);
-      }
-        mean_value_constraints.close();
-
-        constraints.merge(mean_value_constraints);
-    }*/
-  }
   {
     DynamicSparsityPattern dsp(relevant_dofs[0]);
-    DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
+    AffineConstraints<double> no_constraints;
+    no_constraints.close();
+    DoFTools::make_sparsity_pattern(dh, dsp, no_constraints, false);
+    for (const auto &line : constraints.get_lines())
+      {
+        dsp.add(line.index, line.index);
+        for (const auto &entry : line.entries)
+          dsp.add(line.index, entry.first);
+      }
     SparsityTools::distribute_sparsity_pattern(dsp,
                                                owned_dofs[0],
                                                mpi_communicator,
@@ -456,6 +512,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
 
   par.rhs.set_time(current_time);
   par.set_boundary_condition_times(current_time);
+  AffineConstraints<double> no_column_constraints;
+  no_column_constraints.close();
 
   FEValues<spacedim>     fe_values(*fe,
                                *quadrature,
@@ -659,12 +717,14 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
                              cell_grad);
 
             constraints.distribute_local_to_global(cell_mass,
-                                                   // cell_rhs,
+                                                   local_dof_indices,
+                                                   no_column_constraints,
                                                    local_dof_indices,
                                                    mass_matrix);
 
             constraints.distribute_local_to_global(cell_damping,
-                                                   // cell_rhs,
+                                                   local_dof_indices,
+                                                   no_column_constraints,
                                                    local_dof_indices,
                                                    damping_matrix);
           }
@@ -683,9 +743,12 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
         cell_rhs += cell_penalty_value_rhs;
 
         constraints.distribute_local_to_global(cell_stiffness,
-                                               cell_rhs,
                                                local_dof_indices,
-                                               stiffness_matrix,
+                                               no_column_constraints,
+                                               local_dof_indices,
+                                               stiffness_matrix);
+        constraints.distribute_local_to_global(cell_rhs,
+                                               local_dof_indices,
                                                system_rhs.block(0));
 
         if (par.time_mode == TimeMode::Dynamic)
@@ -698,7 +761,8 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
                              cell_damping);
 
             constraints.distribute_local_to_global(cell_newmark,
-                                                   // cell_rhs,
+                                                   local_dof_indices,
+                                                   no_column_constraints,
                                                    local_dof_indices,
                                                    newmark_matrix);
           }
@@ -777,7 +841,16 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
 {
-  const auto evaluation_time = current_time + par.dt;
+  assemble_forcing_terms(current_time + par.dt);
+}
+
+
+
+template <int dim, int spacedim>
+void
+ElasticityProblem<dim, spacedim>::assemble_forcing_terms(
+  const double evaluation_time)
+{
   par.set_rhs_times(evaluation_time);
   par.set_boundary_condition_times(evaluation_time);
 
@@ -1206,6 +1279,9 @@ ElasticityProblem<dim, spacedim>::solve_static()
   auto &f      = system_rhs.block(0);
   auto &g      = system_rhs.block(1);
 
+  constraints.distribute(u);
+  inclusion_constraints.distribute(lambda);
+
   pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
         << std::endl;
 
@@ -1418,6 +1494,8 @@ ElasticityProblem<dim, spacedim>::solve_quasistatic()
   auto &lambda = solution.block(1);
   auto &f      = system_rhs.block(0);
 
+  constraints.distribute(u);
+
   if (n_multiplier_dofs() == 0)
     u = invA * f;
   else
@@ -1464,10 +1542,12 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
   auto &f      = system_rhs.block(0);
   auto &g      = system_rhs.block(1);
 
-  const auto N    = linear_operator<LA::MPI::Vector>(newmark_matrix);
-  const auto amgN = linear_operator(N, prec_newmark);
+  par.set_boundary_condition_times(current_time);
+  setup_constraints();
+  constraints.distribute(u);
+  inclusion_constraints.distribute(lambda);
+
   SolverCG<LA::MPI::Vector> cg_stiffness(par.displacement_solver_control);
-  const auto                invN = inverse_operator(N, cg_stiffness, amgN);
 
   const double beta  = par.beta;
   const double gamma = par.gamma;
@@ -1476,12 +1556,27 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
   u_pred = u + par.dt * v + (par.dt * par.dt / 2) * (1 - 2 * beta) * a;
   v_pred = v + par.dt * (1 - gamma) * a;
 
+  par.set_boundary_condition_times(current_time + par.dt);
+  setup_constraints();
+  AffineConstraints<double> acceleration_constraints;
+  make_newmark_acceleration_constraints(u_pred, acceleration_constraints);
+  acceleration_constraints.distribute(a);
+
+  LA::MPI::Vector acceleration_rhs;
+  acceleration_rhs.reinit(f);
+  acceleration_rhs = f;
+
   if (par.elasticity_model == ElasticityModel::LinearElasticity ||
       par.elasticity_model == ElasticityModel::KelvinVoigt)
     {
       if (n_multiplier_dofs() == 0)
         {
-          a = invN * (f - D * v_pred - A * u_pred);
+          acceleration_rhs -= D * v_pred;
+          acceleration_rhs -= A * u_pred;
+          cg_stiffness.solve(newmark_matrix,
+                             a,
+                             acceleration_rhs,
+                             prec_newmark);
         }
       else
         {
@@ -1505,13 +1600,21 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
                 << std::endl;
 
           const auto f_inclusions = Bt * lambda;
-          a = invN * (f_inclusions + f - D * v_pred - A * u_pred);
+          acceleration_rhs += f_inclusions;
+          acceleration_rhs -= D * v_pred;
+          acceleration_rhs -= A * u_pred;
+          cg_stiffness.solve(newmark_matrix,
+                             a,
+                             acceleration_rhs,
+                             prec_newmark);
         }
     }
   else
     {
       AssertThrow(false, ExcInternalError());
     }
+
+  acceleration_constraints.distribute(a);
 
   // corrector step
   u = u_pred + par.dt * par.dt * beta * a;
@@ -2196,12 +2299,13 @@ ElasticityProblem<dim, spacedim>::run_quasistatic()
       inclusions.setup_inclusions_particles(*tria);
     }
 
+  current_time = par.initial_time;
   setup_dofs();
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
+      current_time = par.initial_time;
       setup_dofs();
       assemble_elasticity_system();
-      current_time = par.initial_time;
       time_step    = 0;
       assemble_forcing_terms();
       if (!uses_tensor_product_coupling())
@@ -2250,11 +2354,12 @@ ElasticityProblem<dim, spacedim>::run_newmark()
       inclusions.setup_inclusions_particles(*tria);
     }
 
+  current_time = par.initial_time;
   setup_dofs();
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
-      assemble_elasticity_system();
       current_time = par.initial_time;
+      assemble_elasticity_system();
       time_step    = 0;
       assemble_forcing_terms();
       if (!uses_tensor_product_coupling())
@@ -2265,14 +2370,28 @@ ElasticityProblem<dim, spacedim>::run_newmark()
 
       par.initial_displacement.set_time(current_time);
       par.initial_velocity.set_time(current_time);
+      par.set_boundary_condition_times(current_time);
+      setup_constraints();
       VectorTools::interpolate(dh, par.initial_displacement, solution.block(0));
       constraints.distribute(solution.block(0));
       VectorTools::interpolate(dh, par.initial_velocity, velocity.block(0));
-      constraints.distribute(velocity.block(0));
+      {
+        AffineConstraints<double> velocity_constraints;
+        velocity_constraints.clear();
+        velocity_constraints.reinit(owned_dofs[0], relevant_dofs[0]);
+        DoFTools::make_hanging_node_constraints(dh, velocity_constraints);
+        for (const auto id : par.dirichlet_ids)
+          VectorTools::interpolate_boundary_values(dh,
+                                                   id,
+                                                   par.initial_velocity,
+                                                   velocity_constraints);
+        velocity_constraints.close();
+        velocity_constraints.distribute(velocity.block(0));
+      }
 
       // Initialize acceleration consistently at t0:
       // C a0 = f0 - D v0 - A u0 (plus inclusion forcing if present).
-      compute_system_rhs();
+      compute_system_rhs(current_time);
       {
         const auto A = linear_operator<LA::MPI::Vector>(stiffness_matrix);
         const auto D = linear_operator<LA::MPI::Vector>(damping_matrix);
@@ -2351,6 +2470,16 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::compute_system_rhs()
 {
+  compute_system_rhs(current_time + par.dt);
+}
+
+
+
+template <int dim, int spacedim>
+void
+ElasticityProblem<dim, spacedim>::compute_system_rhs(
+  const double evaluation_time)
+{
   const auto get_scale =
     [](const double modulation, const double phase_shift, const double time) {
       return (modulation == 0.0) ?
@@ -2360,7 +2489,7 @@ ElasticityProblem<dim, spacedim>::compute_system_rhs()
 
   pcout << "Time: " << current_time << std::endl;
 
-  assemble_forcing_terms();
+  assemble_forcing_terms(evaluation_time);
   double inclusion_scale = 1.0;
   if (!uses_tensor_product_coupling())
     {
