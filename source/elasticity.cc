@@ -1496,6 +1496,50 @@ ElasticityProblem<dim, spacedim>::output_solution() const
       }
   }
 
+  if (false)
+    {
+      std::vector<std::string> indicator_function_name(
+        spacedim, "cells_containing_inclusions");
+      auto indicator_function(solution.block(0));
+      indicator_function = 0.0;
+
+      std::set<typename Triangulation<dim, spacedim>::active_cell_iterator>
+        cells_with_particles;
+      std::set<typename Triangulation<dim, spacedim>::active_cell_iterator>
+        cells_with_central_particles;
+
+      for (const auto &particle : inclusions.inclusions_as_particles)
+        cells_with_particles.insert(particle.get_surrounding_cell());
+
+      for (const auto &particle : inclusions.particles_on_centerline)
+        cells_with_central_particles.insert(particle.get_surrounding_cell());
+
+      std::vector<types::global_dof_index> dof_indices(fe->n_dofs_per_cell());
+
+      for (const auto &cell : dh.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            cell->get_dof_indices(dof_indices);
+
+            if (cells_with_particles.find(cell) != cells_with_particles.end())
+              for (auto df : dof_indices)
+                indicator_function[df] = 1.0;
+            if (cells_with_central_particles.find(cell) !=
+                cells_with_central_particles.end())
+              for (auto df : dof_indices)
+                indicator_function[df] = 2.0;
+          }
+
+      std::vector<DataComponentInterpretation::DataComponentInterpretation>
+        data_component_interpretation(
+          spacedim, DataComponentInterpretation::component_is_scalar);
+
+      data_out.add_data_vector(indicator_function,
+                               indicator_function_name,
+                               DataOut<spacedim>::type_dof_data,
+                               data_component_interpretation);
+    }
+
   data_out.add_data_vector(material_ids, "material_id");
 
   data_out.build_patches();
