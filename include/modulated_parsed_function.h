@@ -1,5 +1,5 @@
-#ifndef reduced_lagrange_modulated_parsed_function_h
-#define reduced_lagrange_modulated_parsed_function_h
+#ifndef immersx_modulated_parsed_function_h
+#define immersx_modulated_parsed_function_h
 
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
