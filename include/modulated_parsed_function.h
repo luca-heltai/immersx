@@ -44,16 +44,16 @@ private:
   void
   reset_explicit_flags();
 
-  unsigned int n_components;
-  std::string  function_constants;
-  std::string  function_expression;
-  std::string  variable_names;
+  unsigned int                             n_components;
+  std::string                              function_constants;
+  std::string                              function_expression;
+  std::string                              variable_names;
   const ModulatedParsedFunction<spacedim> *fallback_source = nullptr;
-  bool function_constants_explicitly_set                    = false;
-  bool function_expression_explicitly_set                   = false;
-  bool variable_names_explicitly_set                        = false;
-  bool modulation_frequency_explicitly_set                  = false;
-  bool phase_shift_explicitly_set                           = false;
+  bool function_constants_explicitly_set                   = false;
+  bool function_expression_explicitly_set                  = false;
+  bool variable_names_explicitly_set                       = false;
+  bool modulation_frequency_explicitly_set                 = false;
+  bool phase_shift_explicitly_set                          = false;
 };
 
 #endif
