@@ -1,12 +1,17 @@
-# Reduced Lagrange Multipliers
+# ImmersX: embedded & mixed-dimensional simulation framework
 
-![GitHub CI](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/tests.yml/badge.svg)
-![Documentation](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/doxygen.yml/badge.svg)
-![Indent](https://github.com/luca-heltai/reduced_lagrange_multipliers/actions/workflows/indentation.yml/badge.svg)
+![ImmersX logo](https://raw.githubusercontent.com/luca-heltai/immersx/master/doc/immersx-logo.png)
 
-This repository contains C++ implementations of reduced Lagrange multiplier methods for mixed-dimensional coupling problems, built on top of [deal.II](https://www.dealii.org). Required version: 9.7.1 or later.
+![GitHub CI](https://github.com/luca-heltai/immersx/actions/workflows/tests.yml/badge.svg)
+![Documentation](https://github.com/luca-heltai/immersx/actions/workflows/doxygen.yml/badge.svg)
+![Indent](https://github.com/luca-heltai/immersx/actions/workflows/indentation.yml/badge.svg)
 
-The website documentation is available at <https://luca-heltai.github.io/reduced_lagrange_multipliers/>.
+ImmersX is a C++ framework for embedded and mixed-dimensional finite element
+simulations, with tools for immersed coupling, reduced multiplier spaces,
+elasticity, Poisson-type models, and coupled 3D/1D workflows. It is built on top
+of [deal.II](https://www.dealii.org). Required version: 9.7.1 or later.
+
+The website documentation is available at <https://luca-heltai.github.io/immersx/>.
 
 ## Quick Start
 
