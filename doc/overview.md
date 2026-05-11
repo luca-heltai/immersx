@@ -1,5 +1,9 @@
 # Overview
 
+ImmersX is organized around embedded and mixed-dimensional simulation
+workflows: bulk finite element problems, immersed lower-dimensional geometry,
+and coupling operators that avoid conforming background meshes.
+
 The main C++ components are:
 
 - `ElasticityProblem` in `include/elasticity.h` for bulk elasticity with optional transient integration and immersed coupling.

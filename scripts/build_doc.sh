@@ -52,7 +52,7 @@ mkdir -p "${BUILD_DIR}" "${DOXYGEN_OUT}" "${API_STUB_DIR}"
 rm -rf "${SITE_DIR}" "${API_STUB_DIR}"
 mkdir -p "${API_STUB_DIR}"
 
-tmp_doxyfile="$(mktemp "${TMPDIR:-/tmp}/rlm-doxygen.XXXXXX")"
+tmp_doxyfile="$(mktemp "${TMPDIR:-/tmp}/immersx-doxygen.XXXXXX")"
 trap 'rm -f "${tmp_doxyfile}"' EXIT
 
 sed \

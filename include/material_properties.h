@@ -2,20 +2,20 @@
 //
 // Copyright (C) 2024 by Luca Heltai
 //
-// This file is part of the reduced_lagrange_multipliers application, based on
+// This file is part of the ImmersX application, based on
 // the deal.II library.
 //
-// The reduced_lagrange_multipliers application is free software; you can use
+// The ImmersX application is free software; you can use
 // it, redistribute it, and/or modify it under the terms of the Apache-2.0
 // License WITH LLVM-exception as published by the Free Software Foundation;
 // either version 3.0 of the License, or (at your option) any later version.
 // The full text of the license can be found in the file LICENSE.md at the top
-// level of the reduced_lagrange_multipliers distribution.
+// level of the ImmersX distribution.
 //
 // ---------------------------------------------------------------------
 
-#ifndef reduced_lagrange_multipliers_material_properties_h
-#define reduced_lagrange_multipliers_material_properties_h
+#ifndef immersx_material_properties_h
+#define immersx_material_properties_h
 
 #include <deal.II/base/parameter_acceptor.h>
 

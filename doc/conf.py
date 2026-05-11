@@ -1,9 +1,9 @@
 import os
 import sys
 
-project = "Reduced Lagrange Multipliers"
+project = "ImmersX: embedded & mixed-dimensional simulation framework"
 author = "Luca Heltai and contributors"
-html_baseurl = "https://luca-heltai.github.io/reduced_lagrange_multipliers/"
+html_baseurl = "https://luca-heltai.github.io/immersx/"
 default_role = "any"
 
 extensions = [
@@ -19,8 +19,10 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "html"]
 
 html_theme = "furo"
 html_title = project
+html_logo = "immersx-logo.png"
+html_favicon = "favicon.png"
 html_theme_options = {
-    "source_repository": "https://github.com/luca-heltai/reduced_lagrange_multipliers/",
+    "source_repository": "https://github.com/luca-heltai/immersx/",
     "source_branch": "master",
     "source_directory": "doc/",
     "top_of_page_buttons": ["view", "edit"],
