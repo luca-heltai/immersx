@@ -27,7 +27,7 @@
 # Set the name of the project and target
 # If your application follows the structure above, you don't need to 
 # specify anything else. 
-SET(_main_target reduced_lagrange)
+SET(_main_target immersx)
 
 # Set the _main variable to empty if you don't want an executable
 # but only a library
