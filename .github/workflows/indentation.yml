@@ -2,24 +2,23 @@ name: Indent
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-    container: 
-      image: dealii/dealii:v9.6.0-jammy
+    container:
+      image: dealii/dealii:v9.7.1-noble
       options: --user root
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Mark the repository as safe
-      run: git config --global --add safe.directory /__w/reduced_lagrange_multipliers/reduced_lagrange_multipliers
+      - name: Mark the repository as safe
+        run: git config --global --add safe.directory /__w/immersx/immersx
 
-    - name: Run indentation check
-      run: ./scripts/check_indentation.sh
+      - name: Run indentation check
+        run: ./scripts/check_indentation.sh
