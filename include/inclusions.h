@@ -551,7 +551,7 @@ public:
           basis / n_vector_components + 0; // coefficient_offset;
         unsigned int omega = (fourier_index + 1) / 2;
 
-        double scaling_factor = (omega == 1 ? 1 : s1);
+        double scaling_factor = (omega == 0 ? 1 : s1);
 
         if (fourier_index == 0)
           current_fe_values[basis_local_id] = s0;
