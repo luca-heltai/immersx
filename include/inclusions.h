@@ -539,8 +539,7 @@ public:
     const auto scaling_factor = 1.0;
 
     unsigned int basis_local_id = 0;
-    for (unsigned int basis :
-         selected_coefficients)
+    for (unsigned int basis : selected_coefficients)
       {
         const unsigned int fourier_index =
           basis / n_vector_components + 0; // coefficient_offset;
