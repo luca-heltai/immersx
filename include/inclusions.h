@@ -536,25 +536,18 @@ public:
     const auto id = particle_id / n_q_points;
     AssertIndexRange(id, inclusions.size());
     (void)id;
-    const auto r = get_radius(id);
-    (void)r;
-    const auto s0 = 1.0;
-    const auto s1 = std::sqrt(2);
+    const auto scaling_factor = 1.0;
 
     unsigned int basis_local_id = 0;
     for (unsigned int basis :
-         selected_coefficients) // 0; basis < n_coefficients *
-                                // n_vector_components;
-                                //++basis)
+         selected_coefficients)
       {
         const unsigned int fourier_index =
           basis / n_vector_components + 0; // coefficient_offset;
         unsigned int omega = (fourier_index + 1) / 2;
 
-        double scaling_factor = (omega == 0 ? 1 : s1);
-
         if (fourier_index == 0)
-          current_fe_values[basis_local_id] = s0;
+          current_fe_values[basis_local_id] = scaling_factor;
         else if ((fourier_index - 1) % 2 == 0)
           current_fe_values[basis_local_id] =
             scaling_factor * std::cos(theta[q] * omega);
@@ -563,18 +556,6 @@ public:
             scaling_factor * std::sin(theta[q] * omega);
         ++basis_local_id;
       }
-    // for (unsigned int c = 0; c < n_coefficients; ++c)
-    //   {
-    //     unsigned int omega = (c + coefficient_offset + 1) / 2;
-    //     const double rho   = std::pow(r, omega);
-    //     for (unsigned int i = 0; i < n_vector_components; ++i)
-    //       if ((std::max(c + coefficient_offset, 1u) + 1) % 2 == 0)
-    //         current_fe_values[c * n_vector_components + i] =
-    //           rho * std::cos(theta[q] * omega);
-    //       else
-    //         current_fe_values[c * n_vector_components + i] =
-    //           rho * std::sin(theta[q] * omega);
-    //   }
     return current_fe_values;
   }
 
