@@ -40,14 +40,14 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::ReducedCoupling(
   : TensorProductSpace<reduced_dim, dim, spacedim, n_components>(
       par.tensor_product_space_parameters,
 #  if DEAL_II_VERSION_GTE(9, 6, 0)
-      background_tria.get_communicator())
+      background_tria.get_mpi_communicator())
 #  else 
 background_tria.get_mpi_communicator()
 #  endif
   , ParticleCoupling<spacedim>(par.particle_coupling_parameters)
   , mpi_communicator(
 #  if DEAL_II_VERSION_GTE(9, 6, 0)
-      background_tria.get_communicator()
+      background_tria.get_mpi_communicator()
 #  else 
   background_tria.get_mpi_communicator()
 #  endif

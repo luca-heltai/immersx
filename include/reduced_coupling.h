@@ -224,7 +224,7 @@ private:
   /**
    * @brief The triangulation of the background domain.
    */
-  SmartPointer<parallel::TriangulationBase<spacedim>> background_tria;
+  ObserverPointer<parallel::TriangulationBase<spacedim>> background_tria;
 
   /**
    * @brief Affine constraints for the coupling.

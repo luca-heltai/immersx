@@ -51,7 +51,7 @@ ParticleCoupling<dim>::initialize_particle_handler(
   tria_background = &tria;
   mapping         = &mapp;
   particles.initialize(*tria_background, *mapping, 1);
-  mpi_communicator = tria_background->get_communicator();
+  mpi_communicator = tria_background->get_mpi_communicator();
 
   {
     std::vector<BoundingBox<dim>> all_boxes;
