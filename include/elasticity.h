@@ -426,7 +426,7 @@ private:
  * `LinearOperator` sums in `solve()` (not as explicit sparse matrices).
  */
 template <int dim, int spacedim = dim>
-class ElasticityProblem : public Subscriptor
+class ElasticityProblem : public EnableObserverPointer
 {
 public:
   /**

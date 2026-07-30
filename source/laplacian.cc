@@ -797,7 +797,7 @@ PoissonProblem<dim, spacedim>::refine_and_transfer()
     for (const auto &cell : tria.active_cell_iterators())
       cell->set_refine_flag();
 
-  parallel::distributed::SolutionTransfer<spacedim, VectorType> transfer(dh);
+  SolutionTransfer<spacedim, VectorType> transfer(dh);
   tria.prepare_coarsening_and_refinement();
   inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
   transfer.prepare_for_coarsening_and_refinement(

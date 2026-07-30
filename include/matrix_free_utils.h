@@ -37,9 +37,9 @@ using namespace dealii;
 
 #if DEAL_II_VERSION_GTE(9, 7, 0)
 #else
-#  include <deal.II/base/smartpointer.h>
+#  include <deal.II/base/ObserverPointer.h>
 template <typename T, typename P = void>
-using ObserverPointer = SmartPointer<T, P>;
+using ObserverPointer = ObserverPointer<T, P>;
 #endif
 
 

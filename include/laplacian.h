@@ -217,7 +217,7 @@ template <int dim, int spacedim = dim>
 /**
  * Solver for Poisson problems with reduced Lagrange multiplier coupling.
  */
-class PoissonProblem : public Subscriptor
+class PoissonProblem : public EnableObserverPointer
 {
 public:
   /**

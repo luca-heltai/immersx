@@ -144,12 +144,12 @@ protected:
   /**
    * @brief Smart pointer to the background triangulation.
    */
-  SmartPointer<const parallel::TriangulationBase<dim>> tria_background;
+  ObserverPointer<const parallel::TriangulationBase<dim>> tria_background;
 
   /**
    * @brief Smart pointer to the mapping associated with the triangulation.
    */
-  SmartPointer<const Mapping<dim>> mapping;
+  ObserverPointer<const Mapping<dim>> mapping;
 
   /**
    * A covering of the background triangulation indexed by processor.
