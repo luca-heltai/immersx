@@ -251,7 +251,7 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
         // deadlock
         global_done =
           Utilities::MPI::min(static_cast<int>(done),
-                              space_triangulation.get_communicator());
+                              space_triangulation.get_mpi_communicator());
 
         if (global_done == false)
           {
@@ -323,7 +323,7 @@ adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
 
 
   if (Utilities::MPI::this_mpi_process(
-        space_triangulation.get_communicator()) == 0)
+        space_triangulation.get_mpi_communicator()) == 0)
     std::cout << "Space local min/max diameters   : " << sm << "/" << sM
               << std::endl
               << "Embedded space min/max diameters: " << em << "/" << eM
