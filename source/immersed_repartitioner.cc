@@ -39,7 +39,8 @@ ImmersedRepartitioner<dim, spacedim>::partition(
   // 2) determine owner on background mesh
   Utilities::MPI::RemotePointEvaluation<spacedim> rpe;
   Vector<double> ranks(tria_background.n_active_cells());
-  ranks = Utilities::MPI::this_mpi_process(tria_background.get_communicator());
+  ranks =
+    Utilities::MPI::this_mpi_process(tria_background.get_mpi_communicator());
 
   const auto point_ranks =
     VectorTools::point_values<1>(mapping,

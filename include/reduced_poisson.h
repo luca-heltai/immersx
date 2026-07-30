@@ -215,7 +215,7 @@ public:
  * `TensorProductSpace`, the prescribed lower-dimensional data.
  */
 template <int dim, int spacedim = dim>
-class ReducedPoisson : public Subscriptor
+class ReducedPoisson : public EnableObserverPointer
 {
 public:
   ReducedPoisson(const ReducedPoissonParameters<spacedim> &par);

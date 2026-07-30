@@ -321,7 +321,7 @@ public:
   void
   setup_inclusions_particles(const parallel::TriangulationBase<spacedim> &tria)
   {
-    mpi_communicator = tria.get_communicator();
+    mpi_communicator = tria.get_mpi_communicator();
     initialize();
 
     inclusions_as_particles.initialize(tria,
