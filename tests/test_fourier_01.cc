@@ -14,7 +14,7 @@
 //
 // ---------------------------------------------------------------------
 
-#include "laplacian.h"
+#include "inclusions.h"
 #include "tests.h"
 
 // Test some integral properties of the fourier coefficients.

@@ -77,12 +77,11 @@ TEST(InclusionsBasis2, CheckScaling) // NOLINT
   // and check that they are equal to sqrt(|D|) where |D| is the length of the
   // inclusion
   auto D = 2 * numbers::PI * radius;
-  for (unsigned int i = 0; i < ref.get_n_coefficients() + 1; ++i)
+  EXPECT_NEAR(integral[0], D, 1e-10); // integral of 1
+  EXPECT_NEAR(integral[1], D, 1e-10); // integral of \phi_0
+  auto expected = D / 2;
+  for (unsigned int i = 2; i < ref.get_n_coefficients() + 1; ++i)
     {
-      auto expected = D;
-      // Take into account
-      if (i == 2 || i == 3)
-        expected /= 2;
       EXPECT_NEAR(integral[i], expected, 1e-10);
     }
 }
