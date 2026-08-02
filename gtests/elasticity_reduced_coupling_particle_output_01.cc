@@ -6,7 +6,7 @@
 
 using namespace dealii;
 
-TEST(ElasticityReducedCouplingPhase7, OutputsReducedParticles)
+TEST(ElasticityReducedCouplingParticleOutput, WritesReducedParticles)
 {
   ParameterAcceptor::clear();
 
@@ -17,7 +17,7 @@ TEST(ElasticityReducedCouplingPhase7, OutputsReducedParticles)
   par.arguments_for_grid   = "-1: 1: false";
   par.initial_refinement   = 1;
   par.output_directory     = "tests_debug_output";
-  par.output_name          = "elasticity_reduced_phase7";
+  par.output_name          = "elasticity_reduced_particles";
   par.reduced_coupling_parameters.tensor_product_space_parameters
     .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
   par.reduced_coupling_parameters.coupling_rhs_expressions = {"1", "0", "0"};

@@ -5,7 +5,7 @@
 
 using namespace dealii;
 
-TEST(ElasticityReducedCouplingPhase3, ConstructWithReducedCoupling)
+TEST(ElasticityReducedCouplingConstruction, BuildsWithReducedCoupling)
 {
   ParameterAcceptor::clear();
   initialize_parameters();
