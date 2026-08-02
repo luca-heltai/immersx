@@ -132,12 +132,13 @@ ElasticityProblem<dim, spacedim>::setup_reduced_coupling_dofs()
   std::vector<types::global_dof_index> reduced_cell_dofs(
     reduced_dh.get_fe().n_dofs_per_cell());
   for (const auto &cell : reduced_dh.active_cell_iterators())
-    {
-      cell->get_dof_indices(reduced_cell_dofs);
-      for (const auto row : reduced_cell_dofs)
-        for (const auto col : reduced_cell_dofs)
-          idsp.add(row, col);
-    }
+    if (cell->is_locally_owned())
+      {
+        cell->get_dof_indices(reduced_cell_dofs);
+        for (const auto row : reduced_cell_dofs)
+          for (const auto col : reduced_cell_dofs)
+            idsp.add(row, col);
+      }
   SparsityTools::distribute_sparsity_pattern(idsp,
                                              owned_dofs[1],
                                              mpi_communicator,
