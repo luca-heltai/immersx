@@ -97,24 +97,6 @@ subsection Immersed Problem
     set Grid scale               = 1
     set Triangulation type       = distributed
   end
-  subsection Immersed inclusions
-    set Bounding boxes extraction level   = 0
-    set Cluster inclusions with segments  = false
-    set Data file                         =
-    set Inclusions                        =
-    set Inclusions file                   =
-    set Inclusions refinement             = 100
-    set Number of fourier coefficients    = 1
-    set Reference inclusion data          =
-    set Selection of Fourier coefficients =
-    subsection Boundary data
-      set Function constants   =
-      set Function expression  = 0; 0; 0
-      set Modulation frequency = 0
-      set Phase shift          = 0
-      set Variable names       = x,y,z,t
-    end
-  end
   subsection Material properties
     set Material tags by material id =
     subsection default
