@@ -38,7 +38,7 @@ namespace
   }
 } // namespace
 
-TEST(ElasticityReducedCouplingPhase10, SetupCreatesReducedMultiplierBlock)
+TEST(ElasticityReducedCouplingIntegration, SetupCreatesReducedMultiplierBlock)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
@@ -53,7 +53,7 @@ TEST(ElasticityReducedCouplingPhase10, SetupCreatesReducedMultiplierBlock)
   EXPECT_EQ(problem.solution.n_blocks(), 2u);
 }
 
-TEST(ElasticityReducedCouplingPhase10, AssemblyProducesReducedRhs)
+TEST(ElasticityReducedCouplingIntegration, AssemblyProducesReducedRhs)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
@@ -69,7 +69,7 @@ TEST(ElasticityReducedCouplingPhase10, AssemblyProducesReducedRhs)
   EXPECT_GT(problem.system_rhs.block(1).l2_norm(), 0.0);
 }
 
-TEST(ElasticityReducedCouplingPhase10, StaticSolveCompletes)
+TEST(ElasticityReducedCouplingIntegration, StaticSolveCompletes)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
