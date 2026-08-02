@@ -32,12 +32,19 @@ subsection Immersed Problem
     set Newmark gamma   = 0.5
   end
 end
+subsection Solvers
+  subsection Reduced mass
+    set Max steps = 1000
+    set Reduction = 1.e-6
+    set Tolerance = 1.e-6
+  end
+end
 subsection Reduced coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
     set Refinement level         = 3
-    set Selected indices         = 0, 1, 2
+    set Selected indices         = 0, 1
   end
   subsection Local refinement parameters
     set Refinement strategy             = space
@@ -54,8 +61,8 @@ subsection Reduced coupling
   subsection Representative domain
     set Finite element degree       = 1
     set Number of quadrature points = 4
-    set Reduced grid name           = ../data/tests/one_cylinder.vtk
-    set Reduced right hand side     = 1; 0; 0
+    set Reduced grid name           = ../data/tests/one_segment_2d.vtk
+    set Reduced right hand side     = 1; 0
     set Thickness                   = 0.05
     set Thickness field name        =
   end
