@@ -50,6 +50,7 @@
 #include <boost/algorithm/string.hpp>
 
 #include <fstream>
+#include <map>
 
 using namespace dealii;
 
@@ -1194,7 +1195,10 @@ private:
   /**
    * Depth used when extracting R-tree bounding-box coverings.
    */
-  unsigned int rtree_extraction_level = 1;
+  // Use leaf-level cell boxes by default. Coarser boxes can include cells
+  // that only overlap a particle's bounding box; recent deal.II versions
+  // then attempt an inverse mapping on those false-positive candidates.
+  unsigned int rtree_extraction_level = 0;
 
   std::vector<unsigned int> segment_indices;
 
