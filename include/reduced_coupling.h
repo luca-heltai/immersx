@@ -143,6 +143,12 @@ struct ReducedCoupling
     const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
 
   /**
+   * @brief Set the time used by the reduced right-hand-side function.
+   */
+  void
+  set_time(const double time);
+
+  /**
    * @brief Assemble the sparsity pattern for the coupling matrix.
    * @param dsp The dynamic sparsity pattern to fill.
    * @param dh The DoFHandler for the background domain.

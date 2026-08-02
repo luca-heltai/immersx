@@ -132,6 +132,17 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 void
+ReducedCoupling<reduced_dim, dim, spacedim, n_components>::set_time(
+  const double time)
+{
+  AssertThrow(coupling_rhs,
+              ExcMessage(
+                "Reduced coupling must be initialized before setting time"));
+  coupling_rhs->set_time(time);
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
   assemble_coupling_sparsity(DynamicSparsityPattern          &dsp,
                              const DoFHandler<spacedim>      &dh,
