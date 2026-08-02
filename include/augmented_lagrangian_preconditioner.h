@@ -231,7 +231,11 @@ namespace UtilitiesAL
     Epetra_MultiVector &distributed_modes = *ptr_distributed_modes;
 
     const size_type global_size =
+#  ifdef DEAL_II_WITH_64BIT_INDICES
+      static_cast<size_type>(domain_map.NumGlobalElements64());
+#  else
       static_cast<size_type>(domain_map.NumGlobalElements());
+#  endif
     const size_type my_size =
       static_cast<size_type>(domain_map.NumMyElements());
 
@@ -260,7 +264,11 @@ namespace UtilitiesAL
             else
               {
                 const TrilinosWrappers::types::int_type gid =
+#  ifdef DEAL_II_WITH_64BIT_INDICES
+                  domain_map.GID64(static_cast<int>(row));
+#  else
                   domain_map.GID(static_cast<int>(row));
+#  endif
                 Assert(gid >= 0 && static_cast<size_type>(gid) < global_size,
                        ExcMessage("Invalid global index " +
                                   std::to_string(gid) +

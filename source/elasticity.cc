@@ -2142,7 +2142,6 @@ ElasticityProblem<dim, spacedim>::run_static()
       inclusions.setup_inclusions_particles(*tria);
     }
 
-  setup_dofs(); // called inside refine_and_transfer
   for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
     {
       setup_dofs();
