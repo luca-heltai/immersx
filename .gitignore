@@ -72,3 +72,5 @@ doc/api/
 Untitled*
 benchmarks/**/*png
 benchmarks/**/*mp4
+# Local Pi runtime state
+.atl/

@@ -33,6 +33,10 @@
 #include "material_properties.h"
 #include "modulated_parsed_function.h"
 
+#ifdef DEAL_II_WITH_VTK
+#  include "reduced_coupling.h"
+#endif
+
 /**
  * Time integration mode inferred from user parameters and material densities.
  *
@@ -215,6 +219,16 @@ public:
    * Expression used to define quadrature weights on inclusions.
    */
   std::string weight_expression = "1.";
+
+#ifdef DEAL_II_WITH_VTK
+  ReducedCouplingParameters<1, 2, spacedim, spacedim>
+    reduced_coupling_parameters;
+#endif
+
+  /**
+   * Use the ReducedCoupling infrastructure instead of legacy Inclusions.
+   */
+  bool use_reduced_coupling = false;
 
   /**
    * Solver controls for different linear blocks.
