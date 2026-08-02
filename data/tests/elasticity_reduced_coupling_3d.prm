@@ -1,0 +1,208 @@
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  =
+  set Error precision                  = 3
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+subsection Functions
+  subsection Dirichlet boundary conditions
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions 0
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions 1
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions 2
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions 3
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Exact solution
+    set Function constants  =
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,z,t
+    set Weight expression   = 1.
+  end
+  subsection Initial displacement
+    set Function constants  =
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Initial velocity
+    set Function constants  =
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Neumann boundary conditions
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Right hand side
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0, 1, 2, 3
+  set FE degree                          = 1
+  set Initial refinement                 = 3
+  set Neumann boundary ids               =
+  set Normal flux boundary ids           =
+  set Output directory                   = elasticity_reduced_output
+  set Output name                        = elasticity_reduced_coupling_3d
+  set Output pressure                    = false
+  set Output results also before solving = false
+  set Pressure coupling                  = false
+  set Rhs material ids                   =
+  set Use reduced coupling               = true
+  set Weak Dirichlet boundary ids        =
+  set Weak Dirichlet penalty coefficient = 10000
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
+    set Grid scale               = 1
+    set Triangulation type       = distributed
+  end
+  subsection Immersed inclusions
+    set Bounding boxes extraction level   = 0
+    set Cluster inclusions with segments  = false
+    set Data file                         =
+    set Inclusions                        =
+    set Inclusions file                   =
+    set Inclusions refinement             = 100
+    set Number of fourier coefficients    = 1
+    set Reference inclusion data          =
+    set Selection of Fourier coefficients =
+    subsection Boundary data
+      set Function constants   =
+      set Function expression  = 0; 0; 0
+      set Modulation frequency = 0
+      set Phase shift          = 0
+      set Variable names       = x,y,z,t
+    end
+  end
+  subsection Material properties
+    set Material tags by material id =
+    subsection default
+      set Density        = 0
+      set Lame lambda    = 0
+      set Lame mu        = 1
+      set Rayleigh alpha = 0
+      set Rayleigh beta  = 0
+      set Viscosity eta  = 0
+    end
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 20000
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.3
+    set Strategy                    = global
+  end
+  subsection Time dependency
+    set Final time       = 0
+    set Initial time     = 0
+    set Newmark beta     = 0.25
+    set Newmark gamma    = 0.5
+    set Refine time step = false
+    set Time step        = 0.1
+  end
+end
+subsection Reduced coupling
+  subsection Cross section
+    set Inclusion type           = hyper_ball
+    set Maximum inclusion degree = 0
+    set Refinement level         = 3
+    set Selected indices         = 0, 1, 2
+  end
+  subsection Local refinement parameters
+    set Embedded post-refinement cycles = 0
+    set Embedded pre-refinement cycles  = 3
+    set Max refinement level            = 4
+    set Refinement factor               = 1
+    set Refinement strategy             = space
+    set Space post-refinement cycles    = 1
+    set Space pre-refinement cycles     = 0
+  end
+  subsection Particle coupling
+    set RTree extraction level = 0
+  end
+  subsection Representative domain
+    set Finite element degree            = 1
+    set Number of quadrature points      = 4
+    set Number of quadrature repetitions = 1
+    set Quadrature type                  = gauss
+    set Reduced grid name                = ../data/tests/one_cylinder.vtk
+    set Reduced right hand side          = 0.1; 0; 0
+    set Thickness                        = 0.05
+    set Thickness field name             =
+  end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 1000
+    set Reduction     = 1.e-10
+    set Tolerance     = 1.e-10
+  end
+  subsection Displacement
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 1000
+    set Reduction     = 1.e-10
+    set Tolerance     = 1.e-10
+  end
+  subsection Reduced mass
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 1000
+    set Reduction     = 1.e-10
+    set Tolerance     = 1.e-10
+  end
+  subsection Schur complement
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 1000
+    set Reduction     = 1.e-10
+    set Tolerance     = 1.e-10
+  end
+end
