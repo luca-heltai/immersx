@@ -57,6 +57,26 @@ Running Google tests
 - After build: run ctest which will discover the GoogleTest executable(s). You can also run the test binary directly from build/tests/<...> if you prefer.
 - To run a single gtest: ctest -R "gtests" -VV or run the binary with --gtest_filter=MyFeature.*
 
+MPI test naming and execution
+- `gtests/gtest_main.cc` automatically changes the GoogleTest filter based on
+  the number of MPI ranks. With one rank it excludes tests whose names match
+  `*.MPI_*`; with multiple ranks it includes that pattern.
+- Name every test that is intended to run in parallel with an `MPI_` test-name
+  component, for example `TEST(MyFeature, MPI_DistributedSolve)` or
+  `TEST_P(MyFixture, MPI_DistributedSolve)`. A test without `MPI_` is a serial
+  test by default and will not be selected by the default `mpirun` invocation.
+- Run the binaries from the build directory. Relative test data paths such as
+  `../data/tests/...` are resolved from there:
+
+      (cd build-debug && ./gtests/gtests_debug)
+      (cd build-debug && mpirun -np 2 ./gtests/gtests_debug)
+
+  Use `gtests` instead of `gtests_debug` for a Release build. A focused serial
+  run can select non-MPI tests with `--gtest_filter='SuiteName.*'`; a focused
+  parallel run should select the MPI-named suite/test, for example
+  `--gtest_filter='*ReducedElasticityTriangulationTypeTest.MPI_*'`. Remember
+  that the repository's MPI main adds `*.MPI_*` to the requested filter.
+
 3) deal.II-style tests (tests/)
 
 Overview
