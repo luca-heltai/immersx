@@ -116,22 +116,19 @@ namespace LA
 
 #include "inclusions.h"
 
+#ifdef DEAL_II_WITH_VTK
+#  include "reduced_coupling.h"
+#endif
+
 
 #ifdef DEAL_II_WITH_OPENCASCADE
 #  include <TopoDS.hxx>
 #endif
 #include <deal.II/base/hdf5.h>
 
-#include <cmath>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
-#include <system_error>
 
 #include "elasticity_problem_parameters.h"
 #include "material_properties.h"
@@ -627,9 +624,16 @@ public:
   std::unique_ptr<FiniteElement<spacedim>> fe;
 
   /**
-   * Inclusion geometry and reduced basis data.
+   * Legacy inclusion geometry and Fourier basis data.
+   *
+   * This remains available as an opt-in fallback while the VTK reduced
+   * coupling path is adopted by elasticity callers.
    */
   Inclusions<spacedim> inclusions;
+
+#ifdef DEAL_II_WITH_VTK
+  std::unique_ptr<ReducedCoupling<1, 2, spacedim, spacedim>> reduced_coupling;
+#endif
 
   /**
    * Cell quadrature for bulk assembly.
@@ -734,6 +738,34 @@ public:
    * Current physical time for transient simulations.
    */
   double current_time = 0.0;
+
+  // Accessors added for the reduced coupling migration
+  bool
+  using_reduced_coupling() const;
+  types::global_dof_index
+  n_multiplier_dofs() const;
+  unsigned int
+  n_multiplier_components_per_reduced_dof() const;
+
+  // Internal setup helpers (legacy vs reduced coupling)
+  void
+  setup_inclusion_dofs_legacy();
+  void
+  setup_reduced_coupling_dofs();
+
+  // New assembly dispatchers
+  void
+  assemble_coupling_legacy();
+  void
+  assemble_reduced_coupling();
+
+  // Solver and output helpers
+  bool
+  has_immersed_coupling() const;
+  void
+  distribute_multiplier_solution(LA::MPI::Vector &lambda) const;
+  void
+  output_immersed_particles(const std::string &filename) const;
 
   class Postprocessor;
 };

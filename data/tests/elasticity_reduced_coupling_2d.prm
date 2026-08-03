@@ -1,0 +1,69 @@
+subsection Immersed Problem
+  set FE degree                          = 1
+  set Output directory                   = elasticity_reduced_output
+  set Output name                        = elasticity_reduced_coupling_2d
+  set Use reduced coupling               = true
+  set Output results also before solving = false
+  set Initial refinement                 = 1
+  set Dirichlet boundary ids             =
+  set Weak Dirichlet boundary ids        =
+  set Neumann boundary ids               =
+  set Normal flux boundary ids            =
+  subsection Grid generation
+    set Domain type              = generate
+    set Triangulation type       = distributed
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Grid scale               = 1
+  end
+  subsection Refinement and remeshing
+    set Strategy                    = global
+    set Coarsening fraction         = 0
+    set Refinement fraction         = 0.3
+    set Maximum number of cells     = 20000
+    set Number of refinement cycles = 1
+  end
+  subsection Time dependency
+    set Initial time    = 0
+    set Final time      = 0
+    set Time step      = 0.1
+    set Refine time step = false
+    set Newmark beta    = 0.25
+    set Newmark gamma   = 0.5
+  end
+end
+subsection Solvers
+  subsection Reduced mass
+    set Max steps = 1000
+    set Reduction = 1.e-6
+    set Tolerance = 1.e-6
+  end
+end
+subsection Reduced coupling
+  subsection Cross section
+    set Inclusion type           = hyper_ball
+    set Maximum inclusion degree = 0
+    set Refinement level         = 3
+    set Selected indices         = 0, 1
+  end
+  subsection Local refinement parameters
+    set Refinement strategy             = space
+    set Space pre-refinement cycles     = 0
+    set Embedded pre-refinement cycles  = 0
+    set Max refinement level            = 4
+    set Refinement factor               = 1
+    set Space post-refinement cycles    = 0
+    set Embedded post-refinement cycles = 0
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Finite element degree       = 1
+    set Number of quadrature points = 4
+    set Reduced grid name           = ../data/tests/one_segment_2d.vtk
+    set Reduced right hand side     = 1; 0
+    set Thickness                   = 0.05
+    set Thickness field name        =
+  end
+end

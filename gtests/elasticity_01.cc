@@ -587,6 +587,7 @@ TEST(ElasticityTest, ExactLambda)
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
+  par.triangulation_type = "distributed";
   ElasticityProblem<dim> problem(par);
 
 
