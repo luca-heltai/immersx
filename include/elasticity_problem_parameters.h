@@ -234,12 +234,15 @@ public:
   std::string weight_expression = "1.";
 
 #ifdef DEAL_II_WITH_VTK
+  /** Parameters for the tensor-product coupling representation. */
   ReducedCouplingParameters<1, 2, spacedim, spacedim>
     tensor_product_coupling_parameters;
 #endif
 
   /**
-   * Representation used for the immersed coupling.
+   * Representation used for the immersed coupling. `Point` uses discrete
+   * inclusion centers with finite radii; `TensorProduct` uses a VTK reduced
+   * mesh and a reference cross section.
    */
   CouplingType coupling_type = CouplingType::Point;
 

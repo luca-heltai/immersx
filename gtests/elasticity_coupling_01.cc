@@ -4,7 +4,7 @@
 
 using namespace dealii;
 
-TEST(ElasticityCouplingParameters, ParseMinimalRepresentativeDomain)
+TEST(ElasticityCouplingParameters, ParseCouplingSelector)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2> par;
