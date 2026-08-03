@@ -55,10 +55,10 @@ using namespace dealii;
 
 /**
  * @class ReducedCouplingParameters
- * @brief Parameter structure for configuring ReducedCoupling objects.
+ * @brief Parameters for configuring tensor-product coupling objects.
  *
- * This structure holds all parameters required to set up a ReducedCoupling
- * object, including parameters for the tensor product space, particle coupling,
+ * This structure holds all parameters required to set up a `ReducedCoupling`
+ * object, including parameters for the tensor-product space, particle coupling,
  * grid name, pre-refinement steps, and right-hand side expressions for the
  * coupling.
  *
@@ -100,14 +100,15 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   std::string thickness_field_name = "";
 
   /**
-   * @brief Right hand side expressions for the reduced coupling.
+   * @brief Right hand side expressions for tensor-product coupling.
    */
   std::vector<std::string> coupling_rhs_expressions = {"0"};
 };
 
 /**
  * @class ReducedCoupling
- * @brief Combines tensor product space and particle coupling for reduced Lagrange multipliers.
+ * @brief Combines tensor-product space and particle coupling for
+ *        lower-dimensional Lagrange multipliers.
  *
  * This class inherits from TensorProductSpace and ParticleCoupling, providing
  * methods to initialize, assemble coupling matrices, and handle constraints for
@@ -127,7 +128,7 @@ struct ReducedCoupling
   /**
    * @brief Constructor that initializes the ReducedCoupling object with background triangulation and parameters.
    * @param background_tria The background domain triangulation.
-   * @param par The parameters for reduced coupling.
+   * @param par The tensor-product coupling parameters.
    */
   ReducedCoupling(
     parallel::TriangulationBase<spacedim> &background_tria,
