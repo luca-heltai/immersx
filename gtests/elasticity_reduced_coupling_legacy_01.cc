@@ -1,9 +1,9 @@
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <set>
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "elasticity.h"
 #include "utils.h"
@@ -15,12 +15,13 @@ using namespace dealii;
 /*
  * The legacy tests describe point/segment inclusions through Inclusions. The
  * reduced path instead reads a VTK centerline and combines it with a reference
- * cross section, so the checked-in one_cylinder.vtk is the common representative
- * geometry for these counterparts. The legacy numerical norms are therefore
- * not reused here; these tests verify that the corresponding load, material,
- * backend, and solve paths remain operational. Reduced coupling also supports
- * only one setup/solve cycle at present, so the ExactLambda counterpart uses a
- * single solve rather than the legacy adaptive refinement sequence.
+ * cross section, so the checked-in one_cylinder.vtk is the common
+ * representative geometry for these counterparts. The legacy numerical norms
+ * are therefore not reused here; these tests verify that the corresponding
+ * load, material, backend, and solve paths remain operational. Reduced coupling
+ * also supports only one setup/solve cycle at present, so the ExactLambda
+ * counterpart uses a single solve rather than the legacy adaptive refinement
+ * sequence.
  */
 namespace
 {
@@ -38,14 +39,14 @@ namespace
   template <int dim, int spacedim>
   void
   set_reduced_defaults(ElasticityProblemParameters<dim, spacedim> &par,
-                       const std::string                       &output_name,
-                       const std::vector<std::string>           &rhs)
+                       const std::string                          &output_name,
+                       const std::vector<std::string>             &rhs)
   {
-#ifdef DEBUG
+#  ifdef DEBUG
     par.output_directory = "tests_debug_output";
-#else
+#  else
     par.output_directory = "tests_release_output";
-#endif
+#  endif
     par.output_name         = output_name;
     par.fe_degree           = 1;
     par.initial_refinement  = 2;
@@ -70,15 +71,15 @@ namespace
     auto &reduced_parameters = par.reduced_coupling_parameters;
     reduced_parameters.tensor_product_space_parameters.reduced_grid_name =
       SOURCE_DIR "/data/tests/one_cylinder.vtk";
-    reduced_parameters.tensor_product_space_parameters.fe_degree = 1;
+    reduced_parameters.tensor_product_space_parameters.fe_degree  = 1;
     reduced_parameters.tensor_product_space_parameters.n_q_points = 4;
-    reduced_parameters.tensor_product_space_parameters.thickness = 0.05;
+    reduced_parameters.tensor_product_space_parameters.thickness  = 0.05;
     reduced_parameters.tensor_product_space_parameters.section.inclusion_type =
       "hyper_ball";
-    reduced_parameters.tensor_product_space_parameters.section.inclusion_degree =
-      0;
-    reduced_parameters.tensor_product_space_parameters.section.refinement_level =
-      2;
+    reduced_parameters.tensor_product_space_parameters.section
+      .inclusion_degree = 0;
+    reduced_parameters.tensor_product_space_parameters.section
+      .refinement_level = 2;
     reduced_parameters.tensor_product_space_parameters.section
       .selected_coefficients.clear();
     reduced_parameters.coupling_rhs_expressions = rhs;
@@ -128,9 +129,7 @@ TEST_P(ReducedElasticityTriangulationTypeTest, MPI_DisplacementXScaled)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
-  set_reduced_defaults(par,
-                       "reduced_displacement_x_scaled",
-                       {"0.1", "0", "0"});
+  set_reduced_defaults(par, "reduced_displacement_x_scaled", {"0.1", "0", "0"});
   par.triangulation_type = current_triangulation_type(*this);
   run_reduced_case(par);
 }
@@ -139,9 +138,7 @@ TEST_P(ReducedElasticityTriangulationTypeTest, MPI_DisplacementYScaled)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
-  set_reduced_defaults(par,
-                       "reduced_displacement_y_scaled",
-                       {"0", "0.1", "0"});
+  set_reduced_defaults(par, "reduced_displacement_y_scaled", {"0", "0.1", "0"});
   par.triangulation_type = current_triangulation_type(*this);
   run_reduced_case(par);
 }
@@ -169,8 +166,8 @@ TEST_P(ReducedElasticityTriangulationTypeTest,
   set_reduced_defaults(par,
                        "reduced_displacement_vtk_centerline",
                        {"1", "0", "0"});
-  par.triangulation_type = current_triangulation_type(*this);
-  par.default_material_properties.Lame_mu     = 2.0;
+  par.triangulation_type                  = current_triangulation_type(*this);
+  par.default_material_properties.Lame_mu = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_reduced_case(par);
 }
@@ -183,8 +180,8 @@ TEST_P(ReducedElasticityTriangulationTypeTest,
   set_reduced_defaults(par,
                        "reduced_displacement_vtk_centerline_segments",
                        {"1", "0", "0"});
-  par.triangulation_type = current_triangulation_type(*this);
-  par.default_material_properties.Lame_mu     = 2.0;
+  par.triangulation_type                  = current_triangulation_type(*this);
+  par.default_material_properties.Lame_mu = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_reduced_case(par);
 }
@@ -196,7 +193,7 @@ TEST(ReducedElasticity, DisplacementAlongVtkCenterlineWithSegmentClustering)
   set_reduced_defaults(par,
                        "reduced_displacement_vtk_centerline_segments_serial",
                        {"1", "0", "0"});
-  par.triangulation_type = "distributed";
+  par.triangulation_type                      = "distributed";
   par.default_material_properties.Lame_mu     = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_reduced_case(par);
@@ -232,8 +229,8 @@ TEST_P(ReducedElasticityTriangulationTypeTest,
   set_reduced_defaults(par,
                        "reduced_multiple_segments_in_cell",
                        {"0.1", "0.2", "0.3"});
-  par.triangulation_type = current_triangulation_type(*this);
-  par.default_material_properties.Lame_mu     = 2.0;
+  par.triangulation_type                  = current_triangulation_type(*this);
+  par.default_material_properties.Lame_mu = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_reduced_case(par);
 }
