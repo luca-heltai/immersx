@@ -46,7 +46,7 @@ subsection Reduced Poisson
     end
   end
 end
-subsection Reduced coupling
+subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0

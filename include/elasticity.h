@@ -157,7 +157,8 @@ private:
 
 /**
  * Finite element model for (optionally) time-dependent elasticity, coupled to
- * immersed 1D/0D inclusions via reduced Lagrange multipliers.
+ * point or tensor-product immersed couplings via lower-dimensional Lagrange
+ * multipliers.
  *
  * This class assembles a small set of global sparse matrices and then solves
  * either:
@@ -187,9 +188,9 @@ private:
  * Let \f$\Omega \subset \mathbb{R}^{spacedim}\f$ be the computational domain.
  *
  * - Primary unknown: displacement \f$u:\Omega\to\mathbb{R}^{spacedim}\f$.
- * - Optional secondary unknown: reduced Lagrange multipliers
+ * - Optional secondary unknown: coupling Lagrange multipliers
  *   \f$\lambda \in \mathbb{R}^{N_\lambda}\f$ attached to immersed inclusions
- *   (`Inclusions<spacedim>`).
+ *   (`Inclusions<spacedim>` or `ReducedCoupling`).
  *
  * In the code, the global solution is stored as a 2-block vector:
  * - `solution.block(0)` \f$\equiv u_h\f$,
@@ -325,12 +326,12 @@ private:
  * \frac{\gamma_p}{h}\,a_w\int_{\Omega_{\text{marked}}}\varphi_i\,dx. \f] with
  * \f$\gamma_p=\f$ `penalty_term` and \f$a_w=\f$ `wave_ampltiude`.
  *
- * @section elasticity_inclusions Inclusion coupling (B, M, g) and equation
- * types
+ * @section elasticity_inclusions Coupling (B, M, g) and equation types
  *
- * The immersed inclusions define a reduced multiplier space with basis values
- * (Fourier/harmonic modes) evaluated at quadrature points on each inclusion.
- * In the code, `assemble_coupling()` builds:
+ * Both coupling representations define a lower-dimensional multiplier space.
+ * Point coupling uses Fourier/harmonic modes evaluated at inclusion quadrature
+ * points; tensor-product coupling uses the basis from `ReducedCoupling`. In the
+ * code, `assemble_coupling()` builds:
  *
  * - Coupling matrix \f$B^T\f$ (`coupling_matrix`, size \f$N_u\times
  * N_\lambda\f$),
@@ -623,16 +624,13 @@ public:
    */
   std::unique_ptr<FiniteElement<spacedim>> fe;
 
-  /**
-   * Legacy inclusion geometry and Fourier basis data.
-   *
-   * This remains available as an opt-in fallback while the VTK reduced
-   * coupling path is adopted by elasticity callers.
-   */
+  /** Point-coupling geometry and Fourier basis data. */
   Inclusions<spacedim> inclusions;
 
 #ifdef DEAL_II_WITH_VTK
-  std::unique_ptr<ReducedCoupling<1, 2, spacedim, spacedim>> reduced_coupling;
+  /** Tensor-product coupling geometry and basis data. */
+  std::unique_ptr<ReducedCoupling<1, 2, spacedim, spacedim>>
+    tensor_product_coupling;
 #endif
 
   /**
@@ -660,7 +658,7 @@ public:
   /// @{
   AffineConstraints<double> constraints;
   AffineConstraints<double>
-    inclusion_constraints; ///< Inclusion multiplier constraints.
+    inclusion_constraints; ///< Point-coupling multiplier constraints.
   AffineConstraints<double> mean_value_constraints; ///< Mean-value constraints.
   /// @}
 
@@ -690,7 +688,7 @@ public:
    * Coupling mass matrix and block vectors for state and rhs quantities.
    */
   /// @{
-  LA::MPI::SparseMatrix inclusion_matrix;
+  LA::MPI::SparseMatrix inclusion_matrix; ///< Coupling mass matrix.
   LA::MPI::BlockVector  solution;                  ///< Current solution.
   LA::MPI::BlockVector  velocity;                  ///< Current velocity.
   LA::MPI::BlockVector  acceleration;              ///< Current acceleration.
@@ -739,25 +737,24 @@ public:
    */
   double current_time = 0.0;
 
-  // Accessors added for the reduced coupling migration
+  // Coupling representation queries.
   bool
-  using_reduced_coupling() const;
+  uses_tensor_product_coupling() const;
   types::global_dof_index
   n_multiplier_dofs() const;
   unsigned int
-  n_multiplier_components_per_reduced_dof() const;
+  n_multiplier_components_per_coupling_dof() const;
 
-  // Internal setup helpers (legacy vs reduced coupling)
+  // Coupling-specific setup and assembly helpers.
   void
-  setup_inclusion_dofs_legacy();
+  setup_point_coupling_dofs();
   void
-  setup_reduced_coupling_dofs();
+  setup_tensor_product_coupling_dofs();
 
-  // New assembly dispatchers
   void
-  assemble_coupling_legacy();
+  assemble_point_coupling();
   void
-  assemble_reduced_coupling();
+  assemble_tensor_product_coupling();
 
   // Solver and output helpers
   bool

@@ -74,7 +74,7 @@ Across the five files, you will repeatedly find:
   right-hand side, and initial conditions;
 - `subsection Immersed Problem`: FE degree, mesh generation, refinement cycles,
   material parameters, BC IDs, and time settings;
-- empty `Immersed inclusions` data, meaning no reduced coupling is active.
+- empty `Immersed inclusions` data, meaning no point coupling is active.
 
 In all convergence runs, the error file records norms (typically `L2_norm`,
 `H1_norm`, and `Linfty_norm`) as functions of mesh size or DoFs.

@@ -18,7 +18,7 @@
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   ReducedCouplingParameters()
-  : ParameterAcceptor("/Reduced coupling/")
+  : ParameterAcceptor("/Tensor product coupling/")
 {
   this->enter_subsection("Representative domain");
   this->add_parameter("Reduced right hand side",
@@ -123,7 +123,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
         << Patterns::Tools::to_string(
              par.tensor_product_space_parameters.section.selected_coefficients)
         << std::endl;
-      std::cout << "Reduced coupling initialized" << std::endl;
+      std::cout << "Tensor-product coupling initialized" << std::endl;
       std::cout << "Reduced grid name: "
                 << par.tensor_product_space_parameters.reduced_grid_name
                 << std::endl;
@@ -137,7 +137,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::set_time(
 {
   AssertThrow(coupling_rhs,
               ExcMessage(
-                "Reduced coupling must be initialized before setting time"));
+                "Tensor-product coupling must be initialized before setting time"));
   coupling_rhs->set_time(time);
 }
 

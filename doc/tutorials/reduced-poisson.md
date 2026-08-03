@@ -221,9 +221,9 @@ These affect postprocessing and adaptive refinement of the bulk mesh only.
 `Schur` follows the explicit Schur-complement path. `AL` uses the
 augmented-Lagrangian preconditioned solve.
 
-### Reduced coupling
+### Tensor-product coupling
 
-The reduced interface data comes from the `Reduced coupling` subtree:
+The reduced interface data comes from the `Tensor product coupling` subtree:
 
 - `Representative domain/Reduced grid name`: the VTK file containing the
   reduced geometry.
@@ -426,7 +426,7 @@ For this class of example:
 A good reading order is:
 
 1. `Reduced Poisson`: define the bulk PDE and the solver.
-2. `Reduced coupling/Representative domain/Reduced right hand side`: define
+2. `Tensor product coupling/Representative domain/Reduced right hand side`: define
    what trace you want on the immersed interface.
 3. `Representative domain`: define where the reduced geometry lives and how it
    is discretized.
