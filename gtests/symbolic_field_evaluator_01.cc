@@ -9,9 +9,7 @@ TEST(SymbolicFieldEvaluator, ReportsAvailabilityAndEmptyExpressions)
   EXPECT_EQ(evaluator.n_outputs(), 0u);
 #ifdef DEAL_II_WITH_SYMENGINE
   EXPECT_TRUE(SymbolicFieldEvaluator::available());
-  evaluator.initialize({"radius^2 + 5", "radius * hct"},
-                       {"radius", "hct"},
-                       {});
+  evaluator.initialize({"radius^2 + 5", "radius * hct"}, {"radius", "hct"}, {});
   const auto values = evaluator.evaluate(std::vector<double>{1.0, 2.0, 3.0},
                                          0.0,
                                          std::vector<double>{3.0, 0.4});
@@ -19,9 +17,8 @@ TEST(SymbolicFieldEvaluator, ReportsAvailabilityAndEmptyExpressions)
   EXPECT_DOUBLE_EQ(values[0], 14.0);
   EXPECT_DOUBLE_EQ(values[1], 1.2);
   evaluator.initialize({"sin(x) + t + offset"}, {}, {{"offset", 2.0}});
-  const auto sine = evaluator.evaluate(std::vector<double>{0.0, 0.0, 0.0},
-                                       1.0,
-                                       {});
+  const auto sine =
+    evaluator.evaluate(std::vector<double>{0.0, 0.0, 0.0}, 1.0, {});
   ASSERT_EQ(sine.size(), 1u);
   EXPECT_DOUBLE_EQ(sine[0], 3.0);
   evaluator.initialize({"1e-3 + radius"}, {"radius"});

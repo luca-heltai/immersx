@@ -1,17 +1,27 @@
-# Quasi-static traveling wave on the 100-point vascular tree.
-#
-# The reduced tree is parameterized by path_distance in [0, 0.69].  Its
-# thickness decays from 0.01 at the root to approximately 0.001 at the
-# distal end.  The reduced load travels from path_distance=0 to 0.69 in one
-# second, so the three-second run contains three complete periods.
-
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  =
+  set Error precision                  = 3
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
 subsection Functions
   subsection Dirichlet boundary conditions
     set Function constants   =
     set Function expression  = 0; 0; 0
     set Modulation frequency = 0
-    set Phase shift           = 0
-    set Variable names        = x,y,z,t
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions 0
+    set Function constants   =
+    set Function expression  = 0; 0; 0
+    set Modulation frequency = 0
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
   end
   subsection Exact solution
     set Function constants  =
@@ -33,45 +43,60 @@ subsection Functions
     set Function constants   =
     set Function expression  = 0; 0; 0
     set Modulation frequency = 0
-    set Phase shift           = 0
-    set Variable names        = x,y,z,t
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
   end
   subsection Right hand side
     set Function constants   =
     set Function expression  = 0; 0; 0
     set Modulation frequency = 0
-    set Phase shift           = 0
-    set Variable names        = x,y,z,t
+    set Phase shift          = 0
+    set Variable names       = x,y,z,t
   end
 end
-
 subsection Immersed Problem
   set Coupling type                      = TensorProduct
-  set Dirichlet boundary ids             = 0
+  set Dirichlet boundary ids             =
   set FE degree                          = 1
   set Initial refinement                 = 3
   set Neumann boundary ids               =
   set Normal flux boundary ids           =
-  set Output directory                   = output/elasticity_vascular_tree_wave
+  set Output directory                   = elasticity_vascular_tree_wave
   set Output name                        = vascular_tree_wave
   set Output pressure                    = false
   set Output results also before solving = false
   set Pressure coupling                  = false
-  set Weak Dirichlet boundary ids        =
+  set Rhs material ids                   =
+  set Weak Dirichlet boundary ids        = 0
   set Weak Dirichlet penalty coefficient = 10000
-
   subsection Grid generation
     set Domain type              = generate
     set Grid generator           = hyper_cube
-    set Grid generator arguments = 0: 1: true
+    set Grid generator arguments = 0: 1: false
     set Grid scale               = 1
     set Triangulation type       = distributed
   end
-
+  subsection Immersed inclusions
+    set Bounding boxes extraction level   = 0
+    set Cluster inclusions with segments  = false
+    set Data file                         =
+    set Inclusions                        =
+    set Inclusions file                   =
+    set Inclusions refinement             = 100
+    set Number of fourier coefficients    = 1
+    set Reference inclusion data          =
+    set Selection of Fourier coefficients =
+    subsection Boundary data
+      set Function constants   =
+      set Function expression  = 0; 0; 0
+      set Modulation frequency = 0
+      set Phase shift          = 0
+      set Variable names       = x,y,z,t
+    end
+  end
   subsection Material properties
     set Material tags by material id =
     subsection default
-      # Zero density selects quasi-static time integration.
       set Density        = 0
       set Lame lambda    = 2
       set Lame mu        = 1
@@ -80,7 +105,6 @@ subsection Immersed Problem
       set Viscosity eta  = 0
     end
   end
-
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
     set Maximum number of cells     = 20000
@@ -88,7 +112,6 @@ subsection Immersed Problem
     set Refinement fraction         = 0.3
     set Strategy                    = global
   end
-
   subsection Time dependency
     set Final time       = 3
     set Initial time     = 0
@@ -98,13 +121,46 @@ subsection Immersed Problem
     set Time step        = 0.05
   end
 end
-
+subsection Solvers
+  subsection Augmented Lagrange
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 100
+    set Reduction     = 1.e-2
+    set Tolerance     = 1.e-2
+  end
+  subsection Displacement
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 100
+    set Reduction     = 1.e-8
+    set Tolerance     = 1.e-8
+  end
+  subsection Reduced mass
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 100
+    set Reduction     = 1.e-8
+    set Tolerance     = 1.e-8
+  end
+  subsection Schur complement
+    set Log frequency = 1
+    set Log history   = false
+    set Log result    = true
+    set Max steps     = 100
+    set Reduction     = 1.e-8
+    set Tolerance     = 1.e-8
+  end
+end
 subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
-    set Maximum inclusion degree = 0
+    set Maximum inclusion degree = 1
     set Refinement level         = 1
-    set Selected indices         = 0
+    set Selected indices         = 3, 7
   end
   subsection Local refinement parameters
     set Embedded post-refinement cycles = 0
@@ -124,9 +180,8 @@ subsection Tensor product coupling
     set Number of quadrature points      = 3
     set Number of quadrature repetitions = 4
     set Quadrature type                  = gauss
-    set Reduced grid name                = data/tests/mstree_100.vtk
-    # One-second transit over 0.69 distance units; three periods in 3 seconds.
-    set Reduced right hand side          = 0; 0; 0.05*sin(2*pi*(t-path_distance/0.69))
+    set Reduced grid name                = data/tests/mstree_1000.vtk
+    set Reduced right hand side          = 0.05*sin(2*pi*(t-path_distance/0.69)); 0.05*sin(2*pi*(t-path_distance/0.69))
     set Thickness                        = 0.01*exp(-(10/3)*path_distance)
   end
 end

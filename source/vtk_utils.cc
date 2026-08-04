@@ -289,16 +289,16 @@ namespace VTKUtils
     AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
     catalog.clear();
     std::vector<std::shared_ptr<FiniteElement<dim, spacedim>>> field_fes;
-    std::set<std::string> names[2];
+    std::set<std::string>                                      names[2];
     unsigned int first_component = 0;
-    const auto append = [&](vtkDataArray *array,
+    const auto   append          = [&](vtkDataArray             *array,
                             const VTKFieldAssociation association,
-                            const vtkIdType expected_tuples) {
+                            const vtkIdType           expected_tuples) {
       AssertThrow(array != nullptr, ExcMessage("Null VTK data array."));
       const char *raw_name = array->GetName();
       AssertThrow(raw_name != nullptr && *raw_name != '\0',
                   ExcMessage("VTK data arrays must have non-empty names."));
-      const std::string name(raw_name);
+      const std::string  name(raw_name);
       const unsigned int association_index =
         association == VTKFieldAssociation::point_data ? 0 : 1;
       AssertThrow(names[association_index].insert(name).second,
@@ -307,11 +307,12 @@ namespace VTKUtils
       AssertThrow(n_components > 0,
                   ExcMessage("VTK array '" + name + "' has no components."));
       AssertThrow(array->GetNumberOfTuples() == expected_tuples,
-                  ExcMessage("VTK array '" + name + "' has an invalid tuple count."));
+                  ExcMessage("VTK array '" + name +
+                             "' has an invalid tuple count."));
       VTKFieldDescriptor descriptor;
-      descriptor.vtk_name = name;
-      descriptor.association = association;
-      descriptor.n_components = static_cast<unsigned int>(n_components);
+      descriptor.vtk_name           = name;
+      descriptor.association        = association;
+      descriptor.n_components       = static_cast<unsigned int>(n_components);
       descriptor.first_fe_component = first_component;
       descriptor.block_index = static_cast<unsigned int>(catalog.size());
       catalog.push_back(descriptor);
@@ -321,8 +322,9 @@ namespace VTKUtils
           if (n_components == 1)
             field_fes.push_back(std::make_shared<FE_Q<dim, spacedim>>(1));
           else
-            field_fes.push_back(std::make_shared<FESystem<dim, spacedim>>(
-              FE_Q<dim, spacedim>(1), n_components));
+            field_fes.push_back(
+              std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
+                                                        n_components));
         }
       else
         {
@@ -335,24 +337,28 @@ namespace VTKUtils
     };
     if (vtkPointData *point_data = grid->GetPointData())
       for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
-        append(point_data->GetArray(i), VTKFieldAssociation::point_data, grid->GetNumberOfPoints());
+        append(point_data->GetArray(i),
+               VTKFieldAssociation::point_data,
+               grid->GetNumberOfPoints());
     if (vtkCellData *cell_data = grid->GetCellData())
       for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
-        append(cell_data->GetArray(i), VTKFieldAssociation::cell_data, grid->GetNumberOfCells());
+        append(cell_data->GetArray(i),
+               VTKFieldAssociation::cell_data,
+               grid->GetNumberOfCells());
     std::vector<const FiniteElement<dim, spacedim> *> fe_ptrs;
     for (const auto &field_fe : field_fes)
       fe_ptrs.push_back(field_fe.get());
     if (fe_ptrs.empty())
       return std::make_unique<FE_Nothing<dim, spacedim>>();
-    return std::make_unique<FESystem<dim, spacedim>>(fe_ptrs,
-                                                      std::vector<unsigned int>(fe_ptrs.size(), 1));
+    return std::make_unique<FESystem<dim, spacedim>>(
+      fe_ptrs, std::vector<unsigned int>(fe_ptrs.size(), 1));
   }
 
   /** Read coefficients in exactly the order established by a catalogue. */
   void
-  read_catalogued_data(const std::string    &vtk_filename,
+  read_catalogued_data(const std::string     &vtk_filename,
                        const VTKFieldCatalog &catalog,
-                       Vector<double>       &output_vector)
+                       Vector<double>        &output_vector)
   {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());
@@ -371,11 +377,13 @@ namespace VTKUtils
                                "' is missing from VTK file."));
         AssertThrow(array->GetNumberOfComponents() ==
                       static_cast<int>(field.n_components),
-                    ExcMessage("VTK field '" + field.vtk_name +
-                               "' changed component count after catalogue creation."));
+                    ExcMessage(
+                      "VTK field '" + field.vtk_name +
+                      "' changed component count after catalogue creation."));
         const vtkIdType expected_tuples =
           field.association == VTKFieldAssociation::point_data ?
-            grid->GetNumberOfPoints() : grid->GetNumberOfCells();
+            grid->GetNumberOfPoints() :
+            grid->GetNumberOfCells();
         AssertThrow(array->GetNumberOfTuples() == expected_tuples,
                     ExcMessage("VTK field '" + field.vtk_name +
                                "' has an invalid tuple count."));
@@ -403,7 +411,6 @@ namespace VTKUtils
     for (const auto &field : catalog)
       data_names.push_back(field.vtk_name);
     return std::make_pair(std::move(fe), std::move(data_names));
-
   }
 
 
@@ -428,14 +435,15 @@ namespace VTKUtils
   read_vtk(const std::string         &vtk_filename,
            DoFHandler<dim, spacedim> &dof_handler,
            Vector<double>            &output_vector,
-           VTKFieldCatalog          &catalog)
+           VTKFieldCatalog           &catalog)
   {
     auto &tria = const_cast<Triangulation<dim, spacedim> &>(
       dof_handler.get_triangulation());
     auto parallel_tria =
       dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(&tria);
     AssertThrow(parallel_tria == nullptr,
-                ExcMessage("The input triangulation must be a serial triangulation."));
+                ExcMessage(
+                  "The input triangulation must be a serial triangulation."));
     tria.clear();
     read_vtk(vtk_filename, tria, /*cleanup=*/true);
     auto fe = vtk_to_finite_element<dim, spacedim>(vtk_filename, catalog);
@@ -611,23 +619,35 @@ VTKUtils::read_vtk(const std::string &,
                    std::vector<std::string> &);
 
 template void
-VTKUtils::read_vtk(const std::string &, DoFHandler<1, 1> &,
-                   Vector<double> &, VTKFieldCatalog &);
+VTKUtils::read_vtk(const std::string &,
+                   DoFHandler<1, 1> &,
+                   Vector<double> &,
+                   VTKFieldCatalog &);
 template void
-VTKUtils::read_vtk(const std::string &, DoFHandler<1, 2> &,
-                   Vector<double> &, VTKFieldCatalog &);
+VTKUtils::read_vtk(const std::string &,
+                   DoFHandler<1, 2> &,
+                   Vector<double> &,
+                   VTKFieldCatalog &);
 template void
-VTKUtils::read_vtk(const std::string &, DoFHandler<1, 3> &,
-                   Vector<double> &, VTKFieldCatalog &);
+VTKUtils::read_vtk(const std::string &,
+                   DoFHandler<1, 3> &,
+                   Vector<double> &,
+                   VTKFieldCatalog &);
 template void
-VTKUtils::read_vtk(const std::string &, DoFHandler<2, 2> &,
-                   Vector<double> &, VTKFieldCatalog &);
+VTKUtils::read_vtk(const std::string &,
+                   DoFHandler<2, 2> &,
+                   Vector<double> &,
+                   VTKFieldCatalog &);
 template void
-VTKUtils::read_vtk(const std::string &, DoFHandler<2, 3> &,
-                   Vector<double> &, VTKFieldCatalog &);
+VTKUtils::read_vtk(const std::string &,
+                   DoFHandler<2, 3> &,
+                   Vector<double> &,
+                   VTKFieldCatalog &);
 template void
-VTKUtils::read_vtk(const std::string &, DoFHandler<3, 3> &,
-                   Vector<double> &, VTKFieldCatalog &);
+VTKUtils::read_vtk(const std::string &,
+                   DoFHandler<3, 3> &,
+                   Vector<double> &,
+                   VTKFieldCatalog &);
 
 template void
 VTKUtils::serial_vector_to_distributed_vector(

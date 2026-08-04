@@ -688,7 +688,7 @@ public:
    * Coupling mass matrix and block vectors for state and rhs quantities.
    */
   /// @{
-  LA::MPI::SparseMatrix inclusion_matrix; ///< Coupling mass matrix.
+  LA::MPI::SparseMatrix inclusion_matrix;          ///< Coupling mass matrix.
   LA::MPI::BlockVector  solution;                  ///< Current solution.
   LA::MPI::BlockVector  velocity;                  ///< Current velocity.
   LA::MPI::BlockVector  acceleration;              ///< Current acceleration.

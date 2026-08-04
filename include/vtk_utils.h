@@ -53,9 +53,9 @@ struct VTKFieldDescriptor
 {
   std::string         vtk_name;
   VTKFieldAssociation association;
-  unsigned int        n_components = 0;
+  unsigned int        n_components       = 0;
   unsigned int        first_fe_component = 0;
-  unsigned int        block_index = 0;
+  unsigned int        block_index        = 0;
 };
 
 using VTKFieldCatalog = std::vector<VTKFieldDescriptor>;

@@ -1,7 +1,7 @@
 #include "symbolic_field_evaluator.h"
 
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -16,19 +16,19 @@ namespace
   namespace SD = dealii::Differentiation::SD;
   struct SymEngineData
   {
-    std::vector<SD::Expression> symbols;
-    std::vector<SD::Expression> expressions;
+    std::vector<SD::Expression>   symbols;
+    std::vector<SD::Expression>   expressions;
     std::map<std::string, double> constants;
-    std::vector<double>        substitution_values;
-    SD::BatchOptimizer<double> optimizer;
+    std::vector<double>           substitution_values;
+    SD::BatchOptimizer<double>    optimizer;
   };
-}
+} // namespace
 #endif
 
 struct SymbolicFieldEvaluator::Impl
 {
-  std::vector<std::string> expressions;
-  std::vector<std::string> symbols;
+  std::vector<std::string>      expressions;
+  std::vector<std::string>      symbols;
   std::map<std::string, double> constants;
 #ifdef DEAL_II_WITH_SYMENGINE
   std::shared_ptr<SymEngineData> symengine_data;
@@ -38,29 +38,47 @@ struct SymbolicFieldEvaluator::Impl
 #ifdef DEAL_II_WITH_SYMENGINE
 namespace
 {
-  bool is_builtin(const std::string &name)
+  bool
+  is_builtin(const std::string &name)
   {
-    static const std::set<std::string> builtins = {
-      "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh",
-      "tanh", "exp", "log", "log10", "sqrt", "abs", "min", "max",
-      "floor", "ceil", "pow"};
+    static const std::set<std::string> builtins = {"sin",
+                                                   "cos",
+                                                   "tan",
+                                                   "asin",
+                                                   "acos",
+                                                   "atan",
+                                                   "sinh",
+                                                   "cosh",
+                                                   "tanh",
+                                                   "exp",
+                                                   "log",
+                                                   "log10",
+                                                   "sqrt",
+                                                   "abs",
+                                                   "min",
+                                                   "max",
+                                                   "floor",
+                                                   "ceil",
+                                                   "pow"};
     return builtins.count(name) != 0;
   }
 
-bool is_numeric_exponent(const std::string &text,
-                         const std::size_t  position,
-                         const std::size_t  length)
-{
-  if (length != 1 || (text[position] != 'e' && text[position] != 'E') ||
-      position == 0 || !std::isdigit(static_cast<unsigned char>(text[position - 1])))
-    return false;
-  std::size_t next = position + length;
-  if (next < text.size() && (text[next] == '+' || text[next] == '-'))
-    ++next;
-  return next < text.size() &&
-         std::isdigit(static_cast<unsigned char>(text[next]));
-}
-}
+  bool
+  is_numeric_exponent(const std::string &text,
+                      const std::size_t  position,
+                      const std::size_t  length)
+  {
+    if (length != 1 || (text[position] != 'e' && text[position] != 'E') ||
+        position == 0 ||
+        !std::isdigit(static_cast<unsigned char>(text[position - 1])))
+      return false;
+    std::size_t next = position + length;
+    if (next < text.size() && (text[next] == '+' || text[next] == '-'))
+      ++next;
+    return next < text.size() &&
+           std::isdigit(static_cast<unsigned char>(text[next]));
+  }
+} // namespace
 #endif
 
 SymbolicFieldEvaluator::SymbolicFieldEvaluator()
@@ -68,7 +86,8 @@ SymbolicFieldEvaluator::SymbolicFieldEvaluator()
 {}
 
 SymbolicFieldEvaluator::~SymbolicFieldEvaluator() = default;
-SymbolicFieldEvaluator::SymbolicFieldEvaluator(SymbolicFieldEvaluator &&) noexcept = default;
+SymbolicFieldEvaluator::SymbolicFieldEvaluator(
+  SymbolicFieldEvaluator &&) noexcept = default;
 SymbolicFieldEvaluator &
 SymbolicFieldEvaluator::operator=(SymbolicFieldEvaluator &&) noexcept = default;
 
@@ -78,11 +97,13 @@ SymbolicFieldEvaluator::initialize(
   const std::vector<std::string>      &field_symbols,
   const std::map<std::string, double> &constants)
 {
-  impl = std::make_unique<Impl>();
+  impl              = std::make_unique<Impl>();
   impl->expressions = expression_strings;
-  impl->constants = constants;
-  impl->symbols = {"x", "y", "z", "t"};
-  impl->symbols.insert(impl->symbols.end(), field_symbols.begin(), field_symbols.end());
+  impl->constants   = constants;
+  impl->symbols     = {"x", "y", "z", "t"};
+  impl->symbols.insert(impl->symbols.end(),
+                       field_symbols.begin(),
+                       field_symbols.end());
   std::set<std::string> seen_symbols;
   for (const auto &name : impl->symbols)
     if (!seen_symbols.insert(name).second)
@@ -91,8 +112,8 @@ SymbolicFieldEvaluator::initialize(
     {
       (void)value;
       if (!seen_symbols.insert(name).second)
-        throw std::runtime_error("Constant collides with symbolic identifier '" +
-                                 name + "'.");
+        throw std::runtime_error(
+          "Constant collides with symbolic identifier '" + name + "'.");
       impl->symbols.push_back(name);
     }
   if (expression_strings.empty())
@@ -102,24 +123,27 @@ SymbolicFieldEvaluator::initialize(
     "Symbolic expressions require deal.II built with SymEngine; symbolic evaluation is unavailable.");
 #else
   for (const auto &name : impl->symbols)
-    if (name.empty() || !std::regex_match(name, std::regex("[A-Za-z_][A-Za-z0-9_]*")))
+    if (name.empty() ||
+        !std::regex_match(name, std::regex("[A-Za-z_][A-Za-z0-9_]*")))
       throw std::runtime_error("Invalid symbolic identifier '" + name + "'.");
   std::set<std::string> allowed(impl->symbols.begin(), impl->symbols.end());
   for (const auto &text : expression_strings)
     {
       static const std::regex token_pattern("[A-Za-z_][A-Za-z0-9_]*");
-      for (std::sregex_iterator it(text.begin(), text.end(), token_pattern), end;
+      for (std::sregex_iterator it(text.begin(), text.end(), token_pattern),
+           end;
            it != end;
            ++it)
         if (!allowed.count(it->str()) && !is_builtin(it->str()) &&
             !is_numeric_exponent(text,
                                  static_cast<std::size_t>(it->position()),
                                  static_cast<std::size_t>(it->length())))
-          throw std::runtime_error("Unknown symbol '" + it->str() + "' in expression '" +
-                                   text + "'. Allowed symbols: x, y, z, t and registered fields/constants.");
+          throw std::runtime_error(
+            "Unknown symbol '" + it->str() + "' in expression '" + text +
+            "'. Allowed symbols: x, y, z, t and registered fields/constants.");
     }
 
-  auto data = std::make_shared<SymEngineData>();
+  auto data       = std::make_shared<SymEngineData>();
   data->constants = constants;
   for (const auto &name : impl->symbols)
     data->symbols.emplace_back(name);
@@ -139,8 +163,7 @@ SymbolicFieldEvaluator::initialize(
   catch (const std::exception &error)
     {
       throw std::runtime_error("Failed to parse symbolic expression '" +
-                               current_expression +
-                               "': " + error.what());
+                               current_expression + "': " + error.what());
     }
   impl->symengine_data = std::move(data);
 #endif
@@ -154,8 +177,8 @@ SymbolicFieldEvaluator::n_outputs() const
 
 std::vector<double>
 SymbolicFieldEvaluator::evaluate(const std::vector<double> &coordinates,
-                                const double                 time,
-                                const std::vector<double>   &field_values) const
+                                 const double               time,
+                                 const std::vector<double> &field_values) const
 {
   std::vector<double> result(n_outputs());
   evaluate_into(coordinates, time, field_values, result);
@@ -164,35 +187,39 @@ SymbolicFieldEvaluator::evaluate(const std::vector<double> &coordinates,
 
 void
 SymbolicFieldEvaluator::evaluate_into(const std::vector<double> &coordinates,
-                                      const double                 time,
-                                      const std::vector<double>   &field_values,
-                                      std::vector<double>         &output_values) const
+                                      const double               time,
+                                      const std::vector<double> &field_values,
+                                      std::vector<double> &output_values) const
 {
   if (!impl || impl->expressions.empty())
     {
       if (!output_values.empty())
-        throw std::runtime_error("Symbolic evaluator output buffer must be empty for no expressions.");
+        throw std::runtime_error(
+          "Symbolic evaluator output buffer must be empty for no expressions.");
       return;
     }
   if (output_values.size() != impl->expressions.size())
-    throw std::runtime_error("Symbolic evaluator output buffer has wrong size for " +
-                             std::to_string(impl->expressions.size()) + " expressions.");
+    throw std::runtime_error(
+      "Symbolic evaluator output buffer has wrong size for " +
+      std::to_string(impl->expressions.size()) + " expressions.");
 #ifndef DEAL_II_WITH_SYMENGINE
   (void)coordinates;
   (void)time;
   (void)field_values;
-  throw std::runtime_error("Symbolic evaluation is unavailable without SymEngine.");
+  throw std::runtime_error(
+    "Symbolic evaluation is unavailable without SymEngine.");
 #else
-  const auto expected_fields = impl->symbols.size() - 4 - impl->constants.size();
+  const auto expected_fields =
+    impl->symbols.size() - 4 - impl->constants.size();
   if (field_values.size() != expected_fields)
-    throw std::runtime_error("Symbolic evaluator received " +
-                             std::to_string(field_values.size()) +
-                             " field values, expected " + std::to_string(expected_fields) +
-                             " for " + std::to_string(impl->expressions.size()) +
-                             " expression(s).");
+    throw std::runtime_error(
+      "Symbolic evaluator received " + std::to_string(field_values.size()) +
+      " field values, expected " + std::to_string(expected_fields) + " for " +
+      std::to_string(impl->expressions.size()) + " expression(s).");
   auto &values = impl->symengine_data->substitution_values;
   std::fill(values.begin(), values.end(), 0.0);
-  for (unsigned int d = 0; d < std::min<unsigned int>(3, coordinates.size()); ++d)
+  for (unsigned int d = 0; d < std::min<unsigned int>(3, coordinates.size());
+       ++d)
     values[d] = coordinates[d];
   values[3] = time;
   std::copy(field_values.begin(), field_values.end(), values.begin() + 4);
@@ -204,7 +231,8 @@ SymbolicFieldEvaluator::evaluate_into(const std::vector<double> &coordinates,
     }
   try
     {
-      impl->symengine_data->optimizer.substitute(impl->symengine_data->symbols, values);
+      impl->symengine_data->optimizer.substitute(impl->symengine_data->symbols,
+                                                 values);
       const auto &result = impl->symengine_data->optimizer.evaluate();
       for (unsigned int i = 0; i < result.size(); ++i)
         {

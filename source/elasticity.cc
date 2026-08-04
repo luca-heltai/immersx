@@ -1404,8 +1404,8 @@ ElasticityProblem<dim, spacedim>::solve_quasistatic()
 {
   TimerOutput::Scope t(computing_timer, "Solve (quasistatic)");
 
-  AssertThrow(par.pressure_coupling == false || uses_tensor_product_coupling() ||
-                n_multiplier_dofs() == 0,
+  AssertThrow(par.pressure_coupling == false ||
+                uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
               ExcNotImplemented("Quasi-static pressure coupling is not "
                                 "implemented for point coupling."));
 

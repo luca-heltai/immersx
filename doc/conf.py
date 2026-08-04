@@ -12,6 +12,7 @@ extensions = [
     "exhale",
     "myst_parser",
     "sphinxcontrib.bibtex",
+    "sphinxcontrib.mermaid",
 ]
 
 templates_path = ["_templates"]
