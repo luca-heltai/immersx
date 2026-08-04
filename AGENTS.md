@@ -207,7 +207,16 @@ Template for a simple deal.II test source:
 
 - Recommendation: when adding tests, mention any CI-specific requirements in the PR (needs lib1dsolver.a, relies on MPI, long-running test, etc.) so reviewers and CI maintainers can adjust or gate the test.
 
-7) References
+7) Pull request formatting requirement
+
+- Before opening or updating any pull request, run the repository formatter from
+  the repository root:
+
+      ./scripts/indent
+
+- Review the resulting diff and include any indentation changes in the PR.
+
+8) References
 - deal.II: Setting up testsuite in user projects — https://dealii.org/9.6.0/users/testsuite.html
 - deal.II testsuite developer documentation — https://dealii.org/developer/testsuite.html
 - GoogleTest docs — https://github.com/google/googletest
@@ -238,8 +247,8 @@ of the underlying tensor-product coupling infrastructure.
 
 ### Tensor-product VTK field expressions
 
-The `Representative domain` subsection accepts `Input file fields`,
-`Thickness expression`, and `Reduced right hand side`. `Input file fields` is a
+The `Representative domain` subsection accepts `Input file fields`, `Thickness`,
+and `Reduced right hand side`. `Input file fields` is a
 comma-separated list of scalar bindings. Use `radius`, `alias=point:radius`,
 `alias=cell:hematocrit`, or `alias=velocity[0]`; `*` expands every scalar and
 vector component using deterministic names such as `velocity_0`.
@@ -248,11 +257,9 @@ Selected fields are evaluated with their finite-element semantics: PointData is
 interpolated with `FE_Q(1)` and CellData is constant with `FE_DGQ(0)`. Symbols
 `x`, `y`, `z`, `t`, `pi`, and `E` are reserved. Expressions are parsed and
 optimized during initialization, so missing, ambiguous, or unknown fields must
-be fixed before assembly. `Thickness expression` takes precedence over the
-legacy `Thickness field name`; new parameter files should use the expression
-form. Builds without SymEngine continue to support coordinate-only expressions
-and legacy constant/field-name paths, but field-dependent symbolic expressions
-require SymEngine.
+be fixed before assembly. `Thickness` accepts constants and symbolic
+expressions. Builds without SymEngine continue to support constant thickness,
+while field-dependent symbolic expressions require SymEngine.
 
 When adding a parallel GoogleTest, put `MPI_` in the individual test name (for
 example `TEST(Foo, MPI_DistributedFieldTransfer)`). Serial execution excludes
