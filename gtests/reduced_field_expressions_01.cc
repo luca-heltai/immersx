@@ -99,7 +99,7 @@ TEST(TensorProductSpace, ThicknessExpressionUsesAResolvedBinding)
   parameters.reduced_grid_name =
     SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
   parameters.input_file_fields = "radius";
-  parameters.thickness = "radius";
+  parameters.thickness         = "radius";
 
   TensorProductSpace<1, 2, 3, 1> space(parameters);
   space.initialize();
