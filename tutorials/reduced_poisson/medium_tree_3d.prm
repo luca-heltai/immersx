@@ -73,7 +73,6 @@ subsection Tensor product coupling
     set Reduced grid name                = ../data/medium_tree_8_3d.vtk
     set Reduced right hand side          = 1
     set Thickness                        = 0.01
-    set Thickness field name             =
   end
 end
 subsection Error

@@ -64,6 +64,5 @@ subsection Tensor product coupling
     set Reduced grid name           = ../data/tests/one_segment_2d.vtk
     set Reduced right hand side     = 1; 0
     set Thickness                   = 0.05
-    set Thickness field name        =
   end
 end

@@ -70,7 +70,8 @@ namespace
       .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
     tensor_product_parameters.tensor_product_space_parameters.fe_degree  = 1;
     tensor_product_parameters.tensor_product_space_parameters.n_q_points = 4;
-    tensor_product_parameters.tensor_product_space_parameters.thickness  = 0.05;
+    tensor_product_parameters.tensor_product_space_parameters.thickness =
+      "0.05";
     tensor_product_parameters.tensor_product_space_parameters.section
       .inclusion_type = "hyper_ball";
     tensor_product_parameters.tensor_product_space_parameters.section

@@ -1,6 +1,9 @@
 #include <deal.II/distributed/tria.h>
+
 #include <deal.II/fe/fe_values.h>
+
 #include <deal.II/grid/grid_generator.h>
+
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/la_parallel_vector.h>
 
@@ -31,8 +34,8 @@ namespace
     par.tensor_product_space_parameters.reduced_grid_name =
       SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
     par.tensor_product_space_parameters.input_file_fields = "radius";
-    par.tensor_product_space_parameters.thickness_expression = "radius";
-    par.coupling_rhs_expressions = {"radius^2 + 5"};
+    par.tensor_product_space_parameters.thickness         = "radius";
+    par.coupling_rhs_expressions                          = {"radius^2 + 5"};
 
     ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
       background_tria, par);
@@ -53,7 +56,7 @@ namespace
       update_values);
     const auto &binding = coupling.get_properties_bindings().front();
     FEValuesExtractors::Scalar radius(binding.fe_component);
-    std::vector<double> radius_values(coupling.get_quadrature().size());
+    std::vector<double>        radius_values(coupling.get_quadrature().size());
 
     double expected_local_integral = 0.;
     for (const auto &cell : coupling.get_dof_handler().active_cell_iterators())
@@ -75,7 +78,7 @@ namespace
       Utilities::MPI::sum(expected_local_integral, MPI_COMM_WORLD);
     EXPECT_NEAR(reduced_rhs.l1_norm(), expected_integral, 1.e-12);
   }
-}
+} // namespace
 
 TEST(ReducedCoupling, FieldDependentRhsUsesInterpolatedFields)
 {
@@ -89,27 +92,38 @@ TEST(ReducedCoupling, MPI_FieldDependentRhsUsesInterpolatedFields)
   check_field_dependent_reduced_rhs();
 }
 
-TEST(TensorProductSpace, LegacyThicknessFieldUsesAResolvedBinding)
+TEST(TensorProductSpace, ThicknessExpressionUsesAResolvedBinding)
 {
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
   parameters.reduced_grid_name =
     SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
-  parameters.thickness_field_name = "radius";
+  parameters.thickness = "radius";
 
   TensorProductSpace<1, 2, 3, 1> space(parameters);
   space.initialize();
 
   ASSERT_EQ(space.get_properties_bindings().size(), 1u);
   EXPECT_EQ(space.get_properties_bindings().front().symbol_name, "radius");
-  if (SymbolicFieldEvaluator::available())
-    EXPECT_EQ(space.get_thickness_expression(), "radius");
-  else
-    EXPECT_NE(space.get_legacy_thickness_binding(),
-              numbers::invalid_unsigned_int);
+  EXPECT_EQ(space.get_thickness_expression(), "radius");
 }
 
-TEST(TensorProductSpace, RejectsRequestedFieldsAfterRefinement)
+TEST(TensorProductSpace, ThicknessExpressionCanDependOnTime)
+{
+  ParameterAcceptor::clear();
+  TensorProductSpaceParameters<1, 2, 3, 1> parameters;
+  parameters.reduced_grid_name =
+    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+  parameters.input_file_fields = "radius";
+  parameters.thickness         = "radius*sin(t)";
+
+  TensorProductSpace<1, 2, 3, 1> space(parameters);
+  space.set_time(numbers::PI / 2.0);
+  ASSERT_NO_THROW(space.initialize());
+  EXPECT_EQ(space.get_thickness_expression(), "radius*sin(t)");
+}
+
+TEST(TensorProductSpace, TransfersRequestedFieldsAfterRefinement)
 {
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
@@ -120,8 +134,11 @@ TEST(TensorProductSpace, RejectsRequestedFieldsAfterRefinement)
   TensorProductSpace<1, 2, 3, 1> space(parameters);
   space.preprocess_serial_triangulation = [](auto &tria) {
     tria.refine_global(1);
+    tria.refine_global(1);
   };
-  EXPECT_THROW(space.initialize(), std::exception);
+  ASSERT_NO_THROW(space.initialize());
+  EXPECT_GT(space.get_properties_dh().n_dofs(), 0u);
+  EXPECT_GT(space.get_properties().l2_norm(), 0.0);
 }
 
 #endif

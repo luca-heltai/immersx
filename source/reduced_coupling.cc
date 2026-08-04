@@ -23,11 +23,10 @@ namespace
   expression_contains_symbol(const std::string &expression,
                              const std::string &symbol)
   {
-    const std::regex token("(^|[^A-Za-z0-9_])" + symbol +
-                           "([^A-Za-z0-9_]|$)");
+    const std::regex token("(^|[^A-Za-z0-9_])" + symbol + "([^A-Za-z0-9_]|$)");
     return std::regex_search(expression, token);
   }
-}
+} // namespace
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
@@ -121,7 +120,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   typename FunctionParser<spacedim>::ConstMap constants;
   constants["pi"] = numbers::PI;
   constants["E"]  = numbers::E;
-  rhs_time = 0.;
+  rhs_time        = 0.;
   std::vector<std::string> field_symbols;
   field_symbols.reserve(this->get_properties_bindings().size());
   for (const auto &binding : this->get_properties_bindings())
@@ -141,11 +140,11 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
       // without SymEngine. If an expression names an imported field, the
       // evaluator below reports that the requested feature is unavailable.
       coupling_rhs = std::make_unique<FunctionParser<spacedim>>(n_basis);
-      coupling_rhs->initialize(FunctionParser<spacedim>::default_variable_names() +
-                                 ",t",
-                               par.coupling_rhs_expressions,
-                               constants,
-                               true);
+      coupling_rhs->initialize(
+        FunctionParser<spacedim>::default_variable_names() + ",t",
+        par.coupling_rhs_expressions,
+        constants,
+        true);
       AssertDimension(coupling_rhs->n_components,
                       this->get_dof_handler().get_fe().n_components());
       if (!field_symbols.empty())
@@ -181,10 +180,12 @@ void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::set_time(
   const double time)
 {
-  AssertThrow(coupling_rhs || symbolic_coupling_rhs,
-              ExcMessage(
-                "Tensor-product coupling must be initialized before setting time"));
+  AssertThrow(
+    coupling_rhs || symbolic_coupling_rhs,
+    ExcMessage(
+      "Tensor-product coupling must be initialized before setting time"));
   rhs_time = time;
+  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::set_time(time);
   if (coupling_rhs)
     coupling_rhs->set_time(time);
 }

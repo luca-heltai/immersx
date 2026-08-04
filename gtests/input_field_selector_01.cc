@@ -11,8 +11,8 @@ TEST(InputFieldSelector, ResolvesAliasesAndWildcard)
     {"velocity", VTKFieldAssociation::point_data, 2, 1, 1},
     {"radius", VTKFieldAssociation::cell_data, 1, 3, 2}};
 
-  const auto bindings = InputFieldSelector::resolve(
-    "r=point:radius, ux=velocity[0]", catalog);
+  const auto bindings =
+    InputFieldSelector::resolve("r=point:radius, ux=velocity[0]", catalog);
   ASSERT_EQ(bindings.size(), 2u);
   EXPECT_EQ(bindings[0].symbol_name, "r");
   EXPECT_EQ(bindings[0].field_index, 0u);
@@ -21,7 +21,7 @@ TEST(InputFieldSelector, ResolvesAliasesAndWildcard)
   EXPECT_EQ(bindings[1].vtk_component, 0u);
 
   VTKFieldCatalog wildcard_catalog(catalog.begin(), catalog.begin() + 2);
-  const auto all = InputFieldSelector::resolve("*", wildcard_catalog);
+  const auto      all = InputFieldSelector::resolve("*", wildcard_catalog);
   ASSERT_EQ(all.size(), 3u);
   EXPECT_EQ(all[0].symbol_name, "radius");
   EXPECT_EQ(all[1].symbol_name, "velocity_0");

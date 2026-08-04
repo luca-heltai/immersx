@@ -27,24 +27,27 @@ public:
   SymbolicFieldEvaluator();
   ~SymbolicFieldEvaluator();
   SymbolicFieldEvaluator(SymbolicFieldEvaluator &&) noexcept;
-  SymbolicFieldEvaluator &operator=(SymbolicFieldEvaluator &&) noexcept;
+  SymbolicFieldEvaluator &
+  operator=(SymbolicFieldEvaluator &&) noexcept;
   SymbolicFieldEvaluator(const SymbolicFieldEvaluator &) = delete;
-  SymbolicFieldEvaluator &operator=(const SymbolicFieldEvaluator &) = delete;
+  SymbolicFieldEvaluator &
+  operator=(const SymbolicFieldEvaluator &) = delete;
 
   void
-  initialize(const std::vector<std::string>       &expression_strings,
-             const std::vector<std::string>       &field_symbols,
-             const std::map<std::string, double>  &constants = {});
+  initialize(const std::vector<std::string>      &expression_strings,
+             const std::vector<std::string>      &field_symbols,
+             const std::map<std::string, double> &constants = {});
 
   unsigned int
   n_outputs() const;
 
   std::vector<double>
   evaluate(const std::vector<double> &coordinates,
-          double                     time,
-          const std::vector<double> &field_values) const;
+           double                     time,
+           const std::vector<double> &field_values) const;
 
-  /** Evaluate into caller-owned storage to avoid per-point result allocations. */
+  /** Evaluate into caller-owned storage to avoid per-point result allocations.
+   */
   void
   evaluate_into(const std::vector<double> &coordinates,
                 double                     time,
@@ -54,8 +57,8 @@ public:
   template <int spacedim>
   std::vector<double>
   evaluate(const dealii::Point<spacedim> &point,
-          double                         time,
-          const std::vector<double>      &field_values) const
+           double                         time,
+           const std::vector<double>     &field_values) const
   {
     std::vector<double> coordinates(spacedim);
     for (unsigned int d = 0; d < spacedim; ++d)
@@ -67,8 +70,8 @@ public:
   void
   evaluate_into(const dealii::Point<spacedim> &point,
                 double                         time,
-                const std::vector<double>      &field_values,
-                std::vector<double>             &output_values) const
+                const std::vector<double>     &field_values,
+                std::vector<double>           &output_values) const
   {
     std::vector<double> coordinates(spacedim);
     for (unsigned int d = 0; d < spacedim; ++d)
@@ -78,14 +81,15 @@ public:
 
   template <int spacedim>
   void
-  evaluate(const dealii::Point<spacedim>       &point,
-           double                               time,
-           dealii::ArrayView<const double>     field_values,
-           dealii::ArrayView<double>           output_values) const
+  evaluate(const dealii::Point<spacedim>  &point,
+           double                          time,
+           dealii::ArrayView<const double> field_values,
+           dealii::ArrayView<double>       output_values) const
   {
     std::vector<double> values(field_values.begin(), field_values.end());
     if (output_values.size() != n_outputs())
-      throw std::runtime_error("Symbolic evaluator output view has wrong size.");
+      throw std::runtime_error(
+        "Symbolic evaluator output view has wrong size.");
     std::vector<double> result(output_values.size());
     evaluate_into(point, time, values, result);
     std::copy(result.begin(), result.end(), output_values.begin());

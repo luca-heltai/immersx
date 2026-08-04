@@ -32,12 +32,13 @@
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
 
+#include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/vector_tools.h>
-
-#include <limits>
 
 #include <deal.II/particles/particle_handler.h>
 #include <deal.II/particles/utilities.h>
+
+#include <limits>
 
 #include "input_field_selector.h"
 #include "reduced_field_values.h"
@@ -122,21 +123,9 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    */
   unsigned int n_quadrature_repetitions = 1;
 
-  /**
-   * Thickness of the inclusion.
+  /** Constant or symbolic expression for the reduced cross-section thickness.
    */
-  double thickness = 0.01;
-
-  /**
-   * Name of the field name to use for the thickness of the inclusion. This is
-   * read from the reduced_grid_name file. If empty, the thickness is assumed to
-   * be constant, and taken from the tensor_product_space_parameters.thickness
-   * argument.
-   */
-  std::string thickness_field_name = "";
-
-  /** Symbolic expression used for the reduced cross-section thickness. */
-  std::string thickness_expression = "";
+  std::string thickness = "0.01";
 
   /** Comma-separated scalar VTK field selectors exposed to expressions. */
   std::string input_file_fields = "";
@@ -382,16 +371,17 @@ public:
   const std::vector<InputFieldBinding> &
   get_properties_bindings() const;
 
-  /** Return the parsed thickness expression, or an empty string for a constant. */
+  /** Return the parsed thickness expression, or an empty string for a constant.
+   */
   const std::string &
   get_thickness_expression() const;
 
   const SymbolicFieldEvaluator &
   get_thickness_evaluator() const;
 
-  /** Return the binding index used by the legacy Thickness field name. */
-  unsigned int
-  get_legacy_thickness_binding() const;
+  /** Set the time used when evaluating the Thickness expression. */
+  void
+  set_time(const double time);
 
   /**
    * Mutable access to property field names.
@@ -510,12 +500,12 @@ protected:
    */
   std::vector<std::string> properties_names;
 
-  VTKFieldCatalog properties_catalog;
+  VTKFieldCatalog                properties_catalog;
   std::vector<InputFieldBinding> properties_bindings;
-  std::string thickness_expression;
-  SymbolicFieldEvaluator thickness_evaluator;
-  unsigned int legacy_thickness_binding =
-    std::numeric_limits<unsigned int>::max();
+  std::string                    thickness_expression;
+  double                         constant_thickness = 0.01;
+  double                         evaluation_time    = 0.;
+  SymbolicFieldEvaluator         thickness_evaluator;
 };
 
 

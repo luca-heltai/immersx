@@ -71,10 +71,8 @@ subsection Tensor product coupling
     set Number of quadrature repetitions = 33
     set Reduced grid name           = ../data/tests/one_cylinder_properties.vtk
     set Reduced right hand side     = 1
-    set Thickness                   = 0.05
     set Input file fields           = radius
-    set Thickness expression        = radius
-    set Thickness field name        =
+    set Thickness                   = radius
   end
 end
 subsection Error

@@ -6,7 +6,7 @@
 TEST(VTKFieldCatalog, PreservesAssociationAndComponentLayout)
 {
   VTKFieldCatalog catalog;
-  const auto fe = VTKUtils::vtk_to_finite_element<1, 3>(
+  const auto      fe = VTKUtils::vtk_to_finite_element<1, 3>(
     std::string(SOURCE_DIR) + "/data/tests/simple_1d_grid.vtk", catalog);
   ASSERT_EQ(catalog.size(), 4u);
   EXPECT_EQ(catalog[0].vtk_name, "x");
@@ -27,7 +27,7 @@ TEST(VTKFieldCatalog, ReadCatalogOverloadLinksAndImports)
   Triangulation<1, 3> tria;
   DoFHandler<1, 3>    dof_handler(tria);
   Vector<double>      properties;
-  VTKFieldCatalog    catalog;
+  VTKFieldCatalog     catalog;
   VTKUtils::read_vtk(std::string(SOURCE_DIR) + "/data/tests/simple_1d_grid.vtk",
                      dof_handler,
                      properties,

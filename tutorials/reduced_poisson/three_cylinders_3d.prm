@@ -73,7 +73,6 @@ subsection Tensor product coupling
     set Reduced grid name                = ../data/three_cylinders_R005.vtk
     set Reduced right hand side          = 1
     set Thickness                        = 0.2
-    set Thickness field name             =
   end
 end
 subsection Error
