@@ -40,7 +40,25 @@
 #include <iostream>
 #include <map>
 #include <unordered_map>
+#include <vector>
 
+/** Metadata for one scalar or vector VTK data array. */
+enum class VTKFieldAssociation
+{
+  point_data,
+  cell_data
+};
+
+struct VTKFieldDescriptor
+{
+  std::string         vtk_name;
+  VTKFieldAssociation association;
+  unsigned int        n_components = 0;
+  unsigned int        first_fe_component = 0;
+  unsigned int        block_index = 0;
+};
+
+using VTKFieldCatalog = std::vector<VTKFieldDescriptor>;
 
 #ifdef DEAL_II_WITH_VTK
 
@@ -169,6 +187,12 @@ namespace VTKUtils
    * @param vtk_filename The name of the input VTK file
    */
   template <int dim, int spacedim>
+  std::unique_ptr<FiniteElement<dim, spacedim>>
+  vtk_to_finite_element(const std::string &vtk_filename,
+                        VTKFieldCatalog   &catalog);
+
+  /** Backwards-compatible helper returning field names. */
+  template <int dim, int spacedim>
   std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
             std::vector<std::string>>
   vtk_to_finite_element(const std::string &vtk_filename);
@@ -243,6 +267,13 @@ namespace VTKUtils
            DoFHandler<dim, spacedim> &dof_handler,
            Vector<double>            &output_vector,
            std::vector<std::string>  &data_names);
+
+  template <int dim, int spacedim>
+  void
+  read_vtk(const std::string         &vtk_filename,
+           DoFHandler<dim, spacedim> &dof_handler,
+           Vector<double>            &output_vector,
+           VTKFieldCatalog           &catalog);
 
   /**
    * Map a serial vector to a distributed vector.
