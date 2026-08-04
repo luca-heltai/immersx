@@ -72,7 +72,9 @@ subsection Tensor product coupling
     set Reduced grid name           = ../data/tests/one_cylinder_properties.vtk
     set Reduced right hand side     = 1
     set Thickness                   = 0.05
-    set Thickness field name        = radius
+    set Input file fields           = radius
+    set Thickness expression        = radius
+    set Thickness field name        =
   end
 end
 subsection Error
