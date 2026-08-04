@@ -151,7 +151,6 @@ subsection Tensor product coupling
     set Reduced grid name                = ../data/tests/one_cylinder.vtk
     set Reduced right hand side          = 0.1; 0; 0
     set Thickness                        = 0.05
-    set Thickness field name             =
   end
 end
 subsection Solvers

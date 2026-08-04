@@ -81,6 +81,5 @@ subsection Tensor product coupling
     set Reduced grid name           =
     set Reduced right hand side     = 1
     set Thickness                   = 0.1
-    set Thickness field name        =
   end
 end
