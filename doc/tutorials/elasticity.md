@@ -3,13 +3,14 @@
 This tutorial explains the `ElasticityProblem` application in the simplest
 setting: bulk elasticity without immersed inclusions.
 
-The examples present exact-solution convergence tests, using the method of manufactured solutions (MMS) for both static and dynamic cases. The five test files are:
+The examples present exact-solution convergence tests, using the method of manufactured solutions (MMS) for both static and dynamic cases. The six tutorial files are:
 
 - `tutorials/elasticity/strong_dirichlet.prm`
 - `tutorials/elasticity/weak_dirichlet.prm`
 - `tutorials/elasticity/neumann.prm`
 - `tutorials/elasticity/dynamic_purely_elastic.prm`
 - `tutorials/elasticity/damped_kv_dispersion.prm`
+- `tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm`
 
 All these tests run with empty `Immersed inclusions` sections, so they isolate
 the behavior of the background elasticity solver, boundary conditions, and
@@ -63,11 +64,12 @@ Dimension selection follows `app_elasticity.cc` filename conventions:
 - filenames containing `3d` instantiate `ElasticityProblem<3>`;
 - otherwise it instantiates `ElasticityProblem<2>`.
 
-The five tutorial files in this page are 2D cases.
+The first five tutorial files in this page are 2D cases; the vascular-tree
+example is a 3D tensor-product coupling case.
 
 ## Common Structure Of The Test Files
 
-Across the five files, you will repeatedly find:
+Across the tutorial files, you will repeatedly find:
 
 - `subsection Error`: enables error tables and convergence-rate reporting;
 - `subsection Functions`: manufactured exact solution, boundary data,
@@ -316,6 +318,32 @@ These appear in `Functions/Dirichlet boundary conditions`, `Functions/Exact solu
 Displacement field evolution for the Kelvin-Voigt damped wave manufactured solution.
 ```
 
+## Test 6: Quasi-Static Vascular-Tree Traveling Wave
+
+File: `tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm`
+
+Run from the repository root with:
+
+```bash
+./build/elasticity_debug tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm
+```
+
+This example couples 3D elasticity to `data/tests/mstree_100.vtk`. The
+`path_distance` point field is exposed through `Input file fields` and used in
+both the reduced thickness and the traveling load:
+
+```{math}
+h(s) = 0.01\exp\left(-\frac{10}{3}s\right),
+\qquad
+g(s,t) = 0.05\sin\left(2\pi\left(t-\frac{s}{0.69}\right)\right).
+```
+
+Thus the tree starts at thickness `0.01`, reaches approximately `0.001` at
+`path_distance = 0.69`, and the load traverses that distance in one second.
+The quasi-static run lasts three seconds, producing three periods without
+inertial dynamics. This example requires a SymEngine-enabled deal.II build
+because the reduced coupling expressions depend on the imported VTK field.
+
 ## Quick Comparison Table
 
 | Test file | Type | Boundary treatment | Material model | Time setup | Main verification target |
@@ -325,10 +353,11 @@ Displacement field evolution for the Kelvin-Voigt damped wave manufactured solut
 | `neumann.prm` | Static MMS | Mixed: Dirichlet on 0,2,3 and Neumann on 1 | Linear elastic, $\eta=0$ | `Final time = 0.0` | Traction-term implementation with mixed BCs |
 | `dynamic_purely_elastic.prm` | Dynamic MMS | Weak Dirichlet on 0,1,2,3 (penalty 1000) | Linear elastic, $\eta=0$ | `Final time = 0.25`, adaptive $\Delta t$ | Undamped wave propagation in transient solve |
 | `damped_kv_dispersion.prm` | Dynamic MMS | Weak Dirichlet on 0,1,2,3 (penalty 100) | Kelvin-Voigt, $\eta=0.1$ | `Final time = 1.0`, adaptive $\Delta t$ | Damping + phase behavior in viscous transient solve |
+| `vascular_tree_quasistatic_wave_3d.prm` | Quasi-static vascular tree | Strong Dirichlet on 0 | Linear elastic, $\rho=0$ | `Final time = 3.0`, $\Delta t=0.05$ | Field-dependent thickness + traveling reduced load |
 
 ## Practical Notes
 
-- All five files use generated `hyper_cube` meshes on `[0,1]^2`.
+- The first five files use generated `hyper_cube` meshes on `[0,1]^2`.
 - With inclusions disabled, multiplier blocks are inactive: this is a clean
   baseline before moving to immersed-coupling tutorials.
 - Error outputs are written to `static_convergence/*` or
