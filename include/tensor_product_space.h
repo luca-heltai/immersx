@@ -34,10 +34,16 @@
 
 #include <deal.II/numerics/vector_tools.h>
 
+#include <limits>
+
 #include <deal.II/particles/particle_handler.h>
 #include <deal.II/particles/utilities.h>
 
+#include "input_field_selector.h"
+#include "reduced_field_values.h"
 #include "reference_cross_section.h"
+#include "symbolic_field_evaluator.h"
+#include "vtk_utils.h"
 
 using namespace dealii;
 
@@ -128,6 +134,12 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    * argument.
    */
   std::string thickness_field_name = "";
+
+  /** Symbolic expression used for the reduced cross-section thickness. */
+  std::string thickness_expression = "";
+
+  /** Comma-separated scalar VTK field selectors exposed to expressions. */
+  std::string input_file_fields = "";
 
   /**
    * @brief Name of the grid to read from a file.
@@ -363,6 +375,24 @@ public:
   const std::vector<std::string> &
   get_properties_names() const;
 
+  /** Return stable metadata for imported VTK fields. */
+  const VTKFieldCatalog &
+  get_properties_catalog() const;
+
+  const std::vector<InputFieldBinding> &
+  get_properties_bindings() const;
+
+  /** Return the parsed thickness expression, or an empty string for a constant. */
+  const std::string &
+  get_thickness_expression() const;
+
+  const SymbolicFieldEvaluator &
+  get_thickness_evaluator() const;
+
+  /** Return the binding index used by the legacy Thickness field name. */
+  unsigned int
+  get_legacy_thickness_binding() const;
+
   /**
    * Mutable access to property field names.
    */
@@ -479,6 +509,13 @@ protected:
    * The names of the properties stored in the input file.
    */
   std::vector<std::string> properties_names;
+
+  VTKFieldCatalog properties_catalog;
+  std::vector<InputFieldBinding> properties_bindings;
+  std::string thickness_expression;
+  SymbolicFieldEvaluator thickness_evaluator;
+  unsigned int legacy_thickness_binding =
+    std::numeric_limits<unsigned int>::max();
 };
 
 
