@@ -236,6 +236,31 @@ adaptive refinement is explicitly rejected until tensor-product particle
 transfer is implemented. `ReducedPoisson` remains the reference implementation
 of the underlying tensor-product coupling infrastructure.
 
+### Tensor-product VTK field expressions
+
+The `Representative domain` subsection accepts `Input file fields`,
+`Thickness expression`, and `Reduced right hand side`. `Input file fields` is a
+comma-separated list of scalar bindings. Use `radius`, `alias=point:radius`,
+`alias=cell:hematocrit`, or `alias=velocity[0]`; `*` expands every scalar and
+vector component using deterministic names such as `velocity_0`.
+
+Selected fields are evaluated with their finite-element semantics: PointData is
+interpolated with `FE_Q(1)` and CellData is constant with `FE_DGQ(0)`. Symbols
+`x`, `y`, `z`, `t`, `pi`, and `E` are reserved. Expressions are parsed and
+optimized during initialization, so missing, ambiguous, or unknown fields must
+be fixed before assembly. `Thickness expression` takes precedence over the
+legacy `Thickness field name`; new parameter files should use the expression
+form. Builds without SymEngine continue to support coordinate-only expressions
+and legacy constant/field-name paths, but field-dependent symbolic expressions
+require SymEngine.
+
+When adding a parallel GoogleTest, put `MPI_` in the individual test name (for
+example `TEST(Foo, MPI_DistributedFieldTransfer)`). Serial execution excludes
+these names, while the CI command `mpirun -n 2 ./gtests/gtests_debug` selects
+them. The MPI test main also adds `*.MPI_*` to an explicitly requested filter,
+so a focused parallel invocation may run the complete MPI subset; use the
+serial command for focused non-MPI tests.
+
 ## Build and testing
 
 Use out-of-source builds from the build directory:
