@@ -44,6 +44,7 @@
 
 #include "immersed_repartitioner.h"
 #include "particle_coupling.h"
+#include "symbolic_field_evaluator.h"
 #include "tensor_product_space.h"
 #include "utils.h"
 
@@ -90,14 +91,6 @@ struct ReducedCouplingParameters : public ParameterAcceptor
    * Refinement parameters for the tensor product space.
    */
   RefinementParameters refinement_parameters;
-
-  /**
-   * Name of the field name to use for the thickness of the inclusion. This is
-   * read from the reduced_grid_name file. If empty, the thickness is assumed to
-   * be constant, and taken from the tensor_product_space_parameters.thickness
-   * argument.
-   */
-  std::string thickness_field_name = "";
 
   /**
    * @brief Right hand side expressions for tensor-product coupling.
@@ -242,6 +235,8 @@ private:
    * @brief The right-hand side function for the coupling.
    */
   std::unique_ptr<FunctionParser<spacedim>> coupling_rhs;
+  std::unique_ptr<SymbolicFieldEvaluator> symbolic_coupling_rhs;
+  double rhs_time = 0.;
 
   /**
    * An ImmersedRepartitioner object that handles the repartitioning of the
@@ -359,36 +354,20 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
 
   mass_matrix    = 0;
   const auto &fe = this->get_dof_handler().get_fe();
+  ReducedFieldValues<reduced_dim, spacedim> field_values(
+    this->properties_dh, this->get_quadrature(), this->properties,
+    this->properties_bindings);
+  std::vector<double> bound_values(
+    this->get_quadrature().size() * this->properties_bindings.size());
 
   FullMatrix<double>                   local_mass_matrix(fe.n_dofs_per_cell(),
                                        fe.n_dofs_per_cell());
   std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
   FEValues<reduced_dim, spacedim>      fe_values(fe,
                                             this->get_quadrature(),
-                                            update_values | update_JxW_values);
+                                            update_values | update_quadrature_points |
+                                              update_JxW_values);
 
-
-  const auto                     &properties_fe = this->properties_dh.get_fe();
-  FEValues<reduced_dim, spacedim> properties_fe_values(properties_fe,
-                                                       this->get_quadrature(),
-                                                       update_values);
-
-  // Find the index of the thickness field in the properties
-  const unsigned int thickness_field_index =
-    std::distance(this->properties_names.begin(),
-                  std::find(this->properties_names.begin(),
-                            this->properties_names.end(),
-                            par.thickness_field_name));
-
-  const auto thickness_start =
-    thickness_field_index >= this->properties_names.size() ?
-      numbers::invalid_unsigned_int :
-      VTKUtils::get_block_indices(properties_fe)
-        .block_start(thickness_field_index);
-
-  FEValuesExtractors::Scalar thickness(thickness_start);
-
-  // Initialize the thickness values with the constant thickness
   std::vector<double> thickness_values(
     this->get_quadrature().size(),
     par.tensor_product_space_parameters.thickness);
@@ -399,13 +378,19 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
         fe_values.reinit(cell);
         const auto &JxW = fe_values.get_JxW_values();
 
-        if (thickness_start != numbers::invalid_unsigned_int)
-          {
-            properties_fe_values.reinit(
-              cell->as_dof_handler_iterator(this->properties_dh));
-            properties_fe_values[thickness].get_function_values(
-              this->properties, thickness_values);
-          }
+        if (!this->properties_bindings.empty())
+          field_values.extract(cell->as_dof_handler_iterator(this->properties_dh),
+                               bound_values);
+        evaluate_thickness_values<reduced_dim, spacedim>(
+          this->get_thickness_evaluator(),
+          this->get_thickness_expression().empty() ? std::string("constant") :
+                                                     this->get_thickness_expression(),
+          cell->as_dof_handler_iterator(this->properties_dh),
+          fe_values.get_quadrature_points(),
+          bound_values,
+          par.tensor_product_space_parameters.thickness,
+          thickness_values,
+          this->get_legacy_thickness_binding());
 
         local_mass_matrix = 0;
         for (const auto q : fe_values.quadrature_point_indices())
@@ -456,30 +441,14 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
     Vector<double>(this->get_reference_cross_section().n_selected_basis()));
   std::vector<types::global_dof_index> dof_indices(
     this->get_dof_handler().get_fe().n_dofs_per_cell());
+  ReducedFieldValues<reduced_dim, spacedim> field_values(
+    this->properties_dh, this->get_quadrature(), this->properties,
+    this->properties_bindings);
+  std::vector<double> bound_values(
+    this->get_quadrature().size() * this->properties_bindings.size());
+  std::vector<double> fields_at_q(this->properties_bindings.size());
+  std::vector<double> evaluated_rhs(this->get_reference_cross_section().n_selected_basis());
 
-
-  const auto                     &properties_fe = this->properties_dh.get_fe();
-  FEValues<reduced_dim, spacedim> properties_fe_values(properties_fe,
-                                                       this->get_quadrature(),
-                                                       update_values);
-
-  // Find the index of the thickness field in the properties
-  const unsigned int thickness_field_index =
-    std::distance(this->properties_names.begin(),
-                  std::find(this->properties_names.begin(),
-                            this->properties_names.end(),
-                            par.thickness_field_name));
-
-  const auto thickness_start =
-    thickness_field_index >= this->properties_names.size() ?
-      numbers::invalid_unsigned_int :
-      VTKUtils::get_block_indices(properties_fe)
-        .block_start(thickness_field_index);
-  ;
-
-  FEValuesExtractors::Scalar thickness(thickness_start);
-
-  // Initialize the thickness values with the constant thickness
   std::vector<double> thickness_values(
     this->get_quadrature().size(),
     par.tensor_product_space_parameters.thickness);
@@ -495,19 +464,38 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
         fe_values.reinit(cell);
         const auto &JxW      = fe_values.get_JxW_values();
         const auto &q_points = fe_values.get_quadrature_points();
-        coupling_rhs->vector_value_list(q_points, rhs_values);
+        if (!this->properties_bindings.empty())
+          field_values.extract(cell->as_dof_handler_iterator(this->properties_dh),
+                               bound_values);
+        if (symbolic_coupling_rhs)
+          for (const auto q : fe_values.quadrature_point_indices())
+            {
+              std::copy(bound_values.begin() +
+                          q * this->properties_bindings.size(),
+                        bound_values.begin() +
+                          (q + 1) * this->properties_bindings.size(),
+                        fields_at_q.begin());
+              symbolic_coupling_rhs->evaluate_into(
+                q_points[q], rhs_time, fields_at_q, evaluated_rhs);
+              std::copy(evaluated_rhs.begin(), evaluated_rhs.end(),
+                        rhs_values[q].begin());
+            }
+        else
+          coupling_rhs->vector_value_list(q_points, rhs_values);
 
+        evaluate_thickness_values<reduced_dim, spacedim>(
+          this->get_thickness_evaluator(),
+          this->get_thickness_expression().empty() ? std::string("constant") :
+                                                     this->get_thickness_expression(),
+          cell->as_dof_handler_iterator(this->properties_dh),
+          q_points,
+          bound_values,
+          par.tensor_product_space_parameters.thickness,
+          thickness_values,
+          this->get_legacy_thickness_binding());
 
-        if (thickness_start != numbers::invalid_unsigned_int)
-          {
-            properties_fe_values.reinit(
-              cell->as_dof_handler_iterator(this->properties_dh));
-            properties_fe_values[thickness].get_function_values(
-              this->properties, thickness_values);
-          }
-
-        local_rhs = 0;
-        for (const auto q : fe_values.quadrature_point_indices())
+            local_rhs = 0;
+            for (const auto q : fe_values.quadrature_point_indices())
           for (const auto i : fe_values.dof_indices())
             {
               const auto comp_i =
