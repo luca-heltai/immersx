@@ -238,10 +238,19 @@ The reduced interface data comes from the `Tensor product coupling` subtree:
   repeat the reduced-cell Gauss quadrature. The default value `1` keeps the
   standard Gauss rule.
 - `Representative domain/Thickness`: constant radius or half-thickness.
-- `Representative domain/Thickness field name`: field to read from the VTK
-  file instead of a constant thickness.
+- `Representative domain/Input file fields`: comma-separated VTK fields to
+  expose as scalar symbols. Use `alias=point:name`, `alias=cell:name`, or
+  `alias=name[component]` for explicit bindings; `*` exposes every scalar and
+  vector component.
+- `Representative domain/Thickness expression`: symbolic thickness evaluated
+  at reduced quadrature points. It may use coordinates, constants, and the
+  selected VTK field symbols.
+- `Representative domain/Thickness field name`: legacy shorthand for one VTK
+  scalar field. Prefer `Input file fields` plus `Thickness expression` in new
+  parameter files.
 - `Representative domain/Reduced right hand side`: the coefficient functions
-  $\bar g_i(s)$ for the reduced target data.
+  $\bar g_i(s)$ for the reduced target data. Separate multiple entries with
+  semicolons, and provide one expression for each selected cross-section mode.
 
 ### Cross-section basis
 
@@ -335,8 +344,9 @@ The file `data/tests/one_cylinder_properties.vtk` contains a field named
 Here:
 
 - `Thickness` acts as a fallback value;
-- `Thickness field name = radius` tells the code to read the point field named
-  `radius`;
+- `Input file fields = radius` exposes the point field named `radius`;
+- `Thickness expression = radius` evaluates the local radius at each reduced
+  quadrature point;
 - the local cross-section measure in both the reduced mass matrix and reduced
   right-hand side is scaled accordingly.
 
