@@ -90,7 +90,7 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
     SOURCE_DIR "/data/tests/one_cylinder.vtk";
   // This should be the scaling factor for the coupling
   par.coupling_rhs_expressions                  = {"1"};
-  par.tensor_product_space_parameters.thickness = 0.01;
+  par.tensor_product_space_parameters.thickness = "0.01";
 
   ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
     background_tria, par);

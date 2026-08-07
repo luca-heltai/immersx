@@ -1038,6 +1038,7 @@ EXCLUDE_PATTERNS       =
 # ANamespace::AClass, ANamespace::*Test
 
 EXCLUDE_SYMBOLS        = FORCE_USE_OF_TRILINOS \
+                         SymbolicFieldEvaluator::Impl \
                          dealii \
                          LA \
                          RepartitioningPolicyTools \

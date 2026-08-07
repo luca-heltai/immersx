@@ -304,16 +304,16 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
 #ifdef DEAL_II_WITH_VTK
-  if (par.use_reduced_coupling)
+  if (uses_tensor_product_coupling())
     {
-      if (!reduced_coupling)
-        reduced_coupling =
+      if (!tensor_product_coupling)
+        tensor_product_coupling =
           std::make_unique<ReducedCoupling<1, 2, spacedim, spacedim>>(
-            *tria, par.reduced_coupling_parameters);
-      if (reduced_coupling->get_dof_handler().n_dofs() == 0)
+            *tria, par.tensor_product_coupling_parameters);
+      if (tensor_product_coupling->get_dof_handler().n_dofs() == 0)
         {
           MappingQ<spacedim> mapping(1);
-          reduced_coupling->initialize(mapping);
+          tensor_product_coupling->initialize(mapping);
         }
     }
 #endif
@@ -408,12 +408,12 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
       }
   }
 
-  if (using_reduced_coupling())
-    setup_reduced_coupling_dofs();
+  if (uses_tensor_product_coupling())
+    setup_tensor_product_coupling_dofs();
   else
     {
       inclusion_constraints.close();
-      setup_inclusion_dofs_legacy();
+      setup_point_coupling_dofs();
     }
 
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
@@ -743,7 +743,7 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
 
     {
       auto parameter_list_A = amg_parameter_list;
-      if (!using_reduced_coupling())
+      if (!uses_tensor_product_coupling())
         {
           std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
           UtilitiesAL::set_null_space<spacedim, VectorType>(
@@ -991,19 +991,19 @@ template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::assemble_coupling()
 {
-  if (using_reduced_coupling())
+  if (uses_tensor_product_coupling())
     {
-      assemble_reduced_coupling();
+      assemble_tensor_product_coupling();
       return;
     }
 
-  assemble_coupling_legacy();
+  assemble_point_coupling();
 }
 
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::assemble_coupling_legacy()
+ElasticityProblem<dim, spacedim>::assemble_point_coupling()
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
 
@@ -1404,10 +1404,10 @@ ElasticityProblem<dim, spacedim>::solve_quasistatic()
 {
   TimerOutput::Scope t(computing_timer, "Solve (quasistatic)");
 
-  AssertThrow(par.pressure_coupling == false || using_reduced_coupling() ||
-                n_multiplier_dofs() == 0,
+  AssertThrow(par.pressure_coupling == false ||
+                uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
               ExcNotImplemented("Quasi-static pressure coupling is not "
-                                "implemented for legacy inclusions."));
+                                "implemented for point coupling."));
 
   const auto A    = linear_operator<LA::MPI::Vector>(stiffness_matrix);
   const auto amgA = linear_operator(A, prec_A);
@@ -1447,10 +1447,10 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
 {
   TimerOutput::Scope t(computing_timer, "Solve (newmark)");
 
-  AssertThrow(par.pressure_coupling == true || using_reduced_coupling() ||
+  AssertThrow(par.pressure_coupling == true || uses_tensor_product_coupling() ||
                 n_multiplier_dofs() == 0,
               ExcNotImplemented("Dynamic solve with pressure_coupling == false "
-                                "is not implemented for legacy inclusions."));
+                                "is not implemented for point coupling."));
 
   const auto A = linear_operator<LA::MPI::Vector>(stiffness_matrix);
   const auto D = linear_operator<LA::MPI::Vector>(damping_matrix);
@@ -1534,9 +1534,9 @@ void
 ElasticityProblem<dim, spacedim>::refine_and_transfer()
 {
   AssertThrow(
-    !using_reduced_coupling(),
+    !uses_tensor_product_coupling(),
     ExcNotImplemented(
-      "Adaptive refinement is not yet supported with reduced coupling."));
+      "Adaptive refinement is not yet supported with tensor-product coupling."));
   if (!uses_fully_distributed_triangulation())
     {
       TimerOutput::Scope t(computing_timer, "Refine");
@@ -1841,7 +1841,7 @@ ElasticityProblem<dim, spacedim>::print_parameters() const
                            ParameterHandler::PRM);
 #if DEAL_II_VERSION_GTE(9, 7, 0)
   par.prm.print_parameters(par.output_directory + "/" + par.output_name +
-                             "_reduced_" + std::to_string(dim) +
+                             "_changed_" + std::to_string(dim) +
                              std::to_string(spacedim) + ".prm",
                            ParameterHandler::KeepOnlyChanged |
                              ParameterHandler::Short);
@@ -2136,7 +2136,7 @@ ElasticityProblem<dim, spacedim>::run_static()
 
   current_time = par.initial_time;
 
-  if (!using_reduced_coupling())
+  if (!uses_tensor_product_coupling())
     {
       TimerOutput::Scope t(computing_timer, "Setup inclusion");
       inclusions.setup_inclusions_particles(*tria);
@@ -2190,7 +2190,7 @@ ElasticityProblem<dim, spacedim>::run_quasistatic()
   setup_fe();
 
   cycle = 0;
-  if (!using_reduced_coupling())
+  if (!uses_tensor_product_coupling())
     {
       TimerOutput::Scope t(computing_timer, "Setup inclusion");
       inclusions.setup_inclusions_particles(*tria);
@@ -2204,10 +2204,10 @@ ElasticityProblem<dim, spacedim>::run_quasistatic()
       current_time = par.initial_time;
       time_step    = 0;
       assemble_forcing_terms();
-      if (!using_reduced_coupling())
+      if (!uses_tensor_product_coupling())
         inclusions.inclusions_rhs.set_time(current_time);
       else
-        reduced_coupling->set_time(current_time);
+        tensor_product_coupling->set_time(current_time);
       assemble_coupling();
 
       for (time_step = 0, current_time = par.initial_time;
@@ -2244,7 +2244,7 @@ ElasticityProblem<dim, spacedim>::run_newmark()
   setup_fe();
 
   cycle = 0;
-  if (!using_reduced_coupling())
+  if (!uses_tensor_product_coupling())
     {
       TimerOutput::Scope t(computing_timer, "Setup inclusion");
       inclusions.setup_inclusions_particles(*tria);
@@ -2257,10 +2257,10 @@ ElasticityProblem<dim, spacedim>::run_newmark()
       current_time = par.initial_time;
       time_step    = 0;
       assemble_forcing_terms();
-      if (!using_reduced_coupling())
+      if (!uses_tensor_product_coupling())
         inclusions.inclusions_rhs.set_time(current_time);
       else
-        reduced_coupling->set_time(current_time);
+        tensor_product_coupling->set_time(current_time);
       assemble_coupling();
 
       par.initial_displacement.set_time(current_time);
@@ -2362,7 +2362,7 @@ ElasticityProblem<dim, spacedim>::compute_system_rhs()
 
   assemble_forcing_terms();
   double inclusion_scale = 1.0;
-  if (!using_reduced_coupling())
+  if (!uses_tensor_product_coupling())
     {
       inclusions.inclusions_rhs.set_time(current_time);
       inclusion_scale = get_scale(inclusions.modulation_frequency,
@@ -2370,7 +2370,7 @@ ElasticityProblem<dim, spacedim>::compute_system_rhs()
                                   current_time);
     }
   else
-    reduced_coupling->set_time(current_time);
+    tensor_product_coupling->set_time(current_time);
   assemble_coupling();
 
   system_rhs.block(0) = 0.0;

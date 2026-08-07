@@ -66,6 +66,19 @@ enum class ElasticityModel
   KelvinVoigt
 };
 
+/**
+ * Representation used for the immersed coupling.
+ *
+ * Point coupling reads discrete inclusion centers and their finite radii.
+ * Tensor-product coupling reads a reduced mesh and combines it with a
+ * reference cross section.
+ */
+enum class CouplingType
+{
+  Point,
+  TensorProduct
+};
+
 template <int dim, int spacedim = dim>
 /**
  * Parameter set driving mesh generation, constitutive model, and solvers.
@@ -221,14 +234,17 @@ public:
   std::string weight_expression = "1.";
 
 #ifdef DEAL_II_WITH_VTK
+  /** Parameters for the tensor-product coupling representation. */
   ReducedCouplingParameters<1, 2, spacedim, spacedim>
-    reduced_coupling_parameters;
+    tensor_product_coupling_parameters;
 #endif
 
   /**
-   * Use the ReducedCoupling infrastructure instead of legacy Inclusions.
+   * Representation used for the immersed coupling. `Point` uses discrete
+   * inclusion centers with finite radii; `TensorProduct` uses a VTK reduced
+   * mesh and a reference cross section.
    */
-  bool use_reduced_coupling = false;
+  CouplingType coupling_type = CouplingType::Point;
 
   /**
    * Solver controls for different linear blocks.

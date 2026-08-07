@@ -44,7 +44,11 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
   add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
   add_parameter("Output directory", output_directory);
   add_parameter("Output name", output_name);
-  add_parameter("Use reduced coupling", use_reduced_coupling);
+  add_parameter(
+    "Coupling type",
+    coupling_type,
+    "Point uses discrete inclusion centers with finite radii. TensorProduct "
+    "uses a VTK reduced mesh and a reference cross section.");
   add_parameter("Output results also before solving",
                 output_results_before_solving);
   add_parameter("Initial refinement", initial_refinement);

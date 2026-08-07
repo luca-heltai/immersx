@@ -19,4 +19,5 @@ tutorials grouped here scales well as more guides are added for `laplacian`,
 
 reduced-poisson
 elasticity
+coupled-elasticity
 ```

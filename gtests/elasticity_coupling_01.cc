@@ -4,7 +4,7 @@
 
 using namespace dealii;
 
-TEST(ElasticityReducedCouplingParameters, ParseMinimalRepresentativeDomain)
+TEST(ElasticityCouplingParameters, ParseCouplingSelector)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2> par;
@@ -14,15 +14,16 @@ TEST(ElasticityReducedCouplingParameters, ParseMinimalRepresentativeDomain)
   // snippets).
   initialize_parameters();
 
-  // Minimal parameter snippet enabling reduced coupling. Do not attempt to set
-  // the full tensor-product subsections here; just verify parsing of the new
-  // flag and that ParameterAcceptor does not throw.
+  // Minimal parameter snippet selecting tensor-product coupling. Do not
+  // attempt to set the full tensor-product subsections here; just verify
+  // selector parsing and that ParameterAcceptor does not throw.
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
     subsection Immersed Problem
-      set Use reduced coupling = true
+      set Coupling type = TensorProduct
     end
   )");
 
   EXPECT_NO_THROW(ParameterAcceptor::parse_all_parameters());
+  EXPECT_EQ(par.coupling_type, CouplingType::TensorProduct);
 }

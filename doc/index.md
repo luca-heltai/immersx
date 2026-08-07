@@ -12,6 +12,7 @@ tutorials/index
 testing
 documentation
 repository-layout
+architecture-diagram
 funding
 references
 api/library_root

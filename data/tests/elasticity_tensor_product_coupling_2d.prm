@@ -1,8 +1,8 @@
 subsection Immersed Problem
   set FE degree                          = 1
-  set Output directory                   = elasticity_reduced_output
-  set Output name                        = elasticity_reduced_coupling_2d
-  set Use reduced coupling               = true
+  set Output directory                   = elasticity_tensor_product_output
+  set Output name                        = elasticity_tensor_product_coupling_2d
+  set Coupling type = TensorProduct
   set Output results also before solving = false
   set Initial refinement                 = 1
   set Dirichlet boundary ids             =
@@ -39,7 +39,7 @@ subsection Solvers
     set Tolerance = 1.e-6
   end
 end
-subsection Reduced coupling
+subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
@@ -64,6 +64,5 @@ subsection Reduced coupling
     set Reduced grid name           = ../data/tests/one_segment_2d.vtk
     set Reduced right hand side     = 1; 0
     set Thickness                   = 0.05
-    set Thickness field name        =
   end
 end

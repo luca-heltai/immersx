@@ -46,7 +46,7 @@ subsection Reduced Poisson
     end
   end
 end
-subsection Reduced coupling
+subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
@@ -73,7 +73,6 @@ subsection Reduced coupling
     set Reduced grid name                = ../data/three_cylinders_R005.vtk
     set Reduced right hand side          = 1
     set Thickness                        = 0.2
-    set Thickness field name             =
   end
 end
 subsection Error
