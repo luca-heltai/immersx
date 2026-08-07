@@ -1,27 +1,22 @@
 #include "elasticity.h"
 
-// Implement accessors and helpers for reduced coupling migration.
-
-namespace
-{
-  // helper only file-scope
-}
+// Implement coupling-specific accessors and helpers.
 
 template <int dim, int spacedim>
 bool
-ElasticityProblem<dim, spacedim>::using_reduced_coupling() const
+ElasticityProblem<dim, spacedim>::uses_tensor_product_coupling() const
 {
-  return par.use_reduced_coupling;
+  return par.coupling_type == CouplingType::TensorProduct;
 }
 
 template <int dim, int spacedim>
 types::global_dof_index
 ElasticityProblem<dim, spacedim>::n_multiplier_dofs() const
 {
-  if (par.use_reduced_coupling)
+  if (uses_tensor_product_coupling())
     {
-      if (reduced_coupling)
-        return reduced_coupling->get_dof_handler().n_dofs();
+      if (tensor_product_coupling)
+        return tensor_product_coupling->get_dof_handler().n_dofs();
       else
         return static_cast<types::global_dof_index>(0);
     }
@@ -31,10 +26,10 @@ ElasticityProblem<dim, spacedim>::n_multiplier_dofs() const
 
 template <int dim, int spacedim>
 unsigned int
-ElasticityProblem<dim, spacedim>::n_multiplier_components_per_reduced_dof()
+ElasticityProblem<dim, spacedim>::n_multiplier_components_per_coupling_dof()
   const
 {
-  if (par.use_reduced_coupling)
+  if (uses_tensor_product_coupling())
     return spacedim;
   else
     return inclusions.n_dofs_per_inclusion();
@@ -44,7 +39,7 @@ ElasticityProblem<dim, spacedim>::n_multiplier_components_per_reduced_dof()
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::setup_inclusion_dofs_legacy()
+ElasticityProblem<dim, spacedim>::setup_point_coupling_dofs()
 {
   if (inclusions.n_dofs() > 0)
     {
@@ -105,20 +100,21 @@ ElasticityProblem<dim, spacedim>::setup_inclusion_dofs_legacy()
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::setup_reduced_coupling_dofs()
+ElasticityProblem<dim, spacedim>::setup_tensor_product_coupling_dofs()
 {
 #if defined(DEAL_II_WITH_VTK)
-  AssertThrow(reduced_coupling, ExcMessage("Reduced coupling not initialized"));
+  AssertThrow(tensor_product_coupling,
+              ExcMessage("Tensor-product coupling not initialized"));
 
-  const auto &reduced_dh = reduced_coupling->get_dof_handler();
+  const auto &tensor_product_dh = tensor_product_coupling->get_dof_handler();
 
-  owned_dofs[1]    = reduced_dh.locally_owned_dofs();
-  relevant_dofs[1] = DoFTools::extract_locally_relevant_dofs(reduced_dh);
+  owned_dofs[1]    = tensor_product_dh.locally_owned_dofs();
+  relevant_dofs[1] = DoFTools::extract_locally_relevant_dofs(tensor_product_dh);
 
   DynamicSparsityPattern dsp(dh.n_dofs(),
-                             reduced_dh.n_dofs(),
+                             tensor_product_dh.n_dofs(),
                              relevant_dofs[0]);
-  reduced_coupling->assemble_coupling_sparsity(dsp, dh, constraints);
+  tensor_product_coupling->assemble_coupling_sparsity(dsp, dh, constraints);
 
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              owned_dofs[0],
@@ -129,14 +125,14 @@ ElasticityProblem<dim, spacedim>::setup_reduced_coupling_dofs()
   coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
 
   DynamicSparsityPattern               idsp(relevant_dofs[1]);
-  std::vector<types::global_dof_index> reduced_cell_dofs(
-    reduced_dh.get_fe().n_dofs_per_cell());
-  for (const auto &cell : reduced_dh.active_cell_iterators())
+  std::vector<types::global_dof_index> tensor_product_cell_dofs(
+    tensor_product_dh.get_fe().n_dofs_per_cell());
+  for (const auto &cell : tensor_product_dh.active_cell_iterators())
     if (cell->is_locally_owned())
       {
-        cell->get_dof_indices(reduced_cell_dofs);
-        for (const auto row : reduced_cell_dofs)
-          for (const auto col : reduced_cell_dofs)
+        cell->get_dof_indices(tensor_product_cell_dofs);
+        for (const auto row : tensor_product_cell_dofs)
+          for (const auto col : tensor_product_cell_dofs)
             idsp.add(row, col);
       }
   SparsityTools::distribute_sparsity_pattern(idsp,
@@ -155,10 +151,11 @@ ElasticityProblem<dim, spacedim>::setup_reduced_coupling_dofs()
 
 template <int dim, int spacedim>
 void
-ElasticityProblem<dim, spacedim>::assemble_reduced_coupling()
+ElasticityProblem<dim, spacedim>::assemble_tensor_product_coupling()
 {
 #if defined(DEAL_II_WITH_VTK)
-  AssertThrow(reduced_coupling, ExcMessage("Reduced coupling not initialized"));
+  AssertThrow(tensor_product_coupling,
+              ExcMessage("Tensor-product coupling not initialized"));
 
   coupling_matrix     = 0;
   inclusion_matrix    = 0;
@@ -166,14 +163,16 @@ ElasticityProblem<dim, spacedim>::assemble_reduced_coupling()
   force_rhs.block(1)  = 0;
 
   // Build the coupling matrix between background and reduced space
-  reduced_coupling->assemble_coupling_matrix(coupling_matrix, dh, constraints);
+  tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
+                                                    dh,
+                                                    constraints);
 
-  // Assemble reduced rhs and copy into system rhs
-  reduced_coupling->assemble_reduced_rhs(force_rhs.block(1));
+  // Assemble the tensor-product rhs and copy it into the system rhs.
+  tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
   system_rhs.block(1) = force_rhs.block(1);
 
-  // Assemble reduced mass/inclusion matrix
-  reduced_coupling->assemble_coupling_mass_matrix(inclusion_matrix);
+  // Assemble the tensor-product mass matrix.
+  tensor_product_coupling->assemble_coupling_mass_matrix(inclusion_matrix);
 
   if (n_multiplier_dofs() > 0)
     {
@@ -209,9 +208,9 @@ ElasticityProblem<dim, spacedim>::distribute_multiplier_solution(
   LA::MPI::Vector &lambda) const
 {
 #if defined(DEAL_II_WITH_VTK)
-  if (par.use_reduced_coupling)
+  if (uses_tensor_product_coupling())
     {
-      reduced_coupling->get_coupling_constraints().distribute(lambda);
+      tensor_product_coupling->get_coupling_constraints().distribute(lambda);
       return;
     }
 #endif
@@ -225,11 +224,11 @@ ElasticityProblem<dim, spacedim>::output_immersed_particles(
   const std::string &filename) const
 {
 #if defined(DEAL_II_WITH_VTK)
-  if (par.use_reduced_coupling)
+  if (uses_tensor_product_coupling())
     {
-      AssertThrow(reduced_coupling,
-                  ExcMessage("Reduced coupling not initialized"));
-      reduced_coupling->output_particles(filename);
+      AssertThrow(tensor_product_coupling,
+                  ExcMessage("Tensor-product coupling not initialized"));
+      tensor_product_coupling->output_particles(filename);
       return;
     }
 #endif

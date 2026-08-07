@@ -8,14 +8,14 @@
 
 using namespace dealii;
 
-TEST(ElasticityReducedCoupling, MPI_ThreeDimensionalParameterFile)
+TEST(ElasticityCoupling, MPI_ThreeDimensionalParameterFile)
 {
   ParameterAcceptor::clear();
 
   ElasticityProblemParameters<3> par;
   ASSERT_NO_THROW(initialize_parameters(
-    SOURCE_DIR "/data/tests/elasticity_reduced_coupling_3d.prm"));
-  ASSERT_TRUE(par.use_reduced_coupling);
+    SOURCE_DIR "/data/tests/elasticity_tensor_product_coupling_3d.prm"));
+  ASSERT_EQ(par.coupling_type, CouplingType::TensorProduct);
 
   ElasticityProblem<3> problem(par);
   ASSERT_NO_THROW(problem.run());

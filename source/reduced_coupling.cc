@@ -6,6 +6,8 @@
 #include <deal.II/grid/grid_in.h>
 
 #include <fstream>
+#include <regex>
+#include <stdexcept>
 
 #include "immersed_repartitioner.h"
 #include "tensor_product_space.h"
@@ -15,10 +17,21 @@
 
 #  include "vtk_utils.h"
 
+namespace
+{
+  bool
+  expression_contains_symbol(const std::string &expression,
+                             const std::string &symbol)
+  {
+    const std::regex token("(^|[^A-Za-z0-9_])" + symbol + "([^A-Za-z0-9_]|$)");
+    return std::regex_search(expression, token);
+  }
+} // namespace
+
 template <int reduced_dim, int dim, int spacedim, int n_components>
 ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components>::
   ReducedCouplingParameters()
-  : ParameterAcceptor("/Reduced coupling/")
+  : ParameterAcceptor("/Tensor product coupling/")
 {
   this->enter_subsection("Representative domain");
   this->add_parameter("Reduced right hand side",
@@ -96,23 +109,55 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   auto        q_index = this->insert_points(qpoints, weights);
   this->update_local_dof_indices(q_index);
 
-  // Initialize the coupling rhs
+  const unsigned int n_basis =
+    this->get_reference_cross_section().n_selected_basis();
+  AssertThrow(par.coupling_rhs_expressions.size() == n_basis,
+              ExcMessage("Reduced right hand side has " +
+                         std::to_string(par.coupling_rhs_expressions.size()) +
+                         " expressions, but the selected basis requires " +
+                         std::to_string(n_basis) + "."));
+
   typename FunctionParser<spacedim>::ConstMap constants;
   constants["pi"] = numbers::PI;
   constants["E"]  = numbers::E;
+  rhs_time        = 0.;
+  std::vector<std::string> field_symbols;
+  field_symbols.reserve(this->get_properties_bindings().size());
+  for (const auto &binding : this->get_properties_bindings())
+    field_symbols.push_back(binding.symbol_name);
 
-  coupling_rhs = std::make_unique<FunctionParser<spacedim>>(
-    this->get_reference_cross_section().n_selected_basis());
-
-  coupling_rhs->initialize(FunctionParser<spacedim>::default_variable_names() +
-                             ",t",
-                           par.coupling_rhs_expressions,
-                           constants,
-                           true);
-
-  // This should be true. Let's double check
-  AssertDimension(coupling_rhs->n_components,
-                  this->get_dof_handler().get_fe().n_components());
+  if (SymbolicFieldEvaluator::available())
+    {
+      symbolic_coupling_rhs = std::make_unique<SymbolicFieldEvaluator>();
+      symbolic_coupling_rhs->initialize(par.coupling_rhs_expressions,
+                                        field_symbols,
+                                        {{"pi", numbers::PI},
+                                         {"E", numbers::E}});
+    }
+  else
+    {
+      // Keep the coordinate-only FunctionParser path available in builds
+      // without SymEngine. If an expression names an imported field, the
+      // evaluator below reports that the requested feature is unavailable.
+      coupling_rhs = std::make_unique<FunctionParser<spacedim>>(n_basis);
+      coupling_rhs->initialize(
+        FunctionParser<spacedim>::default_variable_names() + ",t",
+        par.coupling_rhs_expressions,
+        constants,
+        true);
+      AssertDimension(coupling_rhs->n_components,
+                      this->get_dof_handler().get_fe().n_components());
+      if (!field_symbols.empty())
+        {
+          for (const auto &expression : par.coupling_rhs_expressions)
+            for (const auto &symbol : field_symbols)
+              if (expression_contains_symbol(expression, symbol))
+                throw std::runtime_error(
+                  "Reduced right-hand-side expression '" + expression +
+                  "' refers to imported field '" + symbol +
+                  "', but this build has no SymEngine support.");
+        }
+    }
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
     {
@@ -123,7 +168,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
         << Patterns::Tools::to_string(
              par.tensor_product_space_parameters.section.selected_coefficients)
         << std::endl;
-      std::cout << "Reduced coupling initialized" << std::endl;
+      std::cout << "Tensor-product coupling initialized" << std::endl;
       std::cout << "Reduced grid name: "
                 << par.tensor_product_space_parameters.reduced_grid_name
                 << std::endl;
@@ -135,10 +180,14 @@ void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::set_time(
   const double time)
 {
-  AssertThrow(coupling_rhs,
-              ExcMessage(
-                "Reduced coupling must be initialized before setting time"));
-  coupling_rhs->set_time(time);
+  AssertThrow(
+    coupling_rhs || symbolic_coupling_rhs,
+    ExcMessage(
+      "Tensor-product coupling must be initialized before setting time"));
+  rhs_time = time;
+  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::set_time(time);
+  if (coupling_rhs)
+    coupling_rhs->set_time(time);
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>

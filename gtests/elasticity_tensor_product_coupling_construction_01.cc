@@ -5,13 +5,13 @@
 
 using namespace dealii;
 
-TEST(ElasticityReducedCouplingConstruction, BuildsWithReducedCoupling)
+TEST(ElasticityCouplingConstruction, BuildsWithTensorProductCoupling)
 {
   ParameterAcceptor::clear();
   initialize_parameters();
 
   ElasticityProblemParameters<2> par;
-  par.use_reduced_coupling = true;
+  par.coupling_type = CouplingType::TensorProduct;
   // minimal settings to make grid generation cheap
   par.domain_type        = "generate";
   par.name_of_grid       = "hyper_cube";

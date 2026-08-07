@@ -139,7 +139,7 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.thickness = 0.125;
+  params.thickness = "0.125";
 
   params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
   // Create the tensor product space
@@ -178,8 +178,7 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
         else
           {
             ASSERT_NEAR(integral,
-                        tps.get_reference_cross_section().measure(
-                          params.thickness),
+                        tps.get_reference_cross_section().measure(0.125),
                         1e-10)
               << "Integral of phi_" << i << " and phi_" << j
               << " should be one.";

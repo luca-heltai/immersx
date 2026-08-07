@@ -29,6 +29,10 @@
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/utilities.h>
 
+#include <iostream>
+#include <memory>
+#include <regex>
+
 #include "immersed_repartitioner.h"
 
 #ifdef DEAL_II_WITH_VTK
@@ -66,7 +70,7 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
                 n_quadrature_repetitions,
                 "How many times to repeat the quadrature formula.");
   add_parameter("Thickness", thickness);
-  add_parameter("Thickness field name", thickness_field_name);
+  add_parameter("Input file fields", input_file_fields);
   add_parameter("Reduced grid name", reduced_grid_name);
 }
 
@@ -134,10 +138,89 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   VTKUtils::read_vtk(par.reduced_grid_name,
                      serial_properties_dh,
                      serial_properties,
-                     properties_names);
+                     properties_catalog);
+  properties_names.clear();
+  properties_names.reserve(properties_catalog.size());
+  for (const auto &field : properties_catalog)
+    properties_names.push_back(field.vtk_name);
+
+  properties_bindings =
+    InputFieldSelector::resolve(par.input_file_fields, properties_catalog);
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    {
+      std::cout << "Input fields exposed from " << par.reduced_grid_name << ":";
+      if (properties_bindings.empty())
+        std::cout << " (none)";
+      for (const auto &binding : properties_bindings)
+        {
+          const auto &field = properties_catalog[binding.field_index];
+          std::cout << "\n  " << binding.symbol_name << " <- "
+                    << (field.association == VTKFieldAssociation::point_data ?
+                          "PointData" :
+                          "CellData")
+                    << " \"" << field.vtk_name << "\", component "
+                    << binding.vtk_component << ", FE component "
+                    << binding.fe_component;
+        }
+      std::cout << std::endl;
+    }
+
+  thickness_expression = par.thickness;
+  constant_thickness   = 0.01;
+  try
+    {
+      std::size_t  parsed = 0;
+      const double value  = std::stod(thickness_expression, &parsed);
+      if (parsed == thickness_expression.size())
+        {
+          constant_thickness   = value;
+          thickness_expression = "";
+        }
+    }
+  catch (const std::invalid_argument &)
+    {}
+  catch (const std::out_of_range &)
+    {
+      AssertThrow(false,
+                  ExcMessage("Thickness expression is out of range: '" +
+                             par.thickness + "'."));
+    }
+  if (!thickness_expression.empty())
+    {
+      std::vector<std::string> symbols;
+      symbols.reserve(properties_bindings.size());
+      for (const auto &binding : properties_bindings)
+        symbols.push_back(binding.symbol_name);
+      thickness_evaluator.initialize({thickness_expression},
+                                     symbols,
+                                     {{"pi", numbers::PI}, {"E", numbers::E}});
+    }
 
   deallog << "Read VTK file: " << par.reduced_grid_name
           << ", properties norm: " << serial_properties.l2_norm() << std::endl;
+
+  // The preprocessing hook may refine the serial reduced grid several times.
+  // Keep the VTK fields attached to the grid while that happens: a
+  // SolutionTransfer prepared from the pre-refinement DoFHandler can then
+  // rebuild the property vector on every new mesh produced by the hook.
+  using SerialPropertiesTransfer =
+    SolutionTransfer<reduced_dim, Vector<double>, spacedim>;
+  std::shared_ptr<SerialPropertiesTransfer> properties_transfer;
+  auto                                      pre_refinement_connection =
+    serial_tria.signals.pre_refinement.connect([&]() {
+      properties_transfer =
+        std::make_shared<SerialPropertiesTransfer>(serial_properties_dh);
+      properties_transfer->prepare_for_coarsening_and_refinement(
+        serial_properties);
+    });
+  auto post_refinement_connection =
+    serial_tria.signals.post_refinement.connect([&]() {
+      serial_properties_dh.distribute_dofs(serial_properties_dh.get_fe());
+      Vector<double> transferred_properties(serial_properties_dh.n_dofs());
+      properties_transfer->interpolate(transferred_properties);
+      serial_properties.swap(transferred_properties);
+      properties_transfer.reset();
+    });
 
   // Preprocess the serial triangulation
   preprocess_serial_triangulation(serial_tria);
@@ -167,10 +250,9 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                                                     properties);
     }
   else
-    {
-      // TODO: transfer from coarse serial grid to fine distributed grid
-      deallog << "PROPERTIES ARE ZERO. DO NOT REFINE INPUT GRID" << std::endl;
-    }
+    AssertThrow(false,
+                ExcMessage("Imported VTK properties do not match the prepared "
+                           "reduced mesh DoF layout after refinement."));
 
   // Make sure we have ghost values
   properties.update_ghost_values();
@@ -456,28 +538,14 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 
 
 
-  const auto                     &properties_fe = properties_dh.get_fe();
-  FEValues<reduced_dim, spacedim> properties_fe_values(properties_fe,
-                                                       get_quadrature(),
-                                                       update_values);
-
-  // Find the index of the thickness field in the properties
-  const unsigned int thickness_field_index =
-    std::distance(properties_names.begin(),
-                  std::find(properties_names.begin(),
-                            properties_names.end(),
-                            par.thickness_field_name));
-
-  const auto thickness_start =
-    thickness_field_index >= properties_names.size() ?
-      numbers::invalid_unsigned_int :
-      VTKUtils::get_block_indices(properties_fe)
-        .block_start(thickness_field_index);
-
-  FEValuesExtractors::Scalar thickness(thickness_start);
-
-  // Initialize the thickness values with the constant thickness
-  std::vector<double> thickness_values(get_quadrature().size(), par.thickness);
+  ReducedFieldValues<reduced_dim, spacedim> field_values(properties_dh,
+                                                         get_quadrature(),
+                                                         properties,
+                                                         properties_bindings);
+  std::vector<double> bound_values(get_quadrature().size() *
+                                   properties_bindings.size());
+  std::vector<double> thickness_values(get_quadrature().size(),
+                                       constant_thickness);
 
   for (const auto &cell : triangulation.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -487,13 +555,19 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
         const auto &JxW     = fev.get_JxW_values();
 
 
-        if (thickness_start != numbers::invalid_unsigned_int)
-          {
-            properties_fe_values.reinit(
-              cell->as_dof_handler_iterator(this->properties_dh));
-            properties_fe_values[thickness].get_function_values(
-              properties, thickness_values);
-          }
+        if (!properties_bindings.empty())
+          field_values.extract(cell->as_dof_handler_iterator(properties_dh),
+                               bound_values);
+        evaluate_thickness_values<reduced_dim, spacedim>(
+          thickness_evaluator,
+          thickness_expression.empty() ? std::string("constant") :
+                                         thickness_expression,
+          cell->as_dof_handler_iterator(properties_dh),
+          qpoints,
+          bound_values,
+          constant_thickness,
+          evaluation_time,
+          thickness_values);
 
         reduced_qpoints.insert(reduced_qpoints.end(),
                                qpoints.begin(),
@@ -538,7 +612,7 @@ double
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_scaling(
   const unsigned int) const
 {
-  return std::pow(par.thickness, -((dim - reduced_dim) / 2.0));
+  return std::pow(constant_thickness, -((dim - reduced_dim) / 2.0));
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -581,7 +655,45 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   return properties_names;
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const VTKFieldCatalog &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_properties_catalog() const
+{
+  return properties_catalog;
+}
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<InputFieldBinding> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_properties_bindings() const
+{
+  return properties_bindings;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::string &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_thickness_expression() const
+{
+  return thickness_expression;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const SymbolicFieldEvaluator &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_thickness_evaluator() const
+{
+  return thickness_evaluator;
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+void
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::set_time(
+  const double time)
+{
+  evaluation_time = time;
+}
 
 template struct TensorProductSpaceParameters<1, 2, 2, 1>;
 template struct TensorProductSpaceParameters<1, 2, 3, 1>;

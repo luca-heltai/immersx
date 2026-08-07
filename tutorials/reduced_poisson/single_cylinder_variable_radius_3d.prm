@@ -46,7 +46,7 @@ subsection Reduced Poisson
     end
   end
 end
-subsection Reduced coupling
+subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
@@ -71,8 +71,8 @@ subsection Reduced coupling
     set Number of quadrature repetitions = 33
     set Reduced grid name           = ../data/tests/one_cylinder_properties.vtk
     set Reduced right hand side     = 1
-    set Thickness                   = 0.05
-    set Thickness field name        = radius
+    set Input file fields           = radius
+    set Thickness                   = radius
   end
 end
 subsection Error

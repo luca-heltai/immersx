@@ -3,7 +3,7 @@
 This tutorial explains the `ElasticityProblem` application in the simplest
 setting: bulk elasticity without immersed inclusions.
 
-The examples present exact-solution convergence tests, using the method of manufactured solutions (MMS) for both static and dynamic cases. The five test files are:
+The examples present exact-solution convergence tests, using the method of manufactured solutions (MMS) for both static and dynamic cases. The five tutorial files are:
 
 - `tutorials/elasticity/strong_dirichlet.prm`
 - `tutorials/elasticity/weak_dirichlet.prm`
@@ -63,18 +63,18 @@ Dimension selection follows `app_elasticity.cc` filename conventions:
 - filenames containing `3d` instantiate `ElasticityProblem<3>`;
 - otherwise it instantiates `ElasticityProblem<2>`.
 
-The five tutorial files in this page are 2D cases.
+All five tutorial files in this page are 2D cases.
 
 ## Common Structure Of The Test Files
 
-Across the five files, you will repeatedly find:
+Across the tutorial files, you will repeatedly find:
 
 - `subsection Error`: enables error tables and convergence-rate reporting;
 - `subsection Functions`: manufactured exact solution, boundary data,
   right-hand side, and initial conditions;
 - `subsection Immersed Problem`: FE degree, mesh generation, refinement cycles,
   material parameters, BC IDs, and time settings;
-- empty `Immersed inclusions` data, meaning no reduced coupling is active.
+- empty `Immersed inclusions` data, meaning no point coupling is active.
 
 In all convergence runs, the error file records norms (typically `L2_norm`,
 `H1_norm`, and `Linfty_norm`) as functions of mesh size or DoFs.
@@ -328,7 +328,7 @@ Displacement field evolution for the Kelvin-Voigt damped wave manufactured solut
 
 ## Practical Notes
 
-- All five files use generated `hyper_cube` meshes on `[0,1]^2`.
+- The first five files use generated `hyper_cube` meshes on `[0,1]^2`.
 - With inclusions disabled, multiplier blocks are inactive: this is a clean
   baseline before moving to immersed-coupling tutorials.
 - Error outputs are written to `static_convergence/*` or

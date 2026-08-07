@@ -81,13 +81,13 @@ subsection Immersed Problem
   set Initial refinement                 = 3
   set Neumann boundary ids               =
   set Normal flux boundary ids           =
-  set Output directory                   = elasticity_reduced_output
-  set Output name                        = elasticity_reduced_coupling_3d
+  set Output directory                   = elasticity_tensor_product_output
+  set Output name                        = elasticity_tensor_product_coupling_3d
   set Output pressure                    = false
   set Output results also before solving = false
   set Pressure coupling                  = false
   set Rhs material ids                   =
-  set Use reduced coupling               = true
+  set Coupling type = TensorProduct
   set Weak Dirichlet boundary ids        =
   set Weak Dirichlet penalty coefficient = 10000
   subsection Grid generation
@@ -124,7 +124,7 @@ subsection Immersed Problem
     set Time step        = 0.1
   end
 end
-subsection Reduced coupling
+subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
@@ -151,7 +151,6 @@ subsection Reduced coupling
     set Reduced grid name                = ../data/tests/one_cylinder.vtk
     set Reduced right hand side          = 0.1; 0; 0
     set Thickness                        = 0.05
-    set Thickness field name             =
   end
 end
 subsection Solvers
