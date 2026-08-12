@@ -427,16 +427,16 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
   setup_constraints();
 
   {
-    DynamicSparsityPattern    dsp(relevant_dofs[0]);
-    AffineConstraints<double> no_constraints;
-    no_constraints.close();
-    DoFTools::make_sparsity_pattern(dh, dsp, no_constraints, false);
-    // Cell matrices are distributed with constraints applied to the rows
-    // only. For a constrained dof with entries, the resolved constraint row
-    // is written into the rows of its master dofs, which need not share a
-    // cell with the constrained dof. Add those entries here, since
-    // make_sparsity_pattern() above only adds couplings between dofs that
-    // share a cell.
+    DynamicSparsityPattern dsp(relevant_dofs[0]);
+    // Static and quasi-static solves distribute cell matrices with the
+    // constraints applied to rows and columns, so the sparsity pattern must
+    // contain the constraint graph in addition to the cell couplings.
+    // Dynamic solves distribute with row-only constraints: for a constrained
+    // dof with entries, the resolved constraint row is written into the rows
+    // of its master dofs, which need not share a cell with the constrained
+    // dof. Add those entries as well, since make_sparsity_pattern() does not
+    // couple a master dof with the cells of the dofs it constrains.
+    DoFTools::make_sparsity_pattern(dh, dsp, constraints, true);
     std::vector<types::global_dof_index> cell_dofs(fe->n_dofs_per_cell());
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
@@ -757,14 +757,32 @@ ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
 
         cell_rhs += cell_penalty_value_rhs;
 
-        constraints.distribute_local_to_global(cell_stiffness,
-                                               local_dof_indices,
-                                               no_column_constraints,
-                                               local_dof_indices,
-                                               stiffness_matrix);
-        constraints.distribute_local_to_global(cell_rhs,
-                                               local_dof_indices,
-                                               system_rhs.block(0));
+        if (par.time_mode == TimeMode::Static ||
+            par.time_mode == TimeMode::QuasiStatic)
+          {
+            // Static and quasi-static solves operate on the fully constrained
+            // system: constrained rows become identity rows and constrained
+            // columns are eliminated into the right hand side. The dynamic
+            // solve keeps the row-only distribution below so that the
+            // acceleration boundary conditions can be imposed after the
+            // solve.
+            constraints.distribute_local_to_global(cell_stiffness,
+                                                   cell_rhs,
+                                                   local_dof_indices,
+                                                   stiffness_matrix,
+                                                   system_rhs.block(0));
+          }
+        else
+          {
+            constraints.distribute_local_to_global(cell_stiffness,
+                                                   local_dof_indices,
+                                                   no_column_constraints,
+                                                   local_dof_indices,
+                                                   stiffness_matrix);
+            constraints.distribute_local_to_global(cell_rhs,
+                                                   local_dof_indices,
+                                                   system_rhs.block(0));
+          }
 
         if (par.time_mode == TimeMode::Dynamic)
           {
