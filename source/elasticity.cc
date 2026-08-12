@@ -353,7 +353,7 @@ ElasticityProblem<dim, spacedim>::setup_constraints()
 template <int dim, int spacedim>
 void
 ElasticityProblem<dim, spacedim>::make_newmark_acceleration_constraints(
-  const LA::MPI::Vector      &displacement_predictor,
+  const LA::MPI::Vector     &displacement_predictor,
   AffineConstraints<double> &acceleration_constraints) const
 {
   AssertThrow(par.beta != 0.0 && par.dt != 0.0,
@@ -427,7 +427,7 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
   setup_constraints();
 
   {
-    DynamicSparsityPattern dsp(relevant_dofs[0]);
+    DynamicSparsityPattern    dsp(relevant_dofs[0]);
     AffineConstraints<double> no_constraints;
     no_constraints.close();
     DoFTools::make_sparsity_pattern(dh, dsp, no_constraints, false);
@@ -1590,10 +1590,7 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
         {
           acceleration_rhs -= D * v_pred;
           acceleration_rhs -= A * u_pred;
-          cg_stiffness.solve(newmark_matrix,
-                             a,
-                             acceleration_rhs,
-                             prec_newmark);
+          cg_stiffness.solve(newmark_matrix, a, acceleration_rhs, prec_newmark);
         }
       else
         {
@@ -1620,10 +1617,7 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
           acceleration_rhs += f_inclusions;
           acceleration_rhs -= D * v_pred;
           acceleration_rhs -= A * u_pred;
-          cg_stiffness.solve(newmark_matrix,
-                             a,
-                             acceleration_rhs,
-                             prec_newmark);
+          cg_stiffness.solve(newmark_matrix, a, acceleration_rhs, prec_newmark);
         }
     }
   else
@@ -2323,7 +2317,7 @@ ElasticityProblem<dim, spacedim>::run_quasistatic()
       current_time = par.initial_time;
       setup_dofs();
       assemble_elasticity_system();
-      time_step    = 0;
+      time_step = 0;
       assemble_forcing_terms();
       if (!uses_tensor_product_coupling())
         inclusions.inclusions_rhs.set_time(current_time);
@@ -2377,7 +2371,7 @@ ElasticityProblem<dim, spacedim>::run_newmark()
     {
       current_time = par.initial_time;
       assemble_elasticity_system();
-      time_step    = 0;
+      time_step = 0;
       assemble_forcing_terms();
       if (!uses_tensor_product_coupling())
         inclusions.inclusions_rhs.set_time(current_time);
