@@ -476,7 +476,7 @@ public:
    */
   void
   make_newmark_acceleration_constraints(
-    const LA::MPI::Vector      &displacement_predictor,
+    const LA::MPI::Vector     &displacement_predictor,
     AffineConstraints<double> &acceleration_constraints) const;
   /**
    * Assemble immersed coupling operators and multiplier data.
