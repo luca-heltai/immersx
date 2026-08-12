@@ -431,12 +431,27 @@ ElasticityProblem<dim, spacedim>::setup_dofs()
     AffineConstraints<double> no_constraints;
     no_constraints.close();
     DoFTools::make_sparsity_pattern(dh, dsp, no_constraints, false);
-    for (const auto &line : constraints.get_lines())
-      {
-        dsp.add(line.index, line.index);
-        for (const auto &entry : line.entries)
-          dsp.add(line.index, entry.first);
-      }
+    // Cell matrices are distributed with constraints applied to the rows
+    // only. For a constrained dof with entries, the resolved constraint row
+    // is written into the rows of its master dofs, which need not share a
+    // cell with the constrained dof. Add those entries here, since
+    // make_sparsity_pattern() above only adds couplings between dofs that
+    // share a cell.
+    std::vector<types::global_dof_index> cell_dofs(fe->n_dofs_per_cell());
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell->get_dof_indices(cell_dofs);
+          for (const auto i : cell_dofs)
+            if (constraints.is_constrained(i))
+              {
+                const auto *entries = constraints.get_constraint_entries(i);
+                if (entries != nullptr)
+                  for (const auto &entry : *entries)
+                    for (const auto j : cell_dofs)
+                      dsp.add(entry.first, j);
+              }
+        }
     SparsityTools::distribute_sparsity_pattern(dsp,
                                                owned_dofs[0],
                                                mpi_communicator,
@@ -1280,7 +1295,8 @@ ElasticityProblem<dim, spacedim>::solve_static()
   auto &g      = system_rhs.block(1);
 
   constraints.distribute(u);
-  inclusion_constraints.distribute(lambda);
+  if (!uses_tensor_product_coupling())
+    inclusion_constraints.distribute(lambda);
 
   pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
         << std::endl;
@@ -1545,7 +1561,8 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
   par.set_boundary_condition_times(current_time);
   setup_constraints();
   constraints.distribute(u);
-  inclusion_constraints.distribute(lambda);
+  if (!uses_tensor_product_coupling())
+    inclusion_constraints.distribute(lambda);
 
   SolverCG<LA::MPI::Vector> cg_stiffness(par.displacement_solver_control);
 
