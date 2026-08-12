@@ -18,11 +18,22 @@ source_path(const char *relative_path)
   return std::string(SOURCE_DIR) + "/" + relative_path;
 }
 
+// Debug builds postfix executables with `_debug` (e.g., elasticity_debug).
+static std::string
+executable_name(const char *exe)
+{
+#ifdef DEBUG
+  return std::string(exe) + "_debug";
+#else
+  return std::string(exe);
+#endif
+}
+
 // Run an executable with an arbitrary argument string and expect exit status 0.
 static void
 run_application(const char *exe, const std::string &args)
 {
-  std::string cmd = std::string("./") + exe + " " + args;
+  std::string cmd = std::string("./") + executable_name(exe) + " " + args;
   const int   ret = std::system(cmd.c_str());
   // POSIX: low 8 bits contain the exit status.
   EXPECT_EQ(ret, 0) << "Command failed: " << cmd;
