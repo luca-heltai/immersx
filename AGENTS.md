@@ -68,8 +68,9 @@ MPI test naming and execution
 - Run the binaries from the build directory. Relative test data paths such as
   `../data/tests/...` are resolved from there:
 
-      (cd build-debug && ./gtests/gtests_debug)
-      (cd build-debug && mpirun -np 2 ./gtests/gtests_debug)
+      mkdir -p build-debug/test_directory
+      (cd build-debug/test_directory && ../gtests/gtests_debug)
+      (cd build-debug/test_directory && mpirun -np 2 ../gtests/gtests_debug)
 
   Use `gtests` instead of `gtests_debug` for a Release build. A focused serial
   run can select non-MPI tests with `--gtest_filter='SuiteName.*'`; a focused
@@ -188,8 +189,9 @@ Template for a simple deal.II test source:
       ninja
       ctest -N
       ctest --output-on-failure
-      ./gtests/gtests_debug
-      mpirun -n 2 ./gtests/gtests_debug
+      mkdir -p test_directory
+      (cd test_directory && ../gtests/gtests_debug)
+      (cd test_directory && mpirun -n 2 ../gtests/gtests_debug)
 
       # Release (run from the repository root)
       rm -rf build_linux_release
@@ -199,8 +201,9 @@ Template for a simple deal.II test source:
       ninja
       ctest -N
       ctest --output-on-failure
-      ./gtests/gtests
-      mpirun -n 2 ./gtests/gtests
+      mkdir -p test_directory
+      (cd test_directory && ../gtests/gtests)
+      (cd test_directory && mpirun -n 2 ../gtests/gtests)
 
 - MPI tests should pass with two ranks. When running locally, `mpirun -np 2` is
   equivalent to the workflow's `mpirun -n 2`.
@@ -263,7 +266,7 @@ while field-dependent symbolic expressions require SymEngine.
 
 When adding a parallel GoogleTest, put `MPI_` in the individual test name (for
 example `TEST(Foo, MPI_DistributedFieldTransfer)`). Serial execution excludes
-these names, while the CI command `mpirun -n 2 ./gtests/gtests_debug` selects
+these names, while the CI command `(cd test_directory && mpirun -n 2 ../gtests/gtests_debug)` selects
 them. The MPI test main also adds `*.MPI_*` to an explicitly requested filter,
 so a focused parallel invocation may run the complete MPI subset; use the
 serial command for focused non-MPI tests.
@@ -275,19 +278,21 @@ Use out-of-source builds from the build directory:
 ```bash
 cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DENABLE_GOOGLE_TESTING=ON
 cmake --build build-debug --target gtests_debug -j$(nproc)
-(cd build-debug && ./gtests/gtests_debug)
-(cd build-debug && mpirun -np 2 ./gtests/gtests_debug)
+(cd build-debug/test_directory && ../gtests/gtests_debug)
+(cd build-debug/test_directory && mpirun -np 2 ../gtests/gtests_debug)
 
 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DENABLE_GOOGLE_TESTING=ON
 cmake --build build-release --target gtests -j$(nproc)
-(cd build-release && ./gtests/gtests)
-(cd build-release && mpirun -np 2 ./gtests/gtests)
+mkdir -p build-release/test_directory
+(cd build-release/test_directory && ../gtests/gtests)
+(cd build-release/test_directory && mpirun -np 2 ../gtests/gtests)
 ```
 
 During development, run the focused tensor-product elasticity tests with:
 
 ```bash
-./build-debug/gtests/gtests_debug --gtest_filter='*ElasticityTensorProductCoupling*'
+mkdir -p build-debug/test_directory
+(cd build-debug/test_directory && ../gtests/gtests_debug --gtest_filter='*ElasticityTensorProductCoupling*')
 ```
 
 New or modified code must compile without warnings in both configurations. Existing
