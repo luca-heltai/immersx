@@ -15,7 +15,23 @@
 static std::string
 source_path(const char *relative_path)
 {
-  return std::string(SOURCE_DIR) + "/" + relative_path;
+  return std::string(APP_SOURCE_DIR) + "/" + relative_path;
+}
+
+// Quote a path for the POSIX shell used by std::system().  The paths passed to
+// this test are generated from the source tree and build tree, but quoting
+// them also keeps the test working when either directory contains spaces.
+static std::string
+shell_quote(const std::string &value)
+{
+  std::string quoted = "'";
+  for (const char character : value)
+    if (character == '\'')
+      quoted += "'\\''";
+    else
+      quoted += character;
+  quoted += "'";
+  return quoted;
 }
 
 // Debug builds postfix executables with `_debug` (e.g., elasticity_debug).
@@ -33,9 +49,24 @@ executable_name(const char *exe)
 static void
 run_application(const char *exe, const std::string &args)
 {
-  std::string cmd = std::string("./") + executable_name(exe) + " " + args;
-  const int   ret = std::system(cmd.c_str());
-  // POSIX: low 8 bits contain the exit status.
+  // Keep all application-generated files below the build tree.  The parameter
+  // files use paths such as ../data/..., which resolve to the source data
+  // directory through this build-local link when the test runs below.
+  const std::string test_directory =
+    std::string(APP_BINARY_DIR) + "/test_directory";
+  const std::string data_link = std::string(APP_BINARY_DIR) + "/data";
+  const std::string setup_cmd =
+    "mkdir -p " + shell_quote(test_directory) + " && " + "ln -sfn " +
+    shell_quote(source_path("data")) + " " + shell_quote(data_link);
+  const int setup_ret = std::system(setup_cmd.c_str());
+  ASSERT_EQ(setup_ret, 0) << "Could not prepare application test directory: "
+                          << setup_cmd;
+
+  const std::string executable =
+    std::string(APP_BINARY_DIR) + "/" + executable_name(exe);
+  const std::string cmd = "cd " + shell_quote(test_directory) + " && " +
+                          shell_quote(executable) + " " + args;
+  const int ret = std::system(cmd.c_str());
   EXPECT_EQ(ret, 0) << "Command failed: " << cmd;
 }
 
@@ -88,10 +119,10 @@ run_app_with_discovered_params(const char *exe)
 
   for (const auto &f : files)
     {
-      std::string args = f;
+      std::string args = shell_quote(f);
       // Special case: coupled_elasticity needs an extra 1D input file
       if (app_name == "coupled_elasticity")
-        args += " " + source_path("prms/input_1d.dat");
+        args += " " + shell_quote(source_path("prms/input_1d.dat"));
       run_application(exe, args);
     }
 }
