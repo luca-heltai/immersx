@@ -162,6 +162,7 @@ public:
    * Emit output once before linear-system solution.
    */
   bool output_results_before_solving = false;
+  bool estimate_condition_number     = false;
 
   /**
    * Convergence table used to report global error and timing quantities.
@@ -184,6 +185,7 @@ ProblemParameters<dim, spacedim>::ProblemParameters()
   add_parameter("Output name", output_name);
   add_parameter("Output results also before solving",
                 output_results_before_solving);
+  add_parameter("Estimate condition number", estimate_condition_number);
   add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   enter_subsection("Grid generation");

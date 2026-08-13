@@ -23,6 +23,7 @@
 
 #include "augmented_lagrangian.h"
 #include "augmented_lagrangian_preconditioner.h"
+#include "solver_controls.h"
 #include "utils.h"
 
 template <int dim>
@@ -1339,43 +1340,44 @@ ElasticityProblem<dim, spacedim>::solve_static()
           const auto B  = transpose_operator(Bt);
           const auto M  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
 
-          {
-            // Estimate condition number:
-            pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
-                  << std::endl;
-            pcout << "Estimate condition number of CCt using CG" << std::endl;
-            SolverControl             solver_control(2000, 1e-12);
-            SolverCG<LA::MPI::Vector> solver_cg(solver_control);
+          if (par.estimate_condition_number)
+            {
+              // Estimate condition number:
+              pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
+                    << std::endl;
+              pcout << "Estimate condition number of CCt using CG" << std::endl;
+              SolverControl             solver_control(2000, 1e-12);
+              SolverCG<LA::MPI::Vector> solver_cg(solver_control);
 
-            solver_cg.connect_condition_number_slot(
-              std::bind(output_double_number,
-                        std::placeholders::_1,
-                        "Condition number estimate: "));
+              solver_cg.connect_condition_number_slot(
+                std::bind(output_double_number,
+                          std::placeholders::_1,
+                          "Condition number estimate: "));
 
-            auto CCt = B * Bt;
+              auto CCt = B * Bt;
 
-            LA::MPI::Vector u;
-            u.reinit(system_rhs.block(1));
-            u = 0.;
+              LA::MPI::Vector u;
+              u.reinit(system_rhs.block(1));
+              u = 0.;
 
-            LA::MPI::Vector f;
-            f.reinit(system_rhs.block(1));
-            f = 1.;
-            PreconditionIdentity prec_no;
-            try
-              {
-                solver_cg.solve(CCt, u, f, prec_no);
-              }
-            catch (...)
-              {
-                if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-                  {
-                    std::cerr
-                      << "***CCt solve not successfull (see condition number above)***"
-                      << std::endl;
-                  }
-              }
-          }
+              LA::MPI::Vector f;
+              f.reinit(system_rhs.block(1));
+              f = 1.;
+              PreconditionIdentity prec_no;
+              try
+                {
+                  solver_cg.solve(CCt, u, f, prec_no);
+                }
+              catch (...)
+                {
+                  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                    {
+                      std::cerr
+                        << "***CCt solve not successfull (see condition number above)***"
+                        << std::endl;
+                    }
+                }
+            }
 
 #ifdef FALSE
           { // auto interp_g = g;
@@ -1419,8 +1421,9 @@ ElasticityProblem<dim, spacedim>::solve_static()
           {
             const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
             const auto amgM = linear_operator(M, prec_M);
-            SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(
+            CumulativeReductionControl mass_control(
               par.reduced_mass_solver_control);
+            SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(mass_control);
             auto invM = inverse_operator(M, solver_CG_M, amgM);
             auto invW = invM * invM;
 
@@ -1447,11 +1450,12 @@ ElasticityProblem<dim, spacedim>::solve_static()
             system_rhs_block.block(0).add(1., tmp); // ! augmented
             system_rhs_block.block(1) = system_rhs.block(1);
 
-            SolverCG<LA::MPI::Vector> solver_lagrangian(
+            CumulativeReductionControl augmented_control(
               par.displacement_solver_control);
+            SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
 
             auto Aug_inv =
-              inverse_operator(Aug, solver_lagrangian); //! augmented
+              inverse_operator(Aug, solver_lagrangian, amgA); //! augmented
 
             SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
               par.augmented_lagrange_solver_control);
@@ -1466,9 +1470,11 @@ ElasticityProblem<dim, spacedim>::solve_static()
 
             solution.block(0) = solution_block.block(0);
             solution.block(1) = solution_block.block(1);
-            pcout << "Solver with FGMRES in "
-                  << par.augmented_lagrange_solver_control.last_step()
-                  << " iterations." << std::endl;
+            output_augmented_lagrangian_iteration_summary(
+              pcout,
+              par.augmented_lagrange_solver_control,
+              augmented_control,
+              mass_control);
           }
         }
       else
@@ -1488,15 +1494,13 @@ ElasticityProblem<dim, spacedim>::solve_static()
           // condition on the vessels.
           lambda = invM * g;
 
-          pcout << "   Solved for lambda "
-                << par.reduced_mass_solver_control.last_step() << " iterations."
-                << std::endl;
+          pcout << "   Inner mass iterations for lambda = "
+                << par.reduced_mass_solver_control.last_step() << std::endl;
 
           u = invA * (f + Bt * lambda);
 
-          pcout << "   Solved for u "
-                << par.displacement_solver_control.last_step() << " iterations."
-                << std::endl;
+          pcout << "   Inner displacement iterations for u = "
+                << par.displacement_solver_control.last_step() << std::endl;
         }
     }
   pcout << "   u norm: " << u.l2_norm() << ", lambda norm: " << lambda.l2_norm()
@@ -1543,10 +1547,13 @@ ElasticityProblem<dim, spacedim>::solve_quasistatic()
 
       lambda = invM * system_rhs.block(1);
       u      = invA * (f + Bt * lambda);
+
+      pcout << "   Inner mass iterations for lambda = "
+            << par.reduced_mass_solver_control.last_step() << std::endl;
     }
 
-  pcout << "   Solved for u " << par.displacement_solver_control.last_step()
-        << " iterations." << std::endl;
+  pcout << "   Inner displacement iterations for u = "
+        << par.displacement_solver_control.last_step() << std::endl;
 
   constraints.distribute(u);
   distribute_multiplier_solution(lambda);
@@ -1627,9 +1634,8 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
           // condition on the vessels.
           lambda = invM * g;
 
-          pcout << "   Solved for lambda "
-                << par.reduced_mass_solver_control.last_step() << " iterations."
-                << std::endl;
+          pcout << "   Inner mass iterations for lambda = "
+                << par.reduced_mass_solver_control.last_step() << std::endl;
 
           const auto f_inclusions = Bt * lambda;
           acceleration_rhs += f_inclusions;
@@ -1649,8 +1655,8 @@ ElasticityProblem<dim, spacedim>::solve_newmark()
   u = u_pred + par.dt * par.dt * beta * a;
   v = v_pred + par.dt * gamma * a;
 
-  pcout << "   Solved for u " << par.displacement_solver_control.last_step()
-        << " iterations." << std::endl;
+  pcout << "   Inner displacement iterations for u = "
+        << par.displacement_solver_control.last_step() << std::endl;
 
   pcout << "   u max: " << u.max() << std::endl;
 
