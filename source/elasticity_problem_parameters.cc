@@ -51,6 +51,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     "uses a VTK reduced mesh and a reference cross section.");
   add_parameter("Output results also before solving",
                 output_results_before_solving);
+  add_parameter("Estimate condition number", estimate_condition_number);
   add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);

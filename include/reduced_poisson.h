@@ -142,6 +142,7 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> outer_control;
 
   bool        output_results_before_solving = false;
+  bool        estimate_condition_number     = false;
   std::string solver_name                   = "AL";
   bool        assemble_full_AL_system       = false;
 

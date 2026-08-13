@@ -217,6 +217,9 @@ Template for a simple deal.II test source:
 
       ./scripts/indent
 
+- At the end of major changes, run `./scripts/indent` from the repository root
+  to ensure consistent formatting throughout.
+
 - Review the resulting diff and include any indentation changes in the PR.
 
 8) References

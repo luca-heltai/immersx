@@ -40,6 +40,7 @@
 
 #  include "augmented_lagrangian_preconditioner.h"
 #  include "reduced_poisson.h"
+#  include "solver_controls.h"
 #  include "utils.h"
 
 
@@ -57,6 +58,7 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   add_parameter("Output name", output_name);
   add_parameter("Output results also before solving",
                 output_results_before_solving);
+  add_parameter("Estimate condition number", estimate_condition_number);
   add_parameter("Solver type", solver_name);
   add_parameter("Assemble full AL system", assemble_full_AL_system);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
@@ -706,7 +708,7 @@ ReducedPoisson<dim, spacedim>::solve()
           inverse_squares_reduced.compress(VectorOperation::insert);
 
 
-          SolverControl solver_control(100, 1e-15, false, false);
+          CumulativeSolverControl solver_control(100, 1e-15, false, false);
           SolverCG<TrilinosWrappers::MPI::Vector> solver_mass_matrix(
             solver_control);
           auto invM = inverse_operator(M, solver_mass_matrix, M_inv_ilu);
@@ -756,7 +758,8 @@ ReducedPoisson<dim, spacedim>::solve()
           system_rhs_block.block(0).add(1., tmp); // ! augmented
           system_rhs_block.block(1) = system_rhs.block(1);
 
-          SolverCG<LA::MPI::Vector> solver_lagrangian(par.inner_control);
+          CumulativeReductionControl inner_control(par.inner_control);
+          SolverCG<LA::MPI::Vector>  solver_lagrangian(inner_control);
 
 
           auto Aug_inv =
@@ -771,8 +774,10 @@ ReducedPoisson<dim, spacedim>::solve()
                               system_rhs_block,
                               augmented_lagrangian_preconditioner);
 
-          pcout << "   Solved with AL preconditioner in "
-                << par.outer_control.last_step() << " iterations." << std::endl;
+          output_augmented_lagrangian_iteration_summary(pcout,
+                                                        par.outer_control,
+                                                        inner_control,
+                                                        solver_control);
 
           constraints.distribute(solution_block.block(0));
           reduced_coupling.get_coupling_constraints().distribute(
@@ -780,49 +785,44 @@ ReducedPoisson<dim, spacedim>::solve()
           // solution.update_ghost_values();
           locally_relevant_solution = solution_block;
 
+          if (par.estimate_condition_number)
+            {
+              auto output_double_number = [this](double             input,
+                                                 const std::string &text) {
+                if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+                  std::cout << text << input << std::endl;
+              };
 
-#  ifdef DEBUG
-          // Estimate condition number of BBt using CG
-          {
-            auto output_double_number = [this](double             input,
-                                               const std::string &text) {
-              if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-                std::cout << text << input << std::endl;
-            };
+              // Estimate condition number:
+              pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
+                    << std::endl;
+              pcout << "Estimate condition number of BBt using CG" << std::endl;
+              SolverControl solver_control(100000, 1e-12);
+              SolverCG<TrilinosWrappers::MPI::Vector> solver_cg(solver_control);
 
-            // Estimate condition number:
-            pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
-                  << std::endl;
-            pcout << "Estimate condition number of BBt using CG" << std::endl;
-            SolverControl solver_control(100000, 1e-12);
-            SolverCG<TrilinosWrappers::MPI::Vector> solver_cg(solver_control);
+              solver_cg.connect_condition_number_slot(
+                std::bind(output_double_number,
+                          std::placeholders::_1,
+                          "Condition number estimate: "));
 
-            solver_cg.connect_condition_number_slot(
-              std::bind(output_double_number,
-                        std::placeholders::_1,
-                        "Condition number estimate: "));
-            using PayloadType = dealii::TrilinosWrappers::internal::
-              LinearOperatorImplementation::TrilinosPayload;
+              auto BBt = B * Bt;
 
-            auto BBt = B * Bt;
-
-            TrilinosWrappers::MPI::Vector u(lambda);
-            u = 0.;
-            TrilinosWrappers::MPI::Vector f(lambda);
-            f = 1.;
-            TrilinosWrappers::PreconditionIdentity prec_no;
-            try
-              {
-                solver_cg.solve(BBt, u, f, prec_no);
-              }
-            catch (...)
-              {
-                pcout
-                  << "***BBt solve not successfull (see condition number above)***"
-                  << std::endl;
-              }
-          }
-#  endif
+              TrilinosWrappers::MPI::Vector u(lambda);
+              u = 0.;
+              TrilinosWrappers::MPI::Vector f(lambda);
+              f = 1.;
+              TrilinosWrappers::PreconditionIdentity prec_no;
+              try
+                {
+                  solver_cg.solve(BBt, u, f, prec_no);
+                }
+              catch (...)
+                {
+                  pcout
+                    << "***BBt solve not successfull (see condition number above)***"
+                    << std::endl;
+                }
+            }
         }
       else
         {

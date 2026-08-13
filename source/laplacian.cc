@@ -40,6 +40,7 @@
 #include <cstdbool>
 
 #include "augmented_lagrangian.h"
+#include "solver_controls.h"
 #include "utils.h"
 
 template <int dim, int spacedim>
@@ -635,40 +636,41 @@ PoissonProblem<dim, spacedim>::solve()
         linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
 
 
-      {
-        // Estimate condition number:
-        std::cout << "- - - - - - - - - - - - - - - - - - - - - - - -"
-                  << std::endl;
-        std::cout << "Estimate condition number of CCt using CG" << std::endl;
-        SolverControl             solver_control(2000, 1e-12);
-        SolverCG<LA::MPI::Vector> solver_cg(solver_control);
+      if (par.estimate_condition_number)
+        {
+          // Estimate condition number:
+          std::cout << "- - - - - - - - - - - - - - - - - - - - - - - -"
+                    << std::endl;
+          std::cout << "Estimate condition number of CCt using CG" << std::endl;
+          SolverControl             solver_control(2000, 1e-12);
+          SolverCG<LA::MPI::Vector> solver_cg(solver_control);
 
-        solver_cg.connect_condition_number_slot(
-          std::bind(output_double_number,
-                    std::placeholders::_1,
-                    "Condition number estimate: "));
+          solver_cg.connect_condition_number_slot(
+            std::bind(output_double_number,
+                      std::placeholders::_1,
+                      "Condition number estimate: "));
 
-        auto CCt = B * Bt;
+          auto CCt = B * Bt;
 
-        LA::MPI::Vector u;
-        u.reinit(system_rhs.block(1));
-        u = 0.;
+          LA::MPI::Vector u;
+          u.reinit(system_rhs.block(1));
+          u = 0.;
 
-        LA::MPI::Vector f;
-        f.reinit(system_rhs.block(1));
-        f = 1.;
-        PreconditionIdentity prec_no;
-        try
-          {
-            solver_cg.solve(CCt, u, f, prec_no);
-          }
-        catch (...)
-          {
-            std::cerr
-              << "***CCt solve not successfull (see condition number above)***"
-              << std::endl;
-          }
-      }
+          LA::MPI::Vector f;
+          f.reinit(system_rhs.block(1));
+          f = 1.;
+          PreconditionIdentity prec_no;
+          try
+            {
+              solver_cg.solve(CCt, u, f, prec_no);
+            }
+          catch (...)
+            {
+              std::cerr
+                << "***CCt solve not successfull (see condition number above)***"
+                << std::endl;
+            }
+        }
 
 
 #ifdef FALSE
@@ -706,7 +708,7 @@ PoissonProblem<dim, spacedim>::solve()
         TrilinosWrappers::PreconditionILU M_inv_ilu;
         M_inv_ilu.initialize(mass_matrix);
 
-        SolverControl solver_control(100, 1e-15, false, false);
+        CumulativeSolverControl solver_control(100, 1e-15, false, false);
         SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(solver_control);
         auto invM = inverse_operator(M, solver_CG_M, M_inv_ilu);
         auto invW = invM * invM;
@@ -734,11 +736,11 @@ PoissonProblem<dim, spacedim>::solve()
         system_rhs_block.block(0).add(1., tmp); // ! augmented
         system_rhs_block.block(1) = system_rhs.block(1);
 
-        SolverControl             control_lagrangian(100000, 1e-2, false, true);
+        CumulativeSolverControl   control_lagrangian(100000, 1e-2, false, true);
         SolverCG<LA::MPI::Vector> solver_lagrangian(control_lagrangian);
 
-        auto                               Aug_inv = inverse_operator(Aug,
-                                        solver_lagrangian); //! augmented
+        auto Aug_inv =
+          inverse_operator(Aug, solver_lagrangian, amgA); //! augmented
         SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
         BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
@@ -749,8 +751,10 @@ PoissonProblem<dim, spacedim>::solve()
                             system_rhs_block,
                             augmented_lagrangian_preconditioner);
 
-        pcout << "Solver with FGMRES in " << par.outer_control.last_step()
-              << " iterations." << std::endl;
+        output_augmented_lagrangian_iteration_summary(pcout,
+                                                      par.outer_control,
+                                                      control_lagrangian,
+                                                      solver_control);
 
         solution.block(0) = solution_block.block(0);
 
