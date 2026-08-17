@@ -48,19 +48,6 @@
 
 using namespace dealii;
 
-/** A point-backed entity used by zero-dimensional representative domains.
- * Zero-dimensional domains intentionally use points/particles rather than
- * degenerate one-dimensional cells, preserving their distinction from real
- * embedded one-dimensional domains.
- */
-template <int spacedim>
-struct ZeroDimensionalRepresentativeEntity
-{
-  Point<spacedim>     position;
-  Tensor<1, spacedim> orientation;
-  double              weight = 1.0;
-};
-
 /**
  * A structure to hold parameters for a tensor product space.
  *
@@ -149,8 +136,7 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
   std::string reduced_grid_name = "";
 
   /** Programmatic point input for zero-dimensional representative domains. */
-  std::vector<ZeroDimensionalRepresentativeEntity<spacedim>>
-    representative_entities;
+  PointCloud<spacedim> point_cloud;
 };
 
 
@@ -564,7 +550,7 @@ class TensorProductSpace<0, dim, spacedim, n_components>
 {
 public:
   static constexpr int cross_section_dim = dim;
-  using Entity = ZeroDimensionalRepresentativeEntity<spacedim>;
+
 
   TensorProductSpace(
     const TensorProductSpaceParameters<0, dim, spacedim, n_components> &par,
@@ -575,7 +561,7 @@ public:
   void
   make_reduced_grid_and_properties();
   void
-  set_representative_entities(const std::vector<Entity> &entities);
+  set_point_cloud(const PointCloud<spacedim> &point_cloud);
   void
   register_particle_id_mapping();
 
@@ -653,12 +639,16 @@ public:
   get_entity_property_values(unsigned int entity_id) const;
   double
   get_entity_thickness(unsigned int entity_id) const;
+  const Point<spacedim> &
+  get_entity_position(unsigned int entity_id) const;
+  Tensor<1, spacedim>
+  get_entity_orientation(unsigned int entity_id) const;
 
 protected:
   MPI_Comm mpi_communicator;
   const TensorProductSpaceParameters<0, dim, spacedim, n_components> &par;
   ReferenceCrossSection<dim, spacedim, n_components> reference_cross_section;
-  std::vector<Entity>                                entities;
+  PointCloud<spacedim>                               point_cloud;
   std::map<types::global_cell_index, std::vector<types::global_dof_index>>
                                    representative_entity_to_dof_indices;
   std::vector<Point<spacedim>>     all_qpoints;

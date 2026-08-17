@@ -60,20 +60,22 @@ struct VTKFieldDescriptor
 
 using VTKFieldCatalog = std::vector<VTKFieldDescriptor>;
 
-#ifdef DEAL_II_WITH_VTK
-
-/** Point-cloud data imported from a particle-only VTK unstructured grid.
- * Property arrays are stored point-major within each catalog entry. Cell
- * data from VTK_VERTEX cells is reordered to the referenced point.
+/** Neutral point-cloud representation used by zero-dimensional domains.
+ * Property arrays are stored point-major within each catalog entry. Cell data
+ * from VTK_VERTEX cells is reordered to the referenced point by the reader.
+ * A programmatic cloud may contain only points; omitted fields use their
+ * canonical defaults.
  */
 template <int spacedim>
-struct VTKPointCloud
+struct PointCloud
 {
   std::vector<dealii::Point<spacedim>> points;
   std::vector<std::vector<double>>     properties;
   VTKFieldCatalog                      catalog;
   std::vector<std::string>             property_names;
 };
+
+#ifdef DEAL_II_WITH_VTK
 
 #  include <deal.II/grid/tria.h>
 
@@ -113,8 +115,8 @@ namespace VTKUtils
    */
   template <int spacedim>
   void
-  read_vtk_point_cloud(const std::string       &vtk_filename,
-                       VTKPointCloud<spacedim> &point_cloud);
+  read_vtk_point_cloud(const std::string    &vtk_filename,
+                       PointCloud<spacedim> &point_cloud);
 
   /** Convenience overload returning the catalog and field names separately. */
   template <int spacedim>

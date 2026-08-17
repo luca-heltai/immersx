@@ -297,7 +297,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
                 continue;
               for (unsigned int j = 0; j < entity_dofs.size(); ++j)
                 {
-                  const auto basis_j = j / n_components;
+                  const auto basis_j = j;
                   local(i, j) =
                     fe.shape_value(i, particle.get_reference_location()) *
                     this->get_reference_cross_section().shape_value(basis_j,
@@ -428,7 +428,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
           for (unsigned int j = 0; j < block; ++j)
             mass_matrix.add(entity * block + j,
                             entity * block + j,
-                            this->entities[entity].weight * section_measure);
+                            section_measure);
         }
       mass_matrix.compress(VectorOperation::add);
       return;
@@ -537,21 +537,20 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
               this->get_entity_thickness(entity));
           if (symbolic_coupling_rhs)
             symbolic_coupling_rhs->evaluate_into(
-              this->entities[entity].position,
+              this->get_entity_position(entity),
               rhs_time,
               this->get_entity_property_values(entity),
               values);
           else
             {
               Vector<double> value_vector(n_basis);
-              coupling_rhs->vector_value(this->entities[entity].position,
+              coupling_rhs->vector_value(this->get_entity_position(entity),
                                          value_vector);
               for (unsigned int j = 0; j < n_basis; ++j)
                 values[j] = value_vector[j];
             }
           for (unsigned int j = 0; j < block; ++j)
-            local_rhs[j] = values[j / n_components] *
-                           this->entities[entity].weight * section_measure;
+            local_rhs[j] = values[j] * section_measure;
           coupling_constraints.distribute_local_to_global(
             local_rhs,
             this->get_representative_dof_indices(entity),

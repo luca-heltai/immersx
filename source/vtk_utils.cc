@@ -130,8 +130,8 @@ namespace VTKUtils
 
   template <int spacedim>
   void
-  read_vtk_point_cloud(const std::string       &vtk_filename,
-                       VTKPointCloud<spacedim> &point_cloud)
+  read_vtk_point_cloud(const std::string    &vtk_filename,
+                       PointCloud<spacedim> &point_cloud)
   {
     const auto grid = read_unstructured_grid(vtk_filename);
     AssertThrow(grid->GetPoints() != nullptr,
@@ -234,7 +234,7 @@ namespace VTKUtils
                        VTKFieldCatalog                  &catalog,
                        std::vector<std::string>         &property_names)
   {
-    VTKPointCloud<spacedim> data;
+    PointCloud<spacedim> data;
     read_vtk_point_cloud(vtk_filename, data);
     points         = std::move(data.points);
     properties     = std::move(data.properties);
@@ -937,11 +937,11 @@ VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<3, 3> &,
                                                const Triangulation<3, 3> &);
 
 template void
-VTKUtils::read_vtk_point_cloud(const std::string &, VTKPointCloud<1> &);
+VTKUtils::read_vtk_point_cloud(const std::string &, PointCloud<1> &);
 template void
-VTKUtils::read_vtk_point_cloud(const std::string &, VTKPointCloud<2> &);
+VTKUtils::read_vtk_point_cloud(const std::string &, PointCloud<2> &);
 template void
-VTKUtils::read_vtk_point_cloud(const std::string &, VTKPointCloud<3> &);
+VTKUtils::read_vtk_point_cloud(const std::string &, PointCloud<3> &);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<1>> &,
