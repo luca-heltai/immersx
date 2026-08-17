@@ -118,7 +118,7 @@ namespace LA
 #  include <memory>
 
 
-template <int spacedim>
+template <int spacedim, int reduced_dim = 1>
 class ReducedPoissonParameters : public ParameterAcceptor
 {
 public:
@@ -148,7 +148,8 @@ public:
 
   mutable ParsedConvergenceTable convergence_table;
 
-  ReducedCouplingParameters<1, 2, spacedim, 1> reduced_coupling_parameters;
+  ReducedCouplingParameters<reduced_dim, 2, spacedim, 1>
+    reduced_coupling_parameters;
 };
 
 
@@ -215,11 +216,11 @@ public:
  * on the immersed interface matches, in the reduced modal sense defined by
  * `TensorProductSpace`, the prescribed lower-dimensional data.
  */
-template <int dim, int spacedim = dim>
+template <int dim, int spacedim = dim, int reduced_dim = 1>
 class ReducedPoisson : public EnableObserverPointer
 {
 public:
-  ReducedPoisson(const ReducedPoissonParameters<spacedim> &par);
+  ReducedPoisson(const ReducedPoissonParameters<spacedim, reduced_dim> &par);
   void
   make_grid();
   void
@@ -233,11 +234,42 @@ public:
   void
                         assemble_rhs();
 #  endif
+  /** Assemble the reduced coupling matrix and right-hand side. */
+  void
+  assemble_coupling_system();
+
   void
   run();
 
   void
   solve();
+
+  /** Return the number of reduced multiplier degrees of freedom. */
+  unsigned int
+  n_reduced_dofs() const;
+
+  /** Return the communicator-global Frobenius norm of the assembled
+   * bulk/reduced coupling. */
+  double
+  coupling_matrix_frobenius_norm() const;
+
+  /** Return the communicator-global bulk solution L2 norm from the most
+   * recent solve. */
+  double
+  bulk_solution_l2_norm() const;
+
+  /** Return the communicator-global multiplier solution L2 norm from the
+   * most recent solve. */
+  double
+  multiplier_solution_l2_norm() const;
+
+  /** Check that the bulk solution norm is finite. */
+  bool
+  bulk_solution_is_finite() const;
+
+  /** Check that the multiplier solution norm is finite. */
+  bool
+  multiplier_solution_is_finite() const;
 
   void
   refine_and_transfer();
@@ -252,18 +284,18 @@ public:
   print_parameters() const;
 
 private:
-  const ReducedPoissonParameters<spacedim>      &par;
-  MPI_Comm                                       mpi_communicator;
-  ConditionalOStream                             pcout;
-  mutable TimerOutput                            computing_timer;
-  parallel::distributed::Triangulation<spacedim> tria;
-  std::unique_ptr<FiniteElement<spacedim>>       fe;
+  const ReducedPoissonParameters<spacedim, reduced_dim> &par;
+  MPI_Comm                                               mpi_communicator;
+  ConditionalOStream                                     pcout;
+  mutable TimerOutput                                    computing_timer;
+  parallel::distributed::Triangulation<spacedim>         tria;
+  std::unique_ptr<FiniteElement<spacedim>>               fe;
 
   std::unique_ptr<Quadrature<spacedim>> quadrature;
 
   DoFHandler<spacedim> dh;
 
-  ReducedCoupling<1, 2, spacedim, 1> reduced_coupling;
+  ReducedCoupling<reduced_dim, 2, spacedim, 1> reduced_coupling;
 
   std::vector<IndexSet> owned_dofs;
   std::vector<IndexSet> relevant_dofs;

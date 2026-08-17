@@ -54,6 +54,23 @@
 
 using namespace dealii;
 
+template <int reduced_dim, int spacedim>
+struct ImmersedRepartitionerStorage
+{
+  ImmersedRepartitionerStorage(
+    const parallel::TriangulationBase<spacedim> &tria)
+    : value(tria)
+  {}
+  ImmersedRepartitioner<reduced_dim, spacedim> value;
+};
+
+template <int spacedim>
+struct ImmersedRepartitionerStorage<0, spacedim>
+{
+  ImmersedRepartitionerStorage(const parallel::TriangulationBase<spacedim> &)
+  {}
+};
+
 /**
  * @class ReducedCouplingParameters
  * @brief Parameters for configuring tensor-product coupling objects.
@@ -242,7 +259,7 @@ private:
    * An ImmersedRepartitioner object that handles the repartitioning of the
    * triangulation.
    */
-  ImmersedRepartitioner<reduced_dim, spacedim> immersed_partitioner;
+  ImmersedRepartitionerStorage<reduced_dim, spacedim> immersed_partitioner;
 };
 
 
@@ -256,89 +273,137 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
                            const DoFHandler<spacedim>      &dh,
                            const AffineConstraints<double> &constraints) const
 {
-  const auto &fe          = dh.get_fe();
-  const auto &immersed_fe = this->get_dof_handler().get_fe();
-
-  std::vector<types::global_dof_index> background_dof_indices(
-    fe.n_dofs_per_cell());
-
-  FullMatrix<double> local_coupling_matrix(fe.n_dofs_per_cell(),
-                                           immersed_fe.n_dofs_per_cell());
-
-  FullMatrix<double> local_coupling_matrix_transpose(
-    immersed_fe.n_dofs_per_cell(), fe.n_dofs_per_cell());
-
-  auto particle = this->get_particles().begin();
-  while (particle != this->get_particles().end())
+  if constexpr (reduced_dim == 0)
     {
-      const auto &cell = particle->get_surrounding_cell();
-      const auto  dh_cell =
-        typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-      dh_cell->get_dof_indices(background_dof_indices);
-
-      const auto pic = this->get_particles().particles_in_cell(cell);
-      Assert(pic.begin() == particle, ExcInternalError());
-
-      types::global_cell_index previous_cell_id = numbers::invalid_unsigned_int;
-      types::global_cell_index last_cell_id     = numbers::invalid_unsigned_int;
-      local_coupling_matrix                     = 0;
-      for (const auto &p : pic)
+      const auto                          &fe = dh.get_fe();
+      std::vector<types::global_dof_index> background_dof_indices(
+        fe.n_dofs_per_cell());
+      for (const auto &particle : this->get_particles())
         {
-          const auto [immersed_cell_id, immersed_q, section_q] =
-            this->particle_id_to_cell_and_qpoint_indices(p.get_id());
-
-          const auto  &background_p = p.get_reference_location();
-          const auto   immersed_p   = this->get_quadrature().point(immersed_q);
-          const double JxW          = p.get_properties()[0];
-          last_cell_id              = immersed_cell_id;
-          if (immersed_cell_id != previous_cell_id &&
-              previous_cell_id != numbers::invalid_unsigned_int)
-            {
-              // Distribute the matrix to the previous dofs
-              const auto &immersed_dof_indices =
-                this->get_dof_indices(previous_cell_id);
-              constraints.distribute_local_to_global(local_coupling_matrix,
-                                                     background_dof_indices,
-                                                     coupling_constraints,
-                                                     immersed_dof_indices,
-                                                     coupling_matrix);
-              local_coupling_matrix = 0;
-              previous_cell_id      = immersed_cell_id;
-            }
-
+          const auto &cell = particle.get_surrounding_cell();
+          const typename DoFHandler<spacedim>::cell_iterator dh_cell(*cell,
+                                                                     &dh);
+          dh_cell->get_dof_indices(background_dof_indices);
+          const auto [entity_id, unused_q, section_q] =
+            this->particle_id_to_representative_indices(particle.get_id());
+          (void)unused_q;
+          const auto &entity_dofs =
+            this->get_representative_dof_indices(entity_id);
+          FullMatrix<double> local(fe.n_dofs_per_cell(), entity_dofs.size());
           for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
             {
               const auto comp_i = fe.system_to_component_index(i).first;
-              if (comp_i < n_components)
+              if (comp_i >= n_components)
+                continue;
+              for (unsigned int j = 0; j < entity_dofs.size(); ++j)
                 {
-                  const auto v_i_comp_i = fe.shape_value(i, background_p);
+                  const auto basis_j = j / n_components;
+                  local(i, j) =
+                    fe.shape_value(i, particle.get_reference_location()) *
+                    this->get_reference_cross_section().shape_value(basis_j,
+                                                                    section_q,
+                                                                    comp_i) *
+                    particle.get_properties()[0];
+                }
+            }
+          constraints.distribute_local_to_global(local,
+                                                 background_dof_indices,
+                                                 coupling_constraints,
+                                                 entity_dofs,
+                                                 coupling_matrix);
+        }
+      coupling_matrix.compress(VectorOperation::add);
+      return;
+    }
+  else
+    {
+      const auto &fe          = dh.get_fe();
+      const auto &immersed_fe = this->get_dof_handler().get_fe();
 
-                  for (unsigned int j = 0; j < immersed_fe.n_dofs_per_cell();
-                       ++j)
+      std::vector<types::global_dof_index> background_dof_indices(
+        fe.n_dofs_per_cell());
+
+      FullMatrix<double> local_coupling_matrix(fe.n_dofs_per_cell(),
+                                               immersed_fe.n_dofs_per_cell());
+
+      FullMatrix<double> local_coupling_matrix_transpose(
+        immersed_fe.n_dofs_per_cell(), fe.n_dofs_per_cell());
+
+      auto particle = this->get_particles().begin();
+      while (particle != this->get_particles().end())
+        {
+          const auto &cell = particle->get_surrounding_cell();
+          const auto  dh_cell =
+            typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
+          dh_cell->get_dof_indices(background_dof_indices);
+
+          const auto pic = this->get_particles().particles_in_cell(cell);
+          Assert(pic.begin() == particle, ExcInternalError());
+
+          types::global_cell_index previous_cell_id =
+            numbers::invalid_unsigned_int;
+          types::global_cell_index last_cell_id = numbers::invalid_unsigned_int;
+          local_coupling_matrix                 = 0;
+          for (const auto &p : pic)
+            {
+              const auto [immersed_cell_id, immersed_q, section_q] =
+                this->particle_id_to_representative_indices(p.get_id());
+
+              const auto &background_p = p.get_reference_location();
+              const auto  immersed_p = this->get_quadrature().point(immersed_q);
+              const double JxW       = p.get_properties()[0];
+              last_cell_id           = immersed_cell_id;
+              if (immersed_cell_id != previous_cell_id &&
+                  previous_cell_id != numbers::invalid_unsigned_int)
+                {
+                  // Distribute the matrix to the previous dofs
+                  const auto &immersed_dof_indices =
+                    this->get_dof_indices(previous_cell_id);
+                  constraints.distribute_local_to_global(local_coupling_matrix,
+                                                         background_dof_indices,
+                                                         coupling_constraints,
+                                                         immersed_dof_indices,
+                                                         coupling_matrix);
+                  local_coupling_matrix = 0;
+                  previous_cell_id      = immersed_cell_id;
+                }
+
+              for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+                {
+                  const auto comp_i = fe.system_to_component_index(i).first;
+                  if (comp_i < n_components)
                     {
-                      const auto comp_j =
-                        immersed_fe.system_to_component_index(j).first;
+                      const auto v_i_comp_i = fe.shape_value(i, background_p);
 
-                      const auto phi_comp_j_comp_i =
-                        this->get_reference_cross_section().shape_value(
-                          comp_j, section_q, comp_i);
+                      for (unsigned int j = 0;
+                           j < immersed_fe.n_dofs_per_cell();
+                           ++j)
+                        {
+                          const auto comp_j =
+                            immersed_fe.system_to_component_index(j).first;
 
-                      const auto w_j_comp_j =
-                        immersed_fe.shape_value(j, immersed_p);
+                          const auto phi_comp_j_comp_i =
+                            this->get_reference_cross_section().shape_value(
+                              comp_j, section_q, comp_i);
 
-                      local_coupling_matrix(i, j) +=
-                        v_i_comp_i * phi_comp_j_comp_i * w_j_comp_j * JxW;
+                          const auto w_j_comp_j =
+                            immersed_fe.shape_value(j, immersed_p);
+
+                          local_coupling_matrix(i, j) +=
+                            v_i_comp_i * phi_comp_j_comp_i * w_j_comp_j * JxW;
+                        }
                     }
                 }
             }
+          const auto &immersed_dof_indices =
+            this->get_dof_indices(last_cell_id);
+          constraints.distribute_local_to_global(local_coupling_matrix,
+                                                 background_dof_indices,
+                                                 coupling_constraints,
+                                                 immersed_dof_indices,
+                                                 coupling_matrix);
+          particle = pic.end();
         }
-      const auto &immersed_dof_indices = this->get_dof_indices(last_cell_id);
-      constraints.distribute_local_to_global(local_coupling_matrix,
-                                             background_dof_indices,
-                                             coupling_constraints,
-                                             immersed_dof_indices,
-                                             coupling_matrix);
-      particle = pic.end();
     }
   coupling_matrix.compress(VectorOperation::add);
 }
@@ -349,78 +414,100 @@ inline void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
   assemble_coupling_mass_matrix(MatrixType &mass_matrix) const
 {
-  AssertDimension(mass_matrix.m(), this->get_dof_handler().n_dofs());
-  AssertDimension(mass_matrix.n(), this->get_dof_handler().n_dofs());
+  if constexpr (reduced_dim == 0)
+    {
+      AssertDimension(mass_matrix.m(), this->n_representative_dofs());
+      AssertDimension(mass_matrix.n(), this->n_representative_dofs());
+      mass_matrix = 0;
+      const double section_measure =
+        this->get_reference_cross_section().measure(this->constant_thickness);
+      const unsigned int block = this->n_representative_dofs_per_entity();
+      for (const auto entity : this->locally_owned_representative_entities())
+        for (unsigned int j = 0; j < block; ++j)
+          mass_matrix.add(entity * block + j,
+                          entity * block + j,
+                          this->entities[entity].weight * section_measure);
+      mass_matrix.compress(VectorOperation::add);
+      return;
+    }
+  else
+    {
+      AssertDimension(mass_matrix.m(), this->get_dof_handler().n_dofs());
+      AssertDimension(mass_matrix.n(), this->get_dof_handler().n_dofs());
 
-  mass_matrix    = 0;
-  const auto &fe = this->get_dof_handler().get_fe();
-  ReducedFieldValues<reduced_dim, spacedim> field_values(
-    this->properties_dh,
-    this->get_quadrature(),
-    this->properties,
-    this->properties_bindings);
-  std::vector<double> bound_values(this->get_quadrature().size() *
-                                   this->properties_bindings.size());
+      mass_matrix    = 0;
+      const auto &fe = this->get_dof_handler().get_fe();
+      ReducedFieldValues<reduced_dim, spacedim> field_values(
+        this->properties_dh,
+        this->get_quadrature(),
+        this->properties,
+        this->properties_bindings);
+      std::vector<double> bound_values(this->get_quadrature().size() *
+                                       this->properties_bindings.size());
 
-  FullMatrix<double>                   local_mass_matrix(fe.n_dofs_per_cell(),
-                                       fe.n_dofs_per_cell());
-  std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
-  FEValues<reduced_dim, spacedim>      fe_values(fe,
-                                            this->get_quadrature(),
-                                            update_values |
-                                              update_quadrature_points |
-                                              update_JxW_values);
+      FullMatrix<double> local_mass_matrix(fe.n_dofs_per_cell(),
+                                           fe.n_dofs_per_cell());
+      std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
+      FEValues<reduced_dim, spacedim>      fe_values(fe,
+                                                this->get_quadrature(),
+                                                update_values |
+                                                  update_quadrature_points |
+                                                  update_JxW_values);
 
-  std::vector<double> thickness_values(this->get_quadrature().size(),
-                                       this->constant_thickness);
+      std::vector<double> thickness_values(this->get_quadrature().size(),
+                                           this->constant_thickness);
 
-  for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-    if (cell->is_locally_owned())
-      {
-        fe_values.reinit(cell);
-        const auto &JxW = fe_values.get_JxW_values();
-
-        if (!this->properties_bindings.empty())
-          field_values.extract(
-            cell->as_dof_handler_iterator(this->properties_dh), bound_values);
-        evaluate_thickness_values<reduced_dim, spacedim>(
-          this->get_thickness_evaluator(),
-          this->get_thickness_expression().empty() ?
-            std::string("constant") :
-            this->get_thickness_expression(),
-          cell->as_dof_handler_iterator(this->properties_dh),
-          fe_values.get_quadrature_points(),
-          bound_values,
-          this->constant_thickness,
-          rhs_time,
-          thickness_values);
-
-        local_mass_matrix = 0;
-        for (const auto q : fe_values.quadrature_point_indices())
+      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
           {
-            const auto section_measure =
-              this->get_reference_cross_section().measure(thickness_values[q]);
+            fe_values.reinit(cell);
+            const auto &JxW = fe_values.get_JxW_values();
 
-            for (const auto i : fe_values.dof_indices())
+            if (!this->properties_bindings.empty())
+              field_values.extract(cell->as_dof_handler_iterator(
+                                     this->properties_dh),
+                                   bound_values);
+            evaluate_thickness_values<reduced_dim, spacedim>(
+              this->get_thickness_evaluator(),
+              this->get_thickness_expression().empty() ?
+                std::string("constant") :
+                this->get_thickness_expression(),
+              cell->as_dof_handler_iterator(this->properties_dh),
+              fe_values.get_quadrature_points(),
+              bound_values,
+              this->constant_thickness,
+              rhs_time,
+              thickness_values);
+
+            local_mass_matrix = 0;
+            for (const auto q : fe_values.quadrature_point_indices())
               {
-                const auto comp_i =
-                  fe_values.get_fe().system_to_component_index(i).first;
-                for (const auto j : fe_values.dof_indices())
+                const auto section_measure =
+                  this->get_reference_cross_section().measure(
+                    thickness_values[q]);
+
+                for (const auto i : fe_values.dof_indices())
                   {
-                    const auto comp_j =
-                      fe_values.get_fe().system_to_component_index(j).first;
-                    if (comp_i == comp_j)
-                      local_mass_matrix(i, j) += fe_values.shape_value(i, q) *
-                                                 fe_values.shape_value(j, q) *
-                                                 JxW[q] * section_measure;
+                    const auto comp_i =
+                      fe_values.get_fe().system_to_component_index(i).first;
+                    for (const auto j : fe_values.dof_indices())
+                      {
+                        const auto comp_j =
+                          fe_values.get_fe().system_to_component_index(j).first;
+                        if (comp_i == comp_j)
+                          local_mass_matrix(i, j) +=
+                            fe_values.shape_value(i, q) *
+                            fe_values.shape_value(j, q) * JxW[q] *
+                            section_measure;
+                      }
                   }
               }
+            cell->get_dof_indices(dof_indices);
+            coupling_constraints.distribute_local_to_global(local_mass_matrix,
+                                                            dof_indices,
+                                                            mass_matrix);
           }
-        cell->get_dof_indices(dof_indices);
-        coupling_constraints.distribute_local_to_global(local_mass_matrix,
-                                                        dof_indices,
-                                                        mass_matrix);
-      }
+    }
   mass_matrix.compress(VectorOperation::add);
 }
 
@@ -432,94 +519,132 @@ inline void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
   VectorType &reduced_rhs) const
 {
-  FEValues<reduced_dim, spacedim> fe_values(this->get_dof_handler().get_fe(),
-                                            this->get_quadrature(),
-                                            update_values |
-                                              update_quadrature_points |
-                                              update_JxW_values);
-
-  Vector<double> local_rhs(this->get_dof_handler().get_fe().n_dofs_per_cell());
-  std::vector<Vector<double>> rhs_values(
-    this->get_quadrature().size(),
-    Vector<double>(this->get_reference_cross_section().n_selected_basis()));
-  std::vector<types::global_dof_index> dof_indices(
-    this->get_dof_handler().get_fe().n_dofs_per_cell());
-  ReducedFieldValues<reduced_dim, spacedim> field_values(
-    this->properties_dh,
-    this->get_quadrature(),
-    this->properties,
-    this->properties_bindings);
-  std::vector<double> bound_values(this->get_quadrature().size() *
-                                   this->properties_bindings.size());
-  std::vector<double> fields_at_q(this->properties_bindings.size());
-  std::vector<double> evaluated_rhs(
-    this->get_reference_cross_section().n_selected_basis());
-
-  std::vector<double> thickness_values(this->get_quadrature().size(),
-                                       this->constant_thickness);
-
-  // VectorTools::create_right_hand_side(this->get_dof_handler(),
-  //                                     this->get_quadrature(),
-  //                                     *coupling_rhs,
-  //                                     reduced_rhs,
-  //                                     coupling_constraints);
-  for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-    if (cell->is_locally_owned())
-      {
-        fe_values.reinit(cell);
-        const auto &JxW      = fe_values.get_JxW_values();
-        const auto &q_points = fe_values.get_quadrature_points();
-        if (!this->properties_bindings.empty())
-          field_values.extract(
-            cell->as_dof_handler_iterator(this->properties_dh), bound_values);
-        if (symbolic_coupling_rhs)
-          for (const auto q : fe_values.quadrature_point_indices())
+  if constexpr (reduced_dim == 0)
+    {
+      const unsigned int n_basis =
+        this->get_reference_cross_section().n_selected_basis();
+      const unsigned int block = this->n_representative_dofs_per_entity();
+      const double       section_measure =
+        this->get_reference_cross_section().measure(this->constant_thickness);
+      Vector<double>      local_rhs(block);
+      std::vector<double> values(n_basis);
+      std::vector<double> fields;
+      for (const auto entity : this->locally_owned_representative_entities())
+        {
+          local_rhs = 0;
+          if (symbolic_coupling_rhs)
+            symbolic_coupling_rhs->evaluate_into(
+              this->entities[entity].position, rhs_time, fields, values);
+          else
             {
-              std::copy(bound_values.begin() +
-                          q * this->properties_bindings.size(),
-                        bound_values.begin() +
-                          (q + 1) * this->properties_bindings.size(),
-                        fields_at_q.begin());
-              symbolic_coupling_rhs->evaluate_into(q_points[q],
-                                                   rhs_time,
-                                                   fields_at_q,
-                                                   evaluated_rhs);
-              std::copy(evaluated_rhs.begin(),
-                        evaluated_rhs.end(),
-                        rhs_values[q].begin());
+              Vector<double> value_vector(n_basis);
+              coupling_rhs->vector_value(this->entities[entity].position,
+                                         value_vector);
+              for (unsigned int j = 0; j < n_basis; ++j)
+                values[j] = value_vector[j];
             }
-        else
-          coupling_rhs->vector_value_list(q_points, rhs_values);
+          for (unsigned int j = 0; j < block; ++j)
+            local_rhs[j] = values[j / n_components] *
+                           this->entities[entity].weight * section_measure;
+          coupling_constraints.distribute_local_to_global(
+            local_rhs,
+            this->get_representative_dof_indices(entity),
+            reduced_rhs);
+        }
+      reduced_rhs.compress(VectorOperation::add);
+      return;
+    }
+  else
+    {
+      FEValues<reduced_dim, spacedim> fe_values(
+        this->get_dof_handler().get_fe(),
+        this->get_quadrature(),
+        update_values | update_quadrature_points | update_JxW_values);
 
-        evaluate_thickness_values<reduced_dim, spacedim>(
-          this->get_thickness_evaluator(),
-          this->get_thickness_expression().empty() ?
-            std::string("constant") :
-            this->get_thickness_expression(),
-          cell->as_dof_handler_iterator(this->properties_dh),
-          q_points,
-          bound_values,
-          this->constant_thickness,
-          rhs_time,
-          thickness_values);
+      Vector<double> local_rhs(
+        this->get_dof_handler().get_fe().n_dofs_per_cell());
+      std::vector<Vector<double>> rhs_values(
+        this->get_quadrature().size(),
+        Vector<double>(this->get_reference_cross_section().n_selected_basis()));
+      std::vector<types::global_dof_index> dof_indices(
+        this->get_dof_handler().get_fe().n_dofs_per_cell());
+      ReducedFieldValues<reduced_dim, spacedim> field_values(
+        this->properties_dh,
+        this->get_quadrature(),
+        this->properties,
+        this->properties_bindings);
+      std::vector<double> bound_values(this->get_quadrature().size() *
+                                       this->properties_bindings.size());
+      std::vector<double> fields_at_q(this->properties_bindings.size());
+      std::vector<double> evaluated_rhs(
+        this->get_reference_cross_section().n_selected_basis());
 
-        local_rhs = 0;
-        for (const auto q : fe_values.quadrature_point_indices())
-          for (const auto i : fe_values.dof_indices())
-            {
-              const auto comp_i =
-                fe_values.get_fe().system_to_component_index(i).first;
-              local_rhs(i) += rhs_values[q][comp_i] *
-                              fe_values.shape_value(i, q) * JxW[q] *
-                              this->get_reference_cross_section().measure(
-                                thickness_values[q]);
-            }
-        cell->get_dof_indices(dof_indices);
-        coupling_constraints.distribute_local_to_global(local_rhs,
-                                                        dof_indices,
-                                                        reduced_rhs);
-      }
+      std::vector<double> thickness_values(this->get_quadrature().size(),
+                                           this->constant_thickness);
 
+      // VectorTools::create_right_hand_side(this->get_dof_handler(),
+      //                                     this->get_quadrature(),
+      //                                     *coupling_rhs,
+      //                                     reduced_rhs,
+      //                                     coupling_constraints);
+      for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            fe_values.reinit(cell);
+            const auto &JxW      = fe_values.get_JxW_values();
+            const auto &q_points = fe_values.get_quadrature_points();
+            if (!this->properties_bindings.empty())
+              field_values.extract(cell->as_dof_handler_iterator(
+                                     this->properties_dh),
+                                   bound_values);
+            if (symbolic_coupling_rhs)
+              for (const auto q : fe_values.quadrature_point_indices())
+                {
+                  std::copy(bound_values.begin() +
+                              q * this->properties_bindings.size(),
+                            bound_values.begin() +
+                              (q + 1) * this->properties_bindings.size(),
+                            fields_at_q.begin());
+                  symbolic_coupling_rhs->evaluate_into(q_points[q],
+                                                       rhs_time,
+                                                       fields_at_q,
+                                                       evaluated_rhs);
+                  std::copy(evaluated_rhs.begin(),
+                            evaluated_rhs.end(),
+                            rhs_values[q].begin());
+                }
+            else
+              coupling_rhs->vector_value_list(q_points, rhs_values);
+
+            evaluate_thickness_values<reduced_dim, spacedim>(
+              this->get_thickness_evaluator(),
+              this->get_thickness_expression().empty() ?
+                std::string("constant") :
+                this->get_thickness_expression(),
+              cell->as_dof_handler_iterator(this->properties_dh),
+              q_points,
+              bound_values,
+              this->constant_thickness,
+              rhs_time,
+              thickness_values);
+
+            local_rhs = 0;
+            for (const auto q : fe_values.quadrature_point_indices())
+              for (const auto i : fe_values.dof_indices())
+                {
+                  const auto comp_i =
+                    fe_values.get_fe().system_to_component_index(i).first;
+                  local_rhs(i) += rhs_values[q][comp_i] *
+                                  fe_values.shape_value(i, q) * JxW[q] *
+                                  this->get_reference_cross_section().measure(
+                                    thickness_values[q]);
+                }
+            cell->get_dof_indices(dof_indices);
+            coupling_constraints.distribute_local_to_global(local_rhs,
+                                                            dof_indices,
+                                                            reduced_rhs);
+          }
+    }
   reduced_rhs.compress(VectorOperation::add);
 }
 #  endif

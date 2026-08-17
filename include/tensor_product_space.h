@@ -48,6 +48,19 @@
 
 using namespace dealii;
 
+/** A point-backed entity used by zero-dimensional representative domains.
+ * Zero-dimensional domains intentionally use points/particles rather than
+ * degenerate one-dimensional cells, preserving their distinction from real
+ * embedded one-dimensional domains.
+ */
+template <int spacedim>
+struct ZeroDimensionalRepresentativeEntity
+{
+  Point<spacedim>     position;
+  Tensor<1, spacedim> orientation;
+  double              weight = 1.0;
+};
+
 /**
  * A structure to hold parameters for a tensor product space.
  *
@@ -134,12 +147,17 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    * @brief Name of the grid to read from a file.
    */
   std::string reduced_grid_name = "";
+
+  /** Programmatic point input for zero-dimensional representative domains. */
+  std::vector<ZeroDimensionalRepresentativeEntity<spacedim>>
+    representative_entities;
 };
 
 
 /**
- * A class representing a tensor product space combining a lower-dimensional
- * triangulation and a reference cross-section.
+ * A class representing a tensor product space combining a representative
+ * domain (a positive-dimensional triangulation or a zero-dimensional
+ * point/particle collection) and a reference cross-section.
  *
  * @tparam reduced_dim The dimension of the reduced triangulation.
  * @tparam dim The dimension of the full-order object.
@@ -149,6 +167,9 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
 /**
  * @class TensorProductSpace
  * A class representing a tensor product space for reduced-dimensional problems.
+ * Zero-dimensional representative domains are intentionally stored as
+ * points/particles rather than degenerate cells, preserving their distinction
+ * from genuine embedded one-dimensional representative domains.
  *
  * This class provides functionality to work with tensor product spaces,
  * including the initialization of reduced grids, handling degrees of freedom
@@ -294,6 +315,13 @@ public:
   std::tuple<unsigned int, unsigned int, unsigned int>
   particle_id_to_cell_and_qpoint_indices(const unsigned int qpoint_index) const;
 
+  std::tuple<unsigned int, unsigned int, unsigned int>
+  particle_id_to_representative_indices(const unsigned int qpoint_index) const;
+
+  /** Record stable ParticleHandler id to representative mapping after
+   * insertion. */
+  void
+  register_particle_id_mapping();
 
   /**
    * Return the indices of the quadrature points that are locally owned by the
@@ -388,6 +416,23 @@ public:
    */
   std::vector<std::string> &
   get_properties_names();
+
+  unsigned int
+  n_representative_dofs() const;
+  IndexSet
+  locally_owned_representative_dofs() const;
+  IndexSet
+  locally_relevant_representative_dofs() const;
+  unsigned int
+  n_representative_entities() const;
+  IndexSet
+  locally_owned_representative_entities() const;
+  const std::vector<types::global_dof_index> &
+  get_representative_dof_indices(types::global_dof_index entity_id) const;
+  unsigned int
+  n_representative_q_points_per_entity() const;
+  unsigned int
+  n_representative_dofs_per_entity() const;
 
 protected:
   /**
@@ -512,5 +557,115 @@ protected:
 // Template specializations for the TensorProductSpaceParameters
 
 
+
+/** Point-backed specialization for zero-dimensional representative domains. */
+template <int dim, int spacedim, int n_components>
+class TensorProductSpace<0, dim, spacedim, n_components>
+{
+public:
+  static constexpr int cross_section_dim = dim;
+  using Entity = ZeroDimensionalRepresentativeEntity<spacedim>;
+
+  TensorProductSpace(
+    const TensorProductSpaceParameters<0, dim, spacedim, n_components> &par,
+    MPI_Comm mpi_communicator = MPI_COMM_WORLD);
+
+  void
+  initialize();
+  void
+  make_reduced_grid_and_properties();
+  void
+  set_representative_entities(const std::vector<Entity> &entities);
+  void
+  register_particle_id_mapping();
+
+  const ReferenceCrossSection<dim, spacedim, n_components> &
+  get_reference_cross_section() const;
+
+  const std::vector<Point<spacedim>> &
+  get_locally_owned_qpoints() const;
+  const std::vector<std::vector<double>> &
+  get_locally_owned_weights() const;
+  const std::vector<Point<spacedim>> &
+  get_locally_owned_reduced_qpoints() const;
+  const std::vector<std::vector<double>> &
+  get_locally_owned_reduced_weights() const;
+  const std::vector<std::vector<double>> &
+  get_locally_owned_section_measure() const;
+
+  void
+  update_local_dof_indices(const std::map<unsigned int, IndexSet> &);
+  const std::vector<types::global_dof_index> &
+  get_dof_indices(types::global_cell_index entity_id) const;
+  std::tuple<unsigned int, unsigned int, unsigned int>
+  particle_id_to_cell_and_qpoint_indices(unsigned int particle_id) const;
+  std::tuple<unsigned int, unsigned int, unsigned int>
+  particle_id_to_representative_indices(unsigned int particle_id) const;
+  IndexSet
+  locally_owned_qpoints() const;
+  IndexSet
+  locally_relevant_indices() const;
+  void
+  compute_points_and_weights();
+  double
+  get_scaling(unsigned int) const;
+
+  unsigned int
+  n_representative_dofs() const;
+  IndexSet
+  locally_owned_representative_dofs() const;
+  IndexSet
+  locally_relevant_representative_dofs() const;
+  unsigned int
+  n_representative_entities() const;
+  IndexSet
+  locally_owned_representative_entities() const;
+  const std::vector<types::global_dof_index> &
+  get_representative_dof_indices(types::global_dof_index entity_id) const;
+  unsigned int
+  n_representative_q_points_per_entity() const
+  {
+    return 1;
+  }
+  unsigned int
+  n_representative_dofs_per_entity() const;
+
+  const std::vector<std::string> &
+  get_properties_names() const;
+  std::vector<std::string> &
+  get_properties_names();
+  const VTKFieldCatalog &
+  get_properties_catalog() const;
+  const std::vector<InputFieldBinding> &
+  get_properties_bindings() const;
+  const std::string &
+  get_thickness_expression() const;
+  const SymbolicFieldEvaluator &
+  get_thickness_evaluator() const;
+  void
+  set_time(double time);
+
+protected:
+  MPI_Comm mpi_communicator;
+  const TensorProductSpaceParameters<0, dim, spacedim, n_components> &par;
+  ReferenceCrossSection<dim, spacedim, n_components> reference_cross_section;
+  std::vector<Entity>                                entities;
+  std::map<types::global_cell_index, std::vector<types::global_dof_index>>
+                                   representative_entity_to_dof_indices;
+  std::vector<Point<spacedim>>     all_qpoints;
+  std::vector<std::vector<double>> all_weights;
+  std::vector<Point<spacedim>>     reduced_qpoints;
+  std::vector<std::vector<double>> reduced_weights;
+  std::vector<std::vector<double>> section_measure;
+  std::map<types::particle_index,
+           std::tuple<unsigned int, unsigned int, unsigned int>>
+                                 particle_id_to_representative;
+  std::vector<std::string>       properties_names;
+  VTKFieldCatalog                properties_catalog;
+  std::vector<InputFieldBinding> properties_bindings;
+  std::string                    thickness_expression;
+  double                         constant_thickness = 0.01;
+  double                         evaluation_time    = 0.;
+};
 
 #endif // tensor_product_space_h
