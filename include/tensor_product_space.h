@@ -636,6 +636,9 @@ public:
   get_properties_names();
   const VTKFieldCatalog &
   get_properties_catalog() const;
+  /** Selected imported scalar properties, indexed by entity then binding. */
+  const std::vector<std::vector<double>> &
+  get_properties() const;
   const std::vector<InputFieldBinding> &
   get_properties_bindings() const;
   const std::string &
@@ -644,6 +647,12 @@ public:
   get_thickness_evaluator() const;
   void
   set_time(double time);
+
+  /** Values bound to symbolic expressions for one representative entity. */
+  const std::vector<double> &
+  get_entity_property_values(unsigned int entity_id) const;
+  double
+  get_entity_thickness(unsigned int entity_id) const;
 
 protected:
   MPI_Comm mpi_communicator;
@@ -659,13 +668,16 @@ protected:
   std::vector<std::vector<double>> section_measure;
   std::map<types::particle_index,
            std::tuple<unsigned int, unsigned int, unsigned int>>
-                                 particle_id_to_representative;
-  std::vector<std::string>       properties_names;
-  VTKFieldCatalog                properties_catalog;
-  std::vector<InputFieldBinding> properties_bindings;
-  std::string                    thickness_expression;
-  double                         constant_thickness = 0.01;
-  double                         evaluation_time    = 0.;
+                                   particle_id_to_representative;
+  std::vector<std::string>         properties_names;
+  VTKFieldCatalog                  properties_catalog;
+  std::vector<InputFieldBinding>   properties_bindings;
+  std::vector<std::vector<double>> entity_properties;
+  std::vector<double>              entity_thickness;
+  std::string                      thickness_expression;
+  double                           constant_thickness = 0.01;
+  double                           evaluation_time    = 0.;
+  SymbolicFieldEvaluator           thickness_evaluator;
 };
 
 #endif // tensor_product_space_h

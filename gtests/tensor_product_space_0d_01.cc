@@ -67,6 +67,31 @@ TEST(TensorProductSpace0D, UnsupportedImportedInputs)
   }
 }
 
+#ifdef DEAL_II_WITH_VTK
+TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
+{
+  for (const std::string &filename :
+       {std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtk",
+        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtu"})
+    {
+      TensorProductSpaceParameters<0, 2, 2, 1> params;
+      params.reduced_grid_name             = filename;
+      params.input_file_fields             = "radius";
+      params.thickness                     = "radius";
+      params.section.selected_coefficients = {0};
+
+      TensorProductSpace<0, 2, 2, 1> space(params);
+      ASSERT_NO_THROW(space.initialize());
+      ASSERT_EQ(space.n_representative_entities(), 2u);
+      ASSERT_EQ(space.get_properties_bindings().size(), 1u);
+      ASSERT_EQ(space.get_entity_property_values(0).size(), 1u);
+      EXPECT_DOUBLE_EQ(space.get_entity_property_values(0)[0], 0.25);
+      EXPECT_DOUBLE_EQ(space.get_entity_thickness(0), 0.25);
+      EXPECT_DOUBLE_EQ(space.get_entity_thickness(1), 0.5);
+    }
+}
+#endif
+
 TEST(TensorProductSpace0D, MPI_StableParticleMapping)
 {
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
@@ -203,7 +228,13 @@ TEST(ReducedCoupling0D, MPI_AssemblyInterfaces)
   coupling.assemble_coupling_mass_matrix(mass);
   Vector<double> rhs(coupling.n_representative_dofs());
   coupling.assemble_reduced_rhs(rhs);
-  EXPECT_GT(matrix.frobenius_norm(), 0.);
-  EXPECT_GT(mass.diag_element(0), 0.);
-  EXPECT_GT(rhs.l2_norm(), 0.);
+  const double global_matrix_norm =
+    Utilities::MPI::sum(matrix.frobenius_norm(), MPI_COMM_WORLD);
+  const double global_mass_diagonal =
+    Utilities::MPI::sum(mass.diag_element(0), MPI_COMM_WORLD);
+  const double global_rhs_norm =
+    Utilities::MPI::sum(rhs.l2_norm(), MPI_COMM_WORLD);
+  EXPECT_GT(global_matrix_norm, 0.);
+  EXPECT_GT(global_mass_diagonal, 0.);
+  EXPECT_GT(global_rhs_norm, 0.);
 }

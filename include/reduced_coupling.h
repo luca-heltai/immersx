@@ -418,15 +418,18 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
     {
       AssertDimension(mass_matrix.m(), this->n_representative_dofs());
       AssertDimension(mass_matrix.n(), this->n_representative_dofs());
-      mass_matrix = 0;
-      const double section_measure =
-        this->get_reference_cross_section().measure(this->constant_thickness);
+      mass_matrix              = 0;
       const unsigned int block = this->n_representative_dofs_per_entity();
       for (const auto entity : this->locally_owned_representative_entities())
-        for (unsigned int j = 0; j < block; ++j)
-          mass_matrix.add(entity * block + j,
-                          entity * block + j,
-                          this->entities[entity].weight * section_measure);
+        {
+          const double section_measure =
+            this->get_reference_cross_section().measure(
+              this->get_entity_thickness(entity));
+          for (unsigned int j = 0; j < block; ++j)
+            mass_matrix.add(entity * block + j,
+                            entity * block + j,
+                            this->entities[entity].weight * section_measure);
+        }
       mass_matrix.compress(VectorOperation::add);
       return;
     }
@@ -523,18 +526,21 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::assemble_reduced_rhs(
     {
       const unsigned int n_basis =
         this->get_reference_cross_section().n_selected_basis();
-      const unsigned int block = this->n_representative_dofs_per_entity();
-      const double       section_measure =
-        this->get_reference_cross_section().measure(this->constant_thickness);
+      const unsigned int  block = this->n_representative_dofs_per_entity();
       Vector<double>      local_rhs(block);
       std::vector<double> values(n_basis);
-      std::vector<double> fields;
       for (const auto entity : this->locally_owned_representative_entities())
         {
           local_rhs = 0;
+          const double section_measure =
+            this->get_reference_cross_section().measure(
+              this->get_entity_thickness(entity));
           if (symbolic_coupling_rhs)
             symbolic_coupling_rhs->evaluate_into(
-              this->entities[entity].position, rhs_time, fields, values);
+              this->entities[entity].position,
+              rhs_time,
+              this->get_entity_property_values(entity),
+              values);
           else
             {
               Vector<double> value_vector(n_basis);

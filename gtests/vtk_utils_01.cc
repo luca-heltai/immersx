@@ -38,6 +38,26 @@ using namespace dealii;
 
 #ifdef DEAL_II_WITH_VTK
 
+TEST(VTKUtils, ReadPointCloudLegacyAndXml)
+{
+  for (const std::string &filename :
+       {std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtk",
+        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtu"})
+    {
+      VTKPointCloud<2> point_cloud;
+      ASSERT_NO_THROW(VTKUtils::read_vtk_point_cloud(filename, point_cloud));
+      ASSERT_EQ(point_cloud.points.size(), 2u);
+      ASSERT_EQ(point_cloud.catalog.size(), 1u);
+      ASSERT_EQ(point_cloud.property_names.size(), 1u);
+      ASSERT_EQ(point_cloud.property_names.front(), "radius");
+      ASSERT_EQ(point_cloud.properties.size(), 1u);
+      ASSERT_EQ(point_cloud.properties.front().size(), 2u);
+      EXPECT_DOUBLE_EQ(point_cloud.points[1][0], 1.0);
+      EXPECT_DOUBLE_EQ(point_cloud.properties.front()[0], 0.25);
+      EXPECT_DOUBLE_EQ(point_cloud.properties.front()[1], 0.5);
+    }
+}
+
 TEST(VTKUtils, ReadCellData)
 {
   // Provide a valid VTK file with known cell data for this test

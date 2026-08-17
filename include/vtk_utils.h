@@ -62,6 +62,19 @@ using VTKFieldCatalog = std::vector<VTKFieldDescriptor>;
 
 #ifdef DEAL_II_WITH_VTK
 
+/** Point-cloud data imported from a particle-only VTK unstructured grid.
+ * Property arrays are stored point-major within each catalog entry. Cell
+ * data from VTK_VERTEX cells is reordered to the referenced point.
+ */
+template <int spacedim>
+struct VTKPointCloud
+{
+  std::vector<dealii::Point<spacedim>> points;
+  std::vector<std::vector<double>>     properties;
+  VTKFieldCatalog                      catalog;
+  std::vector<std::string>             property_names;
+};
+
 #  include <deal.II/grid/tria.h>
 
 #  include <deal.II/lac/la_parallel_vector.h>
@@ -95,6 +108,32 @@ namespace VTKUtils
  * parallel computations.
  */
 {
+  /** Read a particle-only legacy VTK, VTU, or PVTU unstructured grid.
+   * PointData is copied directly; vertex-cell data is reordered to its point.
+   */
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string       &vtk_filename,
+                       VTKPointCloud<spacedim> &point_cloud);
+
+  /** Convenience overload returning the catalog and field names separately. */
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string                &vtk_filename,
+                       std::vector<Point<spacedim>>     &points,
+                       std::vector<std::vector<double>> &properties,
+                       VTKFieldCatalog                  &catalog,
+                       std::vector<std::string>         &property_names);
+
+  /** Convenience overload with field-major flattened property storage. */
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string            &vtk_filename,
+                       std::vector<Point<spacedim>> &points,
+                       Vector<double>               &properties,
+                       VTKFieldCatalog              &catalog,
+                       std::vector<std::string>     &property_names);
+
   /**
    * @brief Read a VTK mesh file and populate a deal.II Triangulation.
    *
