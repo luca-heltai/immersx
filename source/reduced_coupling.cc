@@ -69,16 +69,19 @@ background_tria.get_mpi_communicator()
   , background_tria(&background_tria)
   , immersed_partitioner(background_tria)
 {
-  this->preprocess_serial_triangulation =
-    [&](Triangulation<reduced_dim, spacedim> &tria) {
-      // Preprocess the serial triangulation before setting up the partitioner
-      adjust_grids(*(this->background_tria), tria, par.refinement_parameters);
-    };
-
-  this->set_partitioner = [&](auto &tria) {
-    tria.set_partitioner(immersed_partitioner,
-                         TriangulationDescription::Settings());
-  };
+  if constexpr (reduced_dim > 0)
+    {
+      this->preprocess_serial_triangulation =
+        [&](Triangulation<reduced_dim, spacedim> &tria) {
+          adjust_grids(*(this->background_tria),
+                       tria,
+                       par.refinement_parameters);
+        };
+      this->set_partitioner = [&](auto &tria) {
+        tria.set_partitioner(immersed_partitioner.value,
+                             TriangulationDescription::Settings());
+      };
+    }
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -89,14 +92,14 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   // Initialize the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize();
 
-  auto locally_owned_dofs = this->get_dof_handler().locally_owned_dofs();
-  auto locally_relevant_dofs =
-    DoFTools::extract_locally_relevant_dofs(this->get_dof_handler());
+  auto locally_owned_dofs    = this->locally_owned_representative_dofs();
+  auto locally_relevant_dofs = this->locally_relevant_representative_dofs();
 
   coupling_constraints.clear();
   coupling_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-  DoFTools::make_hanging_node_constraints(this->get_dof_handler(),
-                                          coupling_constraints);
+  if constexpr (reduced_dim > 0)
+    DoFTools::make_hanging_node_constraints(this->get_dof_handler(),
+                                            coupling_constraints);
   coupling_constraints.close();
 
   // Initialize the particle coupling
@@ -107,6 +110,10 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   const auto &qpoints = this->get_locally_owned_qpoints();
   const auto &weights = this->get_locally_owned_weights();
   auto        q_index = this->insert_points(qpoints, weights);
+  // ParticleHandler assigns ids globally by source-rank prefix when ids
+  // are omitted. Build the explicit id-to-entity map from that documented
+  // assignment before any assembly uses particle ids.
+  this->register_particle_id_mapping();
   this->update_local_dof_indices(q_index);
 
   const unsigned int n_basis =
@@ -145,8 +152,13 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
         par.coupling_rhs_expressions,
         constants,
         true);
-      AssertDimension(coupling_rhs->n_components,
-                      this->get_dof_handler().get_fe().n_components());
+      if constexpr (reduced_dim > 0)
+        AssertDimension(coupling_rhs->n_components,
+                        this->get_dof_handler().get_fe().n_components());
+      else
+        AssertDimension(coupling_rhs->n_components,
+                        this->n_representative_dofs_per_entity() /
+                          n_components);
       if (!field_symbols.empty())
         {
           for (const auto &expression : par.coupling_rhs_expressions)
@@ -216,7 +228,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
       for (const auto &p : pic)
         {
           const auto [immersed_cell_id, immersed_q, section_q] =
-            this->particle_id_to_cell_and_qpoint_indices(p.get_id());
+            this->particle_id_to_representative_indices(p.get_id());
           // If cell id is the same, we can skip the rest of the loop. We
           // already added these entries
           if (immersed_cell_id != previous_cell_id)
@@ -245,6 +257,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
 }
 
 // Explicit instantiations for ReducedCouplingParameters
+template struct ReducedCouplingParameters<0, 2, 2, 1>;
 template struct ReducedCouplingParameters<1, 2, 2, 1>;
 template struct ReducedCouplingParameters<1, 2, 3, 1>;
 template struct ReducedCouplingParameters<1, 3, 3, 1>;
@@ -256,6 +269,7 @@ template struct ReducedCouplingParameters<1, 3, 3, 3>;
 template struct ReducedCouplingParameters<2, 3, 3, 3>;
 
 
+template struct ReducedCoupling<0, 2, 2, 1>;
 template struct ReducedCoupling<1, 2, 2, 1>;
 template struct ReducedCoupling<1, 2, 3, 1>;
 template struct ReducedCoupling<1, 3, 3, 1>;
