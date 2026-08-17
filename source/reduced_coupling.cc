@@ -157,8 +157,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
                         this->get_dof_handler().get_fe().n_components());
       else
         AssertDimension(coupling_rhs->n_components,
-                        this->n_representative_dofs_per_entity() /
-                          n_components);
+                        this->n_representative_dofs_per_entity());
       if (!field_symbols.empty())
         {
           for (const auto &expression : par.coupling_rhs_expressions)
@@ -258,6 +257,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
 
 // Explicit instantiations for ReducedCouplingParameters
 template struct ReducedCouplingParameters<0, 2, 2, 1>;
+template struct ReducedCouplingParameters<0, 2, 2, 2>;
 template struct ReducedCouplingParameters<1, 2, 2, 1>;
 template struct ReducedCouplingParameters<1, 2, 3, 1>;
 template struct ReducedCouplingParameters<1, 3, 3, 1>;
@@ -270,6 +270,7 @@ template struct ReducedCouplingParameters<2, 3, 3, 3>;
 
 
 template struct ReducedCoupling<0, 2, 2, 1>;
+template struct ReducedCoupling<0, 2, 2, 2>;
 template struct ReducedCoupling<1, 2, 2, 1>;
 template struct ReducedCoupling<1, 2, 3, 1>;
 template struct ReducedCoupling<1, 3, 3, 1>;

@@ -3,8 +3,14 @@
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_system.h>
 
 #include <deal.II/grid/grid_generator.h>
+
+#include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
+#include <deal.II/lac/sparse_matrix.h>
+#include <deal.II/lac/sparsity_pattern.h>
 
 #include <gtest/gtest.h>
 
@@ -22,15 +28,13 @@ TEST(TensorProductSpace0D, PointsWeightsAndDofs)
   TensorProductSpaceParameters<0, 2, 2, 1> params;
   params.thickness                     = "0.5";
   params.section.selected_coefficients = {0};
-  TensorProductSpace<0, 2, 2, 1>                      space(params);
-  std::vector<ZeroDimensionalRepresentativeEntity<2>> entities(3);
-  entities[0].position = Point<2>(0.0, 0.0);
-  entities[1].position = Point<2>(0.25, 0.25);
-  entities[2].position = Point<2>(0.5, 0.5);
-  entities[0].weight   = 1.0;
-  entities[1].weight   = 2.0;
-  entities[2].weight   = 3.0;
-  space.set_representative_entities(entities);
+  TensorProductSpace<0, 2, 2, 1> space(params);
+  PointCloud<2>                  cloud;
+  cloud.points.resize(3);
+  cloud.points[0] = Point<2>(0.0, 0.0);
+  cloud.points[1] = Point<2>(0.25, 0.25);
+  cloud.points[2] = Point<2>(0.5, 0.5);
+  space.set_point_cloud(cloud);
   space.initialize();
 
   EXPECT_EQ(space.n_representative_entities(), 3u);
@@ -40,19 +44,80 @@ TEST(TensorProductSpace0D, PointsWeightsAndDofs)
   EXPECT_EQ(space.get_locally_owned_qpoints().size(),
             space.get_reference_cross_section().n_quadrature_points() * 3u);
   for (unsigned int i = 0; i < 3; ++i)
-    EXPECT_EQ(space.get_representative_dof_indices(i).size(), 1u);
+    {
+      EXPECT_EQ(space.get_representative_dof_indices(i).size(), 1u);
+      EXPECT_DOUBLE_EQ(space.get_locally_owned_reduced_weights()[i][0], 1.0);
+    }
+  double lifted_sum = 0.;
+  for (const auto &weight : space.get_locally_owned_weights())
+    lifted_sum += weight[0];
+  EXPECT_NEAR(lifted_sum,
+              3. * space.get_reference_cross_section().measure(0.5),
+              1e-12);
+}
+
+TEST(TensorProductSpace0D, VectorSelectedCoefficientsHaveContiguousDofs)
+{
+  TensorProductSpaceParameters<0, 2, 2, 2> params;
+  params.thickness                     = "0.25";
+  params.section.inclusion_degree      = 1;
+  params.section.selected_coefficients = {0, 1, 2};
+  params.point_cloud.points            = {Point<2>(0., 0.), Point<2>(1., 0.)};
+  TensorProductSpace<0, 2, 2, 2> space(params);
+  space.initialize();
+  ASSERT_EQ(space.n_representative_dofs_per_entity(), 3u);
+  ASSERT_EQ(space.n_representative_dofs(), 6u);
+  for (unsigned int entity = 0; entity < 2; ++entity)
+    {
+      const auto &indices = space.get_representative_dof_indices(entity);
+      ASSERT_EQ(indices.size(), 3u);
+      for (unsigned int j = 0; j < indices.size(); ++j)
+        EXPECT_EQ(indices[j], entity * 3 + j);
+    }
+}
+
+TEST(TensorProductSpace0D, PointCloudOrientationAndDefault)
+{
+  TensorProductSpaceParameters<0, 2, 2, 1> default_params;
+  default_params.section.selected_coefficients = {0};
+  default_params.point_cloud.points            = {Point<2>(0., 0.)};
+  TensorProductSpace<0, 2, 2, 1> default_space(default_params);
+  default_space.initialize();
+  EXPECT_NEAR(default_space.get_entity_orientation(0)[0], 0., 1e-12);
+  EXPECT_NEAR(default_space.get_entity_orientation(0)[1], 1., 1e-12);
+
+  TensorProductSpaceParameters<0, 2, 2, 1> oriented_params;
+  oriented_params.section.selected_coefficients = {0};
+  oriented_params.point_cloud.points            = {Point<2>(0., 0.)};
+  oriented_params.point_cloud.catalog           = {
+    {"orientation", VTKFieldAssociation::point_data, 2, 0, 0}};
+  oriented_params.point_cloud.properties = {{1., 0.}};
+  TensorProductSpace<0, 2, 2, 1> oriented_space(oriented_params);
+  oriented_space.initialize();
+  EXPECT_NEAR(oriented_space.get_entity_orientation(0)[0], 1., 1e-12);
+  EXPECT_NEAR(oriented_space.get_entity_orientation(0)[1], 0., 1e-12);
+}
+
+TEST(TensorProductSpace0D, RejectsTimeDependentThickness)
+{
+  TensorProductSpaceParameters<0, 2, 2, 1> params;
+  params.thickness                     = "1+t";
+  params.section.selected_coefficients = {0};
+  params.point_cloud.points            = {Point<2>(0., 0.)};
+  TensorProductSpace<0, 2, 2, 1> space(params);
+  EXPECT_THROW(space.initialize(), ExceptionBase);
 }
 
 TEST(TensorProductSpace0D, UnsupportedImportedInputs)
 {
-  ZeroDimensionalRepresentativeEntity<2> entity;
-  entity.position = Point<2>(0., 0.);
+  PointCloud<2> cloud;
+  cloud.points = {Point<2>(0., 0.)};
 
   {
     TensorProductSpaceParameters<0, 2, 2, 1> params;
     params.section.selected_coefficients = {0};
     params.reduced_grid_name             = "unsupported.vtk";
-    params.representative_entities       = {entity};
+    params.point_cloud                   = cloud;
     TensorProductSpace<0, 2, 2, 1> space(params);
     EXPECT_THROW(space.initialize(), ExceptionBase);
   }
@@ -61,13 +126,83 @@ TEST(TensorProductSpace0D, UnsupportedImportedInputs)
     TensorProductSpaceParameters<0, 2, 2, 1> params;
     params.section.selected_coefficients = {0};
     params.input_file_fields             = "radius";
-    params.representative_entities       = {entity};
+    params.point_cloud                   = cloud;
     TensorProductSpace<0, 2, 2, 1> space(params);
-    EXPECT_THROW(space.initialize(), ExceptionBase);
+    EXPECT_ANY_THROW(space.initialize());
   }
 }
 
+TEST(TensorProductSpace0D, ProgrammaticPointCloudRadiusThickness)
+{
+  TensorProductSpaceParameters<0, 2, 2, 1> params;
+  params.input_file_fields             = "radius";
+  params.thickness                     = "radius";
+  params.section.selected_coefficients = {0};
+  params.point_cloud.points            = {Point<2>(0., 0.), Point<2>(1., 0.)};
+  params.point_cloud.catalog           = {
+    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+  params.point_cloud.properties = {{0.25, 0.5}};
+
+  TensorProductSpace<0, 2, 2, 1> space(params);
+  ASSERT_NO_THROW(space.initialize());
+  ASSERT_EQ(space.get_properties_bindings().size(), 1u);
+  ASSERT_EQ(space.get_entity_property_values(0).size(), 1u);
+  EXPECT_DOUBLE_EQ(space.get_entity_property_values(0)[0], 0.25);
+  EXPECT_DOUBLE_EQ(space.get_entity_property_values(1)[0], 0.5);
+  EXPECT_DOUBLE_EQ(space.get_entity_thickness(0), 0.25);
+  EXPECT_DOUBLE_EQ(space.get_entity_thickness(1), 0.5);
+}
+
+TEST(TensorProductSpace0D, ThicknessScalingAndLiftedMeasure)
+{
+  TensorProductSpaceParameters<0, 2, 2, 1> unit_params;
+  unit_params.thickness                     = "1";
+  unit_params.section.selected_coefficients = {0};
+  unit_params.point_cloud.points            = {Point<2>(0., 0.)};
+  TensorProductSpace<0, 2, 2, 1> unit_space(unit_params);
+  unit_space.initialize();
+
+  TensorProductSpaceParameters<0, 2, 2, 1> double_params;
+  double_params.thickness                     = "2";
+  double_params.section.selected_coefficients = {0};
+  double_params.point_cloud.points            = {Point<2>(0., 0.)};
+  TensorProductSpace<0, 2, 2, 1> double_space(double_params);
+  double_space.initialize();
+
+  const double unit_measure =
+    unit_space.get_locally_owned_section_measure().front().front();
+  const double double_measure =
+    double_space.get_locally_owned_section_measure().front().front();
+  EXPECT_NEAR(double_measure / unit_measure, 4., 1e-12);
+
+  double lifted_sum = 0.;
+  for (const auto &weight : double_space.get_locally_owned_weights())
+    lifted_sum += weight.front();
+  EXPECT_NEAR(lifted_sum, double_measure, 1e-12);
+}
+
 #ifdef DEAL_II_WITH_VTK
+TEST(TensorProductSpace0D, ImportsReorderedCellDataFromPointCloud)
+{
+  TensorProductSpaceParameters<0, 2, 2, 1> params;
+  params.reduced_grid_name =
+    SOURCE_DIR "/gtests/fixtures/point_cloud_cell_data_reordered.vtk";
+  params.input_file_fields             = "radius";
+  params.thickness                     = "radius";
+  params.section.selected_coefficients = {0};
+
+  TensorProductSpace<0, 2, 2, 1> space(params);
+  ASSERT_NO_THROW(space.initialize());
+  ASSERT_EQ(space.get_properties_bindings().size(), 1u);
+  ASSERT_EQ(space.n_representative_entities(), 3u);
+  EXPECT_DOUBLE_EQ(space.get_entity_property_values(0)[0], 10.);
+  EXPECT_DOUBLE_EQ(space.get_entity_property_values(1)[0], 20.);
+  EXPECT_DOUBLE_EQ(space.get_entity_property_values(2)[0], 30.);
+  EXPECT_DOUBLE_EQ(space.get_entity_thickness(0), 10.);
+  EXPECT_DOUBLE_EQ(space.get_entity_thickness(1), 20.);
+  EXPECT_DOUBLE_EQ(space.get_entity_thickness(2), 30.);
+}
+
 TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
 {
   for (const std::string &filename :
@@ -101,12 +236,13 @@ TEST(TensorProductSpace0D, MPI_StableParticleMapping)
   ReducedCouplingParameters<0, 2, 2, 1> params;
   params.tensor_product_space_parameters.section.selected_coefficients = {0};
   params.coupling_rhs_expressions                                      = {"1"};
-  std::vector<ZeroDimensionalRepresentativeEntity<2>> entities(4);
-  entities[0].position = Point<2>(-0.7, -0.7);
-  entities[1].position = Point<2>(-0.7, 0.7);
-  entities[2].position = Point<2>(0.7, -0.7);
-  entities[3].position = Point<2>(0.7, 0.7);
-  params.tensor_product_space_parameters.representative_entities = entities;
+  PointCloud<2> cloud;
+  cloud.points.resize(4);
+  cloud.points[0]                                    = Point<2>(-0.7, -0.7);
+  cloud.points[1]                                    = Point<2>(-0.7, 0.7);
+  cloud.points[2]                                    = Point<2>(0.7, -0.7);
+  cloud.points[3]                                    = Point<2>(0.7, 0.7);
+  params.tensor_product_space_parameters.point_cloud = cloud;
 
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   coupling.initialize();
@@ -124,7 +260,7 @@ TEST(TensorProductSpace0D, MPI_StableParticleMapping)
                           rank_ids.end());
   std::sort(all_entity_ids.begin(), all_entity_ids.end());
   ASSERT_EQ(all_entity_ids.size(),
-            entities.size() *
+            cloud.points.size() *
               coupling.get_reference_cross_section().n_quadrature_points());
   for (unsigned int i = 0; i < all_entity_ids.size(); ++i)
     EXPECT_EQ(all_entity_ids[i],
@@ -136,10 +272,10 @@ TEST(ReducedPoisson0D, TemplatePathCompiles)
   ReducedPoissonParameters<2, 0> params;
   params.reduced_coupling_parameters.tensor_product_space_parameters.section
     .selected_coefficients = {0};
-  ZeroDimensionalRepresentativeEntity<2> entity;
-  entity.position = Point<2>(0., 0.);
+  PointCloud<2> cloud;
+  cloud.points = {Point<2>(0., 0.)};
   params.reduced_coupling_parameters.tensor_product_space_parameters
-    .representative_entities = {entity};
+    .point_cloud = cloud;
   ReducedPoisson<2, 2, 0> problem(params);
   (void)problem;
 }
@@ -167,10 +303,10 @@ TEST(ReducedPoisson0D, MPI_OneCycleAssemblySolve)
   params.reduced_coupling_parameters.tensor_product_space_parameters.section
     .selected_coefficients                                    = {0};
   params.reduced_coupling_parameters.coupling_rhs_expressions = {"1"};
-  ZeroDimensionalRepresentativeEntity<2> entity;
-  entity.position = Point<2>(0., 0.);
+  PointCloud<2> cloud;
+  cloud.points = {Point<2>(0., 0.)};
   params.reduced_coupling_parameters.tensor_product_space_parameters
-    .representative_entities = {entity};
+    .point_cloud = cloud;
 
   ReducedPoisson<2, 2, 0> problem(params);
   problem.make_grid();
@@ -193,6 +329,37 @@ TEST(ReducedPoisson0D, MPI_OneCycleAssemblySolve)
   EXPECT_GT(problem.multiplier_solution_l2_norm(), 0.);
 }
 
+TEST(ReducedCoupling0D, VectorInitializationUsesSelectedBasisCount)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background, -1., 1.);
+  ReducedCouplingParameters<0, 2, 2, 2> params;
+  params.tensor_product_space_parameters.section.inclusion_degree      = 1;
+  params.tensor_product_space_parameters.section.selected_coefficients = {0,
+                                                                          1,
+                                                                          2};
+  params.tensor_product_space_parameters.point_cloud.points            = {
+    Point<2>(0., 0.)};
+  params.coupling_rhs_expressions = {"1", "2", "3"};
+
+  ReducedCoupling<0, 2, 2, 2> coupling(background, params);
+  ASSERT_NO_THROW(coupling.initialize());
+  EXPECT_EQ(coupling.n_representative_dofs_per_entity(), 3u);
+
+  FESystem<2>   fe(FE_Q<2>(1), 2);
+  DoFHandler<2> dh(background);
+  dh.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  DynamicSparsityPattern dsp(dh.n_dofs(), coupling.n_representative_dofs());
+  coupling.assemble_coupling_sparsity(dsp, dh, constraints);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dsp);
+  SparseMatrix<double> matrix(sparsity);
+  coupling.assemble_coupling_matrix(matrix, dh, constraints);
+  EXPECT_GT(matrix.frobenius_norm(), 0.);
+}
+
 TEST(ReducedCoupling0D, MPI_AssemblyInterfaces)
 {
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
@@ -201,10 +368,10 @@ TEST(ReducedCoupling0D, MPI_AssemblyInterfaces)
   ReducedCouplingParameters<0, 2, 2, 1> params;
   params.tensor_product_space_parameters.thickness                     = "0.5";
   params.tensor_product_space_parameters.section.selected_coefficients = {0};
-  ZeroDimensionalRepresentativeEntity<2> entity;
-  entity.position = Point<2>(0., 0.);
-  params.tensor_product_space_parameters.representative_entities = {entity};
-  params.coupling_rhs_expressions                                = {"1"};
+  PointCloud<2> cloud;
+  cloud.points                                       = {Point<2>(0., 0.)};
+  params.tensor_product_space_parameters.point_cloud = cloud;
+  params.coupling_rhs_expressions                    = {"1"};
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   coupling.initialize();
 
