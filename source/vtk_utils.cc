@@ -23,17 +23,248 @@
 #  include <deal.II/grid/tria_description.h>
 #  include <deal.II/grid/tria_iterator.h>
 
+#  include <vtkCell.h>
 #  include <vtkCellData.h>
 #  include <vtkDataArray.h>
 #  include <vtkPointData.h>
 #  include <vtkSmartPointer.h>
 #  include <vtkUnstructuredGrid.h>
 #  include <vtkUnstructuredGridReader.h>
+#  include <vtkXMLPUnstructuredGridReader.h>
+#  include <vtkXMLUnstructuredGridReader.h>
 
+#  include <algorithm>
+#  include <cctype>
+#  include <limits>
 #  include <stdexcept>
+#  include <utility>
 
 namespace VTKUtils
 {
+  namespace
+  {
+    vtkSmartPointer<vtkUnstructuredGrid>
+    read_unstructured_grid(const std::string &filename)
+    {
+      std::string extension;
+      const auto  dot = filename.find_last_of('.');
+      if (dot != std::string::npos)
+        extension = filename.substr(dot + 1);
+      std::transform(extension.begin(),
+                     extension.end(),
+                     extension.begin(),
+                     [](const unsigned char c) { return std::tolower(c); });
+
+      auto copy_output = [](vtkUnstructuredGrid *output) {
+        AssertThrow(output != nullptr,
+                    ExcMessage("Failed to read VTK unstructured grid."));
+        auto result = vtkSmartPointer<vtkUnstructuredGrid>::New();
+        result->ShallowCopy(output);
+        return result;
+      };
+      if (extension == "vtu")
+        {
+          auto reader = vtkSmartPointer<vtkXMLUnstructuredGridReader>::New();
+          reader->SetFileName(filename.c_str());
+          reader->Update();
+          return copy_output(reader->GetOutput());
+        }
+      if (extension == "pvtu")
+        {
+          auto reader = vtkSmartPointer<vtkXMLPUnstructuredGridReader>::New();
+          reader->SetFileName(filename.c_str());
+          reader->Update();
+          return copy_output(reader->GetOutput());
+        }
+      if (extension == "vtk")
+        {
+          auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
+          reader->SetFileName(filename.c_str());
+          reader->Update();
+          return copy_output(reader->GetOutput());
+        }
+      AssertThrow(false,
+                  ExcMessage(
+                    "Unsupported VTK unstructured-grid extension in '" +
+                    filename + "'; expected .vtk, .vtu, or .pvtu."));
+      return nullptr;
+    }
+
+    void
+    append_point_cloud_array(vtkDataArray                     *array,
+                             const VTKFieldAssociation         association,
+                             const vtkIdType                   expected_tuples,
+                             VTKFieldCatalog                  &catalog,
+                             std::vector<std::vector<double>> &properties,
+                             std::vector<std::string>         &names)
+    {
+      AssertThrow(array != nullptr, ExcMessage("Null VTK data array."));
+      const char *raw_name = array->GetName();
+      AssertThrow(raw_name != nullptr && *raw_name != '\0',
+                  ExcMessage("VTK data arrays must have non-empty names."));
+      const std::string name(raw_name);
+      for (const auto &field : catalog)
+        AssertThrow(field.vtk_name != name || field.association != association,
+                    ExcMessage("Duplicate VTK array name '" + name + "'."));
+      const int n_components = array->GetNumberOfComponents();
+      AssertThrow(n_components > 0,
+                  ExcMessage("VTK array '" + name + "' has no components."));
+      AssertThrow(array->GetNumberOfTuples() == expected_tuples,
+                  ExcMessage("VTK array '" + name +
+                             "' has an invalid tuple count."));
+      VTKFieldDescriptor descriptor;
+      descriptor.vtk_name     = name;
+      descriptor.association  = association;
+      descriptor.n_components = static_cast<unsigned int>(n_components);
+      descriptor.first_fe_component =
+        catalog.empty() ?
+          0 :
+          catalog.back().first_fe_component + catalog.back().n_components;
+      descriptor.block_index = static_cast<unsigned int>(catalog.size());
+      catalog.push_back(descriptor);
+      names.push_back(name);
+      properties.emplace_back(static_cast<std::size_t>(expected_tuples) *
+                              static_cast<std::size_t>(n_components));
+    }
+  } // namespace
+
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string       &vtk_filename,
+                       VTKPointCloud<spacedim> &point_cloud)
+  {
+    const auto grid = read_unstructured_grid(vtk_filename);
+    AssertThrow(grid->GetPoints() != nullptr,
+                ExcMessage("VTK particle file has no points: " + vtk_filename));
+    AssertThrow(spacedim <= 3,
+                ExcMessage(
+                  "VTK point coordinates support at most 3 dimensions."));
+    const vtkIdType n_points = grid->GetNumberOfPoints();
+    const vtkIdType n_cells  = grid->GetNumberOfCells();
+    AssertThrow(
+      n_points > 0 && n_cells > 0,
+      ExcMessage(
+        "VTK particle file must contain points and VTK_VERTEX cells."));
+    std::vector<vtkIdType> point_to_cell(n_points, -1);
+    for (vtkIdType cell_index = 0; cell_index < n_cells; ++cell_index)
+      {
+        vtkCell *cell = grid->GetCell(cell_index);
+        AssertThrow(
+          cell->GetCellType() == VTK_VERTEX && cell->GetNumberOfPoints() == 1,
+          ExcMessage("VTK particle input may contain only VTK_VERTEX cells; "
+                     "cell " +
+                     std::to_string(cell_index) + " is unsupported."));
+        const vtkIdType point = cell->GetPointId(0);
+        AssertThrow(point >= 0 && point < n_points,
+                    ExcMessage("VTK_VERTEX references an invalid point."));
+        AssertThrow(point_to_cell[point] == -1,
+                    ExcMessage(
+                      "Each particle point must be referenced by exactly one "
+                      "VTK_VERTEX cell."));
+        point_to_cell[point] = cell_index;
+      }
+    for (vtkIdType point = 0; point < n_points; ++point)
+      AssertThrow(
+        point_to_cell[point] != -1,
+        ExcMessage(
+          "Every particle point must be referenced by a VTK_VERTEX cell."));
+
+    point_cloud = {};
+    point_cloud.points.resize(n_points);
+    for (vtkIdType point = 0; point < n_points; ++point)
+      {
+        double coordinates[3] = {0., 0., 0.};
+        grid->GetPoints()->GetPoint(point, coordinates);
+        for (unsigned int d = 0; d < spacedim; ++d)
+          point_cloud.points[point][d] = coordinates[d];
+      }
+    auto append = [&](vtkDataArray             *array,
+                      const VTKFieldAssociation association,
+                      const vtkIdType           expected) {
+      append_point_cloud_array(array,
+                               association,
+                               expected,
+                               point_cloud.catalog,
+                               point_cloud.properties,
+                               point_cloud.property_names);
+    };
+    if (auto *data = grid->GetPointData())
+      for (int i = 0; i < data->GetNumberOfArrays(); ++i)
+        append(data->GetArray(i), VTKFieldAssociation::point_data, n_points);
+    const std::size_t point_field_count = point_cloud.properties.size();
+    if (auto *data = grid->GetCellData())
+      for (int i = 0; i < data->GetNumberOfArrays(); ++i)
+        append(data->GetArray(i), VTKFieldAssociation::cell_data, n_cells);
+
+    for (std::size_t field = 0; field < point_field_count; ++field)
+      {
+        vtkDataArray *array = grid->GetPointData()->GetArray(
+          point_cloud.catalog[field].vtk_name.c_str());
+        const unsigned int components = point_cloud.catalog[field].n_components;
+        for (vtkIdType point = 0; point < n_points; ++point)
+          for (unsigned int component = 0; component < components; ++component)
+            point_cloud.properties[field][point * components + component] =
+              array->GetComponent(point, component);
+      }
+    for (std::size_t field = point_field_count;
+         field < point_cloud.properties.size();
+         ++field)
+      {
+        const auto   &descriptor = point_cloud.catalog[field];
+        vtkDataArray *array =
+          grid->GetCellData()->GetArray(descriptor.vtk_name.c_str());
+        for (vtkIdType point = 0; point < n_points; ++point)
+          {
+            const vtkIdType cell = point_to_cell[point];
+            for (unsigned int component = 0;
+                 component < descriptor.n_components;
+                 ++component)
+              point_cloud.properties[field][point * descriptor.n_components +
+                                            component] =
+                array->GetComponent(cell, component);
+          }
+      }
+  }
+
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string                &vtk_filename,
+                       std::vector<Point<spacedim>>     &points,
+                       std::vector<std::vector<double>> &properties,
+                       VTKFieldCatalog                  &catalog,
+                       std::vector<std::string>         &property_names)
+  {
+    VTKPointCloud<spacedim> data;
+    read_vtk_point_cloud(vtk_filename, data);
+    points         = std::move(data.points);
+    properties     = std::move(data.properties);
+    catalog        = std::move(data.catalog);
+    property_names = std::move(data.property_names);
+  }
+
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string            &vtk_filename,
+                       std::vector<Point<spacedim>> &points,
+                       Vector<double>               &properties,
+                       VTKFieldCatalog              &catalog,
+                       std::vector<std::string>     &property_names)
+  {
+    std::vector<std::vector<double>> field_properties;
+    read_vtk_point_cloud(
+      vtk_filename, points, field_properties, catalog, property_names);
+    std::size_t total = 0;
+    for (const auto &field : field_properties)
+      total += field.size();
+    properties.reinit(total);
+    std::size_t offset = 0;
+    for (const auto &field : field_properties)
+      {
+        std::copy(field.begin(), field.end(), properties.begin() + offset);
+        offset += field.size();
+      }
+  }
+
   template <int dim, int spacedim>
   void
   read_vtk(const std::string            &vtk_filename,
@@ -705,5 +936,47 @@ template std::vector<types::global_vertex_index>
 VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<3, 3> &,
                                                const Triangulation<3, 3> &);
 
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &, VTKPointCloud<1> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &, VTKPointCloud<2> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &, VTKPointCloud<3> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               std::vector<Point<1>> &,
+                               std::vector<std::vector<double>> &,
+                               VTKFieldCatalog &,
+                               std::vector<std::string> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               std::vector<Point<2>> &,
+                               std::vector<std::vector<double>> &,
+                               VTKFieldCatalog &,
+                               std::vector<std::string> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               std::vector<Point<3>> &,
+                               std::vector<std::vector<double>> &,
+                               VTKFieldCatalog &,
+                               std::vector<std::string> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               std::vector<Point<1>> &,
+                               Vector<double> &,
+                               VTKFieldCatalog &,
+                               std::vector<std::string> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               std::vector<Point<2>> &,
+                               Vector<double> &,
+                               VTKFieldCatalog &,
+                               std::vector<std::string> &);
+template void
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               std::vector<Point<3>> &,
+                               Vector<double> &,
+                               VTKFieldCatalog &,
+                               std::vector<std::string> &);
 
 #endif // DEAL_II_WITH_VTK

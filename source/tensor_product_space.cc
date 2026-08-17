@@ -29,6 +29,7 @@
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/utilities.h>
 
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <regex>
@@ -800,7 +801,10 @@ template <int dim, int spacedim, int n_components>
 void
 TensorProductSpace<0, dim, spacedim, n_components>::initialize()
 {
-  if (entities.empty())
+  const bool file_input = !par.reduced_grid_name.empty();
+  if (file_input)
+    make_reduced_grid_and_properties();
+  else if (entities.empty())
     entities = par.representative_entities;
   AssertThrow(
     !entities.empty(),
@@ -810,7 +814,8 @@ TensorProductSpace<0, dim, spacedim, n_components>::initialize()
     if (entity.orientation.norm() == 0.)
       entity.orientation[spacedim - 1] = 1.;
   reference_cross_section.initialize();
-  make_reduced_grid_and_properties();
+  if (!file_input)
+    make_reduced_grid_and_properties();
   representative_entity_to_dof_indices.clear();
   const unsigned int dofs_per_entity = n_representative_dofs_per_entity();
   for (unsigned int entity = 0; entity < entities.size(); ++entity)
@@ -828,18 +833,85 @@ void
 TensorProductSpace<0, dim, spacedim, n_components>::
   make_reduced_grid_and_properties()
 {
-  AssertThrow(
-    par.reduced_grid_name.empty(),
-    ExcMessage(
-      "Reduced grid name is not supported for a 0D representative domain."));
-  AssertThrow(
-    par.input_file_fields.empty(),
-    ExcMessage(
-      "Input file fields are not supported for a 0D representative domain."));
-
   properties_names.clear();
   properties_catalog.clear();
   properties_bindings.clear();
+  entity_properties.clear();
+  entity_thickness.clear();
+
+  if (!par.reduced_grid_name.empty())
+    {
+      VTKPointCloud<spacedim> point_cloud;
+      VTKUtils::read_vtk_point_cloud(par.reduced_grid_name, point_cloud);
+      entities.resize(point_cloud.points.size());
+      for (unsigned int entity = 0; entity < entities.size(); ++entity)
+        {
+          entities[entity].position = point_cloud.points[entity];
+          entities[entity].orientation[spacedim - 1] = 1.;
+          entities[entity].weight                    = 1.;
+        }
+      properties_catalog = point_cloud.catalog;
+      properties_names   = point_cloud.property_names;
+      properties_bindings =
+        InputFieldSelector::resolve(par.input_file_fields, properties_catalog);
+
+      int weight_field = -1;
+      for (unsigned int field = 0; field < properties_catalog.size(); ++field)
+        if (properties_catalog[field].vtk_name == "weight")
+          {
+            AssertThrow(properties_catalog[field].n_components == 1,
+                        ExcMessage(
+                          "Particle weight field 'weight' must be scalar."));
+            AssertThrow(weight_field == -1,
+                        ExcMessage(
+                          "Particle weight field 'weight' is ambiguous."));
+            weight_field = static_cast<int>(field);
+          }
+      if (weight_field >= 0)
+        for (unsigned int entity = 0; entity < entities.size(); ++entity)
+          {
+            entities[entity].weight =
+              point_cloud.properties[weight_field][entity];
+            AssertThrow(std::isfinite(entities[entity].weight),
+                        ExcMessage("Particle weights must be finite."));
+          }
+
+      for (unsigned int field = 0; field < properties_catalog.size(); ++field)
+        if (properties_catalog[field].vtk_name == "orientation")
+          {
+            AssertThrow(
+              properties_catalog[field].n_components == spacedim,
+              ExcMessage(
+                "Particle orientation must have spacedim components."));
+            for (unsigned int entity = 0; entity < entities.size(); ++entity)
+              for (unsigned int d = 0; d < spacedim; ++d)
+                entities[entity].orientation[d] =
+                  point_cloud.properties[field][entity * spacedim + d];
+          }
+
+      entity_properties.resize(entities.size(),
+                               std::vector<double>(properties_bindings.size()));
+      for (unsigned int entity = 0; entity < entities.size(); ++entity)
+        for (unsigned int binding = 0; binding < properties_bindings.size();
+             ++binding)
+          {
+            const auto &selected = properties_bindings[binding];
+            const auto &field    = properties_catalog[selected.field_index];
+            entity_properties[entity][binding] =
+              point_cloud
+                .properties[selected.field_index][entity * field.n_components +
+                                                  selected.vtk_component];
+          }
+    }
+  else
+    {
+      AssertThrow(par.input_file_fields.empty(),
+                  ExcMessage(
+                    "Input file fields require Reduced grid name for a 0D "
+                    "representative domain."));
+      entity_properties.resize(entities.size());
+    }
+
   thickness_expression = par.thickness;
   constant_thickness   = 0.01;
   try
@@ -858,10 +930,31 @@ TensorProductSpace<0, dim, spacedim, n_components>::
     {
       AssertThrow(false, ExcMessage("Thickness expression is out of range."));
     }
-  AssertThrow(
-    thickness_expression.empty(),
-    ExcMessage(
-      "Symbolic thickness and imported fields are not supported for 0D representative points."));
+  if (!thickness_expression.empty())
+    {
+      std::vector<std::string> symbols;
+      symbols.reserve(properties_bindings.size());
+      for (const auto &binding : properties_bindings)
+        symbols.push_back(binding.symbol_name);
+      thickness_evaluator.initialize({thickness_expression},
+                                     symbols,
+                                     {{"pi", numbers::PI}, {"E", numbers::E}});
+    }
+  entity_thickness.resize(entities.size(), constant_thickness);
+  if (!thickness_expression.empty())
+    for (unsigned int entity = 0; entity < entities.size(); ++entity)
+      {
+        std::vector<double> value(1);
+        thickness_evaluator.evaluate_into(entities[entity].position,
+                                          evaluation_time,
+                                          entity_properties[entity],
+                                          value);
+        AssertThrow(std::isfinite(value[0]) && value[0] > 0.,
+                    ExcMessage(
+                      "Thickness must be finite and positive for every "
+                      "representative entity."));
+        entity_thickness[entity] = value[0];
+      }
 }
 
 template <int dim, int spacedim, int n_components>
@@ -967,13 +1060,15 @@ TensorProductSpace<0, dim, spacedim, n_components>::compute_points_and_weights()
     {
       const auto &entity = entities[entity_id];
       reduced_qpoints.push_back(entity.position);
+      const double thickness = entity_thickness.empty() ?
+                                 constant_thickness :
+                                 entity_thickness[entity_id];
       reduced_weights.push_back({entity.weight});
-      section_measure.push_back(
-        {reference_cross_section.measure(constant_thickness)});
+      section_measure.push_back({reference_cross_section.measure(thickness)});
       const auto transformed =
         reference_cross_section.get_transformed_quadrature(entity.position,
                                                            entity.orientation,
-                                                           constant_thickness);
+                                                           thickness);
       for (const auto q : transformed.get_points())
         all_qpoints.push_back(q);
       for (const auto weight : transformed.get_weights())
@@ -1099,9 +1194,12 @@ TensorProductSpace<0, dim, spacedim, n_components>::update_local_dof_indices(
 template <int dim, int spacedim, int n_components>
 double
 TensorProductSpace<0, dim, spacedim, n_components>::get_scaling(
-  unsigned int) const
+  unsigned int entity_id) const
 {
-  return std::pow(constant_thickness, -(dim / 2.0));
+  AssertIndexRange(entity_id, entities.size());
+  const double thickness =
+    entity_thickness.empty() ? constant_thickness : entity_thickness[entity_id];
+  return std::pow(thickness, -(dim / 2.0));
 }
 
 template <int dim, int spacedim, int n_components>
@@ -1124,6 +1222,12 @@ TensorProductSpace<0, dim, spacedim, n_components>::get_properties_catalog()
   return properties_catalog;
 }
 template <int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_properties() const
+{
+  return entity_properties;
+}
+template <int dim, int spacedim, int n_components>
 const std::vector<InputFieldBinding> &
 TensorProductSpace<0, dim, spacedim, n_components>::get_properties_bindings()
   const
@@ -1142,14 +1246,46 @@ const SymbolicFieldEvaluator &
 TensorProductSpace<0, dim, spacedim, n_components>::get_thickness_evaluator()
   const
 {
-  static SymbolicFieldEvaluator evaluator;
-  return evaluator;
+  return thickness_evaluator;
 }
 template <int dim, int spacedim, int n_components>
 void
 TensorProductSpace<0, dim, spacedim, n_components>::set_time(double time)
 {
   evaluation_time = time;
+  if (thickness_expression.empty())
+    return;
+  for (unsigned int entity = 0; entity < entities.size(); ++entity)
+    {
+      std::vector<double> value(1);
+      thickness_evaluator.evaluate_into(entities[entity].position,
+                                        evaluation_time,
+                                        entity_properties[entity],
+                                        value);
+      AssertThrow(std::isfinite(value[0]) && value[0] > 0.,
+                  ExcMessage("Thickness must be finite and positive for every "
+                             "representative entity."));
+      entity_thickness[entity] = value[0];
+    }
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<double> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_entity_property_values(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, entity_properties.size());
+  return entity_properties[entity_id];
+}
+
+template <int dim, int spacedim, int n_components>
+double
+TensorProductSpace<0, dim, spacedim, n_components>::get_entity_thickness(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, entities.size());
+  return entity_thickness.empty() ? constant_thickness :
+                                    entity_thickness[entity_id];
 }
 
 template struct TensorProductSpaceParameters<0, 2, 2, 1>;
