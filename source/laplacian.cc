@@ -741,8 +741,7 @@ PoissonProblem<dim, spacedim>::solve()
         CumulativeSolverControl   control_lagrangian(100000, 1e-2, false, true);
         SolverCG<LA::MPI::Vector> solver_lagrangian(control_lagrangian);
 
-        auto Aug_inv =
-          inverse_operator(Aug, solver_lagrangian); //! augmented
+        auto Aug_inv = inverse_operator(Aug, solver_lagrangian); //! augmented
         SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
         BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>

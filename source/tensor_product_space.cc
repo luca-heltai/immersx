@@ -626,6 +626,18 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
 double
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  characteristic_immersed_mesh_size() const
+{
+  AssertThrow(triangulation.n_active_cells() > 0,
+              ExcMessage("The reduced space must be initialized before its "
+                         "characteristic immersed mesh size can be queried."));
+
+  return GridTools::minimal_cell_diameter(triangulation);
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+double
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::get_scaling(
   const unsigned int) const
 {

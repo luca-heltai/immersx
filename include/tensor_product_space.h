@@ -350,6 +350,20 @@ public:
   get_triangulation() const;
 
   /**
+   * Return the characteristic cell size of the immersed/reduced mesh.
+   *
+   * The value is currently the minimum active-cell diameter of this
+   * tensor-product space's reduced triangulation. It is derived exclusively
+   * from the immersed/reduced discretization and must not be confused with a
+   * characteristic size of the background finite-element mesh. In
+   * particular, no background triangulation is consulted here.
+   *
+   * The reduced space must be initialized before calling this function.
+   */
+  double
+  characteristic_immersed_mesh_size() const;
+
+  /**
    * Return the scaling associated with one reduced cell.
    */
   double

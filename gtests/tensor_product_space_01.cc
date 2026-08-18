@@ -18,6 +18,7 @@
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
@@ -50,6 +51,8 @@ TEST(TensorProductSpace, GridGeneration) // NOLINT
   // Verify the reduced grid was created
   const DoFHandler<reduced_dim, spacedim> &dof_handler = tps.get_dof_handler();
   ASSERT_GT(dof_handler.n_dofs(), 0);
+  EXPECT_DOUBLE_EQ(tps.characteristic_immersed_mesh_size(),
+                   GridTools::minimal_cell_diameter(tps.get_triangulation()));
 
   // Get quadrature points positions and check they are not empty
   const auto &qpoints = tps.get_locally_owned_qpoints();
