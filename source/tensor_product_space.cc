@@ -37,6 +37,7 @@
 #include <regex>
 
 #include "immersed_repartitioner.h"
+#include "legacy_inclusions.h"
 
 #ifdef DEAL_II_WITH_VTK
 
@@ -44,6 +45,51 @@
 
 namespace
 {
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  const ReferenceCrossSectionParameters<dim - reduced_dim,
+                                        spacedim,
+                                        n_components> &
+  reference_section_parameters(
+    const TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>
+      &par)
+  {
+    if (!par.inclusions_file.empty())
+      {
+        // P_d restricted to the unit circle contains 1+2d Fourier modes.
+        // Choose the smallest polynomial degree that can contain the legacy
+        // prefix, while preserving an explicitly configured larger degree.
+        const auto required_degree = par.legacy_n_coefficients / 2;
+        par.section.inclusion_degree =
+          std::max(par.section.inclusion_degree, required_degree);
+
+        if (par.section.selected_coefficients.empty())
+          {
+            const auto canonical_indices =
+              LegacyInclusions::fourier_to_reference_indices(
+                par.legacy_n_coefficients,
+                n_components,
+                par.section.inclusion_degree,
+                spacedim);
+            if (!par.legacy_selected_coefficients.empty())
+              {
+                par.section.selected_coefficients.clear();
+                for (const auto legacy_index : par.legacy_selected_coefficients)
+                  {
+                    AssertThrow(legacy_index < canonical_indices.size(),
+                                ExcIndexRange(legacy_index,
+                                              0,
+                                              canonical_indices.size()));
+                    par.section.selected_coefficients.push_back(
+                      canonical_indices[legacy_index]);
+                  }
+              }
+            else
+              par.section.selected_coefficients = canonical_indices;
+          }
+      }
+    return par.section;
+  }
+
   unsigned int
   quadrature_selector_order(const std::string &quadrature_type,
                             const unsigned int requested_n_q_points,
@@ -75,6 +121,18 @@ TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components>::
   add_parameter("Thickness", thickness);
   add_parameter("Input file fields", input_file_fields);
   add_parameter("Reduced grid name", reduced_grid_name);
+  add_parameter("Inclusions file",
+                inclusions_file,
+                "Legacy inclusion geometry input. It is converted immediately "
+                "to the canonical tensor-product representation.");
+  add_parameter("Data file",
+                data_file,
+                "Legacy per-record data input. It is imported as normal "
+                "representative properties.");
+  add_parameter("Number of fourier coefficients", legacy_n_coefficients);
+  add_parameter("Selection of Fourier coefficients",
+                legacy_selected_coefficients);
+  add_parameter("Reference inclusion data", legacy_reference_inclusion_data);
 }
 
 // Constructor for TensorProductSpace
@@ -86,7 +144,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     MPI_Comm mpi_communicator)
   : mpi_communicator(mpi_communicator)
   , par(par)
-  , reference_cross_section(par.section)
+  , reference_cross_section(reference_section_parameters(par))
   , triangulation(mpi_communicator)
   , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
        reference_cross_section.n_selected_basis())
@@ -138,20 +196,54 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   Triangulation<reduced_dim, spacedim> serial_tria;
   DoFHandler<reduced_dim, spacedim>    serial_properties_dh(serial_tria);
   Vector<double>                       serial_properties;
-  VTKUtils::read_vtk(par.reduced_grid_name,
-                     serial_properties_dh,
-                     serial_properties,
-                     properties_catalog);
+  AssertThrow(par.reduced_grid_name.empty() || par.inclusions_file.empty(),
+              ExcMessage(
+                "Reduced grid name and legacy Inclusions file cannot be "
+                "specified at the same time."));
+  if (!par.inclusions_file.empty())
+    {
+      if constexpr (reduced_dim == 1 && dim == 2 && spacedim == 3)
+        LegacyInclusions::read_3d(par.inclusions_file,
+                                  par.data_file,
+                                  par.legacy_n_coefficients,
+                                  n_components,
+                                  par.legacy_reference_inclusion_data,
+                                  serial_tria,
+                                  serial_properties_dh,
+                                  serial_properties,
+                                  properties_catalog);
+      else
+        AssertThrow(false,
+                    ExcMessage(
+                      "The legacy inclusion adapter supports only "
+                      "ReducedCoupling<1,2,3> for positive-dimensional "
+                      "representative domains."));
+    }
+  else
+    VTKUtils::read_vtk(par.reduced_grid_name,
+                       serial_properties_dh,
+                       serial_properties,
+                       properties_catalog);
   properties_names.clear();
   properties_names.reserve(properties_catalog.size());
   for (const auto &field : properties_catalog)
     properties_names.push_back(field.vtk_name);
 
+  const bool legacy_radius_thickness =
+    !par.inclusions_file.empty() && par.thickness == "0.01";
+  std::string input_file_fields = par.input_file_fields;
+  if (legacy_radius_thickness && input_file_fields != "*" &&
+      input_file_fields.find("radius") == std::string::npos)
+    input_file_fields =
+      input_file_fields.empty() ? "radius" : input_file_fields + ",radius";
   properties_bindings =
-    InputFieldSelector::resolve(par.input_file_fields, properties_catalog);
+    InputFieldSelector::resolve(input_file_fields, properties_catalog);
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
     {
-      std::cout << "Input fields exposed from " << par.reduced_grid_name << ":";
+      std::cout << "Input fields exposed from "
+                << (par.inclusions_file.empty() ? par.reduced_grid_name :
+                                                  par.inclusions_file)
+                << ":";
       if (properties_bindings.empty())
         std::cout << " (none)";
       for (const auto &binding : properties_bindings)
@@ -168,7 +260,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
       std::cout << std::endl;
     }
 
-  thickness_expression = par.thickness;
+  thickness_expression = legacy_radius_thickness ? "radius" : par.thickness;
   constant_thickness   = 0.01;
   try
     {
@@ -784,7 +876,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::TensorProductSpace(
   MPI_Comm mpi_communicator)
   : mpi_communicator(mpi_communicator)
   , par(par)
-  , reference_cross_section(par.section)
+  , reference_cross_section(reference_section_parameters(par))
   , point_cloud(par.point_cloud)
 {}
 
@@ -824,7 +916,12 @@ template <int dim, int spacedim, int n_components>
 void
 TensorProductSpace<0, dim, spacedim, n_components>::prepare()
 {
-  const bool file_input = !par.reduced_grid_name.empty();
+  AssertThrow(par.reduced_grid_name.empty() || par.inclusions_file.empty(),
+              ExcMessage(
+                "Reduced grid name and legacy Inclusions file cannot be "
+                "specified at the same time."));
+  const bool file_input =
+    !par.reduced_grid_name.empty() || !par.inclusions_file.empty();
   if (file_input)
     make_reduced_grid_and_properties();
   else if (point_cloud.points.empty())
@@ -909,7 +1006,22 @@ TensorProductSpace<0, dim, spacedim, n_components>::
   entity_properties.clear();
   entity_thickness.clear();
 
-  if (!par.reduced_grid_name.empty())
+  if (!par.inclusions_file.empty())
+    {
+      if constexpr (dim == 1 && spacedim == 2)
+        LegacyInclusions::read_2d(par.inclusions_file,
+                                  par.data_file,
+                                  par.legacy_n_coefficients,
+                                  n_components,
+                                  par.legacy_reference_inclusion_data,
+                                  point_cloud);
+      else
+        AssertThrow(false,
+                    ExcMessage("The legacy inclusion adapter supports only "
+                               "ReducedCoupling<0,1,2> for zero-dimensional "
+                               "representative domains."));
+    }
+  else if (!par.reduced_grid_name.empty())
     {
       PointCloud<spacedim> imported_cloud;
       const auto extension_pos = par.reduced_grid_name.find_last_of('.');
@@ -1029,8 +1141,15 @@ TensorProductSpace<0, dim, spacedim, n_components>::
       for (const auto &field : properties_catalog)
         properties_names.push_back(field.vtk_name);
     }
-  properties_bindings =
-    InputFieldSelector::resolve(par.input_file_fields, properties_catalog);
+  const bool legacy_radius_thickness =
+    !par.inclusions_file.empty() && par.thickness == "0.01";
+  properties_bindings = InputFieldSelector::resolve(
+    legacy_radius_thickness ?
+      (par.input_file_fields.empty() || par.input_file_fields == "*" ?
+         (par.input_file_fields.empty() ? "radius" : par.input_file_fields) :
+         par.input_file_fields + ",radius") :
+      par.input_file_fields,
+    properties_catalog);
   entity_properties.resize(local_count,
                            std::vector<double>(properties_bindings.size()));
   for (unsigned int entity = 0; entity < local_count; ++entity)
@@ -1089,7 +1208,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
           }
     }
 
-  thickness_expression = par.thickness;
+  thickness_expression = legacy_radius_thickness ? "radius" : par.thickness;
   constant_thickness   = 0.01;
   try
     {
@@ -1639,6 +1758,8 @@ TensorProductSpace<0, dim, spacedim, n_components>::get_entity_orientation(
 
 template struct TensorProductSpaceParameters<0, 2, 2, 1>;
 template struct TensorProductSpaceParameters<0, 2, 2, 2>;
+template struct TensorProductSpaceParameters<0, 1, 2, 1>;
+template struct TensorProductSpaceParameters<0, 1, 2, 2>;
 template struct TensorProductSpaceParameters<1, 2, 2, 1>;
 template struct TensorProductSpaceParameters<1, 2, 3, 1>;
 template struct TensorProductSpaceParameters<1, 3, 3, 1>;
@@ -1651,6 +1772,8 @@ template struct TensorProductSpaceParameters<2, 3, 3, 3>;
 
 template class TensorProductSpace<0, 2, 2, 1>;
 template class TensorProductSpace<0, 2, 2, 2>;
+template class TensorProductSpace<0, 1, 2, 1>;
+template class TensorProductSpace<0, 1, 2, 2>;
 template class TensorProductSpace<1, 2, 2, 1>;
 template class TensorProductSpace<1, 2, 3, 1>;
 template class TensorProductSpace<1, 3, 3, 1>;
