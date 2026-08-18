@@ -1,0 +1,40 @@
+subsection Poisson
+  set Dirichlet boundary ids             = 0,1
+  set FE degree                          = 1
+  set Initial refinement                 = 2
+  set Output directory                   = ./output/poisson_12d
+  set Output name                        = poisson_12d
+  set Output results also before solving = false
+  subsection Dirichlet boundary conditions
+    set Function constants  =
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Triangulation type       = distributed
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 20000
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.3
+    set Strategy                    = global
+  end
+  subsection Right hand side
+    set Function constants  =
+    set Function expression = 1
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-10
+      set Tolerance     = 1.e-12
+    end
+  end
+end
