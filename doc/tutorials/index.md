@@ -17,6 +17,7 @@ tutorials grouped here scales well as more guides are added for `laplacian`,
 ```{toctree}
 :maxdepth: 1
 
+poisson
 reduced-poisson
 elasticity
 coupled-elasticity

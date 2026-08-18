@@ -33,6 +33,26 @@ using namespace dealii;
 
 namespace
 {
+  template <int dim, int spacedim>
+  void
+  read_poisson_grid(const std::string            &grid_file_name,
+                    const std::string            &ids_and_cad_file_names,
+                    Triangulation<dim, spacedim> &tria)
+  {
+    if constexpr (dim == 1)
+      {
+        // The distributed 1D path is intentionally independent of the CAD
+        // manifold helper, whose deal.II link-time instantiations are only
+        // available for the volume/surface cases used by the main solvers.
+        GridIn<dim, spacedim> grid_in;
+        grid_in.attach_triangulation(tria);
+        grid_in.read(grid_file_name);
+        (void)ids_and_cad_file_names;
+      }
+    else
+      read_grid_and_cad_files(grid_file_name, ids_and_cad_file_names, tria);
+  }
+
   void
   ensure_output_directory(const std::string &directory)
   {
@@ -66,6 +86,11 @@ PoissonParameters<dim, spacedim>::PoissonParameters()
   {
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
+    add_parameter("Triangulation type",
+                  triangulation_type,
+                  "",
+                  this->prm,
+                  Patterns::Selection("distributed|fullydistributed"));
   }
   leave_subsection();
 
@@ -102,14 +127,43 @@ PoissonSolver<dim, spacedim>::PoissonSolver(
                     pcout,
                     TimerOutput::summary,
                     TimerOutput::wall_times)
-  , tria(mpi_communicator,
-         typename Triangulation<spacedim>::MeshSmoothing(
-           Triangulation<spacedim>::smoothing_on_refinement |
-           Triangulation<spacedim>::smoothing_on_coarsening),
-         parallel::distributed::Triangulation<
-           spacedim>::construct_multigrid_hierarchy)
-  , dh(tria)
+  , triangulation_storage(make_triangulation_storage(mpi_communicator))
+  , tria(&std::visit(
+      [](auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
+        return selected_tria;
+      },
+      triangulation_storage))
+  , dh()
 {}
+
+
+template <int dim, int spacedim>
+typename PoissonSolver<dim, spacedim>::TriangulationVariant
+PoissonSolver<dim, spacedim>::make_triangulation_storage(
+  MPI_Comm mpi_communicator)
+{
+  if constexpr (dim == 1)
+    return TriangulationVariant(
+      std::in_place_type<FullyDistributedTriangulation>, mpi_communicator);
+  else
+    return TriangulationVariant(
+      std::in_place_type<DistributedTriangulation>,
+      mpi_communicator,
+      typename Triangulation<dim, spacedim>::MeshSmoothing(
+        Triangulation<dim, spacedim>::smoothing_on_refinement |
+        Triangulation<dim, spacedim>::smoothing_on_coarsening),
+      parallel::distributed::Triangulation<dim, spacedim>::
+        construct_multigrid_hierarchy);
+}
+
+
+template <int dim, int spacedim>
+bool
+PoissonSolver<dim, spacedim>::uses_fully_distributed_triangulation() const
+{
+  return std::holds_alternative<FullyDistributedTriangulation>(
+    triangulation_storage);
+}
 
 
 template <int dim, int spacedim>
@@ -118,9 +172,62 @@ PoissonSolver<dim, spacedim>::make_grid()
 {
   TimerOutput::Scope t(computing_timer, "Make grid");
 
+  const bool need_fully_distributed =
+    (dim == 1 || par.triangulation_type == "fullydistributed");
+
+  if (need_fully_distributed && !uses_fully_distributed_triangulation())
+    triangulation_storage.template emplace<FullyDistributedTriangulation>(
+      mpi_communicator);
+  else if (!need_fully_distributed && uses_fully_distributed_triangulation())
+    triangulation_storage.template emplace<DistributedTriangulation>(
+      mpi_communicator,
+      typename Triangulation<dim, spacedim>::MeshSmoothing(
+        Triangulation<dim, spacedim>::smoothing_on_refinement |
+        Triangulation<dim, spacedim>::smoothing_on_coarsening),
+      parallel::distributed::Triangulation<dim, spacedim>::
+        construct_multigrid_hierarchy);
+
+  tria = &std::visit(
+    [](auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
+      return selected_tria;
+    },
+    triangulation_storage);
+  dh.reinit(*tria);
+
+  if (!uses_fully_distributed_triangulation())
+    {
+      auto &distributed_tria =
+        std::get<DistributedTriangulation>(triangulation_storage);
+
+      try
+        {
+          GridGenerator::generate_from_name_and_arguments(
+            distributed_tria, par.name_of_grid, par.arguments_for_grid);
+        }
+      catch (...)
+        {
+          pcout << "Generating from name and arguments failed.\n"
+                << "Trying to read the grid from a file." << std::endl;
+          read_poisson_grid(par.name_of_grid,
+                            par.arguments_for_grid,
+                            distributed_tria);
+        }
+
+      distributed_tria.refine_global(par.initial_refinement);
+      pcout << "   Triangulation backend: distributed" << std::endl
+            << "   Number of active cells: " << tria->n_active_cells()
+            << std::endl;
+      return;
+    }
+
+  Triangulation<dim, spacedim> serial_tria(
+    typename Triangulation<dim, spacedim>::MeshSmoothing(
+      Triangulation<dim, spacedim>::smoothing_on_refinement |
+      Triangulation<dim, spacedim>::smoothing_on_coarsening));
+
   try
     {
-      GridGenerator::generate_from_name_and_arguments(tria,
+      GridGenerator::generate_from_name_and_arguments(serial_tria,
                                                       par.name_of_grid,
                                                       par.arguments_for_grid);
     }
@@ -128,10 +235,21 @@ PoissonSolver<dim, spacedim>::make_grid()
     {
       pcout << "Generating from name and arguments failed.\n"
             << "Trying to read the grid from a file." << std::endl;
-      read_grid_and_cad_files(par.name_of_grid, par.arguments_for_grid, tria);
+      read_poisson_grid(par.name_of_grid, par.arguments_for_grid, serial_tria);
     }
 
-  tria.refine_global(par.initial_refinement);
+  serial_tria.refine_global(par.initial_refinement);
+  auto &fully_distributed_tria =
+    std::get<FullyDistributedTriangulation>(triangulation_storage);
+  for (const auto manifold_id : serial_tria.get_manifold_ids())
+    if (manifold_id != numbers::flat_manifold_id)
+      fully_distributed_tria.set_manifold(
+        manifold_id, serial_tria.get_manifold(manifold_id));
+  fully_distributed_tria.copy_triangulation(serial_tria);
+
+  pcout << "   Triangulation backend: fullydistributed"
+        << (dim == 1 ? " (forced for dim=1)" : "") << std::endl;
+  pcout << "   Number of active cells: " << tria->n_active_cells() << std::endl;
 }
 
 
@@ -141,8 +259,9 @@ PoissonSolver<dim, spacedim>::setup_fe()
 {
   TimerOutput::Scope t(computing_timer, "Initial setup");
 
-  fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
-  quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
+  fe = std::make_unique<FESystem<dim, spacedim>>(
+    FE_Q<dim, spacedim>(par.fe_degree), 1);
+  quadrature = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
 }
 
 
@@ -200,12 +319,13 @@ PoissonSolver<dim, spacedim>::assemble_system()
   stiffness_matrix = 0.;
   system_rhs       = 0.;
 
-  FEValues<spacedim> fe_values(*fe,
-                               *quadrature,
-                               update_values | update_gradients |
-                                 update_quadrature_points | update_JxW_values);
-  const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
-  const unsigned int n_q_points    = quadrature->size();
+  FEValues<dim, spacedim> fe_values(*fe,
+                                    *quadrature,
+                                    update_values | update_gradients |
+                                      update_quadrature_points |
+                                      update_JxW_values);
+  const unsigned int      dofs_per_cell = fe->n_dofs_per_cell();
+  const unsigned int      n_q_points    = quadrature->size();
 
   FullMatrix<double>               cell_matrix(dofs_per_cell, dofs_per_cell);
   Vector<double>                   cell_rhs(dofs_per_cell);
@@ -303,13 +423,13 @@ PoissonSolver<dim, spacedim>::output_results() const
   // convention when output before solving is enabled.
   if (cycles_and_solutions.size() == cycle)
     {
-      DataOut<spacedim> data_out;
+      DataOut<dim, spacedim> data_out;
       data_out.attach_dof_handler(dh);
       data_out.add_data_vector(locally_relevant_solution, "solution");
 
-      Vector<float> subdomain(tria.n_active_cells());
+      Vector<float> subdomain(tria->n_active_cells());
       for (unsigned int i = 0; i < subdomain.size(); ++i)
-        subdomain(i) = tria.locally_owned_subdomain();
+        subdomain(i) = tria->locally_owned_subdomain();
       data_out.add_data_vector(subdomain, "subdomain");
       data_out.build_patches();
 
@@ -335,41 +455,60 @@ PoissonSolver<dim, spacedim>::refine_grid()
 {
   TimerOutput::Scope t(computing_timer, "Refine and transfer");
 
-  Vector<float> error_per_cell(tria.n_active_cells());
-  KellyErrorEstimator<spacedim>::estimate(dh,
-                                          QGauss<spacedim - 1>(par.fe_degree +
-                                                               1),
-                                          {},
-                                          locally_relevant_solution,
-                                          error_per_cell);
-
-  if (par.refinement_strategy == "fixed_fraction")
-    parallel::distributed::GridRefinement::refine_and_coarsen_fixed_fraction(
-      tria, error_per_cell, par.refinement_fraction, par.coarsening_fraction);
-  else if (par.refinement_strategy == "fixed_number")
-    parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
-      tria,
-      error_per_cell,
-      par.refinement_fraction,
-      par.coarsening_fraction,
-      par.max_cells);
-  else if (par.refinement_strategy == "global")
-    for (const auto &cell : tria.active_cell_iterators())
-      cell->set_refine_flag();
+  if constexpr (dim == 1)
+    AssertThrow(
+      false,
+      ExcMessage(
+        "Adaptive refinement is not implemented for the fully distributed "
+        "1D Poisson triangulation. Use one initial mesh."));
   else
-    AssertThrow(false,
-                ExcMessage("Unknown Poisson refinement strategy '" +
-                           par.refinement_strategy + "'."));
+    {
+      AssertThrow(
+        !uses_fully_distributed_triangulation(),
+        ExcMessage(
+          "Adaptive refinement is not implemented with "
+          "parallel::fullydistributed::Triangulation in PoissonSolver. "
+          "Use one initial mesh with that backend."));
 
-  SolutionTransfer<spacedim, VectorType> transfer(dh);
-  tria.prepare_coarsening_and_refinement();
-  transfer.prepare_for_coarsening_and_refinement(locally_relevant_solution);
-  tria.execute_coarsening_and_refinement();
+      Vector<float> error_per_cell(tria->n_active_cells());
+      KellyErrorEstimator<dim, spacedim>::estimate(dh,
+                                                   QGauss<dim - 1>(
+                                                     par.fe_degree + 1),
+                                                   {},
+                                                   locally_relevant_solution,
+                                                   error_per_cell);
 
-  setup_system();
-  transfer.interpolate(solution);
-  constraints.distribute(solution);
-  update_locally_relevant_solution();
+      if (par.refinement_strategy == "fixed_fraction")
+        parallel::distributed::GridRefinement::
+          refine_and_coarsen_fixed_fraction(*tria,
+                                            error_per_cell,
+                                            par.refinement_fraction,
+                                            par.coarsening_fraction);
+      else if (par.refinement_strategy == "fixed_number")
+        parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
+          *tria,
+          error_per_cell,
+          par.refinement_fraction,
+          par.coarsening_fraction,
+          par.max_cells);
+      else if (par.refinement_strategy == "global")
+        for (const auto &cell : tria->active_cell_iterators())
+          cell->set_refine_flag();
+      else
+        AssertThrow(false,
+                    ExcMessage("Unknown Poisson refinement strategy '" +
+                               par.refinement_strategy + "'."));
+
+      SolutionTransfer<dim, VectorType, spacedim> transfer(dh);
+      tria->prepare_coarsening_and_refinement();
+      transfer.prepare_for_coarsening_and_refinement(locally_relevant_solution);
+      tria->execute_coarsening_and_refinement();
+
+      setup_system();
+      transfer.interpolate(solution);
+      constraints.distribute(solution);
+      update_locally_relevant_solution();
+    }
 }
 
 
@@ -436,10 +575,16 @@ PoissonSolver<dim, spacedim>::solution_is_finite() const
 }
 
 
+template class PoissonParameters<1>;
+template class PoissonParameters<1, 2>;
+template class PoissonParameters<1, 3>;
 template class PoissonParameters<2>;
 template class PoissonParameters<2, 3>;
 template class PoissonParameters<3>;
 
+template class PoissonSolver<1>;
+template class PoissonSolver<1, 2>;
+template class PoissonSolver<1, 3>;
 template class PoissonSolver<2>;
 template class PoissonSolver<2, 3>;
 template class PoissonSolver<3>;

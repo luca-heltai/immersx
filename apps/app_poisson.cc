@@ -34,7 +34,28 @@ main(int argc, char *argv[])
 
       const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
 
-      if (prm_file.find("23d") != std::string::npos)
+      if (prm_file.find("13d") != std::string::npos)
+        {
+          PoissonParameters<1, 3> par;
+          PoissonSolver<1, 3>     problem(par);
+          initialize_parameters(prm_file);
+          problem.run();
+        }
+      else if (prm_file.find("12d") != std::string::npos)
+        {
+          PoissonParameters<1, 2> par;
+          PoissonSolver<1, 2>     problem(par);
+          initialize_parameters(prm_file);
+          problem.run();
+        }
+      else if (prm_file.find("1d") != std::string::npos)
+        {
+          PoissonParameters<1> par;
+          PoissonSolver<1>     problem(par);
+          initialize_parameters(prm_file);
+          problem.run();
+        }
+      else if (prm_file.find("23d") != std::string::npos)
         {
           PoissonParameters<2, 3> par;
           PoissonSolver<2, 3>     problem(par);
