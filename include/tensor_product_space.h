@@ -136,6 +136,21 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    */
   std::string reduced_grid_name = "";
 
+  /** Legacy ASCII inclusion geometry, consumed only by the input adapter. */
+  std::string inclusions_file = "";
+
+  /** Legacy ASCII coefficient data, consumed only by the input adapter. */
+  std::string data_file = "";
+
+  /** Number of legacy scalar Fourier modes per component. */
+  unsigned int legacy_n_coefficients = 1;
+
+  /** Optional legacy coefficient selection retained for parameter migration. */
+  std::vector<unsigned int> legacy_selected_coefficients;
+
+  /** Coefficients used for every legacy record when no data file is given. */
+  std::vector<double> legacy_reference_inclusion_data;
+
   /** Programmatic point input for zero-dimensional representative domains. */
   PointCloud<spacedim> point_cloud;
 };
