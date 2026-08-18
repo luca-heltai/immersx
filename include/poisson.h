@@ -27,9 +27,11 @@
 #include <deal.II/base/timer.h>
 #include <deal.II/base/utilities.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/grid_refinement.h>
 #include <deal.II/distributed/solution_transfer.h>
 #include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -40,6 +42,7 @@
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/tria.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
@@ -71,15 +74,21 @@ namespace LA
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 
 template <int dim, int spacedim = dim>
 /**
- * Parameters for the standalone background Poisson problem.
+ * Parameters for a scalar Poisson or Laplace--Beltrami problem.
  *
- * The class deliberately contains only data needed for
- * \f$-\Delta u=f\f$ on the background domain.
+ * The equation is
+ * \f$-\Delta_\Omega u=f\f$ on a \f$dim\f$-dimensional mesh embedded in
+ * \f$\mathbb{R}^{spacedim}\f$. For \f$dim=spacedim\f$ this is the usual
+ * Poisson equation; for \f$dim<spacedim\f$ the same finite-element assembly
+ * represents the Laplace--Beltrami operator induced by the mesh geometry.
+ * Functions are evaluated in the embedding space, so right-hand sides and
+ * Dirichlet data use \f$spacedim\f$ coordinates.
  */
 class PoissonParameters : public dealii::ParameterAcceptor
 {
@@ -93,6 +102,7 @@ public:
   std::list<dealii::types::boundary_id> dirichlet_ids{0};
   std::string                           name_of_grid       = "hyper_cube";
   std::string                           arguments_for_grid = "-1: 1: false";
+  std::string                           triangulation_type = "distributed";
 
   std::string  refinement_strategy = "fixed_fraction";
   double       coarsening_fraction = 0.0;
@@ -119,11 +129,28 @@ public:
 
 template <int dim, int spacedim = dim>
 /**
- * Standalone distributed finite-element solver for \f$-\Delta u=f\f$.
+ * Distributed finite-element solver for a scalar Poisson problem.
  *
- * This class is the standalone background Poisson baseline: it owns one scalar
- * finite-element space, one assembled stiffness matrix, and one distributed
- * solution.
+ * The solver follows the standard deal.II step-6 lifecycle:
+ * `make_grid()`, `setup_fe()`, `setup_system()`, `assemble_system()`,
+ * `solve()`, `output_results()`, and optional `refine_grid()` are orchestrated
+ * by `run()`. It owns one scalar finite-element space, one assembled stiffness
+ * matrix, and one distributed solution vector.
+ *
+ * The template parameters describe the mesh dimension and its embedding:
+ * `PoissonSolver<1>`, `PoissonSolver<1, 2>`, `PoissonSolver<1, 3>`,
+ * `PoissonSolver<2>`, `PoissonSolver<2, 3>`, and `PoissonSolver<3>` are the
+ * supported combinations. Embedded meshes use the geometric Jacobians
+ * supplied by deal.II, so the same class also provides a Laplace--Beltrami
+ * discretization.
+ *
+ * The triangulation backend is selected by
+ * `PoissonParameters::triangulation_type`. The usual distributed backend is
+ * used by default for dimensions 2 and 3. The fully distributed backend can
+ * be selected for any supported pair and is forced for `dim == 1`, where
+ * deal.II does not provide a distributed 1D triangulation. Fully distributed
+ * meshes are constructed from a serial mesh and are not currently refined
+ * after construction; use one initial mesh with that backend.
  */
 class PoissonSolver : public dealii::EnableObserverPointer
 {
@@ -154,7 +181,7 @@ public:
   void
   run();
 
-  /** Return the global number of background degrees of freedom. */
+  /** Return the global number of degrees of freedom. */
   dealii::types::global_dof_index
   n_dofs() const;
 
@@ -167,6 +194,19 @@ public:
   solution_is_finite() const;
 
 private:
+  using DistributedTriangulation =
+    dealii::parallel::distributed::Triangulation<dim, spacedim>;
+  using FullyDistributedTriangulation =
+    dealii::parallel::fullydistributed::Triangulation<dim, spacedim>;
+  using TriangulationVariant =
+    std::variant<DistributedTriangulation, FullyDistributedTriangulation>;
+
+  static TriangulationVariant
+  make_triangulation_storage(MPI_Comm mpi_communicator);
+
+  bool
+  uses_fully_distributed_triangulation() const;
+
   void
   update_locally_relevant_solution();
 
@@ -176,10 +216,11 @@ private:
   dealii::ConditionalOStream  pcout;
   mutable dealii::TimerOutput computing_timer;
 
-  dealii::parallel::distributed::Triangulation<spacedim> tria;
-  std::unique_ptr<dealii::FiniteElement<spacedim>>       fe;
-  std::unique_ptr<dealii::Quadrature<spacedim>>          quadrature;
-  dealii::DoFHandler<spacedim>                           dh;
+  TriangulationVariant                                  triangulation_storage;
+  dealii::parallel::TriangulationBase<dim, spacedim>   *tria;
+  std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe;
+  std::unique_ptr<dealii::Quadrature<dim>>              quadrature;
+  dealii::DoFHandler<dim, spacedim>                     dh;
 
   dealii::IndexSet                  owned_dofs;
   dealii::IndexSet                  relevant_dofs;

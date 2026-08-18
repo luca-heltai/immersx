@@ -28,14 +28,27 @@
 using namespace dealii;
 
 
-TEST(Poisson, Construction)
+template <int dim, int spacedim = dim>
+void
+check_poisson_construction()
 {
   ParameterAcceptor::clear();
-  PoissonParameters<2> parameters;
-  PoissonSolver<2>     problem(parameters);
+  PoissonParameters<dim, spacedim> parameters;
+  PoissonSolver<dim, spacedim>     problem(parameters);
 
   EXPECT_EQ(problem.n_dofs(), 0u);
   EXPECT_FALSE(problem.solution_is_finite());
+}
+
+
+TEST(Poisson, Construction)
+{
+  check_poisson_construction<1>();
+  check_poisson_construction<1, 2>();
+  check_poisson_construction<1, 3>();
+  check_poisson_construction<2>();
+  check_poisson_construction<2, 3>();
+  check_poisson_construction<3>();
 }
 
 
@@ -80,6 +93,55 @@ TEST(Poisson, MPI_OneCycleSolve)
     (std::filesystem::temp_directory_path() / "immersx_poisson_01").string();
 
   PoissonSolver<2> problem(parameters);
+  problem.run();
+
+  EXPECT_GT(problem.n_dofs(), 0u);
+  EXPECT_TRUE(problem.solution_is_finite());
+  EXPECT_GT(problem.solution_l2_norm(), 0.);
+}
+
+
+TEST(Poisson, MPI_EmbeddedOneDimensionalSolve)
+{
+  ParameterAcceptor::clear();
+  PoissonParameters<1, 2> parameters;
+  initialize_parameters_from_string(R"(
+    subsection Poisson
+      set FE degree                   = 1
+      set Initial refinement          = 1
+      set Dirichlet boundary ids      = 0,1
+      subsection Grid generation
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Refinement and remeshing
+        set Number of refinement cycles = 1
+        set Strategy                   = global
+      end
+      subsection Right hand side
+        set Function expression = 1
+        set Variable names      = x,y,t
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0
+        set Variable names      = x,y,t
+      end
+      subsection Solver
+        subsection Control
+          set Max steps  = 100
+          set Reduction  = 1.e-10
+          set Tolerance  = 1.e-12
+          set Log result = false
+        end
+      end
+    end
+  )");
+
+  parameters.output_directory =
+    (std::filesystem::temp_directory_path() / "immersx_poisson_embedded_01")
+      .string();
+
+  PoissonSolver<1, 2> problem(parameters);
   problem.run();
 
   EXPECT_GT(problem.n_dofs(), 0u);

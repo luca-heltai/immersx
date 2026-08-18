@@ -1,14 +1,14 @@
 subsection Poisson
-  set Dirichlet boundary ids             = 0
+  set Dirichlet boundary ids             = 0,1,2,3
   set FE degree                          = 1
-  set Initial refinement                 = 1
-  set Output directory                   = /private/tmp/immersx_poisson_app
-  set Output name                        = poisson_app_mpi
+  set Initial refinement                 = 3
+  set Output directory                   = ./output/poisson_2d
+  set Output name                        = poisson_2d
   set Output results also before solving = false
   subsection Dirichlet boundary conditions
     set Function constants  =
     set Function expression = 0
-    set Variable names       = x,y,t
+    set Variable names      = x,y,t
   end
   subsection Grid generation
     set Grid generator           = hyper_cube
@@ -18,14 +18,14 @@ subsection Poisson
   subsection Refinement and remeshing
     set Coarsening fraction         = 0
     set Maximum number of cells     = 20000
-    set Number of refinement cycles = 1
+    set Number of refinement cycles = 3
     set Refinement fraction         = 0.3
     set Strategy                    = global
   end
   subsection Right hand side
     set Function constants  =
     set Function expression = 1
-    set Variable names       = x,y,t
+    set Variable names      = x,y,t
   end
   subsection Solver
     subsection Control
