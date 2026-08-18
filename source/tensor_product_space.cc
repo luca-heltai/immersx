@@ -1437,32 +1437,33 @@ TensorProductSpace<0, dim, spacedim, n_components>::update_local_dof_indices(
   const std::map<unsigned int, IndexSet> &remote_q_point_indices)
 {
   relevant_representative_entities = locally_owned_representative_entities();
-  // The insertion map is returned on each source rank and is keyed by the
-  // destination rank. Exchange the source-local entity lists so every
-  // destination can derive relevance from the qpoints it actually received.
-  const unsigned int nproc = Utilities::MPI::n_mpi_processes(mpi_communicator);
-  const unsigned int rank  = Utilities::MPI::this_mpi_process(mpi_communicator);
-  std::vector<std::vector<unsigned int>> entities_by_destination(nproc);
-  for (const auto &[destination_rank, qpoint_indices] : remote_q_point_indices)
+  // insert_global_particles() returns, on each receiving rank, a map keyed by
+  // the source rank. Its IndexSet contains indices in the source rank's local
+  // qpoint vector. First send this map back to the source ranks so they can
+  // translate those indices into representative entity ids. Then send the
+  // translated ids to the receiving ranks, where they become relevant DoFs.
+  const auto destinations_to_qpoints =
+    Utilities::MPI::some_to_some(mpi_communicator, remote_q_point_indices);
+
+  std::map<unsigned int, IndexSet> entities_by_destination;
+  for (const auto &[destination_rank, qpoint_indices] : destinations_to_qpoints)
     {
-      if (destination_rank >= nproc)
-        continue;
+      IndexSet entities(n_global_representative_entities);
       for (const auto qpoint : qpoint_indices)
-        if (qpoint < lifted_entity_ids.size())
-          entities_by_destination[destination_rank].push_back(
-            lifted_entity_ids[qpoint]);
+        {
+          AssertIndexRange(qpoint, lifted_entity_ids.size());
+          entities.add_index(lifted_entity_ids[qpoint]);
+        }
+      entities.compress();
+      entities_by_destination.emplace(destination_rank, std::move(entities));
     }
-  for (unsigned int destination_rank = 0; destination_rank < nproc;
-       ++destination_rank)
-    {
-      const auto sources_to_destination =
-        Utilities::MPI::all_gather(mpi_communicator,
-                                   entities_by_destination[destination_rank]);
-      if (destination_rank == rank)
-        for (const auto &source_entities : sources_to_destination)
-          for (const auto entity : source_entities)
-            relevant_representative_entities.add_index(entity);
-    }
+
+  const auto sources_to_entities =
+    Utilities::MPI::some_to_some(mpi_communicator, entities_by_destination);
+  for (const auto &[source_rank, entities] : sources_to_entities)
+    for (const auto entity : entities)
+      relevant_representative_entities.add_index(entity);
+
   relevant_representative_entities.compress();
 }
 
