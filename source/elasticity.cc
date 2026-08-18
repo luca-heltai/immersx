@@ -1433,34 +1433,49 @@ ElasticityProblem<dim, spacedim>::solve_static()
 
             CumulativeReductionControl augmented_control(
               par.displacement_solver_control);
-            SolverFGMRES<LA::MPI::Vector> solver_lagrangian(
-              augmented_control,
-              SolverFGMRES<LA::MPI::Vector>::AdditionalData(100));
 
-            const auto build_augmented_block =
-              [&solver_lagrangian, &amgA](const auto &canonical_Aug) {
-                return make_prepared_augmented_block(
-                  canonical_Aug,
-                  inverse_operator(canonical_Aug, solver_lagrangian, amgA));
-              };
+            const auto solve_augmented = [&](auto &solver_lagrangian) {
+              const auto build_augmented_block =
+                [&solver_lagrangian, &amgA](const auto &canonical_Aug) {
+                  return make_prepared_augmented_block(
+                    canonical_Aug,
+                    inverse_operator(canonical_Aug, solver_lagrangian, amgA));
+                };
 
-            LA::MPI::BlockVector solution_block;
-            AugmentedLagrangianSolver<LA::MPI::Vector, LA::MPI::BlockVector>
-              augmented_lagrangian_solver(par.augmented_lagrange_solver_control,
-                                          {gamma});
-            augmented_lagrangian_solver.solve(constraint_system,
-                                              invW,
-                                              build_augmented_block,
-                                              solution_block,
-                                              system_rhs);
+              LA::MPI::BlockVector solution_block;
+              AugmentedLagrangianSolver<LA::MPI::Vector, LA::MPI::BlockVector>
+                augmented_lagrangian_solver(
+                  par.augmented_lagrange_solver_control, {gamma});
+              augmented_lagrangian_solver.solve(constraint_system,
+                                                invW,
+                                                build_augmented_block,
+                                                solution_block,
+                                                system_rhs);
 
-            solution.block(0) = solution_block.block(0);
-            solution.block(1) = solution_block.block(1);
-            output_augmented_lagrangian_iteration_summary(
-              pcout,
-              par.augmented_lagrange_solver_control,
-              augmented_control,
-              mass_control);
+              solution.block(0) = solution_block.block(0);
+              solution.block(1) = solution_block.block(1);
+              output_augmented_lagrangian_iteration_summary(
+                pcout,
+                par.augmented_lagrange_solver_control,
+                augmented_control,
+                mass_control);
+            };
+
+            // The AMG preconditioner is not guaranteed to be SPD for the
+            // augmented operator in distributed runs. In the serial case,
+            // CG preserves the accuracy of the existing AMG solve.
+            if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) > 1)
+              {
+                SolverFGMRES<LA::MPI::Vector> solver_lagrangian(
+                  augmented_control,
+                  SolverFGMRES<LA::MPI::Vector>::AdditionalData(100));
+                solve_augmented(solver_lagrangian);
+              }
+            else
+              {
+                SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
+                solve_augmented(solver_lagrangian);
+              }
           }
         }
       else
