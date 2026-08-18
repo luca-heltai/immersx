@@ -1455,7 +1455,7 @@ ElasticityProblem<dim, spacedim>::solve_static()
             SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
 
             auto Aug_inv =
-              inverse_operator(Aug, solver_lagrangian, amgA); //! augmented
+              inverse_operator(Aug, solver_lagrangian); //! augmented
 
             SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
               par.augmented_lagrange_solver_control);
