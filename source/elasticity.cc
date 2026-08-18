@@ -1433,7 +1433,9 @@ ElasticityProblem<dim, spacedim>::solve_static()
 
             CumulativeReductionControl augmented_control(
               par.displacement_solver_control);
-            SolverFGMRES<LA::MPI::Vector> solver_lagrangian(augmented_control);
+            SolverFGMRES<LA::MPI::Vector> solver_lagrangian(
+              augmented_control,
+              SolverFGMRES<LA::MPI::Vector>::AdditionalData(100));
 
             const auto build_augmented_block =
               [&solver_lagrangian, &amgA](const auto &canonical_Aug) {
