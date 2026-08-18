@@ -89,24 +89,25 @@ void
 ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   const Mapping<spacedim> &mapping)
 {
-  // Initialize the tensor product space
-  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize();
-
-  auto locally_owned_dofs    = this->locally_owned_representative_dofs();
-  auto locally_relevant_dofs = this->locally_relevant_representative_dofs();
-
-  coupling_constraints.clear();
-  coupling_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-  if constexpr (reduced_dim > 0)
-    DoFTools::make_hanging_node_constraints(this->get_dof_handler(),
-                                            coupling_constraints);
-  coupling_constraints.close();
-
-  // Initialize the particle coupling
+  // Initialize the background particle coupling first: its global bounding
+  // boxes define geometric ownership for both representative and lifted
+  // particles.
   ParticleCoupling<spacedim>::initialize_particle_handler(
     *this->background_tria, mapping);
 
-  // Initialize the particles
+  if constexpr (reduced_dim == 0)
+    {
+      this->prepare();
+      this->initialize_representative_particle_handler(
+        *this->background_tria, mapping, this->get_global_bounding_boxes());
+      this->compute_points_and_weights();
+    }
+  else
+    TensorProductSpace<reduced_dim, dim, spacedim, n_components>::initialize();
+
+  // Initialize lifted particles only after representative ownership has been
+  // established. Their quadrature weights remain particle properties; the 0D
+  // representative handler stores no artificial point weight.
   const auto &qpoints = this->get_locally_owned_qpoints();
   const auto &weights = this->get_locally_owned_weights();
   auto        q_index = this->insert_points(qpoints, weights);
@@ -115,6 +116,15 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   // assignment before any assembly uses particle ids.
   this->register_particle_id_mapping();
   this->update_local_dof_indices(q_index);
+
+  auto locally_owned_dofs    = this->locally_owned_representative_dofs();
+  auto locally_relevant_dofs = this->locally_relevant_representative_dofs();
+  coupling_constraints.clear();
+  coupling_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
+  if constexpr (reduced_dim > 0)
+    DoFTools::make_hanging_node_constraints(this->get_dof_handler(),
+                                            coupling_constraints);
+  coupling_constraints.close();
 
   const unsigned int n_basis =
     this->get_reference_cross_section().n_selected_basis();

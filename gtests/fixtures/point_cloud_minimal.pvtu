@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<VTKFile type="PUnstructuredGrid" version="0.1" byte_order="LittleEndian">
+  <PUnstructuredGrid GhostLevel="0">
+    <PPointData Scalars="radius">
+      <PDataArray type="Float64" Name="radius" NumberOfComponents="1"/>
+    </PPointData>
+    <PCellData/>
+    <PPoints>
+      <PDataArray type="Float64" NumberOfComponents="3"/>
+    </PPoints>
+    <Piece Source="point_cloud_piece_0.vtu"/>
+    <Piece Source="point_cloud_piece_1.vtu"/>
+  </PUnstructuredGrid>
+</VTKFile>

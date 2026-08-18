@@ -26,8 +26,10 @@
 #  include <vtkCell.h>
 #  include <vtkCellData.h>
 #  include <vtkDataArray.h>
+#  include <vtkInformation.h>
 #  include <vtkPointData.h>
 #  include <vtkSmartPointer.h>
+#  include <vtkStreamingDemandDrivenPipeline.h>
 #  include <vtkUnstructuredGrid.h>
 #  include <vtkUnstructuredGridReader.h>
 #  include <vtkXMLPUnstructuredGridReader.h>
@@ -44,7 +46,10 @@ namespace VTKUtils
   namespace
   {
     vtkSmartPointer<vtkUnstructuredGrid>
-    read_unstructured_grid(const std::string &filename)
+    read_unstructured_grid(const std::string &filename,
+                           const unsigned int requested_piece =
+                             std::numeric_limits<unsigned int>::max(),
+                           const unsigned int n_requested_pieces = 1)
     {
       std::string extension;
       const auto  dot = filename.find_last_of('.');
@@ -73,6 +78,19 @@ namespace VTKUtils
         {
           auto reader = vtkSmartPointer<vtkXMLPUnstructuredGridReader>::New();
           reader->SetFileName(filename.c_str());
+          if (requested_piece != std::numeric_limits<unsigned int>::max())
+            {
+              AssertThrow(n_requested_pieces > 0,
+                          ExcMessage("PVTU piece count must be positive."));
+              reader->UpdateInformation();
+              auto *information = reader->GetOutputInformation(0);
+              information->Set(
+                vtkStreamingDemandDrivenPipeline::UPDATE_PIECE_NUMBER(),
+                static_cast<int>(requested_piece));
+              information->Set(
+                vtkStreamingDemandDrivenPipeline::UPDATE_NUMBER_OF_PIECES(),
+                static_cast<int>(n_requested_pieces));
+            }
           reader->Update();
           return copy_output(reader->GetOutput());
         }
@@ -131,9 +149,12 @@ namespace VTKUtils
   template <int spacedim>
   void
   read_vtk_point_cloud(const std::string    &vtk_filename,
-                       PointCloud<spacedim> &point_cloud)
+                       PointCloud<spacedim> &point_cloud,
+                       const unsigned int    requested_piece,
+                       const unsigned int    n_requested_pieces)
   {
-    const auto grid = read_unstructured_grid(vtk_filename);
+    const auto grid =
+      read_unstructured_grid(vtk_filename, requested_piece, n_requested_pieces);
     AssertThrow(grid->GetPoints() != nullptr,
                 ExcMessage("VTK particle file has no points: " + vtk_filename));
     AssertThrow(spacedim <= 3,
@@ -937,11 +958,20 @@ VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<3, 3> &,
                                                const Triangulation<3, 3> &);
 
 template void
-VTKUtils::read_vtk_point_cloud(const std::string &, PointCloud<1> &);
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               PointCloud<1> &,
+                               const unsigned int,
+                               const unsigned int);
 template void
-VTKUtils::read_vtk_point_cloud(const std::string &, PointCloud<2> &);
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               PointCloud<2> &,
+                               const unsigned int,
+                               const unsigned int);
 template void
-VTKUtils::read_vtk_point_cloud(const std::string &, PointCloud<3> &);
+VTKUtils::read_vtk_point_cloud(const std::string &,
+                               PointCloud<3> &,
+                               const unsigned int,
+                               const unsigned int);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<1>> &,
