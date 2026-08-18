@@ -39,7 +39,10 @@
 #  include <filesystem>
 #  include <type_traits>
 
-#  include "augmented_lagrangian_preconditioner.h"
+#  include <deal.II/grid/grid_tools_geometry.h>
+
+#  include "augmented_lagrangian.h"
+#  include "constraint_system.h"
 #  include "reduced_poisson.h"
 #  include "solver_controls.h"
 #  include "utils.h"
@@ -762,87 +765,75 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
           TrilinosWrappers::PreconditionILU M_inv_ilu;
           M_inv_ilu.initialize(reduced_mass_matrix);
 
-          TrilinosWrappers::MPI::Vector inverse_squares_reduced; // diag(M)^{-2}
-          inverse_squares_reduced.reinit(owned_dofs[1], mpi_communicator);
+          TrilinosWrappers::MPI::Vector inverse_reduced; // diag(M)^{-1}
+          inverse_reduced.reinit(owned_dofs[1], mpi_communicator);
           for (const types::global_dof_index local_idx : owned_dofs[1])
             {
               const double el = reduced_mass_matrix.diag_element(local_idx);
               Assert(std::abs(el) > 1e-10,
                      ExcMessage(
                        "Diagonal element " + std::to_string(local_idx) +
-                       " of reduced mass matrix (" + std::to_string(el) +
-                       ") is close to zero. Cannot compute inverse square."));
-              inverse_squares_reduced(local_idx) = 1. / (el * el);
+                         " of reduced mass matrix (" + std::to_string(el) +
+                         ") is close to zero. Cannot compute inverse."));
+              inverse_reduced(local_idx) = 1. / el;
             }
 
-          inverse_squares_reduced.compress(VectorOperation::insert);
+          inverse_reduced.compress(VectorOperation::insert);
 
 
           CumulativeSolverControl solver_control(100, 1e-15, false, false);
           SolverCG<TrilinosWrappers::MPI::Vector> solver_mass_matrix(
             solver_control);
-          auto invM = inverse_operator(M, solver_mass_matrix, M_inv_ilu);
-          auto invW = invM * invM;
+          const double h_inv =
+            1. / GridTools::minimal_cell_diameter(tria);
+          auto invW =
+            h_inv * inverse_operator(M, solver_mass_matrix, M_inv_ilu);
+          inverse_reduced *= h_inv;
+          inverse_reduced.compress(VectorOperation::insert);
 
-          const double gamma = 10; // TODO: add to parameters file
-          auto         Aug   = A + gamma * Bt * invW * B;
+          const double gamma             = 10; // TODO: add to parameters file
+          const auto   constraint_system = make_constraint_system(A, B, Bt, M);
 
-          TrilinosWrappers::SparseMatrix augmented_matrix;
-
+          TrilinosWrappers::SparseMatrix    augmented_matrix;
           TrilinosWrappers::PreconditionAMG prec_amg_augmented_block;
           TrilinosWrappers::PreconditionAMG::AdditionalData data;
-
-          if (par.assemble_full_AL_system)
-            {
-              pcout << "Building augmented matrix..." << std::endl;
-              UtilitiesAL::create_augmented_block(stiffness_matrix,
-                                                  coupling_matrix,
-                                                  inverse_squares_reduced,
-                                                  gamma,
-                                                  augmented_matrix);
-              prec_amg_augmented_block.initialize(augmented_matrix, data);
-              pcout << "done." << std::endl;
-              Aug = linear_operator<VectorType, VectorType, Payload>(
-                augmented_matrix);
-            }
-          else
-            {
-              prec_amg_augmented_block.initialize(stiffness_matrix, data);
-            }
-
-
-          auto Zero = M * 0.0;
-          auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
-            {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
-
-          LA::MPI::BlockVector solution_block;
-          LA::MPI::BlockVector system_rhs_block;
-          AA.reinit_domain_vector(solution_block, false);
-          AA.reinit_range_vector(system_rhs_block, false);
-
-          // lagrangian term
-          LA::MPI::Vector tmp;
-          tmp.reinit(system_rhs.block(0));
-          tmp                       = gamma * Bt * invW * system_rhs.block(1);
-          system_rhs_block.block(0) = system_rhs.block(0);
-          system_rhs_block.block(0).add(1., tmp); // ! augmented
-          system_rhs_block.block(1) = system_rhs.block(1);
-
           CumulativeReductionControl inner_control(par.inner_control);
           SolverCG<LA::MPI::Vector>  solver_lagrangian(inner_control);
 
+          const auto build_augmented_block = [&](const auto &canonical_Aug) {
+            auto Aug = canonical_Aug;
+            if (par.assemble_full_AL_system)
+              {
+                pcout << "Building augmented matrix..." << std::endl;
+                UtilitiesAL::create_augmented_block(stiffness_matrix,
+                                                    coupling_matrix,
+                                                    inverse_reduced,
+                                                    gamma,
+                                                    augmented_matrix);
+                prec_amg_augmented_block.initialize(augmented_matrix, data);
+                pcout << "done." << std::endl;
+                Aug = linear_operator<VectorType, VectorType, Payload>(
+                  augmented_matrix);
+              }
+            else
+              {
+                prec_amg_augmented_block.initialize(stiffness_matrix, data);
+              }
+            return make_prepared_augmented_block(
+              Aug,
+              inverse_operator(Aug,
+                               solver_lagrangian,
+                               prec_amg_augmented_block));
+          };
 
-          auto Aug_inv =
-            inverse_operator(Aug, solver_lagrangian, prec_amg_augmented_block);
-
-          SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
-          UtilitiesAL::BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
-            augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
-
-          solver_fgmres.solve(AA,
-                              solution_block,
-                              system_rhs_block,
-                              augmented_lagrangian_preconditioner);
+          LA::MPI::BlockVector solution_block;
+          AugmentedLagrangianSolver<LA::MPI::Vector, LA::MPI::BlockVector>
+            augmented_lagrangian_solver(par.outer_control, {gamma});
+          augmented_lagrangian_solver.solve(constraint_system,
+                                            invW,
+                                            build_augmented_block,
+                                            solution_block,
+                                            system_rhs);
 
           output_augmented_lagrangian_iteration_summary(pcout,
                                                         par.outer_control,

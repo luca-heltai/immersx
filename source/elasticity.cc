@@ -17,12 +17,14 @@
 
 #include "elasticity.h"
 
+#include <deal.II/grid/grid_tools_geometry.h>
+
 #include <iomanip>
 #include <limits>
 #include <sstream>
 
 #include "augmented_lagrangian.h"
-#include "augmented_lagrangian_preconditioner.h"
+#include "constraint_system.h"
 #include "solver_controls.h"
 #include "utils.h"
 
@@ -1424,49 +1426,31 @@ ElasticityProblem<dim, spacedim>::solve_static()
             CumulativeReductionControl mass_control(
               par.reduced_mass_solver_control);
             SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(mass_control);
-            auto invM = inverse_operator(M, solver_CG_M, amgM);
-            auto invW = invM * invM;
-
-            // Try augmented lagrangian preconditioner
+            const double h_inv = 1. / GridTools::minimal_cell_diameter(*tria);
+            auto         invW  = h_inv * inverse_operator(M, solver_CG_M, amgM);
             const double gamma = 10;
-            auto         Aug   = A + gamma * Bt * invW * B;
-
-
-            auto Zero = M * 0.0;
-            auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
-              {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
-
-            LA::MPI::BlockVector solution_block;
-            LA::MPI::BlockVector system_rhs_block;
-            AA.reinit_domain_vector(solution_block, false);
-            AA.reinit_range_vector(system_rhs_block, false);
-
-
-            // lagrangian term
-            LA::MPI::Vector tmp;
-            tmp.reinit(system_rhs.block(0));
-            tmp                       = gamma * Bt * invW * system_rhs.block(1);
-            system_rhs_block.block(0) = system_rhs.block(0);
-            system_rhs_block.block(0).add(1., tmp); // ! augmented
-            system_rhs_block.block(1) = system_rhs.block(1);
+            const auto constraint_system = make_constraint_system(A, B, Bt, M);
 
             CumulativeReductionControl augmented_control(
               par.displacement_solver_control);
             SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
 
-            auto Aug_inv =
-              inverse_operator(Aug, solver_lagrangian); //! augmented
+            const auto build_augmented_block =
+              [&solver_lagrangian](const auto &canonical_Aug) {
+                return make_prepared_augmented_block(
+                  canonical_Aug,
+                  inverse_operator(canonical_Aug, solver_lagrangian));
+              };
 
-            SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
-              par.augmented_lagrange_solver_control);
-
-            BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
-              augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
-
-            solver_fgmres.solve(AA,
-                                solution_block,
-                                system_rhs_block,
-                                augmented_lagrangian_preconditioner);
+            LA::MPI::BlockVector solution_block;
+            AugmentedLagrangianSolver<LA::MPI::Vector, LA::MPI::BlockVector>
+              augmented_lagrangian_solver(par.augmented_lagrange_solver_control,
+                                          {gamma});
+            augmented_lagrangian_solver.solve(constraint_system,
+                                              invW,
+                                              build_augmented_block,
+                                              solution_block,
+                                              system_rhs);
 
             solution.block(0) = solution_block.block(0);
             solution.block(1) = solution_block.block(1);

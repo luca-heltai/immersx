@@ -39,6 +39,8 @@
 
 #include <cstdbool>
 
+#include <deal.II/grid/grid_tools_geometry.h>
+
 #include "augmented_lagrangian.h"
 #include "solver_controls.h"
 #include "utils.h"
@@ -710,8 +712,9 @@ PoissonProblem<dim, spacedim>::solve()
 
         CumulativeSolverControl solver_control(100, 1e-15, false, false);
         SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(solver_control);
-        auto invM = inverse_operator(M, solver_CG_M, M_inv_ilu);
-        auto invW = invM * invM;
+        const double h_inv =
+          1. / GridTools::minimal_cell_diameter(tria);
+        auto invW = h_inv * inverse_operator(M, solver_CG_M, M_inv_ilu);
 
         // Try augmented lagrangian preconditioner
         const double gamma = 10;
@@ -740,7 +743,7 @@ PoissonProblem<dim, spacedim>::solve()
         SolverCG<LA::MPI::Vector> solver_lagrangian(control_lagrangian);
 
         auto Aug_inv =
-          inverse_operator(Aug, solver_lagrangian, amgA); //! augmented
+          inverse_operator(Aug, solver_lagrangian); //! augmented
         SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
         BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>

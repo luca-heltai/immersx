@@ -111,8 +111,8 @@ for navigating the classes shown above:
 - {doc}`api/class_symbolic_field_evaluator`
 - {doc}`api/file_include_vtk_utils.h`
 - {doc}`api/file_include_reduced_coupling.h`
+- {doc}`api/file_include_augmented_lagrangian.h`
 - {doc}`api/class_block_preconditioner_augmented_lagrangian`
-- {doc}`api/class_utilities_a_l_1_1_block_preconditioner_augmented_lagrangian`
 
 ## Notes
 
