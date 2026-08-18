@@ -79,3 +79,5 @@ benchmarks/**/*png
 benchmarks/**/*mp4
 # Local Pi runtime state
 .atl/
+
+.vscode/settings.json

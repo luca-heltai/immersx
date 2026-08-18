@@ -17,6 +17,7 @@
 #ifndef tensor_product_space_h
 #define tensor_product_space_h
 
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/parameter_acceptor.h>
@@ -559,9 +560,19 @@ public:
   void
   initialize();
   void
+  prepare();
+  void
   make_reduced_grid_and_properties();
   void
   set_point_cloud(const PointCloud<spacedim> &point_cloud);
+  void
+  initialize_representative_particle_handler(
+    const parallel::TriangulationBase<spacedim> &background_tria,
+    const Mapping<spacedim>                     &mapping,
+    const std::vector<std::vector<BoundingBox<spacedim>>>
+      &global_bounding_boxes);
+  const Particles::ParticleHandler<spacedim> &
+  get_representative_particles() const;
   void
   register_particle_id_mapping();
 
@@ -634,8 +645,9 @@ public:
   void
   set_time(double time);
 
-  /** Values bound to symbolic expressions for one representative entity. */
-  const std::vector<double> &
+  /** Values bound to symbolic expressions for one local representative entity.
+   */
+  std::vector<double>
   get_entity_property_values(unsigned int entity_id) const;
   double
   get_entity_thickness(unsigned int entity_id) const;
@@ -658,16 +670,29 @@ protected:
   std::vector<std::vector<double>> section_measure;
   std::map<types::particle_index,
            std::tuple<unsigned int, unsigned int, unsigned int>>
-                                   particle_id_to_representative;
-  std::vector<std::string>         properties_names;
-  VTKFieldCatalog                  properties_catalog;
-  std::vector<InputFieldBinding>   properties_bindings;
-  std::vector<std::vector<double>> entity_properties;
-  std::vector<double>              entity_thickness;
-  std::string                      thickness_expression;
-  double                           constant_thickness = 0.01;
-  double                           evaluation_time    = 0.;
-  SymbolicFieldEvaluator           thickness_evaluator;
+                                       particle_id_to_representative;
+  Particles::ParticleHandler<spacedim> representative_particles;
+  bool                      representative_handler_initialized = false;
+  unsigned int              n_global_representative_entities   = 0;
+  std::vector<unsigned int> source_entity_ids;
+  // These vectors contain only the source-local input until the representative
+  // particle handler is initialized. Runtime geometry and metadata then live
+  // exclusively in representative_particles.
+  std::vector<std::vector<double>>       representative_properties;
+  IndexSet                               relevant_representative_entities;
+  std::vector<unsigned int>              lifted_entity_ids;
+  std::vector<unsigned int>              lifted_section_indices;
+  std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
+  std::vector<std::vector<unsigned int>> all_lifted_section_indices;
+  std::vector<std::string>               properties_names;
+  VTKFieldCatalog                        properties_catalog;
+  std::vector<InputFieldBinding>         properties_bindings;
+  std::vector<std::vector<double>>       entity_properties;
+  std::vector<double>                    entity_thickness;
+  std::string                            thickness_expression;
+  double                                 constant_thickness = 0.01;
+  double                                 evaluation_time    = 0.;
+  SymbolicFieldEvaluator                 thickness_evaluator;
 };
 
 #endif // tensor_product_space_h
