@@ -712,9 +712,8 @@ PoissonProblem<dim, spacedim>::solve()
 
         CumulativeSolverControl solver_control(100, 1e-15, false, false);
         SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(solver_control);
-        const double h_inv =
-          1. / GridTools::minimal_cell_diameter(tria);
-        auto invW = h_inv * inverse_operator(M, solver_CG_M, M_inv_ilu);
+        const double h_inv = 1. / GridTools::minimal_cell_diameter(tria);
+        auto         invW = h_inv * inverse_operator(M, solver_CG_M, M_inv_ilu);
 
         // Try augmented lagrangian preconditioner
         const double gamma = 10;

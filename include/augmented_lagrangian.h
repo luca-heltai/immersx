@@ -2,6 +2,7 @@
 #define rdlm_augmented_lagrangian_h
 
 #include <deal.II/base/config.h>
+
 #include <deal.II/base/exceptions.h>
 
 #include <deal.II/dofs/dof_tools.h>
@@ -26,10 +27,10 @@
 #  include <Epetra_RowMatrixTransposer.h>
 #endif
 
-#include <type_traits>
-#include <utility>
 #include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace dealii;
@@ -198,8 +199,8 @@ namespace UtilitiesAL
         Assert((std::is_same_v<TrilinosWrappers::MPI::Vector, VectorType>),
                ExcMessage("You must use Trilinos vectors, as you are using "
                           "Trilinos matrices."));
-        Epetra_CrsMatrix A_trilinos  = A.trilinos_matrix();
-        Epetra_CrsMatrix Ct_trilinos = Ct.trilinos_matrix();
+        Epetra_CrsMatrix A_trilinos   = A.trilinos_matrix();
+        Epetra_CrsMatrix Ct_trilinos  = Ct.trilinos_matrix();
         auto             multi_vector = scaling_vector.trilinos_vector();
         Assert((A_trilinos.NumGlobalRows() !=
                 Ct_trilinos.DomainMap().NumGlobalElements()),
@@ -220,10 +221,8 @@ namespace UtilitiesAL
           new Epetra_CrsMatrix(Copy, Ct_trilinos.RowMap(), 0);
         EpetraExt::MatrixMatrix::Multiply(
           Ct_trilinos, false, diag_matrix, false, *W);
-        Epetra_CrsMatrix *CtT_W =
-          new Epetra_CrsMatrix(Copy, W->RangeMap(), 0);
-        EpetraExt::MatrixMatrix::Multiply(
-          *W, false, Ct_trilinos, true, *CtT_W);
+        Epetra_CrsMatrix *CtT_W = new Epetra_CrsMatrix(Copy, W->RangeMap(), 0);
+        EpetraExt::MatrixMatrix::Multiply(*W, false, Ct_trilinos, true, *CtT_W);
         Epetra_CrsMatrix *result =
           new Epetra_CrsMatrix(Copy,
                                A_trilinos.RowMap(),
@@ -267,13 +266,14 @@ namespace UtilitiesAL
       new Epetra_MultiVector(domain_map, modes_dimension));
     Assert(ptr_distributed_modes, ExcNotInitialized());
     Epetra_MultiVector &distributed_modes = *ptr_distributed_modes;
-    const size_type global_size =
+    const size_type     global_size =
 #  ifdef DEAL_II_WITH_64BIT_INDICES
       static_cast<size_type>(domain_map.NumGlobalElements64());
 #  else
       static_cast<size_type>(domain_map.NumGlobalElements());
 #  endif
-    const size_type my_size = static_cast<size_type>(domain_map.NumMyElements());
+    const size_type my_size =
+      static_cast<size_type>(domain_map.NumMyElements());
     Assert(global_size == static_cast<size_type>(
                             TrilinosWrappers::global_length(distributed_modes)),
            ExcDimensionMismatch(

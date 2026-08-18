@@ -35,11 +35,11 @@
 
 #ifdef DEAL_II_WITH_VTK
 
+#  include <deal.II/grid/grid_tools_geometry.h>
+
 #  include <cmath>
 #  include <filesystem>
 #  include <type_traits>
-
-#  include <deal.II/grid/grid_tools_geometry.h>
 
 #  include "augmented_lagrangian.h"
 #  include "constraint_system.h"
@@ -773,8 +773,8 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
               Assert(std::abs(el) > 1e-10,
                      ExcMessage(
                        "Diagonal element " + std::to_string(local_idx) +
-                        " of reduced mass matrix (" + std::to_string(el) +
-                        ") is close to zero. Cannot compute inverse."));
+                       " of reduced mass matrix (" + std::to_string(el) +
+                       ") is close to zero. Cannot compute inverse."));
               inverse_reduced(local_idx) = 1. / el;
             }
 
@@ -784,9 +784,8 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
           CumulativeSolverControl solver_control(100, 1e-15, false, false);
           SolverCG<TrilinosWrappers::MPI::Vector> solver_mass_matrix(
             solver_control);
-          const double h_inv =
-            1. / GridTools::minimal_cell_diameter(tria);
-          auto invW =
+          const double h_inv = 1. / GridTools::minimal_cell_diameter(tria);
+          auto         invW =
             h_inv * inverse_operator(M, solver_mass_matrix, M_inv_ilu);
           inverse_reduced *= h_inv;
           inverse_reduced.compress(VectorOperation::insert);
