@@ -47,7 +47,7 @@ namespace
       sparsity_M.add(0, 0);
       sparsity_M.compress();
       M.reinit(sparsity_M);
-      M.set(0, 0, 1.0);
+      M.set(0, 0, 2.0);
     }
   };
 } // namespace
@@ -95,7 +95,7 @@ TEST(ConstraintSystem, StoresAndAppliesOperators) // NOLINT
   EXPECT_DOUBLE_EQ(constraint[0], 3.0);
   EXPECT_DOUBLE_EQ(adjoint[0], 2.0);
   EXPECT_DOUBLE_EQ(adjoint[1], 2.0);
-  EXPECT_DOUBLE_EQ(metric[0], 2.0);
+  EXPECT_DOUBLE_EQ(metric[0], 4.0);
 }
 
 TEST(AugmentedLagrangianSolver, SolvesStandaloneKKT) // NOLINT
@@ -118,9 +118,16 @@ TEST(AugmentedLagrangianSolver, SolvesStandaloneKKT) // NOLINT
   SolverControl            outer_control(100, 1e-12);
   SolverControl            inner_control(100, 1e-12);
   SolverCG<Vector<double>> inner_solver(inner_control);
+  const auto               invW = linear_operator(matrices.M);
 
   const auto build_augmented_block =
     [&inner_solver](const auto &canonical_Aug) {
+      Vector<double> probe(2);
+      probe[0]                             = 1.0;
+      probe[1]                             = 0.0;
+      const Vector<double> augmented_probe = canonical_Aug * probe;
+      EXPECT_DOUBLE_EQ(augmented_probe[0], 22.0);
+      EXPECT_DOUBLE_EQ(augmented_probe[1], 20.0);
       return make_prepared_augmented_block(canonical_Aug,
                                            inverse_operator(canonical_Aug,
                                                             inner_solver));
@@ -129,9 +136,8 @@ TEST(AugmentedLagrangianSolver, SolvesStandaloneKKT) // NOLINT
   AugmentedLagrangianSolver<Vector<double>, BlockVector<double>> solver(
     outer_control, {10.0});
   BlockVector<double> solution;
-  const auto          invM = linear_operator(matrices.M);
 
-  solver.solve(system, invM, build_augmented_block, solution, rhs);
+  solver.solve(system, invW, build_augmented_block, solution, rhs);
 
   EXPECT_NEAR(solution.block(0)[0], 0.4, 1e-10);
   EXPECT_NEAR(solution.block(0)[1], 0.6, 1e-10);

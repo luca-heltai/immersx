@@ -37,9 +37,9 @@
 
 #include "laplacian.h"
 
-#include <cstdbool>
-
 #include <deal.II/grid/grid_tools_geometry.h>
+
+#include <cstdbool>
 
 #include "augmented_lagrangian.h"
 #include "solver_controls.h"

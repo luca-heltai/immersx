@@ -773,8 +773,8 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
               Assert(std::abs(el) > 1e-10,
                      ExcMessage(
                        "Diagonal element " + std::to_string(local_idx) +
-                         " of reduced mass matrix (" + std::to_string(el) +
-                         ") is close to zero. Cannot compute inverse."));
+                        " of reduced mass matrix (" + std::to_string(el) +
+                        ") is close to zero. Cannot compute inverse."));
               inverse_reduced(local_idx) = 1. / el;
             }
 

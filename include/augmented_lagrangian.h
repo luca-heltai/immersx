@@ -104,7 +104,9 @@ make_prepared_augmented_block(OperatorType &&operator_, InverseType &&inverse)
  *
  * Problem-specific code supplies the four operators, the already-scaled
  * inverse multiplier metric invW, and a builder for the augmented primal
- * operator and its inverse.
+ * operator and its inverse. The caller is responsible for constructing invW
+ * as the appropriate mesh-scaled inverse multiplier metric, e.g. invM times
+ * h^alpha.
  * The builder receives the canonical augmented operator and may replace both
  * values, for example with an explicitly assembled augmented matrix.
  */
