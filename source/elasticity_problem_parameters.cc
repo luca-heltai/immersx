@@ -51,6 +51,7 @@ ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
     "uses a VTK reduced mesh and a reference cross section.");
   add_parameter("Output results also before solving",
                 output_results_before_solving);
+  add_parameter("Estimate condition number", estimate_condition_number);
   add_parameter("Initial refinement", initial_refinement);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
   add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);
@@ -388,21 +389,6 @@ ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
                              "have rho > 0 (dynamic)."));
 
       time_mode = any_rho_positive ? TimeMode::Dynamic : TimeMode::QuasiStatic;
-    }
-
-  // --- Validate BCs for time-dependent problems ---------------------------
-  if (time_mode != TimeMode::Static)
-    {
-      AssertThrow(dirichlet_ids.empty(),
-                  ExcMessage("Time-dependent problems (initial_time != "
-                             "final_time) do not support strong Dirichlet "
-                             "boundary conditions. Use weak Dirichlet and/or "
-                             "Neumann boundary conditions instead."));
-      AssertThrow(normal_flux_ids.empty(),
-                  ExcMessage("Time-dependent problems (initial_time != "
-                             "final_time) do not support normal-flux "
-                             "constraints. Use weak Dirichlet and/or "
-                             "Neumann boundary conditions instead."));
     }
 
   // --- Infer ElasticityModel ------------------------------------------------

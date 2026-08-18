@@ -67,6 +67,11 @@ doc/api/
 *.vtk
 *.blend
 
+# Checked-in VTK fixtures used by point-cloud tests
+!gtests/fixtures/
+!gtests/fixtures/*.vtk
+!gtests/fixtures/*.vtu
+
 # Backup files
 *blend1
 Untitled*

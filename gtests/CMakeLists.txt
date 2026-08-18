@@ -34,7 +34,12 @@ FOREACH(_build_type ${_d2_build_types})
     add_executable(${_exe} ${_test_files})
 
     TARGET_LINK_LIBRARIES(${_exe} ${TEST_LIBRARIES_${_BUILD_TYPE}} ${GTEST_MAIN_LIBRARY} ${GTEST_LIBRARIES})   
-    # TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    # App-executable tests must not depend on the directory from which the
+    # gtest binary happens to be launched.  Pass the source and binary roots
+    # explicitly so they can invoke the applications by absolute path.
+    TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE
+      APP_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+      APP_BINARY_DIR="${CMAKE_BINARY_DIR}")
     IF(ENABLE_COUPLED_PROBLEMS)
       TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC ENABLE_COUPLED_PROBLEMS)
     ENDIF()
