@@ -19,6 +19,7 @@
 
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/mpi_remote_point_evaluation.h>
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/fully_distributed_tria.h>
@@ -559,9 +560,19 @@ public:
   void
   initialize();
   void
+  prepare();
+  void
   make_reduced_grid_and_properties();
   void
   set_point_cloud(const PointCloud<spacedim> &point_cloud);
+  void
+  initialize_representative_particle_handler(
+    const parallel::TriangulationBase<spacedim> &background_tria,
+    const Mapping<spacedim>                     &mapping,
+    const std::vector<std::vector<BoundingBox<spacedim>>>
+      &global_bounding_boxes);
+  const Particles::ParticleHandler<spacedim> &
+  get_representative_particles() const;
   void
   register_particle_id_mapping();
 
@@ -659,6 +670,15 @@ protected:
   std::map<types::particle_index,
            std::tuple<unsigned int, unsigned int, unsigned int>>
                                    particle_id_to_representative;
+  Particles::ParticleHandler<spacedim> representative_particles;
+  bool representative_handler_initialized = false;
+  std::vector<unsigned int> source_entity_ids;
+  std::vector<std::vector<double>> representative_properties;
+  IndexSet relevant_representative_entities;
+  std::vector<unsigned int> lifted_entity_ids;
+  std::vector<unsigned int> lifted_section_indices;
+  std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
+  std::vector<std::vector<unsigned int>> all_lifted_section_indices;
   std::vector<std::string>         properties_names;
   VTKFieldCatalog                  properties_catalog;
   std::vector<InputFieldBinding>   properties_bindings;

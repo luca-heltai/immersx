@@ -153,6 +153,97 @@ TEST(TensorProductSpace0D, ProgrammaticPointCloudRadiusThickness)
   EXPECT_DOUBLE_EQ(space.get_entity_thickness(1), 0.5);
 }
 
+TEST(ReducedCoupling0D, SetTimeAcceptsStaticThicknessAndUpdatesRhs)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background, -1., 1.);
+  ReducedCouplingParameters<0, 2, 2, 1> params;
+  params.tensor_product_space_parameters.input_file_fields = "radius";
+  params.tensor_product_space_parameters.thickness         = "radius";
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.tensor_product_space_parameters.point_cloud.points = {
+    Point<2>(0., 0.)};
+  params.tensor_product_space_parameters.point_cloud.catalog = {
+    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+  params.tensor_product_space_parameters.point_cloud.properties = {{0.25}};
+  params.coupling_rhs_expressions = {"1+t"};
+
+  ReducedCoupling<0, 2, 2, 1> coupling(background, params);
+  ASSERT_NO_THROW(coupling.initialize());
+  ASSERT_NO_THROW(coupling.set_time(2.));
+  EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(0), 0.25);
+}
+
+TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_cube(background, 2, -1., 1.);
+
+  const unsigned int rank  = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const unsigned int nproc = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  if (nproc == 1)
+    return;
+
+  Point<2> local_cell_center;
+  bool      found_local_cell = false;
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        local_cell_center = cell->center();
+        found_local_cell  = true;
+        break;
+      }
+  ASSERT_TRUE(found_local_cell);
+  const std::vector<double> local_center = {local_cell_center[0],
+                                             local_cell_center[1]};
+  const auto all_local_centers =
+    Utilities::MPI::all_gather(MPI_COMM_WORLD, local_center);
+  const auto &target_center = all_local_centers[(rank + 1) % nproc];
+  const Point<2> point(target_center[0], target_center[1]);
+
+  ReducedCouplingParameters<0, 2, 2, 1> params;
+  params.tensor_product_space_parameters.input_file_fields = "radius";
+  params.tensor_product_space_parameters.thickness         = "radius";
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.tensor_product_space_parameters.point_cloud.points = {point};
+  params.tensor_product_space_parameters.point_cloud.catalog = {
+    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+  params.tensor_product_space_parameters.point_cloud.properties = {
+    {0.25 + rank}};
+  params.coupling_rhs_expressions = {"1"};
+
+  ReducedCoupling<0, 2, 2, 1> coupling(background, params);
+  ASSERT_NO_THROW(coupling.initialize());
+  EXPECT_EQ(coupling.n_representative_entities(), nproc);
+  for (unsigned int entity = 0; entity < nproc; ++entity)
+    {
+      EXPECT_DOUBLE_EQ(coupling.get_entity_property_values(entity)[0],
+                       0.25 + entity);
+      EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(entity), 0.25 + entity);
+    }
+
+  const auto locally_owned =
+    coupling.get_representative_particles().locally_owned_particle_ids();
+  std::vector<int> local_owner(nproc, -1);
+  for (unsigned int entity = 0; entity < nproc; ++entity)
+    if (locally_owned.is_element(entity))
+      local_owner[entity] = rank;
+  const auto owners = Utilities::MPI::all_gather(MPI_COMM_WORLD, local_owner);
+  for (unsigned int entity = 0; entity < nproc; ++entity)
+    {
+      unsigned int n_owners = 0;
+      int          owner    = -1;
+      for (const auto &rank_owners : owners)
+        if (rank_owners[entity] >= 0)
+          {
+            ++n_owners;
+            owner = rank_owners[entity];
+          }
+      EXPECT_EQ(n_owners, 1u);
+      EXPECT_NE(owner, static_cast<int>(entity));
+    }
+}
+
 TEST(TensorProductSpace0D, ThicknessScalingAndLiftedMeasure)
 {
   TensorProductSpaceParameters<0, 2, 2, 1> unit_params;
@@ -207,7 +298,8 @@ TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
 {
   for (const std::string &filename :
        {std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtk",
-        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtu"})
+        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtu",
+        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.pvtu"})
     {
       TensorProductSpaceParameters<0, 2, 2, 1> params;
       params.reduced_grid_name             = filename;
@@ -224,6 +316,26 @@ TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
       EXPECT_DOUBLE_EQ(space.get_entity_thickness(0), 0.25);
       EXPECT_DOUBLE_EQ(space.get_entity_thickness(1), 0.5);
     }
+}
+
+TEST(ReducedCoupling0D, MPI_ImportsDistributedPVTU)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_cube(background, 2, -1., 1.);
+
+  ReducedCouplingParameters<0, 2, 2, 1> params;
+  params.tensor_product_space_parameters.reduced_grid_name =
+    SOURCE_DIR "/gtests/fixtures/point_cloud_minimal.pvtu";
+  params.tensor_product_space_parameters.input_file_fields = "radius";
+  params.tensor_product_space_parameters.thickness         = "radius";
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.coupling_rhs_expressions = {"1"};
+
+  ReducedCoupling<0, 2, 2, 1> coupling(background, params);
+  ASSERT_NO_THROW(coupling.initialize());
+  ASSERT_EQ(coupling.n_representative_entities(), 2u);
+  EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(0), 0.25);
+  EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(1), 0.5);
 }
 #endif
 

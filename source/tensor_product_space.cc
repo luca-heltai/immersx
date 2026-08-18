@@ -29,9 +29,11 @@
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/utilities.h>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <regex>
 
 #include "immersed_repartitioner.h"
@@ -791,12 +793,33 @@ void
 TensorProductSpace<0, dim, spacedim, n_components>::set_point_cloud(
   const PointCloud<spacedim> &new_point_cloud)
 {
+  if (representative_handler_initialized)
+    representative_particles.clear();
+  representative_handler_initialized = false;
+  source_entity_ids.clear();
+  representative_properties.clear();
+  relevant_representative_entities = IndexSet();
+  particle_id_to_representative.clear();
+  all_qpoints.clear();
+  all_weights.clear();
+  reduced_qpoints.clear();
+  reduced_weights.clear();
+  section_measure.clear();
   point_cloud = new_point_cloud;
 }
 
 template <int dim, int spacedim, int n_components>
 void
 TensorProductSpace<0, dim, spacedim, n_components>::initialize()
+{
+  prepare();
+  if (!representative_handler_initialized)
+    compute_points_and_weights();
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::prepare()
 {
   const bool file_input = !par.reduced_grid_name.empty();
   if (file_input)
@@ -819,7 +842,61 @@ TensorProductSpace<0, dim, spacedim, n_components>::initialize()
       for (unsigned int j = 0; j < dofs_per_entity; ++j)
         indices[j] = entity * dofs_per_entity + j;
     }
-  compute_points_and_weights();
+  relevant_representative_entities = locally_owned_representative_entities();
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::
+  initialize_representative_particle_handler(
+    const parallel::TriangulationBase<spacedim> &background_tria,
+    const Mapping<spacedim>                     &mapping,
+    const std::vector<std::vector<BoundingBox<spacedim>>>
+      &global_bounding_boxes)
+{
+  AssertThrow(!point_cloud.points.empty(), ExcNotInitialized());
+  const unsigned int n_properties = properties_bindings.size() + spacedim;
+  representative_particles.initialize(background_tria, mapping, n_properties);
+  std::vector<Point<spacedim>> positions;
+  std::vector<std::vector<double>> properties;
+  std::vector<types::particle_index> ids;
+  positions.reserve(source_entity_ids.size());
+  properties.reserve(source_entity_ids.size());
+  ids.reserve(source_entity_ids.size());
+  for (const auto entity : source_entity_ids)
+    {
+      positions.push_back(point_cloud.points[entity]);
+      properties.push_back(representative_properties[entity]);
+      ids.push_back(entity);
+    }
+  // deal.II's explicit-id exchange is collective only when every rank has a
+  // non-empty id vector. A replicated cloud intentionally has sources only on
+  // rank zero, so let ParticleHandler derive the same rank-prefix ids there;
+  // retain explicit ids for genuinely rank-local clouds with sources on every
+  // rank.
+  const auto source_counts =
+    Utilities::MPI::all_gather(mpi_communicator, source_entity_ids.size());
+  const bool use_explicit_ids =
+    std::all_of(source_counts.begin(),
+                source_counts.end(),
+                [](const auto count) { return count > 0; });
+  if (!use_explicit_ids)
+    ids.clear();
+  representative_particles.insert_global_particles(positions,
+                                                    global_bounding_boxes,
+                                                    properties,
+                                                    ids);
+  representative_handler_initialized = true;
+  relevant_representative_entities = locally_owned_representative_entities();
+}
+
+template <int dim, int spacedim, int n_components>
+const Particles::ParticleHandler<spacedim> &
+TensorProductSpace<0, dim, spacedim, n_components>::
+  get_representative_particles() const
+{
+  AssertThrow(representative_handler_initialized, ExcNotInitialized());
+  return representative_particles;
 }
 
 template <int dim, int spacedim, int n_components>
@@ -836,11 +913,136 @@ TensorProductSpace<0, dim, spacedim, n_components>::
   if (!par.reduced_grid_name.empty())
     {
       PointCloud<spacedim> imported_cloud;
-      VTKUtils::read_vtk_point_cloud(par.reduced_grid_name, imported_cloud);
+      const auto           extension_pos = par.reduced_grid_name.find_last_of('.');
+      const bool is_pvtu =
+        extension_pos != std::string::npos &&
+        par.reduced_grid_name.substr(extension_pos + 1) == "pvtu";
+      if (is_pvtu)
+        VTKUtils::read_vtk_point_cloud(
+          par.reduced_grid_name,
+          imported_cloud,
+          Utilities::MPI::this_mpi_process(mpi_communicator),
+          Utilities::MPI::n_mpi_processes(mpi_communicator));
+      else
+        VTKUtils::read_vtk_point_cloud(par.reduced_grid_name, imported_cloud);
       point_cloud = imported_cloud;
     }
 
+  // Detect whether the point cloud is replicated global input or rank-local
+  // input. Replicated clouds retain one rank-zero source copy; rank-local
+  // clouds are concatenated in rank order below.
+  const unsigned int rank =
+    Utilities::MPI::this_mpi_process(mpi_communicator);
+  const auto local_points = point_cloud.points;
+  const auto all_points =
+    Utilities::MPI::all_gather(mpi_communicator, local_points);
+  const bool replicated_points =
+    std::all_of(all_points.begin(),
+                all_points.end(),
+                [&](const auto &rank_points) {
+                  return rank_points == all_points.front();
+                });
+
   properties_catalog = point_cloud.catalog;
+  const auto catalog_sizes =
+    Utilities::MPI::all_gather(mpi_communicator, properties_catalog.size());
+  AssertThrow(
+    std::all_of(catalog_sizes.begin(),
+                catalog_sizes.end(),
+                [&](const auto size) {
+                  return size == properties_catalog.size();
+                }),
+    ExcMessage("Point-cloud property schemas differ across MPI ranks."));
+  AssertThrow(point_cloud.properties.size() <= properties_catalog.size(),
+              ExcMessage("Point-cloud property arrays do not match the catalog."));
+  point_cloud.properties.resize(properties_catalog.size());
+  for (unsigned int field = 0; field < properties_catalog.size(); ++field)
+    {
+      const auto &descriptor = properties_catalog[field];
+      const auto expected_size = local_points.size() * descriptor.n_components;
+      AssertThrow(
+        point_cloud.properties[field].size() == expected_size,
+        ExcMessage("Point-cloud property '" + descriptor.vtk_name +
+                   "' has an invalid number of local values."));
+
+      const auto component_counts = Utilities::MPI::all_gather(
+        mpi_communicator, descriptor.n_components);
+      const auto associations = Utilities::MPI::all_gather(
+        mpi_communicator,
+        static_cast<unsigned int>(descriptor.association));
+      const auto field_names =
+        Utilities::MPI::all_gather(mpi_communicator, descriptor.vtk_name);
+      AssertThrow(
+        std::all_of(component_counts.begin(),
+                    component_counts.end(),
+                    [&](const auto value) {
+                      return value == descriptor.n_components;
+                    }) &&
+          std::all_of(associations.begin(),
+                      associations.end(),
+                      [&](const auto value) {
+                        return value ==
+                               static_cast<unsigned int>(descriptor.association);
+                      }) &&
+          std::all_of(field_names.begin(),
+                      field_names.end(),
+                      [&](const auto &value) {
+                        return value == descriptor.vtk_name;
+                      }),
+        ExcMessage("Point-cloud property schemas differ across MPI ranks."));
+
+      const auto local_values = point_cloud.properties[field];
+      const auto gathered_values =
+        Utilities::MPI::all_gather(mpi_communicator, local_values);
+      if (replicated_points)
+        {
+          AssertThrow(
+            std::all_of(gathered_values.begin(),
+                        gathered_values.end(),
+                        [&](const auto &values) {
+                          return values == gathered_values.front();
+                        }),
+            ExcMessage("Replicated point-cloud properties differ across MPI ranks."));
+          point_cloud.properties[field] = gathered_values.front();
+        }
+      else
+        {
+          point_cloud.properties[field].clear();
+          for (const auto &rank_values : gathered_values)
+            point_cloud.properties[field].insert(
+              point_cloud.properties[field].end(),
+              rank_values.begin(),
+              rank_values.end());
+        }
+    }
+
+  source_entity_ids.clear();
+  if (replicated_points)
+    {
+      point_cloud.points = all_points.front();
+      if (rank == 0)
+        {
+          source_entity_ids.resize(point_cloud.points.size());
+          std::iota(source_entity_ids.begin(), source_entity_ids.end(), 0u);
+        }
+    }
+  else
+    {
+      const auto point_counts =
+        Utilities::MPI::all_gather(mpi_communicator, local_points.size());
+      unsigned int source_offset = 0;
+      for (unsigned int r = 0; r < rank; ++r)
+        source_offset += point_counts[r];
+      source_entity_ids.resize(local_points.size());
+      for (unsigned int i = 0; i < local_points.size(); ++i)
+        source_entity_ids[i] = source_offset + i;
+      point_cloud.points.clear();
+      for (const auto &rank_points : all_points)
+        point_cloud.points.insert(point_cloud.points.end(),
+                                  rank_points.begin(),
+                                  rank_points.end());
+    }
+
   properties_names   = point_cloud.property_names;
   if (properties_names.size() != properties_catalog.size())
     {
@@ -869,6 +1071,40 @@ TensorProductSpace<0, dim, spacedim, n_components>::
             .properties[selected.field_index]
                        [entity * field.n_components + selected.vtk_component];
       }
+
+  representative_properties.assign(
+    point_cloud.points.size(),
+    std::vector<double>(properties_bindings.size() + spacedim, 0.));
+  for (unsigned int entity = 0; entity < point_cloud.points.size(); ++entity)
+    {
+      std::copy(entity_properties[entity].begin(),
+                entity_properties[entity].end(),
+                representative_properties[entity].begin());
+      representative_properties[entity][properties_bindings.size() +
+                                         spacedim - 1] = 1.;
+      for (unsigned int field = 0; field < properties_catalog.size(); ++field)
+        if (properties_catalog[field].vtk_name == "orientation")
+          {
+            AssertThrow(properties_catalog[field].n_components == spacedim,
+                        ExcMessage(
+                          "Point-cloud orientation must have spacedim components."));
+            AssertIndexRange(field, point_cloud.properties.size());
+            for (unsigned int d = 0; d < spacedim; ++d)
+              representative_properties[entity][properties_bindings.size() + d] =
+                point_cloud.properties[field][entity * spacedim + d];
+
+            Tensor<1, spacedim> orientation;
+            for (unsigned int d = 0; d < spacedim; ++d)
+              {
+                orientation[d] =
+                  representative_properties[entity][properties_bindings.size() + d];
+                AssertThrow(std::isfinite(orientation[d]),
+                            ExcMessage("Point-cloud orientation must be finite."));
+              }
+            AssertThrow(orientation.norm() > 0.,
+                        ExcMessage("Point-cloud orientation must be non-zero."));
+          }
+    }
 
   thickness_expression = par.thickness;
   constant_thickness   = 0.01;
@@ -944,7 +1180,7 @@ unsigned int
 TensorProductSpace<0, dim, spacedim, n_components>::n_representative_dofs()
   const
 {
-  return point_cloud.points.size() * n_representative_dofs_per_entity();
+  return n_representative_entities() * n_representative_dofs_per_entity();
 }
 
 template <int dim, int spacedim, int n_components>
@@ -952,12 +1188,18 @@ IndexSet
 TensorProductSpace<0, dim, spacedim, n_components>::
   locally_owned_representative_entities() const
 {
-  const unsigned int rank  = Utilities::MPI::this_mpi_process(mpi_communicator);
-  const unsigned int nproc = Utilities::MPI::n_mpi_processes(mpi_communicator);
-  IndexSet           result(point_cloud.points.size());
-  for (unsigned int i = 0; i < point_cloud.points.size(); ++i)
-    if (i % nproc == rank)
-      result.add_index(i);
+  if (!representative_handler_initialized)
+    {
+      IndexSet result(point_cloud.points.size());
+      result.add_range(0, point_cloud.points.size());
+      result.compress();
+      return result;
+    }
+  const auto n_entities =
+    static_cast<std::size_t>(representative_particles.n_global_particles());
+  IndexSet result(n_entities);
+  for (const auto id : representative_particles.locally_owned_particle_ids())
+    result.add_index(id);
   result.compress();
   return result;
 }
@@ -982,7 +1224,13 @@ TensorProductSpace<0, dim, spacedim, n_components>::
   locally_relevant_representative_dofs() const
 {
   IndexSet result(n_representative_dofs());
-  result.add_range(0, n_representative_dofs());
+  const auto entities = relevant_representative_entities.size() ==
+                                  point_cloud.points.size() ?
+                          relevant_representative_entities :
+                          locally_owned_representative_entities();
+  const auto block = n_representative_dofs_per_entity();
+  for (const auto entity : entities)
+    result.add_range(entity * block, (entity + 1) * block);
   result.compress();
   return result;
 }
@@ -992,7 +1240,9 @@ unsigned int
 TensorProductSpace<0, dim, spacedim, n_components>::n_representative_entities()
   const
 {
-  return point_cloud.points.size();
+  return representative_handler_initialized ?
+           static_cast<unsigned int>(representative_particles.n_global_particles()) :
+           point_cloud.points.size();
 }
 
 template <int dim, int spacedim, int n_components>
@@ -1021,6 +1271,8 @@ TensorProductSpace<0, dim, spacedim, n_components>::compute_points_and_weights()
   reduced_qpoints.clear();
   reduced_weights.clear();
   section_measure.clear();
+  lifted_entity_ids.clear();
+  lifted_section_indices.clear();
   const auto owned = locally_owned_representative_entities();
   for (const auto entity_id : owned)
     {
@@ -1037,8 +1289,13 @@ TensorProductSpace<0, dim, spacedim, n_components>::compute_points_and_weights()
           thickness);
       for (const auto q : transformed.get_points())
         all_qpoints.push_back(q);
+      unsigned int section_q = 0;
       for (const auto weight : transformed.get_weights())
-        all_weights.push_back({weight});
+        {
+          all_weights.push_back({weight});
+          lifted_entity_ids.push_back(entity_id);
+          lifted_section_indices.push_back(section_q++);
+        }
     }
 }
 
@@ -1087,26 +1344,26 @@ void
 TensorProductSpace<0, dim, spacedim, n_components>::
   register_particle_id_mapping()
 {
-  const auto local_entities = [&]() {
-    std::vector<unsigned int> result;
-    const auto                owned = locally_owned_representative_entities();
-    result.reserve(owned.n_elements());
-    for (const auto entity : owned)
-      result.push_back(entity);
-    return result;
-  }();
-  const auto all_entities =
-    Utilities::MPI::all_gather(mpi_communicator, local_entities);
-  const unsigned int nsection = reference_cross_section.n_quadrature_points();
+  all_lifted_entity_ids =
+    Utilities::MPI::all_gather(mpi_communicator, lifted_entity_ids);
+  all_lifted_section_indices =
+    Utilities::MPI::all_gather(mpi_communicator, lifted_section_indices);
   particle_id_to_representative.clear();
   types::particle_index particle_id = 0;
-  for (const auto &rank_entities : all_entities)
-    for (const auto entity : rank_entities)
-      for (unsigned int section_q = 0; section_q < nsection; ++section_q)
+  for (unsigned int rank = 0; rank < all_lifted_entity_ids.size(); ++rank)
+    {
+      AssertDimension(all_lifted_entity_ids[rank].size(),
+                      all_lifted_section_indices[rank].size());
+      for (unsigned int i = 0; i < all_lifted_entity_ids[rank].size(); ++i)
         particle_id_to_representative.emplace(
-          particle_id++, std::make_tuple(entity, 0u, section_q));
-
-  AssertDimension(particle_id, point_cloud.points.size() * nsection);
+          particle_id++,
+          std::make_tuple(all_lifted_entity_ids[rank][i],
+                          0u,
+                          all_lifted_section_indices[rank][i]));
+    }
+  AssertDimension(particle_id,
+                  point_cloud.points.size() *
+                    reference_cross_section.n_quadrature_points());
 }
 
 template <int dim, int spacedim, int n_components>
@@ -1154,8 +1411,38 @@ TensorProductSpace<0, dim, spacedim, n_components>::locally_relevant_indices()
 template <int dim, int spacedim, int n_components>
 void
 TensorProductSpace<0, dim, spacedim, n_components>::update_local_dof_indices(
-  const std::map<unsigned int, IndexSet> &)
-{}
+  const std::map<unsigned int, IndexSet> &remote_q_point_indices)
+{
+  relevant_representative_entities = locally_owned_representative_entities();
+  // The insertion map is returned on each source rank and is keyed by the
+  // destination rank. Exchange the source-local entity lists so every
+  // destination can derive relevance from the qpoints it actually received.
+  const unsigned int nproc =
+    Utilities::MPI::n_mpi_processes(mpi_communicator);
+  const unsigned int rank =
+    Utilities::MPI::this_mpi_process(mpi_communicator);
+  std::vector<std::vector<unsigned int>> entities_by_destination(nproc);
+  for (const auto &[destination_rank, qpoint_indices] : remote_q_point_indices)
+    {
+      if (destination_rank >= nproc)
+        continue;
+      for (const auto qpoint : qpoint_indices)
+        if (qpoint < lifted_entity_ids.size())
+          entities_by_destination[destination_rank].push_back(
+            lifted_entity_ids[qpoint]);
+    }
+  for (unsigned int destination_rank = 0; destination_rank < nproc;
+       ++destination_rank)
+    {
+      const auto sources_to_destination = Utilities::MPI::all_gather(
+        mpi_communicator, entities_by_destination[destination_rank]);
+      if (destination_rank == rank)
+        for (const auto &source_entities : sources_to_destination)
+          for (const auto entity : source_entities)
+            relevant_representative_entities.add_index(entity);
+    }
+  relevant_representative_entities.compress();
+}
 
 template <int dim, int spacedim, int n_components>
 double
@@ -1218,11 +1505,10 @@ template <int dim, int spacedim, int n_components>
 void
 TensorProductSpace<0, dim, spacedim, n_components>::set_time(double time)
 {
-  (void)time;
-  AssertThrow(
-    thickness_expression.empty(),
-    ExcMessage(
-      "Time-dependent Thickness is unsupported for a 0D point cloud because lifted geometry cannot be recomputed coherently."));
+  // Thickness expressions are validated to be time independent during
+  // initialization. Updating the RHS time must therefore not invalidate a
+  // fixed lifted geometry (e.g. Thickness = radius).
+  evaluation_time = time;
 }
 
 template <int dim, int spacedim, int n_components>
@@ -1261,6 +1547,21 @@ TensorProductSpace<0, dim, spacedim, n_components>::get_entity_orientation(
   AssertIndexRange(entity_id, point_cloud.points.size());
   Tensor<1, spacedim> result;
   result[spacedim - 1] = 1.;
+  if (entity_id < representative_properties.size() &&
+      representative_properties[entity_id].size() >=
+        properties_bindings.size() + spacedim)
+    {
+      for (unsigned int d = 0; d < spacedim; ++d)
+        {
+          result[d] =
+            representative_properties[entity_id][properties_bindings.size() + d];
+          AssertThrow(std::isfinite(result[d]),
+                      ExcMessage("Point-cloud orientation must be finite."));
+        }
+      AssertThrow(result.norm() > 0.,
+                  ExcMessage("Point-cloud orientation must be non-zero."));
+      return result;
+    }
   for (unsigned int field = 0; field < point_cloud.catalog.size(); ++field)
     if (point_cloud.catalog[field].vtk_name == "orientation")
       {
