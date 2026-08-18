@@ -1436,10 +1436,10 @@ ElasticityProblem<dim, spacedim>::solve_static()
             SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
 
             const auto build_augmented_block =
-              [&solver_lagrangian](const auto &canonical_Aug) {
+              [&solver_lagrangian, &amgA](const auto &canonical_Aug) {
                 return make_prepared_augmented_block(
                   canonical_Aug,
-                  inverse_operator(canonical_Aug, solver_lagrangian));
+                  inverse_operator(canonical_Aug, solver_lagrangian, amgA));
               };
 
             LA::MPI::BlockVector solution_block;
