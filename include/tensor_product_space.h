@@ -42,10 +42,11 @@
 #include <limits>
 
 #include "input_field_selector.h"
+#include "point_cloud.h"
+#include "reduced_field_catalog.h"
 #include "reduced_field_values.h"
 #include "reference_cross_section.h"
 #include "symbolic_field_evaluator.h"
-#include "vtk_utils.h"
 
 using namespace dealii;
 
@@ -128,7 +129,7 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    */
   std::string thickness = "0.01";
 
-  /** Comma-separated scalar VTK field selectors exposed to expressions. */
+  /** Comma-separated scalar reduced-field selectors exposed to expressions. */
   std::string input_file_fields = "";
 
   /**
@@ -394,8 +395,8 @@ public:
   const std::vector<std::string> &
   get_properties_names() const;
 
-  /** Return stable metadata for imported VTK fields. */
-  const VTKFieldCatalog &
+  /** Return stable metadata for imported reduced fields. */
+  const FieldCatalog &
   get_properties_catalog() const;
 
   const std::vector<InputFieldBinding> &
@@ -547,7 +548,7 @@ protected:
    */
   std::vector<std::string> properties_names;
 
-  VTKFieldCatalog                properties_catalog;
+  FieldCatalog                   properties_catalog;
   std::vector<InputFieldBinding> properties_bindings;
   std::string                    thickness_expression;
   double                         constant_thickness = 0.01;
@@ -646,7 +647,7 @@ public:
   get_properties_names() const;
   std::vector<std::string> &
   get_properties_names();
-  const VTKFieldCatalog &
+  const FieldCatalog &
   get_properties_catalog() const;
   /** Selected imported scalar properties, indexed by entity then binding. */
   const std::vector<std::vector<double>> &
@@ -700,7 +701,7 @@ protected:
   std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
   std::vector<std::vector<unsigned int>> all_lifted_section_indices;
   std::vector<std::string>               properties_names;
-  VTKFieldCatalog                        properties_catalog;
+  FieldCatalog                           properties_catalog;
   std::vector<InputFieldBinding>         properties_bindings;
   std::vector<std::vector<double>>       entity_properties;
   std::vector<double>                    entity_thickness;

@@ -5,15 +5,15 @@
 #include <string>
 #include <vector>
 
-#include "vtk_utils.h"
+#include "reduced_field_catalog.h"
 
-/** A scalar symbolic alias bound to one VTK array component. */
+/** A scalar symbolic alias bound to one component of a reduced field. */
 struct InputFieldBinding
 {
   std::string  symbol_name;
-  unsigned int field_index   = 0;
-  unsigned int vtk_component = 0;
-  unsigned int fe_component  = 0;
+  unsigned int field_index     = 0;
+  unsigned int field_component = 0;
+  unsigned int fe_component    = 0;
 };
 
 /** Parse and resolve the Representative domain Input file fields selector. */
@@ -26,7 +26,7 @@ public:
    */
   static std::vector<InputFieldBinding>
   resolve(const std::string              &selector,
-          const VTKFieldCatalog          &catalog,
+          const FieldCatalog             &catalog,
           const std::vector<std::string> &reserved_names = {});
 };
 

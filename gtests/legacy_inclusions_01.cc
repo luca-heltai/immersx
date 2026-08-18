@@ -13,8 +13,6 @@
 #include "reference_cross_section.h"
 #include "tensor_product_space.h"
 
-#ifdef DEAL_II_WITH_VTK
-
 using namespace dealii;
 
 TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
@@ -34,7 +32,7 @@ TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
   ASSERT_EQ(space.n_representative_dofs_per_entity(), 3u);
   ASSERT_EQ(space.get_properties_bindings().size(), 4u);
   EXPECT_EQ(space.get_properties_catalog()[0].association,
-            VTKFieldAssociation::point_data);
+            FieldAssociation::point_data);
   EXPECT_DOUBLE_EQ(space.get_entity_thickness(0), 0.25);
   EXPECT_DOUBLE_EQ(space.get_entity_thickness(1), 0.5);
 
@@ -88,9 +86,9 @@ TEST(LegacyInclusions, Segment3DReconstructsCellsAndProperties)
   EXPECT_EQ(tria.n_global_active_cells(), 3u);
   EXPECT_EQ(tria.n_vertices(), 5u);
   ASSERT_EQ(space.get_properties_catalog().size(), 5u);
-  EXPECT_EQ(space.get_properties_catalog()[0].vtk_name, "radius");
-  EXPECT_EQ(space.get_properties_catalog()[1].vtk_name, "vessel_id");
-  EXPECT_EQ(space.get_properties_catalog()[2].vtk_name, "coefficient_0");
+  EXPECT_EQ(space.get_properties_catalog()[0].name, "radius");
+  EXPECT_EQ(space.get_properties_catalog()[1].name, "vessel_id");
+  EXPECT_EQ(space.get_properties_catalog()[2].name, "coefficient_0");
   EXPECT_EQ(space.get_properties_bindings().size(), 5u);
 
   std::vector<types::global_dof_index> dof_indices(
@@ -193,5 +191,3 @@ TEST(LegacyInclusions, ReferenceBasisFollowsFourierOrdering)
           EXPECT_LT(std::abs(correlation), 0.15 * reference.measure());
       }
 }
-
-#endif // DEAL_II_WITH_VTK

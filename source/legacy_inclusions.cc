@@ -9,24 +9,22 @@
 
 #include "legacy_inclusions.h"
 
-#ifdef DEAL_II_WITH_VTK
+#include <deal.II/base/exceptions.h>
+#include <deal.II/base/polynomials_p.h>
 
-#  include <deal.II/base/exceptions.h>
-#  include <deal.II/base/polynomials_p.h>
+#include <deal.II/fe/fe_dgq.h>
 
-#  include <deal.II/fe/fe_dgq.h>
-#  include <deal.II/fe/fe_nothing.h>
-#  include <deal.II/fe/fe_system.h>
+#include <deal.II/grid/grid_tools_topology.h>
 
-#  include <deal.II/grid/grid_tools_topology.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <fstream>
+#include <limits>
+#include <memory>
+#include <sstream>
 
-#  include <algorithm>
-#  include <array>
-#  include <cmath>
-#  include <fstream>
-#  include <limits>
-#  include <memory>
-#  include <sstream>
+#include "reduced_field_utils.h"
 
 namespace
 {
@@ -192,12 +190,12 @@ namespace
 
   void
   append_scalar_catalog_field(
-    const std::string        &name,
-    VTKFieldCatalog          &catalog,
-    const VTKFieldAssociation association = VTKFieldAssociation::cell_data)
+    const std::string     &name,
+    FieldCatalog          &catalog,
+    const FieldAssociation association = FieldAssociation::cell_data)
   {
-    VTKFieldDescriptor descriptor;
-    descriptor.vtk_name     = name;
+    FieldDescriptor descriptor;
+    descriptor.name         = name;
     descriptor.association  = association;
     descriptor.n_components = 1;
     descriptor.first_fe_component =
@@ -206,34 +204,6 @@ namespace
         catalog.back().first_fe_component + catalog.back().n_components;
     descriptor.block_index = catalog.size();
     catalog.push_back(descriptor);
-  }
-
-  std::unique_ptr<dealii::FiniteElement<1, 3>>
-  make_cell_property_fe(const VTKFieldCatalog &catalog)
-  {
-    std::vector<std::shared_ptr<dealii::FiniteElement<1, 3>>> field_fes;
-    field_fes.reserve(catalog.size());
-    for (const auto &field : catalog)
-      {
-        AssertThrow(field.association == VTKFieldAssociation::cell_data,
-                    dealii::ExcInternalError());
-        if (field.n_components == 1)
-          field_fes.push_back(std::make_shared<dealii::FE_DGQ<1, 3>>(0));
-        else
-          field_fes.push_back(
-            std::make_shared<dealii::FESystem<1, 3>>(dealii::FE_DGQ<1, 3>(0),
-                                                     field.n_components));
-      }
-
-    if (field_fes.empty())
-      return std::make_unique<dealii::FE_Nothing<1, 3>>();
-
-    std::vector<const dealii::FiniteElement<1, 3> *> field_fe_ptrs;
-    field_fe_ptrs.reserve(field_fes.size());
-    for (const auto &field_fe : field_fes)
-      field_fe_ptrs.push_back(field_fe.get());
-    return std::make_unique<dealii::FESystem<1, 3>>(
-      field_fe_ptrs, std::vector<unsigned int>(field_fe_ptrs.size(), 1));
   }
 
   dealii::Vector<double>
@@ -336,17 +306,17 @@ namespace LegacyInclusions
 
     append_scalar_catalog_field("radius",
                                 point_cloud.catalog,
-                                VTKFieldAssociation::point_data);
+                                FieldAssociation::point_data);
     for (unsigned int coefficient = 0;
          coefficient < n_coefficients * n_components;
          ++coefficient)
       append_scalar_catalog_field("coefficient_" + std::to_string(coefficient),
                                   point_cloud.catalog,
-                                  VTKFieldAssociation::point_data);
+                                  FieldAssociation::point_data);
 
     point_cloud.property_names.reserve(point_cloud.catalog.size());
     for (const auto &field : point_cloud.catalog)
-      point_cloud.property_names.push_back(field.vtk_name);
+      point_cloud.property_names.push_back(field.name);
 
     point_cloud.properties.resize(point_cloud.catalog.size());
     point_cloud.properties[0].reserve(records.size());
@@ -372,7 +342,7 @@ namespace LegacyInclusions
           dealii::Triangulation<1, 3> &tria,
           dealii::DoFHandler<1, 3>    &properties_dh,
           dealii::Vector<double>      &properties,
-          VTKFieldCatalog             &catalog)
+          FieldCatalog                &catalog)
   {
     AssertThrow(n_coefficients > 0,
                 dealii::ExcMessage(
@@ -439,12 +409,13 @@ namespace LegacyInclusions
     const auto raw_data =
       make_field_major_data(radius, vessel_id, coefficients, true);
 
-    auto fe = make_cell_property_fe(catalog);
+    auto fe = ReducedFieldUtils::field_catalog_to_finite_element<1, 3>(catalog);
     properties_dh.clear();
     properties_dh.distribute_dofs(*fe);
     properties.reinit(properties_dh.n_dofs());
-    VTKUtils::data_to_dealii_vector(tria, raw_data, properties_dh, properties);
+    ReducedFieldUtils::data_to_dealii_vector(tria,
+                                             raw_data,
+                                             properties_dh,
+                                             properties);
   }
 } // namespace LegacyInclusions
-
-#endif // DEAL_II_WITH_VTK

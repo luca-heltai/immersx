@@ -13,7 +13,7 @@
 
 /**
  * Parse-once evaluator for scalar expressions involving coordinates, time,
- * constants, and selected VTK field aliases.
+ * constants, and selected reduced-field aliases.
  *
  * The SymEngine-enabled implementation uses deal.II's SD::BatchOptimizer.
  * Builds without SymEngine retain this interface and report a clear runtime

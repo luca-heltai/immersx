@@ -90,7 +90,7 @@ TEST(TensorProductSpace0D, PointCloudOrientationAndDefault)
   oriented_params.section.selected_coefficients = {0};
   oriented_params.point_cloud.points            = {Point<2>(0., 0.)};
   oriented_params.point_cloud.catalog           = {
-    {"orientation", VTKFieldAssociation::point_data, 2, 0, 0}};
+    {"orientation", FieldAssociation::point_data, 2, 0, 0}};
   oriented_params.point_cloud.properties = {{1., 0.}};
   TensorProductSpace<0, 2, 2, 1> oriented_space(oriented_params);
   oriented_space.initialize();
@@ -140,7 +140,7 @@ TEST(TensorProductSpace0D, ProgrammaticPointCloudRadiusThickness)
   params.section.selected_coefficients = {0};
   params.point_cloud.points            = {Point<2>(0., 0.), Point<2>(1., 0.)};
   params.point_cloud.catalog           = {
-    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+    {"radius", FieldAssociation::point_data, 1, 0, 0}};
   params.point_cloud.properties = {{0.25, 0.5}};
 
   TensorProductSpace<0, 2, 2, 1> space(params);
@@ -164,7 +164,7 @@ TEST(ReducedCoupling0D, SetTimeAcceptsStaticThicknessAndUpdatesRhs)
   params.tensor_product_space_parameters.point_cloud.points            = {
     Point<2>(0., 0.)};
   params.tensor_product_space_parameters.point_cloud.catalog = {
-    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+    {"radius", FieldAssociation::point_data, 1, 0, 0}};
   params.tensor_product_space_parameters.point_cloud.properties = {{0.25}};
   params.coupling_rhs_expressions                               = {"1+t"};
 
@@ -207,7 +207,7 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
   params.tensor_product_space_parameters.section.selected_coefficients = {0};
   params.tensor_product_space_parameters.point_cloud.points  = {point};
   params.tensor_product_space_parameters.point_cloud.catalog = {
-    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+    {"radius", FieldAssociation::point_data, 1, 0, 0}};
   params.tensor_product_space_parameters.point_cloud.properties = {
     {0.25 + rank}};
   params.tensor_product_space_parameters.point_cloud.distribution =
@@ -273,7 +273,7 @@ TEST(ReducedCoupling0D, MPI_RankLocalEmptySourceRanks)
   params.tensor_product_space_parameters.point_cloud.distribution =
     PointCloudDistribution::rank_local;
   params.tensor_product_space_parameters.point_cloud.catalog = {
-    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+    {"radius", FieldAssociation::point_data, 1, 0, 0}};
   params.tensor_product_space_parameters.point_cloud.property_names = {
     "radius"};
   params.tensor_product_space_parameters.input_file_fields = "radius";
