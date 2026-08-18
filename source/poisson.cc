@@ -241,6 +241,22 @@ PoissonSolver<dim, spacedim>::make_grid()
   serial_tria.refine_global(par.initial_refinement);
   auto &fully_distributed_tria =
     std::get<FullyDistributedTriangulation>(triangulation_storage);
+
+  if constexpr (dim == 1)
+    {
+      // The default fully distributed partitioner keeps children of one
+      // coarse cell together. For a once-refined interval this can leave a
+      // rank without cells and invalid local DoF indices at the boundary.
+      fully_distributed_tria.set_partitioner(
+        [](Triangulation<dim, spacedim> &serial_tria,
+           const unsigned int            n_partitions) {
+          GridTools::partition_triangulation_zorder(n_partitions,
+                                                    serial_tria,
+                                                    false);
+        },
+        TriangulationDescription::Settings::default_setting);
+    }
+
   for (const auto manifold_id : serial_tria.get_manifold_ids())
     if (manifold_id != numbers::flat_manifold_id)
       fully_distributed_tria.set_manifold(
