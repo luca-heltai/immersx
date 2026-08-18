@@ -448,6 +448,11 @@ public:
   void
   setup_dofs();
   /**
+   * Build affine constraints for the current boundary-condition time.
+   */
+  void
+  setup_constraints();
+  /**
    * Assemble bulk operators (stiffness/mass/damping) and basic right-hand side.
    */
   void
@@ -457,11 +462,22 @@ public:
    */
   void
   assemble_forcing_terms();
+  void
+  assemble_forcing_terms(const double evaluation_time);
   /**
    * Rebuild the system right-hand side from component vectors.
    */
   void
   compute_system_rhs();
+  void
+  compute_system_rhs(const double evaluation_time);
+  /**
+   * Build constraints for the Newmark acceleration correction.
+   */
+  void
+  make_newmark_acceleration_constraints(
+    const LA::MPI::Vector     &displacement_predictor,
+    AffineConstraints<double> &acceleration_constraints) const;
   /**
    * Assemble immersed coupling operators and multiplier data.
    */

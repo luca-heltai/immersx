@@ -47,6 +47,8 @@ TEST(MaterialParameters, Default)
 
   EXPECT_NE(text.find("Material tags by material id"), std::string::npos)
     << "test.prm does not contain the expected parameter entry.";
+  EXPECT_NE(text.find("Estimate condition number"), std::string::npos)
+    << "test.prm does not contain the condition-number parameter entry.";
 }
 
 

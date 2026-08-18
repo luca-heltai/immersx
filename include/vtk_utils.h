@@ -60,6 +60,21 @@ struct VTKFieldDescriptor
 
 using VTKFieldCatalog = std::vector<VTKFieldDescriptor>;
 
+/** Neutral point-cloud representation used by zero-dimensional domains.
+ * Property arrays are stored point-major within each catalog entry. Cell data
+ * from VTK_VERTEX cells is reordered to the referenced point by the reader.
+ * A programmatic cloud may contain only points; omitted fields use their
+ * canonical defaults.
+ */
+template <int spacedim>
+struct PointCloud
+{
+  std::vector<dealii::Point<spacedim>> points;
+  std::vector<std::vector<double>>     properties;
+  VTKFieldCatalog                      catalog;
+  std::vector<std::string>             property_names;
+};
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include <deal.II/grid/tria.h>
@@ -95,6 +110,32 @@ namespace VTKUtils
  * parallel computations.
  */
 {
+  /** Read a particle-only legacy VTK, VTU, or PVTU unstructured grid.
+   * PointData is copied directly; vertex-cell data is reordered to its point.
+   */
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string    &vtk_filename,
+                       PointCloud<spacedim> &point_cloud);
+
+  /** Convenience overload returning the catalog and field names separately. */
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string                &vtk_filename,
+                       std::vector<Point<spacedim>>     &points,
+                       std::vector<std::vector<double>> &properties,
+                       VTKFieldCatalog                  &catalog,
+                       std::vector<std::string>         &property_names);
+
+  /** Convenience overload with field-major flattened property storage. */
+  template <int spacedim>
+  void
+  read_vtk_point_cloud(const std::string            &vtk_filename,
+                       std::vector<Point<spacedim>> &points,
+                       Vector<double>               &properties,
+                       VTKFieldCatalog              &catalog,
+                       std::vector<std::string>     &property_names);
+
   /**
    * @brief Read a VTK mesh file and populate a deal.II Triangulation.
    *

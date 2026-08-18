@@ -262,6 +262,9 @@ public:
     schur_complement_solver_control; ///< Schur-complement solve control.
   /// @}
 
+  /** Run the optional coupling condition-number diagnostic. */
+  bool estimate_condition_number = false;
+
   /**
    * Emit output before each solve step.
    */

@@ -29,6 +29,7 @@
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/utilities.h>
 
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <regex>
@@ -420,6 +421,20 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
+std::tuple<unsigned int, unsigned int, unsigned int>
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  particle_id_to_representative_indices(const unsigned int qpoint_index) const
+{
+  return particle_id_to_cell_and_qpoint_indices(qpoint_index);
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+void
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  register_particle_id_mapping()
+{}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
 std::map<unsigned int, IndexSet>
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   local_q_point_indices_to_global_cell_indices(
@@ -695,6 +710,582 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::set_time(
   evaluation_time = time;
 }
 
+template <int reduced_dim, int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  n_representative_dofs() const
+{
+  return dof_handler.n_dofs();
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  locally_owned_representative_dofs() const
+{
+  return dof_handler.locally_owned_dofs();
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  locally_relevant_representative_dofs() const
+{
+  return DoFTools::extract_locally_relevant_dofs(dof_handler);
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  n_representative_entities() const
+{
+  return triangulation.n_global_active_cells();
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  locally_owned_representative_entities() const
+{
+  return triangulation.global_active_cell_index_partitioner()
+    .lock()
+    ->locally_owned_range();
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+const std::vector<types::global_dof_index> &
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  get_representative_dof_indices(types::global_dof_index entity_id) const
+{
+  return get_dof_indices(entity_id);
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  n_representative_q_points_per_entity() const
+{
+  return quadrature_formula.size();
+}
+
+template <int reduced_dim, int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+  n_representative_dofs_per_entity() const
+{
+  return fe.n_dofs_per_cell();
+}
+
+template <int dim, int spacedim, int n_components>
+TensorProductSpace<0, dim, spacedim, n_components>::TensorProductSpace(
+  const TensorProductSpaceParameters<0, dim, spacedim, n_components> &par,
+  MPI_Comm mpi_communicator)
+  : mpi_communicator(mpi_communicator)
+  , par(par)
+  , reference_cross_section(par.section)
+  , point_cloud(par.point_cloud)
+{}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::set_point_cloud(
+  const PointCloud<spacedim> &new_point_cloud)
+{
+  point_cloud = new_point_cloud;
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::initialize()
+{
+  const bool file_input = !par.reduced_grid_name.empty();
+  if (file_input)
+    make_reduced_grid_and_properties();
+  else if (point_cloud.points.empty())
+    point_cloud = par.point_cloud;
+  AssertThrow(
+    !point_cloud.points.empty(),
+    ExcMessage(
+      "A zero-dimensional representative domain requires at least one point."));
+  reference_cross_section.initialize();
+  if (!file_input)
+    make_reduced_grid_and_properties();
+  representative_entity_to_dof_indices.clear();
+  const unsigned int dofs_per_entity = n_representative_dofs_per_entity();
+  for (unsigned int entity = 0; entity < point_cloud.points.size(); ++entity)
+    {
+      auto &indices = representative_entity_to_dof_indices[entity];
+      indices.resize(dofs_per_entity);
+      for (unsigned int j = 0; j < dofs_per_entity; ++j)
+        indices[j] = entity * dofs_per_entity + j;
+    }
+  compute_points_and_weights();
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::
+  make_reduced_grid_and_properties()
+{
+  properties_names.clear();
+  properties_catalog.clear();
+  properties_bindings.clear();
+  entity_properties.clear();
+  entity_thickness.clear();
+
+  if (!par.reduced_grid_name.empty())
+    {
+      PointCloud<spacedim> imported_cloud;
+      VTKUtils::read_vtk_point_cloud(par.reduced_grid_name, imported_cloud);
+      point_cloud = imported_cloud;
+    }
+
+  properties_catalog = point_cloud.catalog;
+  properties_names   = point_cloud.property_names;
+  if (properties_names.size() != properties_catalog.size())
+    {
+      properties_names.clear();
+      properties_names.reserve(properties_catalog.size());
+      for (const auto &field : properties_catalog)
+        properties_names.push_back(field.vtk_name);
+    }
+  properties_bindings =
+    InputFieldSelector::resolve(par.input_file_fields, properties_catalog);
+  entity_properties.resize(point_cloud.points.size(),
+                           std::vector<double>(properties_bindings.size()));
+  for (unsigned int entity = 0; entity < point_cloud.points.size(); ++entity)
+    for (unsigned int binding = 0; binding < properties_bindings.size();
+         ++binding)
+      {
+        const auto &selected = properties_bindings[binding];
+        AssertIndexRange(selected.field_index, point_cloud.properties.size());
+        const auto &field = properties_catalog[selected.field_index];
+        AssertThrow(point_cloud.properties[selected.field_index].size() ==
+                      point_cloud.points.size() * field.n_components,
+                    ExcMessage("Point-cloud property '" + field.vtk_name +
+                               "' has an invalid number of values."));
+        entity_properties[entity][binding] =
+          point_cloud
+            .properties[selected.field_index]
+                       [entity * field.n_components + selected.vtk_component];
+      }
+
+  thickness_expression = par.thickness;
+  constant_thickness   = 0.01;
+  try
+    {
+      std::size_t  parsed = 0;
+      const double value  = std::stod(thickness_expression, &parsed);
+      if (parsed == thickness_expression.size())
+        {
+          constant_thickness = value;
+          thickness_expression.clear();
+        }
+    }
+  catch (const std::invalid_argument &)
+    {}
+  catch (const std::out_of_range &)
+    {
+      AssertThrow(false, ExcMessage("Thickness expression is out of range."));
+    }
+  if (thickness_expression.empty())
+    AssertThrow(std::isfinite(constant_thickness) && constant_thickness > 0.,
+                ExcMessage("Thickness must be finite and positive."));
+  if (!thickness_expression.empty())
+    {
+      const std::regex time_symbol("(^|[^A-Za-z0-9_])t([^A-Za-z0-9_]|$)");
+      AssertThrow(
+        !std::regex_search(thickness_expression, time_symbol),
+        ExcMessage(
+          "Time-dependent Thickness is unsupported for a 0D point cloud because lifted geometry cannot be recomputed coherently."));
+      std::vector<std::string> symbols;
+      symbols.reserve(properties_bindings.size());
+      for (const auto &binding : properties_bindings)
+        symbols.push_back(binding.symbol_name);
+      thickness_evaluator.initialize({thickness_expression},
+                                     symbols,
+                                     {{"pi", numbers::PI}, {"E", numbers::E}});
+    }
+  entity_thickness.resize(point_cloud.points.size(), constant_thickness);
+  if (!thickness_expression.empty())
+    for (unsigned int entity = 0; entity < point_cloud.points.size(); ++entity)
+      {
+        std::vector<double> value(1);
+        thickness_evaluator.evaluate_into(point_cloud.points[entity],
+                                          evaluation_time,
+                                          entity_properties[entity],
+                                          value);
+        AssertThrow(
+          std::isfinite(value[0]) && value[0] > 0.,
+          ExcMessage(
+            "Thickness must be finite and positive for every representative entity."));
+        entity_thickness[entity] = value[0];
+      }
+}
+
+template <int dim, int spacedim, int n_components>
+const ReferenceCrossSection<dim, spacedim, n_components> &
+TensorProductSpace<0, dim, spacedim, n_components>::
+  get_reference_cross_section() const
+{
+  return reference_cross_section;
+}
+
+template <int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<0, dim, spacedim, n_components>::
+  n_representative_dofs_per_entity() const
+{
+  return reference_cross_section.n_selected_basis();
+}
+
+template <int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<0, dim, spacedim, n_components>::n_representative_dofs()
+  const
+{
+  return point_cloud.points.size() * n_representative_dofs_per_entity();
+}
+
+template <int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<0, dim, spacedim, n_components>::
+  locally_owned_representative_entities() const
+{
+  const unsigned int rank  = Utilities::MPI::this_mpi_process(mpi_communicator);
+  const unsigned int nproc = Utilities::MPI::n_mpi_processes(mpi_communicator);
+  IndexSet           result(point_cloud.points.size());
+  for (unsigned int i = 0; i < point_cloud.points.size(); ++i)
+    if (i % nproc == rank)
+      result.add_index(i);
+  result.compress();
+  return result;
+}
+
+template <int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<0, dim, spacedim, n_components>::
+  locally_owned_representative_dofs() const
+{
+  const auto         owned_entities = locally_owned_representative_entities();
+  const unsigned int block          = n_representative_dofs_per_entity();
+  IndexSet           result(n_representative_dofs());
+  for (const auto entity : owned_entities)
+    result.add_range(entity * block, (entity + 1) * block);
+  result.compress();
+  return result;
+}
+
+template <int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<0, dim, spacedim, n_components>::
+  locally_relevant_representative_dofs() const
+{
+  IndexSet result(n_representative_dofs());
+  result.add_range(0, n_representative_dofs());
+  result.compress();
+  return result;
+}
+
+template <int dim, int spacedim, int n_components>
+unsigned int
+TensorProductSpace<0, dim, spacedim, n_components>::n_representative_entities()
+  const
+{
+  return point_cloud.points.size();
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<types::global_dof_index> &
+TensorProductSpace<0, dim, spacedim, n_components>::
+  get_representative_dof_indices(types::global_dof_index entity_id) const
+{
+  AssertIndexRange(entity_id, point_cloud.points.size());
+  return representative_entity_to_dof_indices.at(entity_id);
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<types::global_dof_index> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_dof_indices(
+  types::global_cell_index entity_id) const
+{
+  return get_representative_dof_indices(entity_id);
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::compute_points_and_weights()
+{
+  all_qpoints.clear();
+  all_weights.clear();
+  reduced_qpoints.clear();
+  reduced_weights.clear();
+  section_measure.clear();
+  const auto owned = locally_owned_representative_entities();
+  for (const auto entity_id : owned)
+    {
+      reduced_qpoints.push_back(point_cloud.points[entity_id]);
+      const double thickness = entity_thickness.empty() ?
+                                 constant_thickness :
+                                 entity_thickness[entity_id];
+      reduced_weights.push_back({1.0});
+      section_measure.push_back({reference_cross_section.measure(thickness)});
+      const auto transformed =
+        reference_cross_section.get_transformed_quadrature(
+          point_cloud.points[entity_id],
+          get_entity_orientation(entity_id),
+          thickness);
+      for (const auto q : transformed.get_points())
+        all_qpoints.push_back(q);
+      for (const auto weight : transformed.get_weights())
+        all_weights.push_back({weight});
+    }
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<Point<spacedim>> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_locally_owned_qpoints()
+  const
+{
+  return all_qpoints;
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_locally_owned_weights()
+  const
+{
+  return all_weights;
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<Point<spacedim>> &
+TensorProductSpace<0, dim, spacedim, n_components>::
+  get_locally_owned_reduced_qpoints() const
+{
+  return reduced_qpoints;
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<0, dim, spacedim, n_components>::
+  get_locally_owned_reduced_weights() const
+{
+  return reduced_weights;
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<0, dim, spacedim, n_components>::
+  get_locally_owned_section_measure() const
+{
+  return section_measure;
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::
+  register_particle_id_mapping()
+{
+  const auto local_entities = [&]() {
+    std::vector<unsigned int> result;
+    const auto                owned = locally_owned_representative_entities();
+    result.reserve(owned.n_elements());
+    for (const auto entity : owned)
+      result.push_back(entity);
+    return result;
+  }();
+  const auto all_entities =
+    Utilities::MPI::all_gather(mpi_communicator, local_entities);
+  const unsigned int nsection = reference_cross_section.n_quadrature_points();
+  particle_id_to_representative.clear();
+  types::particle_index particle_id = 0;
+  for (const auto &rank_entities : all_entities)
+    for (const auto entity : rank_entities)
+      for (unsigned int section_q = 0; section_q < nsection; ++section_q)
+        particle_id_to_representative.emplace(
+          particle_id++, std::make_tuple(entity, 0u, section_q));
+
+  AssertDimension(particle_id, point_cloud.points.size() * nsection);
+}
+
+template <int dim, int spacedim, int n_components>
+std::tuple<unsigned int, unsigned int, unsigned int>
+TensorProductSpace<0, dim, spacedim, n_components>::
+  particle_id_to_representative_indices(unsigned int particle_id) const
+{
+  const auto it = particle_id_to_representative.find(particle_id);
+  AssertThrow(it != particle_id_to_representative.end(),
+              ExcMessage(
+                "Particle id has no registered 0D representative mapping."));
+  return it->second;
+}
+
+template <int dim, int spacedim, int n_components>
+std::tuple<unsigned int, unsigned int, unsigned int>
+TensorProductSpace<0, dim, spacedim, n_components>::
+  particle_id_to_cell_and_qpoint_indices(unsigned int particle_id) const
+{
+  return particle_id_to_representative_indices(particle_id);
+}
+
+template <int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<0, dim, spacedim, n_components>::locally_owned_qpoints()
+  const
+{
+  const unsigned int nsection = reference_cross_section.n_quadrature_points();
+  IndexSet           result(point_cloud.points.size() * nsection);
+  const auto         owned = locally_owned_representative_entities();
+  for (const auto entity : owned)
+    result.add_range(entity * nsection, (entity + 1) * nsection);
+  result.compress();
+  return result;
+}
+
+template <int dim, int spacedim, int n_components>
+IndexSet
+TensorProductSpace<0, dim, spacedim, n_components>::locally_relevant_indices()
+  const
+{
+  return locally_owned_representative_entities();
+}
+
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::update_local_dof_indices(
+  const std::map<unsigned int, IndexSet> &)
+{}
+
+template <int dim, int spacedim, int n_components>
+double
+TensorProductSpace<0, dim, spacedim, n_components>::get_scaling(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, point_cloud.points.size());
+  const double thickness =
+    entity_thickness.empty() ? constant_thickness : entity_thickness[entity_id];
+  return std::pow(thickness, -(dim / 2.0));
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<std::string> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_properties_names() const
+{
+  return properties_names;
+}
+template <int dim, int spacedim, int n_components>
+std::vector<std::string> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_properties_names()
+{
+  return properties_names;
+}
+template <int dim, int spacedim, int n_components>
+const VTKFieldCatalog &
+TensorProductSpace<0, dim, spacedim, n_components>::get_properties_catalog()
+  const
+{
+  return properties_catalog;
+}
+template <int dim, int spacedim, int n_components>
+const std::vector<std::vector<double>> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_properties() const
+{
+  return entity_properties;
+}
+template <int dim, int spacedim, int n_components>
+const std::vector<InputFieldBinding> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_properties_bindings()
+  const
+{
+  return properties_bindings;
+}
+template <int dim, int spacedim, int n_components>
+const std::string &
+TensorProductSpace<0, dim, spacedim, n_components>::get_thickness_expression()
+  const
+{
+  return thickness_expression;
+}
+template <int dim, int spacedim, int n_components>
+const SymbolicFieldEvaluator &
+TensorProductSpace<0, dim, spacedim, n_components>::get_thickness_evaluator()
+  const
+{
+  return thickness_evaluator;
+}
+template <int dim, int spacedim, int n_components>
+void
+TensorProductSpace<0, dim, spacedim, n_components>::set_time(double time)
+{
+  (void)time;
+  AssertThrow(
+    thickness_expression.empty(),
+    ExcMessage(
+      "Time-dependent Thickness is unsupported for a 0D point cloud because lifted geometry cannot be recomputed coherently."));
+}
+
+template <int dim, int spacedim, int n_components>
+const std::vector<double> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_entity_property_values(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, entity_properties.size());
+  return entity_properties[entity_id];
+}
+
+template <int dim, int spacedim, int n_components>
+double
+TensorProductSpace<0, dim, spacedim, n_components>::get_entity_thickness(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, point_cloud.points.size());
+  return entity_thickness.empty() ? constant_thickness :
+                                    entity_thickness[entity_id];
+}
+
+template <int dim, int spacedim, int n_components>
+const Point<spacedim> &
+TensorProductSpace<0, dim, spacedim, n_components>::get_entity_position(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, point_cloud.points.size());
+  return point_cloud.points[entity_id];
+}
+
+template <int dim, int spacedim, int n_components>
+Tensor<1, spacedim>
+TensorProductSpace<0, dim, spacedim, n_components>::get_entity_orientation(
+  unsigned int entity_id) const
+{
+  AssertIndexRange(entity_id, point_cloud.points.size());
+  Tensor<1, spacedim> result;
+  result[spacedim - 1] = 1.;
+  for (unsigned int field = 0; field < point_cloud.catalog.size(); ++field)
+    if (point_cloud.catalog[field].vtk_name == "orientation")
+      {
+        AssertThrow(
+          point_cloud.catalog[field].n_components == spacedim,
+          ExcMessage("Point-cloud orientation must have spacedim components."));
+        AssertIndexRange(field, point_cloud.properties.size());
+        AssertThrow(point_cloud.properties[field].size() ==
+                      point_cloud.points.size() * spacedim,
+                    ExcMessage("Point-cloud orientation has invalid values."));
+        for (unsigned int d = 0; d < spacedim; ++d)
+          {
+            result[d] = point_cloud.properties[field][entity_id * spacedim + d];
+            AssertThrow(std::isfinite(result[d]),
+                        ExcMessage("Point-cloud orientation must be finite."));
+          }
+        AssertThrow(result.norm() > 0.,
+                    ExcMessage("Point-cloud orientation must be non-zero."));
+        return result;
+      }
+  return result;
+}
+
+template struct TensorProductSpaceParameters<0, 2, 2, 1>;
+template struct TensorProductSpaceParameters<0, 2, 2, 2>;
 template struct TensorProductSpaceParameters<1, 2, 2, 1>;
 template struct TensorProductSpaceParameters<1, 2, 3, 1>;
 template struct TensorProductSpaceParameters<1, 3, 3, 1>;
@@ -705,6 +1296,8 @@ template struct TensorProductSpaceParameters<1, 2, 3, 3>;
 template struct TensorProductSpaceParameters<1, 3, 3, 3>;
 template struct TensorProductSpaceParameters<2, 3, 3, 3>;
 
+template class TensorProductSpace<0, 2, 2, 1>;
+template class TensorProductSpace<0, 2, 2, 2>;
 template class TensorProductSpace<1, 2, 2, 1>;
 template class TensorProductSpace<1, 2, 3, 1>;
 template class TensorProductSpace<1, 3, 3, 1>;

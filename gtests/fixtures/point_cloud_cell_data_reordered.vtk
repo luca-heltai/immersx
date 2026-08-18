@@ -1,0 +1,22 @@
+# vtk DataFile Version 3.0
+Point-cloud cell-data ordering fixture
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 3 double
+0 0 0
+1 0 0
+2 0 0
+CELLS 3 6
+1 2
+1 0
+1 1
+CELL_TYPES 3
+1
+1
+1
+CELL_DATA 3
+SCALARS radius double 1
+LOOKUP_TABLE default
+30
+10
+20

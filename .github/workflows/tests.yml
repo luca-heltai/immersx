@@ -39,12 +39,14 @@ jobs:
       - name: Serial gtests debug
         run: |
           cd build_linux_debug
-          ./gtests/gtests_debug
+          mkdir -p test_directory
+          (cd test_directory && ../gtests/gtests_debug)
 
       - name: Parallel gtests debug
         run: |
           cd build_linux_debug
-          mpirun -n 2 ./gtests/gtests_debug
+          mkdir -p test_directory
+          (cd test_directory && mpirun -n 2 ../gtests/gtests_debug)
 
   release:
     runs-on: ubuntu-latest
@@ -78,9 +80,11 @@ jobs:
       - name: Serial gtests release
         run: |
           cd build_linux_release
-          ./gtests/gtests
+          mkdir -p test_directory
+          (cd test_directory && ../gtests/gtests)
 
       - name: Parallel gtests release
         run: |
           cd build_linux_release
-          mpirun -n 2 ./gtests/gtests
+          mkdir -p test_directory
+          (cd test_directory && mpirun -n 2 ../gtests/gtests)

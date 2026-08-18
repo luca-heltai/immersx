@@ -35,17 +35,19 @@
 
 #ifdef DEAL_II_WITH_VTK
 
+#  include <cmath>
 #  include <filesystem>
 #  include <type_traits>
 
 #  include "augmented_lagrangian_preconditioner.h"
 #  include "reduced_poisson.h"
+#  include "solver_controls.h"
 #  include "utils.h"
 
 
 
-template <int spacedim>
-ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
+template <int spacedim, int reduced_dim>
+ReducedPoissonParameters<spacedim, reduced_dim>::ReducedPoissonParameters()
   : ParameterAcceptor("/Reduced Poisson/")
   , rhs("/Reduced Poisson/Right hand side")
   , bc("/Reduced Poisson/Dirichlet boundary conditions")
@@ -57,6 +59,7 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
   add_parameter("Output name", output_name);
   add_parameter("Output results also before solving",
                 output_results_before_solving);
+  add_parameter("Estimate condition number", estimate_condition_number);
   add_parameter("Solver type", solver_name);
   add_parameter("Assemble full AL system", assemble_full_AL_system);
   add_parameter("Dirichlet boundary ids", dirichlet_ids);
@@ -95,9 +98,9 @@ ReducedPoissonParameters<spacedim>::ReducedPoissonParameters()
 }
 
 
-template <int dim, int spacedim>
-ReducedPoisson<dim, spacedim>::ReducedPoisson(
-  const ReducedPoissonParameters<spacedim> &par)
+template <int dim, int spacedim, int reduced_dim>
+ReducedPoisson<dim, spacedim, reduced_dim>::ReducedPoisson(
+  const ReducedPoissonParameters<spacedim, reduced_dim> &par)
   : par(par)
   , mpi_communicator(MPI_COMM_WORLD)
   , pcout(std::cout, (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
@@ -118,9 +121,9 @@ ReducedPoisson<dim, spacedim>::ReducedPoisson(
 
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::make_grid()
+ReducedPoisson<dim, spacedim, reduced_dim>::make_grid()
 {
   try
     {
@@ -138,9 +141,9 @@ ReducedPoisson<dim, spacedim>::make_grid()
 
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::setup_fe()
+ReducedPoisson<dim, spacedim, reduced_dim>::setup_fe()
 {
   TimerOutput::Scope t(computing_timer, "Initial setup");
   fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
@@ -148,9 +151,9 @@ ReducedPoisson<dim, spacedim>::setup_fe()
 }
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::setup_dofs()
+ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
 
@@ -242,14 +245,13 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
 
 #  endif
   }
-  const auto &reduced_dh = reduced_coupling.get_dof_handler();
-  owned_dofs[1]          = reduced_dh.locally_owned_dofs();
-  relevant_dofs[1]       = DoFTools::extract_locally_relevant_dofs(reduced_dh);
+  owned_dofs[1]    = reduced_coupling.locally_owned_representative_dofs();
+  relevant_dofs[1] = reduced_coupling.locally_relevant_representative_dofs();
 
   coupling_matrix.clear();
 
   DynamicSparsityPattern dsp(dh.n_dofs(),
-                             reduced_dh.n_dofs(),
+                             reduced_coupling.n_representative_dofs(),
                              relevant_dofs[0]);
 
   reduced_coupling.assemble_coupling_sparsity(dsp, dh, constraints);
@@ -290,9 +292,9 @@ ReducedPoisson<dim, spacedim>::setup_dofs()
 
 
 #  ifndef MATRIX_FREE_PATH
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::assemble_poisson_system()
+ReducedPoisson<dim, spacedim, reduced_dim>::assemble_poisson_system()
 {
   stiffness_matrix = 0;
   coupling_matrix  = 0;
@@ -343,11 +345,77 @@ ReducedPoisson<dim, spacedim>::assemble_poisson_system()
 }
 #  endif
 
+
+template <int dim, int spacedim, int reduced_dim>
+void
+ReducedPoisson<dim, spacedim, reduced_dim>::assemble_coupling_system()
+{
+  reduced_coupling.assemble_coupling_matrix(coupling_matrix, dh, constraints);
+  reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
+}
+
+
+template <int dim, int spacedim, int reduced_dim>
+unsigned int
+ReducedPoisson<dim, spacedim, reduced_dim>::n_reduced_dofs() const
+{
+  return reduced_coupling.n_representative_dofs();
+}
+
+
+template <int dim, int spacedim, int reduced_dim>
+double
+ReducedPoisson<dim, spacedim, reduced_dim>::coupling_matrix_frobenius_norm()
+  const
+{
+  const double local_norm = coupling_matrix.frobenius_norm();
+  return std::sqrt(
+    Utilities::MPI::sum(local_norm * local_norm, mpi_communicator));
+}
+
+
+template <int dim, int spacedim, int reduced_dim>
+double
+ReducedPoisson<dim, spacedim, reduced_dim>::bulk_solution_l2_norm() const
+{
+  const double local_norm = solution.block(0).l2_norm();
+  return std::sqrt(
+    Utilities::MPI::sum(local_norm * local_norm, mpi_communicator));
+}
+
+
+template <int dim, int spacedim, int reduced_dim>
+double
+ReducedPoisson<dim, spacedim, reduced_dim>::multiplier_solution_l2_norm() const
+{
+  const double local_norm = solution.block(1).l2_norm();
+  return std::sqrt(
+    Utilities::MPI::sum(local_norm * local_norm, mpi_communicator));
+}
+
+
+template <int dim, int spacedim, int reduced_dim>
+bool
+ReducedPoisson<dim, spacedim, reduced_dim>::bulk_solution_is_finite() const
+{
+  return std::isfinite(bulk_solution_l2_norm());
+}
+
+
+template <int dim, int spacedim, int reduced_dim>
+bool
+ReducedPoisson<dim, spacedim, reduced_dim>::multiplier_solution_is_finite()
+  const
+{
+  return std::isfinite(multiplier_solution_l2_norm());
+}
+
+
 // Commented out inclusions-dependent function
 /*
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::assemble_coupling()
+ReducedPoisson<dim, spacedim, reduced_dim>::assemble_coupling()
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
   pcout << "Assemble coupling matrix. " << std::endl;
@@ -452,9 +520,9 @@ inclusion_matrix);
 */
 
 #  ifdef MATRIX_FREE_PATH
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::assemble_rhs()
+ReducedPoisson<dim, spacedim, reduced_dim>::assemble_rhs()
 {
   stiffness_matrix.get_matrix_free()->initialize_dof_vector(solution.block(0));
   stiffness_matrix.get_matrix_free()->initialize_dof_vector(
@@ -497,9 +565,9 @@ ReducedPoisson<dim, spacedim>::assemble_rhs()
 #  endif
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::solve()
+ReducedPoisson<dim, spacedim, reduced_dim>::solve()
 {
   TimerOutput::Scope t(computing_timer, "Solve");
   pcout << "Preparing solve." << std::endl;
@@ -595,7 +663,7 @@ ReducedPoisson<dim, spacedim>::solve()
   const auto &f = system_rhs.block(0);
   const auto &g = system_rhs.block(1);
 
-  if (reduced_coupling.get_dof_handler().n_dofs() == 0)
+  if (reduced_coupling.n_representative_dofs() == 0)
     {
       u = invA * f;
     }
@@ -663,10 +731,14 @@ ReducedPoisson<dim, spacedim>::solve()
             (std::is_same_v<LA::MPI::Vector, TrilinosWrappers::MPI::Vector>),
             ExcNotImplemented());
 
-          LA::MPI::SparseMatrix reduced_mass_matrix;
-          const auto           &reduced_dh = reduced_coupling.get_dof_handler();
+          LA::MPI::SparseMatrix  reduced_mass_matrix;
           DynamicSparsityPattern dsp_reduced_mass(relevant_dofs[1]);
-          DoFTools::make_sparsity_pattern(reduced_dh, dsp_reduced_mass);
+          if constexpr (reduced_dim > 0)
+            DoFTools::make_sparsity_pattern(reduced_coupling.get_dof_handler(),
+                                            dsp_reduced_mass);
+          else
+            for (const auto dof : owned_dofs[1])
+              dsp_reduced_mass.add(dof, dof);
           SparsityTools::distribute_sparsity_pattern(dsp_reduced_mass,
                                                      owned_dofs[1],
                                                      mpi_communicator,
@@ -706,7 +778,7 @@ ReducedPoisson<dim, spacedim>::solve()
           inverse_squares_reduced.compress(VectorOperation::insert);
 
 
-          SolverControl solver_control(100, 1e-15, false, false);
+          CumulativeSolverControl solver_control(100, 1e-15, false, false);
           SolverCG<TrilinosWrappers::MPI::Vector> solver_mass_matrix(
             solver_control);
           auto invM = inverse_operator(M, solver_mass_matrix, M_inv_ilu);
@@ -756,7 +828,8 @@ ReducedPoisson<dim, spacedim>::solve()
           system_rhs_block.block(0).add(1., tmp); // ! augmented
           system_rhs_block.block(1) = system_rhs.block(1);
 
-          SolverCG<LA::MPI::Vector> solver_lagrangian(par.inner_control);
+          CumulativeReductionControl inner_control(par.inner_control);
+          SolverCG<LA::MPI::Vector>  solver_lagrangian(inner_control);
 
 
           auto Aug_inv =
@@ -771,8 +844,10 @@ ReducedPoisson<dim, spacedim>::solve()
                               system_rhs_block,
                               augmented_lagrangian_preconditioner);
 
-          pcout << "   Solved with AL preconditioner in "
-                << par.outer_control.last_step() << " iterations." << std::endl;
+          output_augmented_lagrangian_iteration_summary(pcout,
+                                                        par.outer_control,
+                                                        inner_control,
+                                                        solver_control);
 
           constraints.distribute(solution_block.block(0));
           reduced_coupling.get_coupling_constraints().distribute(
@@ -780,49 +855,44 @@ ReducedPoisson<dim, spacedim>::solve()
           // solution.update_ghost_values();
           locally_relevant_solution = solution_block;
 
+          if (par.estimate_condition_number)
+            {
+              auto output_double_number = [this](double             input,
+                                                 const std::string &text) {
+                if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+                  std::cout << text << input << std::endl;
+              };
 
-#  ifdef DEBUG
-          // Estimate condition number of BBt using CG
-          {
-            auto output_double_number = [this](double             input,
-                                               const std::string &text) {
-              if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
-                std::cout << text << input << std::endl;
-            };
+              // Estimate condition number:
+              pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
+                    << std::endl;
+              pcout << "Estimate condition number of BBt using CG" << std::endl;
+              SolverControl solver_control(100000, 1e-12);
+              SolverCG<TrilinosWrappers::MPI::Vector> solver_cg(solver_control);
 
-            // Estimate condition number:
-            pcout << "- - - - - - - - - - - - - - - - - - - - - - - -"
-                  << std::endl;
-            pcout << "Estimate condition number of BBt using CG" << std::endl;
-            SolverControl solver_control(100000, 1e-12);
-            SolverCG<TrilinosWrappers::MPI::Vector> solver_cg(solver_control);
+              solver_cg.connect_condition_number_slot(
+                std::bind(output_double_number,
+                          std::placeholders::_1,
+                          "Condition number estimate: "));
 
-            solver_cg.connect_condition_number_slot(
-              std::bind(output_double_number,
-                        std::placeholders::_1,
-                        "Condition number estimate: "));
-            using PayloadType = dealii::TrilinosWrappers::internal::
-              LinearOperatorImplementation::TrilinosPayload;
+              auto BBt = B * Bt;
 
-            auto BBt = B * Bt;
-
-            TrilinosWrappers::MPI::Vector u(lambda);
-            u = 0.;
-            TrilinosWrappers::MPI::Vector f(lambda);
-            f = 1.;
-            TrilinosWrappers::PreconditionIdentity prec_no;
-            try
-              {
-                solver_cg.solve(BBt, u, f, prec_no);
-              }
-            catch (...)
-              {
-                pcout
-                  << "***BBt solve not successfull (see condition number above)***"
-                  << std::endl;
-              }
-          }
-#  endif
+              TrilinosWrappers::MPI::Vector u(lambda);
+              u = 0.;
+              TrilinosWrappers::MPI::Vector f(lambda);
+              f = 1.;
+              TrilinosWrappers::PreconditionIdentity prec_no;
+              try
+                {
+                  solver_cg.solve(BBt, u, f, prec_no);
+                }
+              catch (...)
+                {
+                  pcout
+                    << "***BBt solve not successfull (see condition number above)***"
+                    << std::endl;
+                }
+            }
         }
       else
         {
@@ -833,9 +903,9 @@ ReducedPoisson<dim, spacedim>::solve()
 
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::refine_and_transfer()
+ReducedPoisson<dim, spacedim, reduced_dim>::refine_and_transfer()
 {
   TimerOutput::Scope t(computing_timer, "Refine");
   Vector<float>      error_per_cell(tria.n_active_cells());
@@ -878,9 +948,9 @@ ReducedPoisson<dim, spacedim>::refine_and_transfer()
 
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 std::string
-ReducedPoisson<dim, spacedim>::output_solution() const
+ReducedPoisson<dim, spacedim, reduced_dim>::output_solution() const
 {
   TimerOutput::Scope t(computing_timer, "Output results");
   std::string        solution_name = "solution";
@@ -900,9 +970,9 @@ ReducedPoisson<dim, spacedim>::output_solution() const
 }
 
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::output_results() const
+ReducedPoisson<dim, spacedim, reduced_dim>::output_results() const
 {
   static std::vector<std::pair<double, std::string>> cycles_and_solutions;
   static std::vector<std::pair<double, std::string>> cycles_and_particles;
@@ -927,9 +997,9 @@ ReducedPoisson<dim, spacedim>::output_results() const
     }
 }
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::print_parameters() const
+ReducedPoisson<dim, spacedim, reduced_dim>::print_parameters() const
 {
 #  ifdef USE_PETSC_LA
   pcout << "Running ReducedPoisson<" << Utilities::dim_string(dim, spacedim)
@@ -949,9 +1019,9 @@ ReducedPoisson<dim, spacedim>::print_parameters() const
     }
 }
 
-template <int dim, int spacedim>
+template <int dim, int spacedim, int reduced_dim>
 void
-ReducedPoisson<dim, spacedim>::run()
+ReducedPoisson<dim, spacedim, reduced_dim>::run()
 {
   print_parameters();
   make_grid();
@@ -966,10 +1036,7 @@ ReducedPoisson<dim, spacedim>::run()
 #  else
       assemble_poisson_system();
 #  endif
-      reduced_coupling.assemble_coupling_matrix(coupling_matrix,
-                                                dh,
-                                                constraints);
-      reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
+      assemble_coupling_system();
 
 #  ifdef MATRIX_FREE_PATH
       // MappingQ1<spacedim> mapping;
@@ -995,9 +1062,11 @@ ReducedPoisson<dim, spacedim>::run()
 
 // Template instantiations
 template class ReducedPoissonParameters<2>;
+template class ReducedPoissonParameters<2, 0>;
 template class ReducedPoissonParameters<3>;
 
 template class ReducedPoisson<2>;
+template class ReducedPoisson<2, 2, 0>;
 template class ReducedPoisson<3>;
 
 
