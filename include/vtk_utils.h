@@ -38,6 +38,7 @@
 #include <deal.II/lac/vector.h>
 
 #include <iostream>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -115,8 +116,11 @@ namespace VTKUtils
    */
   template <int spacedim>
   void
-  read_vtk_point_cloud(const std::string    &vtk_filename,
-                       PointCloud<spacedim> &point_cloud);
+  read_vtk_point_cloud(
+    const std::string    &vtk_filename,
+    PointCloud<spacedim> &point_cloud,
+    const unsigned int   requested_piece = std::numeric_limits<unsigned int>::max(),
+    const unsigned int   n_requested_pieces = 1);
 
   /** Convenience overload returning the catalog and field names separately. */
   template <int spacedim>
