@@ -97,11 +97,13 @@ public:
    *
    * @param tria_background The background triangulation.
    * @param mapping The mapping associated with the triangulation.
+   * @param n_properties Number of scalar properties stored on each particle.
    */
   void
   initialize_particle_handler(
     const parallel::TriangulationBase<dim> &tria_background,
-    const Mapping<dim> &mapping = StaticMappingQ1<dim>::mapping);
+    const Mapping<dim> &mapping      = StaticMappingQ1<dim>::mapping,
+    const unsigned int  n_properties = 1);
 
   /**
    * Get a covering of the background triangulation indexed by processor.

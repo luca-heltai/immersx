@@ -58,18 +58,11 @@
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/vector_tools.h>
 
-#define FORCE_USE_OF_TRILINOS
+#include "linear_algebra.h"
+
 namespace LA
 {
-#if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
-  !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
-  using namespace dealii::LinearAlgebraPETSc;
-#  define IMMERSX_POISSON_USE_PETSC_LA
-#elif defined(DEAL_II_WITH_TRILINOS)
-  using namespace dealii::LinearAlgebraTrilinos;
-#else
-#  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
-#endif
+  using namespace ImmersXLA;
 } // namespace LA
 
 #include <list>
@@ -95,7 +88,14 @@ template <int dim, int spacedim = dim>
 class PoissonParameters : public dealii::ParameterAcceptor
 {
 public:
-  PoissonParameters();
+  /**
+   * Construct a parameter object below @p subsection.
+   *
+   * The default keeps the standalone application layout (`/Poisson/`).  A
+   * caller embedding more than one Poisson problem can pass another section,
+   * for example `/Bulk Poisson/` and `/Surface Poisson/`.
+   */
+  explicit PoissonParameters(const std::string &subsection = "/Poisson/");
 
   std::string                           output_directory   = ".";
   std::string                           output_name        = "solution";
@@ -157,6 +157,8 @@ template <int dim, int spacedim = dim>
 class PoissonSolver : public dealii::EnableObserverPointer
 {
 public:
+  using VectorType = LA::MPI::Vector;
+
   explicit PoissonSolver(const PoissonParameters<dim, spacedim> &par);
 
   void
@@ -195,6 +197,48 @@ public:
   bool
   solution_is_finite() const;
 
+  /** Return the triangulation used by this problem. */
+  const dealii::parallel::TriangulationBase<dim, spacedim> &
+  triangulation() const;
+
+  /** Return the finite-element DoFHandler used by this problem. */
+  const dealii::DoFHandler<dim, spacedim> &
+  dof_handler() const;
+
+  /** Return the homogeneous and inhomogeneous algebraic constraints. */
+  const dealii::AffineConstraints<double> &
+  constraints() const;
+
+  /** Return the assembled Poisson operator without mutable access. */
+  const LA::MPI::SparseMatrix &
+  system_matrix() const;
+
+  /** Return the assembled right-hand side without mutable access. */
+  const VectorType &
+  system_rhs() const;
+
+  /** Return the locally owned algebraic degrees of freedom. */
+  const dealii::IndexSet &
+  locally_owned_dofs() const;
+
+  /** Return the locally relevant algebraic degrees of freedom. */
+  const dealii::IndexSet &
+  locally_relevant_dofs() const;
+
+  /** Return the current locally owned solution vector. */
+  const VectorType &
+  solution() const;
+
+  /**
+   * Replace the algebraic state computed by an external solver.
+   *
+   * Constraints are distributed and the ghosted state used by output and
+   * error routines is refreshed, so a coupled algebraic solver can hand its
+   * result back to an otherwise independent Poisson problem.
+   */
+  void
+  set_solution(const VectorType &new_solution);
+
 private:
   using DistributedTriangulation =
     dealii::parallel::distributed::Triangulation<dim, spacedim>;
@@ -226,13 +270,12 @@ private:
 
   dealii::IndexSet                  owned_dofs;
   dealii::IndexSet                  relevant_dofs;
-  dealii::AffineConstraints<double> constraints;
+  dealii::AffineConstraints<double> constraints_storage;
 
   LA::MPI::SparseMatrix stiffness_matrix;
-  using VectorType = LA::MPI::Vector;
-  VectorType solution;
-  VectorType system_rhs;
-  VectorType locally_relevant_solution;
+  VectorType            solution_storage;
+  VectorType            system_rhs_storage;
+  VectorType            locally_relevant_solution;
 
   mutable std::vector<std::pair<double, std::string>> cycles_and_solutions;
   unsigned int                                        cycle = 0;
