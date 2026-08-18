@@ -17,9 +17,9 @@
 #ifndef tensor_product_space_h
 #define tensor_product_space_h
 
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/mpi_remote_point_evaluation.h>
-#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/fully_distributed_tria.h>
@@ -669,25 +669,25 @@ protected:
   std::vector<std::vector<double>> section_measure;
   std::map<types::particle_index,
            std::tuple<unsigned int, unsigned int, unsigned int>>
-                                   particle_id_to_representative;
+                                       particle_id_to_representative;
   Particles::ParticleHandler<spacedim> representative_particles;
-  bool representative_handler_initialized = false;
-  std::vector<unsigned int> source_entity_ids;
+  bool                             representative_handler_initialized = false;
+  std::vector<unsigned int>        source_entity_ids;
   std::vector<std::vector<double>> representative_properties;
-  IndexSet relevant_representative_entities;
-  std::vector<unsigned int> lifted_entity_ids;
-  std::vector<unsigned int> lifted_section_indices;
+  IndexSet                         relevant_representative_entities;
+  std::vector<unsigned int>        lifted_entity_ids;
+  std::vector<unsigned int>        lifted_section_indices;
   std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
   std::vector<std::vector<unsigned int>> all_lifted_section_indices;
-  std::vector<std::string>         properties_names;
-  VTKFieldCatalog                  properties_catalog;
-  std::vector<InputFieldBinding>   properties_bindings;
-  std::vector<std::vector<double>> entity_properties;
-  std::vector<double>              entity_thickness;
-  std::string                      thickness_expression;
-  double                           constant_thickness = 0.01;
-  double                           evaluation_time    = 0.;
-  SymbolicFieldEvaluator           thickness_evaluator;
+  std::vector<std::string>               properties_names;
+  VTKFieldCatalog                        properties_catalog;
+  std::vector<InputFieldBinding>         properties_bindings;
+  std::vector<std::vector<double>>       entity_properties;
+  std::vector<double>                    entity_thickness;
+  std::string                            thickness_expression;
+  double                                 constant_thickness = 0.01;
+  double                                 evaluation_time    = 0.;
+  SymbolicFieldEvaluator                 thickness_evaluator;
 };
 
 #endif // tensor_product_space_h

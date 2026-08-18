@@ -25,15 +25,15 @@
 
 #  include <vtkCell.h>
 #  include <vtkCellData.h>
-#  include <vtkInformation.h>
 #  include <vtkDataArray.h>
+#  include <vtkInformation.h>
 #  include <vtkPointData.h>
 #  include <vtkSmartPointer.h>
+#  include <vtkStreamingDemandDrivenPipeline.h>
 #  include <vtkUnstructuredGrid.h>
 #  include <vtkUnstructuredGridReader.h>
 #  include <vtkXMLPUnstructuredGridReader.h>
 #  include <vtkXMLUnstructuredGridReader.h>
-#  include <vtkStreamingDemandDrivenPipeline.h>
 
 #  include <algorithm>
 #  include <cctype>
@@ -46,11 +46,10 @@ namespace VTKUtils
   namespace
   {
     vtkSmartPointer<vtkUnstructuredGrid>
-    read_unstructured_grid(
-      const std::string  &filename,
-      const unsigned int  requested_piece =
-        std::numeric_limits<unsigned int>::max(),
-      const unsigned int n_requested_pieces = 1)
+    read_unstructured_grid(const std::string &filename,
+                           const unsigned int requested_piece =
+                             std::numeric_limits<unsigned int>::max(),
+                           const unsigned int n_requested_pieces = 1)
     {
       std::string extension;
       const auto  dot = filename.find_last_of('.');
@@ -151,12 +150,11 @@ namespace VTKUtils
   void
   read_vtk_point_cloud(const std::string    &vtk_filename,
                        PointCloud<spacedim> &point_cloud,
-                       const unsigned int   requested_piece,
-                       const unsigned int   n_requested_pieces)
+                       const unsigned int    requested_piece,
+                       const unsigned int    n_requested_pieces)
   {
-    const auto grid = read_unstructured_grid(vtk_filename,
-                                             requested_piece,
-                                             n_requested_pieces);
+    const auto grid =
+      read_unstructured_grid(vtk_filename, requested_piece, n_requested_pieces);
     AssertThrow(grid->GetPoints() != nullptr,
                 ExcMessage("VTK particle file has no points: " + vtk_filename));
     AssertThrow(spacedim <= 3,
