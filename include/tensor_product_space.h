@@ -645,8 +645,9 @@ public:
   void
   set_time(double time);
 
-  /** Values bound to symbolic expressions for one representative entity. */
-  const std::vector<double> &
+  /** Values bound to symbolic expressions for one local representative entity.
+   */
+  std::vector<double>
   get_entity_property_values(unsigned int entity_id) const;
   double
   get_entity_thickness(unsigned int entity_id) const;
@@ -671,12 +672,16 @@ protected:
            std::tuple<unsigned int, unsigned int, unsigned int>>
                                        particle_id_to_representative;
   Particles::ParticleHandler<spacedim> representative_particles;
-  bool                             representative_handler_initialized = false;
-  std::vector<unsigned int>        source_entity_ids;
-  std::vector<std::vector<double>> representative_properties;
-  IndexSet                         relevant_representative_entities;
-  std::vector<unsigned int>        lifted_entity_ids;
-  std::vector<unsigned int>        lifted_section_indices;
+  bool                      representative_handler_initialized = false;
+  unsigned int              n_global_representative_entities   = 0;
+  std::vector<unsigned int> source_entity_ids;
+  // These vectors contain only the source-local input until the representative
+  // particle handler is initialized. Runtime geometry and metadata then live
+  // exclusively in representative_particles.
+  std::vector<std::vector<double>>       representative_properties;
+  IndexSet                               relevant_representative_entities;
+  std::vector<unsigned int>              lifted_entity_ids;
+  std::vector<unsigned int>              lifted_section_indices;
   std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
   std::vector<std::vector<unsigned int>> all_lifted_section_indices;
   std::vector<std::string>               properties_names;

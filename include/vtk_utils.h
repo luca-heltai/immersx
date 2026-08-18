@@ -50,6 +50,15 @@ enum class VTKFieldAssociation
   cell_data
 };
 
+/** Distribution contract for programmatic and imported point clouds. */
+enum class PointCloudDistribution
+{
+  /** Every rank provides the same global cloud; rank zero is the source. */
+  replicated,
+  /** Every rank provides only its own source subset. */
+  rank_local
+};
+
 struct VTKFieldDescriptor
 {
   std::string         vtk_name;
@@ -74,6 +83,7 @@ struct PointCloud
   std::vector<std::vector<double>>     properties;
   VTKFieldCatalog                      catalog;
   std::vector<std::string>             property_names;
+  PointCloudDistribution distribution = PointCloudDistribution::replicated;
 };
 
 #ifdef DEAL_II_WITH_VTK

@@ -210,24 +210,38 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
     {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
   params.tensor_product_space_parameters.point_cloud.properties = {
     {0.25 + rank}};
+  params.tensor_product_space_parameters.point_cloud.distribution =
+    PointCloudDistribution::rank_local;
   params.coupling_rhs_expressions = {"1"};
 
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   ASSERT_NO_THROW(coupling.initialize());
   EXPECT_EQ(coupling.n_representative_entities(), nproc);
-  for (unsigned int entity = 0; entity < nproc; ++entity)
-    {
-      EXPECT_DOUBLE_EQ(coupling.get_entity_property_values(entity)[0],
-                       0.25 + entity);
-      EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(entity), 0.25 + entity);
-    }
 
   const auto locally_owned =
     coupling.get_representative_particles().locally_owned_particle_ids();
+  // Representative properties are authoritative in the owning particle.
+  // Inspect them only on that rank; the owner map below checks the global
+  // coverage and uniqueness invariant.
   std::vector<int> local_owner(nproc, -1);
   for (unsigned int entity = 0; entity < nproc; ++entity)
     if (locally_owned.is_element(entity))
-      local_owner[entity] = rank;
+      {
+        EXPECT_DOUBLE_EQ(coupling.get_entity_property_values(entity)[0],
+                         0.25 + entity);
+        EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(entity), 0.25 + entity);
+        local_owner[entity] = rank;
+      }
+  // The source point was deliberately placed in the next rank's background
+  // cell. The lifted particle therefore crosses the source/owner partition,
+  // and the receiving rank must mark the representative DoFs as relevant.
+  const auto relevant = coupling.locally_relevant_representative_dofs();
+  for (const auto &particle : coupling.get_particles())
+    {
+      const auto entity = std::get<0>(
+        coupling.particle_id_to_representative_indices(particle.get_id()));
+      EXPECT_TRUE(relevant.is_element(entity));
+    }
   const auto owners = Utilities::MPI::all_gather(MPI_COMM_WORLD, local_owner);
   for (unsigned int entity = 0; entity < nproc; ++entity)
     {
@@ -241,6 +255,53 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
           }
       EXPECT_EQ(n_owners, 1u);
       EXPECT_NE(owner, static_cast<int>(entity));
+    }
+}
+
+TEST(ReducedCoupling0D, MPI_RankLocalEmptySourceRanks)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_cube(background, 2, -1., 1.);
+
+  const unsigned int rank  = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const unsigned int nproc = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  if (nproc == 1)
+    return;
+
+  ReducedCouplingParameters<0, 2, 2, 1> params;
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.tensor_product_space_parameters.point_cloud.distribution =
+    PointCloudDistribution::rank_local;
+  params.tensor_product_space_parameters.point_cloud.catalog = {
+    {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
+  params.tensor_product_space_parameters.point_cloud.property_names = {
+    "radius"};
+  params.tensor_product_space_parameters.input_file_fields = "radius";
+  params.tensor_product_space_parameters.thickness         = "radius";
+  if (rank == 0)
+    {
+      params.tensor_product_space_parameters.point_cloud.points = {
+        Point<2>(-0.5, -0.5), Point<2>(0.5, 0.5)};
+      params.tensor_product_space_parameters.point_cloud.properties = {
+        {0.25, 0.5}};
+    }
+  params.coupling_rhs_expressions = {"1"};
+
+  ReducedCoupling<0, 2, 2, 1> coupling(background, params);
+  ASSERT_NO_THROW(coupling.initialize());
+  ASSERT_EQ(coupling.n_representative_entities(), 2u);
+
+  std::vector<int> local_owner(2, -1);
+  for (const auto entity :
+       coupling.get_representative_particles().locally_owned_particle_ids())
+    local_owner[entity] = rank;
+  const auto owners = Utilities::MPI::all_gather(MPI_COMM_WORLD, local_owner);
+  for (unsigned int entity = 0; entity < 2; ++entity)
+    {
+      unsigned int n_owners = 0;
+      for (const auto &rank_owners : owners)
+        n_owners += rank_owners[entity] >= 0;
+      EXPECT_EQ(n_owners, 1u);
     }
 }
 
@@ -334,8 +395,23 @@ TEST(ReducedCoupling0D, MPI_ImportsDistributedPVTU)
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   ASSERT_NO_THROW(coupling.initialize());
   ASSERT_EQ(coupling.n_representative_entities(), 2u);
-  EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(0), 0.25);
-  EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(1), 0.5);
+  const unsigned int rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  std::vector<int>   local_owner(2, -1);
+  for (const auto entity :
+       coupling.get_representative_particles().locally_owned_particle_ids())
+    {
+      local_owner[entity] = rank;
+      EXPECT_DOUBLE_EQ(coupling.get_entity_thickness(entity),
+                       entity == 0 ? 0.25 : 0.5);
+    }
+  const auto owners = Utilities::MPI::all_gather(MPI_COMM_WORLD, local_owner);
+  for (unsigned int entity = 0; entity < 2; ++entity)
+    {
+      unsigned int n_owners = 0;
+      for (const auto &rank_owners : owners)
+        n_owners += rank_owners[entity] >= 0;
+      EXPECT_EQ(n_owners, 1u);
+    }
 }
 #endif
 
