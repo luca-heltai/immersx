@@ -99,9 +99,7 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
     {
       this->prepare();
       this->initialize_representative_particle_handler(
-        *this->background_tria,
-        mapping,
-        this->get_global_bounding_boxes());
+        *this->background_tria, mapping, this->get_global_bounding_boxes());
       this->compute_points_and_weights();
     }
   else

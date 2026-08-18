@@ -161,12 +161,12 @@ TEST(ReducedCoupling0D, SetTimeAcceptsStaticThicknessAndUpdatesRhs)
   params.tensor_product_space_parameters.input_file_fields = "radius";
   params.tensor_product_space_parameters.thickness         = "radius";
   params.tensor_product_space_parameters.section.selected_coefficients = {0};
-  params.tensor_product_space_parameters.point_cloud.points = {
+  params.tensor_product_space_parameters.point_cloud.points            = {
     Point<2>(0., 0.)};
   params.tensor_product_space_parameters.point_cloud.catalog = {
     {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
   params.tensor_product_space_parameters.point_cloud.properties = {{0.25}};
-  params.coupling_rhs_expressions = {"1+t"};
+  params.coupling_rhs_expressions                               = {"1+t"};
 
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   ASSERT_NO_THROW(coupling.initialize());
@@ -185,7 +185,7 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
     return;
 
   Point<2> local_cell_center;
-  bool      found_local_cell = false;
+  bool     found_local_cell = false;
   for (const auto &cell : background.active_cell_iterators())
     if (cell->is_locally_owned())
       {
@@ -195,17 +195,17 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
       }
   ASSERT_TRUE(found_local_cell);
   const std::vector<double> local_center = {local_cell_center[0],
-                                             local_cell_center[1]};
-  const auto all_local_centers =
+                                            local_cell_center[1]};
+  const auto                all_local_centers =
     Utilities::MPI::all_gather(MPI_COMM_WORLD, local_center);
-  const auto &target_center = all_local_centers[(rank + 1) % nproc];
+  const auto    &target_center = all_local_centers[(rank + 1) % nproc];
   const Point<2> point(target_center[0], target_center[1]);
 
   ReducedCouplingParameters<0, 2, 2, 1> params;
   params.tensor_product_space_parameters.input_file_fields = "radius";
   params.tensor_product_space_parameters.thickness         = "radius";
   params.tensor_product_space_parameters.section.selected_coefficients = {0};
-  params.tensor_product_space_parameters.point_cloud.points = {point};
+  params.tensor_product_space_parameters.point_cloud.points  = {point};
   params.tensor_product_space_parameters.point_cloud.catalog = {
     {"radius", VTKFieldAssociation::point_data, 1, 0, 0}};
   params.tensor_product_space_parameters.point_cloud.properties = {
@@ -329,7 +329,7 @@ TEST(ReducedCoupling0D, MPI_ImportsDistributedPVTU)
   params.tensor_product_space_parameters.input_file_fields = "radius";
   params.tensor_product_space_parameters.thickness         = "radius";
   params.tensor_product_space_parameters.section.selected_coefficients = {0};
-  params.coupling_rhs_expressions = {"1"};
+  params.coupling_rhs_expressions                                      = {"1"};
 
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   ASSERT_NO_THROW(coupling.initialize());
