@@ -16,9 +16,8 @@
 
 #include <deal.II/lac/vector.h>
 
-#include "vtk_utils.h"
-
-#ifdef DEAL_II_WITH_VTK
+#include "point_cloud.h"
+#include "reduced_field_catalog.h"
 
 namespace LegacyInclusions
 {
@@ -63,9 +62,7 @@ namespace LegacyInclusions
           dealii::Triangulation<1, 3> &tria,
           dealii::DoFHandler<1, 3>    &properties_dh,
           dealii::Vector<double>      &properties,
-          VTKFieldCatalog             &catalog);
+          FieldCatalog                &catalog);
 } // namespace LegacyInclusions
-
-#endif // DEAL_II_WITH_VTK
 
 #endif // immersx_legacy_inclusions_h

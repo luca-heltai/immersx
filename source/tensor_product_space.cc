@@ -38,10 +38,11 @@
 
 #include "immersed_repartitioner.h"
 #include "legacy_inclusions.h"
+#include "reduced_field_utils.h"
 
 #ifdef DEAL_II_WITH_VTK
-
 #  include "vtk_utils.h"
+#endif
 
 namespace
 {
@@ -192,7 +193,7 @@ void
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   make_reduced_grid_and_properties()
 {
-  // First create a serial triangulation with the VTK file
+  // First create a serial triangulation and its serial property vector.
   Triangulation<reduced_dim, spacedim> serial_tria;
   DoFHandler<reduced_dim, spacedim>    serial_properties_dh(serial_tria);
   Vector<double>                       serial_properties;
@@ -220,14 +221,22 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                       "representative domains."));
     }
   else
-    VTKUtils::read_vtk(par.reduced_grid_name,
-                       serial_properties_dh,
-                       serial_properties,
-                       properties_catalog);
+    {
+#ifdef DEAL_II_WITH_VTK
+      VTKUtils::read_vtk(par.reduced_grid_name,
+                         serial_properties_dh,
+                         serial_properties,
+                         properties_catalog);
+#else
+      AssertThrow(false,
+                  ExcMessage("Reading a reduced grid file requires a build "
+                             "with VTK support."));
+#endif
+    }
   properties_names.clear();
   properties_names.reserve(properties_catalog.size());
   for (const auto &field : properties_catalog)
-    properties_names.push_back(field.vtk_name);
+    properties_names.push_back(field.name);
 
   const bool legacy_radius_thickness =
     !par.inclusions_file.empty() && par.thickness == "0.01";
@@ -250,11 +259,11 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
         {
           const auto &field = properties_catalog[binding.field_index];
           std::cout << "\n  " << binding.symbol_name << " <- "
-                    << (field.association == VTKFieldAssociation::point_data ?
+                    << (field.association == FieldAssociation::point_data ?
                           "PointData" :
                           "CellData")
-                    << " \"" << field.vtk_name << "\", component "
-                    << binding.vtk_component << ", FE component "
+                    << " \"" << field.name << "\", component "
+                    << binding.field_component << ", FE component "
                     << binding.fe_component;
         }
       std::cout << std::endl;
@@ -291,11 +300,13 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
                                      {{"pi", numbers::PI}, {"E", numbers::E}});
     }
 
-  deallog << "Read VTK file: " << par.reduced_grid_name
+  deallog << "Read reduced-grid input: "
+          << (par.inclusions_file.empty() ? par.reduced_grid_name :
+                                            par.inclusions_file)
           << ", properties norm: " << serial_properties.l2_norm() << std::endl;
 
   // The preprocessing hook may refine the serial reduced grid several times.
-  // Keep the VTK fields attached to the grid while that happens: a
+  // Keep the imported fields attached to the grid while that happens: a
   // SolutionTransfer prepared from the pre-refinement DoFHandler can then
   // rebuild the property vector on every new mesh produced by the hook.
   using SerialPropertiesTransfer =
@@ -339,21 +350,21 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 
   if (serial_properties_dh.n_dofs() == properties_dh.n_dofs())
     {
-      VTKUtils::serial_vector_to_distributed_vector(serial_properties_dh,
-                                                    properties_dh,
-                                                    serial_properties,
-                                                    properties);
+      ReducedFieldUtils::serial_vector_to_distributed_vector(
+        serial_properties_dh, properties_dh, serial_properties, properties);
     }
   else
     AssertThrow(false,
-                ExcMessage("Imported VTK properties do not match the prepared "
-                           "reduced mesh DoF layout after refinement."));
+                ExcMessage(
+                  "Imported reduced-grid properties do not match the prepared "
+                  "reduced mesh DoF layout after refinement."));
 
   // Make sure we have ghost values
   properties.update_ghost_values();
 
   const auto &properties_fe = properties_dh.get_fe();
-  const auto  block_indices = VTKUtils::get_block_indices(properties_fe);
+  const auto  block_indices =
+    ReducedFieldUtils::get_block_indices(properties_fe);
 
   for (unsigned int i = 0; i < block_indices.size(); ++i)
     {
@@ -765,7 +776,7 @@ TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
 }
 
 template <int reduced_dim, int dim, int spacedim, int n_components>
-const VTKFieldCatalog &
+const FieldCatalog &
 TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
   get_properties_catalog() const
 {
@@ -1028,6 +1039,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
       const bool is_pvtu =
         extension_pos != std::string::npos &&
         par.reduced_grid_name.substr(extension_pos + 1) == "pvtu";
+#ifdef DEAL_II_WITH_VTK
       if (is_pvtu)
         VTKUtils::read_vtk_point_cloud(
           par.reduced_grid_name,
@@ -1036,6 +1048,12 @@ TensorProductSpace<0, dim, spacedim, n_components>::
           Utilities::MPI::n_mpi_processes(mpi_communicator));
       else
         VTKUtils::read_vtk_point_cloud(par.reduced_grid_name, imported_cloud);
+#else
+      (void)is_pvtu;
+      AssertThrow(false,
+                  ExcMessage("Reading a point-cloud file requires a build "
+                             "with VTK support."));
+#endif
       imported_cloud.distribution = is_pvtu ?
                                       PointCloudDistribution::rank_local :
                                       PointCloudDistribution::replicated;
@@ -1083,7 +1101,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
       const auto &descriptor    = properties_catalog[field];
       const auto  expected_size = local_count * descriptor.n_components;
       AssertThrow(point_cloud.properties[field].size() == expected_size,
-                  ExcMessage("Point-cloud property '" + descriptor.vtk_name +
+                  ExcMessage("Point-cloud property '" + descriptor.name +
                              "' has an invalid number of local values."));
 
       const auto component_counts =
@@ -1091,7 +1109,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
       const auto associations = Utilities::MPI::all_gather(
         mpi_communicator, static_cast<unsigned int>(descriptor.association));
       const auto field_names =
-        Utilities::MPI::all_gather(mpi_communicator, descriptor.vtk_name);
+        Utilities::MPI::all_gather(mpi_communicator, descriptor.name);
       AssertThrow(std::all_of(component_counts.begin(),
                               component_counts.end(),
                               [&](const auto value) {
@@ -1106,7 +1124,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
                     std::all_of(field_names.begin(),
                                 field_names.end(),
                                 [&](const auto &value) {
-                                  return value == descriptor.vtk_name;
+                                  return value == descriptor.name;
                                 }),
                   ExcMessage(
                     "Point-cloud property schemas differ across MPI ranks."));
@@ -1139,7 +1157,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
       properties_names.clear();
       properties_names.reserve(properties_catalog.size());
       for (const auto &field : properties_catalog)
-        properties_names.push_back(field.vtk_name);
+        properties_names.push_back(field.name);
     }
   const bool legacy_radius_thickness =
     !par.inclusions_file.empty() && par.thickness == "0.01";
@@ -1161,12 +1179,12 @@ TensorProductSpace<0, dim, spacedim, n_components>::
         const auto &field = properties_catalog[selected.field_index];
         AssertThrow(point_cloud.properties[selected.field_index].size() ==
                       point_cloud.points.size() * field.n_components,
-                    ExcMessage("Point-cloud property '" + field.vtk_name +
+                    ExcMessage("Point-cloud property '" + field.name +
                                "' has an invalid number of values."));
         entity_properties[entity][binding] =
           point_cloud
             .properties[selected.field_index]
-                       [entity * field.n_components + selected.vtk_component];
+                       [entity * field.n_components + selected.field_component];
       }
 
   representative_properties.assign(
@@ -1180,7 +1198,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::
       representative_properties[entity]
                                [properties_bindings.size() + spacedim - 1] = 1.;
       for (unsigned int field = 0; field < properties_catalog.size(); ++field)
-        if (properties_catalog[field].vtk_name == "orientation")
+        if (properties_catalog[field].name == "orientation")
           {
             AssertThrow(
               properties_catalog[field].n_components == spacedim,
@@ -1608,7 +1626,7 @@ TensorProductSpace<0, dim, spacedim, n_components>::get_properties_names()
   return properties_names;
 }
 template <int dim, int spacedim, int n_components>
-const VTKFieldCatalog &
+const FieldCatalog &
 TensorProductSpace<0, dim, spacedim, n_components>::get_properties_catalog()
   const
 {
@@ -1783,5 +1801,3 @@ template class TensorProductSpace<1, 2, 2, 2>;
 template class TensorProductSpace<1, 2, 3, 3>;
 template class TensorProductSpace<1, 3, 3, 3>;
 template class TensorProductSpace<2, 3, 3, 3>;
-
-#endif // DEAL_II_WITH_VTK
