@@ -90,7 +90,7 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "Native vector does not match its field layout."));
       for (unsigned int block = 0; block < fields_.size(); ++block)
-        residual.field(fields_[block]).add(native.block(block));
+        residual.field(fields_[block]).add(1., native.block(block));
     }
 
   private:
