@@ -30,8 +30,11 @@
 
 #include <deal.II/lac/affine_constraints.h>
 
+#include <map>
 #include <utility>
 #include <vector>
+
+#include "tensor_product_space.h"
 
 /**
  * One physical quadrature point together with the algebraic data that
@@ -207,6 +210,188 @@ private:
 /** Explicit name for the R=I finite-element representation. */
 template <int dim, int spacedim = dim>
 using IdentityRepresentation = FiniteElementRepresentation<dim, spacedim>;
+
+
+/**
+ * Tensor-product physical representation backed by reduced-dimensional DoFs.
+ *
+ * The TensorProductSpace supplies the lifted physical quadrature on the
+ * cross-section, while the supplied DoFHandler supplies the algebraic
+ * representative coefficients.  This keeps the adapter a reusable view: it
+ * owns neither a PDE nor an Interaction and can be exposed to more than one
+ * coupling.
+ */
+template <int reduced_dim, int surface_dim, int spacedim, int n_components = 1>
+class TensorProductRepresentation
+{
+public:
+  static constexpr unsigned int dimension                = surface_dim;
+  static constexpr unsigned int representative_dimension = reduced_dim;
+  static constexpr unsigned int space_dimension          = spacedim;
+
+  using TensorProductSpaceType =
+    TensorProductSpace<reduced_dim, surface_dim, spacedim, n_components>;
+  using TriangulationType =
+    dealii::parallel::TriangulationBase<reduced_dim, spacedim>;
+  using DoFHandlerType  = dealii::DoFHandler<reduced_dim, spacedim>;
+  using QuadraturePoint = RepresentationQuadraturePoint<spacedim>;
+
+  TensorProductRepresentation(
+    const TensorProductSpaceType                 &space,
+    const DoFHandlerType                         &representative_dof_handler,
+    const dealii::IndexSet                       &locally_owned_dofs,
+    const dealii::IndexSet                       &locally_relevant_dofs,
+    const dealii::AffineConstraints<double>      &constraints,
+    const dealii::Mapping<reduced_dim, spacedim> &mapping =
+      dealii::StaticMappingQ1<reduced_dim, spacedim>::mapping)
+    : space_(space)
+    , dof_handler_(representative_dof_handler)
+    , locally_owned_dofs_(locally_owned_dofs)
+    , locally_relevant_dofs_(locally_relevant_dofs)
+    , constraints_(constraints)
+    , mapping_(mapping)
+  {}
+
+  const TriangulationType &
+  triangulation() const
+  {
+    return space_.get_triangulation();
+  }
+
+  const DoFHandlerType &
+  dof_handler() const
+  {
+    return dof_handler_;
+  }
+
+  const dealii::FiniteElement<reduced_dim, spacedim> &
+  finite_element() const
+  {
+    return dof_handler_.get_fe();
+  }
+
+  const dealii::Mapping<reduced_dim, spacedim> &
+  mapping() const
+  {
+    return mapping_;
+  }
+
+  const dealii::IndexSet &
+  locally_owned_dofs() const
+  {
+    return locally_owned_dofs_;
+  }
+
+  const dealii::IndexSet &
+  locally_relevant_dofs() const
+  {
+    return locally_relevant_dofs_;
+  }
+
+  const dealii::AffineConstraints<double> &
+  constraints() const
+  {
+    return constraints_;
+  }
+
+  MPI_Comm
+  mpi_communicator() const
+  {
+    return space_.get_triangulation().get_mpi_communicator();
+  }
+
+  unsigned int
+  n_dofs_per_cell() const
+  {
+    return finite_element().n_dofs_per_cell();
+  }
+
+  /**
+   * Return physical surface quadrature points represented by reduced DoFs.
+   *
+   * The interaction chooses its quadrature from `dimension == surface_dim`.
+   * TensorProductSpace has already built the lifted quadrature, so the
+   * surface quadrature argument is intentionally ignored here.  For every
+   * lifted cross-section point we attach the FE basis values evaluated on the
+   * reduced representative cell, with no explicit surface DoFHandler.
+   */
+  std::vector<QuadraturePoint>
+  locally_owned_quadrature_points(
+    const dealii::Quadrature<surface_dim> &surface_quadrature) const
+  {
+    (void)surface_quadrature;
+
+    const auto &lifted_points             = space_.get_locally_owned_qpoints();
+    const auto &lifted_weights            = space_.get_locally_owned_weights();
+    const auto &representative_quadrature = space_.get_quadrature();
+    const auto &section = space_.get_reference_cross_section();
+
+    AssertDimension(lifted_points.size(), lifted_weights.size());
+
+    dealii::FEValues<reduced_dim, spacedim> fe_values(mapping_,
+                                                      finite_element(),
+                                                      representative_quadrature,
+                                                      dealii::update_values);
+
+    std::map<dealii::types::global_cell_index,
+             typename DoFHandlerType::cell_iterator>
+      representative_cells;
+    for (const auto &cell : dof_handler_.active_cell_iterators())
+      if (cell->is_locally_owned())
+        representative_cells.emplace(cell->global_active_cell_index(), cell);
+
+    std::vector<QuadraturePoint> points;
+    points.reserve(lifted_points.size());
+    std::vector<dealii::types::global_dof_index> dof_indices(n_dofs_per_cell());
+
+    std::size_t point_index = 0;
+    for (const auto &cell : space_.get_triangulation().active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          const auto representative_cell =
+            representative_cells.find(cell->global_active_cell_index());
+          AssertThrow(representative_cell != representative_cells.end(),
+                      dealii::ExcMessage(
+                        "Tensor-product and representative meshes must use "
+                        "the same local cell partition."));
+
+          fe_values.reinit(representative_cell->second);
+          representative_cell->second->get_dof_indices(dof_indices);
+          for (const auto q : fe_values.quadrature_point_indices())
+            for (unsigned int section_q = 0;
+                 section_q < section.n_quadrature_points();
+                 ++section_q)
+              {
+                AssertIndexRange(point_index, lifted_points.size());
+                AssertThrow(!lifted_weights[point_index].empty(),
+                            dealii::ExcMessage(
+                              "A tensor-product quadrature point has no "
+                              "physical weight."));
+
+                QuadraturePoint point;
+                point.point       = lifted_points[point_index];
+                point.weight      = lifted_weights[point_index][0];
+                point.dof_indices = dof_indices;
+                point.basis_values.resize(n_dofs_per_cell());
+                for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                  point.basis_values[i] = fe_values.shape_value(i, q);
+                points.emplace_back(std::move(point));
+                ++point_index;
+              }
+        }
+
+    AssertDimension(point_index, lifted_points.size());
+    return points;
+  }
+
+private:
+  const TensorProductSpaceType                 &space_;
+  const DoFHandlerType                         &dof_handler_;
+  const dealii::IndexSet                       &locally_owned_dofs_;
+  const dealii::IndexSet                       &locally_relevant_dofs_;
+  const dealii::AffineConstraints<double>      &constraints_;
+  const dealii::Mapping<reduced_dim, spacedim> &mapping_;
+};
 
 
 /**
