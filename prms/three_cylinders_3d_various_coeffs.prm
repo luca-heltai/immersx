@@ -1,3 +1,7 @@
+set dimension         = 3
+set space dimension   = 3
+set reduced dimension = 1
+
 subsection Error
   set Enable computation of the errors = true
   set Error file name                  = three_cylinders_R0YYY_NXXX.txt

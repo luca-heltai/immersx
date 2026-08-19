@@ -32,27 +32,31 @@ main(int argc, char *argv[])
         prm_file = argv[1];
       else
         prm_file = "parameters.prm";
-      if (prm_file.find("23d") != std::string::npos)
+      const auto dimensions = get_dimension_parameters(prm_file);
+
+      if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           ProblemParameters<2, 3> par;
-          PoissonProblem<2, 3>    problem(par);
           initialize_parameters(prm_file);
+          PoissonProblem<2, 3> problem(par);
           problem.run();
         }
-      else if (prm_file.find("3d") != std::string::npos)
+      else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
           ProblemParameters<3> par;
-          PoissonProblem<3>    problem(par);
           initialize_parameters(prm_file);
+          PoissonProblem<3> problem(par);
+          problem.run();
+        }
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
+        {
+          ProblemParameters<2> par;
+          initialize_parameters(prm_file);
+          PoissonProblem<2> problem(par);
           problem.run();
         }
       else
-        {
-          ProblemParameters<2> par;
-          PoissonProblem<2>    problem(par);
-          initialize_parameters(prm_file);
-          problem.run();
-        }
+        throw_unsupported_dimension_combination(dimensions);
     }
   catch (std::exception &exc)
     {
