@@ -263,6 +263,8 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
 
 // Explicit instantiations for ReducedCouplingParameters
 template struct ReducedCouplingParameters<0, 2, 2, 1>;
+template struct ReducedCouplingParameters<0, 1, 2, 1>;
+template struct ReducedCouplingParameters<0, 2, 3, 1>;
 template struct ReducedCouplingParameters<0, 2, 2, 2>;
 template struct ReducedCouplingParameters<0, 1, 2, 1>;
 template struct ReducedCouplingParameters<0, 1, 2, 2>;
@@ -278,6 +280,8 @@ template struct ReducedCouplingParameters<2, 3, 3, 3>;
 
 
 template struct ReducedCoupling<0, 2, 2, 1>;
+template struct ReducedCoupling<0, 1, 2, 1>;
+template struct ReducedCoupling<0, 2, 3, 1>;
 template struct ReducedCoupling<0, 2, 2, 2>;
 template struct ReducedCoupling<0, 1, 2, 1>;
 template struct ReducedCoupling<0, 1, 2, 2>;

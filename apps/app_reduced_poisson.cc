@@ -63,6 +63,14 @@ main(int argc, char *argv[])
           ReducedPoisson<2, 2, 0> problem(par);
           problem.run();
         }
+      else if (dimensions.dimension == 3 && dimensions.space_dimension == 3 &&
+               dimensions.reduced_dimension == 0)
+        {
+          ReducedPoissonParameters<3, 0, 2> par;
+          initialize_parameters(prm_file);
+          ReducedPoisson<2, 3, 0, 2> problem(par);
+          problem.run();
+        }
       else if (dimensions.dimension == 2 && dimensions.space_dimension == 2 &&
                dimensions.reduced_dimension == 1)
         {
