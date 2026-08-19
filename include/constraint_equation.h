@@ -27,6 +27,19 @@ enum class ConstraintContributionOrientation
 };
 
 
+/** A signed matrix contribution to a constraint equation. */
+struct ConstraintEquationContribution
+{
+  using MatrixType = ImmersXLA::MPI::SparseMatrix;
+  using BlockId    = std::size_t;
+
+  BlockId                           block_id;
+  const MatrixType                 *matrix;
+  ConstraintContributionOrientation orientation;
+  double                            sign;
+};
+
+
 /**
  * A single algebraic relation
  *
@@ -47,17 +60,10 @@ enum class ConstraintContributionOrientation
 class ConstraintEquation
 {
 public:
-  using MatrixType = ImmersXLA::MPI::SparseMatrix;
-  using VectorType = ImmersXLA::MPI::Vector;
-  using BlockId    = std::size_t;
-
-  struct Contribution
-  {
-    BlockId                           block_id;
-    const MatrixType                 *matrix;
-    ConstraintContributionOrientation orientation;
-    double                            sign;
-  };
+  using MatrixType   = ImmersXLA::MPI::SparseMatrix;
+  using VectorType   = ImmersXLA::MPI::Vector;
+  using BlockId      = std::size_t;
+  using Contribution = ConstraintEquationContribution;
 
   ConstraintEquation(const dealii::IndexSet &multiplier_locally_owned_dofs,
                      const MPI_Comm          mpi_communicator)
