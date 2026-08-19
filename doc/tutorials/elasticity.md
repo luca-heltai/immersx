@@ -1,7 +1,7 @@
 # Elasticity
 
 This tutorial explains the `ElasticityProblem` application in the simplest
-setting: bulk elasticity without immersed inclusions.
+setting: standalone bulk elasticity without immersed inclusions.
 
 The examples present exact-solution convergence tests, using the method of manufactured solutions (MMS) for both static and dynamic cases. The five tutorial files are:
 
@@ -12,8 +12,14 @@ The examples present exact-solution convergence tests, using the method of manuf
 - `tutorials/elasticity/damped_kv_dispersion.prm`
 
 All these tests run with empty `Immersed inclusions` sections, so they isolate
-the behavior of the background elasticity solver, boundary conditions, and
+the behavior of the standalone bulk elasticity solver, boundary conditions, and
 time integration.
+
+This page documents the current `ElasticityProblem` implementation. Its
+problem-specific assembly and transient workflow are production paths on
+`master`; the generic differential-field and residual-contributor vocabulary
+described in {doc}`../core-architecture` is a compatible evolution path, not
+an already merged replacement.
 
 ## What Problem Is Solved?
 

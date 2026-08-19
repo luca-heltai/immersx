@@ -6,7 +6,7 @@ This repository is about partial differential equations posed on a bulk domain a
 - vascularized tissues, where a three-dimensional elastic matrix interacts with one-dimensional vessels;
 - scalar diffusion or Poisson problems with lower-dimensional inclusions.
 
-The common theme is that the embedded structure is geometrically thin, so resolving it with a fully conforming mesh is often too expensive or unnecessary. The code therefore uses mixed-dimensional models together with weak coupling conditions enforced by Lagrange multipliers. The main references behind this viewpoint are {cite:p}`AlzettaHeltai-2020-a`, {cite:p}`HeltaiCaiazzo-2019-a`, {cite:p}`HeltaiZunino-2023-a`, and {cite:p}`BelponerCaiazzoHeltai-2025-a`.
+The common theme is that the embedded structure is geometrically thin, so resolving it with a fully conforming mesh is often too expensive or unnecessary. The repository contains several weak-coupling formulations, including reduced Lagrange-multiplier formulations, but a multiplier is one interaction family rather than the definition of every mixed-dimensional model. The architectural common denominator is the additive semi-discrete residual described in {doc}`core-architecture`. The main references behind the reduced-coupling viewpoint are {cite:p}`AlzettaHeltai-2020-a`, {cite:p}`HeltaiCaiazzo-2019-a`, {cite:p}`HeltaiZunino-2023-a`, and {cite:p}`BelponerCaiazzoHeltai-2025-a`.
 
 ## Geometric Setting
 
@@ -151,7 +151,27 @@ g
 \end{bmatrix}.
 $$
 
-This structure is exactly what appears in the coupled parts of the codebase.
+This structure is the current mathematical specialization used by several
+coupled paths on `master`. It is not the global architectural contract: other
+Interactions may contribute source exchange, traction, Robin, penalty,
+Nitsche, contact, or auxiliary-state residuals without introducing a
+multiplier.
+
+## Semi-discrete residual viewpoint
+
+After spatial discretization, the broader model is written as
+
+$$
+F(t,y,\dot y) = 0.
+$$
+
+Problems and Interactions add their contributions to the same residual. A
+steady problem is a special case with no differential terms; a saddle-point
+system is a special case whose residual happens to have multiplier rows and
+block structure. This viewpoint lets the same physics be evaluated by a
+steady Newton solve, a DAE or IMEX integrator, or a history-backed
+partitioned driver. The specific state-access and Jacobian contracts are
+documented in {doc}`core-architecture`.
 
 ## Reduced Lagrange Multiplier Spaces
 
@@ -163,7 +183,7 @@ $$
 Q_{\text{full}} \xrightarrow{\,R\,} Q_{\text{red}}.
 $$
 
-Here $R$ is the restriction operator introduced in the reduced Lagrange multiplier framework: it maps a multiplier defined on the full interface space to a multiplier represented on the reduced space. In the code and in the theory, the reduced space is not chosen arbitrarily. It is built so that the action of $R$ preserves the coupling modes that are relevant for the bulk problem, while still being much cheaper to discretize and solve.
+Here $R$ is the restriction operator introduced in the reduced Lagrange multiplier framework: it maps a multiplier defined on the full interface space to a multiplier represented on the reduced space. In the code and in the theory, the reduced space is not chosen arbitrarily. It is built so that the action of $R$ preserves the coupling modes that are relevant for the bulk problem, while still being much cheaper to discretize and solve. In the implementation, this action can be folded into representation evaluation and quadrature rather than stored as a global matrix.
 
 The companion operator $R^T$ lifts reduced data back to the full interface space. At the continuous level, one should think of:
 
@@ -181,7 +201,8 @@ $$
 
 Equivalently, the reduced operator seen by the bulk problem is obtained by composing the original coupling with $R^T$, while reduced data on the interface are obtained by applying $R$ to full-interface quantities.
 
-The construction used in the repository follows this idea:
+The reduced Lagrange-multiplier construction used by the relevant repository
+paths follows this idea:
 
 1. choose a lower-dimensional characteristic manifold $\gamma$;
 2. choose a reference cross section $D$;
@@ -216,7 +237,7 @@ The reduction is not the same in every application. The code supports different 
 
 For reinforced materials, the thin structure represents fibers embedded in an elastic matrix. The reduced model keeps the centerline geometry and a small set of transverse modes instead of resolving the full fiber boundary.
 
-Mathematically, one replaces a detailed fiber-matrix interface by a weak coupling condition against a reduced multiplier space. This preserves the effect of the fibers on the matrix while avoiding a fully conforming mesh around every fiber.
+Mathematically, one possible interaction replaces a detailed fiber-matrix interface by a weak coupling condition against a reduced multiplier space. This preserves the effect of the fibers on the matrix while avoiding a fully conforming mesh around every fiber. Other interaction formulations remain possible.
 
 ### Vessels in tissues
 
@@ -265,7 +286,8 @@ Here:
 
 From the implementation point of view, this means that the assembled coupling operator is never the unreduced $B$ alone. The matrix called `coupling_matrix` in the repository should always be interpreted as the reduced operator, namely $RB$, or equivalently through its transpose action $B^T R^T$ depending on which block of the saddle-point system is being assembled or applied.
 
-This abstract form explains several implementation details in the code:
+This abstract form explains several implementation details in the current
+reduced-coupling code:
 
 - assembly of a `coupling_matrix`;
 - assembly of a reduced mass matrix for the multiplier basis;
@@ -315,4 +337,4 @@ The papers in `doc/papers/` develop different parts of the mathematical picture 
 - {cite:p}`HeltaiZunino-2023-a` develops the abstract reduced Lagrange multiplier framework and its stability/error analysis.
 - {cite:p}`BelponerCaiazzoHeltai-2025-a` extends the reduced framework to mixed-dimensional vascular tissues and elasticity with more realistic coupling conditions.
 
-These papers are not separate from the repository: they describe, analyze, and motivate the same family of methods that the code implements in different variants.
+These papers are not separate from the repository: they describe, analyze, and motivate the reduced-coupling family that the code implements in different variants. The broader Field/residual/execution architecture is a design trajectory around those production paths, not a claim that every equation in the papers is already exposed through one common API.
