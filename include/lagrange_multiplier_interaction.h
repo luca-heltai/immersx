@@ -60,12 +60,19 @@ class LagrangeMultiplierInteraction
 {
 public:
   static constexpr unsigned int spacedim =
-    BackgroundRepresentation::space_dimension;
+    BackgroundRepresentation::ambient_dimension;
 
-  static_assert(spacedim == EmbeddedRepresentation::space_dimension,
+  static_assert(RepresentationConcept<BackgroundRepresentation>::value,
+                "The first interaction endpoint does not satisfy the "
+                "representation contract.");
+  static_assert(RepresentationConcept<EmbeddedRepresentation>::value,
+                "The second interaction endpoint does not satisfy the "
+                "representation contract.");
+
+  static_assert(spacedim == EmbeddedRepresentation::ambient_dimension,
                 "Representations must live in the same physical space.");
-  static_assert(BackgroundRepresentation::dimension >=
-                  EmbeddedRepresentation::dimension,
+  static_assert(BackgroundRepresentation::support_dimension >=
+                  EmbeddedRepresentation::support_dimension,
                 "The embedded representation cannot have higher dimension.");
 
   using MatrixType = ImmersXLA::MPI::SparseMatrix;
@@ -92,9 +99,8 @@ public:
   {
     const unsigned int degree = std::max(background.finite_element().degree,
                                          embedded.finite_element().degree);
-    quadrature =
-      std::make_unique<dealii::QGauss<EmbeddedRepresentation::dimension>>(
-        degree + 1);
+    quadrature                = std::make_unique<
+      dealii::QGauss<EmbeddedRepresentation::support_dimension>>(degree + 1);
     embedded_quadrature_points =
       embedded.locally_owned_quadrature_points(*quadrature);
 
