@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <vector>
 
 #include "lagrange_multiplier_interaction.h"
 #include "lagrange_multiplier_schur_solver.h"
@@ -134,6 +135,43 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
                 cylindrical_representation,
                 search_parameters);
   interaction.assemble();
+  ASSERT_EQ(interaction.constraint_equation().contributions_view().size(), 2u);
+  ASSERT_TRUE(interaction.constraint_equation().has_multiplier_metric());
+
+  // The cylindrical representation is a reusable non-owning view.  A second
+  // independent interaction can consume it without changing either existing
+  // problem or the first interaction.
+  PoissonSolver<3> second_bulk_problem(bulk_parameters);
+  second_bulk_problem.make_grid();
+  second_bulk_problem.setup_fe();
+  second_bulk_problem.setup_system();
+  second_bulk_problem.assemble_system();
+
+  IdentityRepresentation<3, 3> second_bulk_representation(
+    second_bulk_problem.triangulation(),
+    second_bulk_problem.dof_handler(),
+    second_bulk_problem.locally_owned_dofs(),
+    second_bulk_problem.locally_relevant_dofs(),
+    second_bulk_problem.constraints());
+  LagrangeMultiplierInteraction<IdentityRepresentation<3, 3>,
+                                TensorProductRepresentation<1, 2, 3, 1>>
+    second_interaction(second_bulk_representation,
+                       cylindrical_representation,
+                       search_parameters);
+  second_interaction.assemble();
+
+  EXPECT_EQ(&interaction.second_representation(), &cylindrical_representation);
+  EXPECT_EQ(&second_interaction.second_representation(),
+            &cylindrical_representation);
+  EXPECT_NE(&interaction.constraint_equation(),
+            &second_interaction.constraint_equation());
+  ASSERT_EQ(
+    second_interaction.constraint_equation().contributions_view().size(), 2u);
+  EXPECT_NE(
+    interaction.constraint_equation().contributions_view()[0].matrix,
+    second_interaction.constraint_equation().contributions_view()[0].matrix);
+  EXPECT_GT(interaction.coupling_matrix().frobenius_norm(), 1.e-12);
+  EXPECT_GT(second_interaction.coupling_matrix().frobenius_norm(), 1.e-12);
 
   using MatrixType = ImmersXLA::MPI::SparseMatrix;
   using VectorType = ImmersXLA::MPI::Vector;
@@ -181,14 +219,12 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
   reduced_residual -= temporary;
   reduced_residual -= reduced_problem.system_rhs();
 
-  interaction.coupling_matrix().Tvmult(constraint_residual,
-                                       bulk_problem.solution());
-  interaction.multiplier_mass_matrix().vmult(temporary,
-                                             reduced_problem.solution());
-  constraint_residual -= temporary;
+  const std::vector<const VectorType *> states{&bulk_problem.solution(),
+                                               &reduced_problem.solution()};
+  interaction.constraint_equation().residual(states, constraint_residual);
 
   EXPECT_EQ(cylindrical_representation.representative_dimension, 1u);
-  EXPECT_EQ(cylindrical_representation.dimension, 2u);
+  EXPECT_EQ(cylindrical_representation.support_dimension, 2u);
   EXPECT_EQ(
     cylindrical_representation.dof_handler().get_triangulation().dimension, 1u);
   EXPECT_EQ(interaction.multiplier_mass_matrix().m(), reduced_problem.n_dofs());

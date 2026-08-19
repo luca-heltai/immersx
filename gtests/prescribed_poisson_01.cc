@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <vector>
 
 #include "lagrange_multiplier_constraint_solver.h"
 #include "lagrange_multiplier_interaction.h"
@@ -117,8 +118,11 @@ TEST(PrescribedPoisson, ReducedPoissonReplacement) // NOLINT
   PrescribedFieldDatum<IdentityRepresentation<1, 2>> datum(
     line_representation, prescribed_coefficients);
 
-  ImmersXLA::MPI::Vector constraint_rhs;
-  interaction.assemble_prescribed_rhs(datum, constraint_rhs);
+  const auto constraint_equation =
+    interaction.prescribed_constraint_equation(datum);
+  const auto &constraint_rhs = constraint_equation.rhs();
+  ASSERT_EQ(constraint_equation.contributions_view().size(), 1u);
+  ASSERT_TRUE(constraint_equation.has_multiplier_metric());
   ASSERT_GT(interaction.coupling_matrix().frobenius_norm(), 1.e-12);
   ASSERT_GT(interaction.multiplier_mass_matrix().frobenius_norm(), 1.e-12);
   ASSERT_GT(constraint_rhs.l2_norm(), 1.e-12);
@@ -151,9 +155,8 @@ TEST(PrescribedPoisson, ReducedPoissonReplacement) // NOLINT
   bulk_problem.system_matrix().vmult(bulk_residual, bulk_problem.solution());
   interaction.coupling_matrix().vmult_add(bulk_residual, multiplier);
   bulk_residual -= bulk_problem.system_rhs();
-  interaction.coupling_matrix().Tvmult(constraint_residual,
-                                       bulk_problem.solution());
-  constraint_residual -= constraint_rhs;
+  const std::vector<const VectorType *> states{&bulk_problem.solution()};
+  constraint_equation.residual(states, constraint_residual);
 
   EXPECT_TRUE(bulk_problem.solution_is_finite());
   EXPECT_TRUE(std::isfinite(multiplier.l2_norm()));

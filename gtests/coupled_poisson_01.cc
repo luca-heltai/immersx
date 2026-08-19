@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <vector>
 
 #include "lagrange_multiplier_interaction.h"
 #include "lagrange_multiplier_schur_solver.h"
@@ -133,6 +134,8 @@ TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
                 embedded_representation,
                 search_parameters);
   interaction.assemble();
+  ASSERT_EQ(interaction.constraint_equation().contributions_view().size(), 2u);
+  ASSERT_TRUE(interaction.constraint_equation().has_multiplier_metric());
 
   using MatrixType = ImmersXLA::MPI::SparseMatrix;
   using VectorType = ImmersXLA::MPI::Vector;
@@ -182,11 +185,9 @@ TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
   embedded_residual -= temporary;
   embedded_residual -= embedded_problem.system_rhs();
 
-  interaction.coupling_matrix().Tvmult(multiplier_residual,
-                                       bulk_problem.solution());
-  interaction.multiplier_mass_matrix().vmult(temporary,
-                                             embedded_problem.solution());
-  multiplier_residual -= temporary;
+  const std::vector<const VectorType *> states{&bulk_problem.solution(),
+                                               &embedded_problem.solution()};
+  interaction.constraint_equation().residual(states, multiplier_residual);
 
   EXPECT_TRUE(bulk_problem.solution_is_finite());
   EXPECT_TRUE(embedded_problem.solution_is_finite());
