@@ -1,3 +1,7 @@
+set dimension         = 2
+set space dimension   = 2
+set reduced dimension = 0
+
 subsection Reduced Poisson
   set Assemble full AL system            = false
   set Dirichlet boundary ids             = 0,1,2,3
