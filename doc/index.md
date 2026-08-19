@@ -16,6 +16,7 @@ build-and-run
 tutorials/index
 testing
 documentation
+time_residual_sundials
 repository-layout
 architecture-diagram
 funding
