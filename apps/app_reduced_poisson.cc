@@ -52,25 +52,35 @@ main(int argc, char *argv[])
     {
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
       mpi_initlog(true);
-      std::string prm_file;
-      if (argc > 1)
-        prm_file = argv[1];
-      else
-        prm_file = "parameters.prm";
-      if (prm_file.find("3d") != std::string::npos)
+      const std::string prm_file   = argc > 1 ? argv[1] : "parameters.prm";
+      const auto        dimensions = get_dimension_parameters(prm_file);
+
+      if (dimensions.dimension == 2 && dimensions.space_dimension == 2 &&
+          dimensions.reduced_dimension == 0)
         {
-          ReducedPoissonParameters<3> par;
+          ReducedPoissonParameters<2, 0> par;
           initialize_parameters(prm_file);
-          ReducedPoisson<3> problem(par);
+          ReducedPoisson<2, 2, 0> problem(par);
+          problem.run();
+        }
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 2 &&
+               dimensions.reduced_dimension == 1)
+        {
+          ReducedPoissonParameters<2, 1> par;
+          initialize_parameters(prm_file);
+          ReducedPoisson<2, 2, 1> problem(par);
+          problem.run();
+        }
+      else if (dimensions.dimension == 3 && dimensions.space_dimension == 3 &&
+               dimensions.reduced_dimension == 1)
+        {
+          ReducedPoissonParameters<3, 1> par;
+          initialize_parameters(prm_file);
+          ReducedPoisson<3, 3, 1> problem(par);
           problem.run();
         }
       else
-        {
-          ReducedPoissonParameters<2> par;
-          initialize_parameters(prm_file);
-          ReducedPoisson<2> problem(par);
-          problem.run();
-        }
+        throw_unsupported_dimension_combination(dimensions);
     }
   catch (std::exception &exc)
     {

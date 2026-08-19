@@ -48,27 +48,31 @@ main(int argc, char *argv[])
         prm_file = argv[1];
       else
         prm_file = "parameters.prm";
-      if (prm_file.find("23d") != std::string::npos)
+      const auto dimensions = get_dimension_parameters(prm_file);
+
+      if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           ElasticityProblemParameters<2, 3> par;
           ElasticityProblem<2, 3>           problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else if (prm_file.find("3d") != std::string::npos)
+      else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
           ElasticityProblemParameters<3> par;
           ElasticityProblem<3>           problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
         {
           ElasticityProblemParameters<2> par;
           ElasticityProblem<2>           problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
+      else
+        throw_unsupported_dimension_combination(dimensions);
     }
   catch (std::exception &exc)
     {

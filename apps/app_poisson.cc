@@ -32,50 +32,53 @@ main(int argc, char *argv[])
     {
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
 
-      const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
+      const std::string prm_file   = argc > 1 ? argv[1] : "parameters.prm";
+      const auto        dimensions = get_dimension_parameters(prm_file);
 
-      if (prm_file.find("13d") != std::string::npos)
+      if (dimensions.dimension == 1 && dimensions.space_dimension == 3)
         {
           PoissonParameters<1, 3> par;
           PoissonSolver<1, 3>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else if (prm_file.find("12d") != std::string::npos)
+      else if (dimensions.dimension == 1 && dimensions.space_dimension == 2)
         {
           PoissonParameters<1, 2> par;
           PoissonSolver<1, 2>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else if (prm_file.find("1d") != std::string::npos)
+      else if (dimensions.dimension == 1 && dimensions.space_dimension == 1)
         {
           PoissonParameters<1> par;
           PoissonSolver<1>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else if (prm_file.find("23d") != std::string::npos)
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           PoissonParameters<2, 3> par;
           PoissonSolver<2, 3>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else if (prm_file.find("3d") != std::string::npos)
+      else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
           PoissonParameters<3> par;
           PoissonSolver<3>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
-      else
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
         {
           PoissonParameters<2> par;
           PoissonSolver<2>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
         }
+      else
+        throw_unsupported_dimension_combination(dimensions);
     }
   catch (const std::exception &exc)
     {
