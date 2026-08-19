@@ -1775,7 +1775,6 @@ TensorProductSpace<0, dim, spacedim, n_components>::get_entity_orientation(
 }
 
 template struct TensorProductSpaceParameters<0, 2, 2, 1>;
-template struct TensorProductSpaceParameters<0, 1, 2, 1>;
 template struct TensorProductSpaceParameters<0, 2, 3, 1>;
 template struct TensorProductSpaceParameters<0, 2, 2, 2>;
 template struct TensorProductSpaceParameters<0, 1, 2, 1>;
@@ -1791,7 +1790,6 @@ template struct TensorProductSpaceParameters<1, 3, 3, 3>;
 template struct TensorProductSpaceParameters<2, 3, 3, 3>;
 
 template class TensorProductSpace<0, 2, 2, 1>;
-template class TensorProductSpace<0, 1, 2, 1>;
 template class TensorProductSpace<0, 2, 3, 1>;
 template class TensorProductSpace<0, 2, 2, 2>;
 template class TensorProductSpace<0, 1, 2, 1>;
