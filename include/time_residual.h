@@ -182,6 +182,22 @@ public:
                           op);
   }
 
+  /**
+   * Wrap a deal.II LinearOperator with a backend-specific payload.
+   *
+   * The payload is intentionally erased at the action boundary.  This lets
+   * Trilinos and PETSc operators use their specialized deal.II construction
+   * helpers while keeping the contributor-facing capability equal to vmult.
+   */
+  template <typename Payload>
+  static JacobianAction
+  from_linear_operator(
+    const dealii::LinearOperator<VectorType, VectorType, Payload> &op)
+  {
+    return JacobianAction(
+      [op](VectorType &dst, const VectorType &src) { op.vmult(dst, src); });
+  }
+
   /** Wrap a deal.II Matrix, SparseMatrix, or BlockSparseMatrix. */
   template <typename MatrixType>
   static JacobianAction
@@ -248,9 +264,6 @@ public:
   NativeOperator
   as_linear_operator(const VectorType &prototype) const
   {
-    if (native_operator)
-      return *native_operator;
-
     const JacobianAction base = *this;
     NativeOperator       op;
     op.reinit_range_vector = [prototype](VectorType &vector, const bool) {
