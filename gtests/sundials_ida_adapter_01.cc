@@ -29,49 +29,75 @@ TEST(SundialsIDA, SolvesSyntheticDifferentialAlgebraicResidual) // NOLINT
 {
   using VectorType = dealii::Vector<double>;
 
-  // F(t,y,ydot) = M ydot + A y, with u and w differential and lambda
-  // algebraic.  The two differential rows are coupled to the multiplier and
-  // the last row is the algebraic constraint u-w=0.
-  dealii::FullMatrix<double> mass(3, 3);
-  mass(0, 0) = 1.;
-  mass(1, 1) = 1.;
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor u_descriptor;
+  u_descriptor.name          = "u";
+  u_descriptor.time_role     = ImmersX::TimeRole::differential;
+  const auto               u = layout.add_field(u_descriptor);
+  ImmersX::FieldDescriptor w_descriptor;
+  w_descriptor.name          = "w";
+  w_descriptor.time_role     = ImmersX::TimeRole::differential;
+  const auto               w = layout.add_field(w_descriptor);
+  ImmersX::FieldDescriptor lambda_descriptor;
+  lambda_descriptor.name      = "lambda";
+  lambda_descriptor.time_role = ImmersX::TimeRole::algebraic;
+  const auto lambda           = layout.add_field(lambda_descriptor);
 
-  dealii::FullMatrix<double> algebraic_operator(3, 3);
-  algebraic_operator(0, 0) = 1.;
-  algebraic_operator(0, 2) = 1.;
-  algebraic_operator(1, 1) = 2.;
-  algebraic_operator(1, 2) = -1.;
-  algebraic_operator(2, 0) = 1.;
-  algebraic_operator(2, 1) = -1.;
+  ImmersX::MonolithicFieldLayout<VectorType> field_layout(layout, 3);
+  field_layout.add_field(u, 0, 1);
+  field_layout.add_field(w, 1, 2);
+  field_layout.add_field(lambda, 2, 3);
 
-  TimeResidualModel<VectorType> model;
+  ImmersX::TimeResidualModel<VectorType> model;
   model.add_term(
     time_residual_terms::mass,
-    [](const auto &context, auto &residual) {
-      residual[0] += context.state_derivative[0];
-      residual[1] += context.state_derivative[1];
+    [u, w](const auto &context, auto &residual) {
+      residual.field(u)[0] +=
+        context.state_derivative()->field(u, context.time())[0];
+      residual.field(w)[0] +=
+        context.state_derivative()->field(w, context.time())[0];
     },
-    [&mass](const auto &context) {
-      return JacobianAction<VectorType>::from_matrix(mass).scaled(
-        context.derivative_weight);
+    [u, w](const auto &linearization, const auto &increment, auto &residual) {
+      residual.field(u)[0] +=
+        linearization.derivative_weight() *
+        increment.field(u, linearization.evaluation().time())[0];
+      residual.field(w)[0] +=
+        linearization.derivative_weight() *
+        increment.field(w, linearization.evaluation().time())[0];
     });
   model.add_term(
     time_residual_terms::diffusion,
-    [&algebraic_operator](const auto &context, auto &residual) {
-      algebraic_operator.vmult_add(residual, context.state);
+    [u, w, lambda](const auto &context, auto &residual) {
+      const auto  &state        = context.state();
+      const double u_value      = state.field(u, context.time())[0];
+      const double w_value      = state.field(w, context.time())[0];
+      const double lambda_value = state.field(lambda, context.time())[0];
+      residual.field(u)[0] += u_value + lambda_value;
+      residual.field(w)[0] += 2. * w_value - lambda_value;
+      residual.field(lambda)[0] += u_value - w_value;
     },
-    [&algebraic_operator](const auto &context) {
-      return JacobianAction<VectorType>::from_matrix(algebraic_operator)
-        .scaled(context.state_weight);
+    [u, w, lambda](const auto &linearization,
+                   const auto &increment,
+                   auto       &residual) {
+      const double time    = linearization.evaluation().time();
+      const double factor  = linearization.state_weight();
+      const double du      = increment.field(u, time)[0];
+      const double dw      = increment.field(w, time)[0];
+      const double dlambda = increment.field(lambda, time)[0];
+      residual.field(u)[0] += factor * (du + dlambda);
+      residual.field(w)[0] += factor * (2. * dw - dlambda);
+      residual.field(lambda)[0] += factor * (du - dw);
     });
 
-  DifferentialAlgebraicMetadata metadata(3);
-  metadata.add_block(0, 0, 2, StateVariableType::differential);
-  metadata.add_block(1, 2, 3, StateVariableType::algebraic);
+  ImmersX::DifferentialAlgebraicMetadata metadata(layout, 3);
+  metadata.add_field(u, 0, 1);
+  metadata.add_field(w, 1, 2);
+  metadata.add_field(lambda, 2, 3);
 
   unsigned int                           linear_solves = 0;
   SundialsIDAResidualAdapter<VectorType> adapter(
     model,
+    field_layout,
     metadata,
     [](VectorType &vector) { vector.reinit(3); },
     [&linear_solves](

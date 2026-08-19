@@ -83,11 +83,59 @@ namespace ImmersX
     std::size_t value_ = invalid_value;
   };
 
+  /** Stable identifier for a group of fields sharing one history timeline. */
+  class HistoryGroupId
+  {
+  public:
+    inline static constexpr std::size_t invalid_value =
+      std::numeric_limits<std::size_t>::max();
+
+    constexpr HistoryGroupId() = default;
+
+    explicit constexpr HistoryGroupId(const std::size_t value)
+      : value_(value)
+    {}
+
+    constexpr std::size_t
+    value() const
+    {
+      return value_;
+    }
+
+    constexpr bool
+    is_valid() const
+    {
+      return value_ != invalid_value;
+    }
+
+    friend constexpr bool
+    operator==(const HistoryGroupId left, const HistoryGroupId right)
+    {
+      return left.value_ == right.value_;
+    }
+
+    friend constexpr bool
+    operator!=(const HistoryGroupId left, const HistoryGroupId right)
+    {
+      return !(left == right);
+    }
+
+    friend constexpr bool
+    operator<(const HistoryGroupId left, const HistoryGroupId right)
+    {
+      return left.value_ < right.value_;
+    }
+
+  private:
+    std::size_t value_ = invalid_value;
+  };
+
   /** Semantic metadata and algebraic ownership information for a field. */
   struct FieldDescriptor
   {
     std::string      name;
     TimeRole         time_role = TimeRole::differential;
+    HistoryGroupId   history_group;
     dealii::IndexSet locally_owned;
     dealii::IndexSet locally_relevant;
   };

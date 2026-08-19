@@ -31,12 +31,12 @@
 
 #include <deal.II/lac/affine_constraints.h>
 
-#include <cstdint>
 #include <map>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "field.h"
 #include "linear_algebra.h"
 #include "tensor_product_space.h"
 
@@ -68,18 +68,9 @@ struct RepresentationQuadraturePoint
 };
 
 
-/** Opaque semantic field identifier used by representation adapters.
- *
- * This deliberately does not depend on the residual-core state layout. A
- * representation may list several dependencies, which is important for
- * future observables such as traction sigma(u,p)n.
- */
-using RepresentationFieldId = std::uint64_t;
-
-
 struct RepresentationDependency
 {
-  RepresentationFieldId field_id = 0;
+  ImmersX::FieldId field_id;
 };
 
 
@@ -128,6 +119,7 @@ struct RepresentationConcept<
     decltype(std::declval<const Representation &>().mpi_communicator()),
     decltype(std::declval<const Representation &>().n_dofs_per_cell()),
     decltype(std::declval<const Representation &>().metadata()),
+    decltype(std::declval<const Representation &>().dependencies()),
     decltype(std::declval<const Representation &>().geometry_version()),
     decltype(std::declval<const Representation &>()
                .locally_owned_quadrature_points(
@@ -245,6 +237,12 @@ public:
   metadata() const
   {
     return metadata_;
+  }
+
+  const std::vector<RepresentationDependency> &
+  dependencies() const
+  {
+    return metadata_.dependencies;
   }
 
   /**
@@ -473,6 +471,12 @@ public:
   metadata() const
   {
     return metadata_;
+  }
+
+  const std::vector<RepresentationDependency> &
+  dependencies() const
+  {
+    return metadata_.dependencies;
   }
 
   std::uint64_t
