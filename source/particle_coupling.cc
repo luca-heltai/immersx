@@ -46,11 +46,12 @@ template <int dim>
 void
 ParticleCoupling<dim>::initialize_particle_handler(
   const parallel::TriangulationBase<dim> &tria,
-  const Mapping<dim>                     &mapp)
+  const Mapping<dim>                     &mapp,
+  const unsigned int                      n_properties)
 {
   tria_background = &tria;
   mapping         = &mapp;
-  particles.initialize(*tria_background, *mapping, 1);
+  particles.initialize(*tria_background, *mapping, n_properties);
   mpi_communicator = tria_background->get_mpi_communicator();
 
   {

@@ -1,0 +1,435 @@
+// ---------------------------------------------------------------------
+//
+// Copyright (C) 2024 by Luca Heltai
+//
+// This file is part of the ImmersX application, based on
+// the deal.II library.
+//
+// The ImmersX application is free software; you can use
+// it, redistribute it, and/or modify it under the terms of the Apache-2.0
+// License WITH LLVM-exception as published by the Free Software Foundation;
+// either version 3.0 of the License or (at your option) any later version. The
+// full text of the license can be found in the LICENSE.md file at the top level
+// of the ImmersX distribution.
+//
+// ---------------------------------------------------------------------
+
+#ifndef immersx_representation_h
+#define immersx_representation_h
+
+#include <deal.II/base/index_set.h>
+#include <deal.II/base/quadrature.h>
+#include <deal.II/base/quadrature_lib.h>
+
+#include <deal.II/distributed/tria_base.h>
+
+#include <deal.II/dofs/dof_handler.h>
+
+#include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_q1.h>
+
+#include <deal.II/lac/affine_constraints.h>
+
+#include <map>
+#include <utility>
+#include <vector>
+
+#include "tensor_product_space.h"
+
+/**
+ * One physical quadrature point together with the algebraic data that
+ * represents its field value.
+ *
+ * A direct finite-element representation fills this structure with the DoFs
+ * on the local FE cell and their basis values. A later TensorProductSpace
+ * adapter can provide the same data with representative DoFs instead, without
+ * materializing an explicit R or R^T matrix.
+ */
+template <int spacedim>
+struct RepresentationQuadraturePoint
+{
+  dealii::Point<spacedim>                      point;
+  double                                       weight = 0.;
+  std::vector<dealii::types::global_dof_index> dof_indices;
+  std::vector<double>                          basis_values;
+};
+
+
+/**
+ * A non-owning view of a scalar finite-element space used as a physical
+ * representation.
+ *
+ * This is the first, identity case of the representation abstraction: the
+ * algebraic DoFs and the physical FE basis are the same, so R=I. It owns no
+ * PDE state and has no coupling pointer. Interactions can freely construct
+ * more than one view of the same problem and reuse a view in more than one
+ * interaction.
+ *
+ * The interaction-facing contract is intentionally expressed through
+ * `locally_owned_quadrature_points()`: a representation supplies physical
+ * points, weights, algebraic representative DoF indices, and represented basis
+ * values. A TensorProductSpace adapter should implement the same contract for
+ * lifted fields on a coupling support.
+ */
+template <int dim, int spacedim = dim>
+class FiniteElementRepresentation
+{
+public:
+  static constexpr unsigned int dimension       = dim;
+  static constexpr unsigned int space_dimension = spacedim;
+
+  using TriangulationType = dealii::parallel::TriangulationBase<dim, spacedim>;
+  using DoFHandlerType    = dealii::DoFHandler<dim, spacedim>;
+  using QuadraturePoint   = RepresentationQuadraturePoint<spacedim>;
+
+  FiniteElementRepresentation(
+    const TriangulationType                 &triangulation,
+    const DoFHandlerType                    &dof_handler,
+    const dealii::IndexSet                  &locally_owned_dofs,
+    const dealii::IndexSet                  &locally_relevant_dofs,
+    const dealii::AffineConstraints<double> &constraints,
+    const dealii::Mapping<dim, spacedim>    &mapping =
+      dealii::StaticMappingQ1<dim, spacedim>::mapping)
+    : triangulation_(triangulation)
+    , dof_handler_(dof_handler)
+    , locally_owned_dofs_(locally_owned_dofs)
+    , locally_relevant_dofs_(locally_relevant_dofs)
+    , constraints_(constraints)
+    , mapping_(mapping)
+  {}
+
+  const TriangulationType &
+  triangulation() const
+  {
+    return triangulation_;
+  }
+
+  const DoFHandlerType &
+  dof_handler() const
+  {
+    return dof_handler_;
+  }
+
+  const dealii::FiniteElement<dim, spacedim> &
+  finite_element() const
+  {
+    return dof_handler_.get_fe();
+  }
+
+  const dealii::Mapping<dim, spacedim> &
+  mapping() const
+  {
+    return mapping_;
+  }
+
+  const dealii::IndexSet &
+  locally_owned_dofs() const
+  {
+    return locally_owned_dofs_;
+  }
+
+  const dealii::IndexSet &
+  locally_relevant_dofs() const
+  {
+    return locally_relevant_dofs_;
+  }
+
+  const dealii::AffineConstraints<double> &
+  constraints() const
+  {
+    return constraints_;
+  }
+
+  MPI_Comm
+  mpi_communicator() const
+  {
+    return triangulation_.get_mpi_communicator();
+  }
+
+  unsigned int
+  n_dofs_per_cell() const
+  {
+    return finite_element().n_dofs_per_cell();
+  }
+
+  /**
+   * Extract the local physical representation at the supplied quadrature.
+   *
+   * The returned data is local to the calling rank. Point ownership is the
+   * ownership of the FE cells in this view, which lets an Interaction layer
+   * hand the points to its own distributed geometric search machinery.
+   */
+  std::vector<QuadraturePoint>
+  locally_owned_quadrature_points(
+    const dealii::Quadrature<dim> &quadrature) const
+  {
+    const auto update_flags = dealii::update_values |
+                              dealii::update_quadrature_points |
+                              dealii::update_JxW_values;
+    dealii::FEValues<dim, spacedim> fe_values(mapping_,
+                                              finite_element(),
+                                              quadrature,
+                                              update_flags);
+
+    std::vector<QuadraturePoint> points;
+    points.reserve(triangulation_.n_locally_owned_active_cells() *
+                   quadrature.size());
+
+    std::vector<dealii::types::global_dof_index> dof_indices(n_dofs_per_cell());
+    for (const auto &cell : dof_handler_.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          fe_values.reinit(cell);
+          cell->get_dof_indices(dof_indices);
+          for (const auto q : fe_values.quadrature_point_indices())
+            {
+              QuadraturePoint point;
+              point.point       = fe_values.quadrature_point(q);
+              point.weight      = fe_values.JxW(q);
+              point.dof_indices = dof_indices;
+              point.basis_values.resize(n_dofs_per_cell());
+              for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                point.basis_values[i] = fe_values.shape_value(i, q);
+              points.emplace_back(std::move(point));
+            }
+        }
+
+    return points;
+  }
+
+private:
+  const TriangulationType                 &triangulation_;
+  const DoFHandlerType                    &dof_handler_;
+  const dealii::IndexSet                  &locally_owned_dofs_;
+  const dealii::IndexSet                  &locally_relevant_dofs_;
+  const dealii::AffineConstraints<double> &constraints_;
+  const dealii::Mapping<dim, spacedim>    &mapping_;
+};
+
+
+/** Explicit name for the R=I finite-element representation. */
+template <int dim, int spacedim = dim>
+using IdentityRepresentation = FiniteElementRepresentation<dim, spacedim>;
+
+
+/**
+ * Tensor-product physical representation backed by reduced-dimensional DoFs.
+ *
+ * The TensorProductSpace supplies the lifted physical quadrature on the
+ * cross-section, while the supplied DoFHandler supplies the algebraic
+ * representative coefficients.  This keeps the adapter a reusable view: it
+ * owns neither a PDE nor an Interaction and can be exposed to more than one
+ * coupling.
+ */
+template <int reduced_dim, int surface_dim, int spacedim, int n_components = 1>
+class TensorProductRepresentation
+{
+public:
+  static constexpr unsigned int dimension                = surface_dim;
+  static constexpr unsigned int representative_dimension = reduced_dim;
+  static constexpr unsigned int space_dimension          = spacedim;
+
+  using TensorProductSpaceType =
+    TensorProductSpace<reduced_dim, surface_dim, spacedim, n_components>;
+  using TriangulationType =
+    dealii::parallel::TriangulationBase<reduced_dim, spacedim>;
+  using DoFHandlerType  = dealii::DoFHandler<reduced_dim, spacedim>;
+  using QuadraturePoint = RepresentationQuadraturePoint<spacedim>;
+
+  TensorProductRepresentation(
+    const TensorProductSpaceType                 &space,
+    const DoFHandlerType                         &representative_dof_handler,
+    const dealii::IndexSet                       &locally_owned_dofs,
+    const dealii::IndexSet                       &locally_relevant_dofs,
+    const dealii::AffineConstraints<double>      &constraints,
+    const dealii::Mapping<reduced_dim, spacedim> &mapping =
+      dealii::StaticMappingQ1<reduced_dim, spacedim>::mapping)
+    : space_(space)
+    , dof_handler_(representative_dof_handler)
+    , locally_owned_dofs_(locally_owned_dofs)
+    , locally_relevant_dofs_(locally_relevant_dofs)
+    , constraints_(constraints)
+    , mapping_(mapping)
+  {}
+
+  const TriangulationType &
+  triangulation() const
+  {
+    return space_.get_triangulation();
+  }
+
+  const DoFHandlerType &
+  dof_handler() const
+  {
+    return dof_handler_;
+  }
+
+  const dealii::FiniteElement<reduced_dim, spacedim> &
+  finite_element() const
+  {
+    return dof_handler_.get_fe();
+  }
+
+  const dealii::Mapping<reduced_dim, spacedim> &
+  mapping() const
+  {
+    return mapping_;
+  }
+
+  const dealii::IndexSet &
+  locally_owned_dofs() const
+  {
+    return locally_owned_dofs_;
+  }
+
+  const dealii::IndexSet &
+  locally_relevant_dofs() const
+  {
+    return locally_relevant_dofs_;
+  }
+
+  const dealii::AffineConstraints<double> &
+  constraints() const
+  {
+    return constraints_;
+  }
+
+  MPI_Comm
+  mpi_communicator() const
+  {
+    return space_.get_triangulation().get_mpi_communicator();
+  }
+
+  unsigned int
+  n_dofs_per_cell() const
+  {
+    return finite_element().n_dofs_per_cell();
+  }
+
+  /**
+   * Return physical surface quadrature points represented by reduced DoFs.
+   *
+   * The interaction chooses its quadrature from `dimension == surface_dim`.
+   * TensorProductSpace has already built the lifted quadrature, so the
+   * surface quadrature argument is intentionally ignored here.  For every
+   * lifted cross-section point we attach the FE basis values evaluated on the
+   * reduced representative cell, with no explicit surface DoFHandler.
+   */
+  std::vector<QuadraturePoint>
+  locally_owned_quadrature_points(
+    const dealii::Quadrature<surface_dim> &surface_quadrature) const
+  {
+    (void)surface_quadrature;
+
+    const auto &lifted_points             = space_.get_locally_owned_qpoints();
+    const auto &lifted_weights            = space_.get_locally_owned_weights();
+    const auto &representative_quadrature = space_.get_quadrature();
+    const auto &section = space_.get_reference_cross_section();
+
+    AssertDimension(lifted_points.size(), lifted_weights.size());
+
+    dealii::FEValues<reduced_dim, spacedim> fe_values(mapping_,
+                                                      finite_element(),
+                                                      representative_quadrature,
+                                                      dealii::update_values);
+
+    std::map<dealii::types::global_cell_index,
+             typename DoFHandlerType::cell_iterator>
+      representative_cells;
+    for (const auto &cell : dof_handler_.active_cell_iterators())
+      if (cell->is_locally_owned())
+        representative_cells.emplace(cell->global_active_cell_index(), cell);
+
+    std::vector<QuadraturePoint> points;
+    points.reserve(lifted_points.size());
+    std::vector<dealii::types::global_dof_index> dof_indices(n_dofs_per_cell());
+
+    std::size_t point_index = 0;
+    for (const auto &cell : space_.get_triangulation().active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          const auto representative_cell =
+            representative_cells.find(cell->global_active_cell_index());
+          AssertThrow(representative_cell != representative_cells.end(),
+                      dealii::ExcMessage(
+                        "Tensor-product and representative meshes must use "
+                        "the same local cell partition."));
+
+          fe_values.reinit(representative_cell->second);
+          representative_cell->second->get_dof_indices(dof_indices);
+          for (const auto q : fe_values.quadrature_point_indices())
+            for (unsigned int section_q = 0;
+                 section_q < section.n_quadrature_points();
+                 ++section_q)
+              {
+                AssertIndexRange(point_index, lifted_points.size());
+                AssertThrow(!lifted_weights[point_index].empty(),
+                            dealii::ExcMessage(
+                              "A tensor-product quadrature point has no "
+                              "physical weight."));
+
+                QuadraturePoint point;
+                point.point       = lifted_points[point_index];
+                point.weight      = lifted_weights[point_index][0];
+                point.dof_indices = dof_indices;
+                point.basis_values.resize(n_dofs_per_cell());
+                for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                  point.basis_values[i] = fe_values.shape_value(i, q);
+                points.emplace_back(std::move(point));
+                ++point_index;
+              }
+        }
+
+    AssertDimension(point_index, lifted_points.size());
+    return points;
+  }
+
+private:
+  const TensorProductSpaceType                 &space_;
+  const DoFHandlerType                         &dof_handler_;
+  const dealii::IndexSet                       &locally_owned_dofs_;
+  const dealii::IndexSet                       &locally_relevant_dofs_;
+  const dealii::AffineConstraints<double>      &constraints_;
+  const dealii::Mapping<reduced_dim, spacedim> &mapping_;
+};
+
+
+/**
+ * Prescribed coefficients on a representation.
+ *
+ * A prescribed datum is deliberately not a Problem: it owns only the
+ * representative coefficients of a physical field and can therefore be
+ * attached to any number of interactions exposing the same representation.
+ * The interaction converts these coefficients to its multiplier-dual right
+ * hand side through its physical pairing matrix.
+ */
+template <typename Representation>
+class PrescribedFieldDatum
+{
+public:
+  using VectorType = ImmersXLA::MPI::Vector;
+
+  PrescribedFieldDatum(const Representation &representation,
+                       const VectorType     &coefficients)
+    : representation_(representation)
+    , coefficients_(coefficients)
+  {}
+
+  const Representation &
+  representation() const
+  {
+    return representation_;
+  }
+
+  const VectorType &
+  coefficients() const
+  {
+    return coefficients_;
+  }
+
+private:
+  const Representation &representation_;
+  const VectorType     &coefficients_;
+};
+
+#endif // immersx_representation_h

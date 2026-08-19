@@ -33,6 +33,20 @@ using namespace dealii;
 
 namespace
 {
+  std::string
+  normalize_poisson_subsection(const std::string &subsection)
+  {
+    if (subsection.empty())
+      return "/Poisson/";
+
+    std::string normalized = subsection;
+    if (normalized.front() != '/')
+      normalized.insert(normalized.begin(), '/');
+    if (normalized.back() != '/')
+      normalized.push_back('/');
+    return normalized;
+  }
+
   template <int dim, int spacedim>
   void
   read_poisson_grid(const std::string            &grid_file_name,
@@ -67,11 +81,13 @@ namespace
 
 
 template <int dim, int spacedim>
-PoissonParameters<dim, spacedim>::PoissonParameters()
-  : ParameterAcceptor("/Poisson/")
-  , rhs("/Poisson/Right hand side")
-  , bc("/Poisson/Dirichlet boundary conditions")
-  , solver_control("/Poisson/Solver/Control")
+PoissonParameters<dim, spacedim>::PoissonParameters(
+  const std::string &subsection)
+  : ParameterAcceptor(normalize_poisson_subsection(subsection))
+  , rhs(normalize_poisson_subsection(subsection) + "Right hand side")
+  , bc(normalize_poisson_subsection(subsection) +
+       "Dirichlet boundary conditions")
+  , solver_control(normalize_poisson_subsection(subsection) + "Solver/Control")
 {
   add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
   add_parameter("Output directory", output_directory);
@@ -292,17 +308,17 @@ PoissonSolver<dim, spacedim>::setup_system()
   owned_dofs    = dh.locally_owned_dofs();
   relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
 
-  constraints.reinit(owned_dofs, relevant_dofs);
-  DoFTools::make_hanging_node_constraints(dh, constraints);
+  constraints_storage.reinit(owned_dofs, relevant_dofs);
+  DoFTools::make_hanging_node_constraints(dh, constraints_storage);
   for (const auto boundary_id : par.dirichlet_ids)
     VectorTools::interpolate_boundary_values(dh,
                                              boundary_id,
                                              par.bc,
-                                             constraints);
-  constraints.close();
+                                             constraints_storage);
+  constraints_storage.close();
 
   DynamicSparsityPattern dsp(relevant_dofs);
-  DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
+  DoFTools::make_sparsity_pattern(dh, dsp, constraints_storage, false);
   SparsityTools::distribute_sparsity_pattern(dsp,
                                              owned_dofs,
                                              mpi_communicator,
@@ -311,12 +327,12 @@ PoissonSolver<dim, spacedim>::setup_system()
   stiffness_matrix.clear();
   stiffness_matrix.reinit(owned_dofs, owned_dofs, dsp, mpi_communicator);
 
-  solution.reinit(owned_dofs, mpi_communicator);
-  system_rhs.reinit(owned_dofs, mpi_communicator);
+  solution_storage.reinit(owned_dofs, mpi_communicator);
+  system_rhs_storage.reinit(owned_dofs, mpi_communicator);
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
 
-  solution   = 0.;
-  system_rhs = 0.;
+  solution_storage   = 0.;
+  system_rhs_storage = 0.;
   update_locally_relevant_solution();
 
   pcout << "   Number of degrees of freedom: " << dh.n_dofs()
@@ -332,8 +348,8 @@ PoissonSolver<dim, spacedim>::assemble_system()
   AssertThrow(fe != nullptr && quadrature != nullptr,
               ExcMessage("setup_fe() must be called before assembly."));
 
-  stiffness_matrix = 0.;
-  system_rhs       = 0.;
+  stiffness_matrix   = 0.;
+  system_rhs_storage = 0.;
 
   FEValues<dim, spacedim> fe_values(*fe,
                                     *quadrature,
@@ -375,15 +391,15 @@ PoissonSolver<dim, spacedim>::assemble_system()
           }
 
         cell->get_dof_indices(local_dof_indices);
-        constraints.distribute_local_to_global(cell_matrix,
-                                               cell_rhs,
-                                               local_dof_indices,
-                                               stiffness_matrix,
-                                               system_rhs);
+        constraints_storage.distribute_local_to_global(cell_matrix,
+                                                       cell_rhs,
+                                                       local_dof_indices,
+                                                       stiffness_matrix,
+                                                       system_rhs_storage);
       }
 
   stiffness_matrix.compress(VectorOperation::add);
-  system_rhs.compress(VectorOperation::add);
+  system_rhs_storage.compress(VectorOperation::add);
 }
 
 
@@ -397,7 +413,7 @@ PoissonSolver<dim, spacedim>::solve()
   LA::MPI::PreconditionAMG preconditioner;
   {
     LA::MPI::PreconditionAMG::AdditionalData data;
-#ifdef IMMERSX_POISSON_USE_PETSC_LA
+#ifdef IMMERSX_USE_PETSC_LA
     data.symmetric_operator = true;
 #endif
     preconditioner.initialize(stiffness_matrix, data);
@@ -410,9 +426,12 @@ PoissonSolver<dim, spacedim>::solve()
             << std::endl;
     });
 
-  constraints.distribute(solution);
-  solver.solve(stiffness_matrix, solution, system_rhs, preconditioner);
-  constraints.distribute(solution);
+  constraints_storage.distribute(solution_storage);
+  solver.solve(stiffness_matrix,
+               solution_storage,
+               system_rhs_storage,
+               preconditioner);
+  constraints_storage.distribute(solution_storage);
   update_locally_relevant_solution();
 
   pcout << "   CG iterations: " << par.solver_control.last_step() << std::endl;
@@ -423,7 +442,7 @@ template <int dim, int spacedim>
 void
 PoissonSolver<dim, spacedim>::update_locally_relevant_solution()
 {
-  locally_relevant_solution = solution;
+  locally_relevant_solution = solution_storage;
   locally_relevant_solution.update_ghost_values();
 }
 
@@ -521,8 +540,8 @@ PoissonSolver<dim, spacedim>::refine_grid()
       tria->execute_coarsening_and_refinement();
 
       setup_system();
-      transfer.interpolate(solution);
-      constraints.distribute(solution);
+      transfer.interpolate(solution_storage);
+      constraints_storage.distribute(solution_storage);
       update_locally_relevant_solution();
     }
 }
@@ -579,7 +598,7 @@ template <int dim, int spacedim>
 double
 PoissonSolver<dim, spacedim>::solution_l2_norm() const
 {
-  return solution.size() == 0 ? 0. : solution.l2_norm();
+  return solution_storage.size() == 0 ? 0. : solution_storage.l2_norm();
 }
 
 
@@ -587,7 +606,84 @@ template <int dim, int spacedim>
 bool
 PoissonSolver<dim, spacedim>::solution_is_finite() const
 {
-  return solution.size() != 0 && std::isfinite(solution_l2_norm());
+  return solution_storage.size() != 0 && std::isfinite(solution_l2_norm());
+}
+
+
+template <int dim, int spacedim>
+const parallel::TriangulationBase<dim, spacedim> &
+PoissonSolver<dim, spacedim>::triangulation() const
+{
+  return *tria;
+}
+
+
+template <int dim, int spacedim>
+const DoFHandler<dim, spacedim> &
+PoissonSolver<dim, spacedim>::dof_handler() const
+{
+  return dh;
+}
+
+
+template <int dim, int spacedim>
+const AffineConstraints<double> &
+PoissonSolver<dim, spacedim>::constraints() const
+{
+  return constraints_storage;
+}
+
+
+template <int dim, int spacedim>
+const LA::MPI::SparseMatrix &
+PoissonSolver<dim, spacedim>::system_matrix() const
+{
+  return stiffness_matrix;
+}
+
+
+template <int dim, int spacedim>
+const typename PoissonSolver<dim, spacedim>::VectorType &
+PoissonSolver<dim, spacedim>::system_rhs() const
+{
+  return system_rhs_storage;
+}
+
+
+template <int dim, int spacedim>
+const IndexSet &
+PoissonSolver<dim, spacedim>::locally_owned_dofs() const
+{
+  return owned_dofs;
+}
+
+
+template <int dim, int spacedim>
+const IndexSet &
+PoissonSolver<dim, spacedim>::locally_relevant_dofs() const
+{
+  return relevant_dofs;
+}
+
+
+template <int dim, int spacedim>
+const typename PoissonSolver<dim, spacedim>::VectorType &
+PoissonSolver<dim, spacedim>::solution() const
+{
+  return solution_storage;
+}
+
+
+template <int dim, int spacedim>
+void
+PoissonSolver<dim, spacedim>::set_solution(const VectorType &new_solution)
+{
+  AssertThrow(solution_storage.size() == new_solution.size(),
+              ExcDimensionMismatch(solution_storage.size(),
+                                   new_solution.size()));
+  solution_storage = new_solution;
+  constraints_storage.distribute(solution_storage);
+  update_locally_relevant_solution();
 }
 
 
