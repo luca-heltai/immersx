@@ -54,11 +54,8 @@ subsection Tensor product coupling
     set Selected indices         = 0
   end
   subsection Local refinement parameters
-    set Embedded post-refinement cycles = 0
-    set Embedded pre-refinement cycles  = 0
-    set Max refinement level            = 10
     set Refinement factor               = 1
-    set Refinement strategy             = space
+    set Max refinement level            = 10
     set Space post-refinement cycles    = 0
     set Space pre-refinement cycles     = 0
   end

@@ -103,7 +103,7 @@ struct ReducedCouplingParameters : public ParameterAcceptor
   /**
    * Refinement parameters for the tensor product space.
    */
-  RefinementParameters refinement_parameters;
+  RefinementParameters<reduced_dim> refinement_parameters;
 
   /**
    * @brief Right hand side expressions for tensor-product coupling.
@@ -238,6 +238,9 @@ private:
    * @brief The triangulation of the background domain.
    */
   ObserverPointer<parallel::TriangulationBase<spacedim>> background_tria;
+
+  /** Whether zero-dimensional bulk pre/post refinement was applied. */
+  bool zero_dimensional_background_refined = false;
 
   /**
    * @brief Affine constraints for the coupling.

@@ -149,7 +149,12 @@ throw_unsupported_dimension_combination(const DimensionParameters &dimensions)
 
 /**
  * Controls local refinement synchronization between bulk and embedded meshes.
+ *
+ * For a zero-dimensional representative domain there is no embedded mesh to
+ * refine or synchronize. In that case only the global bulk refinement
+ * parameters are exposed.
  */
+template <int reduced_dim>
 struct RefinementParameters : public ParameterAcceptor
 {
   /**
@@ -204,6 +209,101 @@ struct RefinementParameters : public ParameterAcceptor
    */
   int max_refinement_level = 10;
 };
+
+template <>
+struct RefinementParameters<0> : public ParameterAcceptor
+{
+  RefinementParameters()
+    : ParameterAcceptor("Local refinement parameters")
+  {
+    this->add_parameter("Refinement factor", refinement_factor);
+    this->add_parameter("Max refinement level", max_refinement_level);
+    this->add_parameter("Space post-refinement cycles",
+                        space_post_refinement_cycles);
+    this->add_parameter("Space pre-refinement cycles",
+                        space_pre_refinement_cycles);
+  }
+
+  double       refinement_factor            = 1.0;
+  int          max_refinement_level         = 10;
+  unsigned int space_post_refinement_cycles = 0;
+  unsigned int space_pre_refinement_cycles  = 0;
+};
+
+/**
+ * Refine a bulk triangulation around a zero-dimensional point cloud.
+ *
+ * The point cloud is the only foreground geometry available for a
+ * zero-dimensional representative domain. The number of post-refinement
+ * cycles controls the number of local passes, while the per-point thickness
+ * and refinement factor define the neighborhood around each particle.
+ */
+template <int spacedim>
+void
+refine_space_around_points(
+  parallel::TriangulationBase<spacedim> &space_triangulation,
+  const std::vector<Point<spacedim>>    &local_points,
+  const std::vector<double>             &local_scales,
+  const RefinementParameters<0>         &parameters,
+  const MPI_Comm                         mpi_communicator)
+{
+  AssertDimension(local_points.size(), local_scales.size());
+  AssertThrow(parameters.refinement_factor > 0.,
+              ExcMessage("The refinement factor must be positive."));
+  AssertThrow(parameters.max_refinement_level >= 0,
+              ExcMessage("The maximum refinement level must be non-negative."));
+
+  space_triangulation.refine_global(parameters.space_pre_refinement_cycles);
+
+  const auto point_batches =
+    Utilities::MPI::all_gather(mpi_communicator, local_points);
+  const auto scale_batches =
+    Utilities::MPI::all_gather(mpi_communicator, local_scales);
+  std::vector<Point<spacedim>> points;
+  std::vector<double>          scales;
+  for (unsigned int rank = 0; rank < point_batches.size(); ++rank)
+    {
+      AssertDimension(point_batches[rank].size(), scale_batches[rank].size());
+      points.insert(points.end(),
+                    point_batches[rank].begin(),
+                    point_batches[rank].end());
+      scales.insert(scales.end(),
+                    scale_batches[rank].begin(),
+                    scale_batches[rank].end());
+    }
+
+  auto mark_cells = [&]() {
+    unsigned int n_marked = 0;
+    for (const auto &cell : space_triangulation.active_cell_iterators())
+      if (cell->is_locally_owned() &&
+          cell->level() < parameters.max_refinement_level)
+        {
+          std::vector<Point<spacedim>> vertices(
+            GeometryInfo<spacedim>::vertices_per_cell);
+          for (unsigned int vertex = 0; vertex < vertices.size(); ++vertex)
+            vertices[vertex] = cell->vertex(vertex);
+          const BoundingBox<spacedim> cell_box(vertices);
+          for (unsigned int point = 0; point < points.size(); ++point)
+            if (cell_box
+                  .create_extended(parameters.refinement_factor * scales[point])
+                  .point_inside(points[point]))
+              {
+                cell->set_refine_flag();
+                ++n_marked;
+                break;
+              }
+        }
+    return Utilities::MPI::sum(n_marked, mpi_communicator);
+  };
+
+  for (unsigned int cycle = 0; cycle < parameters.space_post_refinement_cycles;
+       ++cycle)
+    {
+      if (mark_cells() == 0)
+        break;
+      space_triangulation.execute_coarsening_and_refinement();
+    }
+}
 
 template <int dim, int spacedim>
 inline void
@@ -260,9 +360,10 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
 
 template <int reduced_dim, int spacedim>
 void
-adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
-             Triangulation<reduced_dim, spacedim> &embedded_triangulation,
-             const RefinementParameters &parameters = RefinementParameters())
+adjust_grids(Triangulation<spacedim, spacedim>       &space_triangulation,
+             Triangulation<reduced_dim, spacedim>    &embedded_triangulation,
+             const RefinementParameters<reduced_dim> &parameters =
+               RefinementParameters<reduced_dim>())
 {
   Assert(
     (dynamic_cast<parallel::TriangulationBase<reduced_dim, spacedim> *>(

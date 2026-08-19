@@ -30,4 +30,7 @@ Run the two examples from the repository root:
 The `0d` filename selects the zero-dimensional ReducedPoisson path. The point
 cross-section has dimension `spacedim - 1`: a line segment in 2D and a disk in
 3D. The `rhs` point field is used as the reduced right-hand side and `radius`
-is used as the thickness.
+is used as the thickness. For a zero-dimensional representative domain, the
+local refinement subsection exposes the bulk `Space pre/post-refinement`
+cycles plus the point-scale `Refinement factor` and `Max refinement level`;
+the point cloud itself is not refined.

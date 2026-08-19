@@ -468,6 +468,45 @@ TEST(ReducedPoisson0D, TemplatePathCompiles)
   (void)problem;
 }
 
+TEST(ReducedCoupling0D, SpaceRefinementParametersRefineBulk)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background, -1., 1.);
+
+  ReducedCouplingParameters<0, 2, 2, 1> params;
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.tensor_product_space_parameters.point_cloud.points            = {
+    Point<2>(0., 0.)};
+  params.refinement_parameters.refinement_factor            = 1000.;
+  params.refinement_parameters.max_refinement_level         = 10;
+  params.refinement_parameters.space_pre_refinement_cycles  = 1;
+  params.refinement_parameters.space_post_refinement_cycles = 1;
+
+  ReducedCoupling<0, 2, 2, 1> coupling(background, params);
+  coupling.initialize();
+
+  EXPECT_EQ(background.n_global_active_cells(), 16u);
+}
+
+TEST(ReducedCoupling0D, PointScaleRefinementTargetsBulkCells)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background, -1., 1.);
+
+  ReducedCouplingParameters<0, 2, 2, 1> params;
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.tensor_product_space_parameters.point_cloud.points            = {
+    Point<2>(0., 0.)};
+  params.refinement_parameters.refinement_factor            = 1.;
+  params.refinement_parameters.max_refinement_level         = 1;
+  params.refinement_parameters.space_post_refinement_cycles = 1;
+
+  ReducedCoupling<0, 2, 2, 1> coupling(background, params);
+  coupling.initialize();
+
+  EXPECT_EQ(background.n_global_active_cells(), 4u);
+}
+
 TEST(ReducedPoisson0D, MPI_OneCycleAssemblySolve)
 {
   ParameterAcceptor::clear();
