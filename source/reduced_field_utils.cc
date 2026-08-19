@@ -126,6 +126,7 @@ namespace ReducedFieldUtils
     return result;
   }
 
+  /// @cond DOXYGEN_IGNORE_EXPLICIT_INSTANTIATIONS
   template std::unique_ptr<dealii::FiniteElement<1, 1>>
   field_catalog_to_finite_element<1, 1>(const FieldCatalog &);
   template std::unique_ptr<dealii::FiniteElement<1, 2>>
@@ -200,4 +201,5 @@ namespace ReducedFieldUtils
   distributed_to_serial_vertex_indices<3, 3>(
     const dealii::Triangulation<3, 3> &,
     const dealii::Triangulation<3, 3> &);
+  /// @endcond
 } // namespace ReducedFieldUtils
