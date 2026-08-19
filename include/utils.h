@@ -242,9 +242,11 @@ struct RefinementParameters<0> : public ParameterAcceptor
  * Refine a bulk triangulation around a zero-dimensional point cloud.
  *
  * The point cloud is the only foreground geometry available for a
- * zero-dimensional representative domain. The number of post-refinement
- * cycles controls the number of local passes, while the per-point thickness
- * and refinement factor define the neighborhood around each particle.
+ * zero-dimensional representative domain. The per-point thickness supplies
+ * the characteristic foreground diameter, and the refinement factor is used
+ * in the same bulk-to-foreground diameter criterion as in adjust_grids().
+ * Space post-refinement cycles then add the requested number of local passes
+ * around the point supports after that criterion has been satisfied.
  */
 template <int spacedim>
 void
@@ -280,7 +282,11 @@ refine_space_around_points(
                     scale_batches[rank].end());
     }
 
-  auto mark_cells = [&]() {
+  const auto point_diameter = [&scales](const unsigned int point) {
+    return 2. * scales[point];
+  };
+
+  const auto mark_cells = [&](const bool enforce_diameter_ratio) {
     unsigned int n_marked = 0;
     for (const auto &cell : space_triangulation.active_cell_iterators())
       if (cell->is_locally_owned() &&
@@ -291,10 +297,14 @@ refine_space_around_points(
           for (unsigned int vertex = 0; vertex < vertices.size(); ++vertex)
             vertices[vertex] = cell->vertex(vertex);
           const BoundingBox<spacedim> cell_box(vertices);
+          const auto &[cell_min, cell_max] = cell_box.get_boundary_points();
+          const double cell_diameter       = cell_min.distance(cell_max);
           for (unsigned int point = 0; point < points.size(); ++point)
-            if (cell_box
-                  .create_extended(parameters.refinement_factor * scales[point])
-                  .point_inside(points[point]))
+            if (cell_box.create_extended(scales[point])
+                  .point_inside(points[point]) &&
+                (!enforce_diameter_ratio ||
+                 parameters.refinement_factor * point_diameter(point) <
+                   cell_diameter))
               {
                 cell->set_refine_flag();
                 ++n_marked;
@@ -304,10 +314,17 @@ refine_space_around_points(
     return Utilities::MPI::sum(n_marked, mpi_communicator);
   };
 
+  // First reproduce the original adjust_grids() criterion: refine the bulk
+  // until its cells intersecting a foreground support are sufficiently small.
+  while (mark_cells(true) > 0)
+    space_triangulation.execute_coarsening_and_refinement();
+
+  // Keep post-refinement as an additional number of local passes, rather than
+  // using it as the termination criterion for the diameter-based refinement.
   for (unsigned int cycle = 0; cycle < parameters.space_post_refinement_cycles;
        ++cycle)
     {
-      if (mark_cells() == 0)
+      if (mark_cells(false) == 0)
         break;
       space_triangulation.execute_coarsening_and_refinement();
     }

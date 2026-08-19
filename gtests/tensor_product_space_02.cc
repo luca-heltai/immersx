@@ -528,7 +528,7 @@ TEST(ReducedCoupling0D, PointScaleRefinementTargetsBulkCells)
     Point<2>(0., 0.)};
   params.refinement_parameters.refinement_factor            = 1.;
   params.refinement_parameters.max_refinement_level         = 1;
-  params.refinement_parameters.space_post_refinement_cycles = 1;
+  params.refinement_parameters.space_post_refinement_cycles = 0;
 
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   coupling.initialize();
