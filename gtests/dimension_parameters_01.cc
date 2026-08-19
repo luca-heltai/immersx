@@ -28,12 +28,14 @@ TEST(DimensionParameters, ReadTopLevelValues)
 set dimension         = 1
 set space dimension   = 3
 set reduced dimension = 1
+set cross section dimension = 2
 )");
 
   const auto dimensions = get_dimension_parameters(prm);
   EXPECT_EQ(dimensions.dimension, 1u);
   EXPECT_EQ(dimensions.space_dimension, 3u);
   EXPECT_EQ(dimensions.reduced_dimension, 1u);
+  EXPECT_EQ(dimensions.cross_section_dimension, 2u);
 }
 
 
@@ -46,4 +48,5 @@ TEST(DimensionParameters, Defaults)
   EXPECT_EQ(dimensions.dimension, 2u);
   EXPECT_EQ(dimensions.space_dimension, 2u);
   EXPECT_EQ(dimensions.reduced_dimension, 1u);
+  EXPECT_EQ(dimensions.cross_section_dimension, 2u);
 }

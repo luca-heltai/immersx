@@ -56,9 +56,10 @@ using namespace dealii;
  */
 struct DimensionParameters
 {
-  unsigned int dimension         = 2;
-  unsigned int space_dimension   = 2;
-  unsigned int reduced_dimension = 1;
+  unsigned int dimension               = 2;
+  unsigned int space_dimension         = 2;
+  unsigned int reduced_dimension       = 1;
+  unsigned int cross_section_dimension = 2;
 };
 
 
@@ -80,6 +81,10 @@ declare_dimension_parameters(ParameterHandler &prm)
                     "1",
                     Patterns::Integer(0, 2),
                     "Dimension of the reduced or embedded object.");
+  prm.declare_entry("cross section dimension",
+                    "2",
+                    Patterns::Integer(1, 3),
+                    "Intrinsic dimension of the reference cross section.");
 }
 
 
@@ -91,7 +96,9 @@ get_dimension_parameters(const ParameterHandler &prm)
 {
   return {static_cast<unsigned int>(prm.get_integer("dimension")),
           static_cast<unsigned int>(prm.get_integer("space dimension")),
-          static_cast<unsigned int>(prm.get_integer("reduced dimension"))};
+          static_cast<unsigned int>(prm.get_integer("reduced dimension")),
+          static_cast<unsigned int>(
+            prm.get_integer("cross section dimension"))};
 }
 
 
@@ -139,12 +146,13 @@ inline void
 throw_unsupported_dimension_combination(const DimensionParameters &dimensions)
 {
   AssertThrow(false,
-              ExcNotImplemented("The dimension combination (" +
-                                std::to_string(dimensions.dimension) + ", " +
-                                std::to_string(dimensions.space_dimension) +
-                                ", " +
-                                std::to_string(dimensions.reduced_dimension) +
-                                ") is not supported by this application."));
+              ExcNotImplemented(
+                "The dimension combination (" +
+                std::to_string(dimensions.dimension) + ", " +
+                std::to_string(dimensions.space_dimension) + ", " +
+                std::to_string(dimensions.reduced_dimension) + ", " +
+                std::to_string(dimensions.cross_section_dimension) +
+                ") is not supported by this application."));
 }
 
 /**

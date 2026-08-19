@@ -58,18 +58,49 @@ main(int argc, char *argv[])
       if (dimensions.dimension == 2 && dimensions.space_dimension == 2 &&
           dimensions.reduced_dimension == 0)
         {
-          ReducedPoissonParameters<2, 0> par;
-          initialize_parameters(prm_file);
-          ReducedPoisson<2, 2, 0> problem(par);
-          problem.run();
+          if (dimensions.cross_section_dimension == 1)
+            {
+              ReducedPoissonParameters<2, 0, 1> par;
+              initialize_parameters(prm_file);
+              ReducedPoisson<1, 2, 0, 1> problem(par);
+              problem.run();
+            }
+          else if (dimensions.cross_section_dimension == 2)
+            {
+              ReducedPoissonParameters<2, 0, 2> par;
+              initialize_parameters(prm_file);
+              ReducedPoisson<2, 2, 0, 2> problem(par);
+              problem.run();
+            }
+          else
+            throw_unsupported_dimension_combination(dimensions);
         }
       else if (dimensions.dimension == 3 && dimensions.space_dimension == 3 &&
                dimensions.reduced_dimension == 0)
         {
-          ReducedPoissonParameters<3, 0, 2> par;
-          initialize_parameters(prm_file);
-          ReducedPoisson<2, 3, 0, 2> problem(par);
-          problem.run();
+          if (dimensions.cross_section_dimension == 1)
+            {
+              ReducedPoissonParameters<3, 0, 1> par;
+              initialize_parameters(prm_file);
+              ReducedPoisson<1, 3, 0, 1> problem(par);
+              problem.run();
+            }
+          else if (dimensions.cross_section_dimension == 2)
+            {
+              ReducedPoissonParameters<3, 0, 2> par;
+              initialize_parameters(prm_file);
+              ReducedPoisson<2, 3, 0, 2> problem(par);
+              problem.run();
+            }
+          else if (dimensions.cross_section_dimension == 3)
+            {
+              ReducedPoissonParameters<3, 0, 3> par;
+              initialize_parameters(prm_file);
+              ReducedPoisson<3, 3, 0, 3> problem(par);
+              problem.run();
+            }
+          else
+            throw_unsupported_dimension_combination(dimensions);
         }
       else if (dimensions.dimension == 2 && dimensions.space_dimension == 2 &&
                dimensions.reduced_dimension == 1)

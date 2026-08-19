@@ -27,10 +27,11 @@ Run the two examples from the repository root:
   tutorials/reduced_poisson/random_particles_3d_0d.prm
 ```
 
-The `0d` filename selects the zero-dimensional ReducedPoisson path. The point
-cross-section has dimension `spacedim - 1`: a line segment in 2D and a disk in
-3D. The `rhs` point field is used as the reduced right-hand side and `radius`
-is used as the thickness. For a zero-dimensional representative domain, the
-local refinement subsection exposes the bulk `Space pre/post-refinement`
-cycles plus the point-scale `Refinement factor` and `Max refinement level`;
-the point cloud itself is not refined.
+The top-level `cross section dimension` parameter selects the intrinsic
+dimension of the point cross-section independently of the embedding space.
+For example, use `2` for disks in 3D and `3` for spheres in 3D. The `rhs`
+point field is used as the reduced right-hand side and `radius` is used as the
+thickness. For a zero-dimensional representative domain, the local refinement
+subsection exposes the bulk `Space pre/post-refinement` cycles plus the
+point-scale `Refinement factor` and `Max refinement level`; the point cloud
+itself is not refined.
