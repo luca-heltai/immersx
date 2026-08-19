@@ -13,10 +13,6 @@
 #include "tensor_product_space.h"
 #include "utils.h"
 
-#ifdef DEAL_II_WITH_VTK
-
-#  include "vtk_utils.h"
-
 namespace
 {
   bool
@@ -52,18 +48,18 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::ReducedCoupling(
     &par)
   : TensorProductSpace<reduced_dim, dim, spacedim, n_components>(
       par.tensor_product_space_parameters,
-#  if DEAL_II_VERSION_GTE(9, 6, 0)
+#if DEAL_II_VERSION_GTE(9, 6, 0)
       background_tria.get_mpi_communicator())
-#  else 
+#else
 background_tria.get_mpi_communicator()
-#  endif
+#endif
   , ParticleCoupling<spacedim>(par.particle_coupling_parameters)
   , mpi_communicator(
-#  if DEAL_II_VERSION_GTE(9, 6, 0)
+#if DEAL_II_VERSION_GTE(9, 6, 0)
       background_tria.get_mpi_communicator()
-#  else 
+#else
   background_tria.get_mpi_communicator()
-#  endif
+#endif
         )
   , par(par)
   , background_tria(&background_tria)
@@ -268,6 +264,8 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
 // Explicit instantiations for ReducedCouplingParameters
 template struct ReducedCouplingParameters<0, 2, 2, 1>;
 template struct ReducedCouplingParameters<0, 2, 2, 2>;
+template struct ReducedCouplingParameters<0, 1, 2, 1>;
+template struct ReducedCouplingParameters<0, 1, 2, 2>;
 template struct ReducedCouplingParameters<1, 2, 2, 1>;
 template struct ReducedCouplingParameters<1, 2, 3, 1>;
 template struct ReducedCouplingParameters<1, 3, 3, 1>;
@@ -281,6 +279,8 @@ template struct ReducedCouplingParameters<2, 3, 3, 3>;
 
 template struct ReducedCoupling<0, 2, 2, 1>;
 template struct ReducedCoupling<0, 2, 2, 2>;
+template struct ReducedCoupling<0, 1, 2, 1>;
+template struct ReducedCoupling<0, 1, 2, 2>;
 template struct ReducedCoupling<1, 2, 2, 1>;
 template struct ReducedCoupling<1, 2, 3, 1>;
 template struct ReducedCoupling<1, 3, 3, 1>;
@@ -290,5 +290,3 @@ template struct ReducedCoupling<1, 2, 2, 2>;
 template struct ReducedCoupling<1, 2, 3, 3>;
 template struct ReducedCoupling<1, 3, 3, 3>;
 template struct ReducedCoupling<2, 3, 3, 3>;
-
-#endif // DEAL_II_WITH_VTK

@@ -37,7 +37,7 @@ class ParticleCoupling
 class ReducedCoupling
 class ImmersedRepartitioner
 class "VTK reduced grid" as VTKReducedGrid
-class "VTK field catalog" as VTKFieldCatalog
+class "generic field catalog" as FieldCatalog
 class InputFieldSelector
 class ReducedFieldValues
 class SymbolicFieldEvaluator
@@ -63,7 +63,7 @@ ElasticityProblem ..> UtilitiesAL_BlockPreconditionerAugmentedLagrangian : legac
 
 TensorProductSpace *-- ReferenceCrossSection : modal section
 TensorProductSpace *-- VTKReducedGrid : reads reduced mesh
-TensorProductSpace *-- VTKFieldCatalog : discovers PointData/CellData
+TensorProductSpace *-- FieldCatalog : consumes field metadata
 TensorProductSpace *-- SymbolicFieldEvaluator : thickness and rhs expressions
 TensorProductSpace ..> InputFieldSelector : resolves selected fields
 TensorProductSpace ..> ReducedFieldValues : evaluates fields at quadrature points
@@ -71,8 +71,8 @@ TensorProductSpace ..> TriangulationSignals : refinement callbacks
 TriangulationSignals ..> SolutionTransfer : preserve properties
 SolutionTransfer ..> TensorProductSpace : rebuilds refined properties
 
-VTKReducedGrid ..> VTKFieldCatalog : field metadata
-InputFieldSelector ..> VTKFieldCatalog : aliases and wildcard expansion
+VTKReducedGrid ..> FieldCatalog : converts VTK metadata
+InputFieldSelector ..> FieldCatalog : aliases and wildcard expansion
 ReducedFieldValues ..> SymbolicFieldEvaluator : field values plus x,y,z,t
 
 ReducedCoupling *-- ImmersedRepartitioner : repartitioning

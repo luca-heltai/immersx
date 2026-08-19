@@ -33,16 +33,15 @@
 
 #include <deal.II/base/config.h>
 
-#ifdef DEAL_II_WITH_VTK
+#include "reduced_poisson.h"
 
-#  include <cmath>
-#  include <filesystem>
-#  include <type_traits>
+#include <cmath>
+#include <filesystem>
+#include <type_traits>
 
-#  include "augmented_lagrangian_preconditioner.h"
-#  include "reduced_poisson.h"
-#  include "solver_controls.h"
-#  include "utils.h"
+#include "augmented_lagrangian_preconditioner.h"
+#include "solver_controls.h"
+#include "utils.h"
 
 
 
@@ -160,9 +159,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
   reduced_coupling.initialize(mapping);
 
   dh.distribute_dofs(*fe);
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
   dh.distribute_mg_dofs();
-#  endif
+#endif
 
   owned_dofs.resize(2);
   owned_dofs[0] = dh.locally_owned_dofs();
@@ -176,7 +175,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
     constraints.close();
   }
   {
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
     typename MatrixFree<spacedim, double>::AdditionalData additional_data;
     additional_data.tasks_parallel_scheme =
       MatrixFree<spacedim, double>::AdditionalData::none;
@@ -230,7 +229,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
     }
 
 
-#  else
+#else
     stiffness_matrix.clear();
     DynamicSparsityPattern dsp(relevant_dofs[0]);
     DoFTools::make_sparsity_pattern(dh, dsp, constraints, false);
@@ -243,7 +242,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
                             dsp,
                             mpi_communicator);
 
-#  endif
+#endif
   }
   owned_dofs[1]    = reduced_coupling.locally_owned_representative_dofs();
   relevant_dofs[1] = reduced_coupling.locally_relevant_representative_dofs();
@@ -276,13 +275,13 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
   // Commented out inclusions-dependent reinit
   locally_relevant_solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
 
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
   system_rhs.reinit(owned_dofs, relevant_dofs, mpi_communicator);
   solution.reinit(owned_dofs, relevant_dofs, mpi_communicator);
-#  else
+#else
   system_rhs.reinit(owned_dofs, mpi_communicator);
   solution.reinit(owned_dofs, mpi_communicator);
-#  endif
+#endif
 
   pcout << "   Number of degrees of freedom: " << owned_dofs[0].size() << " + "
         << owned_dofs[1].size()
@@ -291,7 +290,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
 }
 
 
-#  ifndef MATRIX_FREE_PATH
+#ifndef MATRIX_FREE_PATH
 template <int dim, int spacedim, int reduced_dim>
 void
 ReducedPoisson<dim, spacedim, reduced_dim>::assemble_poisson_system()
@@ -343,7 +342,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::assemble_poisson_system()
   stiffness_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
 }
-#  endif
+#endif
 
 
 template <int dim, int spacedim, int reduced_dim>
@@ -519,7 +518,7 @@ inclusion_matrix);
 }
 */
 
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
 template <int dim, int spacedim, int reduced_dim>
 void
 ReducedPoisson<dim, spacedim, reduced_dim>::assemble_rhs()
@@ -562,7 +561,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::assemble_rhs()
 
   system_rhs.compress(VectorOperation::add);
 }
-#  endif
+#endif
 
 
 template <int dim, int spacedim, int reduced_dim>
@@ -572,7 +571,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
   TimerOutput::Scope t(computing_timer, "Solve");
   pcout << "Preparing solve." << std::endl;
   SolverCG<VectorType> cg_stiffness(par.inner_control);
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
 
   using Payload = dealii::internal::LinearOperatorImplementation::EmptyPayload;
   LinearOperator<VectorType, VectorType, Payload> A;
@@ -634,7 +633,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
 
   auto invA = A;
   invA      = inverse_operator(A, cg_stiffness, preconditioner);
-#  else
+#else
   using Payload =
     TrilinosWrappers::internal::LinearOperatorImplementation::TrilinosPayload;
   LinearOperator<VectorType, VectorType, Payload> A;
@@ -643,9 +642,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
   LA::MPI::PreconditionAMG prec_A;
   {
     LA::MPI::PreconditionAMG::AdditionalData data;
-#    ifdef USE_PETSC_LA
+#  ifdef USE_PETSC_LA
     data.symmetric_operator = true;
-#    endif
+#  endif
     pcout << "Initialize AMG...";
     prec_A.initialize(stiffness_matrix, data);
     pcout << "done." << std::endl;
@@ -653,7 +652,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
   const auto amgA = linear_operator<VectorType, VectorType, Payload>(A, prec_A);
   auto       invA = A;
   invA            = inverse_operator(A, cg_stiffness, amgA);
-#  endif
+#endif
 
 
   // Some aliases
@@ -669,7 +668,7 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
     }
   else
     {
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
       auto Bt =
         linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
       Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
@@ -680,13 +679,13 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
       };
 
       const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
-#  else
+#else
       const auto Bt =
         linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
       const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
       // const auto B = linear_operator<VectorType, VectorType, Payload>(
       //   coupling_matrix_transpose);
-#  endif
+#endif
 
       if (par.solver_name == "Schur")
         {
@@ -1001,15 +1000,15 @@ template <int dim, int spacedim, int reduced_dim>
 void
 ReducedPoisson<dim, spacedim, reduced_dim>::print_parameters() const
 {
-#  ifdef USE_PETSC_LA
+#ifdef USE_PETSC_LA
   pcout << "Running ReducedPoisson<" << Utilities::dim_string(dim, spacedim)
         << "> using PETSc." << std::endl;
-#  else
+#else
   pcout << "Running ReducedPoisson<" << Utilities::dim_string(dim, spacedim)
         << "> using Trilinos with "
         << Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) << " MPI ranks."
         << std::endl;
-#  endif
+#endif
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
     {
       par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
@@ -1031,21 +1030,21 @@ ReducedPoisson<dim, spacedim, reduced_dim>::run()
       setup_dofs();
       if (par.output_results_before_solving)
         output_results();
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
       assemble_rhs();
-#  else
+#else
       assemble_poisson_system();
-#  endif
+#endif
       assemble_coupling_system();
 
-#  ifdef MATRIX_FREE_PATH
+#ifdef MATRIX_FREE_PATH
       // MappingQ1<spacedim> mapping;
       // coupling_operator =
       // std::make_unique<CouplingOperator<spacedim,
       // double>>(
       //   inclusions, dh, constraints,
       //   mapping, *fe);
-#  endif
+#endif
       // return;
       solve();
       output_results();
@@ -1068,6 +1067,3 @@ template class ReducedPoissonParameters<3>;
 template class ReducedPoisson<2>;
 template class ReducedPoisson<2, 2, 0>;
 template class ReducedPoisson<3>;
-
-
-#endif // DEAL_II_WITH_VTK

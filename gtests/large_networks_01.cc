@@ -42,6 +42,7 @@
 
 #ifdef DEAL_II_WITH_VTK
 
+#  include "reduced_field_utils.h"
 #  include "vtk_utils.h"
 
 using namespace dealii;
@@ -154,7 +155,7 @@ TEST(LargeNetworks, SolvePoisson)
 
   DataOut<1, 3> data_out;
   data_out.attach_dof_handler(dh);
-  VTKUtils::data_to_dealii_vector(tria, path_lengths, dh, path_output);
+  ReducedFieldUtils::data_to_dealii_vector(tria, path_lengths, dh, path_output);
   data_out.add_data_vector(path_output, "path_lengths");
   data_out.add_data_vector(solution, "solution");
   data_out.build_patches();

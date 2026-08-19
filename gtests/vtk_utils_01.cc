@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "reduced_field_utils.h"
 #include "vtk_utils.h"
 
 namespace LA = dealii::LinearAlgebra;
@@ -67,7 +68,7 @@ TEST(VTKUtils, ReadPointCloudCellDataReorderedByVertex)
   ASSERT_EQ(point_cloud.points.size(), 3u);
   ASSERT_EQ(point_cloud.catalog.size(), 1u);
   ASSERT_EQ(point_cloud.catalog.front().association,
-            VTKFieldAssociation::cell_data);
+            FieldAssociation::cell_data);
   ASSERT_EQ(point_cloud.properties.size(), 1u);
   ASSERT_EQ(point_cloud.properties.front().size(), 3u);
   EXPECT_DOUBLE_EQ(point_cloud.properties.front()[0], 10.);
@@ -159,7 +160,8 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
 
   // Verify mapping
   auto dist_to_serial_mapping =
-    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, dist_tria);
+    ReducedFieldUtils::distributed_to_serial_vertex_indices(serial_tria,
+                                                            dist_tria);
   ASSERT_GT(dist_to_serial_mapping.size(), 0);
   std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
             << ": Created mapping for " << dist_to_serial_mapping.size()
@@ -241,7 +243,8 @@ TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
 
   // Verify mapping
   auto dist_to_serial_mapping =
-    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, dist_tria);
+    ReducedFieldUtils::distributed_to_serial_vertex_indices(serial_tria,
+                                                            dist_tria);
   ASSERT_GT(dist_to_serial_mapping.size(), 0);
   std::cout << "Process " << Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)
             << ": Created mapping for " << dist_to_serial_mapping.size()
@@ -379,10 +382,10 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
                            function_parser,
                            parallel_vec_expected);
 
-  VTKUtils::serial_vector_to_distributed_vector(serial_dof_handler,
-                                                parallel_dof_handler,
-                                                serial_vec,
-                                                parallel_vec);
+  ReducedFieldUtils::serial_vector_to_distributed_vector(serial_dof_handler,
+                                                         parallel_dof_handler,
+                                                         serial_vec,
+                                                         parallel_vec);
   ASSERT_EQ(parallel_vec.size(), serial_vec.size());
   // Check that the norms match
   const double serial_norm   = serial_vec.l2_norm();
@@ -430,10 +433,10 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   LA::distributed::Vector<double> parallel_data;
   parallel_data.reinit(parallel_dof_handler.locally_owned_dofs(),
                        MPI_COMM_WORLD);
-  VTKUtils::serial_vector_to_distributed_vector(serial_dof_handler,
-                                                parallel_dof_handler,
-                                                serial_data,
-                                                parallel_data);
+  ReducedFieldUtils::serial_vector_to_distributed_vector(serial_dof_handler,
+                                                         parallel_dof_handler,
+                                                         serial_data,
+                                                         parallel_data);
 
   ASSERT_EQ(parallel_data.size(), serial_data.size());
   // Check that the norms match
@@ -467,7 +470,8 @@ TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
   parallel_tria.create_triangulation(description);
 
   std::vector<types::global_vertex_index> distributed_to_serial_vertex_indices =
-    VTKUtils::distributed_to_serial_vertex_indices(serial_tria, parallel_tria);
+    ReducedFieldUtils::distributed_to_serial_vertex_indices(serial_tria,
+                                                            parallel_tria);
 
   const std::vector<Point<dim>> &serial_vertices = serial_tria.get_vertices();
   const std::vector<Point<dim>> &parallel_vertices =
@@ -603,7 +607,8 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
             << ", n_blocks: " << fe_system_ptr->n_blocks()
             << ", n_components: " << fe_system_ptr->n_components() << std::endl;
 
-  const auto block_indices = VTKUtils::get_block_indices(*fe_system_ptr);
+  const auto block_indices =
+    ReducedFieldUtils::get_block_indices(*fe_system_ptr);
   ASSERT_EQ(block_indices.total_size(), 8);
   ASSERT_EQ(block_indices.size(), 4);
   ASSERT_EQ(block_indices.block_size(0), 1);
@@ -623,7 +628,7 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
 
   // 6. Call data_to_dealii_vector
   Vector<double> vector_from_data_to_dealii(dof_handler.n_dofs());
-  ASSERT_NO_THROW(VTKUtils::data_to_dealii_vector(
+  ASSERT_NO_THROW(ReducedFieldUtils::data_to_dealii_vector(
     tria, raw_data_vector, dof_handler, vector_from_data_to_dealii));
 
   // 7. Create ParsedFunction
@@ -709,7 +714,7 @@ TEST(VTKUtils, DataFromSimpleVtkToDealiiVectorAndInterpolate)
 
   // 5. Call data_to_dealii_vector
   Vector<double> vector_from_data_to_dealii(dof_handler.n_dofs());
-  ASSERT_NO_THROW(VTKUtils::data_to_dealii_vector(
+  ASSERT_NO_THROW(ReducedFieldUtils::data_to_dealii_vector(
     tria, raw_data_vector, dof_handler, vector_from_data_to_dealii));
 
   // 6. Create ParsedFunction

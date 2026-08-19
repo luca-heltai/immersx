@@ -70,7 +70,7 @@ struct ReferenceCrossSectionParameters : public ParameterAcceptor
   std::string inclusion_type = "hyper_ball";
 
   /// Degree of the polynomial basis for inclusion.
-  unsigned int inclusion_degree = 0;
+  mutable unsigned int inclusion_degree = 0;
 
   /// List of selected coefficient indices for reduced modeling.
   mutable std::vector<unsigned int> selected_coefficients;
