@@ -156,14 +156,14 @@ After building the project, run:
 ./build/reduced_poisson[_debug] ../tutorials/reduced_poisson/<input_file.prm>
 ```
 
-The program decides whether to instantiate the 2D or 3D version from the
-parameter-file name itself:
+The program reads the root-level `dimension`, `space dimension`, and
+`reduced dimension` parameters before constructing the statically typed
+problem. Standard 3D line-coupling inputs use `3`, `3`, and `1`; 2D
+point-coupling inputs can use `2`, `2`, and `0`. The defaults are `2`, `2`, and
+`1`, respectively.
 
-- if the filename contains the substring `3d`, it runs `ReducedPoisson<3>`;
-- otherwise it runs `ReducedPoisson<2>`.
-
-This behavior comes directly from `apps/app_reduced_poisson.cc`. In practice,
-name 3D input files something like `my_case_3d.prm`.
+The parameter-file name has no effect on dimension selection, so input files
+do not need a special suffix.
 
 ### Typical Output
 
