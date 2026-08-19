@@ -49,6 +49,91 @@
 
 using namespace dealii;
 
+
+/**
+ * Runtime dimensions used to select the corresponding statically typed
+ * application implementation.
+ */
+struct DimensionParameters
+{
+  unsigned int dimension         = 2;
+  unsigned int space_dimension   = 2;
+  unsigned int reduced_dimension = 1;
+};
+
+
+/**
+ * Declare the dimension selectors shared by all applications.
+ */
+inline void
+declare_dimension_parameters(ParameterHandler &prm)
+{
+  prm.declare_entry("dimension",
+                    "2",
+                    Patterns::Integer(1, 3),
+                    "Dimension of the unknown field.");
+  prm.declare_entry("space dimension",
+                    "2",
+                    Patterns::Integer(1, 3),
+                    "Dimension of the embedding space.");
+  prm.declare_entry("reduced dimension",
+                    "1",
+                    Patterns::Integer(0, 2),
+                    "Dimension of the reduced or embedded object.");
+}
+
+
+/**
+ * Read the dimension selectors from an already parsed parameter handler.
+ */
+inline DimensionParameters
+get_dimension_parameters(const ParameterHandler &prm)
+{
+  return {static_cast<unsigned int>(prm.get_integer("dimension")),
+          static_cast<unsigned int>(prm.get_integer("space dimension")),
+          static_cast<unsigned int>(prm.get_integer("reduced dimension"))};
+}
+
+
+/**
+ * Read the dimension selectors without constructing a dimension-specific
+ * parameter acceptor.
+ */
+inline DimensionParameters
+get_dimension_parameters(const std::string &filename)
+{
+  auto &prm = ParameterAcceptor::prm;
+  declare_dimension_parameters(prm);
+
+  try
+    {
+      prm.parse_input(filename, "", true);
+    }
+  catch (const ::ExcFileNotOpen &)
+    {
+      // Let the full initialization pass create the missing file and report
+      // the same error it would have reported before dimension dispatch.
+    }
+
+  return get_dimension_parameters(prm);
+}
+
+
+/**
+ * Report a dimension combination for which no explicit instantiation exists.
+ */
+inline void
+throw_unsupported_dimension_combination(const DimensionParameters &dimensions)
+{
+  AssertThrow(false,
+              ExcNotImplemented("The dimension combination (" +
+                                std::to_string(dimensions.dimension) + ", " +
+                                std::to_string(dimensions.space_dimension) +
+                                ", " +
+                                std::to_string(dimensions.reduced_dimension) +
+                                ") is not supported by this application."));
+}
+
 /**
  * Controls local refinement synchronization between bulk and embedded meshes.
  */
@@ -342,6 +427,7 @@ initialize_parameters(const std::string &filename        = "",
   // 4. Parse again to create additional acceptors
   // 5. From file to parameters
   auto &prm = ParameterAcceptor::prm;
+  declare_dimension_parameters(prm);
   ParameterAcceptor::declare_all_parameters(prm);
 
   if (!filename.empty())
@@ -385,6 +471,7 @@ initialize_parameters_from_string(const std::string &prm_content,
   // 3) Parse again, now that the additional acceptors exist and have
   //    declared their parameters.
   auto &prm = ParameterAcceptor::prm;
+  declare_dimension_parameters(prm);
   ParameterAcceptor::declare_all_parameters(prm);
 
   prm.parse_input_from_string(prm_content, "", true);

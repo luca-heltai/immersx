@@ -57,11 +57,17 @@ How to run:
 ./build/elasticity[_debug] ../tutorials/elasticity/<input_file.prm>
 ```
 
-Dimension selection follows `app_elasticity.cc` filename conventions:
+The application reads the root-level `dimension` and `space dimension`
+parameters before constructing the statically typed problem:
 
-- filenames containing `23d` instantiate `ElasticityProblem<2,3>`;
-- filenames containing `3d` instantiate `ElasticityProblem<3>`;
-- otherwise it instantiates `ElasticityProblem<2>`.
+- `dimension = 2`, `space dimension = 3` instantiates
+  `ElasticityProblem<2,3>`;
+- `dimension = 3`, `space dimension = 3` instantiates
+  `ElasticityProblem<3>`;
+- when these entries are omitted, both default to `2` and
+  `ElasticityProblem<2>` is used.
+
+The parameter-file name has no effect on dimension selection.
 
 All five tutorial files in this page are 2D cases.
 
