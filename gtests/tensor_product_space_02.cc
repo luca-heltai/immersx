@@ -212,7 +212,8 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
     {0.25 + rank}};
   params.tensor_product_space_parameters.point_cloud.distribution =
     PointCloudDistribution::rank_local;
-  params.coupling_rhs_expressions = {"1"};
+  params.refinement_parameters.max_refinement_level = 0;
+  params.coupling_rhs_expressions                   = {"1"};
 
   ReducedCoupling<0, 2, 2, 1> coupling(background, params);
   ASSERT_NO_THROW(coupling.initialize());

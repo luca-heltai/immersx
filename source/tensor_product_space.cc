@@ -1287,6 +1287,9 @@ TensorProductSpace<0, dim, spacedim, n_components>::
     {
       point_cloud.points.clear();
       point_cloud.properties.clear();
+      entity_properties.clear();
+      representative_properties.clear();
+      entity_thickness.clear();
     }
 }
 
