@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "constraint_equation.h"
@@ -72,6 +73,19 @@ public:
                 "The second interaction endpoint does not satisfy the "
                 "representation contract.");
 
+  // This continuity interaction assembles scalar pairings into scalar sparse
+  // matrices. Vector-valued observables need a separate concrete interaction
+  // (for example velocity continuity or traction), rather than runtime
+  // branching through this scalar path.
+  static_assert(
+    std::is_same<typename FirstRepresentation::value_type, double>::value,
+    "LagrangeMultiplierInteraction only accepts scalar first representations; "
+    "use a vector-specific interaction for vector observables.");
+  static_assert(
+    std::is_same<typename SecondRepresentation::value_type, double>::value,
+    "LagrangeMultiplierInteraction only accepts scalar second representations; "
+    "use a vector-specific interaction for vector observables.");
+
   static_assert(spacedim == SecondRepresentation::ambient_dimension,
                 "Representations must live in the same physical space.");
   static_assert(FirstRepresentation::support_dimension >=
@@ -81,7 +95,7 @@ public:
 
   using MatrixType = ImmersXLA::MPI::SparseMatrix;
   using VectorType = ImmersXLA::MPI::Vector;
-  using PointType  = RepresentationQuadraturePoint<spacedim>;
+  using PointType  = typename SecondRepresentation::QuadraturePoint;
 
   LagrangeMultiplierInteraction(
     const FirstRepresentation                  &first,
@@ -214,6 +228,20 @@ public:
   second_representation() const
   {
     return second;
+  }
+
+  /** Metadata for adapter-level dependency discovery. */
+  const RepresentationMetadata &
+  first_metadata() const
+  {
+    return first.metadata();
+  }
+
+  /** Metadata for adapter-level dependency discovery. */
+  const RepresentationMetadata &
+  second_metadata() const
+  {
+    return second.metadata();
   }
 
   /**
