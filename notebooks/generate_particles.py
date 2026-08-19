@@ -72,6 +72,14 @@ def generate_particles(
     point_array = np.asarray(points, dtype=float)
     radius_array = np.asarray(radii, dtype=float)
     rhs_array = rng.uniform(min_rhs, max_rhs, n_particles)
+
+    if dimensions == 3 and n_particles >= 4:
+        rank = np.linalg.matrix_rank(point_array[1:] - point_array[0])
+        if rank < 3:
+            raise RuntimeError(
+                "Generated 3D particles are coplanar; choose a different seed."
+            )
+
     return point_array, radius_array, rhs_array
 
 

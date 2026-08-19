@@ -88,12 +88,29 @@ ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
   // Initialize the background particle coupling first: its global bounding
   // boxes define geometric ownership for both representative and lifted
   // particles.
+  bool prepared_for_refinement = false;
+  if constexpr (reduced_dim == 0)
+    {
+      if (!zero_dimensional_background_refined)
+        {
+          this->prepare();
+          refine_space_around_points(*background_tria,
+                                     this->point_cloud.points,
+                                     this->entity_thickness,
+                                     par.refinement_parameters,
+                                     mpi_communicator);
+          zero_dimensional_background_refined = true;
+          prepared_for_refinement             = true;
+        }
+    }
+
   ParticleCoupling<spacedim>::initialize_particle_handler(
     *this->background_tria, mapping);
 
   if constexpr (reduced_dim == 0)
     {
-      this->prepare();
+      if (!prepared_for_refinement)
+        this->prepare();
       this->initialize_representative_particle_handler(
         *this->background_tria, mapping, this->get_global_bounding_boxes());
       this->compute_points_and_weights();
