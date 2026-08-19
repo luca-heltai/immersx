@@ -1,9 +1,15 @@
 # Time residual and SUNDIALS integration prototype
 
-This prototype is intentionally independent of the Field/State core.  It uses
-opaque `SubsystemId`/block identifiers and a `TimeResidualContext` so that it
-can later be adapted to the canonical `StateLayout` without changing the
-solver-facing contracts.
+The time-residual path now uses the canonical Field/State core. Semantic
+contributors receive `ImmersX::EvaluationContext` and add rows through
+`ImmersX::ResidualAccumulator`; Jacobian contributors use
+`ImmersX::LinearizationContext` and the same semantic field accessors.
+
+`ImmersX::FieldId` identifies state and residual rows. Independent timelines
+are identified separately by `ImmersX::HistoryGroupId`, so several fields may
+share one history grid. IDA's monolithic vector is an adapter concern handled
+by `MonolithicFieldLayout`, while native Problem block numbers remain local to
+`NativeFieldLayout`.
 
 ## Local deal.II/SUNDIALS contracts
 
@@ -77,7 +83,9 @@ deal.II's `linear_operator(matrix)` convention; the problem that owns the
 matrix must outlive the action.
 
 `SundialsIDAResidualAdapter` only translates the deal.II IDA callbacks.  The
-residual model supplies physics, the action supplies `Jv`, and a caller-supplied
-linear solve policy consumes that action.  The synthetic test uses GMRES on the
-matrix-free `LinearOperator` view and validates the differential/algebraic mask
-and the resulting DAE solution.
+residual model supplies physics, the semantic model supplies field-wise `Jv`,
+and a caller-supplied linear solve policy consumes the gathered monolithic
+`JacobianAction`. The synthetic tests use GMRES on the matrix-free
+`LinearOperator` view and validate the differential/algebraic mask and the
+resulting DAE solution, including a mixed native-block Problem and an
+auxiliary algebraic multiplier field.
