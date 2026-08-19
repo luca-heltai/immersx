@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "reduced_field_utils.h"
+
 #ifdef DEAL_II_WITH_VTK
 #  include <deal.II/distributed/fully_distributed_tria.h>
 
@@ -110,9 +112,9 @@ namespace VTKUtils
 
     void
     append_point_cloud_array(vtkDataArray                     *array,
-                             const VTKFieldAssociation         association,
+                             const FieldAssociation            association,
                              const vtkIdType                   expected_tuples,
-                             VTKFieldCatalog                  &catalog,
+                             FieldCatalog                     &catalog,
                              std::vector<std::vector<double>> &properties,
                              std::vector<std::string>         &names)
     {
@@ -122,7 +124,7 @@ namespace VTKUtils
                   ExcMessage("VTK data arrays must have non-empty names."));
       const std::string name(raw_name);
       for (const auto &field : catalog)
-        AssertThrow(field.vtk_name != name || field.association != association,
+        AssertThrow(field.name != name || field.association != association,
                     ExcMessage("Duplicate VTK array name '" + name + "'."));
       const int n_components = array->GetNumberOfComponents();
       AssertThrow(n_components > 0,
@@ -130,8 +132,8 @@ namespace VTKUtils
       AssertThrow(array->GetNumberOfTuples() == expected_tuples,
                   ExcMessage("VTK array '" + name +
                              "' has an invalid tuple count."));
-      VTKFieldDescriptor descriptor;
-      descriptor.vtk_name     = name;
+      FieldDescriptor descriptor;
+      descriptor.name         = name;
       descriptor.association  = association;
       descriptor.n_components = static_cast<unsigned int>(n_components);
       descriptor.first_fe_component =
@@ -199,9 +201,9 @@ namespace VTKUtils
         for (unsigned int d = 0; d < spacedim; ++d)
           point_cloud.points[point][d] = coordinates[d];
       }
-    auto append = [&](vtkDataArray             *array,
-                      const VTKFieldAssociation association,
-                      const vtkIdType           expected) {
+    auto append = [&](vtkDataArray          *array,
+                      const FieldAssociation association,
+                      const vtkIdType        expected) {
       append_point_cloud_array(array,
                                association,
                                expected,
@@ -211,16 +213,16 @@ namespace VTKUtils
     };
     if (auto *data = grid->GetPointData())
       for (int i = 0; i < data->GetNumberOfArrays(); ++i)
-        append(data->GetArray(i), VTKFieldAssociation::point_data, n_points);
+        append(data->GetArray(i), FieldAssociation::point_data, n_points);
     const std::size_t point_field_count = point_cloud.properties.size();
     if (auto *data = grid->GetCellData())
       for (int i = 0; i < data->GetNumberOfArrays(); ++i)
-        append(data->GetArray(i), VTKFieldAssociation::cell_data, n_cells);
+        append(data->GetArray(i), FieldAssociation::cell_data, n_cells);
 
     for (std::size_t field = 0; field < point_field_count; ++field)
       {
         vtkDataArray *array = grid->GetPointData()->GetArray(
-          point_cloud.catalog[field].vtk_name.c_str());
+          point_cloud.catalog[field].name.c_str());
         const unsigned int components = point_cloud.catalog[field].n_components;
         for (vtkIdType point = 0; point < n_points; ++point)
           for (unsigned int component = 0; component < components; ++component)
@@ -233,7 +235,7 @@ namespace VTKUtils
       {
         const auto   &descriptor = point_cloud.catalog[field];
         vtkDataArray *array =
-          grid->GetCellData()->GetArray(descriptor.vtk_name.c_str());
+          grid->GetCellData()->GetArray(descriptor.name.c_str());
         for (vtkIdType point = 0; point < n_points; ++point)
           {
             const vtkIdType cell = point_to_cell[point];
@@ -252,7 +254,7 @@ namespace VTKUtils
   read_vtk_point_cloud(const std::string                &vtk_filename,
                        std::vector<Point<spacedim>>     &points,
                        std::vector<std::vector<double>> &properties,
-                       VTKFieldCatalog                  &catalog,
+                       FieldCatalog                     &catalog,
                        std::vector<std::string>         &property_names)
   {
     PointCloud<spacedim> data;
@@ -268,7 +270,7 @@ namespace VTKUtils
   read_vtk_point_cloud(const std::string            &vtk_filename,
                        std::vector<Point<spacedim>> &points,
                        Vector<double>               &properties,
-                       VTKFieldCatalog              &catalog,
+                       FieldCatalog                 &catalog,
                        std::vector<std::string>     &property_names)
   {
     std::vector<std::vector<double>> field_properties;
@@ -531,8 +533,7 @@ namespace VTKUtils
 
   template <int dim, int spacedim>
   std::unique_ptr<FiniteElement<dim, spacedim>>
-  vtk_to_finite_element(const std::string &vtk_filename,
-                        VTKFieldCatalog   &catalog)
+  vtk_to_finite_element(const std::string &vtk_filename, FieldCatalog &catalog)
   {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());
@@ -540,19 +541,18 @@ namespace VTKUtils
     vtkUnstructuredGrid *grid = reader->GetOutput();
     AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
     catalog.clear();
-    std::vector<std::shared_ptr<FiniteElement<dim, spacedim>>> field_fes;
-    std::set<std::string>                                      names[2];
-    unsigned int first_component = 0;
-    const auto   append          = [&](vtkDataArray             *array,
-                            const VTKFieldAssociation association,
-                            const vtkIdType           expected_tuples) {
+    std::set<std::string> names[2];
+    unsigned int          first_component = 0;
+    const auto            append          = [&](vtkDataArray          *array,
+                            const FieldAssociation association,
+                            const vtkIdType        expected_tuples) {
       AssertThrow(array != nullptr, ExcMessage("Null VTK data array."));
       const char *raw_name = array->GetName();
       AssertThrow(raw_name != nullptr && *raw_name != '\0',
                   ExcMessage("VTK data arrays must have non-empty names."));
       const std::string  name(raw_name);
       const unsigned int association_index =
-        association == VTKFieldAssociation::point_data ? 0 : 1;
+        association == FieldAssociation::point_data ? 0 : 1;
       AssertThrow(names[association_index].insert(name).second,
                   ExcMessage("Duplicate VTK array name '" + name + "'."));
       const int n_components = array->GetNumberOfComponents();
@@ -561,56 +561,34 @@ namespace VTKUtils
       AssertThrow(array->GetNumberOfTuples() == expected_tuples,
                   ExcMessage("VTK array '" + name +
                              "' has an invalid tuple count."));
-      VTKFieldDescriptor descriptor;
-      descriptor.vtk_name           = name;
-      descriptor.association        = association;
-      descriptor.n_components       = static_cast<unsigned int>(n_components);
+      FieldDescriptor descriptor;
+      descriptor.name        = name;
+      descriptor.association = association;
+      descriptor.n_components = static_cast<unsigned int>(n_components);
       descriptor.first_fe_component = first_component;
       descriptor.block_index = static_cast<unsigned int>(catalog.size());
       catalog.push_back(descriptor);
       first_component += descriptor.n_components;
-      if (association == VTKFieldAssociation::point_data)
-        {
-          if (n_components == 1)
-            field_fes.push_back(std::make_shared<FE_Q<dim, spacedim>>(1));
-          else
-            field_fes.push_back(
-              std::make_shared<FESystem<dim, spacedim>>(FE_Q<dim, spacedim>(1),
-                                                        n_components));
-        }
-      else
-        {
-          if (n_components == 1)
-            field_fes.push_back(std::make_shared<FE_DGQ<dim, spacedim>>(0));
-          else
-            field_fes.push_back(std::make_shared<FESystem<dim, spacedim>>(
-              FE_DGQ<dim, spacedim>(0), n_components));
-        }
     };
     if (vtkPointData *point_data = grid->GetPointData())
       for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
         append(point_data->GetArray(i),
-               VTKFieldAssociation::point_data,
+               FieldAssociation::point_data,
                grid->GetNumberOfPoints());
     if (vtkCellData *cell_data = grid->GetCellData())
       for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
         append(cell_data->GetArray(i),
-               VTKFieldAssociation::cell_data,
+               FieldAssociation::cell_data,
                grid->GetNumberOfCells());
-    std::vector<const FiniteElement<dim, spacedim> *> fe_ptrs;
-    for (const auto &field_fe : field_fes)
-      fe_ptrs.push_back(field_fe.get());
-    if (fe_ptrs.empty())
-      return std::make_unique<FE_Nothing<dim, spacedim>>();
-    return std::make_unique<FESystem<dim, spacedim>>(
-      fe_ptrs, std::vector<unsigned int>(fe_ptrs.size(), 1));
+    return ReducedFieldUtils::field_catalog_to_finite_element<dim, spacedim>(
+      catalog);
   }
 
   /** Read coefficients in exactly the order established by a catalogue. */
   void
-  read_catalogued_data(const std::string     &vtk_filename,
-                       const VTKFieldCatalog &catalog,
-                       Vector<double>        &output_vector)
+  read_catalogued_data(const std::string  &vtk_filename,
+                       const FieldCatalog &catalog,
+                       Vector<double>     &output_vector)
   {
     auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
     reader->SetFileName(vtk_filename.c_str());
@@ -621,23 +599,23 @@ namespace VTKUtils
     for (const auto &field : catalog)
       {
         vtkDataArray *array =
-          field.association == VTKFieldAssociation::point_data ?
-            grid->GetPointData()->GetArray(field.vtk_name.c_str()) :
-            grid->GetCellData()->GetArray(field.vtk_name.c_str());
+          field.association == FieldAssociation::point_data ?
+            grid->GetPointData()->GetArray(field.name.c_str()) :
+            grid->GetCellData()->GetArray(field.name.c_str());
         AssertThrow(array != nullptr,
-                    ExcMessage("Catalogue field '" + field.vtk_name +
+                    ExcMessage("Catalogue field '" + field.name +
                                "' is missing from VTK file."));
         AssertThrow(array->GetNumberOfComponents() ==
                       static_cast<int>(field.n_components),
                     ExcMessage(
-                      "VTK field '" + field.vtk_name +
+                      "VTK field '" + field.name +
                       "' changed component count after catalogue creation."));
         const vtkIdType expected_tuples =
-          field.association == VTKFieldAssociation::point_data ?
+          field.association == FieldAssociation::point_data ?
             grid->GetNumberOfPoints() :
             grid->GetNumberOfCells();
         AssertThrow(array->GetNumberOfTuples() == expected_tuples,
-                    ExcMessage("VTK field '" + field.vtk_name +
+                    ExcMessage("VTK field '" + field.name +
                                "' has an invalid tuple count."));
         const auto first = data.size();
         data.resize(first + expected_tuples * field.n_components);
@@ -656,12 +634,12 @@ namespace VTKUtils
             std::vector<std::string>>
   vtk_to_finite_element(const std::string &vtk_filename)
   {
-    VTKFieldCatalog catalog;
+    FieldCatalog catalog;
     auto fe = vtk_to_finite_element<dim, spacedim>(vtk_filename, catalog);
     std::vector<std::string> data_names;
     data_names.reserve(catalog.size());
     for (const auto &field : catalog)
-      data_names.push_back(field.vtk_name);
+      data_names.push_back(field.name);
     return std::make_pair(std::move(fe), std::move(data_names));
   }
 
@@ -674,12 +652,12 @@ namespace VTKUtils
            Vector<double>            &output_vector,
            std::vector<std::string>  &data_names)
   {
-    VTKFieldCatalog catalog;
+    FieldCatalog catalog;
     read_vtk(vtk_filename, dof_handler, output_vector, catalog);
     data_names.clear();
     data_names.reserve(catalog.size());
     for (const auto &field : catalog)
-      data_names.push_back(field.vtk_name);
+      data_names.push_back(field.name);
   }
 
   template <int dim, int spacedim>
@@ -687,7 +665,7 @@ namespace VTKUtils
   read_vtk(const std::string         &vtk_filename,
            DoFHandler<dim, spacedim> &dof_handler,
            Vector<double>            &output_vector,
-           VTKFieldCatalog           &catalog)
+           FieldCatalog              &catalog)
   {
     auto &tria = const_cast<Triangulation<dim, spacedim> &>(
       dof_handler.get_triangulation());
@@ -703,92 +681,14 @@ namespace VTKUtils
     read_catalogued_data(vtk_filename, catalog, raw_data_vector);
     dof_handler.distribute_dofs(*fe);
     output_vector.reinit(dof_handler.n_dofs());
-    data_to_dealii_vector(tria, raw_data_vector, dof_handler, output_vector);
+    ReducedFieldUtils::data_to_dealii_vector(tria,
+                                             raw_data_vector,
+                                             dof_handler,
+                                             output_vector);
     AssertDimension(dof_handler.n_dofs(), output_vector.size());
     AssertDimension(dof_handler.get_fe().n_blocks(), catalog.size());
   }
 
-  template <int dim, int spacedim>
-  void
-  serial_vector_to_distributed_vector(
-    const DoFHandler<dim, spacedim>            &serial_dh,
-    const DoFHandler<dim, spacedim>            &parallel_dh,
-    const Vector<double>                       &serial_vec,
-    LinearAlgebra::distributed::Vector<double> &parallel_vec)
-  {
-    AssertDimension(serial_vec.size(), serial_dh.n_dofs());
-    AssertDimension(parallel_vec.size(), parallel_dh.n_dofs());
-    AssertDimension(parallel_dh.n_dofs(), serial_dh.n_dofs());
-
-    // Check that the two fe are the same
-    AssertThrow(serial_dh.get_fe() == parallel_dh.get_fe(),
-                ExcMessage("The finite element systems of the serial and "
-                           "parallel DoFHandlers must be the same."));
-
-    std::vector<types::global_dof_index> serial_dof_indices(
-      serial_dh.get_fe().n_dofs_per_cell());
-    std::vector<types::global_dof_index> parallel_dof_indices(
-      parallel_dh.get_fe().n_dofs_per_cell());
-
-    // Assumption: serial and parallel meshes have the same ordering of cells.
-    auto serial_cell   = serial_dh.begin_active();
-    auto parallel_cell = parallel_dh.begin_active();
-    for (; parallel_cell != parallel_dh.end(); ++parallel_cell)
-      if (parallel_cell->is_locally_owned())
-        {
-          // Advanced serial cell until we reach the same cell index of the
-          // parallel cell
-          while (serial_cell->id() < parallel_cell->id())
-            ++serial_cell;
-          serial_cell->get_dof_indices(serial_dof_indices);
-          parallel_cell->get_dof_indices(parallel_dof_indices);
-          unsigned int serial_index = 0;
-          for (const auto &i : parallel_dof_indices)
-            {
-              if (parallel_vec.in_local_range(i))
-                {
-                  parallel_vec[i] =
-                    serial_vec[serial_dof_indices[serial_index]];
-                }
-              ++serial_index;
-            }
-        }
-    parallel_vec.compress(VectorOperation::insert);
-  }
-
-  template <int dim, int spacedim>
-  std::vector<types::global_vertex_index>
-  distributed_to_serial_vertex_indices(
-    const Triangulation<dim, spacedim> &serial_tria,
-    const Triangulation<dim, spacedim> &parallel_tria)
-  {
-    const auto locally_owned_indices =
-      GridTools::get_locally_owned_vertices(parallel_tria);
-    std::vector<types::global_vertex_index>
-      distributed_to_serial_vertex_indices(parallel_tria.n_vertices(),
-                                           numbers::invalid_unsigned_int);
-
-    // Assumption: serial and parallel meshes have the same ordering of cells.
-    auto serial_cell   = serial_tria.begin_active();
-    auto parallel_cell = parallel_tria.begin_active();
-    for (; parallel_cell != parallel_tria.end(); ++parallel_cell)
-      if (parallel_cell->is_locally_owned())
-        {
-          // Advanced serial cell until we reach the same cell index of the
-          // parallel cell
-          while (serial_cell->id() < parallel_cell->id())
-            ++serial_cell;
-          for (const unsigned int &v : serial_cell->vertex_indices())
-            {
-              const auto serial_index   = serial_cell->vertex_index(v);
-              const auto parallel_index = parallel_cell->vertex_index(v);
-              if (locally_owned_indices[parallel_index])
-                distributed_to_serial_vertex_indices[parallel_index] =
-                  serial_index;
-            }
-        }
-    return distributed_to_serial_vertex_indices;
-  }
 } // namespace VTKUtils
 
 
@@ -827,17 +727,17 @@ template std::pair<std::unique_ptr<FiniteElement<3, 3>>,
 VTKUtils::vtk_to_finite_element(const std::string &);
 
 template std::unique_ptr<FiniteElement<1, 1>>
-VTKUtils::vtk_to_finite_element(const std::string &, VTKFieldCatalog &);
+VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);
 template std::unique_ptr<FiniteElement<1, 2>>
-VTKUtils::vtk_to_finite_element(const std::string &, VTKFieldCatalog &);
+VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);
 template std::unique_ptr<FiniteElement<1, 3>>
-VTKUtils::vtk_to_finite_element(const std::string &, VTKFieldCatalog &);
+VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);
 template std::unique_ptr<FiniteElement<2, 2>>
-VTKUtils::vtk_to_finite_element(const std::string &, VTKFieldCatalog &);
+VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);
 template std::unique_ptr<FiniteElement<2, 3>>
-VTKUtils::vtk_to_finite_element(const std::string &, VTKFieldCatalog &);
+VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);
 template std::unique_ptr<FiniteElement<3, 3>>
-VTKUtils::vtk_to_finite_element(const std::string &, VTKFieldCatalog &);
+VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);
 
 template void
 VTKUtils::read_vtk(const std::string &,
@@ -874,88 +774,32 @@ template void
 VTKUtils::read_vtk(const std::string &,
                    DoFHandler<1, 1> &,
                    Vector<double> &,
-                   VTKFieldCatalog &);
+                   FieldCatalog &);
 template void
 VTKUtils::read_vtk(const std::string &,
                    DoFHandler<1, 2> &,
                    Vector<double> &,
-                   VTKFieldCatalog &);
+                   FieldCatalog &);
 template void
 VTKUtils::read_vtk(const std::string &,
                    DoFHandler<1, 3> &,
                    Vector<double> &,
-                   VTKFieldCatalog &);
+                   FieldCatalog &);
 template void
 VTKUtils::read_vtk(const std::string &,
                    DoFHandler<2, 2> &,
                    Vector<double> &,
-                   VTKFieldCatalog &);
+                   FieldCatalog &);
 template void
 VTKUtils::read_vtk(const std::string &,
                    DoFHandler<2, 3> &,
                    Vector<double> &,
-                   VTKFieldCatalog &);
+                   FieldCatalog &);
 template void
 VTKUtils::read_vtk(const std::string &,
                    DoFHandler<3, 3> &,
                    Vector<double> &,
-                   VTKFieldCatalog &);
-
-template void
-VTKUtils::serial_vector_to_distributed_vector(
-  const DoFHandler<1, 1> &,
-  const DoFHandler<1, 1> &,
-  const Vector<double> &,
-  LinearAlgebra::distributed::Vector<double> &);
-template void
-VTKUtils::serial_vector_to_distributed_vector(
-  const DoFHandler<1, 2> &,
-  const DoFHandler<1, 2> &,
-  const Vector<double> &,
-  LinearAlgebra::distributed::Vector<double> &);
-template void
-VTKUtils::serial_vector_to_distributed_vector(
-  const DoFHandler<1, 3> &,
-  const DoFHandler<1, 3> &,
-  const Vector<double> &,
-  LinearAlgebra::distributed::Vector<double> &);
-template void
-VTKUtils::serial_vector_to_distributed_vector(
-  const DoFHandler<2, 2> &,
-  const DoFHandler<2, 2> &,
-  const Vector<double> &,
-  LinearAlgebra::distributed::Vector<double> &);
-template void
-VTKUtils::serial_vector_to_distributed_vector(
-  const DoFHandler<2, 3> &,
-  const DoFHandler<2, 3> &,
-  const Vector<double> &,
-  LinearAlgebra::distributed::Vector<double> &);
-template void
-VTKUtils::serial_vector_to_distributed_vector(
-  const DoFHandler<3, 3> &,
-  const DoFHandler<3, 3> &,
-  const Vector<double> &,
-  LinearAlgebra::distributed::Vector<double> &);
-
-template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 1> &,
-                                               const Triangulation<1, 1> &);
-template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 2> &,
-                                               const Triangulation<1, 2> &);
-template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<1, 3> &,
-                                               const Triangulation<1, 3> &);
-template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<2, 2> &,
-                                               const Triangulation<2, 2> &);
-template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<2, 3> &,
-                                               const Triangulation<2, 3> &);
-template std::vector<types::global_vertex_index>
-VTKUtils::distributed_to_serial_vertex_indices(const Triangulation<3, 3> &,
-                                               const Triangulation<3, 3> &);
+                   FieldCatalog &);
 
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
@@ -976,37 +820,37 @@ template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<1>> &,
                                std::vector<std::vector<double>> &,
-                               VTKFieldCatalog &,
+                               FieldCatalog &,
                                std::vector<std::string> &);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<2>> &,
                                std::vector<std::vector<double>> &,
-                               VTKFieldCatalog &,
+                               FieldCatalog &,
                                std::vector<std::string> &);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<3>> &,
                                std::vector<std::vector<double>> &,
-                               VTKFieldCatalog &,
+                               FieldCatalog &,
                                std::vector<std::string> &);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<1>> &,
                                Vector<double> &,
-                               VTKFieldCatalog &,
+                               FieldCatalog &,
                                std::vector<std::string> &);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<2>> &,
                                Vector<double> &,
-                               VTKFieldCatalog &,
+                               FieldCatalog &,
                                std::vector<std::string> &);
 template void
 VTKUtils::read_vtk_point_cloud(const std::string &,
                                std::vector<Point<3>> &,
                                Vector<double> &,
-                               VTKFieldCatalog &,
+                               FieldCatalog &,
                                std::vector<std::string> &);
 
 #endif // DEAL_II_WITH_VTK

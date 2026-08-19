@@ -28,9 +28,9 @@ namespace
   }
 
   std::string
-  association_name(const VTKFieldAssociation association)
+  association_name(const FieldAssociation association)
   {
-    return association == VTKFieldAssociation::point_data ? "point" : "cell";
+    return association == FieldAssociation::point_data ? "point" : "cell";
   }
 
   struct ParsedSelector
@@ -60,7 +60,7 @@ namespace
       {
         parsed.association = trim(qualified.substr(0, colon));
         if (parsed.association != "point" && parsed.association != "cell")
-          throw std::runtime_error("Unknown VTK field association '" +
+          throw std::runtime_error("Unknown field association '" +
                                    parsed.association + "'.");
         qualified = trim(qualified.substr(colon + 1));
       }
@@ -69,20 +69,20 @@ namespace
       {
         if (qualified.back() != ']' ||
             qualified.find('[', open + 1) != std::string::npos)
-          throw std::runtime_error("Invalid VTK component selector '" + target +
-                                   "'.");
+          throw std::runtime_error("Invalid field component selector '" +
+                                   target + "'.");
         const std::string index =
           qualified.substr(open + 1, qualified.size() - open - 2);
         if (index.empty() ||
             !std::all_of(index.begin(), index.end(), ::isdigit))
-          throw std::runtime_error("Invalid VTK component index in '" + target +
-                                   "'.");
+          throw std::runtime_error("Invalid field component index in '" +
+                                   target + "'.");
         parsed.component = static_cast<unsigned int>(std::stoul(index));
         qualified        = trim(qualified.substr(0, open));
       }
     parsed.name = qualified;
     if (parsed.name.empty())
-      throw std::runtime_error("Missing VTK field name in selector '" + target +
+      throw std::runtime_error("Missing field name in selector '" + target +
                                "'.");
     return parsed;
   }
@@ -90,7 +90,7 @@ namespace
 
 std::vector<InputFieldBinding>
 InputFieldSelector::resolve(const std::string              &selector,
-                            const VTKFieldCatalog          &catalog,
+                            const FieldCatalog             &catalog,
                             const std::vector<std::string> &reserved_names)
 {
   std::vector<InputFieldBinding> bindings;
@@ -118,12 +118,12 @@ InputFieldSelector::resolve(const std::string              &selector,
           {
             const std::string alias =
               catalog[field].n_components == 1 ?
-                catalog[field].vtk_name :
-                catalog[field].vtk_name + "_" + std::to_string(component);
+                catalog[field].name :
+                catalog[field].name + "_" + std::to_string(component);
             if (!valid_identifier(alias))
               throw std::runtime_error(
                 "Wildcard generated invalid symbolic alias '" + alias +
-                "' from VTK field '" + catalog[field].vtk_name + "'.");
+                "' from field '" + catalog[field].name + "'.");
             if (reserved.count(alias) || !aliases.insert(alias).second)
               throw std::runtime_error(
                 "Wildcard generated reserved or duplicate alias '" + alias +
@@ -146,22 +146,22 @@ InputFieldSelector::resolve(const std::string              &selector,
           "'.");
       std::vector<unsigned int> matches;
       for (unsigned int field = 0; field < catalog.size(); ++field)
-        if (catalog[field].vtk_name == parsed.name &&
+        if (catalog[field].name == parsed.name &&
             (parsed.association.empty() ||
              association_name(catalog[field].association) ==
                parsed.association))
           matches.push_back(field);
       if (matches.empty())
-        throw std::runtime_error("Requested VTK field '" + parsed.name +
+        throw std::runtime_error("Requested reduced field '" + parsed.name +
                                  "' was not found.");
       if (matches.size() > 1)
-        throw std::runtime_error("VTK field '" + parsed.name +
+        throw std::runtime_error("Reduced field '" + parsed.name +
                                  "' is ambiguous; use point: or cell:.");
       const auto field = matches.front();
       if (parsed.component == std::numeric_limits<unsigned int>::max())
         {
           if (catalog[field].n_components != 1)
-            throw std::runtime_error("Vector VTK field '" + parsed.name +
+            throw std::runtime_error("Vector reduced field '" + parsed.name +
                                      "' requires an explicit component.");
           bindings.push_back(
             {parsed.symbol, field, 0, catalog[field].first_fe_component});
@@ -171,7 +171,7 @@ InputFieldSelector::resolve(const std::string              &selector,
           if (parsed.component >= catalog[field].n_components)
             throw std::runtime_error(
               "Component index " + std::to_string(parsed.component) +
-              " is out of range for VTK field '" + parsed.name + "'.");
+              " is out of range for reduced field '" + parsed.name + "'.");
           bindings.push_back(
             {parsed.symbol,
              field,

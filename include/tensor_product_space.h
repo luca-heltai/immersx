@@ -42,10 +42,11 @@
 #include <limits>
 
 #include "input_field_selector.h"
+#include "point_cloud.h"
+#include "reduced_field_catalog.h"
 #include "reduced_field_values.h"
 #include "reference_cross_section.h"
 #include "symbolic_field_evaluator.h"
-#include "vtk_utils.h"
 
 using namespace dealii;
 
@@ -128,13 +129,28 @@ struct TensorProductSpaceParameters : public ParameterAcceptor
    */
   std::string thickness = "0.01";
 
-  /** Comma-separated scalar VTK field selectors exposed to expressions. */
+  /** Comma-separated scalar reduced-field selectors exposed to expressions. */
   std::string input_file_fields = "";
 
   /**
    * @brief Name of the grid to read from a file.
    */
   std::string reduced_grid_name = "";
+
+  /** Legacy ASCII inclusion geometry, consumed only by the input adapter. */
+  std::string inclusions_file = "";
+
+  /** Legacy ASCII coefficient data, consumed only by the input adapter. */
+  std::string data_file = "";
+
+  /** Number of legacy scalar Fourier modes per component. */
+  unsigned int legacy_n_coefficients = 1;
+
+  /** Optional legacy coefficient selection retained for parameter migration. */
+  std::vector<unsigned int> legacy_selected_coefficients;
+
+  /** Coefficients used for every legacy record when no data file is given. */
+  std::vector<double> legacy_reference_inclusion_data;
 
   /** Programmatic point input for zero-dimensional representative domains. */
   PointCloud<spacedim> point_cloud;
@@ -379,8 +395,8 @@ public:
   const std::vector<std::string> &
   get_properties_names() const;
 
-  /** Return stable metadata for imported VTK fields. */
-  const VTKFieldCatalog &
+  /** Return stable metadata for imported reduced fields. */
+  const FieldCatalog &
   get_properties_catalog() const;
 
   const std::vector<InputFieldBinding> &
@@ -532,7 +548,7 @@ protected:
    */
   std::vector<std::string> properties_names;
 
-  VTKFieldCatalog                properties_catalog;
+  FieldCatalog                   properties_catalog;
   std::vector<InputFieldBinding> properties_bindings;
   std::string                    thickness_expression;
   double                         constant_thickness = 0.01;
@@ -631,7 +647,7 @@ public:
   get_properties_names() const;
   std::vector<std::string> &
   get_properties_names();
-  const VTKFieldCatalog &
+  const FieldCatalog &
   get_properties_catalog() const;
   /** Selected imported scalar properties, indexed by entity then binding. */
   const std::vector<std::vector<double>> &
@@ -685,7 +701,7 @@ protected:
   std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
   std::vector<std::vector<unsigned int>> all_lifted_section_indices;
   std::vector<std::string>               properties_names;
-  VTKFieldCatalog                        properties_catalog;
+  FieldCatalog                           properties_catalog;
   std::vector<InputFieldBinding>         properties_bindings;
   std::vector<std::vector<double>>       entity_properties;
   std::vector<double>                    entity_thickness;
