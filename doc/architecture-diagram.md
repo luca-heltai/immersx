@@ -1,103 +1,92 @@
-# Architecture Diagram
+# Current implementation architecture
 
-This page collects a repository-wide class interaction diagram and links it to
-the generated API reference.
+This page is an inventory of the implementation currently visible on
+`master`. It complements the normative design in
+{doc}`core-architecture`: the class diagram below describes existing classes
+and dependencies, while the core page describes the Field/residual/execution
+direction that is being introduced incrementally.
 
-The diagram below is intentionally organized by subsystem so that it stays
-readable on a large code base. It focuses on:
+The diagram emphasizes public headers, strong composition, and the active
+VTK-driven tensor-product path. It is not a promise that every edge is a
+future ownership rule.
 
-- inheritance,
-- strong composition,
-- direct structural dependencies visible in public headers,
-- the VTK-driven tensor-product coupling data flow.
-
-The page is rendered with the Sphinx Mermaid extension so the diagram appears
-directly in the generated site while keeping the source close to the prose.
-
-## Mermaid source
+## Current class and data-flow inventory
 
 ```{mermaid}
-classDiagram
-direction LR
+flowchart LR
+  subgraph problems["Current Problem implementations"]
+    PP["PoissonProblem"]
+    RP["ReducedPoisson"]
+    EP["ElasticityProblem"]
+    CEP["CoupledElasticityProblem"]
+  end
 
-class PoissonProblem
-class ReducedPoisson
-class ElasticityProblem
-class CoupledElasticityProblem
-class MaterialProperties
-class ModulatedParsedFunction
-class Inclusions
-class CouplingOperator
-class BlockPreconditionerAugmentedLagrangian
-class UtilitiesAL_BlockPreconditionerAugmentedLagrangian
+  subgraph representations["Current representations and reduced geometry"]
+    INC["Inclusions"]
+    RC["ReducedCoupling"]
+    TPS["TensorProductSpace"]
+    RCS["ReferenceCrossSection"]
+    PC["ParticleCoupling"]
+    IR["ImmersedRepartitioner"]
+  end
 
-class ReferenceCrossSection
-class TensorProductSpace
-class ParticleCoupling
-class ReducedCoupling
-class ImmersedRepartitioner
-class "VTK reduced grid" as VTKReducedGrid
-class "generic field catalog" as FieldCatalog
-class InputFieldSelector
-class ReducedFieldValues
-class SymbolicFieldEvaluator
-class "Triangulation signals" as TriangulationSignals
-class SolutionTransfer
+  subgraph inputs["Current imported-field path"]
+    VTK["VTK reduced grid"]
+    IFS["InputFieldSelector"]
+    RFV["ReducedFieldValues"]
+    SEE["SymbolicFieldEvaluator"]
+  end
 
-CoupledElasticityProblem --|> ElasticityProblem
-ReducedCoupling --|> TensorProductSpace : tensor-product space
-ReducedCoupling --|> ParticleCoupling : immersed particles
+  subgraph algebra["Current interaction and linear algebra"]
+    CO["CouplingOperator"]
+    LMI["LagrangeMultiplierInteraction"]
+    CE["ConstraintEquation"]
+    AL["Schur / augmented-Lagrangian solvers"]
+  end
 
-PoissonProblem *-- Inclusions : immersed data
-PoissonProblem *-- CouplingOperator : matrix-free coupling
+  PP --> INC
+  PP --> CO
+  RP --> RC
+  RP --> CO
+  EP --> INC
+  EP --> RC
+  CEP --> EP
 
-ReducedPoisson *-- ReducedCoupling : reduced interface
-ReducedPoisson *-- CouplingOperator : matrix-free coupling
+  RC --> TPS
+  RC --> PC
+  RC --> IR
+  TPS --> RCS
+  TPS --> RFV
+  VTK --> IFS
+  IFS --> RFV
+  RFV --> SEE
+  RFV --> TPS
+  SEE --> TPS
 
-ElasticityProblem *-- Inclusions : immersed data
-ElasticityProblem *-- MaterialProperties : materials
-ElasticityProblem *-- ModulatedParsedFunction : rhs/bc
-ElasticityProblem *-- ReducedCoupling : TensorProduct mode
-ElasticityProblem ..> BlockPreconditionerAugmentedLagrangian : solves AL system
-ElasticityProblem ..> UtilitiesAL_BlockPreconditionerAugmentedLagrangian : legacy/helper AL
-
-TensorProductSpace *-- ReferenceCrossSection : modal section
-TensorProductSpace *-- VTKReducedGrid : reads reduced mesh
-TensorProductSpace *-- FieldCatalog : consumes field metadata
-TensorProductSpace *-- SymbolicFieldEvaluator : thickness and rhs expressions
-TensorProductSpace ..> InputFieldSelector : resolves selected fields
-TensorProductSpace ..> ReducedFieldValues : evaluates fields at quadrature points
-TensorProductSpace ..> TriangulationSignals : refinement callbacks
-TriangulationSignals ..> SolutionTransfer : preserve properties
-SolutionTransfer ..> TensorProductSpace : rebuilds refined properties
-
-VTKReducedGrid ..> FieldCatalog : converts VTK metadata
-InputFieldSelector ..> FieldCatalog : aliases and wildcard expansion
-ReducedFieldValues ..> SymbolicFieldEvaluator : field values plus x,y,z,t
-
-ReducedCoupling *-- ImmersedRepartitioner : repartitioning
-ReducedCoupling ..> CouplingOperator : assembles reduced coupling
-
-CouplingOperator o-- Inclusions : evaluates coupling on particles
+  INC --> CO
+  PC --> CO
+  RC --> CO
+  CO --> LMI
+  CE --> AL
+  LMI --> AL
+  CO --> AL
 ```
 
-The tensor-product path starts from a reduced VTK mesh and its point or cell
-fields. `InputFieldSelector` resolves those fields into symbolic bindings;
-`ReducedFieldValues` interpolates them at reduced quadrature points, where
-`SymbolicFieldEvaluator` evaluates time-dependent thickness and reduced-load
-expressions. `ReferenceCrossSection` lifts the reduced manifold into the
-three-dimensional coupling geometry, while `ParticleCoupling` connects that
-geometry to the bulk elasticity mesh.
+On the tensor-product path, the reduced VTK grid supplies geometry and field
+metadata. `InputFieldSelector` resolves selected point/cell fields,
+`ReducedFieldValues` evaluates them at reduced quadrature points, and
+`SymbolicFieldEvaluator` evaluates expressions such as thickness or reduced
+loads. `ReferenceCrossSection` and `TensorProductSpace` lift the reduced
+description to the represented physical support. `ParticleCoupling` and
+`ImmersedRepartitioner` provide search and distributed ownership services.
 
-During local refinement, `Triangulation` pre- and post-refinement signals drive
-`SolutionTransfer`, so imported reduced-grid properties are transferred to the
-new mesh before the tensor-product coupling is assembled again. This is the
-data path used by the coupled 1D–3D vascular-network examples.
+The scalar and elasticity coupling paths may use different subsets of these
+classes. A local search mesh is an implementation detail, not a permanent
+“background Problem” role.
 
 ## API entry points
 
-The following pages in the generated API reference are the most useful anchors
-for navigating the classes shown above:
+The generated API reference provides the current class-level details:
 
 - {doc}`api/class_elasticity_problem`
 - {doc}`api/class_poisson_problem`
@@ -106,20 +95,25 @@ for navigating the classes shown above:
 - {doc}`api/class_particle_coupling`
 - {doc}`api/class_tensor_product_space`
 - {doc}`api/class_reference_cross_section`
+- {doc}`api/file_include_reduced_coupling.h`
 - {doc}`api/class_input_field_selector`
 - {doc}`api/class_reduced_field_values`
 - {doc}`api/class_symbolic_field_evaluator`
+- {doc}`api/class_lagrange_multiplier_interaction`
+- {doc}`api/class_constraint_equation`
 - {doc}`api/file_include_vtk_utils.h`
-- {doc}`api/file_include_reduced_coupling.h`
-- {doc}`api/class_block_preconditioner_augmented_lagrangian`
-- {doc}`api/class_utilities_a_l_1_1_block_preconditioner_augmented_lagrangian`
 
-## Notes
+For the future semantic architecture, start with
+{doc}`core-architecture`, especially the sections on Fields, residual
+contributors, typed Representations, and execution adapters. Prototype names
+such as `FieldId`, `StateView`, `ResidualAccumulator`, or a SUNDIALS adapter
+must not be read as merged API when browsing this current implementation page.
 
-- The diagram is derived from declarations in `include/`.
-- It emphasizes architectural structure and the tensor-product data flow over
-  every possible helper method.
-- The VTK, symbolic-expression, and `SolutionTransfer` path is active when
-  deal.II is built with VTK support.
-- The `tests/tests.h` utility structs are intentionally omitted to keep the
-  repository view focused on production code.
+## Reading the two architecture pages together
+
+| Page | Purpose |
+| --- | --- |
+| {doc}`architecture-diagram` | Existing classes and current data paths on `master`. |
+| {doc}`core-architecture` | Normative ownership, residual, representation, and execution design; status-marked roadmap. |
+| {doc}`background` | Mathematical motivation and reduced Lagrange-multiplier context. |
+| {doc}`tutorials/index` | Executable-specific operational workflows. |

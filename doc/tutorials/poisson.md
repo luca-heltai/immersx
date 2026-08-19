@@ -14,6 +14,11 @@ The implementation is deliberately a small scalar discretization that can be
 used on its own or as the scalar finite-element component of a later solver
 composition.
 
+The current application is a Problem-specific assembled scalar solve. The
+semantic Field, external-state residual, and execution-adapter interfaces in
+{doc}`../core-architecture` describe how this component can be composed later;
+they are not asserted here as merged `PoissonSolver` API.
+
 ## The problem
 
 The solver discretizes

@@ -13,6 +13,14 @@ The main C++ components are:
 - `ReferenceCrossSection` in `include/reference_cross_section.h` for reference reduced-basis and quadrature construction.
 - `ParticleCoupling` in `include/particle_coupling.h` for particle insertion and distributed ownership mapping.
 
+The current classes are being evolved toward a semantic architecture in which
+a Problem may own multiple Fields, Problems and Interactions contribute
+additively to a semi-discrete residual $F(t,y,\dot y)=0$, and execution
+adapters provide the steady, DAE, IMEX, multirate, or partitioned policy. This
+common Field/residual vocabulary is a validated development direction, not yet
+a claim that those names are public API on `master`; see
+{doc}`core-architecture` for the status boundary.
+
 The mathematical and algorithmic background of the repository is described in {cite:p}`HeltaiZunino-2023-a`.
 
 The repository also contains benchmark inputs, exploratory notebooks, and coupled 3D/1D assets used by specialized workflows.

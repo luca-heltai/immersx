@@ -11,6 +11,17 @@ The main implementation lives in `include/reduced_poisson.h`,
 `source/reduced_poisson.cc`, `include/reduced_coupling.h`, and
 `source/tensor_product_space.cc`.
 
+:::{admonition} Current implementation scope
+:class: note
+
+This tutorial documents the `ReducedPoisson` workflow currently available on
+`master`: a Poisson Problem plus a reduced Lagrange-multiplier coupling and a
+Schur/augmented-Lagrangian solve. The Field/residual/execution architecture in
+{doc}`../core-architecture` is the migration direction around this production
+path, not an assertion that this application already exposes the common
+`F(t,y,ydot)=0` API.
+:::
+
 ## What Problem Is Solved?
 
 `ReducedPoisson` solves a Poisson problem in a bulk domain $\Omega$, coupled to
@@ -36,7 +47,8 @@ The reduced geometry is not the actual coupling surface. Instead, the code:
 
 This gives an immersed two-dimensional interface in 3D, or an immersed
 one-dimensional interface in 2D, without meshing that interface explicitly in
-the background grid.
+the bulk mesh. The bulk mesh also supplies the local search cells used by the
+coupling implementation; it is not a privileged architectural owner.
 
 ## Continuous Formulation
 
@@ -188,9 +200,9 @@ end
 
 Inside it, the most important groups are:
 
-### Bulk problem
+### Bulk Problem
 
-These parameters define the background PDE and mesh:
+These parameters define the bulk PDE and mesh:
 
 - `FE degree`: polynomial degree of the bulk FE space.
 - `Dirichlet boundary ids`: boundary ids where $u = u_D$ is imposed.
@@ -271,7 +283,7 @@ These are the `Local refinement parameters`:
 - `Refinement factor`
 - `Max refinement level`
 
-They control how the reduced grid and the background grid are balanced before
+They control how the reduced grid and the bulk mesh are balanced before
 coupling.
 
 ### Particle lookup
@@ -281,13 +293,13 @@ Under `Particle coupling`:
 - `RTree extraction level`
 
 This controls how aggressively the bounding-box search structure is compressed
-before particles are inserted into the background mesh.
+before particles are inserted into the bulk search mesh.
 
 ## A Minimal 3D Single-Cylinder Example
 
 This is the simplest useful `ReducedPoisson<3>` setup:
 
-- cube background domain `[-1,1]^3`;
+- cube bulk domain `[-1,1]^3`;
 - zero outer Dirichlet boundary;
 - one straight cylinder centerline;
 - one reduced transverse mode;
@@ -388,8 +400,8 @@ A representative parameter file is stored at
 ```
 
 Compared with the single-cylinder case, only the reduced geometry changes. That
-is one of the main advantages of this workflow: the bulk solver and background
-mesh setup stay the same while the embedded geometry can become much more
+is one of the main advantages of this workflow: the bulk solver and bulk-mesh
+setup stay the same while the embedded geometry can become much more
 complex.
 
 ```{image} assets/reduced_poisson_three_cylinders.png

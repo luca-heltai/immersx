@@ -13,6 +13,12 @@ of [deal.II](https://www.dealii.org). Required version: 9.7.1 or later.
 
 The website documentation is available at <https://luca-heltai.github.io/immersx/>.
 
+For the ownership and data-flow specification, start with
+[`doc/core-architecture.md`](https://github.com/luca-heltai/immersx/blob/master/doc/core-architecture.md).
+It distinguishes the current `master` implementation from validated prototypes
+and roadmap work; [`doc/architecture-diagram.md`](https://github.com/luca-heltai/immersx/blob/master/doc/architecture-diagram.md)
+inventories the classes and data paths currently present on `master`.
+
 ## Quick Start
 
 ```bash
