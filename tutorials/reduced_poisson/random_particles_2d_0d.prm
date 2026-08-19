@@ -1,6 +1,7 @@
 set dimension         = 2
 set space dimension   = 2
 set reduced dimension = 0
+set cross section dimension = 2
 
 subsection Reduced Poisson
   set Assemble full AL system            = false

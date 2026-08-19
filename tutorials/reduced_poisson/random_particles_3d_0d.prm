@@ -1,7 +1,7 @@
 set dimension         = 3
-set space dimension   = 3
 set reduced dimension = 0
-
+set space dimension   = 3
+set cross section dimension = 2
 subsection Error
   set Enable computation of the errors = false
   set Error file name                  =
@@ -69,22 +69,27 @@ subsection Tensor product coupling
     set Selected indices         = 0
   end
   subsection Local refinement parameters
-    set Refinement factor               = 1
-    set Max refinement level            = 10
-    set Space post-refinement cycles    = 0
-    set Space pre-refinement cycles     = 3
+    set Max refinement level         = 10
+    set Refinement factor            = 1
+    set Space post-refinement cycles = 0
+    set Space pre-refinement cycles  = 3
   end
   subsection Particle coupling
     set RTree extraction level = 1
   end
   subsection Representative domain
-    set Finite element degree            = 0
-    set Input file fields                = radius, rhs
-    set Number of quadrature points      = 3
-    set Number of quadrature repetitions = 1
-    set Quadrature type                  = gauss
-    set Reduced grid name                = notebooks/random_particles_3d.vtu
-    set Reduced right hand side          = rhs
-    set Thickness                        = radius
+    set Data file                         =
+    set Finite element degree             = 0
+    set Inclusions file                   =
+    set Input file fields                 = radius, rhs
+    set Number of fourier coefficients    = 1
+    set Number of quadrature points       = 3
+    set Number of quadrature repetitions  = 1
+    set Quadrature type                   = gauss
+    set Reduced grid name                 = notebooks/random_particles_3d.vtu
+    set Reduced right hand side           = rhs
+    set Reference inclusion data          =
+    set Selection of Fourier coefficients =
+    set Thickness                         = radius
   end
 end

@@ -1076,10 +1076,14 @@ template class ReducedPoissonParameters<2>;
 template class ReducedPoissonParameters<2, 0>;
 template class ReducedPoissonParameters<2, 0, 1>;
 template class ReducedPoissonParameters<3>;
+template class ReducedPoissonParameters<3, 0, 1>;
 template class ReducedPoissonParameters<3, 0, 2>;
+template class ReducedPoissonParameters<3, 0, 3>;
 
 template class ReducedPoisson<2>;
 template class ReducedPoisson<2, 2, 0>;
 template class ReducedPoisson<1, 2, 0, 1>;
+template class ReducedPoisson<1, 3, 0, 1>;
 template class ReducedPoisson<2, 3, 0, 2>;
+template class ReducedPoisson<3, 3, 0, 3>;
 template class ReducedPoisson<3>;

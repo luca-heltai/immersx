@@ -468,6 +468,35 @@ TEST(ReducedPoisson0D, TemplatePathCompiles)
   (void)problem;
 }
 
+TEST(ReducedPoisson0D, ThreeDimensionalSphereCrossSectionTemplatePathCompiles)
+{
+  ReducedPoissonParameters<3, 0, 3> params;
+  params.reduced_coupling_parameters.tensor_product_space_parameters.section
+    .selected_coefficients = {0};
+  PointCloud<3> cloud;
+  cloud.points = {Point<3>(0., 0., 0.)};
+  params.reduced_coupling_parameters.tensor_product_space_parameters
+    .point_cloud = cloud;
+  ReducedPoisson<3, 3, 0, 3> problem(params);
+  (void)problem;
+}
+
+TEST(ReducedCoupling0D, ThreeDimensionalSphereCrossSectionInitializes)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background, 0., 1.);
+
+  ReducedCouplingParameters<0, 3, 3, 1> params;
+  params.tensor_product_space_parameters.section.selected_coefficients = {0};
+  params.tensor_product_space_parameters.point_cloud.points            = {
+    Point<3>(0.5, 0.5, 0.5)};
+
+  ReducedCoupling<0, 3, 3, 1> coupling(background, params);
+  ASSERT_NO_THROW(coupling.initialize());
+  EXPECT_GT(coupling.get_reference_cross_section().n_quadrature_points(), 0u);
+  EXPECT_GT(coupling.get_reference_cross_section().measure(1.), 0.);
+}
+
 TEST(ReducedCoupling0D, SpaceRefinementParametersRefineBulk)
 {
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
