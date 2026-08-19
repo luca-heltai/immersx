@@ -72,6 +72,16 @@ ReferenceCrossSection<dim, spacedim, n_components>::make_grid()
       else
         GridGenerator::hyper_ball(triangulation);
     }
+  else if (par.inclusion_type == "hyper_sphere")
+    {
+      if constexpr (dim == spacedim - 1)
+        GridGenerator::hyper_sphere(triangulation);
+      else
+        AssertThrow(false,
+                    ExcMessage(
+                      "The hyper_sphere inclusion type is only supported for "
+                      "codimension-one cross sections."));
+    }
   else if (par.inclusion_type == "hyper_cube")
     GridGenerator::hyper_cube(triangulation, -1, 1);
   else

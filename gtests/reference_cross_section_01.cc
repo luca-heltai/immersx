@@ -140,6 +140,24 @@ TEST(ReferenceCrossSection, CheckDiskQuadrature) // NOLINT
     << "Integral of r^2 over unit circle should equal 2 pi";
 }
 
+
+TEST(ReferenceCrossSection, CheckHyperSphereQuadrature) // NOLINT
+{
+  const int          dim          = 1;
+  const int          spacedim     = 2;
+  const int          n_components = 1;
+  const unsigned int degree       = 0;
+
+  ReferenceCrossSectionParameters<dim, spacedim, n_components> par;
+  par.inclusion_degree = degree;
+  par.inclusion_type   = "hyper_sphere";
+  par.refinement_level = 5;
+
+  ReferenceCrossSection<dim, spacedim, n_components> ref_inclusion(par);
+
+  ASSERT_NEAR(ref_inclusion.measure(), 2 * numbers::PI, 1e-3);
+}
+
 TEST(ReferenceCrossSection, CheckCircleQuadrature) // NOLINT
 {
   const int          dim          = 2;

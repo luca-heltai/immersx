@@ -316,17 +316,47 @@ refine_space_around_points(
 
   // First reproduce the original adjust_grids() criterion: refine the bulk
   // until its cells intersecting a foreground support are sufficiently small.
-  while (mark_cells(true) > 0)
-    space_triangulation.execute_coarsening_and_refinement();
+  unsigned int criterion_cycle = 0;
+  while (true)
+    {
+      const auto n_refs = mark_cells(true);
+      deallog << "0D space refinement criterion pass " << criterion_cycle
+              << ": cells marked for refinement: " << n_refs << " out of "
+              << space_triangulation.n_global_active_cells()
+              << " (space cells)." << std::endl;
+      if (n_refs == 0)
+        break;
+      const auto n_space_cells = space_triangulation.n_global_active_cells();
+      space_triangulation.execute_coarsening_and_refinement();
+      if (n_space_cells == space_triangulation.n_global_active_cells())
+        {
+          deallog << "0D space refinement criterion made no progress; stopping."
+                  << std::endl;
+          break;
+        }
+      ++criterion_cycle;
+    }
 
   // Keep post-refinement as an additional number of local passes, rather than
   // using it as the termination criterion for the diameter-based refinement.
   for (unsigned int cycle = 0; cycle < parameters.space_post_refinement_cycles;
        ++cycle)
     {
-      if (mark_cells(false) == 0)
+      const auto n_refs = mark_cells(false);
+      deallog << "0D space post-refinement pass " << cycle
+              << ": cells marked for refinement: " << n_refs << " out of "
+              << space_triangulation.n_global_active_cells()
+              << " (space cells)." << std::endl;
+      if (n_refs == 0)
         break;
+      const auto n_space_cells = space_triangulation.n_global_active_cells();
       space_triangulation.execute_coarsening_and_refinement();
+      if (n_space_cells == space_triangulation.n_global_active_cells())
+        {
+          deallog << "0D space post-refinement made no progress; stopping."
+                  << std::endl;
+          break;
+        }
     }
 }
 
