@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <vector>
 
 #include "lagrange_multiplier_interaction.h"
 #include "lagrange_multiplier_schur_solver.h"
@@ -134,6 +135,8 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
                 cylindrical_representation,
                 search_parameters);
   interaction.assemble();
+  ASSERT_EQ(interaction.constraint_equation().contributions_view().size(), 2u);
+  ASSERT_TRUE(interaction.constraint_equation().has_multiplier_metric());
 
   using MatrixType = ImmersXLA::MPI::SparseMatrix;
   using VectorType = ImmersXLA::MPI::Vector;
@@ -181,14 +184,12 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
   reduced_residual -= temporary;
   reduced_residual -= reduced_problem.system_rhs();
 
-  interaction.coupling_matrix().Tvmult(constraint_residual,
-                                       bulk_problem.solution());
-  interaction.multiplier_mass_matrix().vmult(temporary,
-                                             reduced_problem.solution());
-  constraint_residual -= temporary;
+  const std::vector<const VectorType *> states{&bulk_problem.solution(),
+                                               &reduced_problem.solution()};
+  interaction.constraint_equation().residual(states, constraint_residual);
 
   EXPECT_EQ(cylindrical_representation.representative_dimension, 1u);
-  EXPECT_EQ(cylindrical_representation.dimension, 2u);
+  EXPECT_EQ(cylindrical_representation.support_dimension, 2u);
   EXPECT_EQ(
     cylindrical_representation.dof_handler().get_triangulation().dimension, 1u);
   EXPECT_EQ(interaction.multiplier_mass_matrix().m(), reduced_problem.n_dofs());

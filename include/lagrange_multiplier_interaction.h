@@ -29,6 +29,7 @@
 #include <memory>
 #include <vector>
 
+#include "constraint_equation.h"
 #include "linear_algebra.h"
 #include "particle_coupling.h"
 #include "representation.h"
@@ -85,6 +86,8 @@ public:
     const ParticleCouplingParameters<spacedim> &search_parameters)
     : background(background)
     , embedded(embedded)
+    , constraint_equation_storage(embedded.locally_owned_dofs(),
+                                  embedded.mpi_communicator())
     , particle_coupling(search_parameters)
   {
     AssertThrow(background.triangulation().get_mpi_communicator() ==
@@ -148,6 +151,18 @@ public:
 
     assemble_coupling_matrix();
     assemble_mass_matrix();
+
+    constraint_equation_storage.clear_contributions();
+    constraint_equation_storage.clear_rhs();
+    constraint_equation_storage.add_contribution(
+      0, coupling_matrix_storage, ConstraintContributionOrientation::transpose);
+    constraint_equation_storage.add_contribution(
+      1,
+      multiplier_mass_matrix_storage,
+      ConstraintContributionOrientation::direct,
+      -1.);
+    constraint_equation_storage.set_multiplier_metric(
+      multiplier_mass_matrix_storage);
   }
 
   /** Return C, with background rows and embedded multiplier columns. */
@@ -176,6 +191,13 @@ public:
     return embedded.locally_relevant_dofs();
   }
 
+  /** Return the generic two-representation constraint equation. */
+  const ConstraintEquation &
+  constraint_equation() const
+  {
+    return constraint_equation_storage;
+  }
+
   /**
    * Assemble the multiplier-dual right hand side for prescribed data.
    *
@@ -189,14 +211,41 @@ public:
     const PrescribedFieldDatum<EmbeddedRepresentation> &datum,
     VectorType                                         &rhs) const
   {
+    const auto equation = prescribed_constraint_equation(datum);
+    rhs.reinit(equation.multiplier_locally_owned_dofs(),
+               embedded.mpi_communicator());
+    rhs = equation.rhs();
+  }
+
+  /**
+   * Build the one-problem version of this interaction's constraint.
+   *
+   * The represented field is prescribed, so the second contribution from the
+   * continuity equation is removed and its value is moved to the right-hand
+   * side: C^T u = M g.  No Problem is manufactured for g.
+   */
+  ConstraintEquation
+  prescribed_constraint_equation(
+    const PrescribedFieldDatum<EmbeddedRepresentation> &datum) const
+  {
     AssertThrow(&datum.representation() == &embedded,
                 dealii::ExcMessage(
                   "Prescribed data must use the interaction representation."));
     AssertDimension(datum.coefficients().size(),
                     embedded.dof_handler().n_dofs());
-    rhs.reinit(embedded.locally_owned_dofs(),
-               embedded.triangulation().get_mpi_communicator());
+
+    VectorType rhs;
+    rhs.reinit(embedded.locally_owned_dofs(), embedded.mpi_communicator());
     multiplier_mass_matrix_storage.vmult(rhs, datum.coefficients());
+
+    ConstraintEquation equation(embedded.locally_owned_dofs(),
+                                embedded.mpi_communicator());
+    equation.add_contribution(0,
+                              coupling_matrix_storage,
+                              ConstraintContributionOrientation::transpose);
+    equation.set_multiplier_metric(multiplier_mass_matrix_storage);
+    equation.set_rhs(rhs);
+    return equation;
   }
 
 private:
@@ -364,9 +413,10 @@ private:
 
   const BackgroundRepresentation &background;
   const EmbeddedRepresentation   &embedded;
+  ConstraintEquation              constraint_equation_storage;
   ParticleCoupling<spacedim>      particle_coupling;
 
-  std::unique_ptr<dealii::Quadrature<EmbeddedRepresentation::dimension>>
+  std::unique_ptr<dealii::Quadrature<EmbeddedRepresentation::support_dimension>>
                          quadrature;
   std::vector<PointType> embedded_quadrature_points;
 
