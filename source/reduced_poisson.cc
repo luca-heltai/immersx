@@ -45,8 +45,9 @@
 
 
 
-template <int spacedim, int reduced_dim>
-ReducedPoissonParameters<spacedim, reduced_dim>::ReducedPoissonParameters()
+template <int spacedim, int reduced_dim, int cross_section_dim>
+ReducedPoissonParameters<spacedim, reduced_dim, cross_section_dim>::
+  ReducedPoissonParameters()
   : ParameterAcceptor("/Reduced Poisson/")
   , rhs("/Reduced Poisson/Right hand side")
   , bc("/Reduced Poisson/Dirichlet boundary conditions")
@@ -97,9 +98,9 @@ ReducedPoissonParameters<spacedim, reduced_dim>::ReducedPoissonParameters()
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
-ReducedPoisson<dim, spacedim, reduced_dim>::ReducedPoisson(
-  const ReducedPoissonParameters<spacedim, reduced_dim> &par)
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::ReducedPoisson(
+  const ReducedPoissonParameters<spacedim, reduced_dim, cross_section_dim> &par)
   : par(par)
   , mpi_communicator(MPI_COMM_WORLD)
   , pcout(std::cout, (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
@@ -120,9 +121,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::ReducedPoisson(
 
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::make_grid()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::make_grid()
 {
   try
     {
@@ -140,9 +141,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::make_grid()
 
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::setup_fe()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::setup_fe()
 {
   TimerOutput::Scope t(computing_timer, "Initial setup");
   fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
@@ -150,9 +151,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_fe()
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::setup_dofs()
 {
   TimerOutput::Scope t(computing_timer, "Setup dofs");
 
@@ -291,9 +292,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::setup_dofs()
 
 
 #ifndef MATRIX_FREE_PATH
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::assemble_poisson_system()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  assemble_poisson_system()
 {
   stiffness_matrix = 0;
   coupling_matrix  = 0;
@@ -345,27 +347,29 @@ ReducedPoisson<dim, spacedim, reduced_dim>::assemble_poisson_system()
 #endif
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::assemble_coupling_system()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  assemble_coupling_system()
 {
   reduced_coupling.assemble_coupling_matrix(coupling_matrix, dh, constraints);
   reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 unsigned int
-ReducedPoisson<dim, spacedim, reduced_dim>::n_reduced_dofs() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::n_reduced_dofs()
+  const
 {
   return reduced_coupling.n_representative_dofs();
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 double
-ReducedPoisson<dim, spacedim, reduced_dim>::coupling_matrix_frobenius_norm()
-  const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  coupling_matrix_frobenius_norm() const
 {
   const double local_norm = coupling_matrix.frobenius_norm();
   return std::sqrt(
@@ -373,9 +377,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::coupling_matrix_frobenius_norm()
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 double
-ReducedPoisson<dim, spacedim, reduced_dim>::bulk_solution_l2_norm() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  bulk_solution_l2_norm() const
 {
   const double local_norm = solution.block(0).l2_norm();
   return std::sqrt(
@@ -383,9 +388,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::bulk_solution_l2_norm() const
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 double
-ReducedPoisson<dim, spacedim, reduced_dim>::multiplier_solution_l2_norm() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  multiplier_solution_l2_norm() const
 {
   const double local_norm = solution.block(1).l2_norm();
   return std::sqrt(
@@ -393,18 +399,19 @@ ReducedPoisson<dim, spacedim, reduced_dim>::multiplier_solution_l2_norm() const
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 bool
-ReducedPoisson<dim, spacedim, reduced_dim>::bulk_solution_is_finite() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  bulk_solution_is_finite() const
 {
   return std::isfinite(bulk_solution_l2_norm());
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 bool
-ReducedPoisson<dim, spacedim, reduced_dim>::multiplier_solution_is_finite()
-  const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  multiplier_solution_is_finite() const
 {
   return std::isfinite(multiplier_solution_l2_norm());
 }
@@ -412,9 +419,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::multiplier_solution_is_finite()
 
 // Commented out inclusions-dependent function
 /*
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::assemble_coupling()
+ReducedPoisson<dim, spacedim, reduced_dim,
+cross_section_dim>::assemble_coupling()
 {
   TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
   pcout << "Assemble coupling matrix. " << std::endl;
@@ -519,9 +527,9 @@ inclusion_matrix);
 */
 
 #ifdef MATRIX_FREE_PATH
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::assemble_rhs()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::assemble_rhs()
 {
   stiffness_matrix.get_matrix_free()->initialize_dof_vector(solution.block(0));
   stiffness_matrix.get_matrix_free()->initialize_dof_vector(
@@ -564,9 +572,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::assemble_rhs()
 #endif
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::solve()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::solve()
 {
   TimerOutput::Scope t(computing_timer, "Solve");
   pcout << "Preparing solve." << std::endl;
@@ -902,9 +910,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::solve()
 
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::refine_and_transfer()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  refine_and_transfer()
 {
   TimerOutput::Scope t(computing_timer, "Refine");
   Vector<float>      error_per_cell(tria.n_active_cells());
@@ -947,9 +956,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::refine_and_transfer()
 
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 std::string
-ReducedPoisson<dim, spacedim, reduced_dim>::output_solution() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::output_solution()
+  const
 {
   TimerOutput::Scope t(computing_timer, "Output results");
   std::string        solution_name = "solution";
@@ -969,9 +979,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::output_solution() const
 }
 
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::output_results() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::output_results()
+  const
 {
   static std::vector<std::pair<double, std::string>> cycles_and_solutions;
   static std::vector<std::pair<double, std::string>> cycles_and_particles;
@@ -996,9 +1007,10 @@ ReducedPoisson<dim, spacedim, reduced_dim>::output_results() const
     }
 }
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::print_parameters() const
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
+  print_parameters() const
 {
 #ifdef USE_PETSC_LA
   pcout << "Running ReducedPoisson<" << Utilities::dim_string(dim, spacedim)
@@ -1018,9 +1030,9 @@ ReducedPoisson<dim, spacedim, reduced_dim>::print_parameters() const
     }
 }
 
-template <int dim, int spacedim, int reduced_dim>
+template <int dim, int spacedim, int reduced_dim, int cross_section_dim>
 void
-ReducedPoisson<dim, spacedim, reduced_dim>::run()
+ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::run()
 {
   print_parameters();
   make_grid();
@@ -1062,8 +1074,12 @@ ReducedPoisson<dim, spacedim, reduced_dim>::run()
 // Template instantiations
 template class ReducedPoissonParameters<2>;
 template class ReducedPoissonParameters<2, 0>;
+template class ReducedPoissonParameters<2, 0, 1>;
 template class ReducedPoissonParameters<3>;
+template class ReducedPoissonParameters<3, 0, 2>;
 
 template class ReducedPoisson<2>;
 template class ReducedPoisson<2, 2, 0>;
+template class ReducedPoisson<1, 2, 0, 1>;
+template class ReducedPoisson<2, 3, 0, 2>;
 template class ReducedPoisson<3>;

@@ -116,7 +116,7 @@ namespace LA
 #include <memory>
 
 
-template <int spacedim, int reduced_dim = 1>
+template <int spacedim, int reduced_dim = 1, int cross_section_dim = 2>
 class ReducedPoissonParameters : public ParameterAcceptor
 {
 public:
@@ -146,7 +146,7 @@ public:
 
   mutable ParsedConvergenceTable convergence_table;
 
-  ReducedCouplingParameters<reduced_dim, 2, spacedim, 1>
+  ReducedCouplingParameters<reduced_dim, cross_section_dim, spacedim, 1>
     reduced_coupling_parameters;
 };
 
@@ -214,11 +214,16 @@ public:
  * on the immersed interface matches, in the reduced modal sense defined by
  * `TensorProductSpace`, the prescribed lower-dimensional data.
  */
-template <int dim, int spacedim = dim, int reduced_dim = 1>
+template <int dim,
+          int spacedim          = dim,
+          int reduced_dim       = 1,
+          int cross_section_dim = 2>
 class ReducedPoisson : public EnableObserverPointer
 {
 public:
-  ReducedPoisson(const ReducedPoissonParameters<spacedim, reduced_dim> &par);
+  ReducedPoisson(
+    const ReducedPoissonParameters<spacedim, reduced_dim, cross_section_dim>
+      &par);
   void
   make_grid();
   void
@@ -282,18 +287,18 @@ public:
   print_parameters() const;
 
 private:
-  const ReducedPoissonParameters<spacedim, reduced_dim> &par;
-  MPI_Comm                                               mpi_communicator;
-  ConditionalOStream                                     pcout;
-  mutable TimerOutput                                    computing_timer;
-  parallel::distributed::Triangulation<spacedim>         tria;
-  std::unique_ptr<FiniteElement<spacedim>>               fe;
+  const ReducedPoissonParameters<spacedim, reduced_dim, cross_section_dim> &par;
+  MPI_Comm                                       mpi_communicator;
+  ConditionalOStream                             pcout;
+  mutable TimerOutput                            computing_timer;
+  parallel::distributed::Triangulation<spacedim> tria;
+  std::unique_ptr<FiniteElement<spacedim>>       fe;
 
   std::unique_ptr<Quadrature<spacedim>> quadrature;
 
   DoFHandler<spacedim> dh;
 
-  ReducedCoupling<reduced_dim, 2, spacedim, 1> reduced_coupling;
+  ReducedCoupling<reduced_dim, cross_section_dim, spacedim, 1> reduced_coupling;
 
   std::vector<IndexSet> owned_dofs;
   std::vector<IndexSet> relevant_dofs;
