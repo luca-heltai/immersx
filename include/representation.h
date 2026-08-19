@@ -31,9 +31,11 @@
 #include <deal.II/lac/affine_constraints.h>
 
 #include <map>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "linear_algebra.h"
 #include "tensor_product_space.h"
 
 /**
@@ -56,6 +58,49 @@ struct RepresentationQuadraturePoint
 
 
 /**
+ * Compile-time description of the interaction-facing representation API.
+ *
+ * ImmersX deliberately keeps this as a lightweight, template-based contract
+ * rather than introducing a virtual representation hierarchy.  A compliant
+ * representation provides an algebraic DoF space and constraints, a mapping
+ * used by the interaction's point search, and
+ * `locally_owned_quadrature_points()`.  The latter returns physical points,
+ * physical integration weights, representative algebraic DoF indices, and
+ * the corresponding basis values.  In particular, the algebraic dimension
+ * need not equal `support_dimension`: a TensorProductSpace representation can
+ * expose reduced coefficients on a higher-dimensional physical support.
+ */
+template <typename Representation, typename = void>
+struct RepresentationConcept : std::false_type
+{};
+
+
+template <typename Representation>
+struct RepresentationConcept<
+  Representation,
+  std::void_t<
+    decltype(Representation::support_dimension),
+    decltype(Representation::ambient_dimension),
+    typename Representation::TriangulationType,
+    typename Representation::DoFHandlerType,
+    typename Representation::QuadraturePoint,
+    decltype(std::declval<const Representation &>().triangulation()),
+    decltype(std::declval<const Representation &>().dof_handler()),
+    decltype(std::declval<const Representation &>().finite_element()),
+    decltype(std::declval<const Representation &>().mapping()),
+    decltype(std::declval<const Representation &>().locally_owned_dofs()),
+    decltype(std::declval<const Representation &>().locally_relevant_dofs()),
+    decltype(std::declval<const Representation &>().constraints()),
+    decltype(std::declval<const Representation &>().mpi_communicator()),
+    decltype(std::declval<const Representation &>().n_dofs_per_cell()),
+    decltype(std::declval<const Representation &>()
+               .locally_owned_quadrature_points(
+                 std::declval<const dealii::Quadrature<
+                   Representation::support_dimension> &>()))>> : std::true_type
+{};
+
+
+/**
  * A non-owning view of a scalar finite-element space used as a physical
  * representation.
  *
@@ -75,8 +120,13 @@ template <int dim, int spacedim = dim>
 class FiniteElementRepresentation
 {
 public:
-  static constexpr unsigned int dimension       = dim;
-  static constexpr unsigned int space_dimension = spacedim;
+  static constexpr unsigned int support_dimension        = dim;
+  static constexpr unsigned int ambient_dimension        = spacedim;
+  static constexpr unsigned int representative_dimension = dim;
+
+  // Compatibility aliases for the first representation prototype.
+  static constexpr unsigned int dimension       = support_dimension;
+  static constexpr unsigned int space_dimension = ambient_dimension;
 
   using TriangulationType = dealii::parallel::TriangulationBase<dim, spacedim>;
   using DoFHandlerType    = dealii::DoFHandler<dim, spacedim>;
@@ -225,9 +275,13 @@ template <int reduced_dim, int surface_dim, int spacedim, int n_components = 1>
 class TensorProductRepresentation
 {
 public:
-  static constexpr unsigned int dimension                = surface_dim;
+  static constexpr unsigned int support_dimension        = surface_dim;
+  static constexpr unsigned int ambient_dimension        = spacedim;
   static constexpr unsigned int representative_dimension = reduced_dim;
-  static constexpr unsigned int space_dimension          = spacedim;
+
+  // Compatibility aliases for the first representation prototype.
+  static constexpr unsigned int dimension       = support_dimension;
+  static constexpr unsigned int space_dimension = ambient_dimension;
 
   using TensorProductSpaceType =
     TensorProductSpace<reduced_dim, surface_dim, spacedim, n_components>;
