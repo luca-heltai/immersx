@@ -198,6 +198,20 @@ public:
     return constraint_equation_storage;
   }
 
+  /** Return the first representation without transferring ownership. */
+  const BackgroundRepresentation &
+  first_representation() const
+  {
+    return background;
+  }
+
+  /** Return the second representation without transferring ownership. */
+  const EmbeddedRepresentation &
+  second_representation() const
+  {
+    return embedded;
+  }
+
   /**
    * Assemble the multiplier-dual right hand side for prescribed data.
    *
