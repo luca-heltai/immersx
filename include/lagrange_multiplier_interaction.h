@@ -170,6 +170,29 @@ public:
     return embedded.locally_relevant_dofs();
   }
 
+  /**
+   * Assemble the multiplier-dual right hand side for prescribed data.
+   *
+   * The coefficients belong to the embedded representation.  Applying M
+   * performs the physical pairing with the multiplier basis, so this is the
+   * reduced analogue of assembling <R g, R mu> without ever materializing R
+   * or R^T.
+   */
+  void
+  assemble_prescribed_rhs(
+    const PrescribedFieldDatum<EmbeddedRepresentation> &datum,
+    VectorType                                         &rhs) const
+  {
+    AssertThrow(&datum.representation() == &embedded,
+                dealii::ExcMessage(
+                  "Prescribed data must use the interaction representation."));
+    AssertDimension(datum.coefficients().size(),
+                    embedded.dof_handler().n_dofs());
+    rhs.reinit(embedded.locally_owned_dofs(),
+               embedded.triangulation().get_mpi_communicator());
+    multiplier_mass_matrix_storage.vmult(rhs, datum.coefficients());
+  }
+
 private:
   template <typename ParticleType>
   void
@@ -219,8 +242,10 @@ private:
       n_background_dofs);
     std::vector<dealii::types::global_dof_index> embedded_dof_indices(
       n_embedded_dofs);
-    std::vector<double> unused_basis_values;
-    double              unused_weight = 0.;
+    std::vector<double>               unused_basis_values;
+    double                            unused_weight = 0.;
+    dealii::AffineConstraints<double> no_column_constraints;
+    no_column_constraints.close();
     for (const auto &particle : particle_coupling.get_particles())
       {
         make_background_dof_indices(particle, background_dof_indices);
@@ -229,7 +254,10 @@ private:
                            unused_basis_values,
                            unused_weight);
         background.constraints().add_entries_local_to_global(
-          background_dof_indices, embedded_dof_indices, dsp);
+          background_dof_indices,
+          no_column_constraints,
+          embedded_dof_indices,
+          dsp);
       }
 
     dealii::SparsityTools::distribute_sparsity_pattern(
@@ -268,6 +296,7 @@ private:
         background.constraints().distribute_local_to_global(
           local_matrix,
           background_dof_indices,
+          no_column_constraints,
           embedded_dof_indices,
           coupling_matrix_storage);
       }

@@ -208,4 +208,43 @@ private:
 template <int dim, int spacedim = dim>
 using IdentityRepresentation = FiniteElementRepresentation<dim, spacedim>;
 
+
+/**
+ * Prescribed coefficients on a representation.
+ *
+ * A prescribed datum is deliberately not a Problem: it owns only the
+ * representative coefficients of a physical field and can therefore be
+ * attached to any number of interactions exposing the same representation.
+ * The interaction converts these coefficients to its multiplier-dual right
+ * hand side through its physical pairing matrix.
+ */
+template <typename Representation>
+class PrescribedFieldDatum
+{
+public:
+  using VectorType = ImmersXLA::MPI::Vector;
+
+  PrescribedFieldDatum(const Representation &representation,
+                       const VectorType     &coefficients)
+    : representation_(representation)
+    , coefficients_(coefficients)
+  {}
+
+  const Representation &
+  representation() const
+  {
+    return representation_;
+  }
+
+  const VectorType &
+  coefficients() const
+  {
+    return coefficients_;
+  }
+
+private:
+  const Representation &representation_;
+  const VectorType     &coefficients_;
+};
+
 #endif // immersx_representation_h
