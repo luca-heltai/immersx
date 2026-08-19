@@ -40,7 +40,7 @@ TEST(StateHistory, InterpolatesAcceptedSnapshots) // NOLINT
 }
 
 
-TEST(StateHistory, SubsystemsKeepIndependentTimeGrids) // NOLINT
+TEST(StateHistory, HistoryGroupsKeepIndependentTimeGrids) // NOLINT
 {
   StateHistoryRegistry<double>  histories;
   const ImmersX::HistoryGroupId fluid(0);
