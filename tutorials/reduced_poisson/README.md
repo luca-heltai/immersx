@@ -1,4 +1,4 @@
-# Random 0D ReducedPoisson examples
+# Random ReducedPoisson examples
 
 Generate the point clouds from the repository root:
 
@@ -21,10 +21,10 @@ Run the two examples from the repository root:
 
 ```bash
 ./build/reduced_poisson_debug \\
-  tutorials/reduced_poisson/random_particles_2d_0d.prm
+  tutorials/reduced_poisson/random_particles_2d.prm
 
 ./build/reduced_poisson_debug \\
-  tutorials/reduced_poisson/random_particles_3d_0d.prm
+  tutorials/reduced_poisson/random_particles_3d.prm
 ```
 
 The top-level `cross section dimension` parameter selects the intrinsic
