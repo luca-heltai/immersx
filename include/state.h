@@ -19,7 +19,9 @@
 
 #include <deal.II/base/exceptions.h>
 
+#include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -120,11 +122,57 @@ namespace ImmersX
   class TermSelection
   {
   public:
+    static TermSelection
+    all()
+    {
+      return TermSelection();
+    }
+
+    static TermSelection
+    none()
+    {
+      TermSelection result;
+      result.all_terms_ = false;
+      return result;
+    }
+
+    static TermSelection
+    only(const std::string &term)
+    {
+      TermSelection result = none();
+      result.selected_terms_.insert(term);
+      return result;
+    }
+
     TermSelection &
     set(const std::string &term, const TermTreatment treatment)
     {
       treatments_[term] = treatment;
+      if (!all_terms_)
+        selected_terms_.insert(term);
       return *this;
+    }
+
+    TermSelection &
+    include(const std::string &term)
+    {
+      all_terms_ = false;
+      selected_terms_.insert(term);
+      return *this;
+    }
+
+    TermSelection &
+    exclude(const std::string &term)
+    {
+      all_terms_ = false;
+      selected_terms_.erase(term);
+      return *this;
+    }
+
+    bool
+    contains(const std::string &term) const
+    {
+      return all_terms_ || selected_terms_.find(term) != selected_terms_.end();
     }
 
     TermTreatment
@@ -137,12 +185,16 @@ namespace ImmersX
     bool
     includes(const std::string &term, const TermTreatment requested) const
     {
+      if (!contains(term))
+        return false;
       const auto selected = treatment(term);
       return selected == TermTreatment::all ||
              requested == TermTreatment::all || selected == requested;
     }
 
   private:
+    bool                                 all_terms_ = true;
+    std::set<std::string>                selected_terms_;
     std::map<std::string, TermTreatment> treatments_;
   };
 
@@ -151,15 +203,19 @@ namespace ImmersX
   class EvaluationContext
   {
   public:
+    using HistoryQuery = std::function<VectorType(HistoryGroupId, double)>;
+
     EvaluationContext(
       const double                     time,
       const StateAccessor<VectorType> &state,
       const StateAccessor<VectorType> *state_derivative = nullptr,
-      TermSelection                    terms            = {})
+      TermSelection                    terms            = {},
+      HistoryQuery                     history_query    = {})
       : time_(time)
       , state_(state)
       , state_derivative_(state_derivative)
       , terms_(std::move(terms))
+      , history_query_(std::move(history_query))
     {}
 
     double
@@ -192,11 +248,65 @@ namespace ImmersX
       return terms_;
     }
 
+    bool
+    has_history() const
+    {
+      return static_cast<bool>(history_query_);
+    }
+
+    VectorType
+    historical_state(const HistoryGroupId group, const double time) const
+    {
+      AssertThrow(history_query_,
+                  dealii::ExcMessage(
+                    "No state history query is attached to this evaluation "
+                    "context."));
+      return history_query_(group, time);
+    }
+
   private:
     double                           time_;
     const StateAccessor<VectorType> &state_;
     const StateAccessor<VectorType> *state_derivative_;
     TermSelection                    terms_;
+    HistoryQuery                     history_query_;
+  };
+
+  /** Coefficients of the state and state-derivative parts of a Jacobian. */
+  template <typename VectorType>
+  class LinearizationContext
+  {
+  public:
+    LinearizationContext(const EvaluationContext<VectorType> &evaluation,
+                         const double                         state_weight,
+                         const double                         derivative_weight)
+      : evaluation_(evaluation)
+      , state_weight_(state_weight)
+      , derivative_weight_(derivative_weight)
+    {}
+
+    const EvaluationContext<VectorType> &
+    evaluation() const
+    {
+      return evaluation_;
+    }
+
+    double
+    state_weight() const
+    {
+      return state_weight_;
+    }
+
+    double
+    derivative_weight() const
+    {
+      return derivative_weight_;
+    }
+
+  private:
+    const EvaluationContext<VectorType> &evaluation_;
+    double                               state_weight_;
+    double                               derivative_weight_;
   };
 } // namespace ImmersX
 

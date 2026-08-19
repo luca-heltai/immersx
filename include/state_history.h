@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-#include "time_residual.h"
+#include "field.h"
 
 
 /**
@@ -56,7 +56,7 @@ struct LinearHistoryInterpolation<double>
 };
 
 
-/** Accepted snapshots for one state or subsystem. */
+/** Accepted snapshots for one state or history group. */
 template <typename Value,
           typename InterpolationPolicy = LinearHistoryInterpolation<Value>>
 class StateHistory
@@ -171,10 +171,9 @@ private:
 /**
  * Type-erased registry of independent histories.
  *
- * Each subsystem has its own accepted time grid.  The registry does not know
- * whether a value is a field, a block vector, or a subsystem state; that
- * choice stays with the caller and can later be replaced by a StateLayout
- * adapter.
+ * Each history group has its own accepted time grid. A history group is a
+ * timeline, not a semantic field: several fields can share one group while
+ * different groups advance independently.
  */
 template <typename Value,
           typename InterpolationPolicy = LinearHistoryInterpolation<Value>>
@@ -184,42 +183,44 @@ public:
   using History = StateHistory<Value, InterpolationPolicy>;
 
   void
-  accept(const SubsystemId subsystem, const double time, const Value &state)
+  accept(const ImmersX::HistoryGroupId group,
+         const double                  time,
+         const Value                  &state)
   {
-    histories[subsystem].accept(time, state);
+    histories[group].accept(time, state);
   }
 
   bool
-  has_history(const SubsystemId subsystem) const
+  has_history(const ImmersX::HistoryGroupId group) const
   {
-    return histories.find(subsystem) != histories.end();
+    return histories.find(group) != histories.end();
   }
 
   const History &
-  history(const SubsystemId subsystem) const
+  history(const ImmersX::HistoryGroupId group) const
   {
-    const auto it = histories.find(subsystem);
+    const auto it = histories.find(group);
     AssertThrow(it != histories.end(),
-                dealii::ExcMessage("Unknown subsystem history."));
+                dealii::ExcMessage("Unknown history group."));
     return it->second;
   }
 
   Value
-  at(const SubsystemId subsystem, const double time) const
+  at(const ImmersX::HistoryGroupId group, const double time) const
   {
-    return history(subsystem).at(time);
+    return history(group).at(time);
   }
 
-  std::function<Value(SubsystemId, double)>
+  std::function<Value(ImmersX::HistoryGroupId, double)>
   query() const
   {
-    return [this](const SubsystemId subsystem, const double time) {
-      return at(subsystem, time);
+    return [this](const ImmersX::HistoryGroupId group, const double time) {
+      return at(group, time);
     };
   }
 
 private:
-  std::map<SubsystemId, History> histories;
+  std::map<ImmersX::HistoryGroupId, History> histories;
 };
 
 #endif // immersx_state_history_h

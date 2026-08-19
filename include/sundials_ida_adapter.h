@@ -15,7 +15,9 @@
 #include <functional>
 #include <optional>
 #include <utility>
+#include <vector>
 
+#include "native_field_layout.h"
 #include "time_residual.h"
 
 #ifdef DEAL_II_WITH_SUNDIALS
@@ -25,36 +27,42 @@
 
 #ifdef DEAL_II_WITH_SUNDIALS
 /**
- * Thin adapter from a term-wise ImmersX residual model to deal.II's IDA
- * wrapper.
+ * Thin adapter from a semantic residual model to deal.II's IDA wrapper.
  *
- * The adapter owns no physics and no linear algebra.  It only translates the
- * IDA callback contracts into a TimeResidualContext and forwards the cached
- * Jacobian action to a user-supplied linear solve policy.
+ * IDA owns the monolithic vectors. The adapter extracts their registered
+ * fields, evaluates the model through StateAccessor and ResidualAccumulator,
+ * and scatters the result back. No Problem or Interaction-specific logic is
+ * present here.
  */
 template <typename VectorType>
 class SundialsIDAResidualAdapter
 {
 public:
-  using Model               = TimeResidualModel<VectorType>;
+  using Model               = ImmersX::TimeResidualModel<VectorType>;
+  using FieldLayout         = ImmersX::MonolithicFieldLayout<VectorType>;
   using Action              = JacobianAction<VectorType>;
   using ReinitFunction      = std::function<void(VectorType &)>;
   using LinearSolveFunction = std::function<
     void(const Action &, const VectorType &, VectorType &, double)>;
+  using HistoryQuery =
+    typename ImmersX::EvaluationContext<VectorType>::HistoryQuery;
 
-  SundialsIDAResidualAdapter(const Model                         &model,
-                             const DifferentialAlgebraicMetadata &metadata,
-                             ReinitFunction                       reinit_vector,
-                             LinearSolveFunction                  solve)
-    : model(model)
-    , metadata(metadata)
-    , reinit_vector(std::move(reinit_vector))
-    , solve(std::move(solve))
+  SundialsIDAResidualAdapter(
+    const Model                                  &model,
+    const FieldLayout                            &field_layout,
+    const ImmersX::DifferentialAlgebraicMetadata &metadata,
+    ReinitFunction                                reinit_vector,
+    LinearSolveFunction                           solve)
+    : model_(model)
+    , field_layout_(field_layout)
+    , metadata_(metadata)
+    , reinit_vector_(std::move(reinit_vector))
+    , solve_(std::move(solve))
   {
-    AssertThrow(this->reinit_vector,
+    AssertThrow(reinit_vector_,
                 dealii::ExcMessage("IDA adapter requires a vector reinit "
                                    "callback."));
-    AssertThrow(this->solve,
+    AssertThrow(solve_,
                 dealii::ExcMessage("IDA adapter requires a linear solve "
                                    "callback."));
   }
@@ -63,72 +71,165 @@ public:
   void
   connect(dealii::SUNDIALS::IDA<VectorType> &ida)
   {
-    ida.reinit_vector = reinit_vector;
+    ida.reinit_vector = reinit_vector_;
 
     ida.residual = [this](const double      time,
                           const VectorType &state,
                           const VectorType &state_derivative,
                           VectorType       &residual) {
-      auto context = make_context(time, state, state_derivative);
-      model.residual(context, residual);
+      evaluate_residual(time, state, state_derivative, residual);
     };
 
     ida.setup_jacobian = [this](const double      time,
                                 const VectorType &state,
                                 const VectorType &state_derivative,
                                 const double      alpha) {
-      auto context              = make_context(time, state, state_derivative);
-      context.state_weight      = 1.;
-      context.derivative_weight = alpha;
-      current_action            = model.jacobian_action(context);
+      prepare_jacobian(time, state, state_derivative, alpha);
     };
 
     ida.solve_with_jacobian =
       [this](const VectorType &rhs, VectorType &dst, const double tolerance) {
-        AssertThrow(current_action.has_value(),
+        AssertThrow(current_action_.has_value(),
                     dealii::ExcMessage("IDA requested a linear solve before "
                                        "the Jacobian was set up."));
-        solve(*current_action, rhs, dst, tolerance);
+        solve_(*current_action_, rhs, dst, tolerance);
       };
 
     ida.differential_components = [this]() {
-      return metadata.differential_components();
+      return metadata_.differential_components();
     };
   }
 
   /** Select terms for subsequent callback evaluations. */
   void
-  set_term_selection(const TermSelection &selection)
+  set_term_selection(const ImmersX::TermSelection &selection)
   {
-    selected_terms = selection;
+    selected_terms_ = selection;
   }
 
-  /** Inspect the most recently prepared Jacobian action in a test or driver. */
+  /** Supply history-backed values to the shared evaluation context. */
+  void
+  set_history_query(HistoryQuery query)
+  {
+    history_query_ = std::move(query);
+  }
+
+  /** Inspect the most recently prepared monolithic Jacobian action. */
   const Action &
   current_jacobian_action() const
   {
-    AssertThrow(current_action.has_value(),
+    AssertThrow(current_action_.has_value(),
                 dealii::ExcMessage("No IDA Jacobian action is available."));
-    return *current_action;
+    return *current_action_;
   }
 
 private:
-  TimeResidualContext<VectorType>
-  make_context(const double      time,
-               const VectorType &state,
-               const VectorType &state_derivative) const
+  void
+  evaluate_residual(const double      time,
+                    const VectorType &state,
+                    const VectorType &state_derivative,
+                    VectorType       &residual) const
   {
-    TimeResidualContext<VectorType> context(time, state, state_derivative);
-    context.selected_terms = selected_terms;
-    return context;
+    std::vector<VectorType> state_fields;
+    std::vector<VectorType> derivative_fields;
+    field_layout_.extract(state, state_fields);
+    field_layout_.extract(state_derivative, derivative_fields);
+
+    ImmersX::StateView<VectorType> state_view(field_layout_.state_layout(),
+                                              time);
+    ImmersX::StateView<VectorType> derivative_view(field_layout_.state_layout(),
+                                                   time);
+    field_layout_.bind(state_view, state_fields);
+    field_layout_.bind(derivative_view, derivative_fields);
+
+    const ImmersX::EvaluationContext<VectorType> context(
+      time, state_view, &derivative_view, selected_terms_, history_query_);
+
+    std::vector<VectorType> residual_fields;
+    residual_fields.assign(field_layout_.state_layout().n_fields(),
+                           VectorType());
+    ImmersX::ResidualAccumulator<VectorType> accumulator(
+      field_layout_.state_layout());
+    for (std::size_t field = 0; field < field_layout_.state_layout().n_fields();
+         ++field)
+      if (field_layout_.has_field(ImmersX::FieldId(field)))
+        {
+          residual_fields[field].reinit(state_fields[field]);
+          residual_fields[field] = 0.;
+          accumulator.bind(ImmersX::FieldId(field), residual_fields[field]);
+        }
+
+    model_.evaluate(context, accumulator);
+    residual = 0.;
+    field_layout_.scatter_add(residual_fields, residual);
   }
 
-  const Model                         &model;
-  const DifferentialAlgebraicMetadata &metadata;
-  ReinitFunction                       reinit_vector;
-  LinearSolveFunction                  solve;
-  TermSelection                        selected_terms;
-  std::optional<Action>                current_action;
+  void
+  prepare_jacobian(const double      time,
+                   const VectorType &state,
+                   const VectorType &state_derivative,
+                   const double      alpha)
+  {
+    std::vector<VectorType> state_fields;
+    std::vector<VectorType> derivative_fields;
+    field_layout_.extract(state, state_fields);
+    field_layout_.extract(state_derivative, derivative_fields);
+
+    current_action_ = Action([this,
+                              time,
+                              alpha,
+                              state_fields      = std::move(state_fields),
+                              derivative_fields = std::move(
+                                derivative_fields)](VectorType &destination,
+                                                    const VectorType &source) {
+      std::vector<VectorType> increment_fields;
+      field_layout_.extract(source, increment_fields);
+
+      ImmersX::StateView<VectorType> state_view(field_layout_.state_layout(),
+                                                time);
+      ImmersX::StateView<VectorType> derivative_view(
+        field_layout_.state_layout(), time);
+      ImmersX::StateView<VectorType> increment_view(
+        field_layout_.state_layout(), time);
+      field_layout_.bind(state_view, state_fields);
+      field_layout_.bind(derivative_view, derivative_fields);
+      field_layout_.bind(increment_view, increment_fields);
+
+      const ImmersX::EvaluationContext<VectorType> evaluation(
+        time, state_view, &derivative_view, selected_terms_, history_query_);
+      const ImmersX::LinearizationContext<VectorType> linearization(evaluation,
+                                                                    1.,
+                                                                    alpha);
+
+      std::vector<VectorType> residual_fields;
+      residual_fields.assign(field_layout_.state_layout().n_fields(),
+                             VectorType());
+      ImmersX::ResidualAccumulator<VectorType> accumulator(
+        field_layout_.state_layout());
+      for (std::size_t field = 0;
+           field < field_layout_.state_layout().n_fields();
+           ++field)
+        if (field_layout_.has_field(ImmersX::FieldId(field)))
+          {
+            residual_fields[field].reinit(state_fields[field]);
+            residual_fields[field] = 0.;
+            accumulator.bind(ImmersX::FieldId(field), residual_fields[field]);
+          }
+
+      model_.add_jacobian_action(linearization, increment_view, accumulator);
+      destination = 0.;
+      field_layout_.scatter_add(residual_fields, destination);
+    });
+  }
+
+  const Model                                  &model_;
+  const FieldLayout                            &field_layout_;
+  const ImmersX::DifferentialAlgebraicMetadata &metadata_;
+  ReinitFunction                                reinit_vector_;
+  LinearSolveFunction                           solve_;
+  ImmersX::TermSelection                        selected_terms_;
+  HistoryQuery                                  history_query_;
+  std::optional<Action>                         current_action_;
 };
 #endif
 

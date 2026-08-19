@@ -16,7 +16,6 @@
 #include <deal.II/lac/linear_operator.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -25,133 +24,17 @@
 #include <utility>
 #include <vector>
 
+#include "field.h"
+#include "residual.h"
+#include "state.h"
 
-/** A small, extensible identifier for a residual term. */
-using TermId = unsigned int;
-
-
-/** Identifiers used by the prototype tests and examples. */
+/** Names used by the small residual examples and tests. */
 namespace time_residual_terms
 {
-  constexpr TermId mass      = 0;
-  constexpr TermId diffusion = 1;
-  constexpr TermId nonlinear = 2;
+  inline constexpr const char *mass      = "mass";
+  inline constexpr const char *diffusion = "diffusion";
+  inline constexpr const char *nonlinear = "nonlinear";
 } // namespace time_residual_terms
-
-
-/** Identify a subsystem or state block in a history query. */
-using SubsystemId = std::size_t;
-
-
-/**
- * A compact selector passed from an integrator to residual contributors.
- *
- * Term ownership remains with the contributor.  The selector is only a
- * driver policy: the same term can be selected differently by two different
- * time integrators.
- */
-class TermSelection
-{
-public:
-  static constexpr unsigned int max_terms = 64;
-
-  TermSelection()
-    : mask(~std::uint64_t(0))
-  {}
-
-  static TermSelection
-  all()
-  {
-    return TermSelection(~std::uint64_t(0));
-  }
-
-  static TermSelection
-  none()
-  {
-    return TermSelection(0);
-  }
-
-  static TermSelection
-  only(const TermId term)
-  {
-    TermSelection selection = none();
-    selection.include(term);
-    return selection;
-  }
-
-  void
-  include(const TermId term)
-  {
-    mask |= bit(term);
-  }
-
-  void
-  exclude(const TermId term)
-  {
-    mask &= ~bit(term);
-  }
-
-  bool
-  contains(const TermId term) const
-  {
-    return (mask & bit(term)) != 0;
-  }
-
-private:
-  explicit TermSelection(const std::uint64_t mask)
-    : mask(mask)
-  {}
-
-  static std::uint64_t
-  bit(const TermId term)
-  {
-    if (term >= max_terms)
-      throw std::out_of_range("TermSelection supports at most 64 terms");
-    return std::uint64_t(1) << term;
-  }
-
-  std::uint64_t mask;
-};
-
-
-/**
- * Context shared by residual and Jacobian contributors.
- *
- * For IDA, `state_weight` is one and `derivative_weight` is IDA's `alpha`.
- * For other methods the driver may choose the coefficients appropriate for
- * the stage equation.  The optional history query is deliberately type-erased
- * so that the context does not depend on a concrete StateLayout or block
- * vector implementation.
- */
-template <typename VectorType>
-struct TimeResidualContext
-{
-  TimeResidualContext(const double      time,
-                      const VectorType &state,
-                      const VectorType &state_derivative)
-    : time(time)
-    , state(state)
-    , state_derivative(state_derivative)
-  {}
-
-  double            time;
-  const VectorType &state;
-  const VectorType &state_derivative;
-  double            state_weight      = 1.;
-  double            derivative_weight = 0.;
-  TermSelection     selected_terms    = TermSelection::all();
-  std::function<VectorType(SubsystemId, double)> history_query;
-
-  /** Query another subsystem at an accepted or interpolated time. */
-  VectorType
-  historical_state(const SubsystemId subsystem, const double query_time) const
-  {
-    AssertThrow(history_query,
-                dealii::ExcMessage("No state history query is attached to this "
-                                   "residual context."));
-    return history_query(subsystem, query_time);
-  }
-};
 
 
 /**
@@ -355,157 +238,157 @@ private:
 };
 
 
-/** Differential/algebraic classification for one state vector layout. */
-enum class StateVariableType
-{
-  differential,
-  algebraic
-};
-
-
 /**
  * Minimal metadata bridge for IDA-like solvers.
  *
- * The keys are deliberately opaque block identifiers.  Worker 1's eventual
- * StateLayout can supply the same ids and IndexSets without changing this
- * adapter-facing interface.
+ * The semantic time role comes from StateLayout. The IndexSet registration is
+ * only the local adapter information needed to project semantic fields onto
+ * the monolithic vector expected by IDA.
  */
-class DifferentialAlgebraicMetadata
+namespace ImmersX
 {
-public:
-  using BlockId = std::size_t;
-
-  explicit DifferentialAlgebraicMetadata(const std::size_t global_size)
-    : global_size(global_size)
-  {}
-
-  void
-  add_block(const BlockId           block,
-            const dealii::IndexSet &indices,
-            const StateVariableType type)
+  class DifferentialAlgebraicMetadata
   {
-    AssertThrow(indices.size() == global_size,
-                dealii::ExcMessage("DAE block has the wrong global "
-                                   "IndexSet size."));
-    AssertThrow(blocks.find(block) == blocks.end(),
-                dealii::ExcMessage("DAE block id was registered "
-                                   "twice."));
-    blocks.emplace(block, Block{indices, type});
-  }
+  public:
+    DifferentialAlgebraicMetadata(const StateLayout &layout,
+                                  const std::size_t  global_size)
+      : layout_(layout)
+      , global_size_(global_size)
+    {}
 
-  void
-  add_block(const BlockId           block,
-            const std::size_t       begin,
-            const std::size_t       end,
-            const StateVariableType type)
-  {
-    dealii::IndexSet indices(global_size);
-    indices.add_range(begin, end);
-    add_block(block, indices, type);
-  }
+    void
+    add_field(const FieldId field, const dealii::IndexSet &indices)
+    {
+      AssertThrow(layout_.contains(field),
+                  dealii::ExcMessage("DAE field is not in the state layout."));
+      AssertThrow(indices.size() == global_size_,
+                  dealii::ExcMessage("DAE field has the wrong global "
+                                     "IndexSet size."));
+      AssertThrow(fields_.find(field) == fields_.end(),
+                  dealii::ExcMessage("DAE field was registered twice."));
+      fields_.emplace(field, indices);
+    }
 
-  bool
-  has_block(const BlockId block) const
-  {
-    return blocks.find(block) != blocks.end();
-  }
+    void
+    add_field(const FieldId     field,
+              const std::size_t begin,
+              const std::size_t end)
+    {
+      dealii::IndexSet indices(global_size_);
+      indices.add_range(begin, end);
+      add_field(field, indices);
+    }
 
-  StateVariableType
-  type(const BlockId block) const
-  {
-    const auto it = blocks.find(block);
-    AssertThrow(it != blocks.end(),
-                dealii::ExcMessage("Unknown DAE block id."));
-    return it->second.type;
-  }
+    bool
+    has_field(const FieldId field) const
+    {
+      return fields_.find(field) != fields_.end();
+    }
 
-  dealii::IndexSet
-  differential_components() const
-  {
-    return components_of(StateVariableType::differential);
-  }
+    TimeRole
+    time_role(const FieldId field) const
+    {
+      AssertThrow(layout_.contains(field),
+                  dealii::ExcMessage("Unknown DAE field."));
+      return layout_.field(field).time_role;
+    }
 
-  dealii::IndexSet
-  algebraic_components() const
-  {
-    return components_of(StateVariableType::algebraic);
-  }
+    dealii::IndexSet
+    differential_components() const
+    {
+      return components_of(TimeRole::differential);
+    }
 
-private:
-  struct Block
-  {
-    dealii::IndexSet  indices;
-    StateVariableType type;
+    dealii::IndexSet
+    algebraic_components() const
+    {
+      return components_of(TimeRole::algebraic);
+    }
+
+  private:
+    dealii::IndexSet
+    components_of(const TimeRole wanted) const
+    {
+      dealii::IndexSet result(global_size_);
+      for (const auto &entry : fields_)
+        if (layout_.field(entry.first).time_role == wanted)
+          result.add_indices(entry.second);
+      result.compress();
+      return result;
+    }
+
+    const StateLayout                  &layout_;
+    std::size_t                         global_size_;
+    std::map<FieldId, dealii::IndexSet> fields_;
   };
-
-  dealii::IndexSet
-  components_of(const StateVariableType wanted) const
-  {
-    dealii::IndexSet result(global_size);
-    for (const auto &entry : blocks)
-      if (entry.second.type == wanted)
-        result.add_indices(entry.second.indices);
-    result.compress();
-    return result;
-  }
-
-  std::size_t              global_size;
-  std::map<BlockId, Block> blocks;
-};
+} // namespace ImmersX
 
 
 /**
  * A term-wise semi-discrete residual model.
  *
- * Each callback adds to its destination.  The driver chooses `selected_terms`
- * in the context, so monolithic, partitioned, ARKODE, and IDA paths can call
+ * Each callback adds to its destination. The driver chooses terms in the
+ * EvaluationContext, so steady, partitioned, ARKODE, and IDA paths can call
  * the same residual contributors with different policies.
  */
-template <typename VectorType>
-class TimeResidualModel
+namespace ImmersX
 {
-public:
-  using Context          = TimeResidualContext<VectorType>;
-  using ResidualFunction = std::function<void(const Context &, VectorType &)>;
-  using JacobianFunction =
-    std::function<JacobianAction<VectorType>(const Context &)>;
-
-  void
-  add_term(const TermId     term,
-           ResidualFunction residual,
-           JacobianFunction jacobian = JacobianFunction())
+  template <typename VectorType>
+  class TimeResidualModel
   {
-    terms.push_back({term, std::move(residual), std::move(jacobian)});
-  }
+  public:
+    using Context       = EvaluationContext<VectorType>;
+    using Linearization = LinearizationContext<VectorType>;
+    using ResidualFunction =
+      std::function<void(const Context &, ResidualAccumulator<VectorType> &)>;
+    using JacobianFunction =
+      std::function<void(const Linearization &,
+                         const StateAccessor<VectorType> &,
+                         ResidualAccumulator<VectorType> &)>;
 
-  void
-  residual(const Context &context, VectorType &dst) const
-  {
-    dst = 0.;
-    for (const auto &term : terms)
-      if (context.selected_terms.contains(term.id) && term.residual)
-        term.residual(context, dst);
-  }
+    void
+    add_term(std::string      term,
+             ResidualFunction residual,
+             JacobianFunction jacobian = JacobianFunction())
+    {
+      terms.push_back(
+        {std::move(term), std::move(residual), std::move(jacobian)});
+    }
 
-  JacobianAction<VectorType>
-  jacobian_action(const Context &context) const
-  {
-    JacobianAccumulator<VectorType> accumulator;
-    for (const auto &term : terms)
-      if (context.selected_terms.contains(term.id) && term.jacobian)
-        accumulator.add(term.jacobian(context));
-    return accumulator.action();
-  }
+    /** Add all selected term contributions to an externally bound residual. */
+    void
+    evaluate(const Context                   &context,
+             ResidualAccumulator<VectorType> &residual) const
+    {
+      for (const auto &term : terms)
+        if (context.terms().includes(term.name, TermTreatment::all) &&
+            term.residual)
+          term.residual(context, residual);
+    }
 
-private:
-  struct Term
-  {
-    TermId           id;
-    ResidualFunction residual;
-    JacobianFunction jacobian;
+    /** Apply the selected semantic Jacobian terms to an increment. */
+    void
+    add_jacobian_action(const Linearization             &linearization,
+                        const StateAccessor<VectorType> &increment,
+                        ResidualAccumulator<VectorType> &destination) const
+    {
+      for (const auto &term : terms)
+        if (linearization.evaluation().terms().includes(term.name,
+                                                        TermTreatment::all) &&
+            term.jacobian)
+          term.jacobian(linearization, increment, destination);
+    }
+
+  private:
+    struct Term
+    {
+      std::string      name;
+      ResidualFunction residual;
+      JacobianFunction jacobian;
+    };
+
+    std::vector<Term> terms;
   };
-
-  std::vector<Term> terms;
-};
+} // namespace ImmersX
 
 #endif // immersx_time_residual_h

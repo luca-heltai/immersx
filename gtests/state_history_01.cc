@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "state_history.h"
+#include "time_residual.h"
 
 
 using dealii::Vector;
@@ -41,17 +42,19 @@ TEST(StateHistory, InterpolatesAcceptedSnapshots) // NOLINT
 
 TEST(StateHistory, SubsystemsKeepIndependentTimeGrids) // NOLINT
 {
-  StateHistoryRegistry<double> histories;
-  histories.accept(0, 0., 0.);
-  histories.accept(0, 2., 20.);
-  histories.accept(1, 0., 10.);
-  histories.accept(1, 0.5, 15.);
-  histories.accept(1, 1., 20.);
+  StateHistoryRegistry<double>  histories;
+  const ImmersX::HistoryGroupId fluid(0);
+  const ImmersX::HistoryGroupId network(1);
+  histories.accept(fluid, 0., 0.);
+  histories.accept(fluid, 2., 20.);
+  histories.accept(network, 0., 10.);
+  histories.accept(network, 0.5, 15.);
+  histories.accept(network, 1., 20.);
 
-  EXPECT_DOUBLE_EQ(histories.at(0, 1.), 10.);
-  EXPECT_DOUBLE_EQ(histories.at(1, 0.25), 12.5);
-  EXPECT_DOUBLE_EQ(histories.history(0).last_time(), 2.);
-  EXPECT_DOUBLE_EQ(histories.history(1).last_time(), 1.);
+  EXPECT_DOUBLE_EQ(histories.at(fluid, 1.), 10.);
+  EXPECT_DOUBLE_EQ(histories.at(network, 0.25), 12.5);
+  EXPECT_DOUBLE_EQ(histories.history(fluid).last_time(), 2.);
+  EXPECT_DOUBLE_EQ(histories.history(network).last_time(), 1.);
 }
 
 
@@ -59,29 +62,46 @@ TEST(StateHistory, SameResidualWorksWithIntermediateHistoryQuery) // NOLINT
 {
   using VectorType = Vector<double>;
 
-  TimeResidualModel<VectorType> model;
-  model.add_term(time_residual_terms::diffusion,
-                 [](const auto &context, auto &residual) {
-                   const auto other = context.historical_state(1, context.time);
-                   residual[0] += context.state[0] + other[0];
-                 });
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name   = "active";
+  const auto active = layout.add_field(descriptor);
+
+  ImmersX::TimeResidualModel<VectorType> model;
 
   StateHistoryRegistry<VectorType> histories;
+  const ImmersX::HistoryGroupId    network(1);
   VectorType                       subsystem_one_start(1);
   subsystem_one_start[0] = 0.;
   VectorType subsystem_one_end(1);
   subsystem_one_end[0] = 4.;
-  histories.accept(1, 0., subsystem_one_start);
-  histories.accept(1, 1., subsystem_one_end);
+  histories.accept(network, 0., subsystem_one_start);
+  histories.accept(network, 1., subsystem_one_end);
 
   VectorType active_stage(1);
   active_stage[0] = 2.;
   VectorType active_stage_dot(1);
   active_stage_dot[0] = 0.;
-  TimeResidualContext<VectorType> context(0.25, active_stage, active_stage_dot);
-  context.history_query = histories.query();
+  ImmersX::StateView<VectorType> state(layout, 0.25);
+  state.bind(active, active_stage);
+  ImmersX::StateView<VectorType> state_dot(layout, 0.25);
+  state_dot.bind(active, active_stage_dot);
+  ImmersX::EvaluationContext<VectorType> context(
+    0.25, state, &state_dot, {}, histories.query());
+
+  model.add_term(time_residual_terms::diffusion,
+                 [active, network](const auto &evaluation, auto &residual) {
+                   const auto other =
+                     evaluation.historical_state(network, evaluation.time());
+                   residual.field(active)[0] +=
+                     evaluation.state().field(active, evaluation.time())[0] +
+                     other[0];
+                 });
 
   VectorType residual(1);
-  model.residual(context, residual);
+  residual = 0.;
+  ImmersX::ResidualAccumulator<VectorType> accumulator(layout);
+  accumulator.bind(active, residual);
+  model.evaluate(context, accumulator);
   EXPECT_DOUBLE_EQ(residual[0], 3.);
 }
