@@ -1,553 +1,596 @@
-# ImmersX Core Architecture
+# ImmersX core architecture
 
-This page is the foundational architectural specification for ImmersX. It
-defines the concepts that should remain stable as the repository grows from
-two-problem immersed couplings to general mixed-dimensional systems. The
-examples use Poisson, network-flow, and elasticity problems, but the ownership
-rules apply to any discrete problem that can expose a physical representation
-and participate in an interaction.
+This page is the architectural specification for ImmersX. It describes the
+stable concepts that should support mixed-dimensional finite-element physics,
+selective multiphysics coupling, and more than one execution strategy.
 
-The central separation is:
+The specification deliberately separates three things that are easy to mix
+up:
+
+1. what is implemented by the current `master` branch;
+2. interfaces validated in unmerged development prototypes; and
+3. normative design direction and longer-term roadmap.
+
+The current production classes are the starting point for the design. The
+architecture is not a requirement to rewrite `PoissonProblem`,
+`ElasticityProblem`, `ReducedPoisson`, or the tensor-product coupling in one
+step.
+
+:::{admonition} Implementation status
+:class: important
+
+**Merged on `master`.** The repository contains problem-specific Poisson and
+elasticity discretizations, immersed and reduced coupling classes,
+`Representation`/`TensorProductSpace` machinery, particle/search support,
+Lagrange-multiplier and augmented-Lagrangian specializations, and linear
+algebra solvers. Their public interfaces are still primarily class-specific
+and, in several paths, assembled or saddle-point oriented.
+
+**Validated prototype.** Parallel development branches have validated semantic
+`FieldId`/`FieldDescriptor`/`StateLayout`, external `StateView` and
+`StateAccessor`, additive residual accumulation, a Poisson residual adapter,
+Jacobian actions, differential/algebraic metadata, state history and
+interpolation, a thin IDA/SUNDIALS adapter, typed scalar/vector/tensor
+representation values, mixed-FE extractor evaluation, dependency metadata, and
+geometry version/invalidation hooks. These symbols are not public API on
+`master` merely because the prototypes pass their focused tests.
+
+**Roadmap.** A common residual contributor contract, execution adapters for
+steady/DAE/IMEX/multirate/partitioned runs, term-level selection, and a
+lightweight global composer may be integrated incrementally after review.
+:::
+
+:::{admonition} Design pressure / non-goals
+:class: note
+
+ImmersX is not currently building a dynamic graph framework, an automatic
+solver factory, a universal `Interaction` base class, heterogeneous
+vector-backend type erasure, automatic `LinearOperator -> sparse matrix`
+conversion, or a giant matrix-owning `CoupledSystem`. Those mechanisms can be
+useful later, but they must not be smuggled into the core vocabulary before
+the residual and field contracts are stable.
+:::
+
+## A. Scope and design status
+
+The architectural boundary is:
 
 ```text
-Problem          owns equations for algebraic unknowns
-Representation   says what physical field those unknowns represent
-Interaction      couples two or more representations
-Solver           solves the algebraic system produced by the first three
+Problem                 owns equations and discretization for its state fields
+Field                   names a semantic part of a global state and residual
+State / StateAccessor   supplies current, frozen, historical, or interpolated values
+Representation          exposes typed physical observables derived from fields
+Interaction             owns relations and additive terms between participants
+Residual contributor    adds residual and, when available, Jacobian actions
+Execution adapter       applies a residual model under a solver/driver policy
 ```
 
-This is a design specification, not a claim that every current class already
-has this exact interface. Existing classes such as `PoissonProblem`,
-`ElasticityProblem`, `ParticleCoupling`, `ReducedCoupling`, and
-`TensorProductSpace` are the implementation points from which this design is
-being evolved. The repository-wide class and data-flow inventory remains in
-{doc}`architecture-diagram`, while the mathematical background is in
-{doc}`background`.
+The words *Problem*, *Field*, *Representation*, *Interaction*, *Residual*, and
+*Execution adapter* have the meanings defined below. A class may implement
+more than one role internally today, but new interfaces should not silently
+merge their ownership responsibilities.
 
-## Architecture at a glance
+The term *background* may still describe a local geometric search mesh. It is
+not an ownership concept: no problem becomes the owner of a coupled model just
+because a particle search happens to use its triangulation.
 
-The four concepts have different sources of truth and different ownership.
-Problems own their diagonal physics. Representations provide reusable views of
-problem states on physical domains. Interactions own every term that involves
-more than one problem. Solvers receive the resulting algebraic operators and
-do not reconstruct any of that meaning.
+## B. Core vocabulary
 
-```{mermaid}
-flowchart LR
-  subgraph P["Problems / discrete problems"]
-    P0["Problem 0\nstate, equations, FE space"]
-    P1["Problem 1\nstate, equations, FE space"]
-  end
+### Problem
 
-  subgraph R["Representations / physical views"]
-    R0["Representation 0\nreduced or direct field view"]
-    R1["Representation 1\nembedded physical field view"]
-  end
+A **Problem** owns the equations and discretization of the physics it solves.
+It may own a finite-element space, constitutive data, boundary/initial data,
+native operators, and one or more semantic state fields. A Problem can
+contribute to several residual rows, and a residual row can receive
+contributions from several Problems and Interactions.
 
-  subgraph I["Interactions / shared terms"]
-    I0["Interaction\nsearch, multiplier, coupling terms"]
-  end
+A Problem does not need to be a PDE with exactly one unknown. In particular,
+Stokes remains one `StokesProblem` owning velocity and pressure, even though
+those fields have different roles in the differential-algebraic system. Do
+not create `VelocityProblem` and `PressureProblem` objects merely to make the
+field partition visible.
 
-  subgraph G["Global algebraic system"]
-    G0["Problem diagonal blocks\n+ interaction contributions"]
-  end
+### Field
 
-  S["Solver\noperator and preconditioner only"]
+A **Field** identifies a semantically meaningful part of the global state and
+the corresponding residual row or block. A field is not necessarily an
+independent PDE. It is a stable name used to connect state storage, residual
+contributions, representations, coupling selection, and differential/
+algebraic metadata.
 
-  P0 -->|"algebraic state"| R0
-  P1 -->|"algebraic state"| R1
-  R0 -->|"consumed by"| I0
-  R1 -->|"consumed by"| I0
-  P0 -->|"diagonal physics"| G0
-  P1 -->|"diagonal physics"| G0
-  I0 -->|"off-diagonal and constraint terms"| G0
-  G0 -->|"algebraic operator"| S
+For a Stokes-like Problem, the semantic fields are typically `velocity` and
+`pressure`:
+
+$$
+\begin{aligned}
+F_u(u,p) &= M\dot u + N(u) + A u + B^T p - f,\\
+F_p(u,p) &= B u - g.
+\end{aligned}
+$$
+
+Both rows belong to the same Problem. The field partition is semantic; it does
+not prescribe whether the implementation stores the state as a monolithic
+vector, a block vector, or several backend-specific vectors.
+
+### State, StateView, and StateAccessor
+
+The **state** is the collection of field values supplied to an evaluation. A
+`StateView`/`StateAccessor` is the conceptual read interface for that state.
+The important property is that a Problem or Representation can evaluate an
+externally supplied state rather than assuming that its own member named
+`solution` is the only possible input.
+
+Conceptual usage is:
+
+```text
+state = accessor.current_or_interpolated(field, time)
+problem.add_residual(context.with_state(state), residual)
 ```
 
-The word *background* is deliberately not part of the long-term ownership
-model. A search or assembly algorithm may use one mesh as its geometric
-background, but that implementation choice does not make the corresponding
-problem the owner or coordinator of the coupled model.
+The concrete type can remain backend-specific. The architecture requires the
+ownership and lifetime semantics, not one universal vector type.
 
-## Problems and discrete problems
+### Representation
 
-A **Problem** is the owner of the equations for the algebraic state that it
-actually solves. In finite-element terms, a problem owns at least:
+A **Representation** exposes a physical observable derived from one or more
+Fields. It maps representative/reduced coefficients to values, gradients,
+tractions, or other typed quantities on a represented physical support.
 
-- its unknown or state vector and the associated algebraic DoF space;
-- its operator, residual, or time-discrete equations;
-- its right-hand side and problem-specific boundary or initial data;
-- its diagonal Jacobian or block operator;
-- the finite-element/discrete space intrinsic to that PDE;
-- the mesh and discretization data needed to assemble or apply its own terms.
+Keep these domains distinct:
 
-A problem does **not** own knowledge of its couplings. It may expose read-only
-access to its state, discretization, and algebraic operators so that another
-object can build an interaction, but it must not decide which other problems
-exist or assemble terms whose meaning depends on another problem.
+- the **representative/reduced domain**, where coefficients or reduced physics
+  live;
+- the **represented physical support**, where an interaction evaluates the
+  observable; and
+- the ambient `spacedim`, in which that support is embedded.
 
-The notation `Problem<dim, spacedim>` describes a PDE discretized on a domain
-of dimension `dim` embedded in an ambient space of dimension `spacedim`. Typical
-problem nodes include:
+A Representation can be reused by several Interactions. It is a view/evaluator
+of state, not the owner of a coupling relation.
 
-| Problem | Interpretation |
-| --- | --- |
-| `Poisson<2,2>` | scalar Poisson equation on a two-dimensional domain |
-| `Laplace-Beltrami<1,2>` or `Poisson<1,2>` | scalar equation on a curve in the plane |
-| `NetworkFlow<1,3>` | one-dimensional flow physics on a vessel network in three-dimensional space |
-| `Elasticity<3,3>` | three-dimensional tissue or solid elasticity |
+### Interaction
 
-The dimensional label describes where the problem's coefficients live. It does
-not by itself say whether those coefficients are later represented on another
-physical domain. That second statement belongs to a Representation.
+An **Interaction** owns the physical relation between participants and every
+additive term that disappears when that relation is removed. Depending on the
+relation, it may own geometric search, quadrature, transfer, auxiliary spaces,
+coupling residuals, Jacobian actions, and geometry-dependent scaling.
 
-## Representations
+The rule remains useful even when the relation is not a constraint:
 
-A **Representation** maps a problem's algebraic state to a physical field on a
-domain where an interaction can occur. It separates three domains that are
-often conflated:
+> An Interaction owns the terms that exist because the participating physical
+> systems are related.
 
-1. the **representative/reduced domain**, where the problem coefficients live;
-2. the **represented physical domain**, where another problem should see the
-   field;
-3. the **ambient space**, in which that physical domain is embedded.
+### Residual contributor
 
-For example, a one-dimensional vessel-network problem can have coefficients on
-the network centerline while exposing a two-dimensional field on a vessel wall
-embedded in three-dimensional space. No two-dimensional vessel-wall PDE is
-introduced merely because the one-dimensional coefficients are represented
-there.
+A **Residual contributor** is a Problem or Interaction that adds terms to a
+shared residual accumulator. Contributions are additive. A contributor may
+also expose a Jacobian action and optional contributor-specific assembly
+capabilities.
 
-### The abstract mapping
+The contributor boundary prevents the execution layer from learning whether a
+term came from elasticity, pressure, diffusion, a multiplier, a prescribed
+source exchange, or a co-simulation port.
 
-Let $V_r$ be the algebraic/discrete space of the representative problem and
-let $V_\Gamma$ be the conceptual discrete space of fields on the represented
-physical domain $\Gamma$. The representation supplies the pair
+### Execution adapter
+
+An **Execution adapter** consumes the same residual/Jacobian model under a
+solver policy. Examples include a steady Newton/KINSOL adapter, an IDA-style
+DAE adapter, an ARKode IMEX adapter, an MRIStep-style multirate adapter, and a
+partitioned or co-simulation driver. Problems and Interactions should not know
+which adapter is calling them.
+
+The solver used by an adapter owns no physics: it consumes residuals, Jacobian
+actions, states, and optional preconditioning data supplied by the model.
+
+## C. The semi-discrete model: $F(t,y,\dot y)=0$
+
+The common denominator is a semi-discrete residual, not a collection of
+matrices:
 
 $$
-P = R^T : V_r \longrightarrow V_\Gamma,
-\qquad
-R : V_\Gamma^* \longrightarrow V_r^*.
+F(t,y,\dot y) = 0.
 $$
 
-Here $P$ lifts representative coefficients to a field on $\Gamma$, while
-$R$ restricts or projects physical functionals back to the representative
-dual space. The distinction between primal and dual spaces matters: an
-interaction commonly evaluates a represented trial or test field at physical
-quadrature points, and the resulting functional must be accumulated into the
-problem's algebraic DoFs.
+Here $y$ and $\dot y$ are field-partitioned states, while $t$ carries explicit
+time dependence in coefficients, geometry, and prescribed data. A residual
+evaluation receives the candidate state from the execution layer:
 
-```{mermaid}
-flowchart LR
-  Vr["Representative space V_r\nproblem coefficients"]
-  Vg["Represented physical space V_Γ\nfield on Γ"]
-  Amb["Ambient space R^spacedim\ngeometry and embedding"]
-
-  Vr -->|"P = Rᵀ\nlift / represent"| Vg
-  Vg -->|"R\nrestrict physical functionals"| Vr
-  Amb -.->|"contains Γ"| Vg
+```text
+residual.clear()
+for contributor in contributors:
+    contributor.add_residual(context, residual)
 ```
 
-If a full embedded problem with operator $A_\Gamma$ and right-hand side
-$g_\Gamma$ is first written down, a reduced algebraic problem may have the
-form
-
-$$
-R A_\Gamma R^T w = R g_\Gamma.
-$$
-
-This equation explains the role of a representation, but it is not an
-architectural requirement that every reduced PDE be obtained by projecting a
-full PDE. A one-dimensional vascular equation may be derived independently as
-reduced physics and still expose a representation of its pressure, flow, or
-traction on a vessel wall. The representation describes how its solved state is
-seen by other problems; it does not prescribe how the reduced equations were
-derived.
-
-### Direct and identity representations
-
-The special case in which the represented field is already the problem's own
-finite-element field is a **direct** or **identity representation**:
-
-$$
-R = I, \qquad P = I.
-$$
-
-This is useful even when the two problems have different meshes or dimensions.
-For example, a `Poisson<1,2>` problem can expose its ordinary one-dimensional
-finite-element field directly on the curve that an interaction matches to a
-`Poisson<2,2>` problem. The interaction still owns the nonmatching search,
-quadrature, and coupling matrices.
-
-### Tensor-product representations
-
-Conceptually, `TensorProductSpace` is a Representation: it turns coefficients
-on a representative/reduced domain into basis functions for a higher-
-dimensional physical field. Its template dimensions are interpreted as
+The names below are conceptual and are not a promise that they already exist
+on `master`:
 
 ```cpp
-TensorProductSpace<reduced_dim, dim, spacedim, n_components>
+// Conceptual API; exact vector and context types remain implementation-specific.
+contributor.add_residual(EvaluationContext{t, y, ydot}, accumulator);
 ```
 
-- `reduced_dim` is the dimension where the problem coefficients live;
-- `dim` is the dimension of the represented physical domain;
-- `spacedim` is the ambient geometric dimension;
-- `n_components` is the number of scalar components in the represented field.
+Problems contribute their own physical equations. Interactions add coupling,
+exchange, contact, interface, or auxiliary-field equations. Several
+contributors may add to the same Field row. A prescribed datum is data, not a
+fake Problem.
 
-The component count may have a default in a concrete declaration, so shorthand
-such as `TensorProductSpace<0, 1, 2>` is used when appropriate. The dimensions
-are not a request to solve a new PDE on the represented domain.
+This model supports Newton/KINSOL, IDA, ARKode, multirate stages, nonlinear
+partitioned iterations, adjoint/sensitivity evaluations, and external state
+tests without duplicating the physics layer for each driver.
 
-Two representative cases are:
+## D. Multi-field Problems and native block operators
 
-- `TensorProductSpace<0,1,2>`: coefficients associated with representative
-  points are lifted to a one-dimensional field embedded in the plane;
-- `TensorProductSpace<1,2,3>`: coefficients on a vessel centerline are lifted
-  to a two-dimensional vessel-wall field embedded in three-dimensional space.
-
-The second case is the important vascular pattern: `NetworkFlow<1,3>` remains
-one-dimensional physics, while its wall representation is a reusable port for
-elasticity, surface transport, or any other problem that can consume a field on
-the same physical wall.
-
-### Representation contract without global transfer matrices
-
-The notation $R$ and $R^T$ is a useful design-level contract. An efficient
-implementation does not need to construct explicit global matrices for either
-operator. A representation can fold both actions into quadrature and assembly.
-
-At a physical quadrature point $x_q \in \Gamma$, the low-level contract is
-that the representation can provide, directly or through a reusable evaluator:
-
-```text
-physical point and measure:      x_q, w_q
-algebraic DoF indices:           i_1, ..., i_k
-represented basis values:        φ^Γ_i(x_q)
-optional gradients/components:  ∇φ^Γ_i(x_q), component transforms, ...
-```
-
-An interaction uses those values to assemble, for example,
-
-$$
-C_{a i} \mathrel{+}= w_q\,\mu_a(x_q)\,\phi_i^\Gamma(x_q),
-$$
-
-where $\mu_a$ is a multiplier/test basis function. The represented basis
-value already contains the action that a global $R$ or $R^T$ would have
-provided. Particle locations, repartitioning, and search data can be used to
-make this evaluation distributed and matrix-free.
-
-This contract keeps the interaction independent of whether a representation is
-an identity FE view, a tensor-product evaluator, or a future representation
-based on another reduced model. It also makes clear why a tensor-product
-representation can be reused: it is a view/evaluator of one problem state, not
-the owner of any particular coupling.
-
-## Interactions
-
-An **Interaction** consumes Representations, not concrete PDE classes. It owns
-the variational and algebraic terms that involve more than one problem. Its
-responsibilities include, as applicable:
-
-- geometric matching, search, and point evaluation;
-- particles, repartitioning, and distributed ownership of coupling data;
-- coupling, mortar, or transfer matrices and their matrix-free actions;
-- the multiplier or auxiliary space required by the constraint;
-- interaction residuals, Jacobian blocks, and right-hand sides;
-- scaling data associated with the represented/reduced geometry.
-
-An interaction may use one mesh as a *geometric search background* because a
-search algorithm needs a triangulation in which to locate particles. That is a
-local implementation role. Neither participating problem is privileged as the
-background owner in the long-term architecture.
-
-### Continuity constraints
-
-Suppose representations $P_i u_i$ and $P_j u_j$ must agree on a coupling
-space $Q$. The interaction expresses continuity as
-
-$$
-C_i u_i - C_j u_j = 0,
-$$
-
-where $C_i$ and $C_j$ evaluate the two represented fields against the
-chosen multiplier/test basis. With problem operators $A_i$ and $A_j$, a
-standard Lagrange-multiplier system is
+Fields are a semantic partition and do not impose storage layout. A Problem
+may continue to assemble and maintain a native block matrix such as
 
 $$
 \begin{bmatrix}
-A_i & 0 & C_i^T \\
-0 & A_j & -C_j^T \\
-C_i & -C_j & 0
-\end{bmatrix}
-\begin{bmatrix}
-u_i \\
-u_j \\
-\lambda
-\end{bmatrix}
-=
-\begin{bmatrix}
-f_i \\
-f_j \\
-0
+A_{uu} & A_{up}\\
+A_{pu} & A_{pp}
 \end{bmatrix}.
 $$
 
-For a direct `Poisson<2,2>` to `Poisson<1,2>` coupling, if the multiplier
-space and the one-dimensional finite-element space coincide, the
-one-dimensional side is evaluated by its own identity representation and
-$C_j$ is the one-dimensional mass matrix. The two-dimensional side still
-requires nonmatching trace/search evaluation, so $C_i$ is assembled by the
-interaction.
+An adapter can gather semantic fields into the native block vector, apply the
+native operator, and scatter the result back into residual fields. This is a
+supported implementation path, not a violation of the Field abstraction.
 
-For a tensor-product representation, $C_i$ already includes the action of
-$R$ through represented basis evaluation. The interaction therefore does not
-need to create or solve a full embedded DoF system on $V_\Gamma$. It assembles
-the reduced coupling directly between the problem DoFs and the multiplier
-DoFs.
+For Stokes, the expected ownership is:
 
-### Interaction ownership rule
+- `StokesProblem` owns both `velocity` and `pressure` fields and both native
+  equation rows;
+- a velocity Representation can expose only `velocity` to an external
+  Interaction;
+- pressure remains internal to the Stokes equations unless a separate
+  Representation explicitly exposes it;
+- an Interaction can add to an existing velocity row or introduce an auxiliary
+  field without splitting the Problem.
 
-An interaction owns every term that disappears when one of its participating
-problems is removed. This includes both off-diagonal blocks and the multiplier
-constraint block. A problem may provide the read-only data needed to evaluate
-its side of the term, but it does not own the term itself.
+The corresponding data flow is shown in the Stokes diagram in section N.
 
-## Solvers and coupled systems
+## E. Typed physical Representations and field selection
 
-Solvers own no physics. They consume algebraic operators, residuals, states,
-and preconditioning data produced by Problems and Interactions. They should
-not know whether a block came from elasticity, Poisson, network flow, an
-identity representation, or a tensor-product representation.
+Representations should return strongly typed physical values whenever their
+observable has a known shape: scalar, vector, tensor, or a future physical
+quantity with a documented type. FE extractors or an equivalent mechanism must
+allow a Representation to select only the relevant subfields from a mixed
+finite-element system.
 
-The current `AugmentedLagrangianSolver` should remain mesh- and
-dimension-agnostic. In particular, it should receive `invW` directly rather
-than deriving it from a mesh, a dimension, or an assumed background grid. The
-object that understands the represented geometry and multiplier discretization
-is responsible for preparing that operator or operator action.
+For example, a mixed Stokes FE system may expose a vector-valued velocity
+Representation that excludes pressure. The selection is explicit in the
+Representation contract and does not require a second FE system.
 
-Two metrics must remain conceptually distinct:
-
-- $M$ describes the multiplier discretization or its Riesz/mass metric on
-  $Q$;
-- $W$ describes the norm or preconditioning metric used by the augmented
-  Lagrangian treatment.
-
-For a characteristic represented/reduced scale $h_\gamma$, an interaction or
-representation may use a relation such as
+The “one Representation has exactly one source Field” rule is intentionally
+not part of the architecture. A traction such as
 
 $$
-W^{-1} \approx h_\gamma^{-\alpha} M^{-1}.
+\sigma(u,p)n
 $$
 
-The scale $h_\gamma$ is the characteristic resolution of the immersed,
-represented, or reduced geometry. It is not automatically the mesh size
-$H_\Omega$ of a bulk/search-background mesh. A stability regime may commonly
-choose $H_\Omega \simeq h_\gamma$, but that relation does not make the two
-quantities interchangeable, nor should it move geometry-dependent scaling into
-the solver.
+depends on more than one field. A Representation instead declares the Fields
+on which its observable depends, ideally using semantic `FieldId` values rather
+than opaque problem-specific tags.
 
-The intended boundary is therefore:
+Representations may preserve efficient scalar `IdentityRepresentation` and
+tensor-product paths while adding vector/tensor value types. They do not
+require a full embedded DoF system or explicit global $R$ and $R^T$ matrices.
+At physical quadrature points, the useful contract is instead the ability to
+provide, directly or through a reusable evaluator:
 
 ```text
-Representation / Interaction
-    knows geometry, quadrature, multiplier space, h_γ, and scaling
-    prepares M, W, or an invW action
-
-Solver
-    receives invW and algebraic blocks
-    applies/inverts/preconditions them according to solver policy
+physical point and measure:  x_q, w_q
+selected DoF indices:        i_1, ..., i_k
+typed basis/observable data: value, gradients, components, transforms
+source Field dependencies:   {FieldId, ...}
 ```
 
-## N-problem graph structure
+## F. Interaction families and auxiliary Fields
 
-The general coupled model is a graph, or more precisely a hypergraph when an
-interaction connects more than two problems:
+The concrete interaction family is determined by the physical relation, not
+by a single implementation pattern.
 
-- **nodes** are Problems and their algebraic states;
-- **ports/views** are Representations exposed by those problems;
-- **edges/hyperedges** are Interactions consuming one or more representations.
+Possible families include:
 
-One problem may expose several representations. One representation may be
-consumed by several interactions. Adding a third problem should therefore add
-a new node, representation, and interaction edge; it should not require
-editing either of the existing problem implementations.
+- scalar or vector continuity;
+- normal-flux or traction exchange;
+- Robin, penalty, and Nitsche relations;
+- Lagrange-multiplier constraints;
+- nonlinear contact;
+- source or conservative exchange;
+- circuit, interface-state, and co-simulation ports.
 
-```{mermaid}
-flowchart LR
-  P0["P0\nProblem"]
-  P1["P1\nProblem"]
-  P2["P2\nProblem"]
+`LagrangeMultiplierInteraction` is a concrete scalar continuity interaction,
+not the definition of Interaction. Some Interactions introduce no multiplier
+and no auxiliary Field.
 
-  R0a["P0 representation A"]
-  R0b["P0 representation B"]
-  R1a["P1 representation A"]
-  R1b["P1 representation B"]
-  R2a["P2 representation A"]
-  R2b["P2 representation B"]
+An Interaction may introduce first-class auxiliary unknowns such as Lagrange
+multipliers, contact variables, interface states, or circuit variables. Those
+unknowns receive semantic Fields and residual rows. Do not create fake
+Problems merely to host a multiplier or prescribed datum.
 
-  I01["I01\ninteraction"]
-  I02["I02\ninteraction"]
-  I12["I12\ninteraction"]
+The ownership rule is unchanged for an Interaction that contributes to a row
+already owned by a Problem: the Problem owns its physical row, while the
+Interaction owns its additive relation term.
 
-  P0 --> R0a
-  P0 --> R0b
-  P1 --> R1a
-  P1 --> R1b
-  P2 --> R2a
-  P2 --> R2b
+## G. Jacobian actions and optional assembly
 
-  R0a --> I01
-  R1a --> I01
-  R0b --> I02
-  R2a --> I02
-  R1b --> I12
-  R2b --> I12
-```
-
-The graph is a composition of independently derived physics. It is not a
-class hierarchy in which a special `CoupledElasticityProblem` must become the
-owner of every other PDE. A future `CoupledSystem` may aggregate the graph,
-but it should remain a container for states, diagonal blocks, and interaction
-contributions rather than a new source of physical equations.
-
-### Two Poisson problems: the identity case
-
-The first validation case is a two-dimensional Poisson problem coupled to a
-one-dimensional Poisson problem in the plane. Both sides expose direct/identity
-representations, and the interaction is responsible for matching them.
-
-```{mermaid}
-flowchart LR
-  A["Poisson<2,2>\nunknown u_Ω"] --> RA["Identity representation\nfield on Γ"]
-  B["Poisson<1,2>\nunknown w_γ"] --> RB["Identity representation\nfield on γ"]
-  RA --> X["Lagrange-multiplier interaction\nC_Ω, C_γ, Q, search"]
-  RB --> X
-  X --> K["Global saddle-point system"]
-```
-
-The corresponding algebraic layout is
+The universal linearization capability is a Jacobian action or
+`LinearOperator`, not an assembled sparse matrix. For an implicit or DAE
+linearization, the solver supplies coefficients $a$ and $b$ and requests the
+action
 
 $$
-\left[
-\begin{array}{ccc}
-A_\Omega & 0 & C_\Omega^T \\
-0 & A_\gamma & -C_\gamma^T \\
-C_\Omega & -C_\gamma & 0
-\end{array}
-\right]
-\left[
-\begin{array}{c}
-u_\Omega \\
-w_\gamma \\
-\lambda
-\end{array}
-\right]
-=
-\left[
-\begin{array}{c}
-g_\Omega \\
-g_\gamma \\
-0
-\end{array}
-\right].
+Jv = \left(a\,\frac{\partial F}{\partial y}
+       + b\,\frac{\partial F}{\partial \dot y}\right)v.
 $$
 
-The problem blocks $A_\Omega$ and $A_\gamma$ are assembled by the two
-Poisson problems. The interaction assembles $C_\Omega$, $C_\gamma$, and
-the multiplier metric. If the one-dimensional multiplier basis is the same as
-the one-dimensional FE basis, $C_\gamma$ is its mass matrix. No problem
-needs to know that the other one exists.
+Each Problem or Interaction contributes its part of $Jv$ to a shared output.
+The action can use matrix-free quadrature, a native block operator, or an
+assembled matrix wrapped as a `LinearOperator`.
 
-### Vessel wall, elasticity, and a third problem
+Assembled sparse or block matrices remain a useful optional capability. A
+contributor that can assemble a particular block may expose that capability
+explicitly. There is no generic promise that any `LinearOperator` can be
+converted back into a sparse matrix; assembly is contributor-specific.
 
-The mixed-dimensional vascular example makes the distinction between physics
-and representation explicit. A one-dimensional network-flow problem can
-represent a wall field in two dimensions, embedded in three dimensions. A
-three-dimensional elasticity problem can expose a boundary representation on
-the same physical wall. The same network-wall representation can then be
-reused by a third surface problem.
+Existing native block matrices are therefore preserved and wrapped, not
+disassembled solely to satisfy the architecture.
+
+## H. Differential/algebraic Fields and SUNDIALS mapping
+
+Fields should be queryable as **differential** or **algebraic**, with finer
+granularity left open for later. This metadata describes the time character of
+the field, not a new Problem hierarchy.
+
+Typical classifications are:
+
+- Navier--Stokes/Stokes: velocity differential, pressure algebraic;
+- multiplier coupling: multiplier algebraic;
+- first-order elasticity path: displacement and velocity differential fields
+  in the generic SUNDIALS-oriented formulation.
+
+An IDA-style adapter can map this metadata to its differential mask while
+keeping the residual contributor API independent of SUNDIALS. The adapter owns
+solver-specific vector conversion, tolerances, callbacks, and masks; a
+Problem does not include IDA policy in its physical equations.
+
+## I. Term selection, IMEX, and multirate execution
+
+Implicit/explicit and fast/slow are execution decisions, not intrinsic
+properties of an entire Problem. A Problem may contain multiple additive
+terms, for example:
+
+- mass or inertia;
+- convection;
+- diffusion or elasticity;
+- pressure gradient;
+- incompressibility;
+- interface traction;
+- kinematic constraint;
+- source exchange.
+
+A future `TermId`/`TermSelection` (provisional names) can let an execution
+adapter request a subset of terms or assign evaluation policies. This should
+remain a small selection mechanism, not a new hierarchy or general workflow
+framework. The driver decides which terms are implicit, explicit, fast, slow,
+frozen, or interpolated for a particular step.
+
+## J. State history, interpolation, and partitioned execution
+
+State history is part of the architecture early, not a late convenience.
+Partitioned and multirate drivers may request another subsystem or Field at an
+intermediate time. A history-backed StateAccessor should provide current,
+frozen, interpolated, or extrapolated values without changing a Problem,
+Representation, or Interaction.
+
+Independent time grids for different subsystems or fields should remain
+possible. The physics layer is evaluated against the state requested by the
+driver; it is not duplicated into monolithic and partitioned versions.
+
+This is also the boundary for co-simulation: a co-simulation driver owns time
+window negotiation, exchange schedule, rollback, and convergence policy, while
+Problems and Interactions expose the same residual contributors used by a
+monolithic run.
+
+## K. Moving geometry, versions, and cache invalidation
+
+The physical geometry of a Representation is not assumed to be immutable for
+the entire simulation. Full moving-ALE or FSI implementation is outside this
+revision, but the contract must leave room for it.
+
+Conceptual hooks are:
+
+```text
+representation.update_geometry(context)
+representation.geometry_version()
+interaction.invalidate_search_or_coupling_cache(version)
+interaction.rebuild_cache_if_needed()
+```
+
+An Interaction that performs point search or uses a `ParticleHandler` must be
+able to invalidate and rebuild search/coupling caches when represented
+geometry changes. Cached quadrature points are an implementation cache, not an
+immutable property of the model.
+
+## L. TensorProductSpace and reduced-to-physical lifting
+
+`TensorProductSpace` remains a Representation/lifting mechanism. It maps
+coefficients on a representative/reduced domain to a physical field on a
+higher-dimensional support. Keep the dimension labels explicit:
+
+```text
+representative/reduced dimension -> represented physical dimension
+                                      -> ambient spacedim
+```
+
+For the vessel-wall pattern,
+`NetworkFlow<1,3> -> TensorProductRepresentation<1,2,3>` means that
+one-dimensional network coefficients are evaluated as a two-dimensional wall
+field embedded in three-dimensional space. It does not create a two-
+dimensional wall Problem.
+
+The lifting may be consumed by elasticity, traction, transport, or more than
+one other Interaction. No full embedded DoF system and no explicit global
+restriction/lifting matrices are required.
+
+The geometric metrics used by reduced coupling also remain distinct:
+
+- $M$ is the multiplier-space mass/Riesz metric or another metric of the
+  reduced discretization;
+- $W$ is the augmented-Lagrangian or preconditioning metric used by a solver
+  strategy;
+- $h_\gamma$ is a characteristic represented/reduced geometry scale;
+- $H_\Omega$ is a bulk mesh or search-mesh scale.
+
+A relation such as
+
+$$
+W^{-1} \approx h_\gamma^{-\alpha} M^{-1}
+$$
+
+may be appropriate for a particular stability/preconditioning regime, but it
+does not make $M$ and $W$, or $h_\gamma$ and $H_\Omega$, interchangeable.
+Geometry-dependent scaling is prepared by the relevant Representation or
+Interaction; the Solver consumes the resulting operator or action.
+
+## M. Linear constraint specialization
+
+For linear constraints, a `ConstraintEquation` specialization remains useful:
+
+$$
+\sum_i C_i u_i = d.
+$$
+
+It is a compact linear-algebra representation of one relation and may be
+handled by a specialized saddle-point or Schur/augmented-Lagrangian solver.
+It is not the global residual model, not the definition of Interaction, and not
+a requirement that all future relations introduce a multiplier.
+
+The current scalar multiplier path can therefore remain production code while
+the broader residual architecture is introduced around it incrementally.
+
+## N. Architecture diagrams and data flow
+
+The following diagrams are normative data-flow views. They use conceptual
+names where the corresponding common API is still a roadmap item.
+
+### Core ownership and data flow
 
 ```{mermaid}
 flowchart LR
-  NF["NetworkFlow<1,3>\ncoefficients on centerline"]
-  TP["TensorProductRepresentation<1,2,3>\nvessel-wall field on Γ"]
-  EL["Elasticity<3,3>\n3D tissue displacement"]
-  EB["BoundaryRepresentation<3,2,3>\ntrace on Γ"]
-  SP["SurfaceProblem<2,3>\nwall/surface physics"]
-  SI["Direct representation<2,3>\nfield on Γ"]
-  IE["Wall–elasticity interaction\nsearch, particles, Q, coupling"]
-  IS["Wall–surface interaction\nindependent interaction"]
-
-  NF --> TP
-  EL --> EB
-  SP --> SI
-  TP --> IE
-  EB --> IE
-  TP --> IS
-  SI --> IS
+  subgraph physics["Physics layer"]
+    P["Problem(s)"] --> F["semantic Fields"]
+    F --> R["typed Representations"]
+  end
+  R --> I["Interactions"]
+  P --> RC["residual contributors"]
+  I --> RC
+  RC --> RJ["Residual and Jacobian actions"]
+  RJ --> E["Execution adapters"]
 ```
 
-The third problem is added by attaching `SurfaceProblem<2,3>` to the existing
-wall representation through a new interaction. `NetworkFlow` and `Elasticity`
-do not acquire a new coupling-specific method, and the network representation
-does not become owned by either interaction. This is the intended extension
-path for pressure-to-wall, wall-to-tissue, transport, and other multi-physics
-relations.
+### Multi-field Stokes with selective coupling
 
-## Ownership rules and design commandments
+```{mermaid}
+flowchart LR
+  SP["one StokesProblem"] --> U["velocity Field u"]
+  SP --> P["pressure Field p"]
+  SP --> EQ["Stokes equations F_u, F_p"]
+  U --> VR["vector velocity Representation"]
+  VR --> XI["external Interaction"]
+  P -. "not selected by this Interaction" .-> INT["pressure stays internal"]
+  XI --> RU["additive contribution to velocity row"]
+  EQ --> RU
+```
 
-The following rules are normative for new architecture and should guide the
-refactoring of existing code:
+### Semi-discrete residual composition and Jacobian action
 
-1. A Problem owns the equations for the coefficients/state it solves.
-2. A Problem owns its intrinsic FE/discrete space, operator/residual, right
-   hand side, and diagonal Jacobian/block.
-3. A Problem does not own knowledge of its couplings or of the other problems
-   in a coupled model.
-4. A Representation says what physical field those coefficients represent on
-   another domain.
-5. A Representation distinguishes representative/reduced dimension,
-   represented physical dimension, and ambient `spacedim`.
-6. A Representation may be reused by multiple Interactions.
-7. An Interaction consumes Representations, not concrete PDE classes.
-8. An Interaction owns all terms that disappear when the other participating
-   problems are removed: search, particles, multiplier spaces, coupling
-   matrices, residuals, Jacobian blocks, and geometry-dependent scaling.
-9. “Background” may describe a local geometric search mesh, never a permanent
-   privilege in the coupled-system ownership model.
-10. A Solver owns no physics. It consumes algebraic operators and
-    preconditioning data.
-11. The coupled/global system merely aggregates problem diagonal blocks/states
-    and interaction contributions.
-12. A global $R$ or $R^T$ matrix is a conceptual contract, not a required
-    data structure. Implementations should evaluate represented basis functions
-    and fold the action into quadrature and assembly whenever possible.
+```{mermaid}
+flowchart LR
+  SV["external StateView y, ydot, t"] --> PC["Problem contributors"]
+  SV --> IC["Interaction contributors"]
+  PC --> F["additively composed F(t,y,ydot)"]
+  IC --> F
+  F --> J["compositional J*v"]
+  J --> LS["solver linearization"]
+```
 
-## Staged development path
+### Monolithic and partitioned execution use the same physics
 
-The architecture should be validated with small, composable cases before a
-general graph container is introduced. The intended sequence is:
+```{mermaid}
+flowchart LR
+  C["same residual contributors"] --> M["shared residual model"]
+  M --> MONO["monolithic: IDA / ARKode / Newton-KINSOL"]
+  M --> PART["partitioned or co-simulation driver"]
+  HIST["history-backed StateAccessor"] --> PART
+  PART --> HIST
+```
 
-1. Make `PoissonSolver` composable by exposing read-only discretization
-   accessors and a configurable parameter subsection, without giving it
-   coupling ownership.
-2. Build an identity representation for `Poisson<1,2>`.
-3. Extract a generic, representation-driven Lagrange-multiplier interaction
-   assembler. Reuse `ParticleCoupling` and its search/repartitioning machinery
-   where appropriate, but keep ownership of the coupling terms with the
-   interaction.
-4. Solve `Poisson<2,2>` coupled to `Poisson<1,2>` as the $R=I$ case.
-5. Replace one side's identity representation with
-   `TensorProductSpace<0,1,2>` without changing the interaction assembly.
-6. Validate `TensorProductSpace<1,2,3>` as a vessel-wall representation
-   coupled to `Elasticity<3,3>` through a boundary representation, and
-   optionally attach a third `SurfaceProblem<2,3>` to the same wall view.
-7. Only after these examples work, introduce a generic `CoupledSystem` or
-   graph container that aggregates problem blocks and interaction
-   contributions.
+### Tensor-product vessel wall and representation reuse
 
-This sequence tests the abstraction at the points where it matters: direct
-nonmatching coupling, reduced representation, reuse of a representation, and
-more than two problems. It also prevents a first two-problem implementation
-from accidentally making one PDE class the permanent owner of the architecture.
+```{mermaid}
+flowchart LR
+  NF["NetworkFlow<1,3>\ncoefficients on representative centerline"] --> TP["TensorProductRepresentation<1,2,3>"]
+  TP --> WALL["represented physical wall <2,3>"]
+  WALL --> TISSUE["Interaction with 3D tissue"]
+  TP --> OTHER["another reusable wall Interaction"]
+```
+
+### Moving geometry and cache invalidation
+
+```{mermaid}
+flowchart LR
+  S["state or geometry update"] --> G["Representation.update_geometry"]
+  G --> V["geometry_version increments"]
+  V --> X["Interaction invalidates search/coupling cache"]
+  X --> B["search and quadrature cache rebuild"]
+  B --> E["next residual/Jacobian evaluation"]
+```
+
+### Optional native block and assembled path
+
+```{mermaid}
+flowchart LR
+  F["semantic Fields"] <--> GA["gather / scatter adapter"]
+  GA <--> NV["native Problem block vector"]
+  NV --> NB["native block matrix or operator"]
+  NB --> LO["LinearOperator action"]
+  LO --> GC["global residual/Jacobian composer"]
+  GC --> OUT["semantic residual or J*v"]
+```
+
+The native path is optional and local to a contributor. It demonstrates that
+semantic Fields do not forbid block storage or assembled operators.
+
+## O. What is implemented, prototyped, and planned
+
+The status boundary is intentionally repeated here because it prevents a
+conceptual API from being mistaken for a merged one.
+
+| Status | Meaning in this specification |
+| --- | --- |
+| **Merged on `master`** | Current Poisson, elasticity, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
+| **Validated prototype** | Field/state/residual vocabulary, external-state evaluation, typed representations and subfield extraction, Jacobian actions, DAE metadata, history/interpolation, geometry versioning, and a thin SUNDIALS/IDA-oriented adapter validated on development branches and focused tests. |
+| **Roadmap** | A reviewed common contributor interface, term-level selection, general execution adapters, independent time grids, moving-geometry integration, co-simulation policy, and a lightweight global composer/registry. |
+
+Existing `Poisson`, `Elasticity`, `ReducedPoisson`, and production coupling
+classes can be adapted incrementally. The intended migration is an adapter
+around existing assembly/native block operations followed by selective
+extraction of residual contributors; it is not a big-bang rewrite.
+
+## P. Explicit non-goals and deferred decisions
+
+The following are deliberately deferred or excluded from the core contract:
+
+- a dynamic runtime graph with automatic discovery and scheduling;
+- automatic solver, preconditioner, or time-integrator selection;
+- a universal interaction class that hides physically different relations;
+- an invariant that every Representation has exactly one source Field;
+- mandatory full embedded DoF systems or explicit global $R/R^T$ matrices;
+- a generic conversion from arbitrary `LinearOperator` to sparse matrix;
+- a requirement that all Interactions use Lagrange multipliers;
+- a requirement that an entire Problem be assigned one IMEX or fast/slow role;
+- a single heterogeneous, type-erased vector backend for every field;
+- full moving-ALE/FSI implementation in the current documentation revision.
+
+These decisions leave room for efficient deal.II-native implementations while
+keeping the semantic residual architecture available to future monolithic,
+partitioned, multirate, and co-simulation drivers.

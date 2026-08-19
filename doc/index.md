@@ -3,7 +3,10 @@
 
 The foundational architectural specification is in
 {doc}`core-architecture`. It defines the ownership and data-flow boundaries
-between Problems, Representations, Interactions, and Solvers.
+between Problems, Fields, Representations, Interactions, residual contributors,
+and execution adapters. The specification marks merged implementation,
+validated prototype, and roadmap status separately. For the class-level view of
+the current `master` branch, see {doc}`architecture-diagram`.
 
 ```{toctree}
 :hidden:
