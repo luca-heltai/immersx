@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a separated random point cloud for the 0D tutorials.
+"""Generate a separated random point cloud for the particle tutorials.
 
 The output is an unstructured VTK mesh containing one VTK_VERTEX cell per
 particle.  ``radius`` and ``rhs`` are stored as point-data arrays so they can
