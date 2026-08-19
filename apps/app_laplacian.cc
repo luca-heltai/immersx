@@ -37,22 +37,22 @@ main(int argc, char *argv[])
       if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           ProblemParameters<2, 3> par;
+          PoissonProblem<2, 3>    problem(par);
           initialize_parameters(prm_file);
-          PoissonProblem<2, 3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
           ProblemParameters<3> par;
+          PoissonProblem<3>    problem(par);
           initialize_parameters(prm_file);
-          PoissonProblem<3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
         {
           ProblemParameters<2> par;
+          PoissonProblem<2>    problem(par);
           initialize_parameters(prm_file);
-          PoissonProblem<2> problem(par);
           problem.run();
         }
       else

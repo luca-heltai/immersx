@@ -38,43 +38,43 @@ main(int argc, char *argv[])
       if (dimensions.dimension == 1 && dimensions.space_dimension == 3)
         {
           PoissonParameters<1, 3> par;
+          PoissonSolver<1, 3>     problem(par);
           initialize_parameters(prm_file);
-          PoissonSolver<1, 3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 1 && dimensions.space_dimension == 2)
         {
           PoissonParameters<1, 2> par;
+          PoissonSolver<1, 2>     problem(par);
           initialize_parameters(prm_file);
-          PoissonSolver<1, 2> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 1 && dimensions.space_dimension == 1)
         {
           PoissonParameters<1> par;
+          PoissonSolver<1>     problem(par);
           initialize_parameters(prm_file);
-          PoissonSolver<1> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           PoissonParameters<2, 3> par;
+          PoissonSolver<2, 3>     problem(par);
           initialize_parameters(prm_file);
-          PoissonSolver<2, 3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
           PoissonParameters<3> par;
+          PoissonSolver<3>     problem(par);
           initialize_parameters(prm_file);
-          PoissonSolver<3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
         {
           PoissonParameters<2> par;
+          PoissonSolver<2>     problem(par);
           initialize_parameters(prm_file);
-          PoissonSolver<2> problem(par);
           problem.run();
         }
       else

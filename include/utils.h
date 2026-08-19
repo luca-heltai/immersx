@@ -96,6 +96,17 @@ get_dimension_parameters(const ParameterHandler &prm)
 
 
 /**
+ * Return a parameter handler to its root subsection.
+ */
+inline void
+reset_parameter_handler_to_root(ParameterHandler &prm)
+{
+  while (!prm.get_current_path().empty())
+    prm.leave_subsection();
+}
+
+
+/**
  * Read the dimension selectors without constructing a dimension-specific
  * parameter acceptor.
  */
@@ -103,18 +114,20 @@ inline DimensionParameters
 get_dimension_parameters(const std::string &filename)
 {
   auto &prm = ParameterAcceptor::prm;
+  reset_parameter_handler_to_root(prm);
   declare_dimension_parameters(prm);
 
   try
     {
       prm.parse_input(filename, "", true);
     }
-  catch (const ::ExcFileNotOpen &)
+  catch (...)
     {
-      // Let the full initialization pass create the missing file and report
-      // the same error it would have reported before dimension dispatch.
+      // The permissive probe can encounter subsections that are declared only
+      // after the dimension-specific parameter acceptor is constructed.
     }
 
+  reset_parameter_handler_to_root(prm);
   return get_dimension_parameters(prm);
 }
 

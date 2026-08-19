@@ -53,22 +53,22 @@ main(int argc, char *argv[])
       if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           ElasticityProblemParameters<2, 3> par;
+          ElasticityProblem<2, 3>           problem(par);
           initialize_parameters(prm_file);
-          ElasticityProblem<2, 3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
           ElasticityProblemParameters<3> par;
+          ElasticityProblem<3>           problem(par);
           initialize_parameters(prm_file);
-          ElasticityProblem<3> problem(par);
           problem.run();
         }
       else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
         {
           ElasticityProblemParameters<2> par;
+          ElasticityProblem<2>           problem(par);
           initialize_parameters(prm_file);
-          ElasticityProblem<2> problem(par);
           problem.run();
         }
       else
