@@ -27,6 +27,13 @@ Run the two examples from the repository root:
   tutorials/reduced_poisson/random_particles_3d.prm
 ```
 
+For a one-dimensional hyperspherical cross section embedded in 2D, run:
+
+```bash
+./build/reduced_poisson_debug \\
+  tutorials/reduced_poisson/random_particles_2d_hypersphere.prm
+```
+
 The top-level `cross section dimension` parameter selects the intrinsic
 dimension of the point cross-section independently of the embedding space.
 For example, use `2` for disks in 3D and `3` for spheres in 3D. The `rhs`

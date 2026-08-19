@@ -66,7 +66,7 @@ struct ReferenceCrossSectionParameters : public ParameterAcceptor
   /// Refinement level of the mesh.
   unsigned int refinement_level = 1;
 
-  /// Geometric type of inclusion ("hyper_ball", etc.).
+  /// Geometric type of inclusion ("hyper_ball", "hyper_sphere", etc.).
   std::string inclusion_type = "hyper_ball";
 
   /// Degree of the polynomial basis for inclusion.
