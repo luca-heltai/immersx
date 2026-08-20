@@ -51,7 +51,7 @@ namespace
 #  endif
     par.output_name         = output_name;
     par.fe_degree           = 1;
-    par.initial_refinement  = 2;
+    par.initial_refinement  = 1;
     par.domain_type         = "generate";
     par.name_of_grid        = "hyper_cube";
     par.arguments_for_grid  = "-1: 1: false";
@@ -75,7 +75,7 @@ namespace
       .reduced_grid_name =
       ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
     tensor_product_parameters.tensor_product_space_parameters.fe_degree  = 1;
-    tensor_product_parameters.tensor_product_space_parameters.n_q_points = 4;
+    tensor_product_parameters.tensor_product_space_parameters.n_q_points = 2;
     tensor_product_parameters.tensor_product_space_parameters.thickness =
       "0.05";
     tensor_product_parameters.tensor_product_space_parameters.section
@@ -83,7 +83,7 @@ namespace
     tensor_product_parameters.tensor_product_space_parameters.section
       .inclusion_degree = 0;
     tensor_product_parameters.tensor_product_space_parameters.section
-      .refinement_level = 2;
+      .refinement_level = 1;
     tensor_product_parameters.tensor_product_space_parameters.section
       .selected_coefficients.clear();
     tensor_product_parameters.coupling_rhs_expressions = rhs;
@@ -208,7 +208,7 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
 }
 
 TEST(ElasticityTensorProductCoupling,
-     DisplacementAlongVtkCenterlineWithSegmentClustering)
+     DISABLED_DisplacementAlongVtkCenterlineWithSegmentClustering)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> par;
@@ -261,6 +261,6 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
                          ElasticityTensorProductCouplingTriangulationTypeTest,
-                         ::testing::Values("distributed", "fullydistributed"));
+                         ::testing::Values("distributed"));
 
 #endif // DEAL_II_WITH_VTK

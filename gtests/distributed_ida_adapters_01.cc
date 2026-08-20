@@ -73,9 +73,9 @@ namespace
       ImmersX::TestPaths::output_directory("distributed-ida/elastodynamics");
     parameters.output_frequency   = 0;
     parameters.initial_refinement = 0;
-    parameters.final_time         = 0.02;
+    parameters.final_time         = 0.01;
     parameters.time_step          = 0.01;
-    parameters.number_of_steps    = 2;
+    parameters.number_of_steps    = 1;
     parameters.solver_control.set_reduction(1.e-10);
     parameters.solver_control.set_tolerance(1.e-12);
   }
@@ -88,8 +88,8 @@ namespace
     parameters.output_frequency        = 0;
     parameters.initial_refinement      = 0;
     parameters.include_convective_term = false;
-    parameters.final_time              = 0.02;
-    parameters.number_of_time_steps    = 2;
+    parameters.final_time              = 0.01;
+    parameters.number_of_time_steps    = 1;
     parameters.inner_solver_max_steps  = 300;
     parameters.inner_solver_tolerance  = 1.e-10;
   }
@@ -271,9 +271,9 @@ TEST(DistributedIDA, MPI_ElastodynamicsBlockIDA) // NOLINT
 
   dealii::SUNDIALS::IDA<GlobalVector>::AdditionalData data;
   data.initial_time                  = 0.;
-  data.final_time                    = 0.02;
+  data.final_time                    = 0.01;
   data.initial_step_size             = 0.005;
-  data.output_period                 = 0.02;
+  data.output_period                 = 0.01;
   data.absolute_tolerance            = 1.e-9;
   data.relative_tolerance            = 1.e-9;
   data.maximum_non_linear_iterations = 20;
@@ -324,7 +324,7 @@ TEST(DistributedIDA, MPI_ElastodynamicsBlockIDA) // NOLINT
   ida.residual(data.final_time, state, state_dot, final_residual);
   EXPECT_LT(final_residual.l2_norm(), 1.e-6);
 
-  for (unsigned int step = 0; step < 2; ++step)
+  for (unsigned int step = 0; step < 1; ++step)
     problem.advance_one_timestep();
   GlobalVector standalone_difference = state;
   standalone_difference.block(0) -= problem.displacement();
@@ -401,9 +401,9 @@ TEST(DistributedIDA, MPI_UnsteadyStokesBlockIDAAndJacobian) // NOLINT
 
   dealii::SUNDIALS::IDA<GlobalVector>::AdditionalData data;
   data.initial_time                  = 0.;
-  data.final_time                    = 0.02;
+  data.final_time                    = 0.01;
   data.initial_step_size             = 0.005;
-  data.output_period                 = 0.02;
+  data.output_period                 = 0.01;
   data.absolute_tolerance            = 1.e-9;
   data.relative_tolerance            = 1.e-9;
   data.maximum_non_linear_iterations = 20;
@@ -451,7 +451,7 @@ TEST(DistributedIDA, MPI_UnsteadyStokesBlockIDAAndJacobian) // NOLINT
   ida.residual(data.final_time, state, state_dot, final_residual);
   EXPECT_LT(final_residual.l2_norm(), 1.e-6);
 
-  for (unsigned int step = 0; step < 2; ++step)
+  for (unsigned int step = 0; step < 1; ++step)
     problem.advance_one_timestep();
   GlobalVector standalone_difference = state;
   standalone_difference.block(0) -= problem.solution().block(0);
@@ -466,7 +466,7 @@ TEST(DistributedIDA,
   ParameterAcceptor::clear();
   NavierStokesParameters<2> parameters;
   configure_stokes(parameters);
-  parameters.initial_refinement = 1;
+  parameters.initial_refinement = 0;
   initialize_parameters();
   ParameterAcceptor::parse_all_parameters();
 

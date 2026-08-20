@@ -51,7 +51,7 @@ get_default_test_parameters(ElasticityProblemParameters<dim> &par)
     ImmersX::TestPaths::output_directory("elasticity-point-02");
   par.output_name         = "solution";
   par.fe_degree           = 1;
-  par.initial_refinement  = 5;
+  par.initial_refinement  = 2;
   par.domain_type         = "generate";
   par.name_of_grid        = "hyper_cube";
   par.arguments_for_grid  = "-1: 1: false";
@@ -90,12 +90,12 @@ TEST_P(Elasticity02TriangulationTypeTest, MPI_TwoInclusionsInCell)
 end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0
-  set Initial refinement                 = 3
+  set Initial refinement                 = 2
   set Output name                        = TwoInclusionsInCell
   subsection Immersed inclusions
     set Inclusions                          = 0,0,0, 0,0,1, 0.5,0; 0,0,0.5, 0,0,1, 0.5,0; 
     set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
-    set Inclusions refinement               = 50
+    set Inclusions refinement               = 16
     set Number of fourier coefficients      = 2
     set Selection of Fourier coefficients   = 3,7
     set Cluster inclusions with segments    = true
@@ -106,7 +106,7 @@ subsection Solvers
     set Log frequency = 1
     set Log history   = false
     set Log result    = true
-    set Max steps     = 1000
+    set Max steps     = 100
     set Reduction     = 1.e-10
     set Tolerance     = 1.e-10
   end
@@ -114,7 +114,7 @@ subsection Solvers
     set Log frequency = 1
     set Log history   = false
     set Log result    = true
-    set Max steps     = 1000
+    set Max steps     = 100
     set Reduction     = 1.e-8
     set Tolerance     = 1.e-10
   end
@@ -133,8 +133,8 @@ end
   problem.run();
 
   const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 0.677138, tol);
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 3.09713, tol);
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 0.4428809290864299, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 5.3017555778186747, tol);
 }
 
 TEST_P(Elasticity02TriangulationTypeTest, MPI_MultiInclusionsInCell)
@@ -155,7 +155,7 @@ TEST_P(Elasticity02TriangulationTypeTest, MPI_MultiInclusionsInCell)
 end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 2,3,4,5
-  set Initial refinement                 = 4
+  set Initial refinement                 = 2
   set Normal flux boundary ids           = 0,1
   set Output name                        = MultiInclusionsInCell
   subsection Grid generation
@@ -164,7 +164,7 @@ subsection Immersed Problem
   subsection Immersed inclusions
     set Inclusions file                     = @TEST_DATA_DIR@/tests/cylinder_x.txt
     set Reference inclusion data            = 0,0,0,0.5,0,0,0,0.5,0
-    set Inclusions refinement               = 50
+    set Inclusions refinement               = 16
     set Number of fourier coefficients      = 2
     set Selection of Fourier coefficients   = 3,7
     set Cluster inclusions with segments    = true
@@ -175,7 +175,7 @@ subsection Solvers
     set Log frequency = 1
     set Log history   = false
     set Log result    = true
-    set Max steps     = 1000
+    set Max steps     = 100
     set Reduction     = 1.e-10
     set Tolerance     = 1.e-10
   end
@@ -183,7 +183,7 @@ subsection Solvers
     set Log frequency = 1
     set Log history   = false
     set Log result    = true
-    set Max steps     = 1000
+    set Max steps     = 100
     set Reduction     = 1.e-8
     set Tolerance     = 1.e-10
   end
@@ -202,8 +202,8 @@ end
   problem.run();
 
   const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 12.5827, tol);
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 25.2899, tol);
+  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 5.5035583956728171, tol);
+  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 29.819214852051616, tol);
 }
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackends,

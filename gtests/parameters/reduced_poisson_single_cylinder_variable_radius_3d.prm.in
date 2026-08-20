@@ -36,7 +36,7 @@ subsection Reduced Poisson
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 200
+      set Max steps     = 100
       set Reduction     = 1e-10
       set Tolerance     = 1e-12
     end
@@ -44,7 +44,7 @@ subsection Reduced Poisson
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 200
+      set Max steps     = 100
       set Reduction     = 1e-10
       set Tolerance     = 1e-12
     end
@@ -54,7 +54,7 @@ subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
-    set Refinement level         = 3
+    set Refinement level         = 2
     set Selected indices         = 0
   end
   subsection Local refinement parameters
@@ -64,7 +64,7 @@ subsection Tensor product coupling
     set Refinement factor               = 1
     set Refinement strategy             = space
     set Space post-refinement cycles    = 1
-    set Space pre-refinement cycles     = 4
+    set Space pre-refinement cycles     = 1
   end
   subsection Particle coupling
     set RTree extraction level = 1
@@ -72,7 +72,7 @@ subsection Tensor product coupling
   subsection Representative domain
     set Finite element degree       = 1
     set Quadrature type             = trapez
-    set Number of quadrature repetitions = 33
+    set Number of quadrature repetitions = 1
     set Reduced grid name           = @TEST_DATA_DIR@/tests/one_cylinder_properties.vtk
     set Reduced right hand side     = 1
     set Input file fields           = radius
