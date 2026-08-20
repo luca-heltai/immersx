@@ -23,6 +23,10 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
+#include "test_paths.h"
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include "immersed_repartitioner.h"
@@ -44,7 +48,8 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
   background_tria.refine_global(5);
-  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  params.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
@@ -70,7 +75,11 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
   const auto &weights = tps.get_locally_owned_weights();
   particle_coupling.insert_points(qpoints, weights);
   // Output the particles to a file
-  const std::string filename = "particles_test.vtu";
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("particle-coupling");
+  std::filesystem::create_directories(output_directory);
+  const std::string filename =
+    (output_directory / "particles_test.vtu").string();
   particle_coupling.output_particles(filename);
 
   // Check that the file was written correctly
@@ -88,10 +97,11 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 
   // Output the background grid and its partitioning
   GridOut grid_out;
-  grid_out.write_mesh_per_processor_as_vtu(background_tria,
-                                           "particles_test_background");
   grid_out.write_mesh_per_processor_as_vtu(
-    tps.get_dof_handler().get_triangulation(), "particles_test_reduced");
+    background_tria, (output_directory / "particles_test_background").string());
+  grid_out.write_mesh_per_processor_as_vtu(
+    tps.get_dof_handler().get_triangulation(),
+    (output_directory / "particles_test_reduced").string());
 }
 
 TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
@@ -109,7 +119,8 @@ TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
   background_tria.refine_global(5);
-  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  params.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);

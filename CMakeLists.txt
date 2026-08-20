@@ -112,6 +112,34 @@ OPTION(ENABLE_DEAL_II_APP_TESTING
 OPTION(ENABLE_GOOGLE_TESTING 
 "Enable googletest style tests in this application." ON)
 
+# Test inputs are configured into the build tree so that tests never need to
+# infer the location of source data from their current working directory.
+SET(IMMERSX_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+SET(IMMERSX_BINARY_DIR "${CMAKE_BINARY_DIR}")
+SET(TEST_DATA_DIR "${IMMERSX_BINARY_DIR}/data")
+SET(TEST_OUTPUT_DIR "${IMMERSX_BINARY_DIR}/test_output")
+
+# Keep the test-input convention in one place. Every template below gtests/,
+# tests/, or data/ is emitted at the same relative path below the build tree,
+# with only the final .in suffix removed. @ONLY is intentional: parameter
+# files may contain CMake-like ${...} text which must reach the test unchanged.
+FILE(GLOB_RECURSE _immersx_test_input_templates CONFIGURE_DEPENDS
+  "${IMMERSX_SOURCE_DIR}/gtests/*.in"
+  "${IMMERSX_SOURCE_DIR}/tests/*.in"
+  "${IMMERSX_SOURCE_DIR}/data/*.in")
+
+FOREACH(_template ${_immersx_test_input_templates})
+  FILE(RELATIVE_PATH _relative_template
+    "${IMMERSX_SOURCE_DIR}" "${_template}")
+  STRING(REGEX REPLACE "\\.in$" "" _relative_output
+    "${_relative_template}")
+  GET_FILENAME_COMPONENT(_output_directory
+    "${IMMERSX_BINARY_DIR}/${_relative_output}" DIRECTORY)
+  FILE(MAKE_DIRECTORY "${_output_directory}")
+  CONFIGURE_FILE("${_template}"
+    "${IMMERSX_BINARY_DIR}/${_relative_output}" @ONLY)
+ENDFOREACH()
+
 # We add one library and one target for each type of deal.II library
 # we found. If you compiled deal.II with both Release and Debug
 # mode, this will generate both Release and Debug programs for you.

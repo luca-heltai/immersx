@@ -18,6 +18,7 @@ getting-started
 build-and-run
 tutorials/index
 testing
+contributing
 documentation
 time_residual_sundials
 repository-layout

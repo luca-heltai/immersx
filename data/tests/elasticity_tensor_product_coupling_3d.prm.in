@@ -85,7 +85,7 @@ subsection Immersed Problem
   set Initial refinement                 = 3
   set Neumann boundary ids               =
   set Normal flux boundary ids           =
-  set Output directory                   = elasticity_tensor_product_output
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/data/elasticity_tensor_product_coupling_3d
   set Output name                        = elasticity_tensor_product_coupling_3d
   set Output pressure                    = false
   set Output results also before solving = false
@@ -152,7 +152,7 @@ subsection Tensor product coupling
     set Number of quadrature points      = 4
     set Number of quadrature repetitions = 1
     set Quadrature type                  = gauss
-    set Reduced grid name                = ../data/tests/one_cylinder.vtk
+    set Reduced grid name                = @TEST_DATA_DIR@/tests/one_cylinder.vtk
     set Reduced right hand side          = 0.1; 0; 0
     set Thickness                        = 0.05
   end

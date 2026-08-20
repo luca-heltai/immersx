@@ -44,6 +44,9 @@ Makefile
 output/*
 input_file/*
 data/*
+!data/*.in
+!data/tests/
+!data/tests/*.in
 execute/*
 compile_commands.json
 */.DS_Store

@@ -12,6 +12,7 @@
 #include "legacy_inclusions.h"
 #include "reference_cross_section.h"
 #include "tensor_product_space.h"
+#include "test_paths.h"
 
 using namespace dealii;
 
@@ -19,8 +20,11 @@ TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
 {
   TensorProductSpaceParameters<0, 1, 2, 1> params;
   params.inclusions_file =
-    SOURCE_DIR "/gtests/fixtures/legacy_inclusions_2d.txt";
-  params.data_file = SOURCE_DIR "/gtests/fixtures/legacy_inclusions_2d.data";
+    ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.txt")
+      .string();
+  params.data_file =
+    ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.data")
+      .string();
   params.legacy_n_coefficients    = 3;
   params.input_file_fields        = "coefficient_0,coefficient_1,coefficient_2";
   params.section.refinement_level = 5;
@@ -53,7 +57,8 @@ TEST(LegacyInclusions, Vector2DInstantiationUsesSelectedReferenceBasis)
 {
   TensorProductSpaceParameters<0, 1, 2, 2> params;
   params.inclusions_file =
-    SOURCE_DIR "/gtests/fixtures/legacy_inclusions_2d.txt";
+    ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.txt")
+      .string();
   params.legacy_n_coefficients           = 1;
   params.legacy_reference_inclusion_data = {1., 2.};
   params.legacy_selected_coefficients    = {0, 1};
@@ -70,9 +75,11 @@ TEST(LegacyInclusions, Segment3DReconstructsCellsAndProperties)
 {
   TensorProductSpaceParameters<1, 2, 3, 3> params;
   params.inclusions_file =
-    SOURCE_DIR "/gtests/fixtures/legacy_inclusions_3d.txt";
-  params.data_file =
-    SOURCE_DIR "/gtests/fixtures/legacy_inclusions_3d_vector.data";
+    ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_3d.txt")
+      .string();
+  params.data_file = ImmersX::TestPaths::binary_path(
+                       "gtests/fixtures/legacy_inclusions_3d_vector.data")
+                       .string();
   params.legacy_n_coefficients = 1;
   params.input_file_fields =
     "coefficient_0,coefficient_1,coefficient_2,vessel_id";
@@ -117,7 +124,8 @@ check_segment_3d_measure()
 {
   TensorProductSpaceParameters<1, 2, 3, 1> params;
   params.inclusions_file =
-    SOURCE_DIR "/gtests/fixtures/legacy_inclusions_3d.txt";
+    ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_3d.txt")
+      .string();
   params.legacy_n_coefficients         = 1;
   params.section.refinement_level      = 5;
   params.section.selected_coefficients = {0};

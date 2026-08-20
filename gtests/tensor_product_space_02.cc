@@ -19,6 +19,7 @@
 #include "reduced_coupling.h"
 #include "reduced_poisson.h"
 #include "tensor_product_space.h"
+#include "test_paths.h"
 #include "utils.h"
 
 using namespace dealii;
@@ -116,8 +117,9 @@ TEST(TensorProductSpace0D, UnsupportedImportedInputs)
   {
     TensorProductSpaceParameters<0, 2, 2, 1> params;
     params.section.selected_coefficients = {0};
-    params.reduced_grid_name             = "unsupported.vtk";
-    params.point_cloud                   = cloud;
+    params.reduced_grid_name =
+      ImmersX::TestPaths::output_path("unsupported.vtk").string();
+    params.point_cloud = cloud;
     TensorProductSpace<0, 2, 2, 1> space(params);
     EXPECT_THROW(space.initialize(), ExceptionBase);
   }
@@ -339,7 +341,9 @@ TEST(TensorProductSpace0D, ImportsReorderedCellDataFromPointCloud)
 {
   TensorProductSpaceParameters<0, 2, 2, 1> params;
   params.reduced_grid_name =
-    SOURCE_DIR "/gtests/fixtures/point_cloud_cell_data_reordered.vtk";
+    ImmersX::TestPaths::binary_path(
+      "gtests/fixtures/point_cloud_cell_data_reordered.vtk")
+      .string();
   params.input_file_fields             = "radius";
   params.thickness                     = "radius";
   params.section.selected_coefficients = {0};
@@ -359,9 +363,15 @@ TEST(TensorProductSpace0D, ImportsReorderedCellDataFromPointCloud)
 TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
 {
   for (const std::string &filename :
-       {std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtk",
-        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtu",
-        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.pvtu"})
+       {ImmersX::TestPaths::binary_path(
+          "gtests/fixtures/point_cloud_minimal.vtk")
+          .string(),
+        ImmersX::TestPaths::binary_path(
+          "gtests/fixtures/point_cloud_minimal.vtu")
+          .string(),
+        ImmersX::TestPaths::binary_path(
+          "gtests/fixtures/point_cloud_minimal.pvtu")
+          .string()})
     {
       TensorProductSpaceParameters<0, 2, 2, 1> params;
       params.reduced_grid_name             = filename;
@@ -387,7 +397,8 @@ TEST(ReducedCoupling0D, MPI_ImportsDistributedPVTU)
 
   ReducedCouplingParameters<0, 2, 2, 1> params;
   params.tensor_product_space_parameters.reduced_grid_name =
-    SOURCE_DIR "/gtests/fixtures/point_cloud_minimal.pvtu";
+    ImmersX::TestPaths::binary_path("gtests/fixtures/point_cloud_minimal.pvtu")
+      .string();
   params.tensor_product_space_parameters.input_file_fields = "radius";
   params.tensor_product_space_parameters.thickness         = "radius";
   params.tensor_product_space_parameters.section.selected_coefficients = {0};

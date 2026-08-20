@@ -1,5 +1,5 @@
 subsection Error
-  set Error file name = dynamic_convergence/errors_purely_elastic_strong.txt
+  set Error file name = @TEST_OUTPUT_DIR@/gtests/parameters/dynamic_purely_elastic/dynamic_convergence/errors_purely_elastic.txt
   set Error precision = 8
 end
 subsection Functions
@@ -28,11 +28,11 @@ subsection Functions
   end
 end
 subsection Immersed Problem
-  set Dirichlet boundary ids             = 0,1,2,3
+  set Dirichlet boundary ids             =
   set Initial refinement                 = 4
-  set Output directory                   = dynamic_convergence
-  set Output name                        = purely_elastic_strong
-  set Weak Dirichlet boundary ids        =
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/dynamic_purely_elastic
+  set Output name                        = purely_elastic
+  set Weak Dirichlet boundary ids        = 0,1,2,3
   set Weak Dirichlet penalty coefficient = 1000
   subsection Grid generation
     set Grid generator arguments = 0: 1: true
