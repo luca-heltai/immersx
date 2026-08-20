@@ -780,9 +780,12 @@ namespace ImmersX
     setup_tensor_product_coupling_dofs();
 
     void
-    assemble_point_coupling();
+    assemble_point_coupling(const bool rebuild_matrices);
     void
     assemble_tensor_product_coupling();
+
+    /** Whether the point-coupling matrices are valid for the current DoFs. */
+    bool coupling_matrices_assembled = false;
 
     // Solver and output helpers
     bool
