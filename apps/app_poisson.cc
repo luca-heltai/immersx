@@ -16,11 +16,13 @@
 
 #include <deal.II/base/mpi.h>
 
+#include <immersx/physics/poisson.h>
+
 #include <iostream>
 #include <string>
 
-#include "poisson.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 
 
 int

@@ -14,18 +14,20 @@
 #include <deal.II/lac/solver_gmres.h>
 
 #include <gtest/gtest.h>
+#include <immersx/algebra/linear_algebra.h>
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
 #include <vector>
 
-#include "linear_algebra.h"
-#include "representation.h"
-#include "semidiscrete_pde_models.h"
-#include "sundials_ida_adapter.h"
+using namespace ImmersX;
+#include <immersx/core/representation.h>
+#include <immersx/core/semidiscrete_pde_models.h>
+#include <immersx/core/sundials_ida_adapter.h>
+#include <immersx/io/utils.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 using namespace dealii;
 

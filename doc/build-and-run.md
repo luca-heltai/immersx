@@ -4,7 +4,7 @@
 
 Required:
 
-- `CMake >= 3.10`
+- `CMake >= 3.18`
 - a C++ compiler supported by your `deal.II` build
 - `deal.II` compatible with the APIs used by this project
 
@@ -24,6 +24,9 @@ cd build
 cmake -DDEAL_II_DIR=/path/to/deal.II ..
 cmake --build . -j
 ```
+
+For installation and downstream `find_package(ImmersX)` use, see
+{doc}`packaging`.
 
 Executables are generated from files in `apps/app_*.cc`, for example `elasticity`, `laplacian`, `reduced_poisson`, and `coupled_elasticity`.
 

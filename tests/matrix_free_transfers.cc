@@ -16,10 +16,13 @@
 
 #include <deal.II/base/function_lib.h>
 
-#include <matrix_free_utils.h>
+#include <immersx/algebra/matrix_free_utils.h>
+
+using namespace ImmersX;
+
+#include <immersx/physics/laplacian.h>
 
 #include "../tests/tests.h"
-#include "laplacian.h"
 
 // Test the matrix-free transfer.
 

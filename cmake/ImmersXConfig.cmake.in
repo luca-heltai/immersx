@@ -1,0 +1,16 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(deal.II 9.2)
+
+if(@OpenMP_CXX_FOUND@)
+  find_dependency(OpenMP)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/ImmersXTargets.cmake")
+
+set(ImmersX_VERSION "@PROJECT_VERSION@")
+set(ImmersX_DATA_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/immersx")
+set(ImmersX_TEST_DATA_DIR "${ImmersX_DATA_DIR}/tests")
+
+check_required_components(ImmersX)

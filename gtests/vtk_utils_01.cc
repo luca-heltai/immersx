@@ -23,6 +23,7 @@
 
 #include <deal.II/numerics/vector_tools.h> // Added for VectorTools
 
+#include <immersx/core/reduced_field_utils.h>
 #include <mpi.h>
 
 #include <cstdio>  // For std::remove
@@ -31,9 +32,11 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "reduced_field_utils.h"
+
+using namespace ImmersX;
+#include <immersx/io/vtk_utils.h>
+
 #include "test_paths.h"
-#include "vtk_utils.h"
 
 namespace LA = dealii::LinearAlgebra;
 using namespace dealii;

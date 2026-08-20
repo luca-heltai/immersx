@@ -546,7 +546,7 @@ EXTRACT_STATIC         = YES
 # for Java sources.
 # The default value is: YES.
 
-EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_LOCAL_CLASSES  = NO
 
 # This flag is only useful for Objective-C code. If set to YES, local methods,
 # which are defined in the implementation section but not in the interface are
@@ -1013,7 +1013,12 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which Doxygen is
 # run.
 
-EXCLUDE                = ./include/fvm
+# These implementation files contain private parsing records whose members are
+# not part of the public API.  Excluding them also keeps Doxygen versions that
+# still extract local struct members from generating dangling Breathe pages.
+EXCLUDE                = ./include/immersx/fvm \
+                         ./source/input_field_selector.cc \
+                         ./source/legacy_inclusions.cc
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded

@@ -14,7 +14,7 @@
 ## ---------------------------------------------------------------------
 set(_target gtests)
 
-file(GLOB _test_files *cc)
+file(GLOB _test_files CONFIGURE_DEPENDS *cc)
 
 include(GoogleTest)
 
@@ -32,20 +32,27 @@ FOREACH(_build_type ${_d2_build_types})
     
     MESSAGE("-- Setting up ${_exe}")
     add_executable(${_exe} ${_test_files})
+    target_include_directories(${_exe} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     TARGET_LINK_LIBRARIES(${_exe} ${TEST_LIBRARIES_${_BUILD_TYPE}} ${GTEST_MAIN_LIBRARY} ${GTEST_LIBRARIES})   
     # Test paths are configured explicitly so the gtest binary can be launched
     # from any working directory.
     TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE
+      SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
       IMMERSX_SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
       IMMERSX_BINARY_DIR="${IMMERSX_BINARY_DIR}"
       TEST_DATA_DIR="${TEST_DATA_DIR}"
       TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}")
     IF(ENABLE_COUPLED_PROBLEMS)
-      TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC ENABLE_COUPLED_PROBLEMS)
+      TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
     ENDIF()
     DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
-    include_directories(${GTEST_INCLUDE_DIRS})
+    target_include_directories(${_exe} PRIVATE ${GTEST_INCLUDE_DIRS})
+    LIST(APPEND IMMERSX_TEST_TARGETS ${_exe})
+    IF(IMMERSX_INSTALL_TESTS)
+      INSTALL(TARGETS ${_exe}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/immersx/tests)
+    ENDIF()
     
     # gtest_discover_tests(${_exe})
   ENDIF()
