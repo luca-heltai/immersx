@@ -11,6 +11,8 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/lac/solver_gmres.h>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
