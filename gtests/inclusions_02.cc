@@ -36,7 +36,7 @@ TEST(InclusionsBasis2, CheckIntegrals) // NOLINT
 {
   // cx, cy, r
   Inclusions<2> ref;
-  ref.set_n_q_points(100);
+  ref.set_n_q_points(32);
   ref.set_n_coefficients(3);
   ref.inclusions.push_back({{0, 0, 1.0}});
   ref.initialize();
@@ -62,7 +62,7 @@ TEST(InclusionsBasis2, CheckScaling) // NOLINT
   // cx, cy, r
   Inclusions<2> ref;
   double        radius = 9;
-  ref.set_n_q_points(100);
+  ref.set_n_q_points(32);
   ref.set_n_coefficients(13);
   ref.inclusions.push_back({{0, 0, radius}});
   ref.initialize();

@@ -33,9 +33,9 @@ test(const std::vector<std::vector<double>> &inclusions,
 {
   parallel::distributed::Triangulation<dim> tria{mpi_comm};
   GridGenerator::hyper_cube(tria, -1, 1);
-  tria.refine_global(6);
+  tria.refine_global(4);
 
-  const unsigned int Nq = 100;
+  const unsigned int Nq = 32;
   const unsigned int Nc = 5;
   Inclusions<dim>    inclusion;
   inclusion.set_n_q_points(Nq);

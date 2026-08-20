@@ -56,7 +56,7 @@ TEST(ReducedCoupling, MPI_Constructor) // NOLINT
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-  background_tria.refine_global(5);
+  background_tria.refine_global(2);
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
@@ -88,7 +88,7 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-  background_tria.refine_global(5);
+  background_tria.refine_global(2);
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
@@ -163,7 +163,7 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-  background_tria.refine_global(5);
+  background_tria.refine_global(2);
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 

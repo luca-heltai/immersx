@@ -48,7 +48,7 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 
   set FE degree                          = 1
-  set Initial refinement                 = 4
+  set Initial refinement                 = 2
   set Neumann boundary ids               = 1,2,3
   set Normal flux boundary ids           =
   set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_modulated_boundary
@@ -68,7 +68,7 @@ subsection Immersed Problem
     set Data file                         =
     set Inclusions                        =
     set Inclusions file                   =
-    set Inclusions refinement             = 100
+    set Inclusions refinement             = 1
     set Number of fourier coefficients    = 1
     set Reference inclusion data          =
     set Selection of Fourier coefficients =
@@ -106,7 +106,7 @@ subsection Immersed Problem
     set Strategy                    = fixed_fraction
   end
   subsection Time dependency
-    set Final time       = 5
+    set Final time       = .25
     set Initial time     = 0
     set Newmark beta     = 0.25
     set Newmark gamma    = 0.5

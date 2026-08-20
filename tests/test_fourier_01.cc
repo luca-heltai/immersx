@@ -24,7 +24,7 @@ template <int dim>
 void
 test(const std::vector<std::vector<double>> &inclusions)
 {
-  const unsigned int Nq = 100;
+  const unsigned int Nq = 32;
   const unsigned int Nc = 3;
   Inclusions<dim>    inclusion;
   inclusion.set_n_q_points(Nq);

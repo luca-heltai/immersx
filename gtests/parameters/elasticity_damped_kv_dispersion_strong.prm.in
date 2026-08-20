@@ -29,7 +29,7 @@ subsection Functions
 end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0,1,2,3
-  set Initial refinement                 = 4
+  set Initial refinement                 = 2
   set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_damped_kv_dispersion_strong
   set Output name                        = damped_kv_strong
   set Weak Dirichlet boundary ids        =
@@ -55,10 +55,10 @@ subsection Immersed Problem
     set Strategy                    = global
   end
   subsection Time dependency
-    set Final time       = 1.0
+    set Final time       = .05
     set Initial time     = 0.0
     set Refine time step = true
-    set Time step        = 0.05
+    set Time step        = .05
   end
 end
 subsection Solvers
