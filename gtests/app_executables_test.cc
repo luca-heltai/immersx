@@ -161,3 +161,10 @@ TEST(AppExecutables, ReducedPoisson)
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_discovered_params("reduced_poisson");
 }
+
+TEST(AppExecutables, NavierStokes)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+  run_app_with_discovered_params("navier_stokes");
+}
