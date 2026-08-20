@@ -22,6 +22,7 @@
 #include <filesystem>
 
 #include "poisson.h"
+#include "test_paths.h"
 #include "utils.h"
 
 
@@ -90,7 +91,7 @@ TEST(Poisson, MPI_OneCycleSolve)
   )");
 
   parameters.output_directory =
-    (std::filesystem::temp_directory_path() / "immersx_poisson_01").string();
+    ImmersX::TestPaths::output_directory("poisson-01");
 
   PoissonSolver<2> problem(parameters);
   problem.run();
@@ -138,8 +139,7 @@ TEST(Poisson, MPI_EmbeddedOneDimensionalSolve)
   )");
 
   parameters.output_directory =
-    (std::filesystem::temp_directory_path() / "immersx_poisson_embedded_01")
-      .string();
+    ImmersX::TestPaths::output_directory("poisson-embedded-01");
 
   PoissonSolver<1, 2> problem(parameters);
   problem.run();

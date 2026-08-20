@@ -2,7 +2,7 @@ subsection Poisson
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
   set Initial refinement                 = 1
-  set Output directory                   = /private/tmp/immersx_poisson_app
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/poisson_simple_2d
   set Output name                        = poisson_app_mpi
   set Output results also before solving = false
   subsection Dirichlet boundary conditions

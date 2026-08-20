@@ -19,6 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
+#include "test_paths.h"
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include "reduced_poisson.h"
@@ -30,14 +34,18 @@ TEST(ReducedPoisson, MPI_OneCylinder) // NOLINT
 {
   ParameterAcceptor::clear();
   ReducedPoissonParameters<3> par;
-  initialize_parameters(SOURCE_DIR
-                        "/data/tests/reduced_poisson_01_one_cylinder.prm",
-                        "reduced_poisson_01_one_cylinder.prm");
+  initialize_parameters(ImmersX::TestPaths::data_filename(
+                          "tests/reduced_poisson_01_one_cylinder.prm"),
+                        ImmersX::TestPaths::output_directory(
+                          "reduced-poisson/one-cylinder.prm"));
 
   par.reduced_coupling_parameters.tensor_product_space_parameters
-    .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
-  par.output_directory = SOURCE_DIR "/data/tests/tests_results";
-  par.output_name      = "reduced_poisson_01_one_cylinder";
+    .reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+  par.output_directory =
+    ImmersX::TestPaths::output_directory("reduced-poisson/one-cylinder");
+  par.output_name = "reduced_poisson_01_one_cylinder";
+  std::filesystem::create_directories(par.output_directory);
 
   ReducedPoisson<3> problem(par);
   problem.run();
@@ -48,13 +56,16 @@ TEST(ReducedPoisson, MPI_OneCylinderP1) // NOLINT
 {
   ParameterAcceptor::clear();
   ReducedPoissonParameters<3> par;
-  initialize_parameters(SOURCE_DIR
-                        "/data/tests/reduced_poisson_01_one_cylinder_p1.prm");
+  initialize_parameters(ImmersX::TestPaths::data_filename(
+    "tests/reduced_poisson_01_one_cylinder_p1.prm"));
 
   par.reduced_coupling_parameters.tensor_product_space_parameters
-    .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
-  par.output_directory = SOURCE_DIR "/data/tests/tests_results";
-  par.output_name      = "reduced_poisson_01_one_cylinder_p1";
+    .reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+  par.output_directory =
+    ImmersX::TestPaths::output_directory("reduced-poisson/one-cylinder-p1");
+  par.output_name = "reduced_poisson_01_one_cylinder_p1";
+  std::filesystem::create_directories(par.output_directory);
   par.reduced_coupling_parameters.tensor_product_space_parameters.section
     .inclusion_degree = 1;
 

@@ -1,5 +1,48 @@
 AGENTS.md
 
+## Current repository conventions
+
+The repository-specific contribution guide is
+[`doc/contributing.md`](doc/contributing.md). The rules below are normative
+for new work and supersede older examples in this file when they differ.
+
+- Use an out-of-source CMake build. Configure with `cmake -S . -B
+  build-debug -DCMAKE_BUILD_TYPE=Debug` (and set `DEAL_II_DIR` when needed),
+  then build with `cmake --build build-debug -j`.
+- The top-level CMakeLists preprocesses every `.in` file below `gtests/`,
+  `tests/`, and `data/`. The generated file is written below the build tree
+  with the same relative path and only the final `.in` suffix removed. This
+  rule is general: it applies to `.prm.in`, `.txt.in`, `.vtk.in`, `.vtu.in`,
+  and any other extension.
+- Test parameter files and test fixtures that need preprocessing belong in
+  `.prm.in`/`.in` templates. Templates may use
+  `@IMMERSX_SOURCE_DIR@`, `@IMMERSX_BINARY_DIR@`, `@TEST_DATA_DIR@`, and
+  `@TEST_OUTPUT_DIR@`; CMake uses `configure_file(... @ONLY)`.
+- Consumers must use the generated build-tree `.prm`/fixture path. Do not add
+  `../data/...`, source-tree output paths, cwd-dependent filenames, or a
+  `build/data -> source/data` symlink workaround.
+- GoogleTests should use `gtests/test_paths.h` for data, generated parameters,
+  and output directories. Keep all generated files below `TEST_OUTPUT_DIR`.
+  Inline parameter strings must use an absolute helper path or a configured
+  token expanded with `expand_configured_paths()`.
+- A GoogleTest intended for MPI must include `MPI_` in its test name. Serial
+  tests are selected by the one-rank driver; MPI tests are selected by the
+  two-rank driver in `gtests/gtest_main.cc`.
+- Validate gtests from the build directory, repository root, and an unrelated
+  directory. At minimum run the serial binary and
+  `mpirun -np 2 /absolute/path/to/build-debug/gtests/gtests_debug` (or the
+  Release `gtests` binary), plus the relevant `ctest` tests.
+- Application tests use generated parameter files and a private scratch
+  directory under the build tree. Application output must not be written to
+  the source tree.
+- Before a commit or pull request, run `./scripts/indent` from the repository
+  root and review the complete diff. Do not commit, push, or open a pull
+  request unless explicitly requested.
+
+When adding documentation, update the `doc/index.md` toctree for a new page.
+The contributor workflow, parameter-file examples, test matrix, and
+working-directory robustness checks are maintained in `doc/contributing.md`.
+
 This repository uses CMake as its build system and provides two test infrastructures:
 
 - GoogleTest-based unit tests (under gtests/)
@@ -9,11 +52,9 @@ This document explains how to add tests to both infrastructures, how to run them
 
 1) Quick: build & run all tests
 
-  mkdir -p build
-  cd build
-  cmake ..
-  make -j
-  ctest -j4
+  cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug
+  cmake --build build-debug -j
+  ctest --test-dir build-debug --output-on-failure
 
 Notes:
 - Use -V with ctest for verbose output (ctest -V -R "regex").
@@ -65,12 +106,11 @@ MPI test naming and execution
   component, for example `TEST(MyFeature, MPI_DistributedSolve)` or
   `TEST_P(MyFixture, MPI_DistributedSolve)`. A test without `MPI_` is a serial
   test by default and will not be selected by the default `mpirun` invocation.
-- Run the binaries from the build directory. Relative test data paths such as
-  `../data/tests/...` are resolved from there:
+- Run the binaries with their build-tree paths. The tests must not depend on
+  the working directory:
 
-      mkdir -p build-debug/test_directory
-      (cd build-debug/test_directory && ../gtests/gtests_debug)
-      (cd build-debug/test_directory && mpirun -np 2 ../gtests/gtests_debug)
+      build-debug/gtests/gtests_debug
+      (cd /tmp && mpirun -np 2 /absolute/path/to/build-debug/gtests/gtests_debug)
 
   Use `gtests` instead of `gtests_debug` for a Release build. A focused serial
   run can select non-MPI tests with `--gtest_filter='SuiteName.*'`; a focused
@@ -87,12 +127,16 @@ Overview
 How to add a deal.II testsuite test
 
 Type A: parameter-file driven (use an existing executable)
-- Place a parameter file and a .output in tests/<category>/:
+- Place a parameter template and a .output in tests/<category>/:
 
-    tests/<category>/my_case.prm
+    tests/<category>/my_case.prm.in
     tests/<category>/my_case.output
 
-- In this mode CTest will call a pre-built executable (configured via TEST_TARGET in CMake) with the parameter file as its first argument. You must set TEST_TARGET in the corresponding CMakeLists if necessary (see examples below).
+- CMake generates `build-*/tests/<category>/my_case.prm` before the tests are
+  configured. CTest calls the pre-built executable (configured via TEST_TARGET
+  in CMake) with that generated parameter file as its first argument. You must
+  set TEST_TARGET in the corresponding CMakeLists if necessary (see examples
+  below).
 
 Type B: source-driven test (standalone test executable)
 - Add a small executable source with an int main() that writes its results to deallog or to stdout/file "output".
@@ -122,11 +166,11 @@ Useful macros and variables
 - TEST_TIME_LIMIT, TEST_MPI_RANK_LIMIT, TEST_THREAD_LIMIT — limits passed to the testsuite when setting up tests
 
 How to access auxiliary files from a test
-- When a test needs auxiliary data files (e.g. .data or .prm that refer to data), use the preprocessor define SOURCE_DIR (passed by the repository CMake to test targets) to form paths relative to the source tree. Example inside test code:
-
-    const std::string data_file = std::string(SOURCE_DIR) + "/tests/my_category/my_data.data";
-
-This ensures tests find their input files regardless of the build directory layout.
+- Put auxiliary data and parameter inputs below `tests/`, `gtests/`, or
+  `data/` as `.in` templates. Refer to generated files below the build tree
+  using the configured absolute variables documented at the top of this file.
+  A runtime input must never be found by relying on the current directory or
+  by writing a source-tree-relative path into a parameter file.
 
 Running and debugging an individual deal.II test
 - After building, run ctest -V -R "category/my_test" to build, run, and print verbose logs for the test
@@ -140,10 +184,10 @@ Common file name conventions
 
 - Add a new GoogleTest unit:
   - Create gtests/my_new_feature.cc with TEST() cases
-  - Run cmake .. to pick it up, build and run tests
+  - Reconfigure with `cmake -S . -B build-debug`, build, and run the tests
 
 - Add a new deal.II test that runs an existing executable with a parameter file:
-  - Put my_case.prm and my_case.output in tests/my_category/
+  - Put my_case.prm.in and my_case.output in tests/my_category/
   - In tests/my_category/CMakeLists.txt set SET(TEST_TARGET my_executable)
   - Add the directory to top-level CMake if tests folder not already included
   - Reconfigure and run ctest -V -R "my_category/my_case"
@@ -151,7 +195,7 @@ Common file name conventions
 - Add a new testsuite source test:
   - Create tests/my_category/my_test.cc (see template below)
   - Create tests/my_category/my_test.output (can be empty; run once to produce output then copy back)
-  - run cmake .. && ctest -V -R "my_category/my_test"
+  - run `cmake -S . -B build-debug` and `ctest --test-dir build-debug -V -R "my_category/my_test"`
 
 Template for a simple deal.II test source:
 
@@ -167,7 +211,8 @@ Template for a simple deal.II test source:
 
 - No tests found by ctest: ensure ENABLE_TESTING() was called (top-level CMake does call it) and that DEAL_II_PICKUP_TESTS() discovered *.output files. Also ensure you re-ran CMake after adding new test files.
 - Test fails at DIFF stage: run ctest -V -R "regex" to see generated output path (BUILD_DIR/tests/...) and compare against committed .output. If differences are numerical, install and configure numdiff and set NUMDIFF_EXECUTABLE so tests use tolerant comparison.
-- Tests that need data files: use SOURCE_DIR or construct file paths at runtime so tests find resources regardless of build directory.
+- Tests that need data files: use generated build-tree paths or configured
+  absolute paths so tests find resources regardless of build directory.
 - Multi-config / build-type issues: the project config builds both Debug and Release variants depending on how deal.II was configured. Look for postfixed binaries (_debug) when invoking them directly.
 
 6) CI (GitHub Actions)
@@ -189,9 +234,8 @@ Template for a simple deal.II test source:
       ninja
       ctest -N
       ctest --output-on-failure
-      mkdir -p test_directory
-      (cd test_directory && ../gtests/gtests_debug)
-      (cd test_directory && mpirun -n 2 ../gtests/gtests_debug)
+      ./gtests/gtests_debug
+      mpirun -n 2 ./gtests/gtests_debug
 
       # Release (run from the repository root)
       rm -rf build_linux_release
@@ -201,9 +245,8 @@ Template for a simple deal.II test source:
       ninja
       ctest -N
       ctest --output-on-failure
-      mkdir -p test_directory
-      (cd test_directory && ../gtests/gtests)
-      (cd test_directory && mpirun -n 2 ../gtests/gtests)
+      ./gtests/gtests
+      mpirun -n 2 ./gtests/gtests
 
 - MPI tests should pass with two ranks. When running locally, `mpirun -np 2` is
   equivalent to the workflow's `mpirun -n 2`.
@@ -269,7 +312,7 @@ while field-dependent symbolic expressions require SymEngine.
 
 When adding a parallel GoogleTest, put `MPI_` in the individual test name (for
 example `TEST(Foo, MPI_DistributedFieldTransfer)`). Serial execution excludes
-these names, while the CI command `(cd test_directory && mpirun -n 2 ../gtests/gtests_debug)` selects
+these names, while the CI command `mpirun -n 2 ./gtests/gtests_debug` selects
 them. The MPI test main also adds `*.MPI_*` to an explicitly requested filter,
 so a focused parallel invocation may run the complete MPI subset; use the
 serial command for focused non-MPI tests.
@@ -281,21 +324,19 @@ Use out-of-source builds from the build directory:
 ```bash
 cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DENABLE_GOOGLE_TESTING=ON
 cmake --build build-debug --target gtests_debug -j$(nproc)
-(cd build-debug/test_directory && ../gtests/gtests_debug)
-(cd build-debug/test_directory && mpirun -np 2 ../gtests/gtests_debug)
+./build-debug/gtests/gtests_debug
+mpirun -np 2 ./build-debug/gtests/gtests_debug
 
 cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DENABLE_GOOGLE_TESTING=ON
 cmake --build build-release --target gtests -j$(nproc)
-mkdir -p build-release/test_directory
-(cd build-release/test_directory && ../gtests/gtests)
-(cd build-release/test_directory && mpirun -np 2 ../gtests/gtests)
+./build-release/gtests/gtests
+mpirun -np 2 ./build-release/gtests/gtests
 ```
 
 During development, run the focused tensor-product elasticity tests with:
 
 ```bash
-mkdir -p build-debug/test_directory
-(cd build-debug/test_directory && ../gtests/gtests_debug --gtest_filter='*ElasticityTensorProductCoupling*')
+./build-debug/gtests/gtests_debug --gtest_filter='*ElasticityTensorProductCoupling*'
 ```
 
 New or modified code must compile without warnings in both configurations. Existing

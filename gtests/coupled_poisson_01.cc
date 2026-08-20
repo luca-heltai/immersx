@@ -25,6 +25,7 @@
 #include "lagrange_multiplier_schur_solver.h"
 #include "poisson.h"
 #include "representation.h"
+#include "test_paths.h"
 #include "utils.h"
 
 
@@ -93,8 +94,7 @@ TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
   )");
 
   const auto output_directory =
-    (std::filesystem::temp_directory_path() / "immersx_coupled_poisson_01")
-      .string();
+    ImmersX::TestPaths::output_directory("coupled-poisson-01");
   bulk_parameters.output_directory     = output_directory;
   embedded_parameters.output_directory = output_directory;
   bulk_parameters.output_name          = "coupled_bulk";

@@ -3,6 +3,7 @@
 #include <filesystem>
 
 #include "elasticity.h"
+#include "test_paths.h"
 
 using namespace dealii;
 
@@ -16,10 +17,12 @@ TEST(ElasticityCouplingParticleOutput, WritesTensorProductParticles)
   par.name_of_grid       = "hyper_cube";
   par.arguments_for_grid = "-1: 1: false";
   par.initial_refinement = 1;
-  par.output_directory   = "tests_debug_output";
-  par.output_name        = "elasticity_tensor_product_particles";
+  par.output_directory =
+    ImmersX::TestPaths::output_directory("elasticity-tensor-product-particles");
+  par.output_name = "elasticity_tensor_product_particles";
   par.tensor_product_coupling_parameters.tensor_product_space_parameters
-    .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+    .reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
   par.tensor_product_coupling_parameters.coupling_rhs_expressions = {"1",
                                                                      "0",
                                                                      "0"};
@@ -30,7 +33,8 @@ TEST(ElasticityCouplingParticleOutput, WritesTensorProductParticles)
   // Parsing applies registered defaults; set the test-specific values after it.
   par.coupling_type = CouplingType::TensorProduct;
   par.tensor_product_coupling_parameters.tensor_product_space_parameters
-    .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+    .reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
   par.tensor_product_coupling_parameters.coupling_rhs_expressions = {"1",
                                                                      "0",
                                                                      "0"};

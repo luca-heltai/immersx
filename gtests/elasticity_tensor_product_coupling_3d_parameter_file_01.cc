@@ -2,6 +2,7 @@
 
 #include "elasticity.h"
 #include "elasticity_problem_parameters.h"
+#include "test_paths.h"
 #include "utils.h"
 
 #ifdef DEAL_II_WITH_VTK
@@ -13,8 +14,8 @@ TEST(ElasticityCoupling, MPI_ThreeDimensionalParameterFile)
   ParameterAcceptor::clear();
 
   ElasticityProblemParameters<3> par;
-  ASSERT_NO_THROW(initialize_parameters(
-    SOURCE_DIR "/data/tests/elasticity_tensor_product_coupling_3d.prm"));
+  ASSERT_NO_THROW(initialize_parameters(ImmersX::TestPaths::data_filename(
+    "tests/elasticity_tensor_product_coupling_3d.prm")));
   ASSERT_EQ(par.coupling_type, CouplingType::TensorProduct);
 
   ElasticityProblem<3> problem(par);

@@ -1,26 +1,21 @@
 // ---------------------------------------------------------------------
-// Test that the example applications in `apps/` run with minimal parameter
-// files. This extends test coverage without heavy computation.
+// Test that the example applications in `apps/` run with generated parameter
+// files. This extends test coverage without relying on the launch directory.
 // ---------------------------------------------------------------------
 #include <deal.II/base/mpi.h>
 
-#include <dirent.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
-static std::string
-source_path(const char *relative_path)
-{
-  return std::string(APP_SOURCE_DIR) + "/" + relative_path;
-}
+#include "test_paths.h"
 
-// Quote a path for the POSIX shell used by std::system().  The paths passed to
-// this test are generated from the source tree and build tree, but quoting
-// them also keeps the test working when either directory contains spaces.
+// Quote a path for the POSIX shell used by std::system().
 static std::string
 shell_quote(const std::string &value)
 {
@@ -45,27 +40,64 @@ executable_name(const char *exe)
 #endif
 }
 
-// Run an executable with an arbitrary argument string and expect exit status 0.
 static void
-run_application(const char *exe, const std::string &args)
+prepare_parameter_outputs(const std::filesystem::path &parameter_file)
 {
-  // Keep all application-generated files below the build tree.  The parameter
-  // files use paths such as ../data/..., which resolve to the source data
-  // directory through this build-local link when the test runs below.
-  const std::string test_directory =
-    std::string(APP_BINARY_DIR) + "/test_directory";
-  const std::string data_link = std::string(APP_BINARY_DIR) + "/data";
-  const std::string setup_cmd =
-    "mkdir -p " + shell_quote(test_directory) + " && " + "ln -sfn " +
-    shell_quote(source_path("data")) + " " + shell_quote(data_link);
-  const int setup_ret = std::system(setup_cmd.c_str());
-  ASSERT_EQ(setup_ret, 0) << "Could not prepare application test directory: "
-                          << setup_cmd;
+  std::ifstream input(parameter_file);
+  ASSERT_TRUE(input.good()) << "Could not open generated parameter file '"
+                            << parameter_file.string() << "'.";
 
-  const std::string executable =
-    std::string(APP_BINARY_DIR) + "/" + executable_name(exe);
-  const std::string cmd = "cd " + shell_quote(test_directory) + " && " +
-                          shell_quote(executable) + " " + args;
+  std::string line;
+  while (std::getline(input, line))
+    {
+      const auto output_key = line.find("set Output directory");
+      const auto error_key  = line.find("set Error file name");
+      const auto key = output_key != std::string::npos ? output_key : error_key;
+      if (key == std::string::npos)
+        continue;
+
+      const auto equals = line.find('=', key);
+      if (equals == std::string::npos)
+        continue;
+
+      auto       value = line.substr(equals + 1);
+      const auto first = value.find_first_not_of(" \t");
+      const auto last  = value.find_last_not_of(" \t\r");
+      if (first == std::string::npos)
+        continue;
+      value = value.substr(first, last - first + 1);
+
+      const std::filesystem::path path(value);
+      const auto                  directory =
+        output_key != std::string::npos ? path : path.parent_path();
+      if (directory.empty())
+        continue;
+
+      std::error_code error;
+      std::filesystem::create_directories(directory, error);
+      ASSERT_FALSE(error) << "Could not prepare parameter output directory '"
+                          << directory.string() << "': " << error.message();
+    }
+}
+
+// Run an executable from a private build-tree directory and expect exit
+// status 0. Generated parameter files contain absolute input and output paths,
+// so this working directory is only scratch space for legacy relative files.
+static void
+run_application(const char                  *exe,
+                const std::filesystem::path &parameter_file,
+                const std::filesystem::path &run_directory)
+{
+  std::error_code error;
+  std::filesystem::create_directories(run_directory, error);
+  ASSERT_FALSE(error) << "Could not prepare application test directory '"
+                      << run_directory.string() << "': " << error.message();
+  prepare_parameter_outputs(parameter_file);
+
+  const auto executable = ImmersX::TestPaths::binary_path(executable_name(exe));
+  const std::string cmd = "cd " + shell_quote(run_directory.string()) + " && " +
+                          shell_quote(executable.string()) + " " +
+                          shell_quote(parameter_file.string());
   const int ret = std::system(cmd.c_str());
   EXPECT_EQ(ret, 0) << "Command failed: " << cmd;
 }
@@ -78,37 +110,32 @@ is_single_rank()
   return dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1;
 }
 
-// Find parameter files in `gtests/parameters` whose filename starts with
-// the given application name. Returns full path (prefixed with SOURCE_DIR).
-static std::vector<std::string>
+// Find generated parameter files whose filename starts with the given
+// application name.
+static std::vector<std::filesystem::path>
 find_parameter_files(const std::string &app_name)
 {
-  std::vector<std::string> result;
-  const std::string        dir = source_path("gtests/parameters");
-  DIR                     *d   = opendir(dir.c_str());
-  if (!d)
-    return result;
-
-  struct dirent *ent;
-  while ((ent = readdir(d)) != nullptr)
+  std::vector<std::filesystem::path> result;
+  const auto      dir = ImmersX::TestPaths::binary_path("gtests/parameters");
+  std::error_code error;
+  for (const auto &entry : std::filesystem::directory_iterator(dir, error))
     {
-      const std::string name = ent->d_name;
-      if (name.size() == 0)
+      if (error)
+        break;
+      const auto &path = entry.path();
+      const auto  name = path.filename().string();
+      if (!entry.is_regular_file() || path.extension() != ".prm")
         continue;
-      if (name[0] == '.')
-        continue;
-      // match prefix
       if (name.rfind(app_name, 0) == 0)
-        result.push_back(dir + "/" + name);
+        result.push_back(path);
     }
-  closedir(d);
 
   std::sort(result.begin(), result.end());
   return result;
 }
 
-// Run the given executable once for each matching parameter file in
-// `gtests/parameters`. If none found, skip the test.
+// Run the given executable once for each matching generated parameter file.
+// If none are found, skip the test.
 static void
 run_app_with_discovered_params(const char *exe)
 {
@@ -117,13 +144,12 @@ run_app_with_discovered_params(const char *exe)
   if (files.empty())
     GTEST_SKIP() << "No parameter files found for " << app_name;
 
-  for (const auto &f : files)
+  for (const auto &parameter_file : files)
     {
-      std::string args = shell_quote(f);
-      // Special case: coupled_elasticity needs an extra 1D input file
-      if (app_name == "coupled_elasticity")
-        args += " " + shell_quote(source_path("prms/input_1d.dat"));
-      run_application(exe, args);
+      const auto run_directory =
+        ImmersX::TestPaths::output_path("app_executables") /
+        executable_name(exe) / parameter_file.stem();
+      run_application(exe, parameter_file, run_directory);
     }
 }
 

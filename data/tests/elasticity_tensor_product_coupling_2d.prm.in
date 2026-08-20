@@ -1,6 +1,6 @@
 subsection Immersed Problem
   set FE degree                          = 1
-  set Output directory                   = elasticity_tensor_product_output
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/data/elasticity_tensor_product_coupling_2d
   set Output name                        = elasticity_tensor_product_coupling_2d
   set Coupling type = TensorProduct
   set Output results also before solving = false
@@ -61,7 +61,7 @@ subsection Tensor product coupling
   subsection Representative domain
     set Finite element degree       = 1
     set Number of quadrature points = 4
-    set Reduced grid name           = ../data/tests/one_segment_2d.vtk
+    set Reduced grid name           = @TEST_DATA_DIR@/tests/one_segment_2d.vtk
     set Reduced right hand side     = 1; 0
     set Thickness                   = 0.05
   end
