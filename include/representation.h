@@ -26,6 +26,7 @@
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/fe_values_extractors.h>
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/lac/affine_constraints.h>
@@ -35,26 +36,46 @@
 #include <utility>
 #include <vector>
 
+#include "field.h"
 #include "linear_algebra.h"
 #include "tensor_product_space.h"
 
 /**
  * One physical quadrature point together with the algebraic data that
- * represents its field value.
+ * represents its physical field value.
  *
  * A direct finite-element representation fills this structure with the DoFs
  * on the local FE cell and their basis values. A later TensorProductSpace
  * adapter can provide the same data with representative DoFs instead, without
  * materializing an explicit R or R^T matrix.
+ *
+ * `ValueType` is the physical value carried by one basis function. It is
+ * scalar for the existing identity and tensor-product coupling path, but can
+ * be a `dealii::Tensor` for vector- or tensor-valued observables. The local
+ * DoF slots are retained even when an extractor gives a zero value for a
+ * different field in a mixed element; this preserves the FE indexing needed
+ * by later assembly adapters while keeping the physical value typed.
  */
-template <int spacedim>
+template <int spacedim, typename ValueType = double>
 struct RepresentationQuadraturePoint
 {
+  using value_type = ValueType;
+
   dealii::Point<spacedim>                      point;
   double                                       weight = 0.;
   std::vector<dealii::types::global_dof_index> dof_indices;
-  std::vector<double>                          basis_values;
+  std::vector<ValueType>                       basis_values;
 };
+
+
+namespace ImmersX
+{
+  /** Semantic fields consumed by a physical representation. */
+  struct RepresentationMetadata
+  {
+    std::vector<FieldId> dependencies;
+  };
+} // namespace ImmersX
 
 
 /**
@@ -81,6 +102,8 @@ struct RepresentationConcept<
   std::void_t<
     decltype(Representation::support_dimension),
     decltype(Representation::ambient_dimension),
+    typename Representation::value_type,
+    typename Representation::ExtractorType,
     typename Representation::TriangulationType,
     typename Representation::DoFHandlerType,
     typename Representation::QuadraturePoint,
@@ -93,6 +116,9 @@ struct RepresentationConcept<
     decltype(std::declval<const Representation &>().constraints()),
     decltype(std::declval<const Representation &>().mpi_communicator()),
     decltype(std::declval<const Representation &>().n_dofs_per_cell()),
+    decltype(std::declval<const Representation &>().metadata()),
+    decltype(std::declval<const Representation &>().dependencies()),
+    decltype(std::declval<const Representation &>().geometry_version()),
     decltype(std::declval<const Representation &>()
                .locally_owned_quadrature_points(
                  std::declval<const dealii::Quadrature<
@@ -108,7 +134,8 @@ struct RepresentationConcept<
  * algebraic DoFs and the physical FE basis are the same, so R=I. It owns no
  * PDE state and has no coupling pointer. Interactions can freely construct
  * more than one view of the same problem and reuse a view in more than one
- * interaction.
+ * interaction. The triangulation, DoFHandler, index sets, constraints, and
+ * mapping supplied to the view are non-owning and must outlive it.
  *
  * The interaction-facing contract is intentionally expressed through
  * `locally_owned_quadrature_points()`: a representation supplies physical
@@ -116,7 +143,10 @@ struct RepresentationConcept<
  * values. A TensorProductSpace adapter should implement the same contract for
  * lifted fields on a coupling support.
  */
-template <int dim, int spacedim = dim>
+template <int dim,
+          int spacedim       = dim,
+          typename ValueType = double,
+          typename Extractor = dealii::FEValuesExtractors::Scalar>
 class FiniteElementRepresentation
 {
 public:
@@ -128,9 +158,11 @@ public:
   static constexpr unsigned int dimension       = support_dimension;
   static constexpr unsigned int space_dimension = ambient_dimension;
 
+  using value_type        = ValueType;
+  using ExtractorType     = Extractor;
   using TriangulationType = dealii::parallel::TriangulationBase<dim, spacedim>;
   using DoFHandlerType    = dealii::DoFHandler<dim, spacedim>;
-  using QuadraturePoint   = RepresentationQuadraturePoint<spacedim>;
+  using QuadraturePoint   = RepresentationQuadraturePoint<spacedim, ValueType>;
 
   FiniteElementRepresentation(
     const TriangulationType                 &triangulation,
@@ -139,13 +171,17 @@ public:
     const dealii::IndexSet                  &locally_relevant_dofs,
     const dealii::AffineConstraints<double> &constraints,
     const dealii::Mapping<dim, spacedim>    &mapping =
-      dealii::StaticMappingQ1<dim, spacedim>::mapping)
+      dealii::StaticMappingQ1<dim, spacedim>::mapping,
+    const ExtractorType                   &extractor = ExtractorType(0),
+    const ImmersX::RepresentationMetadata &metadata  = {})
     : triangulation_(triangulation)
     , dof_handler_(dof_handler)
     , locally_owned_dofs_(locally_owned_dofs)
     , locally_relevant_dofs_(locally_relevant_dofs)
     , constraints_(constraints)
     , mapping_(mapping)
+    , extractor_(extractor)
+    , metadata_(metadata)
   {}
 
   const TriangulationType &
@@ -188,6 +224,44 @@ public:
   constraints() const
   {
     return constraints_;
+  }
+
+  const ExtractorType &
+  extractor() const
+  {
+    return extractor_;
+  }
+
+  const ImmersX::RepresentationMetadata &
+  metadata() const
+  {
+    return metadata_;
+  }
+
+  const std::vector<ImmersX::FieldId> &
+  dependencies() const
+  {
+    return metadata_.dependencies;
+  }
+
+  /**
+   * Return the geometry generation used by cached interaction data.
+   *
+   * The representation does not cache quadrature values, so every evaluation
+   * reads the current triangulation/mapping. Callers that move or otherwise
+   * update the geometry can invalidate dependent interaction data explicitly
+   * and then reassemble it.
+   */
+  std::uint64_t
+  geometry_version() const
+  {
+    return geometry_version_;
+  }
+
+  void
+  invalidate_geometry() const
+  {
+    ++geometry_version_;
   }
 
   MPI_Comm
@@ -239,7 +313,7 @@ public:
               point.dof_indices = dof_indices;
               point.basis_values.resize(n_dofs_per_cell());
               for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
-                point.basis_values[i] = fe_values.shape_value(i, q);
+                point.basis_values[i] = fe_values[extractor_].value(i, q);
               points.emplace_back(std::move(point));
             }
         }
@@ -254,12 +328,39 @@ private:
   const dealii::IndexSet                  &locally_relevant_dofs_;
   const dealii::AffineConstraints<double> &constraints_;
   const dealii::Mapping<dim, spacedim>    &mapping_;
+  const ExtractorType                      extractor_;
+  ImmersX::RepresentationMetadata          metadata_;
+  mutable std::uint64_t                    geometry_version_ = 0;
 };
 
 
 /** Explicit name for the R=I finite-element representation. */
 template <int dim, int spacedim = dim>
 using IdentityRepresentation = FiniteElementRepresentation<dim, spacedim>;
+
+
+/** Direct FE representation of a selected vector-valued field. */
+template <int dim, int spacedim = dim>
+using VectorFiniteElementRepresentation =
+  FiniteElementRepresentation<dim,
+                              spacedim,
+                              dealii::Tensor<1, spacedim>,
+                              dealii::FEValuesExtractors::Vector>;
+
+
+/**
+ * Direct FE representation of a selected general tensor-valued field.
+ *
+ * This alias is intentionally small: the same typed quadrature payload and
+ * extractor-based evaluation path can support tensor observables without a
+ * new representation hierarchy.
+ */
+template <int dim, int spacedim = dim, int rank = 2>
+using TensorFiniteElementRepresentation =
+  FiniteElementRepresentation<dim,
+                              spacedim,
+                              dealii::Tensor<rank, spacedim>,
+                              dealii::FEValuesExtractors::Tensor<rank>>;
 
 
 /**
@@ -271,7 +372,12 @@ using IdentityRepresentation = FiniteElementRepresentation<dim, spacedim>;
  * owns neither a PDE nor an Interaction and can be exposed to more than one
  * coupling.
  */
-template <int reduced_dim, int surface_dim, int spacedim, int n_components = 1>
+template <int reduced_dim,
+          int surface_dim,
+          int spacedim,
+          int n_components   = 1,
+          typename ValueType = double,
+          typename Extractor = dealii::FEValuesExtractors::Scalar>
 class TensorProductRepresentation
 {
 public:
@@ -283,12 +389,14 @@ public:
   static constexpr unsigned int dimension       = support_dimension;
   static constexpr unsigned int space_dimension = ambient_dimension;
 
+  using value_type    = ValueType;
+  using ExtractorType = Extractor;
   using TensorProductSpaceType =
     TensorProductSpace<reduced_dim, surface_dim, spacedim, n_components>;
   using TriangulationType =
     dealii::parallel::TriangulationBase<reduced_dim, spacedim>;
   using DoFHandlerType  = dealii::DoFHandler<reduced_dim, spacedim>;
-  using QuadraturePoint = RepresentationQuadraturePoint<spacedim>;
+  using QuadraturePoint = RepresentationQuadraturePoint<spacedim, ValueType>;
 
   TensorProductRepresentation(
     const TensorProductSpaceType                 &space,
@@ -297,13 +405,17 @@ public:
     const dealii::IndexSet                       &locally_relevant_dofs,
     const dealii::AffineConstraints<double>      &constraints,
     const dealii::Mapping<reduced_dim, spacedim> &mapping =
-      dealii::StaticMappingQ1<reduced_dim, spacedim>::mapping)
+      dealii::StaticMappingQ1<reduced_dim, spacedim>::mapping,
+    const ExtractorType                   &extractor = ExtractorType(0),
+    const ImmersX::RepresentationMetadata &metadata  = {})
     : space_(space)
     , dof_handler_(representative_dof_handler)
     , locally_owned_dofs_(locally_owned_dofs)
     , locally_relevant_dofs_(locally_relevant_dofs)
     , constraints_(constraints)
     , mapping_(mapping)
+    , extractor_(extractor)
+    , metadata_(metadata)
   {}
 
   const TriangulationType &
@@ -346,6 +458,37 @@ public:
   constraints() const
   {
     return constraints_;
+  }
+
+  const ExtractorType &
+  extractor() const
+  {
+    return extractor_;
+  }
+
+  const ImmersX::RepresentationMetadata &
+  metadata() const
+  {
+    return metadata_;
+  }
+
+  const std::vector<ImmersX::FieldId> &
+  dependencies() const
+  {
+    return metadata_.dependencies;
+  }
+
+  std::uint64_t
+  geometry_version() const
+  {
+    return geometry_version_;
+  }
+
+  /** Invalidate interaction quadrature after an external geometry update. */
+  void
+  invalidate_geometry() const
+  {
+    ++geometry_version_;
   }
 
   MPI_Comm
@@ -428,7 +571,7 @@ public:
                 point.dof_indices = dof_indices;
                 point.basis_values.resize(n_dofs_per_cell());
                 for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
-                  point.basis_values[i] = fe_values.shape_value(i, q);
+                  point.basis_values[i] = fe_values[extractor_].value(i, q);
                 points.emplace_back(std::move(point));
                 ++point_index;
               }
@@ -445,6 +588,9 @@ private:
   const dealii::IndexSet                       &locally_relevant_dofs_;
   const dealii::AffineConstraints<double>      &constraints_;
   const dealii::Mapping<reduced_dim, spacedim> &mapping_;
+  const ExtractorType                           extractor_;
+  ImmersX::RepresentationMetadata               metadata_;
+  mutable std::uint64_t                         geometry_version_ = 0;
 };
 
 
