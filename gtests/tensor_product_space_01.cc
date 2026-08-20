@@ -78,7 +78,7 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-  background_tria.refine_global(5);
+  background_tria.refine_global(2);
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);

@@ -6,12 +6,10 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <vector>
 
 #include "test_paths.h"
 
@@ -110,87 +108,69 @@ is_single_rank()
   return dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1;
 }
 
-// Find generated parameter files whose filename starts with the given
-// application name.
-static std::vector<std::filesystem::path>
-find_parameter_files(const std::string &app_name)
-{
-  std::vector<std::filesystem::path> result;
-  const auto      dir = ImmersX::TestPaths::binary_path("gtests/parameters");
-  std::error_code error;
-  for (const auto &entry : std::filesystem::directory_iterator(dir, error))
-    {
-      if (error)
-        break;
-      const auto &path = entry.path();
-      const auto  name = path.filename().string();
-      if (!entry.is_regular_file() || path.extension() != ".prm")
-        continue;
-      if (name.rfind(app_name, 0) == 0)
-        result.push_back(path);
-    }
-
-  std::sort(result.begin(), result.end());
-  return result;
-}
-
-// Run the given executable once for each matching generated parameter file.
-// If none are found, skip the test.
+// Run one deliberately small representative parameter file. The full
+// parameter matrix is covered by the dedicated application and solver tests;
+// this test only verifies that each executable can start, parse its input, and
+// complete one representative run.
 static void
-run_app_with_discovered_params(const char *exe)
+run_app_with_representative_param(const char *exe, const char *parameter_name)
 {
-  const std::string app_name = exe;
-  const auto        files    = find_parameter_files(app_name);
-  if (files.empty())
-    GTEST_SKIP() << "No parameter files found for " << app_name;
+  const auto relative_parameter_path =
+    std::string("gtests/parameters/") + parameter_name + ".prm";
+  auto parameter_file =
+    ImmersX::TestPaths::binary_path(relative_parameter_path);
+  if (!std::filesystem::is_regular_file(parameter_file))
+    parameter_file = ImmersX::TestPaths::source_path(relative_parameter_path);
+  if (!std::filesystem::is_regular_file(parameter_file))
+    GTEST_SKIP() << "Representative parameter file is unavailable: "
+                 << parameter_file.string();
 
-  for (const auto &parameter_file : files)
-    {
-      const auto run_directory =
-        ImmersX::TestPaths::output_path("app_executables") /
-        executable_name(exe) / parameter_file.stem();
-      run_application(exe, parameter_file, run_directory);
-    }
+  const auto run_directory =
+    ImmersX::TestPaths::output_path("app_executables") / executable_name(exe) /
+    parameter_file.stem();
+  run_application(exe, parameter_file, run_directory);
 }
 
 TEST(AppExecutables, Elasticity)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_discovered_params("elasticity");
+  run_app_with_representative_param("elasticity",
+                                    "elasticity_dynamic_purely_elastic_strong");
 }
 
 TEST(AppExecutables, Laplacian)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_discovered_params("laplacian");
+  run_app_with_representative_param("laplacian", "laplacian_simple");
 }
 
 TEST(AppExecutables, CoupledElasticity)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_discovered_params("coupled_elasticity");
+  GTEST_SKIP() << "No coupled_elasticity application is configured in CI.";
 }
 
 TEST(AppExecutables, PseudoCoupling1D)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_discovered_params("pseudocoupling1D");
+  GTEST_SKIP() << "No pseudocoupling1D application is configured in CI.";
 }
 
 TEST(AppExecutables, ReducedPoisson)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_discovered_params("reduced_poisson");
+  run_app_with_representative_param("reduced_poisson",
+                                    "reduced_poisson_single_cylinder_3d");
 }
 
 TEST(AppExecutables, NavierStokes)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_discovered_params("navier_stokes");
+  run_app_with_representative_param("navier_stokes", "navier_stokes_simple_2d");
 }

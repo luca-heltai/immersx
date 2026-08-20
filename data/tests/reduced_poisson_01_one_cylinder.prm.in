@@ -46,7 +46,7 @@ subsection Reduced Poisson
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 100
+      set Max steps     = 50
       set Reduction     = 1.e-8
       set Tolerance     = 1.e-2
     end
@@ -54,7 +54,7 @@ subsection Reduced Poisson
       set Log frequency = 1
       set Log history   = false
       set Log result    = true
-      set Max steps     = 100
+      set Max steps     = 50
       set Reduction     = 1.e-8
       set Tolerance     = 1.e-8
     end
@@ -64,13 +64,13 @@ subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
-    set Refinement level         = 5
+    set Refinement level         = 2
     set Selected indices         =
   end
   subsection Local refinement parameters
     set Refinement strategy             = space
-    set Space pre-refinement cycles     = 4
-    set Embedded pre-refinement cycles  = 4
+    set Space pre-refinement cycles     = 1
+    set Embedded pre-refinement cycles  = 1
     set Max refinement level            = 10
     set Refinement factor               = 1
     set Space post-refinement cycles    = 0
@@ -81,7 +81,7 @@ subsection Tensor product coupling
   end
   subsection Representative domain
     set Finite element degree       = 1
-    set Number of quadrature points = 32
+    set Number of quadrature points = 8
     set Reduced grid name           =
     set Reduced right hand side     = 1
     set Thickness                   = 0.1

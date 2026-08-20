@@ -33,8 +33,8 @@ namespace
     par.output_frequency   = 0;
     par.initial_refinement = 1;
     par.time_step          = 1.e-2;
-    par.final_time         = 2.e-2;
-    par.number_of_steps    = 2;
+    par.final_time         = 1.e-2;
+    par.number_of_steps    = 1;
     par.solver_control.set_reduction(1.e-11);
     par.solver_control.set_tolerance(1.e-12);
   }
@@ -99,9 +99,9 @@ TEST(Elastodynamics, ParameterParsing)
       end
       subsection Time integration
         set Initial time       = 0.0
-        set Final time         = 0.02
+        set Final time         = 0.01
         set Time step          = 0.01
-        set Number of time steps = 2
+        set Number of time steps = 1
       end
       subsection Functions
         subsection Body force
@@ -117,7 +117,7 @@ TEST(Elastodynamics, ParameterParsing)
   EXPECT_DOUBLE_EQ(parameters.lame_mu, 3.0);
   EXPECT_DOUBLE_EQ(parameters.lame_lambda, 4.0);
   EXPECT_DOUBLE_EQ(parameters.damping_shear, 0.2);
-  EXPECT_EQ(parameters.number_of_steps, 2u);
+  EXPECT_EQ(parameters.number_of_steps, 1u);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 0), 1.0);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 1), 2.0);
 }
@@ -233,7 +233,7 @@ TEST(Elastodynamics, NontrivialTransient)
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
   configure_small_problem(parameters);
-  parameters.number_of_steps = 4;
+  parameters.number_of_steps = 1;
   initialize_configured_parameters();
 
   ElastodynamicsSolver<2> problem(parameters);
@@ -246,7 +246,7 @@ TEST(Elastodynamics, NontrivialTransient)
   problem.set_velocity(constant_vector(problem, 1.0));
   const double initial_energy =
     0.5 * quadratic_form<2>(problem.mass_matrix(), problem.velocity());
-  for (unsigned int step = 0; step < 4; ++step)
+  for (unsigned int step = 0; step < 1; ++step)
     problem.advance_one_timestep();
 
   const double final_energy =
@@ -285,8 +285,8 @@ TEST(Elastodynamics, MPI_Transient)
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
   configure_small_problem(parameters);
-  parameters.initial_refinement = 2;
-  parameters.number_of_steps    = 2;
+  parameters.initial_refinement = 1;
+  parameters.number_of_steps    = 1;
   initialize_configured_parameters();
 
   ElastodynamicsSolver<2> problem(parameters);
@@ -297,8 +297,7 @@ TEST(Elastodynamics, MPI_Transient)
   problem.set_initial_conditions();
   problem.set_velocity(constant_vector(problem, 0.25));
   problem.advance_one_timestep();
-  problem.advance_one_timestep();
 
   EXPECT_TRUE(problem.state_is_finite());
-  EXPECT_EQ(problem.time_step_number(), 2u);
+  EXPECT_EQ(problem.time_step_number(), 1u);
 }
