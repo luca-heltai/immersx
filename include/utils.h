@@ -56,9 +56,10 @@ using namespace dealii;
  */
 struct DimensionParameters
 {
-  unsigned int dimension         = 2;
-  unsigned int space_dimension   = 2;
-  unsigned int reduced_dimension = 1;
+  unsigned int dimension               = 2;
+  unsigned int space_dimension         = 2;
+  unsigned int reduced_dimension       = 1;
+  unsigned int cross_section_dimension = 2;
 };
 
 
@@ -80,6 +81,10 @@ declare_dimension_parameters(ParameterHandler &prm)
                     "1",
                     Patterns::Integer(0, 2),
                     "Dimension of the reduced or embedded object.");
+  prm.declare_entry("cross section dimension",
+                    "2",
+                    Patterns::Integer(1, 3),
+                    "Intrinsic dimension of the reference cross section.");
 }
 
 
@@ -91,7 +96,9 @@ get_dimension_parameters(const ParameterHandler &prm)
 {
   return {static_cast<unsigned int>(prm.get_integer("dimension")),
           static_cast<unsigned int>(prm.get_integer("space dimension")),
-          static_cast<unsigned int>(prm.get_integer("reduced dimension"))};
+          static_cast<unsigned int>(prm.get_integer("reduced dimension")),
+          static_cast<unsigned int>(
+            prm.get_integer("cross section dimension"))};
 }
 
 
@@ -139,17 +146,23 @@ inline void
 throw_unsupported_dimension_combination(const DimensionParameters &dimensions)
 {
   AssertThrow(false,
-              ExcNotImplemented("The dimension combination (" +
-                                std::to_string(dimensions.dimension) + ", " +
-                                std::to_string(dimensions.space_dimension) +
-                                ", " +
-                                std::to_string(dimensions.reduced_dimension) +
-                                ") is not supported by this application."));
+              ExcNotImplemented(
+                "The dimension combination (" +
+                std::to_string(dimensions.dimension) + ", " +
+                std::to_string(dimensions.space_dimension) + ", " +
+                std::to_string(dimensions.reduced_dimension) + ", " +
+                std::to_string(dimensions.cross_section_dimension) +
+                ") is not supported by this application."));
 }
 
 /**
  * Controls local refinement synchronization between bulk and embedded meshes.
+ *
+ * For a zero-dimensional representative domain there is no embedded mesh to
+ * refine or synchronize. In that case only the global bulk refinement
+ * parameters are exposed.
  */
+template <int reduced_dim>
 struct RefinementParameters : public ParameterAcceptor
 {
   /**
@@ -204,6 +217,148 @@ struct RefinementParameters : public ParameterAcceptor
    */
   int max_refinement_level = 10;
 };
+
+template <>
+struct RefinementParameters<0> : public ParameterAcceptor
+{
+  RefinementParameters()
+    : ParameterAcceptor("Local refinement parameters")
+  {
+    this->add_parameter("Refinement factor", refinement_factor);
+    this->add_parameter("Max refinement level", max_refinement_level);
+    this->add_parameter("Space post-refinement cycles",
+                        space_post_refinement_cycles);
+    this->add_parameter("Space pre-refinement cycles",
+                        space_pre_refinement_cycles);
+  }
+
+  double       refinement_factor            = 1.0;
+  int          max_refinement_level         = 10;
+  unsigned int space_post_refinement_cycles = 0;
+  unsigned int space_pre_refinement_cycles  = 0;
+};
+
+/**
+ * Refine a bulk triangulation around a zero-dimensional point cloud.
+ *
+ * The point cloud is the only foreground geometry available for a
+ * zero-dimensional representative domain. The per-point thickness supplies
+ * the characteristic foreground diameter, and the refinement factor is used
+ * in the same bulk-to-foreground diameter criterion as in adjust_grids().
+ * Space post-refinement cycles then add the requested number of local passes
+ * around the point supports after that criterion has been satisfied.
+ */
+template <int spacedim>
+void
+refine_space_around_points(
+  parallel::TriangulationBase<spacedim> &space_triangulation,
+  const std::vector<Point<spacedim>>    &local_points,
+  const std::vector<double>             &local_scales,
+  const RefinementParameters<0>         &parameters,
+  const MPI_Comm                         mpi_communicator)
+{
+  AssertDimension(local_points.size(), local_scales.size());
+  AssertThrow(parameters.refinement_factor > 0.,
+              ExcMessage("The refinement factor must be positive."));
+  AssertThrow(parameters.max_refinement_level >= 0,
+              ExcMessage("The maximum refinement level must be non-negative."));
+
+  space_triangulation.refine_global(parameters.space_pre_refinement_cycles);
+
+  const auto point_batches =
+    Utilities::MPI::all_gather(mpi_communicator, local_points);
+  const auto scale_batches =
+    Utilities::MPI::all_gather(mpi_communicator, local_scales);
+  std::vector<Point<spacedim>> points;
+  std::vector<double>          scales;
+  for (unsigned int rank = 0; rank < point_batches.size(); ++rank)
+    {
+      AssertDimension(point_batches[rank].size(), scale_batches[rank].size());
+      points.insert(points.end(),
+                    point_batches[rank].begin(),
+                    point_batches[rank].end());
+      scales.insert(scales.end(),
+                    scale_batches[rank].begin(),
+                    scale_batches[rank].end());
+    }
+
+  const auto point_diameter = [&scales](const unsigned int point) {
+    return 2. * scales[point];
+  };
+
+  const auto mark_cells = [&](const bool enforce_diameter_ratio) {
+    unsigned int n_marked = 0;
+    for (const auto &cell : space_triangulation.active_cell_iterators())
+      if (cell->is_locally_owned() &&
+          cell->level() < parameters.max_refinement_level)
+        {
+          std::vector<Point<spacedim>> vertices(
+            GeometryInfo<spacedim>::vertices_per_cell);
+          for (unsigned int vertex = 0; vertex < vertices.size(); ++vertex)
+            vertices[vertex] = cell->vertex(vertex);
+          const BoundingBox<spacedim> cell_box(vertices);
+          const auto &[cell_min, cell_max] = cell_box.get_boundary_points();
+          const double cell_diameter       = cell_min.distance(cell_max);
+          for (unsigned int point = 0; point < points.size(); ++point)
+            if (cell_box.create_extended(scales[point])
+                  .point_inside(points[point]) &&
+                (!enforce_diameter_ratio ||
+                 parameters.refinement_factor * point_diameter(point) <
+                   cell_diameter))
+              {
+                cell->set_refine_flag();
+                ++n_marked;
+                break;
+              }
+        }
+    return Utilities::MPI::sum(n_marked, mpi_communicator);
+  };
+
+  // First reproduce the original adjust_grids() criterion: refine the bulk
+  // until its cells intersecting a foreground support are sufficiently small.
+  unsigned int criterion_cycle = 0;
+  while (true)
+    {
+      const auto n_refs = mark_cells(true);
+      deallog << "0D space refinement criterion pass " << criterion_cycle
+              << ": cells marked for refinement: " << n_refs << " out of "
+              << space_triangulation.n_global_active_cells()
+              << " (space cells)." << std::endl;
+      if (n_refs == 0)
+        break;
+      const auto n_space_cells = space_triangulation.n_global_active_cells();
+      space_triangulation.execute_coarsening_and_refinement();
+      if (n_space_cells == space_triangulation.n_global_active_cells())
+        {
+          deallog << "0D space refinement criterion made no progress; stopping."
+                  << std::endl;
+          break;
+        }
+      ++criterion_cycle;
+    }
+
+  // Keep post-refinement as an additional number of local passes, rather than
+  // using it as the termination criterion for the diameter-based refinement.
+  for (unsigned int cycle = 0; cycle < parameters.space_post_refinement_cycles;
+       ++cycle)
+    {
+      const auto n_refs = mark_cells(false);
+      deallog << "0D space post-refinement pass " << cycle
+              << ": cells marked for refinement: " << n_refs << " out of "
+              << space_triangulation.n_global_active_cells()
+              << " (space cells)." << std::endl;
+      if (n_refs == 0)
+        break;
+      const auto n_space_cells = space_triangulation.n_global_active_cells();
+      space_triangulation.execute_coarsening_and_refinement();
+      if (n_space_cells == space_triangulation.n_global_active_cells())
+        {
+          deallog << "0D space post-refinement made no progress; stopping."
+                  << std::endl;
+          break;
+        }
+    }
+}
 
 template <int dim, int spacedim>
 inline void
@@ -260,9 +415,10 @@ read_grid_and_cad_files(const std::string            &grid_file_name,
 
 template <int reduced_dim, int spacedim>
 void
-adjust_grids(Triangulation<spacedim, spacedim>    &space_triangulation,
-             Triangulation<reduced_dim, spacedim> &embedded_triangulation,
-             const RefinementParameters &parameters = RefinementParameters())
+adjust_grids(Triangulation<spacedim, spacedim>       &space_triangulation,
+             Triangulation<reduced_dim, spacedim>    &embedded_triangulation,
+             const RefinementParameters<reduced_dim> &parameters =
+               RefinementParameters<reduced_dim>())
 {
   Assert(
     (dynamic_cast<parallel::TriangulationBase<reduced_dim, spacedim> *>(
