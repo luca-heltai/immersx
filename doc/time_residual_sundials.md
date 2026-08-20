@@ -4,12 +4,15 @@ The time-residual path now uses the canonical Field/State core. Semantic
 contributors receive `ImmersX::EvaluationContext` and add rows through
 `ImmersX::ResidualAccumulator`; Jacobian contributors use
 `ImmersX::LinearizationContext` and the same semantic field accessors.
+The generic composer for `F(t,y,ydot)=0` is
+`ImmersX::SemiDiscreteModel<VectorType>`, which is also suitable for steady
+evaluations when no state derivative is supplied.
 
 `ImmersX::FieldId` identifies state and residual rows. Independent timelines
 are identified separately by `ImmersX::HistoryGroupId`, so several fields may
 share one history grid. IDA's monolithic vector is an adapter concern handled
-by `MonolithicFieldLayout`, while native Problem block numbers remain local to
-`NativeFieldLayout`.
+by the internal `ImmersX::detail::MonolithicFieldLayout`, while native Problem
+block numbers remain local to the public `ImmersX::NativeFieldLayout`.
 
 ## Local deal.II/SUNDIALS contracts
 
@@ -71,9 +74,9 @@ model.
 
 ## Prototype mapping
 
-`JacobianAction<VectorType>` is the universal `vmult` capability.  Existing
+`ImmersX::JacobianAction<VectorType>` is the universal `vmult` capability. Existing
 deal.II matrices and block matrices can be wrapped with
-`JacobianAction::from_matrix()` or `from_linear_operator()`.  These wrappers
+`ImmersX::JacobianAction::from_matrix()` or `from_linear_operator()`. These wrappers
 retain the native operator as an optional capability but do not attempt to
 convert a generic matrix-free action back into a sparse matrix.  A
 backend-specific Trilinos/PETSc `LinearOperator` payload can be passed to the
@@ -85,7 +88,7 @@ matrix must outlive the action.
 `SundialsIDAResidualAdapter` only translates the deal.II IDA callbacks.  The
 residual model supplies physics, the semantic model supplies field-wise `Jv`,
 and a caller-supplied linear solve policy consumes the gathered monolithic
-`JacobianAction`. The synthetic tests use GMRES on the matrix-free
+`ImmersX::JacobianAction`. The synthetic tests use GMRES on the matrix-free
 `LinearOperator` view and validate the differential/algebraic mask and the
 resulting DAE solution, including a mixed native-block Problem and an
 auxiliary algebraic multiplier field.

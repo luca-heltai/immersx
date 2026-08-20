@@ -37,14 +37,14 @@ TEST(TimeResidual, MatrixActionsAccumulate) // NOLINT
   stiffness(1, 1) = 4.;
 
   const auto mass_action =
-    JacobianAction<VectorType>::from_matrix(mass).scaled(3.);
+    ImmersX::JacobianAction<VectorType>::from_matrix(mass).scaled(3.);
   const auto stiffness_action =
-    JacobianAction<VectorType>::from_matrix(stiffness).scaled(2.);
+    ImmersX::JacobianAction<VectorType>::from_matrix(stiffness).scaled(2.);
 
   EXPECT_TRUE(mass_action.has_native_operator());
   EXPECT_TRUE(stiffness_action.has_native_operator());
 
-  JacobianAccumulator<VectorType> accumulator;
+  ImmersX::JacobianAccumulator<VectorType> accumulator;
   accumulator.add(mass_action);
   accumulator.add(stiffness_action);
 
@@ -94,9 +94,9 @@ TEST(TimeResidual, TermSelectionControlsResidualAndJacobian) // NOLINT
                                                        state_view,
                                                        &derivative_view);
 
-  ImmersX::TimeResidualModel<VectorType> model;
+  ImmersX::SemiDiscreteModel<VectorType> model;
   model.add_term(
-    time_residual_terms::mass,
+    ImmersX::time_residual_terms::mass,
     [u, p](const auto &ctx, auto &residual) {
       residual.field(u)[0] += ctx.state_derivative()->field(u, ctx.time())[0];
       residual.field(p)[0] += ctx.state_derivative()->field(p, ctx.time())[0];
@@ -110,7 +110,7 @@ TEST(TimeResidual, TermSelectionControlsResidualAndJacobian) // NOLINT
     });
 
   model.add_term(
-    time_residual_terms::nonlinear,
+    ImmersX::time_residual_terms::nonlinear,
     [u, p](const auto &ctx, auto &residual) {
       const auto &values = ctx.state();
       residual.field(u)[0] +=
@@ -155,7 +155,7 @@ TEST(TimeResidual, TermSelectionControlsResidualAndJacobian) // NOLINT
     0.,
     state_view,
     &derivative_view,
-    ImmersX::TermSelection::only(time_residual_terms::mass));
+    ImmersX::TermSelection::only(ImmersX::time_residual_terms::mass));
   u_residual = 0.;
   p_residual = 0.;
   model.evaluate(mass_context, residual);

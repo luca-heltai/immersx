@@ -20,7 +20,7 @@ using dealii::Vector;
 
 TEST(StateHistory, InterpolatesAcceptedSnapshots) // NOLINT
 {
-  StateHistory<Vector<double>> history;
+  ImmersX::StateHistory<Vector<double>> history;
 
   Vector<double> first(2);
   first[0] = 0.;
@@ -42,9 +42,9 @@ TEST(StateHistory, InterpolatesAcceptedSnapshots) // NOLINT
 
 TEST(StateHistory, HistoryGroupsKeepIndependentTimeGrids) // NOLINT
 {
-  StateHistoryRegistry<double>  histories;
-  const ImmersX::HistoryGroupId fluid(0);
-  const ImmersX::HistoryGroupId network(1);
+  ImmersX::StateHistoryRegistry<double> histories;
+  const ImmersX::HistoryGroupId         fluid(0);
+  const ImmersX::HistoryGroupId         network(1);
   histories.accept(fluid, 0., 0.);
   histories.accept(fluid, 2., 20.);
   histories.accept(network, 0., 10.);
@@ -58,6 +58,39 @@ TEST(StateHistory, HistoryGroupsKeepIndependentTimeGrids) // NOLINT
 }
 
 
+TEST(StateHistory, MultipleFieldsCanShareOneHistoryTimeline) // NOLINT
+{
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor velocity_descriptor;
+  velocity_descriptor.name          = "velocity";
+  velocity_descriptor.history_group = ImmersX::HistoryGroupId(7);
+  const auto velocity               = layout.add_field(velocity_descriptor);
+
+  ImmersX::FieldDescriptor pressure_descriptor;
+  pressure_descriptor.name          = "pressure";
+  pressure_descriptor.history_group = ImmersX::HistoryGroupId(7);
+  const auto pressure               = layout.add_field(pressure_descriptor);
+
+  ASSERT_EQ(layout.field(velocity).history_group,
+            layout.field(pressure).history_group);
+
+  ImmersX::StateHistoryRegistry<Vector<double>> histories;
+  Vector<double>                                initial(2);
+  Vector<double>                                final(2);
+  initial[0] = 0.;
+  initial[1] = 10.;
+  final[0]   = 4.;
+  final[1]   = 2.;
+  histories.accept(layout.field(velocity).history_group, 0., initial);
+  histories.accept(layout.field(pressure).history_group, 2., final);
+
+  const auto middle = histories.at(layout.field(velocity).history_group, 1.);
+  EXPECT_DOUBLE_EQ(middle[velocity.value()], 2.);
+  EXPECT_DOUBLE_EQ(middle[pressure.value()], 6.);
+  EXPECT_EQ(histories.history(layout.field(pressure).history_group).size(), 2u);
+}
+
+
 TEST(StateHistory, SameResidualWorksWithIntermediateHistoryQuery) // NOLINT
 {
   using VectorType = Vector<double>;
@@ -67,11 +100,11 @@ TEST(StateHistory, SameResidualWorksWithIntermediateHistoryQuery) // NOLINT
   descriptor.name   = "active";
   const auto active = layout.add_field(descriptor);
 
-  ImmersX::TimeResidualModel<VectorType> model;
+  ImmersX::SemiDiscreteModel<VectorType> model;
 
-  StateHistoryRegistry<VectorType> histories;
-  const ImmersX::HistoryGroupId    network(1);
-  VectorType                       subsystem_one_start(1);
+  ImmersX::StateHistoryRegistry<VectorType> histories;
+  const ImmersX::HistoryGroupId             network(1);
+  VectorType                                subsystem_one_start(1);
   subsystem_one_start[0] = 0.;
   VectorType subsystem_one_end(1);
   subsystem_one_end[0] = 4.;
@@ -89,7 +122,7 @@ TEST(StateHistory, SameResidualWorksWithIntermediateHistoryQuery) // NOLINT
   ImmersX::EvaluationContext<VectorType> context(
     0.25, state, &state_dot, {}, histories.query());
 
-  model.add_term(time_residual_terms::diffusion,
+  model.add_term(ImmersX::time_residual_terms::diffusion,
                  [active, network](const auto &evaluation, auto &residual) {
                    const auto other =
                      evaluation.historical_state(network, evaluation.time());

@@ -35,7 +35,9 @@ namespace ImmersX
    *
    * The requested time is part of the interface so a history- or
    * interpolation-backed implementation can provide a field at a time other
-   * than the most recently stored state.
+   * than the most recently stored state. Implementations and returned field
+   * references are owned by the caller and must remain alive for the duration
+   * of the evaluation that uses them.
    */
   template <typename VectorType>
   class StateAccessor
@@ -49,7 +51,8 @@ namespace ImmersX
 
   /**
    * Non-owning view of externally supplied field vectors at one evaluation
-   * time. More general time-dependent access is provided by StateAccessor.
+   * time. More general time-dependent access is provided by StateAccessor. The
+   * StateLayout and every bound vector must outlive the view.
    */
   template <typename VectorType>
   class StateView : public StateAccessor<VectorType>
@@ -71,6 +74,12 @@ namespace ImmersX
       fields_[field_id.value()] = &values;
       return *this;
     }
+
+    StateView &
+    bind(const FieldId, VectorType &&) = delete;
+
+    StateView &
+    bind(const FieldId, const VectorType &&) = delete;
 
     const VectorType &
     field(const FieldId field_id, const double requested_time) const override
@@ -198,7 +207,13 @@ namespace ImmersX
     std::map<std::string, TermTreatment> treatments_;
   };
 
-  /** Inputs shared by all contributors during one residual evaluation. */
+  /**
+   * Inputs shared by all contributors during one residual evaluation.
+   *
+   * This is an evaluation-scoped view. It retains non-owning references to
+   * the supplied state accessors and must not be stored by a contributor or
+   * used after those accessors are destroyed.
+   */
   template <typename VectorType>
   class EvaluationContext
   {
@@ -217,6 +232,18 @@ namespace ImmersX
       , terms_(std::move(terms))
       , history_query_(std::move(history_query))
     {}
+
+    EvaluationContext(double,
+                      StateAccessor<VectorType> &&,
+                      const StateAccessor<VectorType> * = nullptr,
+                      TermSelection                     = {},
+                      HistoryQuery                      = {}) = delete;
+
+    EvaluationContext(double,
+                      const StateAccessor<VectorType> &&,
+                      const StateAccessor<VectorType> * = nullptr,
+                      TermSelection                     = {},
+                      HistoryQuery                      = {}) = delete;
 
     double
     time() const

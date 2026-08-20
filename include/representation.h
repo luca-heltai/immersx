@@ -68,16 +68,14 @@ struct RepresentationQuadraturePoint
 };
 
 
-struct RepresentationDependency
+namespace ImmersX
 {
-  ImmersX::FieldId field_id;
-};
-
-
-struct RepresentationMetadata
-{
-  std::vector<RepresentationDependency> dependencies;
-};
+  /** Semantic fields consumed by a physical representation. */
+  struct RepresentationMetadata
+  {
+    std::vector<FieldId> dependencies;
+  };
+} // namespace ImmersX
 
 
 /**
@@ -136,7 +134,8 @@ struct RepresentationConcept<
  * algebraic DoFs and the physical FE basis are the same, so R=I. It owns no
  * PDE state and has no coupling pointer. Interactions can freely construct
  * more than one view of the same problem and reuse a view in more than one
- * interaction.
+ * interaction. The triangulation, DoFHandler, index sets, constraints, and
+ * mapping supplied to the view are non-owning and must outlive it.
  *
  * The interaction-facing contract is intentionally expressed through
  * `locally_owned_quadrature_points()`: a representation supplies physical
@@ -173,8 +172,8 @@ public:
     const dealii::AffineConstraints<double> &constraints,
     const dealii::Mapping<dim, spacedim>    &mapping =
       dealii::StaticMappingQ1<dim, spacedim>::mapping,
-    const ExtractorType          &extractor = ExtractorType(0),
-    const RepresentationMetadata &metadata  = {})
+    const ExtractorType                   &extractor = ExtractorType(0),
+    const ImmersX::RepresentationMetadata &metadata  = {})
     : triangulation_(triangulation)
     , dof_handler_(dof_handler)
     , locally_owned_dofs_(locally_owned_dofs)
@@ -233,13 +232,13 @@ public:
     return extractor_;
   }
 
-  const RepresentationMetadata &
+  const ImmersX::RepresentationMetadata &
   metadata() const
   {
     return metadata_;
   }
 
-  const std::vector<RepresentationDependency> &
+  const std::vector<ImmersX::FieldId> &
   dependencies() const
   {
     return metadata_.dependencies;
@@ -330,7 +329,7 @@ private:
   const dealii::AffineConstraints<double> &constraints_;
   const dealii::Mapping<dim, spacedim>    &mapping_;
   const ExtractorType                      extractor_;
-  RepresentationMetadata                   metadata_;
+  ImmersX::RepresentationMetadata          metadata_;
   mutable std::uint64_t                    geometry_version_ = 0;
 };
 
@@ -407,8 +406,8 @@ public:
     const dealii::AffineConstraints<double>      &constraints,
     const dealii::Mapping<reduced_dim, spacedim> &mapping =
       dealii::StaticMappingQ1<reduced_dim, spacedim>::mapping,
-    const ExtractorType          &extractor = ExtractorType(0),
-    const RepresentationMetadata &metadata  = {})
+    const ExtractorType                   &extractor = ExtractorType(0),
+    const ImmersX::RepresentationMetadata &metadata  = {})
     : space_(space)
     , dof_handler_(representative_dof_handler)
     , locally_owned_dofs_(locally_owned_dofs)
@@ -467,13 +466,13 @@ public:
     return extractor_;
   }
 
-  const RepresentationMetadata &
+  const ImmersX::RepresentationMetadata &
   metadata() const
   {
     return metadata_;
   }
 
-  const std::vector<RepresentationDependency> &
+  const std::vector<ImmersX::FieldId> &
   dependencies() const
   {
     return metadata_.dependencies;
@@ -590,7 +589,7 @@ private:
   const dealii::AffineConstraints<double>      &constraints_;
   const dealii::Mapping<reduced_dim, spacedim> &mapping_;
   const ExtractorType                           extractor_;
-  RepresentationMetadata                        metadata_;
+  ImmersX::RepresentationMetadata               metadata_;
   mutable std::uint64_t                         geometry_version_ = 0;
 };
 

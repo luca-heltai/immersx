@@ -32,16 +32,17 @@
  * IDA owns the monolithic vectors. The adapter extracts their registered
  * fields, evaluates the model through StateAccessor and ResidualAccumulator,
  * and scatters the result back. No Problem or Interaction-specific logic is
- * present here.
+ * present here. The model, field layout, metadata, and adapter itself must
+ * outlive the connected IDA object and any current Jacobian action.
  */
 template <typename VectorType>
 class SundialsIDAResidualAdapter
 {
 public:
-  using Model               = ImmersX::TimeResidualModel<VectorType>;
-  using FieldLayout         = ImmersX::MonolithicFieldLayout<VectorType>;
-  using Action              = JacobianAction<VectorType>;
-  using ReinitFunction      = std::function<void(VectorType &)>;
+  using Model          = ImmersX::SemiDiscreteModel<VectorType>;
+  using FieldLayout    = ImmersX::detail::MonolithicFieldLayout<VectorType>;
+  using Action         = ImmersX::JacobianAction<VectorType>;
+  using ReinitFunction = std::function<void(VectorType &)>;
   using LinearSolveFunction = std::function<
     void(const Action &, const VectorType &, VectorType &, double)>;
   using HistoryQuery =
@@ -175,7 +176,15 @@ private:
     field_layout_.extract(state, state_fields);
     field_layout_.extract(state_derivative, derivative_fields);
 
-    current_action_ = Action([this,
+    const Model       *model          = &model_;
+    const FieldLayout *field_layout   = &field_layout_;
+    const auto         selected_terms = selected_terms_;
+    const auto         history_query  = history_query_;
+
+    current_action_ = Action([model,
+                              field_layout,
+                              selected_terms,
+                              history_query,
                               time,
                               alpha,
                               state_fields      = std::move(state_fields),
@@ -183,42 +192,42 @@ private:
                                 derivative_fields)](VectorType &destination,
                                                     const VectorType &source) {
       std::vector<VectorType> increment_fields;
-      field_layout_.extract(source, increment_fields);
+      field_layout->extract(source, increment_fields);
 
-      ImmersX::StateView<VectorType> state_view(field_layout_.state_layout(),
+      ImmersX::StateView<VectorType> state_view(field_layout->state_layout(),
                                                 time);
       ImmersX::StateView<VectorType> derivative_view(
-        field_layout_.state_layout(), time);
+        field_layout->state_layout(), time);
       ImmersX::StateView<VectorType> increment_view(
-        field_layout_.state_layout(), time);
-      field_layout_.bind(state_view, state_fields);
-      field_layout_.bind(derivative_view, derivative_fields);
-      field_layout_.bind(increment_view, increment_fields);
+        field_layout->state_layout(), time);
+      field_layout->bind(state_view, state_fields);
+      field_layout->bind(derivative_view, derivative_fields);
+      field_layout->bind(increment_view, increment_fields);
 
       const ImmersX::EvaluationContext<VectorType> evaluation(
-        time, state_view, &derivative_view, selected_terms_, history_query_);
+        time, state_view, &derivative_view, selected_terms, history_query);
       const ImmersX::LinearizationContext<VectorType> linearization(evaluation,
                                                                     1.,
                                                                     alpha);
 
       std::vector<VectorType> residual_fields;
-      residual_fields.assign(field_layout_.state_layout().n_fields(),
+      residual_fields.assign(field_layout->state_layout().n_fields(),
                              VectorType());
       ImmersX::ResidualAccumulator<VectorType> accumulator(
-        field_layout_.state_layout());
+        field_layout->state_layout());
       for (std::size_t field = 0;
-           field < field_layout_.state_layout().n_fields();
+           field < field_layout->state_layout().n_fields();
            ++field)
-        if (field_layout_.has_field(ImmersX::FieldId(field)))
+        if (field_layout->has_field(ImmersX::FieldId(field)))
           {
             residual_fields[field].reinit(state_fields[field]);
             residual_fields[field] = 0.;
             accumulator.bind(ImmersX::FieldId(field), residual_fields[field]);
           }
 
-      model_.add_jacobian_action(linearization, increment_view, accumulator);
+      model->add_jacobian_action(linearization, increment_view, accumulator);
       destination = 0.;
-      field_layout_.scatter_add(residual_fields, destination);
+      field_layout->scatter_add(residual_fields, destination);
     });
   }
 

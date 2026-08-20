@@ -140,7 +140,8 @@ TEST(MixedDAE, SemanticNativeBlockAndIDASeams) // NOLINT
                                                 network,
                                                 lambda};
 
-  ImmersX::MonolithicFieldLayout<VectorType> monolithic_layout(layout, 4);
+  ImmersX::detail::MonolithicFieldLayout<VectorType> monolithic_layout(layout,
+                                                                       4);
   monolithic_layout.add_field(velocity, 0, 1);
   monolithic_layout.add_field(pressure, 1, 2);
   monolithic_layout.add_field(network, 2, 3);
@@ -179,9 +180,9 @@ TEST(MixedDAE, SemanticNativeBlockAndIDASeams) // NOLINT
   bind_all(state, state_values, fields);
   bind_all(state_derivative, derivative_values, fields);
 
-  ImmersX::TimeResidualModel<VectorType> model;
+  ImmersX::SemiDiscreteModel<VectorType> model;
   model.add_term(
-    time_residual_terms::mass,
+    ImmersX::time_residual_terms::mass,
     [velocity, network](const auto &context, auto &residual) {
       residual.field(velocity)[0] +=
         context.state_derivative()->field(velocity, context.time())[0];
@@ -265,14 +266,14 @@ TEST(MixedDAE, SemanticNativeBlockAndIDASeams) // NOLINT
 
   // The same model evaluates an interpolated history state without changing
   // any contributor or introducing a monolithic state into the model.
-  StateHistory<VectorType> velocity_history;
-  StateHistory<VectorType> pressure_history;
-  StateHistory<VectorType> network_history;
-  StateHistory<VectorType> lambda_history;
-  VectorType               velocity_end(1);
-  VectorType               pressure_end(1);
-  VectorType               network_end(1);
-  VectorType               lambda_end(1);
+  ImmersX::StateHistory<VectorType> velocity_history;
+  ImmersX::StateHistory<VectorType> pressure_history;
+  ImmersX::StateHistory<VectorType> network_history;
+  ImmersX::StateHistory<VectorType> lambda_history;
+  VectorType                        velocity_end(1);
+  VectorType                        pressure_end(1);
+  VectorType                        network_end(1);
+  VectorType                        lambda_end(1);
   velocity_end[0] = 2.;
   pressure_end[0] = -10.;
   network_end[0]  = 2.;
