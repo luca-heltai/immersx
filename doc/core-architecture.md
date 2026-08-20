@@ -8,7 +8,7 @@ The specification deliberately separates three things that are easy to mix
 up:
 
 1. what is implemented by the current `master` branch;
-2. interfaces validated in unmerged development prototypes; and
+2. interfaces validated by the distributed execution gate on this branch; and
 3. normative design direction and longer-term roadmap.
 
 The current production classes are the starting point for the design. The
@@ -19,25 +19,27 @@ step.
 :::{admonition} Implementation status
 :class: important
 
-**Merged on `master`.** The repository contains problem-specific Poisson and
-elasticity discretizations, immersed and reduced coupling classes,
-`Representation`/`TensorProductSpace` machinery, particle/search support,
-Lagrange-multiplier and augmented-Lagrangian specializations, and linear
-algebra solvers. Their public interfaces are still primarily class-specific
-and, in several paths, assembled or saddle-point oriented.
+**Merged on `master`.** The repository contains problem-specific Poisson,
+elasticity, and standalone Navier--Stokes discretizations, the semantic
+`FieldId`/`FieldDescriptor`/`StateLayout` and `SemiDiscreteModel` core,
+external-state evaluation, additive residual accumulation, linearization
+contexts, DAE metadata, state history/interpolation, immersed and reduced
+coupling classes, `Representation`/`TensorProductSpace` machinery,
+particle/search support, multiplier specializations, and linear algebra
+solvers.
 
-**Validated prototype.** Parallel development branches have validated semantic
-`FieldId`/`FieldDescriptor`/`StateLayout`, external `StateView` and
-`StateAccessor`, additive residual accumulation, a Poisson residual adapter,
-Jacobian actions, differential/algebraic metadata, state history and
-interpolation, a thin IDA/SUNDIALS adapter, typed scalar/vector/tensor
-representation values, mixed-FE extractor evaluation, dependency metadata, and
-geometry version/invalidation hooks. These symbols are not public API on
-`master` merely because the prototypes pass their focused tests.
+**Validated distributed execution on this branch.** The semantic core is
+connected to `IDA<LA::MPI::BlockVector>` through an adapter-local one-block-per-
+Field layout. Real two-rank tests validate direct block binding, differential
+and algebraic masks, Jacobian actions, mixed-FE velocity Representation
+dependencies, and short Elastodynamics and unsteady-Stokes IDA solves. The
+validation covers the configured MPI/deal.II backend and is not a general
+performance or production-robustness claim.
 
-**Roadmap.** A common residual contributor contract, execution adapters for
-steady/DAE/IMEX/multirate/partitioned runs, term-level selection, and a
-lightweight global composer may be integrated incrementally after review.
+**Roadmap.** ARKode/IMEX for Navier--Stokes convection, broader execution
+adapters, moving geometry, multirate/partitioned runs, term-level policies,
+and a lightweight global composer may be integrated incrementally after
+review.
 :::
 
 :::{admonition} Design pressure / non-goals
@@ -173,10 +175,13 @@ source exchange, or a co-simulation port.
 ### Execution adapter
 
 An **Execution adapter** consumes the same residual/Jacobian model under a
-solver policy. Examples include a steady Newton/KINSOL adapter, an IDA-style
-DAE adapter, an ARKode IMEX adapter, an MRIStep-style multirate adapter, and a
-partitioned or co-simulation driver. Problems and Interactions should not know
-which adapter is calling them.
+solver policy. The validated IDA adapter uses
+`FieldVectorType = LA::MPI::Vector` and
+`GlobalVectorType = LA::MPI::BlockVector`: its explicit Field-to-block map is
+local to that adapter and does not constrain other storage choices. Future
+examples include an ARKode IMEX adapter, an MRIStep-style multirate adapter,
+and a partitioned or co-simulation driver. Problems and Interactions should
+not know which adapter is calling them.
 
 The solver used by an adapter owns no physics: it consumes residuals, Jacobian
 actions, states, and optional preconditioning data supplied by the model.
@@ -351,6 +356,13 @@ An IDA-style adapter can map this metadata to its differential mask while
 keeping the residual contributor API independent of SUNDIALS. The adapter owns
 solver-specific vector conversion, tolerances, callbacks, and masks; a
 Problem does not include IDA policy in its physical equations.
+
+For the validated Navier--Stokes path, the continuous operator is exposed as
+separate velocity mass, pressure metric, and spatial blocks. The pressure
+metric is used only by the native preconditioner. The semantic IDA residual
+uses `rho*M_u*u_dot + C_uu*u + C_up*p - rho*f(t)` and `C_pu*u`, where the
+`C_*` blocks are the assembled weak-form blocks; the pressure metric is not
+part of `dF/dydot`.
 
 ## I. Term selection, IMEX, and multirate execution
 
@@ -567,9 +579,9 @@ conceptual API from being mistaken for a merged one.
 
 | Status | Meaning in this specification |
 | --- | --- |
-| **Merged on `master`** | Current Poisson, elasticity, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
-| **Validated prototype** | Field/state/residual vocabulary, external-state evaluation, typed representations and subfield extraction, Jacobian actions, DAE metadata, history/interpolation, geometry versioning, and a thin SUNDIALS/IDA-oriented adapter validated on development branches and focused tests. |
-| **Roadmap** | A reviewed common contributor interface, term-level selection, general execution adapters, independent time grids, moving-geometry integration, co-simulation policy, and a lightweight global composer/registry. |
+| **Merged on `master`** | Current Poisson, elasticity, standalone Navier--Stokes, semantic Field/state/residual core, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
+| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity Representation dependencies, and short two-rank IDA solves. |
+| **Roadmap** | Navier--Stokes ARKode/IMEX convection, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
 
 Existing `Poisson`, `Elasticity`, `ReducedPoisson`, and production coupling
 classes can be adapted incrementally. The intended migration is an adapter
