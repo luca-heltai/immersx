@@ -28,6 +28,8 @@
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools_cache.h>
 
+#include <filesystem>
+
 #ifdef DEAL_II_WITH_OPENCASCADE
 #  include <deal.II/opencascade/manifold_lib.h>
 #  include <deal.II/opencascade/utilities.h>
@@ -623,8 +625,21 @@ initialize_parameters(const std::string &filename        = "",
         }
     }
 
-  if (!output_filename.empty())
-    prm.print_parameters(output_filename, ParameterHandler::Short);
+  if (!output_filename.empty() &&
+      Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      const auto parent = std::filesystem::path(output_filename).parent_path();
+      if (!parent.empty())
+        {
+          std::error_code error;
+          std::filesystem::create_directories(parent, error);
+          AssertThrow(!error,
+                      ExcMessage(
+                        "Could not create parameter output directory: " +
+                        parent.string()));
+        }
+      prm.print_parameters(output_filename, ParameterHandler::Short);
+    }
 }
 
 
@@ -651,8 +666,21 @@ initialize_parameters_from_string(const std::string &prm_content,
   prm.parse_input_from_string(prm_content);
   ParameterAcceptor::parse_all_parameters(prm);
 
-  if (!output_filename.empty())
-    prm.print_parameters(output_filename, ParameterHandler::Short);
+  if (!output_filename.empty() &&
+      Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      const auto parent = std::filesystem::path(output_filename).parent_path();
+      if (!parent.empty())
+        {
+          std::error_code error;
+          std::filesystem::create_directories(parent, error);
+          AssertThrow(!error,
+                      ExcMessage(
+                        "Could not create parameter output directory: " +
+                        parent.string()));
+        }
+      prm.print_parameters(output_filename, ParameterHandler::Short);
+    }
 }
 
 #endif

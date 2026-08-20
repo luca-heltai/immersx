@@ -33,6 +33,8 @@
 
 #include <gtest/gtest.h>
 
+#include "test_paths.h"
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include "reduced_coupling.h"
@@ -56,10 +58,12 @@ TEST(ReducedCoupling, MPI_Constructor) // NOLINT
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
-  initialize_parameters("", "reduced_coupling_01.prm");
+  initialize_parameters("",
+                        ImmersX::TestPaths::output_directory(
+                          "reduced-coupling/reduced_coupling_01.prm"));
 
   par.tensor_product_space_parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/mstree_100.vtk";
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
   ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
     background_tria, par);
@@ -87,7 +91,7 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
   par.tensor_product_space_parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/one_cylinder.vtk";
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
   // This should be the scaling factor for the coupling
   par.coupling_rhs_expressions                  = {"1"};
   par.tensor_product_space_parameters.thickness = "0.01";
@@ -161,10 +165,12 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
 
   ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
 
-  initialize_parameters("", "reduced_coupling_01.prm");
+  initialize_parameters("",
+                        ImmersX::TestPaths::output_directory(
+                          "reduced-coupling/reduced_coupling_01_p1.prm"));
 
   par.tensor_product_space_parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/mstree_100.vtk";
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
   par.tensor_product_space_parameters.section.inclusion_degree = 1;
   par.coupling_rhs_expressions = {"1", "0", "0"};
 

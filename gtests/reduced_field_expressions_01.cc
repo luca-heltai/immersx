@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include "test_paths.h"
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include "reduced_coupling.h"
@@ -32,7 +34,7 @@ namespace
 
     ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
     par.tensor_product_space_parameters.reduced_grid_name =
-      SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+      ImmersX::TestPaths::data_filename("tests/one_cylinder_properties.vtk");
     par.tensor_product_space_parameters.input_file_fields = "radius";
     par.tensor_product_space_parameters.thickness         = "radius";
     par.coupling_rhs_expressions                          = {"radius^2 + 5"};
@@ -97,7 +99,7 @@ TEST(TensorProductSpace, ThicknessExpressionUsesAResolvedBinding)
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
   parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+    ImmersX::TestPaths::data_filename("tests/one_cylinder_properties.vtk");
   parameters.input_file_fields = "radius";
   parameters.thickness         = "radius";
 
@@ -114,7 +116,7 @@ TEST(TensorProductSpace, ThicknessExpressionCanDependOnTime)
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
   parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+    ImmersX::TestPaths::data_filename("tests/one_cylinder_properties.vtk");
   parameters.input_file_fields = "radius";
   parameters.thickness         = "radius*sin(t)";
 
@@ -129,7 +131,7 @@ TEST(TensorProductSpace, TransfersRequestedFieldsAfterRefinement)
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
   parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+    ImmersX::TestPaths::data_filename("tests/one_cylinder_properties.vtk");
   parameters.input_file_fields = "radius";
 
   TensorProductSpace<1, 2, 3, 1> space(parameters);

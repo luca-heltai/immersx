@@ -1,6 +1,6 @@
 subsection Error
   set Enable computation of the errors = true
-  set Error file name                  = static_convergence/errors_weak_dirichlet.txt
+  set Error file name                  = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_weak_dirichlet/static_convergence/errors_weak_dirichlet.txt
   set Error precision                  = 8
   set Exponent for p-norms             = 2
   set Extra columns                    = cells, dofs
@@ -47,7 +47,7 @@ subsection Immersed Problem
   set Initial refinement                 = 4
   set Neumann boundary ids               =
   set Normal flux boundary ids           =
-  set Output directory                   = static_convergence
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_weak_dirichlet
   set Output name                        = weak_dirichlet
   set Output pressure                    = false
   set Output results also before solving = false

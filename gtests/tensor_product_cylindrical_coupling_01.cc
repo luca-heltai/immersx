@@ -19,6 +19,7 @@
 #include "poisson.h"
 #include "representation.h"
 #include "tensor_product_space.h"
+#include "test_paths.h"
 #include "utils.h"
 
 
@@ -36,7 +37,8 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
   TensorProductSpaceParameters<1, 2, 3, 1> tensor_parameters;
   ParticleCouplingParameters<3>            search_parameters;
 
-  initialize_parameters_from_string(R"(
+  initialize_parameters_from_string(
+    ImmersX::TestPaths::expand_configured_paths(R"(
     subsection Bulk Poisson
       set FE degree                   = 1
       set Initial refinement          = 2
@@ -67,7 +69,7 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
       set Initial refinement          = 0
       set Dirichlet boundary ids      = 0
       subsection Grid generation
-        set Grid generator           = /data/tests/one_cylinder.vtk
+        set Grid generator           = @TEST_DATA_DIR@/tests/one_cylinder.vtk
         set Grid generator arguments = unused
       end
       subsection Right hand side
@@ -87,15 +89,18 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
         end
       end
     end
-  )");
+  )"));
 
-  bulk_parameters.output_directory    = SOURCE_DIR "/data/tests/tests_results";
-  reduced_parameters.output_directory = SOURCE_DIR "/data/tests/tests_results";
-  reduced_parameters.name_of_grid = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+  bulk_parameters.output_directory =
+    ImmersX::TestPaths::output_directory("tensor-product-cylindrical");
+  reduced_parameters.output_directory =
+    ImmersX::TestPaths::output_directory("tensor-product-cylindrical");
+  reduced_parameters.name_of_grid =
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
   reduced_parameters.arguments_for_grid = "unused";
 
   tensor_parameters.reduced_grid_name =
-    SOURCE_DIR "/data/tests/one_cylinder.vtk";
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
   tensor_parameters.thickness                = "0.2";
   tensor_parameters.n_q_points               = 2;
   tensor_parameters.section.refinement_level = 1;

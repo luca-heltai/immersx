@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "elasticity.h"
+#include "test_paths.h"
 #include "utils.h"
 
 #ifdef DEAL_II_WITH_VTK
@@ -40,9 +41,11 @@ namespace
                               const std::vector<std::string> &rhs)
   {
 #  ifdef DEBUG
-    par.output_directory = "tests_debug_output";
+    par.output_directory =
+      ImmersX::TestPaths::output_directory("elasticity-tensor-product-point");
 #  else
-    par.output_directory = "tests_release_output";
+    par.output_directory =
+      ImmersX::TestPaths::output_directory("elasticity-tensor-product-point");
 #  endif
     par.output_name         = output_name;
     par.fe_degree           = 1;
@@ -67,7 +70,8 @@ namespace
     par.coupling_type               = CouplingType::TensorProduct;
     auto &tensor_product_parameters = par.tensor_product_coupling_parameters;
     tensor_product_parameters.tensor_product_space_parameters
-      .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+      .reduced_grid_name =
+      ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
     tensor_product_parameters.tensor_product_space_parameters.fe_degree  = 1;
     tensor_product_parameters.tensor_product_space_parameters.n_q_points = 4;
     tensor_product_parameters.tensor_product_space_parameters.thickness =

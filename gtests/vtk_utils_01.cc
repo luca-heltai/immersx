@@ -32,6 +32,7 @@
 
 #include "gtest/gtest.h"
 #include "reduced_field_utils.h"
+#include "test_paths.h"
 #include "vtk_utils.h"
 
 namespace LA = dealii::LinearAlgebra;
@@ -42,8 +43,12 @@ using namespace dealii;
 TEST(VTKUtils, ReadPointCloudLegacyAndXml)
 {
   for (const std::string &filename :
-       {std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtk",
-        std::string(SOURCE_DIR) + "/gtests/fixtures/point_cloud_minimal.vtu"})
+       {ImmersX::TestPaths::binary_path(
+          "gtests/fixtures/point_cloud_minimal.vtk")
+          .string(),
+        ImmersX::TestPaths::binary_path(
+          "gtests/fixtures/point_cloud_minimal.vtu")
+          .string()})
     {
       PointCloud<2> point_cloud;
       ASSERT_NO_THROW(VTKUtils::read_vtk_point_cloud(filename, point_cloud));
@@ -63,7 +68,9 @@ TEST(VTKUtils, ReadPointCloudCellDataReorderedByVertex)
 {
   PointCloud<2>     point_cloud;
   const std::string filename =
-    SOURCE_DIR "/gtests/fixtures/point_cloud_cell_data_reordered.vtk";
+    ImmersX::TestPaths::binary_path(
+      "gtests/fixtures/point_cloud_cell_data_reordered.vtk")
+      .string();
   ASSERT_NO_THROW(VTKUtils::read_vtk_point_cloud(filename, point_cloud));
   ASSERT_EQ(point_cloud.points.size(), 3u);
   ASSERT_EQ(point_cloud.catalog.size(), 1u);
@@ -79,7 +86,8 @@ TEST(VTKUtils, ReadPointCloudCellDataReorderedByVertex)
 TEST(VTKUtils, ReadCellData)
 {
   // Provide a valid VTK file with known cell data for this test
-  std::string    vtk_filename   = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   std::string    cell_data_name = "edge_length";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
@@ -90,7 +98,8 @@ TEST(VTKUtils, ReadCellData)
 
 TEST(VTKUtils, ReadPointDataScalar)
 {
-  std::string    vtk_filename     = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   std::string    vertex_data_name = "path_distance";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
@@ -101,7 +110,8 @@ TEST(VTKUtils, ReadPointDataScalar)
 
 TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
 {
-  std::string    vtk_filename     = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   std::string    vertex_data_name = "path_distance";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
@@ -124,7 +134,8 @@ TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
 
 TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
 {
-  std::string    vtk_filename     = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   std::string    vertex_data_name = "path_distance";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
@@ -207,7 +218,8 @@ TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
 
 TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
 {
-  std::string    vtk_filename   = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   std::string    cell_data_name = "edge_length";
   Vector<double> output_vector;
   ASSERT_NO_THROW(
@@ -276,7 +288,8 @@ TEST(VTKUtils, MPI_ReadCellDataScalarAndIndexIt)
 
 TEST(VTKUtils, ReadVtkMesh)
 {
-  std::string         vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   Triangulation<1, 3> tria;
   ASSERT_NO_THROW(VTKUtils::read_vtk(vtk_filename, tria));
 
@@ -287,10 +300,11 @@ TEST(VTKUtils, ReadVtkMesh)
 
 TEST(VTKUtils, ReadVtkDH)
 {
-  std::string         vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
-  Triangulation<1, 3> tria;
-  DoFHandler<1, 3>    dof_handler(tria);
-  Vector<double>      output_vector;
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
+  Triangulation<1, 3>      tria;
+  DoFHandler<1, 3>         dof_handler(tria);
+  Vector<double>           output_vector;
   std::vector<std::string> data_names;
   ASSERT_NO_THROW(
     VTKUtils::read_vtk(vtk_filename, dof_handler, output_vector, data_names));
@@ -309,7 +323,7 @@ TEST(VTKUtils, ReadVtkDH)
 TEST(VTKUtils, ReadVtkWithData)
 {
   std::string vtk_filename =
-    SOURCE_DIR "/data/tests/one_cylinder_properties.vtk";
+    ImmersX::TestPaths::data_filename("tests/one_cylinder_properties.vtk");
   Triangulation<1, 3>      tria;
   DoFHandler<1, 3>         dof_handler(tria);
   Vector<double>           output_vector;
@@ -401,7 +415,8 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   const int dim      = 1;
   const int spacedim = 3;
 
-  std::string vtk_filename = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
 
   Triangulation<dim, spacedim> serial_tria;
@@ -496,7 +511,8 @@ TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
 
 TEST(VTKUtils, VtkToFiniteElement)
 {
-  std::string vtk_filename = SOURCE_DIR "/data/tests/mstree_10.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
   const auto [fe, data_names] =
     VTKUtils::vtk_to_finite_element<1, 3>(vtk_filename);
 
@@ -514,8 +530,9 @@ TEST(VTKUtils, VtkToFiniteElement)
 
 TEST(VTKUtils, ReadData)
 {
-  const std::string vtk_filename = SOURCE_DIR "/data/tests/simple_1d_grid.vtk";
-  Vector<double>    actual_data;
+  const std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/simple_1d_grid.vtk");
+  Vector<double> actual_data;
   VTKUtils::read_data(vtk_filename, actual_data);
 
   // 4. Verify the data
@@ -575,7 +592,7 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
   const int         dim      = 1;
   const int         spacedim = 3;
   const std::string temp_vtk_filename =
-    SOURCE_DIR "/data/tests/simple_1d_grid.vtk";
+    ImmersX::TestPaths::data_filename("tests/simple_1d_grid.vtk");
 
   Triangulation<dim, spacedim> tria;
   ASSERT_NO_THROW(
@@ -678,9 +695,10 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
 
 TEST(VTKUtils, DataFromSimpleVtkToDealiiVectorAndInterpolate)
 {
-  const int         dim          = 1;
-  const int         spacedim     = 3;
-  const std::string vtk_filename = SOURCE_DIR "/data/tests/simple_1d_grid.vtk";
+  const int         dim      = 1;
+  const int         spacedim = 3;
+  const std::string vtk_filename =
+    ImmersX::TestPaths::data_filename("tests/simple_1d_grid.vtk");
 
   // 1. Read VTK mesh
   Triangulation<dim, spacedim> tria;

@@ -38,7 +38,7 @@ end
 subsection Error
   set Enable computation of the errors = true
   set Error file name                  =
-  set Error precision                  = 3
+set Error precision                  = 3
   set Exponent for p-norms             = 2
   set Extra columns                    = cells, dofs
   set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
@@ -46,17 +46,17 @@ subsection Error
   set Rate mode                        = reduction_rate_log2
 end
 subsection Immersed Problem
-  set Dirichlet boundary ids             = 0
+  set Dirichlet boundary ids             = 
   set FE degree                          = 1
   set Initial refinement                 = 4
   set Neumann boundary ids               = 1,2,3
   set Normal flux boundary ids           =
-  set Output directory                   = ./output/elasticity_modulated_boundary_strong
-  set Output name                        = modulated_boundary_strong
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_modulated_boundary
+  set Output name                        = modulated_boundary
   set Output pressure                    = false
   set Output results also before solving = false
   set Pressure coupling                  = false
-  set Weak Dirichlet boundary ids        =
+  set Weak Dirichlet boundary ids        = 0
   set Weak Dirichlet penalty coefficient = 100000
   subsection Grid generation
     set Domain type              = generate

@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include "test_paths.h"
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include "immersed_repartitioner.h"
@@ -39,7 +41,8 @@ TEST(TensorProductSpace, GridGeneration) // NOLINT
 
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
-  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  params.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
@@ -66,7 +69,8 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
   // Setup parameters
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
 
-  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  params.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
   // Create a background grid (hypercube)
   parallel::distributed::Triangulation<spacedim> background_tria(
@@ -141,7 +145,8 @@ TEST(TensorProductSpace, OrthoNormality) // NOLINT
   TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
   params.thickness = "0.125";
 
-  params.reduced_grid_name = SOURCE_DIR "/data/tests/mstree_100.vtk";
+  params.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
   // Create the tensor product space
   TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
 
