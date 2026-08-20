@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "elasticity.h"
+#include "test_paths.h"
 #include "utils.h"
 
 using namespace dealii;
@@ -44,11 +45,8 @@ template <int dim>
 void
 get_default_test_parameters(ElasticityProblemParameters<dim> &par)
 {
-#ifdef DEBUG
-  par.output_directory = "tests_debug_output";
-#else
-  par.output_directory = "tests_release_output";
-#endif
+  par.output_directory =
+    ImmersX::TestPaths::output_directory("elasticity-point-02");
   par.output_name         = "solution";
   par.fe_degree           = 1;
   par.initial_refinement  = 5;
@@ -149,7 +147,7 @@ TEST_P(Elasticity02TriangulationTypeTest, MPI_MultiInclusionsInCell)
 
   initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
-    R"(
+    ImmersX::TestPaths::expand_configured_paths(R"(
       subsection Error
   set Enable computation of the errors = false
 end
@@ -162,7 +160,7 @@ subsection Immersed Problem
     set Grid generator arguments = -2:2:true
   end
   subsection Immersed inclusions
-    set Inclusions file                     = ../data/tests/cylinder_x.txt
+    set Inclusions file                     = @TEST_DATA_DIR@/tests/cylinder_x.txt
     set Reference inclusion data            = 0,0,0,0.5,0,0,0,0.5,0
     set Inclusions refinement               = 50
     set Number of fourier coefficients      = 2
@@ -196,7 +194,7 @@ subsection Solvers
     set Tolerance     = 1.e-12
   end
 end
-    )");
+    )"));
 
   ParameterAcceptor::parse_all_parameters();
   problem.run();

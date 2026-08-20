@@ -1,5 +1,5 @@
 subsection Error
-  set Error file name = dynamic_convergence/errors_damped_kv_strong.txt
+  set Error file name = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_damped_kv_dispersion_strong/dynamic_convergence/errors_damped_kv_strong.txt
   set Error precision = 8
 end
 subsection Functions
@@ -30,7 +30,7 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0,1,2,3
   set Initial refinement                 = 4
-  set Output directory                   = dynamic_convergence
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_damped_kv_dispersion_strong
   set Output name                        = damped_kv_strong
   set Weak Dirichlet boundary ids        =
   set Weak Dirichlet penalty coefficient = 100

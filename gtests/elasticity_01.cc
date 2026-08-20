@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "elasticity.h"
+#include "test_paths.h"
 #include "utils.h"
 
 using namespace dealii;
@@ -44,11 +45,8 @@ template <int dim>
 void
 get_default_test_parameters(ElasticityProblemParameters<dim> &par)
 {
-#ifdef DEBUG
-  par.output_directory = "tests_debug_output";
-#else
-  par.output_directory = "tests_release_output";
-#endif
+  par.output_directory =
+    ImmersX::TestPaths::output_directory("elasticity-point");
   par.output_name         = "solution";
   par.fe_degree           = 1;
   par.initial_refinement  = 5;
@@ -259,7 +257,7 @@ TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .5
         set Number of fourier coefficients      = 3
-        set Data file                           = ../data/tests/data_file_1d.txt
+        set Data file                           = @TEST_DATA_DIR@/tests/data_file_1d.txt
         set Inclusions refinement               = 100
       end
     end
@@ -369,7 +367,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D)
 
   initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
-    R"(
+    ImmersX::TestPaths::expand_configured_paths(R"(
     subsection Immersed Problem
       set Dirichlet boundary ids             = 0
       set Initial refinement                 = 3
@@ -381,7 +379,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D)
         set Grid generator arguments = 2:2:2
       end
       subsection Immersed inclusions
-        set Inclusions file                     = ../data/tests/cylinder_x.txt
+        set Inclusions file                     = @TEST_DATA_DIR@/tests/cylinder_x.txt
         set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
         set Inclusions refinement               = 50
         set Number of fourier coefficients      = 2
@@ -421,7 +419,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D)
         set Tolerance     = 1.e-12
       end
     end
-    )");
+    )"));
 
   ParameterAcceptor::parse_all_parameters();
   problem.run();
@@ -443,7 +441,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D_wSegments)
 
   initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
-    R"(
+    ImmersX::TestPaths::expand_configured_paths(R"(
     subsection Immersed Problem
       set Dirichlet boundary ids             = 0
       set Initial refinement                 = 3
@@ -455,7 +453,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D_wSegments)
         set Grid generator arguments = 2:2:2
       end
       subsection Immersed inclusions
-        set Inclusions file                     = ../data/tests/cylinder_x.txt
+        set Inclusions file                     = @TEST_DATA_DIR@/tests/cylinder_x.txt
         set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
         set Inclusions refinement               = 50
         set Number of fourier coefficients      = 2
@@ -496,7 +494,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D_wSegments)
         set Tolerance     = 1.e-12
       end
     end
-    )");
+    )"));
 
   ParameterAcceptor::parse_all_parameters();
   problem.run();
@@ -518,7 +516,7 @@ TEST(ElasticityTest, Displacement3D_wSegments)
 
   initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
-    R"(
+    ImmersX::TestPaths::expand_configured_paths(R"(
     subsection Immersed Problem
       set Dirichlet boundary ids             = 0
       set Initial refinement                 = 3
@@ -530,7 +528,7 @@ TEST(ElasticityTest, Displacement3D_wSegments)
         set Grid generator arguments = 2:2:2
       end
       subsection Immersed inclusions
-        set Inclusions file                     = ../data/tests/cylinder_x.txt
+        set Inclusions file                     = @TEST_DATA_DIR@/tests/cylinder_x.txt
         set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
         set Inclusions refinement               = 50
         set Number of fourier coefficients      = 2
@@ -571,7 +569,7 @@ TEST(ElasticityTest, Displacement3D_wSegments)
         set Tolerance     = 1.e-12
       end
     end
-    )");
+    )"));
 
   ParameterAcceptor::parse_all_parameters();
   problem.run();

@@ -21,11 +21,13 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <fstream>
 #include <numbers>
 #include <sstream>
 
 #include "elasticity.h"
+#include "test_paths.h"
 #include "utils.h"
 
 using namespace dealii;
@@ -35,11 +37,14 @@ TEST(MaterialParameters, Default)
   ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
-  initialize_parameters("", "test.prm");
+  const auto                       parameter_dump =
+    ImmersX::TestPaths::output_path("material-properties/test.prm");
+  std::filesystem::create_directories(parameter_dump.parent_path());
+  initialize_parameters("", parameter_dump.string());
 
-  std::ifstream in("test.prm");
-  ASSERT_TRUE(in.good())
-    << "Expected initialize_parameters() to generate test.prm";
+  std::ifstream in(parameter_dump);
+  ASSERT_TRUE(in.good()) << "Expected initialize_parameters() to generate "
+                         << parameter_dump.string();
 
   std::ostringstream buf;
   buf << in.rdbuf();
@@ -74,7 +79,10 @@ TEST(MaterialParameters, StiffTagReadsSection)
     end
   )";
 
-  initialize_parameters_from_string(prm_text, "test.prm");
+  const auto parameter_dump =
+    ImmersX::TestPaths::output_path("material-properties/stiff.prm");
+  std::filesystem::create_directories(parameter_dump.parent_path());
+  initialize_parameters_from_string(prm_text, parameter_dump.string());
 
   ASSERT_EQ(par.material_properties_by_id.size(), 2);
 

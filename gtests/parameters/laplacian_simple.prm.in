@@ -1,7 +1,7 @@
 subsection Error
   set Enable computation of the errors = true
   set Error file name                  =
-  set Error precision                  = 3
+set Error precision                  = 3
   set Exponent for p-norms             = 2
   set Extra columns                    = cells, dofs
   set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
@@ -12,7 +12,7 @@ subsection Immersed Problem
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
   set Initial refinement                 = 2
-  set Output directory                   = .
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/laplacian_simple
   set Output name                        = app_laplacian
   set Output results also before solving = false
   subsection Dirichlet boundary conditions

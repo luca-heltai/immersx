@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "inclusions.h"
+#include "test_paths.h"
 
 using namespace dealii;
 
@@ -137,7 +138,7 @@ TEST(CCO, XmlConverter)
   using namespace property_tree;
 
   ptree root;
-  read_xml(SOURCE_DIR "/data/tree_3D.xml", root);
+  read_xml(ImmersX::TestPaths::source_path("data/tree_3D.xml").string(), root);
 
   // print_tree(root, 0);
 

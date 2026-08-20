@@ -38,7 +38,10 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <filesystem>
 #include <set>
+
+#include "test_paths.h"
 
 #ifdef DEAL_II_WITH_VTK
 
@@ -49,7 +52,8 @@ using namespace dealii;
 
 TEST(LargeNetworks, TerminalNodes)
 {
-  std::string         vtk_filename = SOURCE_DIR "/data/tests/mstree_1000.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::source_path("data/tests/mstree_1000.vtk").string();
   Triangulation<1, 3> tria;
 
   VTKUtils::read_vtk(vtk_filename, tria, false);
@@ -86,7 +90,8 @@ TEST(LargeNetworks, TerminalNodes)
 
 TEST(LargeNetworks, SolvePoisson)
 {
-  std::string         vtk_filename = SOURCE_DIR "/data/tests/mstree_1000.vtk";
+  std::string vtk_filename =
+    ImmersX::TestPaths::source_path("data/tests/mstree_1000.vtk").string();
   Triangulation<1, 3> tria;
 
   VTKUtils::read_vtk(vtk_filename, tria, false);
@@ -160,7 +165,10 @@ TEST(LargeNetworks, SolvePoisson)
   data_out.add_data_vector(solution, "solution");
   data_out.build_patches();
 
-  std::ofstream output("solution.vtu");
+  const auto output_filename =
+    ImmersX::TestPaths::output_path("large-networks/solution.vtu");
+  std::filesystem::create_directories(output_filename.parent_path());
+  std::ofstream output(output_filename);
   data_out.write_vtu(output);
 }
 

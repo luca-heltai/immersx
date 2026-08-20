@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "elasticity.h"
+#include "test_paths.h"
 
 using namespace dealii;
 
@@ -33,7 +34,8 @@ namespace
     par.default_material_properties.Lame_lambda = 1;
     par.dirichlet_ids                           = {0, 1, 2, 3, 4, 5};
     par.tensor_product_coupling_parameters.tensor_product_space_parameters
-      .reduced_grid_name = SOURCE_DIR "/data/tests/one_cylinder.vtk";
+      .reduced_grid_name =
+      ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
     par.tensor_product_coupling_parameters.coupling_rhs_expressions = {"1",
                                                                        "0",
                                                                        "0"};

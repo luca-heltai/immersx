@@ -6,7 +6,7 @@ subsection Reduced Poisson
   set Assemble full AL system            = false
   set Dirichlet boundary ids             = 0,1,2,3,4
   set FE degree                          = 1
-  set Output directory                   = ./output/reduced_poisson_single_cylinder_multimode
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/reduced_poisson_single_cylinder_multimode_3d
   set Output name                        = single_cylinder_multimode
   set Output results also before solving = false
   set Solver type                        = Schur
@@ -73,7 +73,7 @@ subsection Tensor product coupling
     set Finite element degree       = 1
     set Quadrature type             = trapez
     set Number of quadrature repetitions = 3
-    set Reduced grid name           = ../data/tests/one_cylinder.vtk
+    set Reduced grid name           = @TEST_DATA_DIR@/tests/one_cylinder.vtk
     set Reduced right hand side     = 1; 1; 2
     set Thickness                   = 0.05
   end
@@ -81,7 +81,7 @@ end
 subsection Error
   set Enable computation of the errors = true
   set Error file name                  =
-  set Error precision                  = 3
+set Error precision                  = 3
   set Exponent for p-norms             = 2
   set Extra columns                    = cells, dofs
   set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm

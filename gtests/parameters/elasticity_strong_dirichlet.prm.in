@@ -1,67 +1,62 @@
-subsection Functions
-  subsection Dirichlet boundary conditions
-    set Function constants   =
-    set Function expression  = sin(20*pi*t); 0
-    set Function expression  = 0; 1
-    set Modulation frequency = 10
-    set Variable names       = x,y,t
-  end
-  subsection Exact solution
-    set Function constants  =
-    set Function expression = 0; 0
-    set Variable names      = x,y,t
-    set Weight expression   = 1.
-  end
-  subsection Initial displacement
-    set Function constants  =
-    set Function expression = 0; 0
-    set Variable names      = x,y,t
-  end
-  subsection Initial velocity
-    set Function constants  =
-    set Function expression = 0; 0
-    set Variable names      = x,y,t
-  end
-  subsection Neumann boundary conditions
-    set Function constants   =
-    set Function expression  = 0; 0
-    set Modulation frequency = 0
-    set Variable names       = x,y,t
-  end
-  subsection Right hand side
-    set Function constants   =
-    set Function expression  = 0; 0
-    set Modulation frequency = 0
-    set Variable names       = x,y,t
-  end
-end
 subsection Error
   set Enable computation of the errors = true
-  set Error file name                  =
-  set Error precision                  = 3
+  set Error file name                  = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_strong_dirichlet/static_convergence/errors_strong_dirichlet.txt
+  set Error precision                  = 8
   set Exponent for p-norms             = 2
   set Extra columns                    = cells, dofs
   set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
   set Rate key                         = dofs
   set Rate mode                        = reduction_rate_log2
 end
+subsection Functions
+  subsection Dirichlet boundary conditions
+    set Function constants  =
+    set Function expression = x*y*(x - 1)*(y - 1) + sin(pi*x)*sin(pi*y)*cos(5*pi*t/2); x*y*(x - 1)*(y - 1) + sin(5*pi*t/2)*sin(pi*y)*cos(pi*x)
+    set Variable names      = x,y,t
+  end
+  subsection Exact solution
+    set Function constants  =
+    set Function expression = x*y*(x - 1)*(y - 1) + sin(pi*x)*sin(pi*y)*cos(5*pi*t/2); x*y*(x - 1)*(y - 1) + sin(5*pi*t/2)*sin(pi*y)*cos(pi*x)
+    set Variable names      = x,y,t
+  end
+  subsection Initial displacement
+    set Function constants  =
+    set Function expression = x*y*(x - 1)*(y - 1) + sin(pi*x)*sin(pi*y)*cos(5*pi*t/2); x*y*(x - 1)*(y - 1) + sin(5*pi*t/2)*sin(pi*y)*cos(pi*x)
+    set Variable names      = x,y,t
+  end
+  subsection Initial velocity
+    set Function constants  =
+    set Function expression = -5*pi*sin(5*pi*t/2)*sin(pi*x)*sin(pi*y)/2; 5*pi*sin(pi*y)*cos(5*pi*t/2)*cos(pi*x)/2
+    set Variable names      = x,y,t
+  end
+  subsection Neumann boundary conditions
+    set Function constants  =
+    set Function expression = 0; 0
+    set Variable names      = x,y,t
+  end
+  subsection Right hand side
+    set Function constants  =
+    set Function expression = -2.0*x^2 - 12.0*x*y + 8.0*x - 8.0*y^2 + 14.0*y + 3.0*pi^2*sin(5*pi*t/2)*sin(pi*x)*cos(pi*y) + 5.0*pi^2*sin(pi*x)*sin(pi*y)*cos(5*pi*t/2) - 3.0; -8.0*x^2 - 12.0*x*y + 14.0*x - 2.0*y^2 + 8.0*y + 5.0*pi^2*sin(5*pi*t/2)*sin(pi*y)*cos(pi*x) - 3.0*pi^2*cos(5*pi*t/2)*cos(pi*x)*cos(pi*y) - 3.0
+    set Variable names      = x,y,t
+  end
+end
 subsection Immersed Problem
-  set Dirichlet boundary ids             = 
+  set Dirichlet boundary ids             = 0,1,2,3
+  set Weak Dirichlet boundary ids      = 
   set FE degree                          = 1
   set Initial refinement                 = 4
-  set Neumann boundary ids               = 1,2,3
+  set Neumann boundary ids               =
   set Normal flux boundary ids           =
-  set Output directory                   = ./output/elasticity_modulated_boundary
-  set Output name                        = modulated_boundary
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_strong_dirichlet
+  set Output name                        = strong_dirichlet
   set Output pressure                    = false
   set Output results also before solving = false
   set Pressure coupling                  = false
-  set Weak Dirichlet boundary ids        = 0
-  set Weak Dirichlet penalty coefficient = 100000
+  set Weak Dirichlet penalty coefficient = 100
   subsection Grid generation
     set Domain type              = generate
-    set Grid generator           = subdivided_hyper_rectangle
-    set Grid generator arguments = 10, 1: 0, 0: 1, 0.1: true
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level   = 1
@@ -80,22 +75,14 @@ subsection Immersed Problem
     end
   end
   subsection Material properties
-    set Material tags by material id = 1:CSF, 2:CSF, 3:CSF
+    set Material tags by material id =
     subsection default
-      set Density        = 100
-      set Lame lambda    = 10000
-      set Lame mu        = 100
-      set Rayleigh alpha = 0
-      set Rayleigh beta  = 0
-      set Viscosity eta  = 0
-    end
-    subsection CSF
-      set Density        = 100
-      set Lame lambda    = 10000
-      set Lame mu        = 100
-      set Rayleigh alpha = 0
-      set Rayleigh beta  = 0
-      set Viscosity eta  = 0
+      set Density         = 0.0
+      set Lame lambda     = 2.0
+      set Lame mu         = 1.0
+      set Rayleigh alpha  = 0
+      set Rayleigh beta   = 0
+      set Viscosity eta   = 0.0
     end
   end
   subsection Refinement and remeshing
@@ -103,15 +90,14 @@ subsection Immersed Problem
     set Maximum number of cells     = 20000
     set Number of refinement cycles = 1
     set Refinement fraction         = 0.3
-    set Strategy                    = fixed_fraction
+    set Strategy                    = global
   end
   subsection Time dependency
-    set Final time       = 5
-    set Initial time     = 0
-    set Newmark beta     = 0.25
-    set Newmark gamma    = 0.5
-    set Refine time step = false
-    set Time step        = 0.0625
+    set Final time    = 0.0
+    set Initial time  = 0.0
+    set Newmark beta  = 0.25
+    set Newmark gamma = 0.5
+    set Time step     = 0.005
   end
 end
 subsection Solvers
