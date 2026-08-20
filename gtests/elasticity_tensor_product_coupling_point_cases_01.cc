@@ -51,7 +51,7 @@ namespace
 #  endif
     par.output_name         = output_name;
     par.fe_degree           = 1;
-    par.initial_refinement  = 1;
+    par.initial_refinement  = 2;
     par.domain_type         = "generate";
     par.name_of_grid        = "hyper_cube";
     par.arguments_for_grid  = "-1: 1: false";
