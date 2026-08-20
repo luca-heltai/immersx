@@ -406,6 +406,7 @@ namespace ImmersX
   ElasticityProblem<dim, spacedim>::setup_dofs()
   {
     TimerOutput::Scope t(computing_timer, "Setup dofs");
+    coupling_matrices_assembled = false;
 #ifdef DEAL_II_WITH_VTK
     if (uses_tensor_product_coupling())
       {
@@ -1120,15 +1121,29 @@ namespace ImmersX
         return;
       }
 
-    assemble_point_coupling();
+    assemble_point_coupling(!coupling_matrices_assembled);
+    coupling_matrices_assembled = true;
   }
 
 
   template <int dim, int spacedim>
   void
-  ElasticityProblem<dim, spacedim>::assemble_point_coupling()
+  ElasticityProblem<dim, spacedim>::assemble_point_coupling(
+    const bool rebuild_matrices)
   {
     TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
+
+    // The coupling operators depend only on the current mesh and inclusion
+    // geometry. The multiplier right-hand side, however, can change with
+    // time, so rebuild only that vector after the first assembly.
+    if (rebuild_matrices)
+      {
+        coupling_matrix  = 0;
+        inclusion_matrix = 0;
+      }
+
+    force_rhs.block(1)  = 0;
+    system_rhs.block(1) = 0;
 
     // const FEValuesExtractors::Scalar     scalar(0);
     std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
@@ -1193,17 +1208,21 @@ namespace ImmersX
                 for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
                      ++j)
                   {
-                    for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+                    if (rebuild_matrices)
                       {
-                        const auto comp_i =
-                          fe->system_to_component_index(i).first;
-                        //  if (comp_i == inclusions.get_component(j))
-                        {
-                          local_coupling_matrix(i, j) +=
-                            ((fev.shape_value(i, q)) * inclusion_fe_values[j] /
-                             section_measure * ds) *
-                            (Rotation[comp_i][inclusions.get_component(j)]);
-                        }
+                        for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+                          {
+                            const auto comp_i =
+                              fe->system_to_component_index(i).first;
+                            //  if (comp_i == inclusions.get_component(j))
+                            {
+                              local_coupling_matrix(i, j) +=
+                                ((fev.shape_value(i, q)) *
+                                 inclusion_fe_values[j] / section_measure *
+                                 ds) *
+                                (Rotation[comp_i][inclusions.get_component(j)]);
+                            }
+                          }
                       }
                     if (inclusions.inclusions_data[inclusion_id].size() > 0)
                       {
@@ -1240,37 +1259,47 @@ namespace ImmersX
                           // inclusions.get_radius(inclusion_id)
                           * ds / section_measure;
                       }
-                    local_inclusion_matrix(j, j) +=
-                      (inclusion_fe_values[j] * inclusion_fe_values[j] *
-                       ds); // /
-                    //  inclusions.get_section_measure(inclusion_id));
+                    if (rebuild_matrices)
+                      {
+                        local_inclusion_matrix(j, j) +=
+                          (inclusion_fe_values[j] * inclusion_fe_values[j] *
+                           ds); // /
+                        //  inclusions.get_section_measure(inclusion_id));
+                      }
                   }
                 ++p;
               }
             // I expect p and next_p to be the same now.
             Assert(p == next_p, ExcInternalError());
             // Add local matrices to global ones
-            constraints.distribute_local_to_global(local_coupling_matrix,
-                                                   fe_dof_indices,
-                                                   inclusion_constraints,
-                                                   inclusion_dof_indices,
-                                                   coupling_matrix);
+            if (rebuild_matrices)
+              constraints.distribute_local_to_global(local_coupling_matrix,
+                                                     fe_dof_indices,
+                                                     inclusion_constraints,
+                                                     inclusion_dof_indices,
+                                                     coupling_matrix);
             inclusion_constraints.distribute_local_to_global(
               local_rhs, inclusion_dof_indices, force_rhs.block(1));
             inclusion_constraints.distribute_local_to_global(
               local_rhs, inclusion_dof_indices, system_rhs.block(1));
 
-            inclusion_constraints.distribute_local_to_global(
-              local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
+            if (rebuild_matrices)
+              inclusion_constraints.distribute_local_to_global(
+                local_inclusion_matrix,
+                inclusion_dof_indices,
+                inclusion_matrix);
           }
         particle = pic.end();
       }
-    coupling_matrix.compress(VectorOperation::add);
-    inclusion_matrix.compress(VectorOperation::add);
+    if (rebuild_matrices)
+      {
+        coupling_matrix.compress(VectorOperation::add);
+        inclusion_matrix.compress(VectorOperation::add);
+      }
     force_rhs.compress(VectorOperation::add);
     system_rhs.block(1) = force_rhs.block(1);
 
-    if (n_multiplier_dofs() > 0)
+    if (rebuild_matrices && n_multiplier_dofs() > 0)
       {
         Teuchos::ParameterList amg_parameter_list;
         amg_parameter_list.set("smoother: type", "Chebyshev");
