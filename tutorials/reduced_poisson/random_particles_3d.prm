@@ -1,0 +1,95 @@
+set dimension         = 3
+set reduced dimension = 0
+set space dimension   = 3
+set cross section dimension = 2
+subsection Error
+  set Enable computation of the errors = false
+  set Error file name                  =
+  set Error precision                  = 3
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+subsection Reduced Poisson
+  set Assemble full AL system            = false
+  set Dirichlet boundary ids             = 0,1,2,3,4,5
+  set Estimate condition number          = false
+  set FE degree                          = 1
+  set Output directory                   = ./output/reduced_poisson_random_particles_3d
+  set Output name                        = random_particles_3d
+  set Output results also before solving = false
+  set Solver type                        = AL
+  subsection Dirichlet boundary conditions
+    set Function constants  =
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0:1:true
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0.0
+    set Maximum number of cells     = 20000
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_fraction
+  end
+  subsection Right hand side
+    set Function constants  =
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Solver
+    subsection Inner control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 200
+      set Reduction     = 1e-10
+      set Tolerance     = 1e-12
+    end
+    subsection Outer control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 200
+      set Reduction     = 1e-10
+      set Tolerance     = 1e-12
+    end
+  end
+end
+subsection Tensor product coupling
+  subsection Cross section
+    set Inclusion type           = hyper_ball
+    set Maximum inclusion degree = 0
+    set Refinement level         = 3
+    set Selected indices         = 0
+  end
+  subsection Local refinement parameters
+    set Max refinement level         = 5
+    set Refinement factor            = 1
+    set Space post-refinement cycles = 0
+    set Space pre-refinement cycles  = 3
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Data file                         =
+    set Finite element degree             = 0
+    set Inclusions file                   =
+    set Input file fields                 = radius, rhs
+    set Number of fourier coefficients    = 1
+    set Number of quadrature points       = 3
+    set Number of quadrature repetitions  = 1
+    set Quadrature type                   = gauss
+    set Reduced grid name                 = notebooks/random_particles_3d.vtu
+    set Reduced right hand side           = rhs
+    set Reference inclusion data          =
+    set Selection of Fourier coefficients =
+    set Thickness                         = radius
+  end
+end

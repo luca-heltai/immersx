@@ -1287,6 +1287,9 @@ TensorProductSpace<0, dim, spacedim, n_components>::
     {
       point_cloud.points.clear();
       point_cloud.properties.clear();
+      entity_properties.clear();
+      representative_properties.clear();
+      entity_thickness.clear();
     }
 }
 
@@ -1775,6 +1778,9 @@ TensorProductSpace<0, dim, spacedim, n_components>::get_entity_orientation(
 }
 
 template struct TensorProductSpaceParameters<0, 2, 2, 1>;
+template struct TensorProductSpaceParameters<0, 1, 3, 1>;
+template struct TensorProductSpaceParameters<0, 2, 3, 1>;
+template struct TensorProductSpaceParameters<0, 3, 3, 1>;
 template struct TensorProductSpaceParameters<0, 2, 2, 2>;
 template struct TensorProductSpaceParameters<0, 1, 2, 1>;
 template struct TensorProductSpaceParameters<0, 1, 2, 2>;
@@ -1789,6 +1795,9 @@ template struct TensorProductSpaceParameters<1, 3, 3, 3>;
 template struct TensorProductSpaceParameters<2, 3, 3, 3>;
 
 template class TensorProductSpace<0, 2, 2, 1>;
+template class TensorProductSpace<0, 1, 3, 1>;
+template class TensorProductSpace<0, 2, 3, 1>;
+template class TensorProductSpace<0, 3, 3, 1>;
 template class TensorProductSpace<0, 2, 2, 2>;
 template class TensorProductSpace<0, 1, 2, 1>;
 template class TensorProductSpace<0, 1, 2, 2>;
