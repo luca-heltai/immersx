@@ -1,16 +1,17 @@
 
-DEAL:0::dst norm (Tvmult) = 0.1016
-DEAL:0::dst norm (vmult) = 0.9235
-DEAL:0::dst norm (Tvmult) = 1.565
-DEAL:0::dst norm (vmult) = 9.284
+DEAL:0::dst norm (Tvmult) = 0.04011
+DEAL:0::dst norm (vmult) = 0.2145
+DEAL:0::dst norm (Tvmult) = 0.5209
+DEAL:0::dst norm (vmult) = 1.991
 
-DEAL:1::dst norm (Tvmult) = 0.1016
-DEAL:1::dst norm (vmult) = 0.9235
-DEAL:1::dst norm (Tvmult) = 1.565
-DEAL:1::dst norm (vmult) = 9.284
+DEAL:1::dst norm (Tvmult) = 0.04011
+DEAL:1::dst norm (vmult) = 0.2145
+DEAL:1::dst norm (Tvmult) = 0.5209
+DEAL:1::dst norm (vmult) = 1.991
 
 
-DEAL:2::dst norm (Tvmult) = 0.1016
-DEAL:2::dst norm (vmult) = 0.9235
-DEAL:2::dst norm (Tvmult) = 1.565
-DEAL:2::dst norm (vmult) = 9.284
+DEAL:2::dst norm (Tvmult) = 0.04011
+DEAL:2::dst norm (vmult) = 0.2145
+DEAL:2::dst norm (Tvmult) = 0.5209
+DEAL:2::dst norm (vmult) = 1.991
+

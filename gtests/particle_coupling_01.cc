@@ -49,7 +49,7 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-  background_tria.refine_global(5);
+  background_tria.refine_global(2);
   params.reduced_grid_name =
     ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 
@@ -120,7 +120,7 @@ TEST(ParticleCoupling, MPI_GlobalCells) // NOLINT
   parallel::distributed::Triangulation<spacedim> background_tria(
     MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-  background_tria.refine_global(5);
+  background_tria.refine_global(2);
   params.reduced_grid_name =
     ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
 

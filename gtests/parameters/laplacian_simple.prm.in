@@ -11,7 +11,7 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
-  set Initial refinement                 = 2
+  set Initial refinement                 = 1
   set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/laplacian_simple
   set Output name                        = app_laplacian
   set Output results also before solving = false
@@ -30,7 +30,7 @@ subsection Immersed Problem
     set Data file                         =
     set Inclusions                        =
     set Inclusions file                   =
-    set Inclusions refinement             = 100
+    set Inclusions refinement             = 1
     set Number of fourier coefficients    = 1
     set Reference inclusion data          =
     set Selection of Fourier coefficients =

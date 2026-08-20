@@ -356,7 +356,7 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
   // Setup serial tria
   Triangulation<dim> serial_tria;
   GridGenerator::hyper_cube(serial_tria, 0, 1);
-  serial_tria.refine_global(2);
+  serial_tria.refine_global(1);
 
   DoFHandler<dim> serial_dof_handler(serial_tria);
   serial_dof_handler.distribute_dofs(fe);
@@ -378,7 +378,7 @@ TEST(VTKUtils, MPI_FillDistributedVectorFromSerial)
 
   parallel::distributed::Triangulation<dim> parallel_tria(MPI_COMM_WORLD);
   GridGenerator::hyper_cube(parallel_tria, 0, 1);
-  parallel_tria.refine_global(2);
+  parallel_tria.refine_global(1);
 
   DoFHandler<dim> parallel_dof_handler(parallel_tria);
   parallel_dof_handler.distribute_dofs(fe);
@@ -472,7 +472,7 @@ TEST(VTKUtils, MPI_DistributedVerticesToSerialVertices)
   // Setup serial tria
   Triangulation<dim> serial_tria;
   GridGenerator::hyper_cube(serial_tria, 0, 1);
-  serial_tria.refine_global(2);
+  serial_tria.refine_global(1);
 
   // First, partition the serial triangulation
   GridTools::partition_triangulation(

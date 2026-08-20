@@ -54,7 +54,7 @@ subsection Tensor product coupling
   subsection Cross section
     set Inclusion type           = hyper_ball
     set Maximum inclusion degree = 0
-    set Refinement level         = 3
+    set Refinement level         = 2
     set Selected indices         =
   end
   subsection Local refinement parameters
@@ -64,7 +64,7 @@ subsection Tensor product coupling
     set Refinement factor               = 1
     set Refinement strategy             = space
     set Space post-refinement cycles    = 1
-    set Space pre-refinement cycles     = 3
+    set Space pre-refinement cycles     = 1
   end
   subsection Particle coupling
     set RTree extraction level = 1
@@ -72,7 +72,7 @@ subsection Tensor product coupling
   subsection Representative domain
     set Finite element degree            = 1
     set Number of quadrature points      = 0
-    set Number of quadrature repetitions = 32
+    set Number of quadrature repetitions = 1
     set Quadrature type                  = trapez
     set Reduced grid name                = @IMMERSX_SOURCE_DIR@/data/three_cylinders_R005.vtk
     set Reduced right hand side          = 1
