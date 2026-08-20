@@ -1,0 +1,116 @@
+# Full-order matrix plus additive/excess fiber tutorial.
+set dimension       = 2
+set space dimension = 2
+
+subsection Fiber Reinforced Elastodynamics
+  set Output directory  = ./output/fiber_reinforced_elastodynamics
+  set Output frequency  = 1
+
+  subsection Time integration
+    set Initial time       = 0.0
+    set Final time         = 0.05
+    set Time step          = 0.01
+    set Number of time steps = 5
+  end
+
+  subsection Coupling solver
+    set Maximum steps                 = 200
+    set Tolerance                     = 1.e-10
+    set Block tolerance               = 1.e-12
+    set Initial compatibility tolerance = 1.e-10
+  end
+
+  subsection Fiber Coupling
+    subsection Particle search
+      set RTree extraction level = 1
+    end
+  end
+
+  subsection Matrix Elastodynamics
+    set FE degree          = 1
+    set Initial refinement = 2
+    set Dirichlet boundary ids = 0,1,2,3
+
+    subsection Grid generation
+      set Grid generator           = hyper_cube
+      set Grid generator arguments = -1: 1: false
+      set Triangulation type       = distributed
+    end
+
+    subsection Material
+      set Density       = 1.0
+      set Lame mu       = 1.0
+      set Lame lambda   = 1.0
+      set Damping shear = 0.0
+      set Damping bulk  = 0.0
+    end
+
+    subsection Functions
+      subsection Body force
+        set Function expression = 0; 1
+        set Variable names      = x,y,t
+      end
+      subsection Displacement boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Velocity boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial displacement
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial velocity
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+    end
+  end
+
+  subsection Fiber Elastodynamics
+    # These are additive/excess coefficients, not a second complete matrix
+    # material. Keep density positive for the SPD effective fiber block.
+    set FE degree          = 1
+    set Initial refinement = 1
+    set Dirichlet boundary ids =
+
+    subsection Grid generation
+      set Grid generator           = subdivided_hyper_rectangle
+      set Grid generator arguments = 6, 2: -0.65, -0.12: 0.65, 0.12: true
+      set Triangulation type       = distributed
+    end
+
+    subsection Material
+      set Density       = 4.0
+      set Lame mu       = 8.0
+      set Lame lambda   = 8.0
+      set Damping shear = 0.0
+      set Damping bulk  = 0.0
+    end
+
+    subsection Functions
+      subsection Body force
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Displacement boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Velocity boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial displacement
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial velocity
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+    end
+  end
+end

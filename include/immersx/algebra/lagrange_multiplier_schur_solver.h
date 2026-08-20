@@ -16,6 +16,7 @@
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/solver_control.h>
+#include <deal.II/lac/solver_gmres.h>
 
 namespace ImmersX
 {
@@ -64,6 +65,12 @@ namespace ImmersX
       void
       vmult(VectorType &dst, const VectorType &src) const
       {
+        // Some distributed vector backends do not guarantee that a vector
+        // handed to a transpose multiply is initialized.  The first term
+        // below is conceptually an assignment, while the embedded term is an
+        // additive contribution; make that contract explicit before applying
+        // the Schur operator.
+        dst = 0.;
         solver.coupling_matrix.vmult(bulk_coupling, src);
         solver.solve_block(bulk_inverse,
                            bulk_coupling,
@@ -156,9 +163,15 @@ namespace ImmersX
 
       multiplier.reinit(multiplier_owned_dofs, mpi_communicator);
       multiplier = 0.;
-      SchurComplementOperator      schur_operator(*this);
-      dealii::SolverCG<VectorType> schur_solver(schur_solver_control);
-      dealii::PreconditionIdentity identity;
+      SchurComplementOperator schur_operator(*this);
+      // The algebraic Schur operator is symmetric positive definite for the
+      // ideal unconstrained pairing.  Distributed constraint elimination and
+      // backend-specific sparse row operations can, however, leave a tiny
+      // nonsymmetric component. GMRES preserves the same matrix-free Schur
+      // reuse without making the coupled driver fail on that harmless backend
+      // asymmetry.
+      dealii::SolverGMRES<VectorType> schur_solver(schur_solver_control);
+      dealii::PreconditionIdentity    identity;
       schur_solver.solve(schur_operator, multiplier, multiplier_rhs, identity);
 
       coupling_matrix.vmult(bulk_correction, multiplier);

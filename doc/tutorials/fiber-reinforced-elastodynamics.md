@@ -1,0 +1,91 @@
+# Full-order fiber-reinforced elastodynamics
+
+This tutorial implements a first coupled application with two independent,
+nonmatching, full-dimensional Problems:
+
+```text
+matrix: ElastodynamicsSolver<d,d>
+fiber:  ElastodynamicsSolver<d,d>
+```
+
+The example input is
+`tutorials/fiber_reinforced_elastodynamics/parameters.prm`. A Debug run is:
+
+```bash
+./build/fiber_reinforced_elastodynamics_debug \
+  tutorials/fiber_reinforced_elastodynamics/parameters.prm
+```
+
+## Geometry and material meaning
+
+The 2D matrix occupies $[-1,1]^2$. The fiber is a thin rectangle strictly
+inside it and is meshed independently, so the grids do not match. Both spaces
+are full-dimensional vector finite-element spaces. The word *embedded* refers
+to the geometric inclusion $\Omega_f\subset\Omega$, not to a reduced
+`<1,3>` finite-element space.
+
+The matrix coefficients fill the entire background domain. The fiber Problem
+is an additive/excess contribution supported in the fiber region. Its density
+and Lamé coefficients therefore describe the excess material contribution;
+they do not silently mean “matrix material plus a second complete solid” in the
+same region. The tutorial uses positive excess density so the free-fiber
+effective block remains positive definite for the existing Schur solver.
+
+## Coupling and time stepping
+
+The matrix and fiber velocity representations are typed
+`VectorFiniteElementRepresentation`s. `VectorLagrangeMultiplierInteraction`
+uses the fiber vector FE space as the multiplier space and assembles
+
+```{math}
+C_{ij}=\int_{\Omega_f}
+  \boldsymbol\phi_i^m\cdot\boldsymbol\psi_j^\lambda\,dx,
+\qquad
+Q_{jk}=\int_{\Omega_f}
+  \boldsymbol\psi_j^\lambda\cdot\boldsymbol\phi_k^f\,dx.
+```
+
+Here $Q$ is an interaction pairing matrix, not the fiber’s physical mass
+matrix. Fiber quadrature points are located in the distributed matrix mesh by
+the existing `ParticleCoupling` search. Vector basis values are evaluated by
+component, so an x basis function cannot couple to a y basis function.
+
+The application driver, rather than either Problem’s standalone time loop,
+owns backward Euler. Eliminating displacement gives
+
+```{math}
+A_m v_m^{n+1}+C\lambda^{n+1}=r_m,
+```
+
+```{math}
+A_f v_f^{n+1}-Q^T\lambda^{n+1}=r_f,
+```
+
+```{math}
+C^T v_m^{n+1}-Qv_f^{n+1}=0,
+```
+
+with $A=M/\Delta t+D+\Delta t K$ and
+$r=f^{n+1}+Mv^n/\Delta t-Kd^n$. The existing
+`LagrangeMultiplierSchurSolver` solves this block system. After the solve,
+$d^{n+1}=d^n+\Delta t\,v^{n+1}$, and the driver records both velocity and
+displacement compatibility diagnostics.
+
+The initial displacement must already satisfy
+$C^Td_m^0-Qd_f^0=0$; the tutorial uses the compatible zero state. The current
+application assumes fixed reference geometry. Geometry versions remain part of
+the representation/interaction seam so a future moving FSI relation can
+invalidate assembled transfer data explicitly. Nonzero moving Dirichlet data
+and adaptive refinement during the coupled run are not implemented here.
+
+## Scope and future path
+
+This is a full-order fiber application. It does not implement the future
+reduced `<1,3>` TensorProduct fiber mechanics, moving geometry, FSI, adaptive
+coupled refinement, partitioned execution, or a five-field semantic
+`SemiDiscreteModel`. That semantic integration is intentionally left behind
+the composable contributor API being developed separately.
+
+The MPI path is the same distributed point-search path used by the existing
+coupling infrastructure. A meaningful two-rank transient test exercises the
+nonmatching vector interaction and coupled algebra.

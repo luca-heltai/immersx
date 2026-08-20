@@ -220,6 +220,21 @@ namespace ImmersX
     void
     set_velocity(const VectorType &new_velocity);
 
+    /**
+     * Atomically accept an externally solved state.
+     *
+     * This seam is for application-level coupled drivers. It updates the
+     * problem time and accepted-step counter together with displacement and
+     * velocity, then reapplies the current homogeneous/inhomogeneous
+     * constraints and ghost values. It does not assemble or solve a standalone
+     * backward-Euler system.
+     */
+    void
+    accept_state(const VectorType &new_displacement,
+                 const VectorType &new_velocity,
+                 double            time,
+                 unsigned int      step_number);
+
     /** Return the global number of spatial DoFs. */
     dealii::types::global_dof_index
     n_dofs() const;
