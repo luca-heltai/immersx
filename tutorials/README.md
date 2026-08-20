@@ -10,6 +10,7 @@ example:
 - `tutorials/laplacian/`
 - `tutorials/elasticity/`
 - `tutorials/elastodynamics/`
+- `tutorials/navier_stokes/`
 - `tutorials/coupled_elasticity/`
 
 Each application subdirectory should contain the actual input files referenced

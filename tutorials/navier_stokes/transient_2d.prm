@@ -1,0 +1,62 @@
+set dimension       = 2
+set space dimension = 2
+
+subsection Navier-Stokes
+  set Output directory       = ./output/navier_stokes_2d
+  set Output name            = transient_stokes
+  set Output frequency       = 2
+  set Initial refinement     = 2
+  set Dirichlet boundary ids = 0
+
+  subsection Finite element spaces
+    set Velocity degree = 2
+    set Pressure degree = 1
+  end
+
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Triangulation type       = distributed
+  end
+
+  subsection Physical properties
+    set Density                 = 1
+    set Viscosity               = 1
+    set Include convective term = true
+  end
+
+  subsection Time stepping
+    set Policy               = number_of_steps
+    set Initial time         = 0
+    set Final time           = 0.1
+    set Time step            = 0.01
+    set Number of time steps = 10
+  end
+
+  subsection Right hand side
+    set Function expression = 1; 0; 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Dirichlet boundary conditions
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Initial condition
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Solver
+    subsection Control
+      set Max steps  = 500
+      set Reduction  = 1.e-9
+      set Tolerance  = 1.e-11
+      set Log result = false
+    end
+    set Inner maximum steps = 500
+    set Inner tolerance     = 1.e-10
+    set Log iterations      = false
+  end
+end
