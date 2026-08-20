@@ -9,6 +9,7 @@ example:
 - `tutorials/reduced_poisson/`
 - `tutorials/laplacian/`
 - `tutorials/elasticity/`
+- `tutorials/elastodynamics/`
 - `tutorials/coupled_elasticity/`
 
 Each application subdirectory should contain the actual input files referenced

@@ -1,0 +1,91 @@
+# First-order Kelvin--Voigt manufactured-solution convergence case.
+# The exact state is d=t*phi, v=phi, so backward Euler is exact in time for
+# the kinematic equation and the viscous operator is active in the dynamics.
+set dimension = 2
+set space dimension = 2
+
+subsection Elastodynamics
+  set FE degree                  = 1
+  set Output directory            = ./output/elastodynamics_convergence/kelvin_voigt
+  set Output name                 = kelvin_voigt
+  set Output frequency            = 0
+  set Initial refinement          = 1
+  set Number of refinement cycles = 5
+  set Dirichlet boundary ids      = 0,1,2,3
+
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
+    set Triangulation type       = distributed
+  end
+
+  subsection Material
+    set Density       = 1.0
+    set Lame mu       = 1.0
+    set Lame lambda   = 2.0
+    set Damping shear = 0.1
+    set Damping bulk  = 0.0
+  end
+
+  subsection Time integration
+    set Initial time         = 0.0
+    set Final time           = 0.01
+    set Time step            = 0.01
+    set Number of time steps = 1
+  end
+
+  subsection Functions
+    subsection Body force
+      set Function constants  =
+      set Function expression = 5*pi^2*t*sin(pi*x)*sin(pi*y) + 0.3*pi^2*sin(pi*x)*sin(pi*y); -3*pi^2*t*cos(pi*x)*cos(pi*y) - 0.1*pi^2*cos(pi*x)*cos(pi*y)
+      set Variable names      = x,y,t
+    end
+    subsection Displacement boundary
+      set Function constants  =
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Velocity boundary
+      set Function constants  =
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Initial displacement
+      set Function constants  =
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Initial velocity
+      set Function constants  =
+      set Function expression = sin(pi*x)*sin(pi*y); 0
+      set Variable names      = x,y,t
+    end
+    subsection Exact solution
+      set Function constants  =
+      set Function expression = t*sin(pi*x)*sin(pi*y); 0
+      set Variable names      = x,y,t
+    end
+  end
+
+  subsection Solver
+    subsection Control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = false
+      set Max steps     = 500
+      set Reduction     = 1.e-12
+      set Tolerance     = 1.e-12
+    end
+  end
+end
+
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  =
+  set Error precision                  = 8
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
