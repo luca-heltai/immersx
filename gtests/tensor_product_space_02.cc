@@ -13,14 +13,16 @@
 #include <deal.II/lac/sparsity_pattern.h>
 
 #include <gtest/gtest.h>
+#include <immersx/coupling/reduced_coupling.h>
 
 #include <algorithm>
 
-#include "reduced_coupling.h"
-#include "reduced_poisson.h"
-#include "tensor_product_space.h"
+using namespace ImmersX;
+#include <immersx/coupling/tensor_product_space.h>
+#include <immersx/io/utils.h>
+#include <immersx/physics/reduced_poisson.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 using namespace dealii;
 

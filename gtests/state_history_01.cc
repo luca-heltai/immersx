@@ -10,9 +10,10 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/state_history.h>
 
-#include "state_history.h"
-#include "time_residual.h"
+using namespace ImmersX;
+#include <immersx/core/time_residual.h>
 
 
 using dealii::Vector;

@@ -33,8 +33,10 @@
  * Modified by: Luca Heltai, 2020
  */
 
-#include "elasticity.h"
-#include "utils.h"
+#include <immersx/physics/elasticity.h>
+
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 int
 main(int argc, char *argv[])
 {

@@ -19,15 +19,16 @@
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
+#include <immersx/algebra/lagrange_multiplier_constraint_solver.h>
 
 #include <cmath>
 #include <vector>
 
-#include "lagrange_multiplier_constraint_solver.h"
-#include "lagrange_multiplier_interaction.h"
-#include "poisson.h"
-#include "representation.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/algebra/lagrange_multiplier_interaction.h>
+#include <immersx/core/representation.h>
+#include <immersx/io/utils.h>
+#include <immersx/physics/poisson.h>
 
 
 using namespace dealii;

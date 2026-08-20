@@ -20,15 +20,17 @@
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
+#include <immersx/physics/elasticity.h>
 
 #include <filesystem>
 #include <fstream>
 #include <numbers>
 #include <sstream>
 
-#include "elasticity.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 using namespace dealii;
 

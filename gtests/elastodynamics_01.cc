@@ -10,12 +10,13 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <gtest/gtest.h>
+#include <immersx/physics/elastodynamics.h>
 
 #include <cmath>
 #include <filesystem>
 
-#include "elastodynamics.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 
 
 using namespace dealii;

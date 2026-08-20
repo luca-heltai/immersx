@@ -10,8 +10,9 @@
 #include <deal.II/base/config.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/sundials_ida_adapter.h>
 
-#include "sundials_ida_adapter.h"
+using namespace ImmersX;
 
 
 #ifdef DEAL_II_WITH_SUNDIALS

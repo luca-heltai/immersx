@@ -25,8 +25,10 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include "reduced_poisson.h"
-#  include "utils.h"
+#  include <immersx/physics/reduced_poisson.h>
+
+using namespace ImmersX;
+#  include <immersx/io/utils.h>
 
 using namespace dealii;
 

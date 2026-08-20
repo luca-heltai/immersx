@@ -14,7 +14,9 @@
 //
 // ---------------------------------------------------------------------
 
-#include "inclusions.h"
+#include <immersx/coupling/inclusions.h>
+
+using namespace ImmersX;
 #include "tests.h"
 
 // Test some integral properties of the fourier coefficients.

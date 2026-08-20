@@ -9,11 +9,13 @@
 
 #include <deal.II/base/mpi.h>
 
+#include <immersx/physics/navier_stokes.h>
+
 #include <iostream>
 #include <string>
 
-#include "navier_stokes.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 
 
 int
