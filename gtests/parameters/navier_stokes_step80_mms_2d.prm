@@ -1,0 +1,80 @@
+set dimension       = 2
+set space dimension = 2
+
+# Standalone fluid form of the manufactured-solution test in
+# deal.II/examples/step-80/step-80_gtests.cc at c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd.
+# A single very large backward-Euler step is used to approximate the steady
+# MMS solve while retaining the NavierStokesSolver time-stepping lifecycle.
+subsection Navier-Stokes
+  set Output directory      = /private/tmp/immersx_navier_stokes_step80_mms
+  set Output name           = step80_mms
+  set Output frequency     = 0
+  set Initial refinement    = 2
+  set Dirichlet boundary ids = 0
+
+  subsection Finite element spaces
+    set Velocity degree = 2
+    set Pressure degree = 1
+  end
+
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Triangulation type       = distributed
+  end
+
+  subsection Physical properties
+    set Density                 = 1
+    set Viscosity               = 1
+    set Include convective term = true
+  end
+
+  subsection Time stepping
+    set Policy               = fixed
+    set Initial time         = 0
+    set Final time           = 1e6
+    set Time step            = 1e6
+    set Number of time steps = 1
+  end
+
+  set Analytical solution expression = sin(pi*x)*cos(pi*y); -cos(pi*x)*sin(pi*y); sin(pi*x)*sin(pi*y)
+
+  subsection Right hand side
+    set Function expression = 0.5*pi*sin(2*pi*x) + 2*pi*pi*sin(pi*x)*cos(pi*y) + pi*cos(pi*x)*sin(pi*y); 0.5*pi*sin(2*pi*y) - 2*pi*pi*cos(pi*x)*sin(pi*y) + pi*sin(pi*x)*cos(pi*y); 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Dirichlet boundary conditions
+    set Function expression = sin(pi*x)*cos(pi*y); -cos(pi*x)*sin(pi*y); sin(pi*x)*sin(pi*y)
+    set Variable names      = x,y,t
+  end
+
+  subsection Initial condition
+    set Function expression = sin(pi*x)*cos(pi*y); -cos(pi*x)*sin(pi*y); sin(pi*x)*sin(pi*y)
+    set Variable names      = x,y,t
+  end
+
+  subsection Solver
+    subsection Control
+      set Max steps  = 2000
+      set Reduction  = 1.e-12
+      set Tolerance  = 1.e-12
+      set Log result = false
+    end
+    set Inner maximum steps = 1000
+    set Inner tolerance     = 1.e-12
+    set Log iterations      = false
+  end
+
+end
+
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  =
+  set Error precision                  = 6
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm;
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
