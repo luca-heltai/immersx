@@ -34,6 +34,8 @@ main(int argc, char *argv[])
           NavierStokesSolver<2>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
+          // Keep all ranks together before the solver resources are released.
+          MPI_Barrier(MPI_COMM_WORLD);
         }
       else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         {
@@ -41,6 +43,8 @@ main(int argc, char *argv[])
           NavierStokesSolver<3>     problem(par);
           initialize_parameters(prm_file);
           problem.run();
+          // Keep all ranks together before the solver resources are released.
+          MPI_Barrier(MPI_COMM_WORLD);
         }
       else
         throw_unsupported_dimension_combination(dimensions);
