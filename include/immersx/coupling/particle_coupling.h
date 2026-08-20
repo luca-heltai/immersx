@@ -54,7 +54,8 @@ namespace ImmersX
     /**
      * @brief Constructor that initializes the parameters.
      */
-    ParticleCouplingParameters();
+    explicit ParticleCouplingParameters(
+      const std::string &subsection = "Particle coupling");
 
     /**
      * The level of the R-tree extraction.
