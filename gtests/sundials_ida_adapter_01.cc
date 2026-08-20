@@ -43,14 +43,14 @@ TEST(SundialsIDA, SolvesSyntheticDifferentialAlgebraicResidual) // NOLINT
   lambda_descriptor.time_role = ImmersX::TimeRole::algebraic;
   const auto lambda           = layout.add_field(lambda_descriptor);
 
-  ImmersX::MonolithicFieldLayout<VectorType> field_layout(layout, 3);
+  ImmersX::detail::MonolithicFieldLayout<VectorType> field_layout(layout, 3);
   field_layout.add_field(u, 0, 1);
   field_layout.add_field(w, 1, 2);
   field_layout.add_field(lambda, 2, 3);
 
-  ImmersX::TimeResidualModel<VectorType> model;
+  ImmersX::SemiDiscreteModel<VectorType> model;
   model.add_term(
-    time_residual_terms::mass,
+    ImmersX::time_residual_terms::mass,
     [u, w](const auto &context, auto &residual) {
       residual.field(u)[0] +=
         context.state_derivative()->field(u, context.time())[0];
@@ -66,7 +66,7 @@ TEST(SundialsIDA, SolvesSyntheticDifferentialAlgebraicResidual) // NOLINT
         increment.field(w, linearization.evaluation().time())[0];
     });
   model.add_term(
-    time_residual_terms::diffusion,
+    ImmersX::time_residual_terms::diffusion,
     [u, w, lambda](const auto &context, auto &residual) {
       const auto  &state        = context.state();
       const double u_value      = state.field(u, context.time())[0];

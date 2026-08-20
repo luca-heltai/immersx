@@ -55,9 +55,9 @@ TEST(VectorRepresentation, MixedExtractorSelectsVelocityOnly) // NOLINT
   pressure_descriptor.name = "pressure";
   const auto pressure      = layout.add_field(pressure_descriptor);
 
-  RepresentationMetadata metadata;
-  metadata.dependencies.push_back(RepresentationDependency{velocity});
-  metadata.dependencies.push_back(RepresentationDependency{pressure});
+  ImmersX::RepresentationMetadata metadata;
+  metadata.dependencies.push_back(velocity);
+  metadata.dependencies.push_back(pressure);
 
   using Representation = VectorFiniteElementRepresentation<2>;
   static_assert(
@@ -75,8 +75,8 @@ TEST(VectorRepresentation, MixedExtractorSelectsVelocityOnly) // NOLINT
                                 metadata);
 
   EXPECT_EQ(representation.metadata().dependencies.size(), 2u);
-  EXPECT_EQ(representation.dependencies()[0].field_id, velocity);
-  EXPECT_EQ(representation.dependencies()[1].field_id, pressure);
+  EXPECT_EQ(representation.dependencies()[0], velocity);
+  EXPECT_EQ(representation.dependencies()[1], pressure);
   EXPECT_EQ(representation.geometry_version(), 0u);
   representation.invalidate_geometry();
   EXPECT_EQ(representation.geometry_version(), 1u);

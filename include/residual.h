@@ -30,7 +30,10 @@ namespace ImmersX
    *
    * A residual contributor only needs the structural interface
    * `add_residual(context, residual)`; it does not need to know global block
-   * indices or how another contributor stores its native operator.
+   * indices or how another contributor stores its native operator. The
+   * accumulator is an evaluation-scoped non-owning view: bound vectors and
+   * the StateLayout must outlive the accumulator, and contributors must not
+   * retain it after their callback returns.
    */
   template <typename VectorType>
   class ResidualAccumulator

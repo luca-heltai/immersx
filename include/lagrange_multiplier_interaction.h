@@ -52,7 +52,8 @@
  * supplies the mesh used internally by the current particle search; this is an
  * assembly role, not a privileged Problem endpoint. The interaction owns both
  * matrices and all point-location/assembly state. It does not know about
- * PoissonSolver or any other concrete PDE class.
+ * PoissonSolver or any other concrete PDE class. Both representation
+ * arguments are non-owning and must outlive the interaction.
  *
  * The class is intentionally a two-representation building block. Adding a
  * third problem later means constructing another representation and another
@@ -231,14 +232,14 @@ public:
   }
 
   /** Metadata for adapter-level dependency discovery. */
-  const RepresentationMetadata &
+  const ImmersX::RepresentationMetadata &
   first_metadata() const
   {
     return first.metadata();
   }
 
   /** Metadata for adapter-level dependency discovery. */
-  const RepresentationMetadata &
+  const ImmersX::RepresentationMetadata &
   second_metadata() const
   {
     return second.metadata();

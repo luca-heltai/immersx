@@ -27,7 +27,8 @@ namespace ImmersX
    *
    * The state is read from the evaluation context, so this adapter does not
    * use PoissonSolver::solution() as the argument of the equation. Existing
-   * assembled matrix and right-hand-side APIs remain unchanged.
+   * assembled matrix and right-hand-side APIs remain unchanged. The supplied
+   * PoissonSolver must outlive this contributor.
    */
   template <int dim, int spacedim = dim>
   class PoissonResidualContributor
