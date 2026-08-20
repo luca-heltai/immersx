@@ -8,10 +8,11 @@
 // ---------------------------------------------------------------------
 
 #include <gtest/gtest.h>
+#include <immersx/core/representation.h>
 
 #include <type_traits>
 
-#include "representation.h"
+using namespace ImmersX;
 
 
 using IdentityLine       = IdentityRepresentation<1, 2>;

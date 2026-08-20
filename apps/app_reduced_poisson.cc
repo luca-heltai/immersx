@@ -39,9 +39,12 @@
 
 #ifdef DEAL_II_WITH_VTK
 
+#  include <immersx/io/utils.h>
+#  include <immersx/physics/reduced_poisson.h>
+
 #  include "../tests/tests.h"
-#  include "reduced_poisson.h"
-#  include "utils.h"
+
+using namespace ImmersX;
 int
 main(int argc, char *argv[])
 {

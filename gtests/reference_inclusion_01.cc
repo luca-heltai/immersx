@@ -18,9 +18,10 @@
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
+#include <immersx/coupling/inclusions.h>
 
-#include "inclusions.h"
-#include "reference_cross_section.h" // Add include for ReferenceCrossSection
+using namespace ImmersX;
+#include <immersx/coupling/reference_cross_section.h> // Add include for ReferenceCrossSection
 
 using namespace dealii;
 

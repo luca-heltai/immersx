@@ -15,8 +15,9 @@
 // ---------------------------------------------------------------------
 
 #include <gtest/gtest.h>
+#include <immersx/io/utils.h>
 
-#include "utils.h"
+using namespace ImmersX;
 
 
 TEST(DimensionParameters, ReadTopLevelValues)

@@ -4,14 +4,16 @@
 #include <deal.II/grid/grid_generator.h>
 
 #include <gtest/gtest.h>
+#include <immersx/coupling/legacy_inclusions.h>
 
 #include <array>
 #include <cmath>
 #include <numeric>
 
-#include "legacy_inclusions.h"
-#include "reference_cross_section.h"
-#include "tensor_product_space.h"
+using namespace ImmersX;
+#include <immersx/coupling/reference_cross_section.h>
+#include <immersx/coupling/tensor_product_space.h>
+
 #include "test_paths.h"
 
 using namespace dealii;

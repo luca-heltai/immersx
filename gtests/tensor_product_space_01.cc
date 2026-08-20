@@ -26,9 +26,11 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include "immersed_repartitioner.h"
-#  include "tensor_product_space.h"
-#  include "utils.h"
+#  include <immersx/coupling/immersed_repartitioner.h>
+
+using namespace ImmersX;
+#  include <immersx/coupling/tensor_product_space.h>
+#  include <immersx/io/utils.h>
 
 using namespace dealii;
 

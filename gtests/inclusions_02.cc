@@ -21,12 +21,13 @@
 #include <boost/property_tree/xml_parser.hpp>
 
 #include <gtest/gtest.h>
+#include <immersx/coupling/inclusions.h>
 
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include "inclusions.h"
+using namespace ImmersX;
 #include "test_paths.h"
 
 using namespace dealii;

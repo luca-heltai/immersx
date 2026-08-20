@@ -11,13 +11,14 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <gtest/gtest.h>
+#include <immersx/physics/navier_stokes.h>
 
 #include <cmath>
 #include <filesystem>
 #include <string>
 
-#include "navier_stokes.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 
 
 using namespace dealii;

@@ -9,11 +9,13 @@
 
 #include <deal.II/base/mpi.h>
 
+#include <immersx/physics/elastodynamics.h>
+
 #include <iostream>
 #include <string>
 
-#include "elastodynamics.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 
 
 int

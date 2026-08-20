@@ -18,12 +18,14 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <gtest/gtest.h>
+#include <immersx/physics/poisson.h>
 
 #include <filesystem>
 
-#include "poisson.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 
 using namespace dealii;

@@ -23,10 +23,12 @@
 #  include <iomanip>
 
 #  if 1
-#    include "coupled_elasticity.h"
+#    include <immersx/physics/coupled_elasticity.h>
 #  endif
-#  include "coupledModel1d.h"
-#  include "utils.h"
+#  include <immersx/fvm/coupledModel1d.h>
+#  include <immersx/io/utils.h>
+
+using namespace ImmersX;
 
 int
 main(int argc, char *argv[])

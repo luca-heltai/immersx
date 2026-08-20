@@ -88,20 +88,18 @@ classes. A local search mesh is an implementation detail, not a permanent
 
 The generated API reference provides the current class-level details:
 
-- {doc}`api/class_elasticity_problem`
-- {doc}`api/class_poisson_problem`
-- {doc}`api/class_inclusions`
-- {doc}`api/class_coupling_operator`
-- {doc}`api/class_particle_coupling`
-- {doc}`api/class_tensor_product_space`
-- {doc}`api/class_reference_cross_section`
-- {doc}`api/file_include_reduced_coupling.h`
-- {doc}`api/class_input_field_selector`
-- {doc}`api/class_reduced_field_values`
-- {doc}`api/class_symbolic_field_evaluator`
-- {doc}`api/class_lagrange_multiplier_interaction`
-- {doc}`api/class_constraint_equation`
-- {doc}`api/file_include_vtk_utils.h`
+- {doc}`api/class_immers_x_1_1_elasticity_problem`
+- {doc}`api/class_immers_x_1_1_poisson_problem`
+- {doc}`api/class_immers_x_1_1_inclusions`
+- {doc}`api/class_immers_x_1_1_coupling_operator`
+- {doc}`api/class_immers_x_1_1_particle_coupling`
+- {doc}`api/class_immers_x_1_1_tensor_product_space`
+- {doc}`api/class_immers_x_1_1_reference_cross_section`
+- {doc}`api/class_immers_x_1_1_input_field_selector`
+- {doc}`api/class_immers_x_1_1_reduced_field_values`
+- {doc}`api/class_immers_x_1_1_symbolic_field_evaluator`
+- {doc}`api/class_immers_x_1_1_lagrange_multiplier_interaction`
+- {doc}`api/class_immers_x_1_1_constraint_equation`
 
 For the future semantic architecture, start with
 {doc}`core-architecture`, especially the sections on Fields, residual

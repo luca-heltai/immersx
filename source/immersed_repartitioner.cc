@@ -14,67 +14,71 @@
 //
 // ---------------------------------------------------------------------
 
-#include "immersed_repartitioner.h"
-
 #include <deal.II/numerics/vector_tools.h>
 
-template <int dim, int spacedim>
-ImmersedRepartitioner<dim, spacedim>::ImmersedRepartitioner(
-  const Triangulation<spacedim> &tria_background)
-  : tria_background(tria_background)
-{}
+#include <immersx/coupling/immersed_repartitioner.h>
 
-template <int dim, int spacedim>
-LinearAlgebra::distributed::Vector<double>
-ImmersedRepartitioner<dim, spacedim>::partition(
-  const Triangulation<dim, spacedim> &tria_immersed) const
+namespace ImmersX
 {
-  // 1) collect centers of immeresed mesh
-  std::vector<Point<spacedim>> points;
+  template <int dim, int spacedim>
+  ImmersedRepartitioner<dim, spacedim>::ImmersedRepartitioner(
+    const Triangulation<spacedim> &tria_background)
+    : tria_background(tria_background)
+  {}
 
-  for (const auto &cell : tria_immersed.active_cell_iterators())
-    if (cell->is_locally_owned())
-      points.push_back(cell->center());
+  template <int dim, int spacedim>
+  LinearAlgebra::distributed::Vector<double>
+  ImmersedRepartitioner<dim, spacedim>::partition(
+    const Triangulation<dim, spacedim> &tria_immersed) const
+  {
+    // 1) collect centers of immeresed mesh
+    std::vector<Point<spacedim>> points;
 
-  // 2) determine owner on background mesh
-  Utilities::MPI::RemotePointEvaluation<spacedim> rpe;
-  Vector<double> ranks(tria_background.n_active_cells());
-  ranks =
-    Utilities::MPI::this_mpi_process(tria_background.get_mpi_communicator());
+    for (const auto &cell : tria_immersed.active_cell_iterators())
+      if (cell->is_locally_owned())
+        points.push_back(cell->center());
 
-  const auto point_ranks =
-    VectorTools::point_values<1>(mapping,
-                                 tria_background,
-                                 ranks,
-                                 points,
-                                 rpe,
-                                 VectorTools::EvaluationFlags::min,
-                                 0);
+    // 2) determine owner on background mesh
+    Utilities::MPI::RemotePointEvaluation<spacedim> rpe;
+    Vector<double> ranks(tria_background.n_active_cells());
+    ranks =
+      Utilities::MPI::this_mpi_process(tria_background.get_mpi_communicator());
 
-  const auto tria =
-    dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
-      &tria_immersed);
+    const auto point_ranks =
+      VectorTools::point_values<1>(mapping,
+                                   tria_background,
+                                   ranks,
+                                   points,
+                                   rpe,
+                                   VectorTools::EvaluationFlags::min,
+                                   0);
 
-  Assert(tria, ExcNotImplemented());
+    const auto tria =
+      dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
+        &tria_immersed);
 
-  // 3) set partitioning
-  LinearAlgebra::distributed::Vector<double> partition(
-    tria->global_active_cell_index_partitioner().lock());
+    Assert(tria, ExcNotImplemented());
 
-  unsigned int counter = 0;
-  for (const auto &cell : tria_immersed.active_cell_iterators())
-    if (cell->is_locally_owned())
-      partition[cell->global_active_cell_index()] = point_ranks[counter++];
+    // 3) set partitioning
+    LinearAlgebra::distributed::Vector<double> partition(
+      tria->global_active_cell_index_partitioner().lock());
 
-  partition.update_ghost_values();
+    unsigned int counter = 0;
+    for (const auto &cell : tria_immersed.active_cell_iterators())
+      if (cell->is_locally_owned())
+        partition[cell->global_active_cell_index()] = point_ranks[counter++];
 
-  return partition;
-}
+    partition.update_ghost_values();
+
+    return partition;
+  }
 
 
-template class ImmersedRepartitioner<1, 1>;
-template class ImmersedRepartitioner<1, 2>;
-template class ImmersedRepartitioner<1, 3>;
-template class ImmersedRepartitioner<2, 2>;
-template class ImmersedRepartitioner<2, 3>;
-template class ImmersedRepartitioner<3, 3>;
+  template class ImmersedRepartitioner<1, 1>;
+  template class ImmersedRepartitioner<1, 2>;
+  template class ImmersedRepartitioner<1, 3>;
+  template class ImmersedRepartitioner<2, 2>;
+  template class ImmersedRepartitioner<2, 3>;
+  template class ImmersedRepartitioner<3, 3>;
+
+} // namespace ImmersX

@@ -17,8 +17,10 @@
  * Modified by: Luca Heltai, 2020
  */
 
-#include "laplacian.h"
-#include "utils.h"
+#include <immersx/physics/laplacian.h>
+
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 int
 main(int argc, char *argv[])
 {

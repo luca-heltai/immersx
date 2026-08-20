@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
+#include <immersx/core/input_field_selector.h>
 
 #include <stdexcept>
 
-#include "input_field_selector.h"
+using namespace ImmersX;
 
 TEST(InputFieldSelector, ResolvesAliasesAndWildcard)
 {

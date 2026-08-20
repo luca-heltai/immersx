@@ -29,9 +29,11 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include "immersed_repartitioner.h"
-#  include "particle_coupling.h"
-#  include "tensor_product_space.h"
+#  include <immersx/coupling/immersed_repartitioner.h>
+
+using namespace ImmersX;
+#  include <immersx/coupling/particle_coupling.h>
+#  include <immersx/coupling/tensor_product_space.h>
 
 TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 {

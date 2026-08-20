@@ -37,8 +37,10 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include "reduced_coupling.h"
-#  include "utils.h"
+#  include <immersx/coupling/reduced_coupling.h>
+
+using namespace ImmersX;
+#  include <immersx/io/utils.h>
 
 using namespace dealii;
 

@@ -24,31 +24,55 @@
 # ./gtests: containing gtest unit tests
 ##
 
-# Set the name of the project and target
-# If your application follows the structure above, you don't need to 
-# specify anything else. 
-SET(_main_target immersx)
+cmake_minimum_required(VERSION 3.18)
 
-# Set the _main variable to empty if you don't want an executable
-# but only a library
-#SET(_main "")
+project(ImmersX VERSION 0.3.0 LANGUAGES CXX)
 
-############################################################
-# Normally you shouldn't need to change anything below.
-############################################################
-# Declare all source files the target consists of:
-file(GLOB _files CONFIGURE_DEPENDS source/*cc include/*.h)
-file(GLOB _main_files CONFIGURE_DEPENDS apps/*cc)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
-INCLUDE_DIRECTORIES(include)
+set(_main_target immersx)
 
-CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
+# Public headers are rooted at include/immersx. Keep the source list
+# recursive so new public subdirectories are visible to targets and installs.
+file(GLOB_RECURSE _files CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/*.cc"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/immersx/*.h")
+file(GLOB _main_files CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.cc")
 
-FIND_PACKAGE(deal.II 9.2 REQUIRED
-HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
+option(ENABLE_COUPLED_PROBLEMS
+  "Build applications coupled to the optional 1dsolver library." ON)
+option(ENABLE_DEAL_II_APP_TESTING
+  "Enable deal.II style tests in this application." ON)
+option(ENABLE_GOOGLE_TESTING
+  "Enable googletest style tests in this application." ON)
+option(IMMERSX_BUILD_STATIC
+  "Build the ImmersX library as a static archive." OFF)
+option(IMMERSX_PORTABLE
+  "Request statically linked executables for portable deployment." OFF)
+option(IMMERSX_INSTALL_TESTS
+  "Install test executables, fixtures, and test sources." ON)
+
+set(IMMERSX_INSTALL_DOCDIR "${CMAKE_INSTALL_DATADIR}/doc/immersx"
+  CACHE PATH "Installation directory for ImmersX documentation")
+
+if(IMMERSX_PORTABLE)
+  if(NOT IMMERSX_BUILD_STATIC)
+    message(STATUS "IMMERSX_PORTABLE implies IMMERSX_BUILD_STATIC")
+    set(IMMERSX_BUILD_STATIC ON)
+  endif()
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR
+      "IMMERSX_PORTABLE currently supports Linux toolchains only. "
+      "Use IMMERSX_BUILD_STATIC on other platforms and package its runtime "
+      "dependencies normally.")
+  endif()
+endif()
+
+find_package(deal.II 9.2 REQUIRED
+  HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
-
-OPTION(ENABLE_COUPLED_PROBLEMS "Enable coupled problems with 1d code." ON)
 
 IF(${ENABLE_COUPLED_PROBLEMS})
   MESSAGE("-- Looking for 1dsolver library")
@@ -66,7 +90,6 @@ ELSE()
   MESSAGE("-- Coupled problems disabled")
 ENDIF()
 
-PROJECT(${_main_target})
 FIND_PACKAGE(OpenMP)
 IF(OpenMP_CXX_FOUND)
   MESSAGE(STATUS "OpenMP found for CXX: flags='${OpenMP_CXX_FLAGS}', libs='${OpenMP_CXX_LIBRARIES}'")
@@ -84,11 +107,10 @@ INCLUDE(CheckCXXSourceCompiles)
 IF(ENABLE_COUPLED_PROBLEMS AND FVM_LIB)
   SET(_FVM_RTTI_TEST_SOURCE
     "#include <typeinfo>\n"
-    "#include \"model1d.h\"\n"
+    "#include <immersx/fvm/model1d.h>\n"
     "int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0; }\n")
   SET(CMAKE_REQUIRED_INCLUDES
-      "${CMAKE_CURRENT_SOURCE_DIR}/include"
-      "${CMAKE_CURRENT_SOURCE_DIR}/include/fvm")
+      "${CMAKE_CURRENT_SOURCE_DIR}/include")
   SET(CMAKE_REQUIRED_LIBRARIES "${FVM_LIB}")
   IF(OpenMP_CXX_FOUND AND OpenMP_CXX_FLAGS)
     SET(CMAKE_REQUIRED_FLAGS "${OpenMP_CXX_FLAGS}")
@@ -107,10 +129,6 @@ IF(ENABLE_COUPLED_PROBLEMS AND FVM_LIB)
   ENDIF()
 ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
-OPTION(ENABLE_DEAL_II_APP_TESTING 
-"Enable deal.II style tests in this application." ON)
-OPTION(ENABLE_GOOGLE_TESTING 
-"Enable googletest style tests in this application." ON)
 
 # Test inputs are configured into the build tree so that tests never need to
 # infer the location of source data from their current working directory.
@@ -149,6 +167,9 @@ SET(Release_postfix "")
 SET(Debug_postfix "_debug")
 # SET(CMAKE_C_FLAGS -fopenmp)
 
+SET(IMMERSX_LIBRARY_TARGETS)
+SET(IMMERSX_APPLICATION_TARGETS)
+
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
   SET(_p "${${_build_type}_postfix}")
@@ -165,11 +186,24 @@ FOREACH(_build_type ${_d2_build_types})
       SET(_lib "${_main_target}_lib${_p}")
       MESSAGE("-- Configuring library ${_lib}")
 
-      ADD_LIBRARY(${_lib} SHARED ${_files})
+      IF(IMMERSX_BUILD_STATIC)
+        SET(_immersx_library_type STATIC)
+      ELSE()
+        SET(_immersx_library_type SHARED)
+      ENDIF()
+      ADD_LIBRARY(${_lib} ${_immersx_library_type} ${_files})
+      SET_TARGET_PROPERTIES(${_lib} PROPERTIES EXPORT_NAME immersx)
+      LIST(APPEND IMMERSX_LIBRARY_TARGETS ${_lib})
+      TARGET_INCLUDE_DIRECTORIES(${_lib}
+        PUBLIC
+          $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+          $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
       #ADD_LIBRARY( STATIC )
-      TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+      # Keep the source path private: exporting it would make the installed
+      # package depend on this build tree's absolute path.
+      TARGET_COMPILE_DEFINITIONS(${_lib} PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
       IF(ENABLE_COUPLED_PROBLEMS)
-        TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC ENABLE_COUPLED_PROBLEMS)
+        TARGET_COMPILE_DEFINITIONS(${_lib} PRIVATE ENABLE_COUPLED_PROBLEMS)
       ENDIF()
 
       TARGET_COMPILE_OPTIONS(${_lib} PRIVATE
@@ -201,12 +235,13 @@ FOREACH(_build_type ${_d2_build_types})
         SET(_exe "${_main_we}${${_build_type}_postfix}")
         MESSAGE("-- Configuring executable ${_exe}")
         ADD_EXECUTABLE(${_exe} ${_main})
+        LIST(APPEND IMMERSX_APPLICATION_TARGETS ${_exe})
         # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
-        TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         
         IF(ENABLE_COUPLED_PROBLEMS)
-          TARGET_COMPILE_DEFINITIONS(${_exe} PUBLIC ENABLE_COUPLED_PROBLEMS)
-          TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/fvm/)
+          TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
+          TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
           TARGET_LINK_LIBRARIES(${_exe} ${_lib} ${FVM_LIB})
         ELSE()
           TARGET_LINK_LIBRARIES(${_exe} ${_lib})      
@@ -219,6 +254,12 @@ FOREACH(_build_type ${_d2_build_types})
         )
 
         DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
+        IF(IMMERSX_PORTABLE)
+          TARGET_LINK_OPTIONS(${_exe} PRIVATE -static)
+          SET_TARGET_PROPERTIES(${_exe} PROPERTIES
+            LINK_SEARCH_START_STATIC TRUE
+            LINK_SEARCH_END_STATIC TRUE)
+        ENDIF()
         IF(OpenMP_CXX_FOUND)
           IF(DEFINED _OPENMP_CXX_TARGET)
             TARGET_LINK_LIBRARIES(${_exe} ${_OPENMP_CXX_TARGET})
@@ -248,6 +289,64 @@ IF(ENABLE_GOOGLE_TESTING)
   else ()
       MESSAGE(WARNING "GTest library not found. Tests will not be compiled!")
   endif ()
+ENDIF()
+
+# Installation and downstream package metadata.
+IF(IMMERSX_LIBRARY_TARGETS)
+  INSTALL(TARGETS ${IMMERSX_LIBRARY_TARGETS}
+    EXPORT ImmersXTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+  INSTALL(EXPORT ImmersXTargets
+    FILE ImmersXTargets.cmake
+    NAMESPACE ImmersX::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ImmersX)
+
+  CONFIGURE_PACKAGE_CONFIG_FILE(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ImmersXConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/ImmersXConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ImmersX)
+  WRITE_BASIC_PACKAGE_VERSION_FILE(
+    ${CMAKE_CURRENT_BINARY_DIR}/ImmersXConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+  INSTALL(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/ImmersXConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/ImmersXConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ImmersX)
+ENDIF()
+
+IF(IMMERSX_APPLICATION_TARGETS)
+  INSTALL(TARGETS ${IMMERSX_APPLICATION_TARGETS}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ENDIF()
+
+INSTALL(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/immersx/
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/immersx)
+INSTALL(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/data/
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/immersx/data)
+INSTALL(FILES LICENSE.md README.md
+  DESTINATION ${IMMERSX_INSTALL_DOCDIR})
+
+IF(IMMERSX_INSTALL_TESTS)
+  INSTALL(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/gtests/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/immersx/tests/gtests
+    FILES_MATCHING
+      PATTERN "*.cc"
+      PATTERN "*.h"
+      PATTERN "*.in"
+      PATTERN "*.prm")
+  INSTALL(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/immersx/tests/tests
+    FILES_MATCHING
+      PATTERN "*.cc"
+      PATTERN "*.h"
+      PATTERN "*.in"
+      PATTERN "*.output")
 ENDIF()
 
 # Documentation site

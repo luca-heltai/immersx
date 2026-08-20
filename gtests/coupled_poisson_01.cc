@@ -17,16 +17,18 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <gtest/gtest.h>
+#include <immersx/algebra/lagrange_multiplier_interaction.h>
 
 #include <filesystem>
 #include <vector>
 
-#include "lagrange_multiplier_interaction.h"
-#include "lagrange_multiplier_schur_solver.h"
-#include "poisson.h"
-#include "representation.h"
+using namespace ImmersX;
+#include <immersx/algebra/lagrange_multiplier_schur_solver.h>
+#include <immersx/core/representation.h>
+#include <immersx/io/utils.h>
+#include <immersx/physics/poisson.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 
 using namespace dealii;

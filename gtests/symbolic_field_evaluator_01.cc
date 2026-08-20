@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
+#include <immersx/core/symbolic_field_evaluator.h>
 
-#include "symbolic_field_evaluator.h"
+using namespace ImmersX;
 
 TEST(SymbolicFieldEvaluator, ReportsAvailabilityAndEmptyExpressions)
 {

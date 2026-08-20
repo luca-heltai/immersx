@@ -19,10 +19,11 @@
 #include <deal.II/grid/grid_generator.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/representation.h>
 
 #include <type_traits>
 
-#include "representation.h"
+using namespace ImmersX;
 
 
 using namespace dealii;

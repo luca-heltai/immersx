@@ -16,6 +16,7 @@ core-architecture
 background
 getting-started
 build-and-run
+packaging
 tutorials/index
 testing
 contributing

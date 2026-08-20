@@ -45,8 +45,10 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include "reduced_field_utils.h"
-#  include "vtk_utils.h"
+#  include <immersx/core/reduced_field_utils.h>
+
+using namespace ImmersX;
+#  include <immersx/io/vtk_utils.h>
 
 using namespace dealii;
 

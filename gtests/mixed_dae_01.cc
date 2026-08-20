@@ -10,10 +10,11 @@
 #include <deal.II/base/config.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/native_field_layout.h>
 
-#include "native_field_layout.h"
-#include "state_history.h"
-#include "sundials_ida_adapter.h"
+using namespace ImmersX;
+#include <immersx/core/state_history.h>
+#include <immersx/core/sundials_ida_adapter.h>
 
 
 #ifdef DEAL_II_WITH_SUNDIALS

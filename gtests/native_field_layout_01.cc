@@ -12,8 +12,9 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/native_field_layout.h>
 
-#include "native_field_layout.h"
+using namespace ImmersX;
 
 
 namespace
