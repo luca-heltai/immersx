@@ -1048,6 +1048,36 @@ namespace ImmersX
 
 
   template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::accept_state(
+    const VectorType  &new_displacement,
+    const VectorType  &new_velocity,
+    const double       time,
+    const unsigned int step_number)
+  {
+    const double previous_time = current_time_storage;
+    AssertThrow(displacement_storage.size() == new_displacement.size(),
+                ExcDimensionMismatch(displacement_storage.size(),
+                                     new_displacement.size()));
+    AssertThrow(velocity_storage.size() == new_velocity.size(),
+                ExcDimensionMismatch(velocity_storage.size(),
+                                     new_velocity.size()));
+    AssertThrow(std::isfinite(time),
+                ExcMessage("An accepted elastodynamics time must be finite."));
+
+    update_constraints(time);
+    displacement_storage = new_displacement;
+    velocity_storage     = new_velocity;
+    displacement_constraints_storage.distribute(displacement_storage);
+    velocity_constraints_storage.distribute(velocity_storage);
+    current_time_step        = time - previous_time;
+    current_time_storage     = time;
+    time_step_number_storage = step_number;
+    update_locally_relevant_state();
+  }
+
+
+  template <int dim, int spacedim>
   types::global_dof_index
   ElastodynamicsSolver<dim, spacedim>::n_dofs() const
   {

@@ -18,8 +18,9 @@
 namespace ImmersX
 {
   template <int dim>
-  ParticleCouplingParameters<dim>::ParticleCouplingParameters()
-    : ParameterAcceptor("Particle coupling")
+  ParticleCouplingParameters<dim>::ParticleCouplingParameters(
+    const std::string &subsection)
+    : ParameterAcceptor(subsection)
   {
     add_parameter("RTree extraction level", rtree_extraction_level);
   }
