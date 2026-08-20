@@ -248,6 +248,22 @@ public:
   const LA::MPI::BlockSparseMatrix &
   mass_matrix() const;
 
+  /** Return the continuous spatial Stokes operator [A,-B^T;-B,0]. */
+  const LA::MPI::BlockSparseMatrix &
+  continuous_operator() const;
+
+  /** Return the physical velocity mass matrix without the density factor. */
+  const LA::MPI::SparseMatrix &
+  velocity_mass_matrix() const;
+
+  /** Return the pressure metric used only by the native preconditioner. */
+  const LA::MPI::SparseMatrix &
+  pressure_metric_matrix() const;
+
+  /** Assemble the unscaled velocity forcing vector at an external time. */
+  void
+  velocity_forcing_at_time(double time, LA::MPI::Vector &destination) const;
+
   const BlockVectorType &
   system_rhs() const;
 
@@ -280,6 +296,14 @@ public:
 
   const dealii::ComponentMask &
   velocity_component_mask() const;
+
+  /** Return the physical density used by the continuous velocity equation. */
+  double
+  density() const;
+
+  /** Return the global mixed-block offset of the pressure block. */
+  dealii::types::global_dof_index
+  velocity_block_size() const;
 
   /** Replace the accepted state and use it as the next-step history. */
   void
@@ -333,6 +357,7 @@ private:
 
   LA::MPI::BlockSparseMatrix system_matrix_storage;
   LA::MPI::BlockSparseMatrix mass_matrix_storage;
+  LA::MPI::BlockSparseMatrix continuous_operator_storage;
   BlockVectorType            solution_storage;
   BlockVectorType            previous_solution_storage;
   BlockVectorType            system_rhs_storage;
