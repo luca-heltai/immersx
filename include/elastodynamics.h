@@ -278,6 +278,10 @@ public:
   const VectorType &
   body_force_vector() const;
 
+  /** Assemble the body-force row at an externally supplied time. */
+  void
+  body_force_at_time(double time, VectorType &destination) const;
+
   /** Return the internal backward-Euler matrix from the last step. */
   const MatrixType &
   system_matrix() const;

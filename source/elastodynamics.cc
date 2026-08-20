@@ -598,9 +598,20 @@ template <int dim, int spacedim>
 void
 ElastodynamicsSolver<dim, spacedim>::assemble_body_force(const double time)
 {
+  body_force_at_time(time, body_force_storage);
+}
+
+
+template <int dim, int spacedim>
+void
+ElastodynamicsSolver<dim, spacedim>::body_force_at_time(
+  const double time,
+  VectorType  &destination) const
+{
   TimerOutput::Scope t(computing_timer, "Assemble body force");
   par.body_force.set_time(time);
-  body_force_storage = 0.;
+  destination.reinit(owned_dofs, mpi_communicator);
+  destination = 0.;
 
   AffineConstraints<double> no_constraints;
   no_constraints.close();
@@ -635,10 +646,10 @@ ElastodynamicsSolver<dim, spacedim>::assemble_body_force(const double time)
         cell->get_dof_indices(local_dof_indices);
         no_constraints.distribute_local_to_global(cell_rhs,
                                                   local_dof_indices,
-                                                  body_force_storage);
+                                                  destination);
       }
 
-  body_force_storage.compress(VectorOperation::add);
+  destination.compress(VectorOperation::add);
 }
 
 
