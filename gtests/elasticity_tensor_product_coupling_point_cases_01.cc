@@ -1,13 +1,15 @@
 #include <gtest/gtest.h>
+#include <immersx/physics/elasticity.h>
 
 #include <cmath>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "elasticity.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 #ifdef DEAL_II_WITH_VTK
 

@@ -13,8 +13,9 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/time_residual.h>
 
-#include "time_residual.h"
+using namespace ImmersX;
 
 
 using dealii::FullMatrix;

@@ -52,9 +52,9 @@ time behavior.
 Main files:
 
 - `apps/app_elasticity.cc`
-- `include/elasticity.h`
+- `include/immersx/physics/elasticity.h`
 - `source/elasticity.cc`
-- `include/elasticity_problem_parameters.h`
+- `include/immersx/physics/elasticity_problem_parameters.h`
 - `source/elasticity_problem_parameters.cc`
 
 How to run:

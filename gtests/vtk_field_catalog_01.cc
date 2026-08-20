@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
+#include <immersx/io/vtk_utils.h>
 
 #include "test_paths.h"
-#include "vtk_utils.h"
+
+using namespace ImmersX;
 
 #ifdef DEAL_II_WITH_VTK
 TEST(FieldCatalog, PreservesAssociationAndComponentLayout)

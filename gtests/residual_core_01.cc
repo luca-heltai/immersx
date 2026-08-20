@@ -20,11 +20,12 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/physics/poisson_residual.h>
 
 #include <string>
 
-#include "poisson_residual.h"
-#include "utils.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
 
 using dealii::FullMatrix;
 using dealii::ParameterAcceptor;

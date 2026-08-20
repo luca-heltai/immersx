@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
+#include <immersx/physics/elasticity_problem_parameters.h>
 
-#include "elasticity_problem_parameters.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 using namespace dealii;
 

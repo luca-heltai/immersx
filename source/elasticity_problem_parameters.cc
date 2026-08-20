@@ -14,10 +14,10 @@
 //
 // ---------------------------------------------------------------------
 
-#include "elasticity_problem_parameters.h"
-
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/utilities.h>
+
+#include <immersx/physics/elasticity_problem_parameters.h>
 
 #include <filesystem>
 #include <functional>
@@ -26,470 +26,483 @@
 #include <vector>
 
 
-template <int dim, int spacedim>
-ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
-  : ParameterAcceptor("/Immersed Problem/")
-  , rhs("/Functions/Right hand side", spacedim)
-  , exact_solution("/Functions/Exact solution", spacedim)
-  , initial_displacement("/Functions/Initial displacement", spacedim)
-  , initial_velocity("/Functions/Initial velocity", spacedim)
-  , bc("/Functions/Dirichlet boundary conditions", spacedim)
-  , Neumann_bc("/Functions/Neumann boundary conditions", spacedim)
-  , displacement_solver_control("/Solvers/Displacement")
-  , reduced_mass_solver_control("/Solvers/Reduced mass")
-  , augmented_lagrange_solver_control("/Solvers/Augmented Lagrange")
-  , schur_complement_solver_control("/Solvers/Schur complement")
-  , convergence_table(std::vector<std::string>(spacedim, "u"))
+namespace ImmersX
 {
-  add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
-  add_parameter("Output directory", output_directory);
-  add_parameter("Output name", output_name);
-  add_parameter(
-    "Coupling type",
-    coupling_type,
-    "Point uses discrete inclusion centers with finite radii. TensorProduct "
-    "uses a VTK reduced mesh and a reference cross section.");
-  add_parameter("Output results also before solving",
-                output_results_before_solving);
-  add_parameter("Estimate condition number", estimate_condition_number);
-  add_parameter("Initial refinement", initial_refinement);
-  add_parameter("Dirichlet boundary ids", dirichlet_ids);
-  add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);
-  add_parameter("Weak Dirichlet penalty coefficient", penalty_term);
-  add_parameter("Neumann boundary ids", neumann_ids);
-  add_parameter("Normal flux boundary ids", normal_flux_ids);
-  add_parameter("Rhs material ids", rhs_material_ids);
-  add_parameter("Output pressure", output_pressure);
-  add_parameter(
-    "Pressure coupling",
-    pressure_coupling,
-    "If this is true, then we do NOT solve a saddle point problem, but we use the "
-    "input data as a pressure field on the vasculature network, and we solve for "
-    "the displacement field directly.");
-  enter_subsection("Grid generation");
+  template <int dim, int spacedim>
+  ElasticityProblemParameters<dim, spacedim>::ElasticityProblemParameters()
+    : ParameterAcceptor("/Immersed Problem/")
+    , rhs("/Functions/Right hand side", spacedim)
+    , exact_solution("/Functions/Exact solution", spacedim)
+    , initial_displacement("/Functions/Initial displacement", spacedim)
+    , initial_velocity("/Functions/Initial velocity", spacedim)
+    , bc("/Functions/Dirichlet boundary conditions", spacedim)
+    , Neumann_bc("/Functions/Neumann boundary conditions", spacedim)
+    , displacement_solver_control("/Solvers/Displacement")
+    , reduced_mass_solver_control("/Solvers/Reduced mass")
+    , augmented_lagrange_solver_control("/Solvers/Augmented Lagrange")
+    , schur_complement_solver_control("/Solvers/Schur complement")
+    , convergence_table(std::vector<std::string>(spacedim, "u"))
   {
-    add_parameter("Domain type",
-                  domain_type,
-                  "",
-                  this->prm,
-                  Patterns::Selection("generate|file|cheese|cylinder"));
-    add_parameter("Triangulation type",
-                  triangulation_type,
-                  "",
-                  this->prm,
-                  Patterns::Selection("distributed|fullydistributed"));
-    add_parameter("Grid generator", name_of_grid);
-    add_parameter("Grid generator arguments", arguments_for_grid);
-    add_parameter("Grid scale", grid_scale);
-  }
-  leave_subsection();
-  enter_subsection("Refinement and remeshing");
-  {
-    add_parameter("Strategy",
-                  refinement_strategy,
-                  "",
-                  this->prm,
-                  Patterns::Selection(
-                    "fixed_fraction|fixed_number|global|inclusions"));
-    add_parameter("Coarsening fraction", coarsening_fraction);
-    add_parameter("Refinement fraction", refinement_fraction);
-    add_parameter("Maximum number of cells", max_cells);
-    add_parameter("Number of refinement cycles", n_refinement_cycles);
-  }
-  leave_subsection();
-
-  enter_subsection("Material properties");
-  add_parameter("Material tags by material id", material_tags_by_material_id);
-  leave_subsection();
-  enter_subsection("Time dependency");
-  {
-    add_parameter("Initial time", initial_time);
-    add_parameter("Final time", final_time);
-    add_parameter("Time step", dt);
-    add_parameter("Refine time step", refine_time_step);
-    add_parameter("Newmark beta", beta);
-    add_parameter("Newmark gamma", gamma);
-  }
-  leave_subsection();
-
-  this->prm.enter_subsection("Error");
-  convergence_table.add_parameters(this->prm);
-  this->prm.leave_subsection();
-
-  // Make sure all functions have reasonable defaults, and add their modulation
-  // frequencies
-  {
-    auto reset_function = [this]() {
-      this->prm.declare_entry(
-        "Function expression",
-        (spacedim == 2 ? "0; 0" : "0; 0; 0"),
-        Patterns::List(Patterns::Anything(), spacedim, spacedim, ";"));
-    };
-
-    exact_solution.declare_parameters_call_back.connect(reset_function);
-    exact_solution.declare_parameters_call_back.connect([this]() {
-      this->prm.add_parameter("Weight expression", weight_expression);
-    });
-
-    initial_displacement.declare_parameters_call_back.connect(reset_function);
-    initial_velocity.declare_parameters_call_back.connect(reset_function);
-  }
-  {
-    auto reduction = [&]() {
-      this->prm.declare_entry("Reduction", "1.e-10", Patterns::Double(0));
-    };
-    displacement_solver_control.declare_parameters_call_back.connect(reduction);
-    reduced_mass_solver_control.declare_parameters_call_back.connect(reduction);
-    augmented_lagrange_solver_control.declare_parameters_call_back.connect(
-      reduction);
-    schur_complement_solver_control.declare_parameters_call_back.connect(
-      reduction);
-  }
-
-  this->parse_parameters_call_back.connect([this]() {
-    // Ensure output directory exists.
+    add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
+    add_parameter("Output directory", output_directory);
+    add_parameter("Output name", output_name);
+    add_parameter(
+      "Coupling type",
+      coupling_type,
+      "Point uses discrete inclusion centers with finite radii. TensorProduct "
+      "uses a VTK reduced mesh and a reference cross section.");
+    add_parameter("Output results also before solving",
+                  output_results_before_solving);
+    add_parameter("Estimate condition number", estimate_condition_number);
+    add_parameter("Initial refinement", initial_refinement);
+    add_parameter("Dirichlet boundary ids", dirichlet_ids);
+    add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);
+    add_parameter("Weak Dirichlet penalty coefficient", penalty_term);
+    add_parameter("Neumann boundary ids", neumann_ids);
+    add_parameter("Normal flux boundary ids", normal_flux_ids);
+    add_parameter("Rhs material ids", rhs_material_ids);
+    add_parameter("Output pressure", output_pressure);
+    add_parameter(
+      "Pressure coupling",
+      pressure_coupling,
+      "If this is true, then we do NOT solve a saddle point problem, but we use the "
+      "input data as a pressure field on the vasculature network, and we solve for "
+      "the displacement field directly.");
+    enter_subsection("Grid generation");
     {
-      namespace fs = std::filesystem;
-      std::error_code ec;
-      fs::create_directories(output_directory, ec);
-      AssertThrow(!ec,
-                  ExcMessage("Could not create output directory '" +
-                             output_directory + "': " + ec.message()));
+      add_parameter("Domain type",
+                    domain_type,
+                    "",
+                    this->prm,
+                    Patterns::Selection("generate|file|cheese|cylinder"));
+      add_parameter("Triangulation type",
+                    triangulation_type,
+                    "",
+                    this->prm,
+                    Patterns::Selection("distributed|fullydistributed"));
+      add_parameter("Grid generator", name_of_grid);
+      add_parameter("Grid generator arguments", arguments_for_grid);
+      add_parameter("Grid scale", grid_scale);
     }
-
-    bool created_dynamic_acceptors = false;
-
-    const auto split_subsection_path = [](const std::string &path) {
-      std::vector<std::string> parts;
-      std::stringstream        stream(path);
-      std::string              part;
-      while (std::getline(stream, part, '/'))
-        if (!part.empty())
-          parts.emplace_back(part);
-      return parts;
-    };
-
-    struct SubsectionScope
+    leave_subsection();
+    enter_subsection("Refinement and remeshing");
     {
-      SubsectionScope(ParameterHandler               &prm,
-                      const std::vector<std::string> &subsections)
-        : prm(prm)
-        , n_subsections(subsections.size())
-      {
-        for (const auto &subsection : subsections)
-          prm.enter_subsection(subsection);
-      }
+      add_parameter("Strategy",
+                    refinement_strategy,
+                    "",
+                    this->prm,
+                    Patterns::Selection(
+                      "fixed_fraction|fixed_number|global|inclusions"));
+      add_parameter("Coarsening fraction", coarsening_fraction);
+      add_parameter("Refinement fraction", refinement_fraction);
+      add_parameter("Maximum number of cells", max_cells);
+      add_parameter("Number of refinement cycles", n_refinement_cycles);
+    }
+    leave_subsection();
 
-      ~SubsectionScope()
-      {
-        for (unsigned int i = 0; i < n_subsections; ++i)
-          prm.leave_subsection();
-      }
+    enter_subsection("Material properties");
+    add_parameter("Material tags by material id", material_tags_by_material_id);
+    leave_subsection();
+    enter_subsection("Time dependency");
+    {
+      add_parameter("Initial time", initial_time);
+      add_parameter("Final time", final_time);
+      add_parameter("Time step", dt);
+      add_parameter("Refine time step", refine_time_step);
+      add_parameter("Newmark beta", beta);
+      add_parameter("Newmark gamma", gamma);
+    }
+    leave_subsection();
 
-      ParameterHandler &prm;
-      unsigned int      n_subsections;
-    };
+    this->prm.enter_subsection("Error");
+    convergence_table.add_parameters(this->prm);
+    this->prm.leave_subsection();
 
-    const auto get_entry_from_subsection =
-      [this, &split_subsection_path](const std::string &path,
-                                     const std::string &entry) {
-        const SubsectionScope scope(this->prm, split_subsection_path(path));
-        return this->prm.get(entry);
+    // Make sure all functions have reasonable defaults, and add their
+    // modulation frequencies
+    {
+      auto reset_function = [this]() {
+        this->prm.declare_entry(
+          "Function expression",
+          (spacedim == 2 ? "0; 0" : "0; 0; 0"),
+          Patterns::List(Patterns::Anything(), spacedim, spacedim, ";"));
       };
 
-    const auto set_entry_in_subsection =
-      [this, &split_subsection_path](const std::string &path,
-                                     const std::string &entry,
-                                     const std::string &value) {
-        const SubsectionScope scope(this->prm, split_subsection_path(path));
-        this->prm.set(entry, value);
-      };
+      exact_solution.declare_parameters_call_back.connect(reset_function);
+      exact_solution.declare_parameters_call_back.connect([this]() {
+        this->prm.add_parameter("Weight expression", weight_expression);
+      });
 
-    const auto copy_modulated_function_entries =
-      [&get_entry_from_subsection,
-       &set_entry_in_subsection](const std::string &from_section,
-                                 const std::string &to_section) {
-        for (const auto &entry : {"Function constants",
-                                  "Function expression",
-                                  "Variable names",
-                                  "Modulation frequency",
-                                  "Phase shift"})
-          set_entry_in_subsection(
-            to_section, entry, get_entry_from_subsection(from_section, entry));
-      };
-
-    const auto ensure_function_overrides =
-      [this,
-       &created_dynamic_acceptors,
-       &copy_modulated_function_entries](const auto        &ids,
-                                         auto              &map,
-                                         const auto        &base_function,
-                                         const std::string &prefix) {
-        for (const auto id : ids)
-          {
-            const auto override_section =
-              prefix + " " + std::to_string(static_cast<unsigned int>(id));
-
-            if (map.find(id) == map.end())
-              {
-                auto ptr = std::make_shared<ModulatedParsedFunction<spacedim>>(
-                  override_section, spacedim);
-                ptr->set_fallback_configuration_source(&base_function);
-                ptr->enter_my_subsection(this->prm);
-                ptr->declare_parameters(this->prm);
-                ptr->leave_my_subsection(this->prm);
-                map[id]                   = ptr;
-                created_dynamic_acceptors = true;
-
-                // Initialize newly created override sections with base section
-                // values so they have defaults if not overridden in the file.
-                copy_modulated_function_entries(prefix, override_section);
-              }
-          }
-      };
-
+      initial_displacement.declare_parameters_call_back.connect(reset_function);
+      initial_velocity.declare_parameters_call_back.connect(reset_function);
+    }
     {
-      this->leave_my_subsection(this->prm);
-
-      ensure_function_overrides(rhs_material_ids,
-                                rhs_by_material_id,
-                                rhs,
-                                "/Functions/Right hand side");
-
-      std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
-      dirichlet_bc_ids.insert(weak_dirichlet_ids.begin(),
-                              weak_dirichlet_ids.end());
-      ensure_function_overrides(dirichlet_bc_ids,
-                                dirichlet_bc_by_id,
-                                bc,
-                                "/Functions/Dirichlet boundary conditions");
-
-      std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
-      neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
-      ensure_function_overrides(neumann_bc_ids,
-                                neumann_bc_by_id,
-                                Neumann_bc,
-                                "/Functions/Neumann boundary conditions");
-
-      this->enter_my_subsection(this->prm);
+      auto reduction = [&]() {
+        this->prm.declare_entry("Reduction", "1.e-10", Patterns::Double(0));
+      };
+      displacement_solver_control.declare_parameters_call_back.connect(
+        reduction);
+      reduced_mass_solver_control.declare_parameters_call_back.connect(
+        reduction);
+      augmented_lagrange_solver_control.declare_parameters_call_back.connect(
+        reduction);
+      schur_complement_solver_control.declare_parameters_call_back.connect(
+        reduction);
     }
 
-    // Ensure material properties acceptors exist when material tags are
-    // provided. This is needed for the two-pass initialization strategy:
-    // - pass 1: read tags, create acceptors
-    // - pass 2: acceptors declare parameters and get parsed
-    if (material_properties_by_id.empty() &&
-        !material_tags_by_material_id.empty())
+    this->parse_parameters_call_back.connect([this]() {
+      // Ensure output directory exists.
       {
-        // Make sure we exit our subsection first, so that registration of the
-        // new classes works properly.
-        this->leave_my_subsection(this->prm);
-        for (const auto &[material_id, tag] : material_tags_by_material_id)
-          {
-            material_properties_by_id[material_id] =
-              std::make_unique<MaterialProperties>(tag);
-          }
-        // Go back to our subsection, so we can continue parsing parameters.
-        this->enter_my_subsection(this->prm);
-        // Do not check consistency yet: the dynamically created acceptors
-        // will only be parsed in the second parameter pass.
-        return;
-      }
-    else if (!material_tags_by_material_id.empty())
-      {
-        // Already initialized: check consistency.
-        AssertDimension(material_properties_by_id.size(),
-                        material_tags_by_material_id.size());
-        // In the second pass, all material subsections have been parsed.
-        check_model_consistency();
-        return;
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        fs::create_directories(output_directory, ec);
+        AssertThrow(!ec,
+                    ExcMessage("Could not create output directory '" +
+                               output_directory + "': " + ec.message()));
       }
 
-    if (created_dynamic_acceptors)
-      return;
+      bool created_dynamic_acceptors = false;
 
-    // No dynamic material tags: all information is already available.
-    check_model_consistency();
-  });
-}
+      const auto split_subsection_path = [](const std::string &path) {
+        std::vector<std::string> parts;
+        std::stringstream        stream(path);
+        std::string              part;
+        while (std::getline(stream, part, '/'))
+          if (!part.empty())
+            parts.emplace_back(part);
+        return parts;
+      };
 
-
-template <int dim, int spacedim>
-void
-ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
-{
-  // --- Validate boundary id sets --------------------------------------------
-  const auto check_disjoint = [](const char                         *name_a,
-                                 const std::set<types::boundary_id> &a,
-                                 const char                         *name_b,
-                                 const std::set<types::boundary_id> &b) {
-    for (const auto id : a)
-      if (b.find(id) != b.end())
-        AssertThrow(false,
-                    ExcMessage(std::string("Boundary id ") +
-                               std::to_string(static_cast<unsigned int>(id)) +
-                               " appears in both '" + name_a + "' and '" +
-                               name_b + "'. These sets must be disjoint."));
-  };
-
-  check_disjoint("dirichlet ids",
-                 dirichlet_ids,
-                 "weak dirichlet ids",
-                 weak_dirichlet_ids);
-  check_disjoint("dirichlet ids", dirichlet_ids, "neumann ids", neumann_ids);
-  check_disjoint("dirichlet ids",
-                 dirichlet_ids,
-                 "normal flux ids",
-                 normal_flux_ids);
-  check_disjoint("weak dirichlet ids",
-                 weak_dirichlet_ids,
-                 "neumann ids",
-                 neumann_ids);
-  check_disjoint("weak dirichlet ids",
-                 weak_dirichlet_ids,
-                 "normal flux ids",
-                 normal_flux_ids);
-  check_disjoint("neumann ids",
-                 neumann_ids,
-                 "normal flux ids",
-                 normal_flux_ids);
-
-  // Collect the set of materials that may be used: always include the default
-  // material, and also any explicitly configured material ids.
-  std::vector<std::reference_wrapper<const MaterialProperties>> materials;
-  materials.emplace_back(default_material_properties);
-  for (const auto &[id, mp_ptr] : material_properties_by_id)
-    {
-      (void)id;
-      Assert(mp_ptr != nullptr, ExcInternalError());
-      materials.emplace_back(*mp_ptr);
-    }
-
-  // --- Infer TimeMode -------------------------------------------------------
-  if (initial_time == final_time)
-    {
-      time_mode = TimeMode::Static;
-    }
-  else
-    {
-      bool any_rho_zero     = false;
-      bool any_rho_positive = false;
-      for (const auto &mp_ref : materials)
+      struct SubsectionScope
+      {
+        SubsectionScope(ParameterHandler               &prm,
+                        const std::vector<std::string> &subsections)
+          : prm(prm)
+          , n_subsections(subsections.size())
         {
-          const auto &mp = mp_ref.get();
-          AssertThrow(mp.rho >= 0.0,
-                      ExcMessage("Material density (rho) must be >= 0."));
-          any_rho_zero |= (mp.rho == 0.0);
-          any_rho_positive |= (mp.rho > 0.0);
+          for (const auto &subsection : subsections)
+            prm.enter_subsection(subsection);
         }
 
-      AssertThrow(!(any_rho_zero && any_rho_positive),
-                  ExcMessage("Inconsistent densities: either all materials "
-                             "must have rho == 0 (quasi-static) or all must "
-                             "have rho > 0 (dynamic)."));
+        ~SubsectionScope()
+        {
+          for (unsigned int i = 0; i < n_subsections; ++i)
+            prm.leave_subsection();
+        }
 
-      time_mode = any_rho_positive ? TimeMode::Dynamic : TimeMode::QuasiStatic;
-    }
+        ParameterHandler &prm;
+        unsigned int      n_subsections;
+      };
 
-  // --- Infer ElasticityModel ------------------------------------------------
-  bool any_neta_positive = false;
-  for (const auto &mp_ref : materials)
-    {
-      const auto &mp = mp_ref.get();
-      AssertThrow(mp.neta >= 0.0,
-                  ExcMessage("Material viscosity (eta/neta) must be >= 0."));
-      any_neta_positive |= (mp.neta > 0.0);
-    }
+      const auto get_entry_from_subsection =
+        [this, &split_subsection_path](const std::string &path,
+                                       const std::string &entry) {
+          const SubsectionScope scope(this->prm, split_subsection_path(path));
+          return this->prm.get(entry);
+        };
 
-  if (any_neta_positive)
-    elasticity_model = ElasticityModel::KelvinVoigt;
-  else
-    elasticity_model = ElasticityModel::LinearElasticity;
-}
+      const auto set_entry_in_subsection =
+        [this, &split_subsection_path](const std::string &path,
+                                       const std::string &entry,
+                                       const std::string &value) {
+          const SubsectionScope scope(this->prm, split_subsection_path(path));
+          this->prm.set(entry, value);
+        };
+
+      const auto copy_modulated_function_entries =
+        [&get_entry_from_subsection,
+         &set_entry_in_subsection](const std::string &from_section,
+                                   const std::string &to_section) {
+          for (const auto &entry : {"Function constants",
+                                    "Function expression",
+                                    "Variable names",
+                                    "Modulation frequency",
+                                    "Phase shift"})
+            set_entry_in_subsection(to_section,
+                                    entry,
+                                    get_entry_from_subsection(from_section,
+                                                              entry));
+        };
+
+      const auto ensure_function_overrides =
+        [this,
+         &created_dynamic_acceptors,
+         &copy_modulated_function_entries](const auto        &ids,
+                                           auto              &map,
+                                           const auto        &base_function,
+                                           const std::string &prefix) {
+          for (const auto id : ids)
+            {
+              const auto override_section =
+                prefix + " " + std::to_string(static_cast<unsigned int>(id));
+
+              if (map.find(id) == map.end())
+                {
+                  auto ptr =
+                    std::make_shared<ModulatedParsedFunction<spacedim>>(
+                      override_section, spacedim);
+                  ptr->set_fallback_configuration_source(&base_function);
+                  ptr->enter_my_subsection(this->prm);
+                  ptr->declare_parameters(this->prm);
+                  ptr->leave_my_subsection(this->prm);
+                  map[id]                   = ptr;
+                  created_dynamic_acceptors = true;
+
+                  // Initialize newly created override sections with base
+                  // section values so they have defaults if not overridden in
+                  // the file.
+                  copy_modulated_function_entries(prefix, override_section);
+                }
+            }
+        };
+
+      {
+        this->leave_my_subsection(this->prm);
+
+        ensure_function_overrides(rhs_material_ids,
+                                  rhs_by_material_id,
+                                  rhs,
+                                  "/Functions/Right hand side");
+
+        std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
+        dirichlet_bc_ids.insert(weak_dirichlet_ids.begin(),
+                                weak_dirichlet_ids.end());
+        ensure_function_overrides(dirichlet_bc_ids,
+                                  dirichlet_bc_by_id,
+                                  bc,
+                                  "/Functions/Dirichlet boundary conditions");
+
+        std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
+        neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
+        ensure_function_overrides(neumann_bc_ids,
+                                  neumann_bc_by_id,
+                                  Neumann_bc,
+                                  "/Functions/Neumann boundary conditions");
+
+        this->enter_my_subsection(this->prm);
+      }
+
+      // Ensure material properties acceptors exist when material tags are
+      // provided. This is needed for the two-pass initialization strategy:
+      // - pass 1: read tags, create acceptors
+      // - pass 2: acceptors declare parameters and get parsed
+      if (material_properties_by_id.empty() &&
+          !material_tags_by_material_id.empty())
+        {
+          // Make sure we exit our subsection first, so that registration of the
+          // new classes works properly.
+          this->leave_my_subsection(this->prm);
+          for (const auto &[material_id, tag] : material_tags_by_material_id)
+            {
+              material_properties_by_id[material_id] =
+                std::make_unique<MaterialProperties>(tag);
+            }
+          // Go back to our subsection, so we can continue parsing parameters.
+          this->enter_my_subsection(this->prm);
+          // Do not check consistency yet: the dynamically created acceptors
+          // will only be parsed in the second parameter pass.
+          return;
+        }
+      else if (!material_tags_by_material_id.empty())
+        {
+          // Already initialized: check consistency.
+          AssertDimension(material_properties_by_id.size(),
+                          material_tags_by_material_id.size());
+          // In the second pass, all material subsections have been parsed.
+          check_model_consistency();
+          return;
+        }
+
+      if (created_dynamic_acceptors)
+        return;
+
+      // No dynamic material tags: all information is already available.
+      check_model_consistency();
+    });
+  }
 
 
-template <int dim, int spacedim>
-inline const MaterialProperties &
-ElasticityProblemParameters<dim, spacedim>::get_material_properties(
-  const types::material_id material_id) const
-{
-  auto it = material_properties_by_id.find(material_id);
-  if (it != material_properties_by_id.end())
-    return *(it->second);
-  else
-    return default_material_properties;
-}
+  template <int dim, int spacedim>
+  void
+  ElasticityProblemParameters<dim, spacedim>::check_model_consistency()
+  {
+    // --- Validate boundary id sets
+    // --------------------------------------------
+    const auto check_disjoint = [](const char                         *name_a,
+                                   const std::set<types::boundary_id> &a,
+                                   const char                         *name_b,
+                                   const std::set<types::boundary_id> &b) {
+      for (const auto id : a)
+        if (b.find(id) != b.end())
+          AssertThrow(false,
+                      ExcMessage(std::string("Boundary id ") +
+                                 std::to_string(static_cast<unsigned int>(id)) +
+                                 " appears in both '" + name_a + "' and '" +
+                                 name_b + "'. These sets must be disjoint."));
+    };
 
-template <int dim, int spacedim>
-const ModulatedParsedFunction<spacedim> &
-ElasticityProblemParameters<dim, spacedim>::get_dirichlet_bc(
-  const types::boundary_id boundary_id) const
-{
-  const auto it = dirichlet_bc_by_id.find(boundary_id);
-  if (it != dirichlet_bc_by_id.end())
-    return *(it->second);
+    check_disjoint("dirichlet ids",
+                   dirichlet_ids,
+                   "weak dirichlet ids",
+                   weak_dirichlet_ids);
+    check_disjoint("dirichlet ids", dirichlet_ids, "neumann ids", neumann_ids);
+    check_disjoint("dirichlet ids",
+                   dirichlet_ids,
+                   "normal flux ids",
+                   normal_flux_ids);
+    check_disjoint("weak dirichlet ids",
+                   weak_dirichlet_ids,
+                   "neumann ids",
+                   neumann_ids);
+    check_disjoint("weak dirichlet ids",
+                   weak_dirichlet_ids,
+                   "normal flux ids",
+                   normal_flux_ids);
+    check_disjoint("neumann ids",
+                   neumann_ids,
+                   "normal flux ids",
+                   normal_flux_ids);
 
-  return bc;
-}
+    // Collect the set of materials that may be used: always include the default
+    // material, and also any explicitly configured material ids.
+    std::vector<std::reference_wrapper<const MaterialProperties>> materials;
+    materials.emplace_back(default_material_properties);
+    for (const auto &[id, mp_ptr] : material_properties_by_id)
+      {
+        (void)id;
+        Assert(mp_ptr != nullptr, ExcInternalError());
+        materials.emplace_back(*mp_ptr);
+      }
 
-template <int dim, int spacedim>
-const ModulatedParsedFunction<spacedim> &
-ElasticityProblemParameters<dim, spacedim>::get_neumann_bc(
-  const types::boundary_id boundary_id) const
-{
-  const auto it = neumann_bc_by_id.find(boundary_id);
-  if (it != neumann_bc_by_id.end())
-    return *(it->second);
+    // --- Infer TimeMode
+    // -------------------------------------------------------
+    if (initial_time == final_time)
+      {
+        time_mode = TimeMode::Static;
+      }
+    else
+      {
+        bool any_rho_zero     = false;
+        bool any_rho_positive = false;
+        for (const auto &mp_ref : materials)
+          {
+            const auto &mp = mp_ref.get();
+            AssertThrow(mp.rho >= 0.0,
+                        ExcMessage("Material density (rho) must be >= 0."));
+            any_rho_zero |= (mp.rho == 0.0);
+            any_rho_positive |= (mp.rho > 0.0);
+          }
 
-  return Neumann_bc;
-}
+        AssertThrow(!(any_rho_zero && any_rho_positive),
+                    ExcMessage("Inconsistent densities: either all materials "
+                               "must have rho == 0 (quasi-static) or all must "
+                               "have rho > 0 (dynamic)."));
 
-template <int dim, int spacedim>
-const ModulatedParsedFunction<spacedim> &
-ElasticityProblemParameters<dim, spacedim>::get_rhs(
-  const types::material_id material_id) const
-{
-  const auto it = rhs_by_material_id.find(material_id);
-  if (it != rhs_by_material_id.end())
-    return *(it->second);
+        time_mode =
+          any_rho_positive ? TimeMode::Dynamic : TimeMode::QuasiStatic;
+      }
 
-  return rhs;
-}
+    // --- Infer ElasticityModel
+    // ------------------------------------------------
+    bool any_neta_positive = false;
+    for (const auto &mp_ref : materials)
+      {
+        const auto &mp = mp_ref.get();
+        AssertThrow(mp.neta >= 0.0,
+                    ExcMessage("Material viscosity (eta/neta) must be >= 0."));
+        any_neta_positive |= (mp.neta > 0.0);
+      }
 
-template <int dim, int spacedim>
-void
-ElasticityProblemParameters<dim, spacedim>::set_rhs_times(
-  const double time) const
-{
-  rhs.set_time(time);
-  for (const auto &[id, ptr] : rhs_by_material_id)
-    {
-      (void)id;
-      ptr->set_time(time);
-    }
-}
-
-template <int dim, int spacedim>
-void
-ElasticityProblemParameters<dim, spacedim>::set_boundary_condition_times(
-  const double time) const
-{
-  bc.set_time(time);
-  for (const auto &[id, ptr] : dirichlet_bc_by_id)
-    {
-      (void)id;
-      ptr->set_time(time);
-    }
-
-  Neumann_bc.set_time(time);
-  for (const auto &[id, ptr] : neumann_bc_by_id)
-    {
-      (void)id;
-      ptr->set_time(time);
-    }
-}
+    if (any_neta_positive)
+      elasticity_model = ElasticityModel::KelvinVoigt;
+    else
+      elasticity_model = ElasticityModel::LinearElasticity;
+  }
 
 
-template class ElasticityProblemParameters<2>;
-template class ElasticityProblemParameters<2, 3>; // dim != spacedim
-template class ElasticityProblemParameters<3>;
+  template <int dim, int spacedim>
+  inline const MaterialProperties &
+  ElasticityProblemParameters<dim, spacedim>::get_material_properties(
+    const types::material_id material_id) const
+  {
+    auto it = material_properties_by_id.find(material_id);
+    if (it != material_properties_by_id.end())
+      return *(it->second);
+    else
+      return default_material_properties;
+  }
+
+  template <int dim, int spacedim>
+  const ModulatedParsedFunction<spacedim> &
+  ElasticityProblemParameters<dim, spacedim>::get_dirichlet_bc(
+    const types::boundary_id boundary_id) const
+  {
+    const auto it = dirichlet_bc_by_id.find(boundary_id);
+    if (it != dirichlet_bc_by_id.end())
+      return *(it->second);
+
+    return bc;
+  }
+
+  template <int dim, int spacedim>
+  const ModulatedParsedFunction<spacedim> &
+  ElasticityProblemParameters<dim, spacedim>::get_neumann_bc(
+    const types::boundary_id boundary_id) const
+  {
+    const auto it = neumann_bc_by_id.find(boundary_id);
+    if (it != neumann_bc_by_id.end())
+      return *(it->second);
+
+    return Neumann_bc;
+  }
+
+  template <int dim, int spacedim>
+  const ModulatedParsedFunction<spacedim> &
+  ElasticityProblemParameters<dim, spacedim>::get_rhs(
+    const types::material_id material_id) const
+  {
+    const auto it = rhs_by_material_id.find(material_id);
+    if (it != rhs_by_material_id.end())
+      return *(it->second);
+
+    return rhs;
+  }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblemParameters<dim, spacedim>::set_rhs_times(
+    const double time) const
+  {
+    rhs.set_time(time);
+    for (const auto &[id, ptr] : rhs_by_material_id)
+      {
+        (void)id;
+        ptr->set_time(time);
+      }
+  }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblemParameters<dim, spacedim>::set_boundary_condition_times(
+    const double time) const
+  {
+    bc.set_time(time);
+    for (const auto &[id, ptr] : dirichlet_bc_by_id)
+      {
+        (void)id;
+        ptr->set_time(time);
+      }
+
+    Neumann_bc.set_time(time);
+    for (const auto &[id, ptr] : neumann_bc_by_id)
+      {
+        (void)id;
+        ptr->set_time(time);
+      }
+  }
+
+
+  template class ElasticityProblemParameters<2>;
+  template class ElasticityProblemParameters<2, 3>; // dim != spacedim
+  template class ElasticityProblemParameters<3>;
+} // namespace ImmersX

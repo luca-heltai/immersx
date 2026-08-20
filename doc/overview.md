@@ -6,12 +6,12 @@ and coupling operators that avoid conforming background meshes.
 
 The main C++ components are:
 
-- `ElasticityProblem` in `include/elasticity.h` for bulk elasticity with optional transient integration and immersed coupling.
-- `PoissonProblem` in `include/laplacian.h` for scalar immersed Poisson/Laplacian problems.
-- `ReducedPoisson`, `ReducedCoupling`, and `TensorProductSpace` in `include/reduced_poisson.h`, `include/reduced_coupling.h`, and `include/tensor_product_space.h` for reduced-order coupling workflows.
-- `Inclusions` in `include/inclusions.h` for immersed geometry, quadrature data, and reduced basis metadata.
-- `ReferenceCrossSection` in `include/reference_cross_section.h` for reference reduced-basis and quadrature construction.
-- `ParticleCoupling` in `include/particle_coupling.h` for particle insertion and distributed ownership mapping.
+- `ElasticityProblem` in `include/immersx/physics/elasticity.h` for bulk elasticity with optional transient integration and immersed coupling.
+- `PoissonProblem` in `include/immersx/physics/laplacian.h` for scalar immersed Poisson/Laplacian problems.
+- `ReducedPoisson`, `ReducedCoupling`, and `TensorProductSpace` in `include/immersx/physics/reduced_poisson.h`, `include/immersx/coupling/reduced_coupling.h`, and `include/immersx/coupling/tensor_product_space.h` for reduced-order coupling workflows.
+- `Inclusions` in `include/immersx/coupling/inclusions.h` for immersed geometry, quadrature data, and reduced basis metadata.
+- `ReferenceCrossSection` in `include/immersx/coupling/reference_cross_section.h` for reference reduced-basis and quadrature construction.
+- `ParticleCoupling` in `include/immersx/coupling/particle_coupling.h` for particle insertion and distributed ownership mapping.
 
 The current classes are being evolved toward a semantic architecture in which
 a Problem may own multiple Fields, Problems and Interactions contribute

@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
+#include <immersx/physics/elasticity.h>
 
-#include "elasticity.h"
-#include "elasticity_problem_parameters.h"
+using namespace ImmersX;
+#include <immersx/io/utils.h>
+#include <immersx/physics/elasticity_problem_parameters.h>
+
 #include "test_paths.h"
-#include "utils.h"
 
 #ifdef DEAL_II_WITH_VTK
 

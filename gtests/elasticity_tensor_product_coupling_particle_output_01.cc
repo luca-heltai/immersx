@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
+#include <immersx/physics/elasticity.h>
 
 #include <filesystem>
 
-#include "elasticity.h"
+using namespace ImmersX;
 #include "test_paths.h"
 
 using namespace dealii;
