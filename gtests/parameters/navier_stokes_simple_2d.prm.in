@@ -1,0 +1,60 @@
+set dimension       = 2
+set space dimension = 2
+
+subsection Navier-Stokes
+  set Output directory    = @TEST_OUTPUT_DIR@/gtests/parameters/navier_stokes_simple_2d
+  set Output name         = app_solution
+  set Output frequency    = 0
+  set Initial refinement  = 0
+  set Dirichlet boundary ids = 0
+
+  subsection Finite element spaces
+    set Velocity degree = 2
+    set Pressure degree = 1
+  end
+
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+
+  subsection Physical properties
+    set Density                 = 1
+    set Viscosity               = 1
+    set Include convective term = false
+  end
+
+  subsection Time stepping
+    set Policy               = number_of_steps
+    set Initial time         = 0
+    set Final time           = 0.01
+    set Number of time steps = 1
+  end
+
+  subsection Right hand side
+    set Function expression = 1; 0; 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Dirichlet boundary conditions
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Initial condition
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,t
+  end
+
+  subsection Solver
+    subsection Control
+      set Max steps  = 300
+      set Reduction  = 1.e-9
+      set Tolerance  = 1.e-11
+      set Log result = false
+    end
+    set Inner maximum steps = 300
+    set Inner tolerance     = 1.e-10
+    set Log iterations      = false
+  end
+end
