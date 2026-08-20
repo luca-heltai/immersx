@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -25,6 +24,7 @@
 #include "representation.h"
 #include "semidiscrete_pde_models.h"
 #include "sundials_ida_adapter.h"
+#include "test_paths.h"
 #include "utils.h"
 
 using namespace dealii;
@@ -68,8 +68,7 @@ namespace
   configure_elastodynamics(ElastodynamicsParameters<2> &parameters)
   {
     parameters.output_directory =
-      (std::filesystem::temp_directory_path() / "immersx_semidiscrete_elastic")
-        .string();
+      ImmersX::TestPaths::output_directory("distributed-ida/elastodynamics");
     parameters.output_frequency   = 0;
     parameters.initial_refinement = 0;
     parameters.final_time         = 0.02;
@@ -83,8 +82,7 @@ namespace
   configure_stokes(NavierStokesParameters<2> &parameters)
   {
     parameters.output_directory =
-      (std::filesystem::temp_directory_path() / "immersx_semidiscrete_stokes")
-        .string();
+      ImmersX::TestPaths::output_directory("distributed-ida/stokes");
     parameters.output_frequency        = 0;
     parameters.initial_refinement      = 0;
     parameters.include_convective_term = false;
