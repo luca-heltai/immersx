@@ -21,5 +21,6 @@ poisson
 reduced-poisson
 elasticity
 elastodynamics
+navier-stokes
 coupled-elasticity
 ```
