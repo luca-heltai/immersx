@@ -1,4 +1,4 @@
-# Time residual and SUNDIALS integration prototype
+# Time residual and SUNDIALS integration
 
 The time-residual path now uses the canonical Field/State core. Semantic
 contributors receive `ImmersX::EvaluationContext` and add rows through
@@ -10,9 +10,22 @@ evaluations when no state derivative is supplied.
 
 `ImmersX::FieldId` identifies state and residual rows. Independent timelines
 are identified separately by `ImmersX::HistoryGroupId`, so several fields may
-share one history grid. IDA's monolithic vector is an adapter concern handled
-by the internal `ImmersX::detail::MonolithicFieldLayout`, while native Problem
-block numbers remain local to the public `ImmersX::NativeFieldLayout`.
+share one history grid. The semantic core is now used by real distributed
+Elastodynamics and unsteady-Stokes contributors.
+
+The production-intended IDA instantiation is
+
+```cpp
+SundialsIDAResidualAdapter<LA::MPI::Vector, LA::MPI::BlockVector>
+```
+
+Its adapter-local `BlockFieldLayout<FieldVectorType, GlobalBlockVectorType>`
+maps one IDA block directly to one semantic Field. Binding a block to a
+`StateView` or `ResidualAccumulator` therefore creates no scalar gather or
+scatter. The mapping is an execution/storage choice: `FieldId` is not a
+global block number, and native Problem block ordering remains local to the
+Problem. The older `ImmersX::detail::MonolithicFieldLayout` remains only for
+serial synthetic compatibility tests.
 
 ## Local deal.II/SUNDIALS contracts
 
@@ -72,7 +85,7 @@ SUNDIALS installation provides `arkode/arkode_mristep.h`, including
 stepper wrapper using the same history query rather than a second residual
 model.
 
-## Prototype mapping
+## Mapping and Jacobian actions
 
 `ImmersX::JacobianAction<VectorType>` is the universal `vmult` capability. Existing
 deal.II matrices and block matrices can be wrapped with
@@ -85,10 +98,32 @@ the contributor boundary.  The matrix wrapper is non-owning, matching
 deal.II's `linear_operator(matrix)` convention; the problem that owns the
 matrix must outlive the action.
 
-`SundialsIDAResidualAdapter` only translates the deal.II IDA callbacks.  The
+`SundialsIDAResidualAdapter` only translates the deal.II IDA callbacks. The
 residual model supplies physics, the semantic model supplies field-wise `Jv`,
-and a caller-supplied linear solve policy consumes the gathered monolithic
-`ImmersX::JacobianAction`. The synthetic tests use GMRES on the matrix-free
-`LinearOperator` view and validate the differential/algebraic mask and the
-resulting DAE solution, including a mixed native-block Problem and an
-auxiliary algebraic multiplier field.
+and a caller-supplied linear solve policy consumes the block-vector
+`ImmersX::JacobianAction`. The differential mask is built from each
+`FieldDescriptor::TimeRole` and the adapter-local block ownership/index sets.
+
+The distributed tests exercise two MPI ranks with one block per Field:
+
+```text
+Elastodynamics: solid.displacement (differential), solid.velocity (differential)
+Stokes:         fluid.velocity (differential), fluid.pressure (algebraic)
+```
+
+The Elastodynamics contributor evaluates `M*d_dot-M*v` and
+`M*v_dot+K*d+D*v-f(t)` from external state views. The Stokes contributor uses
+`rho*M_u*u_dot + C_uu*u + C_up*p - rho*f(t)` and `C_pu*u`, where
+`C_up=continuous_operator.block(0,1)` and
+`C_pu=continuous_operator.block(1,0)` preserve the current weak-form signs
+(both pressure/divergence blocks are negative when `B` denotes the positive
+divergence coupling). The pressure metric block retained by the native
+Navier--Stokes preconditioner is not a time derivative term and is excluded
+from the semantic residual and differential mask. The tests compare residual
+and Jacobian actions with the native distributed operators and run short IDA
+solves. Their small linear solve policy uses FGMRES with an identity
+preconditioner; this is a validation strategy, not a performance claim.
+
+The current real IDA gate is unsteady Stokes
+(`include_convective_term=false`). A fully implicit convection Jacobian and an
+ARKode/IMEX execution path remain follow-up work.

@@ -460,6 +460,9 @@ NavierStokesSolver<dim, spacedim>::setup_system()
   system_matrix_storage.reinit(owned_dofs_by_block,
                                system_dsp,
                                mpi_communicator);
+  continuous_operator_storage.reinit(owned_dofs_by_block,
+                                     system_dsp,
+                                     mpi_communicator);
 
   Table<2, DoFTools::Coupling> mass_coupling(dim + 1, dim + 1);
   for (unsigned int c = 0; c < dim + 1; ++c)
@@ -519,9 +522,10 @@ NavierStokesSolver<dim, spacedim>::assemble_system()
               ExcMessage("setup_fe() must be called before assembly."));
 
   par.set_time(current_time_storage);
-  system_matrix_storage = 0.;
-  mass_matrix_storage   = 0.;
-  system_rhs_storage    = 0.;
+  system_matrix_storage       = 0.;
+  mass_matrix_storage         = 0.;
+  continuous_operator_storage = 0.;
+  system_rhs_storage          = 0.;
 
   FEValues<dim, spacedim> fe_values(mapping_storage,
                                     *fe,
@@ -534,6 +538,7 @@ NavierStokesSolver<dim, spacedim>::assemble_system()
   const unsigned int n_q_points    = quadrature->size();
 
   FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_continuous_matrix(dofs_per_cell, dofs_per_cell);
   FullMatrix<double> cell_mass_matrix(dofs_per_cell, dofs_per_cell);
   Vector<double>     cell_rhs(dofs_per_cell);
 
@@ -551,9 +556,10 @@ NavierStokesSolver<dim, spacedim>::assemble_system()
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
       {
-        cell_matrix      = 0.;
-        cell_mass_matrix = 0.;
-        cell_rhs         = 0.;
+        cell_matrix            = 0.;
+        cell_continuous_matrix = 0.;
+        cell_mass_matrix       = 0.;
+        cell_rhs               = 0.;
 
         fe_values.reinit(cell);
         par.rhs.vector_value_list(fe_values.get_quadrature_points(),
@@ -595,12 +601,16 @@ NavierStokesSolver<dim, spacedim>::assemble_system()
 
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
-                    cell_matrix(i, j) +=
-                      ((par.density / time_step_storage) * phi_u[i] * phi_u[j] +
-                       2. * par.viscosity *
+                    const auto spatial_term =
+                      (2. * par.viscosity *
                          scalar_product(sym_grad_phi_u[i], sym_grad_phi_u[j]) -
                        div_phi_u[i] * phi_p[j] - phi_p[i] * div_phi_u[j]) *
                       fe_values.JxW(q);
+                    cell_continuous_matrix(i, j) += spatial_term;
+                    cell_matrix(i, j) += ((par.density / time_step_storage) *
+                                          phi_u[i] * phi_u[j]) *
+                                           fe_values.JxW(q) +
+                                         spatial_term;
 
                     cell_mass_matrix(i, j) +=
                       (phi_u[i] * phi_u[j] + phi_p[i] * phi_p[j]) *
@@ -615,12 +625,17 @@ NavierStokesSolver<dim, spacedim>::assemble_system()
                                                        local_dof_indices,
                                                        system_matrix_storage,
                                                        system_rhs_storage);
+        constraints_storage.distribute_local_to_global(
+          cell_continuous_matrix,
+          local_dof_indices,
+          continuous_operator_storage);
         constraints_storage.distribute_local_to_global(cell_mass_matrix,
                                                        local_dof_indices,
                                                        mass_matrix_storage);
       }
 
   system_matrix_storage.compress(VectorOperation::add);
+  continuous_operator_storage.compress(VectorOperation::add);
   mass_matrix_storage.compress(VectorOperation::add);
   system_rhs_storage.compress(VectorOperation::add);
 
@@ -955,6 +970,99 @@ NavierStokesSolver<dim, spacedim>::mass_matrix() const
 
 
 template <int dim, int spacedim>
+const LA::MPI::BlockSparseMatrix &
+NavierStokesSolver<dim, spacedim>::continuous_operator() const
+{
+  return continuous_operator_storage;
+}
+
+
+template <int dim, int spacedim>
+const LA::MPI::SparseMatrix &
+NavierStokesSolver<dim, spacedim>::velocity_mass_matrix() const
+{
+  return mass_matrix_storage.block(0, 0);
+}
+
+
+template <int dim, int spacedim>
+const LA::MPI::SparseMatrix &
+NavierStokesSolver<dim, spacedim>::pressure_metric_matrix() const
+{
+  return mass_matrix_storage.block(1, 1);
+}
+
+
+template <int dim, int spacedim>
+void
+NavierStokesSolver<dim, spacedim>::velocity_forcing_at_time(
+  const double     time,
+  LA::MPI::Vector &destination) const
+{
+  AssertThrow(fe != nullptr && quadrature != nullptr,
+              ExcMessage("setup_fe() must be called before forcing assembly."));
+
+  par.rhs.set_time(time);
+  destination.reinit(owned_dofs_by_block[0], mpi_communicator);
+  destination = 0.;
+
+  FEValues<dim, spacedim>              fe_values(mapping_storage,
+                                    *fe,
+                                    *quadrature,
+                                    update_values | update_quadrature_points |
+                                      update_JxW_values);
+  const unsigned int                   dofs_per_cell = fe->n_dofs_per_cell();
+  const unsigned int                   n_q_points    = quadrature->size();
+  Vector<double>                       cell_rhs(dofs_per_cell);
+  std::vector<Vector<double>>          rhs_values(n_q_points,
+                                         Vector<double>(spacedim + 1));
+  std::vector<Tensor<1, spacedim>>     phi_u(dofs_per_cell);
+  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+  std::vector<types::global_dof_index> velocity_indices;
+  std::vector<double>                  velocity_values;
+
+  for (const auto &cell : dh.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        cell_rhs = 0.;
+        fe_values.reinit(cell);
+        par.rhs.vector_value_list(fe_values.get_quadrature_points(),
+                                  rhs_values);
+        cell->get_dof_indices(local_dof_indices);
+
+        for (unsigned int q = 0; q < n_q_points; ++q)
+          {
+            Tensor<1, spacedim> rhs_u;
+            for (unsigned int d = 0; d < dim; ++d)
+              rhs_u[d] = rhs_values[q][d];
+
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+              if (fe->system_to_component_index(i).first < dim)
+                {
+                  phi_u[i] = fe_values[velocity].value(i, q);
+                  cell_rhs(i) += (rhs_u * phi_u[i]) * fe_values.JxW(q);
+                }
+          }
+
+        velocity_indices.clear();
+        velocity_values.clear();
+        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          if (fe->system_to_component_index(i).first < dim)
+            {
+              velocity_indices.push_back(local_dof_indices[i]);
+              velocity_values.push_back(cell_rhs(i));
+            }
+        destination.add(velocity_indices, velocity_values);
+      }
+
+  destination.compress(VectorOperation::add);
+  for (const auto index : destination.locally_owned_elements())
+    if (constraints_storage.is_constrained(index))
+      destination(index) = 0.;
+}
+
+
+template <int dim, int spacedim>
 const typename NavierStokesSolver<dim, spacedim>::BlockVectorType &
 NavierStokesSolver<dim, spacedim>::system_rhs() const
 {
@@ -1039,6 +1147,24 @@ const ComponentMask &
 NavierStokesSolver<dim, spacedim>::velocity_component_mask() const
 {
   return velocity_mask;
+}
+
+
+template <int dim, int spacedim>
+double
+NavierStokesSolver<dim, spacedim>::density() const
+{
+  return par.density;
+}
+
+
+template <int dim, int spacedim>
+types::global_dof_index
+NavierStokesSolver<dim, spacedim>::velocity_block_size() const
+{
+  AssertThrow(dofs_per_block.size() == 2,
+              ExcMessage("Navier-Stokes DoF blocks are not initialized."));
+  return dofs_per_block[0];
 }
 
 
