@@ -21,13 +21,16 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/constraint_equation.h>
 #include <immersx/core/representation.h>
+#include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/coupling/particle_coupling.h>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace ImmersX
@@ -67,6 +70,21 @@ namespace ImmersX
   class VectorLagrangeMultiplierInteraction
   {
   public:
+    /** Semantic binding for the two velocity rows and multiplier row. */
+    struct Fields
+    {
+      FieldId     first;
+      FieldId     second;
+      FieldId     multiplier;
+      std::string prefix;
+
+      std::string
+      term(const char *local_name) const
+      {
+        return prefix + "." + local_name;
+      }
+    };
+
     static constexpr unsigned int spacedim =
       FirstRepresentation::ambient_dimension;
 
@@ -177,6 +195,141 @@ namespace ImmersX
 
       assembled_first_geometry_version  = first.geometry_version();
       assembled_second_geometry_version = second.geometry_version();
+    }
+
+    /**
+     * Register the interaction multiplier in a caller-owned StateLayout.
+     *
+     * The first and second fields are supplied explicitly because a
+     * Representation may depend on more than one semantic field. The
+     * multiplier field is algebraic and uses the IndexSets of the second
+     * representation, which is the native multiplier space for this
+     * interaction. The layout and the returned binding must outlive all model
+     * callbacks.
+     */
+    Fields
+    register_fields(StateLayout         &layout,
+                    const FieldId        first_field,
+                    const FieldId        second_field,
+                    const std::string   &prefix,
+                    const HistoryGroupId history_group = HistoryGroupId()) const
+    {
+      AssertThrow(layout.contains(first_field) && layout.contains(second_field),
+                  dealii::ExcMessage(
+                    "Interaction participant fields must belong to the "
+                    "StateLayout."));
+      AssertThrow(!prefix.empty(),
+                  dealii::ExcMessage(
+                    "An interaction field prefix cannot be empty."));
+
+      FieldDescriptor multiplier_descriptor;
+      multiplier_descriptor.name          = prefix + ".lambda";
+      multiplier_descriptor.time_role     = TimeRole::algebraic;
+      multiplier_descriptor.history_group = history_group;
+      multiplier_descriptor.locally_owned = multiplier_locally_owned_dofs();
+      multiplier_descriptor.locally_relevant =
+        multiplier_locally_relevant_dofs();
+
+      Fields fields;
+      fields.first      = first_field;
+      fields.second     = second_field;
+      fields.multiplier = layout.add_field(std::move(multiplier_descriptor));
+      fields.prefix     = prefix;
+      return fields;
+    }
+
+    /** Add C lambda, -Q^T lambda, and C^T v_first - Q v_second. */
+    void
+    add_semidiscrete_terms(SemiDiscreteModel<VectorType> &model,
+                           const Fields                  &fields) const
+    {
+      AssertThrow(assembly_is_current(),
+                  dealii::ExcMessage(
+                    "Cannot register an interaction with stale matrices."));
+
+      model.add_term(
+        fields.term("first"),
+        [this, fields](const auto &context, auto &residual) {
+          const auto &lambda =
+            context.state().field(fields.multiplier, context.time());
+          auto      &row = residual.field(fields.first);
+          VectorType contribution;
+          contribution.reinit(row);
+          coupling_matrix_storage.vmult(contribution, lambda);
+          row += contribution;
+        },
+        [this, fields](const auto &linearization,
+                       const auto &increment,
+                       auto       &residual) {
+          const double a   = linearization.state_weight();
+          const double t   = linearization.evaluation().time();
+          auto        &row = residual.field(fields.first);
+          VectorType   contribution;
+          contribution.reinit(row);
+          coupling_matrix_storage.vmult(contribution,
+                                        increment.field(fields.multiplier, t));
+          contribution *= a;
+          row += contribution;
+        });
+
+      model.add_term(
+        fields.term("second"),
+        [this, fields](const auto &context, auto &residual) {
+          const auto &lambda =
+            context.state().field(fields.multiplier, context.time());
+          auto      &row = residual.field(fields.second);
+          VectorType contribution;
+          contribution.reinit(row);
+          pairing_matrix_storage.Tvmult(contribution, lambda);
+          contribution *= -1.;
+          row += contribution;
+        },
+        [this, fields](const auto &linearization,
+                       const auto &increment,
+                       auto       &residual) {
+          const double a   = linearization.state_weight();
+          const double t   = linearization.evaluation().time();
+          auto        &row = residual.field(fields.second);
+          VectorType   contribution;
+          contribution.reinit(row);
+          pairing_matrix_storage.Tvmult(contribution,
+                                        increment.field(fields.multiplier, t));
+          contribution *= -a;
+          row += contribution;
+        });
+
+      model.add_term(
+        fields.term("constraint"),
+        [this, fields](const auto &context, auto &residual) {
+          const auto &first_velocity =
+            context.state().field(fields.first, context.time());
+          const auto &second_velocity =
+            context.state().field(fields.second, context.time());
+          auto      &row = residual.field(fields.multiplier);
+          VectorType contribution;
+          contribution.reinit(row);
+          coupling_matrix_storage.Tvmult(contribution, first_velocity);
+          row += contribution;
+          pairing_matrix_storage.vmult(contribution, second_velocity);
+          row -= contribution;
+        },
+        [this, fields](const auto &linearization,
+                       const auto &increment,
+                       auto       &residual) {
+          const double a   = linearization.state_weight();
+          const double t   = linearization.evaluation().time();
+          auto        &row = residual.field(fields.multiplier);
+          VectorType   contribution;
+          contribution.reinit(row);
+          coupling_matrix_storage.Tvmult(contribution,
+                                         increment.field(fields.first, t));
+          contribution *= a;
+          row += contribution;
+          pairing_matrix_storage.vmult(contribution,
+                                       increment.field(fields.second, t));
+          contribution *= -a;
+          row += contribution;
+        });
     }
 
     /** Return C, with matrix rows and multiplier columns. */

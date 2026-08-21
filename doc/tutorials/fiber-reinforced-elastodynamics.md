@@ -78,13 +78,36 @@ the representation/interaction seam so a future moving FSI relation can
 invalidate assembled transfer data explicitly. Nonzero moving Dirichlet data
 and adaptive refinement during the coupled run are not implemented here.
 
+## Semantic five-field validation
+
+The application driver remains the production backward-Euler + Schur path and
+continues to own the two Problems, Representations, Interaction, accepted
+state, output, and time loop. A separate MPI acceptance test composes those
+existing objects into one caller-owned `StateLayout` and
+`SemiDiscreteModel<LA::MPI::Vector>` with
+
+```text
+matrix.displacement       differential
+matrix.velocity            differential
+fiber.displacement         differential
+fiber.velocity             differential
+fiber_coupling.lambda      algebraic
+```
+
+The two Elastodynamics contributors use caller-selected prefixes and distinct
+`HistoryGroupId`s. The vector Interaction registers the algebraic multiplier
+field and adds `C lambda`, `-Q^T lambda`, and `C^T v_matrix - Q v_fiber` to
+the appropriate rows. Backward differences from an accepted coupled step are
+then supplied through external state views; all five residual rows and all
+five Jacobian rows are compared with the native `M`, `K`, `D`, `C`, and `Q`
+actions. This validates physical composition without introducing a new fiber
+IDA driver. Five-field IDA integration remains a later execution-adapter step.
+
 ## Scope and future path
 
 This is a full-order fiber application. It does not implement the future
 reduced `<1,3>` TensorProduct fiber mechanics, moving geometry, FSI, adaptive
-coupled refinement, partitioned execution, or a five-field semantic
-`SemiDiscreteModel`. That semantic integration is intentionally left behind
-the composable contributor API being developed separately.
+coupled refinement, or partitioned execution.
 
 The MPI path is the same distributed point-search path used by the existing
 coupling infrastructure. A meaningful two-rank transient test exercises the
