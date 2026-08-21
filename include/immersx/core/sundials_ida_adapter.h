@@ -40,10 +40,12 @@ namespace ImmersX
    *
    * each IDA block is bound directly as one semantic field.  The one-type
    * default remains for the small serial prototype tests and uses the legacy
-   * scalar-index adapter below; real distributed Problems use the block path.
+   * scalar-index adapter below. The block path derives its differential mask
+   * directly from the StateLayout through BlockFieldLayout; the legacy
+   * monolithic path may still supply DifferentialAlgebraicMetadata.
    * No Problem or Interaction-specific logic is present here. The model, field
-   * layout, metadata, and adapter itself must outlive the connected IDA object
-   * and any current Jacobian action.
+   * layout, and adapter itself must outlive the connected IDA object and any
+   * current Jacobian action.
    */
   template <typename FieldVectorType,
             typename GlobalVectorType = FieldVectorType>
@@ -72,10 +74,38 @@ namespace ImmersX
       LinearSolveFunction                           solve)
       : model_(model)
       , field_layout_(field_layout)
-      , metadata_(metadata)
+      , metadata_(&metadata)
       , reinit_vector_(std::move(reinit_vector))
       , solve_(std::move(solve))
     {
+      AssertThrow(reinit_vector_,
+                  dealii::ExcMessage("IDA adapter requires a vector reinit "
+                                     "callback."));
+      AssertThrow(solve_,
+                  dealii::ExcMessage("IDA adapter requires a linear solve "
+                                     "callback."));
+    }
+
+    /**
+     * Construct the distributed block-vector path.
+     *
+     * BlockFieldLayout already has the semantic time roles and block
+     * distributions needed by IDA, so a second DAE classification is neither
+     * required nor accepted on this path.
+     */
+    SundialsIDAResidualAdapter(const Model        &model,
+                               const FieldLayout  &field_layout,
+                               ReinitFunction      reinit_vector,
+                               LinearSolveFunction solve)
+      : model_(model)
+      , field_layout_(field_layout)
+      , metadata_(nullptr)
+      , reinit_vector_(std::move(reinit_vector))
+      , solve_(std::move(solve))
+    {
+      static_assert(!std::is_same_v<FieldVectorType, GlobalVectorType>,
+                    "The metadata-free constructor is only for block "
+                    "vectors.");
       AssertThrow(reinit_vector_,
                   dealii::ExcMessage("IDA adapter requires a vector reinit "
                                      "callback."));
@@ -114,7 +144,15 @@ namespace ImmersX
       };
 
       ida.differential_components = [this]() {
-        return metadata_.differential_components();
+        if constexpr (std::is_same_v<FieldVectorType, GlobalVectorType>)
+          {
+            AssertThrow(metadata_ != nullptr,
+                        dealii::ExcMessage(
+                          "The monolithic IDA path requires DAE metadata."));
+            return metadata_->differential_components();
+          }
+        else
+          return field_layout_.differential_components();
       };
     }
 
@@ -337,7 +375,7 @@ namespace ImmersX
 
     const Model                                  &model_;
     const FieldLayout                            &field_layout_;
-    const ImmersX::DifferentialAlgebraicMetadata &metadata_;
+    const ImmersX::DifferentialAlgebraicMetadata *metadata_;
     ReinitFunction                                reinit_vector_;
     LinearSolveFunction                           solve_;
     ImmersX::TermSelection                        selected_terms_;

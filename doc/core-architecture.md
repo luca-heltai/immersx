@@ -36,6 +36,17 @@ dependencies, and short Elastodynamics and unsteady-Stokes IDA solves. The
 validation covers the configured MPI/deal.II backend and is not a general
 performance or production-robustness claim.
 
+The real PDE adapters are also composable contributors. An application owns a
+`StateLayout` and `SemiDiscreteModel`, chooses prefixes and
+`HistoryGroupId`s, and registers multiple instances of the same Problem class.
+The full-order fiber test combines two Elastodynamics contributors and one
+vector multiplier Interaction in the five-field layout
+`matrix.displacement`, `matrix.velocity`, `fiber.displacement`,
+`fiber.velocity`, and `fiber_coupling.lambda`. Its semantic residual and
+Jacobian action are checked against the existing backward-Euler/Schur driver.
+The production fiber driver remains that backward-Euler/Schur application;
+five-field IDA integration is a follow-up step.
+
 **Roadmap.** ARKode/IMEX for Navier--Stokes convection, broader execution
 adapters, moving geometry, multirate/partitioned runs, term-level policies,
 and a lightweight global composer may be integrated incrementally after
@@ -218,6 +229,15 @@ exchange, contact, interface, or auxiliary-field equations. Several
 contributors may add to the same Field row. A prescribed datum is data, not a
 fake Problem.
 
+Concrete adapters such as Elastodynamics and Navier--Stokes expose explicit
+registration functions for this contract. They do not own the caller's
+`StateLayout` or `SemiDiscreteModel`; the application supplies field prefixes,
+history groups, and the model that receives additive terms. Thus two instances
+of one Problem type can coexist without semantic-name collisions or coupling
+to native block numbering. A concrete Interaction may add to Problem-owned
+rows and register its own auxiliary algebraic row, as the vector
+Lagrange-multiplier coupling does for `fiber_coupling.lambda`.
+
 This model supports Newton/KINSOL, IDA, ARKode, multirate stages, nonlinear
 partitioned iterations, adjoint/sensitivity evaluations, and external state
 tests without duplicating the physics layer for each driver.
@@ -352,10 +372,14 @@ Typical classifications are:
 - first-order elasticity path: displacement and velocity differential fields
   in the generic SUNDIALS-oriented formulation.
 
-An IDA-style adapter can map this metadata to its differential mask while
-keeping the residual contributor API independent of SUNDIALS. The adapter owns
-solver-specific vector conversion, tolerances, callbacks, and masks; a
-Problem does not include IDA policy in its physical equations.
+An IDA-style adapter maps this metadata to its differential mask while keeping
+the residual contributor API independent of SUNDIALS. For the production
+block-vector path the source chain is `StateLayout` field roles ->
+`BlockFieldLayout` -> IDA differential mask; callers do not duplicate the DAE
+classification in a second metadata object. The adapter owns solver-specific
+vector conversion, tolerances, callbacks, and masks; a Problem does not include
+IDA policy in its physical equations. The legacy metadata path remains only
+for the same-vector/monolithic compatibility route.
 
 For the validated Navier--Stokes path, the continuous operator is exposed as
 separate velocity mass, pressure metric, and spatial blocks. The pressure
@@ -580,8 +604,8 @@ conceptual API from being mistaken for a merged one.
 | Status | Meaning in this specification |
 | --- | --- |
 | **Merged on `master`** | Current Poisson, elasticity, standalone Navier--Stokes, semantic Field/state/residual core, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
-| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity Representation dependencies, and short two-rank IDA solves. |
-| **Roadmap** | Navier--Stokes ARKode/IMEX convection, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
+| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity Representation dependencies, short two-rank IDA solves, and the five-field fiber semantic residual/Jacobian against backward Euler + Schur. |
+| **Roadmap** | Navier--Stokes ARKode/IMEX convection, five-field IDA integration, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
 
 Existing `Poisson`, `Elasticity`, `ReducedPoisson`, and production coupling
 classes can be adapted incrementally. The intended migration is an adapter

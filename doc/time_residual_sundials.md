@@ -125,5 +125,10 @@ solves. Their small linear solve policy uses FGMRES with an identity
 preconditioner; this is a validation strategy, not a performance claim.
 
 The current real IDA gate is unsteady Stokes
-(`include_convective_term=false`). A fully implicit convection Jacobian and an
-ARKode/IMEX execution path remain follow-up work.
+(`include_convective_term=false`). The five-field fiber model is deliberately
+validated first against the existing backward-Euler/Schur driver: two
+caller-registered Elastodynamics contributors and a vector multiplier
+Interaction provide four differential fields plus one algebraic multiplier
+field. A five-block IDA run is not yet part of that acceptance path. A fully
+implicit convection Jacobian and an ARKode/IMEX execution path remain follow-up
+work.

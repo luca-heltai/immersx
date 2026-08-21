@@ -276,6 +276,10 @@ FOREACH(_build_type ${_d2_build_types})
   ENDIF()
 ENDFOREACH()
 
+# Register CTest before adding test subdirectories so their add_test() calls
+# are included in the top-level test manifest.
+ENABLE_TESTING()
+
 # Deal.II style testing
 IF(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests AND ENABLE_DEAL_II_APP_TESTING)
   ADD_SUBDIRECTORY(tests)
@@ -367,4 +371,3 @@ else()
 endif()
 
 add_custom_target(indent ./scripts/indent WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-ENABLE_TESTING()

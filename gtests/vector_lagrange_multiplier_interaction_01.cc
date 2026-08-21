@@ -269,6 +269,137 @@ TEST(VectorLagrangeMultiplierInteraction, MatchingAffineReproduction)
 }
 
 
+TEST(VectorLagrangeMultiplierInteraction, MPI_SemanticResidualAndJacobian)
+{
+  ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+
+  VectorSpace matrix_space(MPI_COMM_WORLD, 1);
+  VectorSpace fiber_space(MPI_COMM_WORLD);
+  auto        matrix_representation = make_representation(matrix_space);
+  auto        fiber_representation  = make_representation(fiber_space);
+  ParticleCouplingParameters<2> search_parameters;
+  Interaction                   interaction(matrix_representation,
+                          fiber_representation,
+                          search_parameters);
+  interaction.assemble();
+
+  StateLayout     layout;
+  FieldDescriptor first_descriptor;
+  first_descriptor.name             = "matrix.velocity";
+  first_descriptor.time_role        = TimeRole::differential;
+  first_descriptor.locally_owned    = matrix_space.locally_owned_dofs;
+  first_descriptor.locally_relevant = matrix_space.locally_relevant_dofs;
+  const auto first                  = layout.add_field(first_descriptor);
+
+  FieldDescriptor second_descriptor;
+  second_descriptor.name             = "fiber.velocity";
+  second_descriptor.time_role        = TimeRole::differential;
+  second_descriptor.locally_owned    = fiber_space.locally_owned_dofs;
+  second_descriptor.locally_relevant = fiber_space.locally_relevant_dofs;
+  const auto second                  = layout.add_field(second_descriptor);
+
+  const auto fields =
+    interaction.register_fields(layout, first, second, "fiber_coupling");
+  EXPECT_EQ(layout.field(fields.multiplier).time_role, TimeRole::algebraic);
+  EXPECT_EQ(layout.field(fields.multiplier).locally_owned,
+            interaction.multiplier_locally_owned_dofs());
+
+  SemiDiscreteModel<VectorType> model;
+  interaction.add_semidiscrete_terms(model, fields);
+
+  const auto first_values  = constant_vector(matrix_space, 1., 2.);
+  const auto second_values = constant_vector(fiber_space, 3., 4.);
+  VectorType lambda(interaction.multiplier_locally_owned_dofs(),
+                    MPI_COMM_WORLD);
+  lambda = 0.25;
+
+  StateView<VectorType> state(layout, 0.);
+  state.bind(first, first_values);
+  state.bind(second, second_values);
+  state.bind(fields.multiplier, lambda);
+  EvaluationContext<VectorType> evaluation(0., state);
+
+  VectorType first_residual(matrix_space.locally_owned_dofs, MPI_COMM_WORLD);
+  VectorType second_residual(fiber_space.locally_owned_dofs, MPI_COMM_WORLD);
+  VectorType lambda_residual(interaction.multiplier_locally_owned_dofs(),
+                             MPI_COMM_WORLD);
+  first_residual  = 0.;
+  second_residual = 0.;
+  lambda_residual = 0.;
+  ResidualAccumulator<VectorType> residual(layout);
+  residual.bind(first, first_residual);
+  residual.bind(second, second_residual);
+  residual.bind(fields.multiplier, lambda_residual);
+  model.evaluate(evaluation, residual);
+
+  VectorType expected_first(first_residual);
+  VectorType expected_second(second_residual);
+  VectorType expected_lambda(lambda_residual);
+  expected_first  = 0.;
+  expected_second = 0.;
+  expected_lambda = 0.;
+  interaction.coupling_matrix().vmult(expected_first, lambda);
+  interaction.pairing_matrix().Tvmult(expected_second, lambda);
+  expected_second *= -1.;
+  interaction.coupling_matrix().Tvmult(expected_lambda, first_values);
+  VectorType product(lambda_residual);
+  interaction.pairing_matrix().vmult(product, second_values);
+  expected_lambda -= product;
+
+  VectorType difference(first_residual);
+  difference -= expected_first;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = second_residual;
+  difference -= expected_second;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = lambda_residual;
+  difference -= expected_lambda;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+
+  const auto first_increment  = constant_vector(matrix_space, 2., 1.);
+  const auto second_increment = constant_vector(fiber_space, -1., 3.);
+  VectorType lambda_increment(lambda);
+  lambda_increment = 0.5;
+  StateView<VectorType> increment(layout, 0.);
+  increment.bind(first, first_increment);
+  increment.bind(second, second_increment);
+  increment.bind(fields.multiplier, lambda_increment);
+  LinearizationContext<VectorType> linearization(evaluation, 2., 7.);
+
+  first_residual  = 0.;
+  second_residual = 0.;
+  lambda_residual = 0.;
+  ResidualAccumulator<VectorType> jacobian_residual(layout);
+  jacobian_residual.bind(first, first_residual);
+  jacobian_residual.bind(second, second_residual);
+  jacobian_residual.bind(fields.multiplier, lambda_residual);
+  model.add_jacobian_action(linearization, increment, jacobian_residual);
+
+  expected_first  = 0.;
+  expected_second = 0.;
+  expected_lambda = 0.;
+  interaction.coupling_matrix().vmult(expected_first, lambda_increment);
+  interaction.pairing_matrix().Tvmult(expected_second, lambda_increment);
+  expected_second *= -1.;
+  interaction.coupling_matrix().Tvmult(expected_lambda, first_increment);
+  interaction.pairing_matrix().vmult(product, second_increment);
+  expected_lambda -= product;
+  expected_first *= 2.;
+  expected_second *= 2.;
+  expected_lambda *= 2.;
+
+  difference = first_residual;
+  difference -= expected_first;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = second_residual;
+  difference -= expected_second;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = lambda_residual;
+  difference -= expected_lambda;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+}
+
+
 TEST(VectorLagrangeMultiplierInteraction, MPI_NonmatchingDistributedSearch)
 {
   ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);

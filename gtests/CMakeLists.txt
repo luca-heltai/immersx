@@ -18,6 +18,64 @@ file(GLOB _test_files CONFIGURE_DEPENDS *cc)
 
 include(GoogleTest)
 
+# Compile selected installed-facing headers independently. These translation
+# units intentionally contain no project umbrella include or namespace using
+# directive: a failure here is a public-header dependency or namespace error,
+# not a runtime test failure.
+set(_public_headers
+    immersx/core/constraint_equation.h
+    immersx/core/field.h
+    immersx/core/input_field_selector.h
+    immersx/core/native_field_layout.h
+    immersx/core/reduced_field_catalog.h
+    immersx/core/reduced_field_utils.h
+    immersx/core/reduced_field_values.h
+    immersx/core/representation.h
+    immersx/core/residual.h
+    immersx/core/semidiscrete_pde_models.h
+    immersx/core/state.h
+    immersx/core/state_history.h
+    immersx/core/sundials_ida_adapter.h
+    immersx/core/symbolic_field_evaluator.h
+    immersx/core/time_residual.h
+    immersx/algebra/lagrange_multiplier_interaction.h
+    immersx/algebra/lagrange_multiplier_schur_solver.h
+    immersx/algebra/linear_algebra.h
+    immersx/algebra/vector_lagrange_multiplier_interaction.h
+    immersx/coupling/particle_coupling.h
+    immersx/physics/elastodynamics.h
+    immersx/physics/elastodynamics_semidiscrete.h
+    immersx/physics/fiber_reinforced_elastodynamics.h
+    immersx/physics/navier_stokes.h
+    immersx/physics/navier_stokes_semidiscrete.h)
+
+set(_public_header_targets)
+string(TOUPPER "${CMAKE_BUILD_TYPE}" _public_build_type)
+foreach(_public_header ${_public_headers})
+  string(REPLACE "/" "_" _public_header_id "${_public_header}")
+  string(REPLACE "." "_" _public_header_id "${_public_header_id}")
+  set(PUBLIC_HEADER "${_public_header}")
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/public_header_compile.cpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/public_header_${_public_header_id}.cpp"
+    @ONLY)
+
+  set(_public_header_target "public_header_${_public_header_id}")
+  add_executable(
+    ${_public_header_target}
+    "${CMAKE_CURRENT_BINARY_DIR}/public_header_${_public_header_id}.cpp")
+  target_include_directories(${_public_header_target}
+                             PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  DEAL_II_SETUP_TARGET(${_public_header_target} ${_public_build_type})
+  list(APPEND _public_header_targets ${_public_header_target})
+endforeach()
+
+add_custom_target(immersx_public_header_self_containment ALL
+                  DEPENDS ${_public_header_targets})
+add_test(NAME ImmersX.PublicHeaderSelfContainment
+         COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+                 --target immersx_public_header_self_containment)
+
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
   SET(_p "${${_build_type}_postfix}")

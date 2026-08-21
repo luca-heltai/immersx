@@ -19,13 +19,16 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 using namespace ImmersX;
 #include <immersx/core/representation.h>
-#include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/io/utils.h>
+#include <immersx/physics/elastodynamics_semidiscrete.h>
+#include <immersx/physics/navier_stokes_semidiscrete.h>
 
 #include "test_paths.h"
 
@@ -52,18 +55,6 @@ namespace
                  dst,
                  rhs,
                  PreconditionIdentity());
-  }
-
-  IndexSet
-  shifted_indices(const IndexSet   &indices,
-                  const std::size_t offset,
-                  const std::size_t global_size)
-  {
-    IndexSet shifted(global_size);
-    for (const auto index : indices)
-      shifted.add_index(offset + index);
-    shifted.compress();
-    return shifted;
   }
 
   void
@@ -155,6 +146,264 @@ TEST(DistributedIDA, MPI_BlockFieldLayoutBindsWithoutCopy) // NOLINT
 }
 
 
+TEST(ElastodynamicsComposition, MPI_TwoProblemsShareSemanticModel) // NOLINT
+{
+  ASSERT_GE(dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> matrix_parameters("/Matrix/");
+  ElastodynamicsParameters<2> fiber_parameters("/Fiber/");
+  configure_elastodynamics(matrix_parameters);
+  configure_elastodynamics(fiber_parameters);
+  matrix_parameters.initial_refinement = 0;
+  fiber_parameters.initial_refinement  = 1;
+  fiber_parameters.fe_degree           = 2;
+  initialize_parameters();
+  ParameterAcceptor::parse_all_parameters();
+
+  ElastodynamicsSolver<2> matrix(matrix_parameters);
+  ElastodynamicsSolver<2> fiber(fiber_parameters);
+  for (auto *problem : {&matrix, &fiber})
+    {
+      problem->make_grid();
+      problem->setup_fe();
+      problem->setup_system();
+      problem->assemble_operators();
+      problem->set_initial_conditions();
+    }
+
+  StateLayout layout;
+  const auto  matrix_fields = register_elastodynamics_fields(layout,
+                                                            matrix,
+                                                            "matrix",
+                                                            HistoryGroupId(11));
+  const auto  fiber_fields =
+    register_elastodynamics_fields(layout, fiber, "fiber", HistoryGroupId(22));
+  EXPECT_NE(matrix_fields.displacement, fiber_fields.displacement);
+  EXPECT_NE(matrix_fields.velocity, fiber_fields.velocity);
+  EXPECT_EQ(layout.field(matrix_fields.displacement).history_group,
+            HistoryGroupId(11));
+  EXPECT_EQ(layout.field(fiber_fields.displacement).history_group,
+            HistoryGroupId(22));
+
+  SemiDiscreteModel<FieldVector> model;
+  add_elastodynamics_terms(model, matrix, matrix_fields);
+  add_elastodynamics_terms(model, fiber, fiber_fields);
+
+  auto make_vector = [](const IndexSet &owned, const double value) {
+    FieldVector vector(owned, MPI_COMM_WORLD);
+    vector = value;
+    return vector;
+  };
+  const auto matrix_d     = make_vector(matrix.locally_owned_dofs(), 0.25);
+  const auto matrix_v     = make_vector(matrix.locally_owned_dofs(), 0.50);
+  const auto matrix_d_dot = make_vector(matrix.locally_owned_dofs(), 0.75);
+  const auto matrix_v_dot = make_vector(matrix.locally_owned_dofs(), 1.25);
+  const auto fiber_d      = make_vector(fiber.locally_owned_dofs(), -0.25);
+  const auto fiber_v      = make_vector(fiber.locally_owned_dofs(), 0.75);
+  const auto fiber_d_dot  = make_vector(fiber.locally_owned_dofs(), 1.50);
+  const auto fiber_v_dot  = make_vector(fiber.locally_owned_dofs(), -0.50);
+
+  StateView<FieldVector> state(layout, 0.);
+  state.bind(matrix_fields.displacement, matrix_d);
+  state.bind(matrix_fields.velocity, matrix_v);
+  state.bind(fiber_fields.displacement, fiber_d);
+  state.bind(fiber_fields.velocity, fiber_v);
+  StateView<FieldVector> derivative(layout, 0.);
+  derivative.bind(matrix_fields.displacement, matrix_d_dot);
+  derivative.bind(matrix_fields.velocity, matrix_v_dot);
+  derivative.bind(fiber_fields.displacement, fiber_d_dot);
+  derivative.bind(fiber_fields.velocity, fiber_v_dot);
+  EvaluationContext<FieldVector> evaluation(0., state, &derivative);
+
+  FieldVector matrix_d_residual(matrix_d);
+  FieldVector matrix_v_residual(matrix_v);
+  FieldVector fiber_d_residual(fiber_d);
+  FieldVector fiber_v_residual(fiber_v);
+  matrix_d_residual = 0.;
+  matrix_v_residual = 0.;
+  fiber_d_residual  = 0.;
+  fiber_v_residual  = 0.;
+  ResidualAccumulator<FieldVector> residual(layout);
+  residual.bind(matrix_fields.displacement, matrix_d_residual);
+  residual.bind(matrix_fields.velocity, matrix_v_residual);
+  residual.bind(fiber_fields.displacement, fiber_d_residual);
+  residual.bind(fiber_fields.velocity, fiber_v_residual);
+  model.evaluate(evaluation, residual);
+
+  auto expected_residual = [](const auto &problem,
+                              const auto &displacement,
+                              const auto &velocity,
+                              const auto &displacement_dot,
+                              const auto &velocity_dot,
+                              auto       &kinematic,
+                              auto       &dynamic) {
+    auto product = kinematic;
+    problem.mass_matrix().vmult(kinematic, displacement_dot);
+    problem.mass_matrix().vmult(product, velocity);
+    kinematic -= product;
+    problem.mass_matrix().vmult(dynamic, velocity_dot);
+    problem.stiffness_matrix().vmult(product, displacement);
+    dynamic += product;
+    problem.damping_matrix().vmult(product, velocity);
+    dynamic += product;
+    problem.body_force_at_time(0., product);
+    dynamic -= product;
+    for (const auto index : kinematic.locally_owned_elements())
+      if (problem.constraints().is_constrained(index))
+        kinematic(index) = 0.;
+    for (const auto index : dynamic.locally_owned_elements())
+      if (problem.velocity_constraints().is_constrained(index))
+        dynamic(index) = 0.;
+  };
+  FieldVector expected_matrix_d(matrix_d);
+  FieldVector expected_matrix_v(matrix_v);
+  FieldVector expected_fiber_d(fiber_d);
+  FieldVector expected_fiber_v(fiber_v);
+  expected_matrix_d = 0.;
+  expected_matrix_v = 0.;
+  expected_fiber_d  = 0.;
+  expected_fiber_v  = 0.;
+  expected_residual(matrix,
+                    matrix_d,
+                    matrix_v,
+                    matrix_d_dot,
+                    matrix_v_dot,
+                    expected_matrix_d,
+                    expected_matrix_v);
+  expected_residual(fiber,
+                    fiber_d,
+                    fiber_v,
+                    fiber_d_dot,
+                    fiber_v_dot,
+                    expected_fiber_d,
+                    expected_fiber_v);
+  auto difference = matrix_d_residual;
+  difference -= expected_matrix_d;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = matrix_v_residual;
+  difference -= expected_matrix_v;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = fiber_d_residual;
+  difference -= expected_fiber_d;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = fiber_v_residual;
+  difference -= expected_fiber_v;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+
+  const auto matrix_dd = make_vector(matrix.locally_owned_dofs(), 1.25);
+  const auto matrix_dv = make_vector(matrix.locally_owned_dofs(), -0.25);
+  const auto fiber_dd  = make_vector(fiber.locally_owned_dofs(), -0.75);
+  const auto fiber_dv  = make_vector(fiber.locally_owned_dofs(), 0.25);
+  StateView<FieldVector> increment(layout, 0.);
+  increment.bind(matrix_fields.displacement, matrix_dd);
+  increment.bind(matrix_fields.velocity, matrix_dv);
+  increment.bind(fiber_fields.displacement, fiber_dd);
+  increment.bind(fiber_fields.velocity, fiber_dv);
+  LinearizationContext<FieldVector> linearization(evaluation, 1., 0.75);
+
+  matrix_d_residual = 0.;
+  matrix_v_residual = 0.;
+  fiber_d_residual  = 0.;
+  fiber_v_residual  = 0.;
+  ResidualAccumulator<FieldVector> jacobian(layout);
+  jacobian.bind(matrix_fields.displacement, matrix_d_residual);
+  jacobian.bind(matrix_fields.velocity, matrix_v_residual);
+  jacobian.bind(fiber_fields.displacement, fiber_d_residual);
+  jacobian.bind(fiber_fields.velocity, fiber_v_residual);
+  model.add_jacobian_action(linearization, increment, jacobian);
+
+  auto expected_jacobian = [](const auto &problem,
+                              const auto &displacement_increment,
+                              const auto &velocity_increment,
+                              auto       &kinematic,
+                              auto       &dynamic) {
+    auto product = kinematic;
+    problem.mass_matrix().vmult(kinematic, displacement_increment);
+    product = 0.;
+    problem.mass_matrix().vmult(product, velocity_increment);
+    kinematic *= 0.75;
+    product *= -1.;
+    kinematic += product;
+    problem.mass_matrix().vmult(dynamic, velocity_increment);
+    dynamic *= 0.75;
+    problem.stiffness_matrix().vmult(product, displacement_increment);
+    dynamic += product;
+    problem.damping_matrix().vmult(product, velocity_increment);
+    dynamic += product;
+    for (const auto index : kinematic.locally_owned_elements())
+      if (problem.constraints().is_constrained(index))
+        kinematic(index) = 0.;
+    for (const auto index : dynamic.locally_owned_elements())
+      if (problem.velocity_constraints().is_constrained(index))
+        dynamic(index) = 0.;
+  };
+  expected_matrix_d = 0.;
+  expected_matrix_v = 0.;
+  expected_fiber_d  = 0.;
+  expected_fiber_v  = 0.;
+  expected_jacobian(
+    matrix, matrix_dd, matrix_dv, expected_matrix_d, expected_matrix_v);
+  expected_jacobian(
+    fiber, fiber_dd, fiber_dv, expected_fiber_d, expected_fiber_v);
+  difference = matrix_d_residual;
+  difference -= expected_matrix_d;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = matrix_v_residual;
+  difference -= expected_matrix_v;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = fiber_d_residual;
+  difference -= expected_fiber_d;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = fiber_v_residual;
+  difference -= expected_fiber_v;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+}
+
+
+TEST(DistributedIDA, MPI_FiveFieldBlockLayoutUsesSemanticRoles) // NOLINT
+{
+  const unsigned int rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const unsigned int n    = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  ASSERT_GE(n, 2u);
+
+  StateLayout          layout;
+  std::vector<FieldId> fields;
+  for (const auto &name : {"matrix.displacement",
+                           "matrix.velocity",
+                           "fiber.displacement",
+                           "fiber.velocity",
+                           "fiber_coupling.lambda"})
+    {
+      FieldDescriptor descriptor;
+      descriptor.name = name;
+      descriptor.time_role =
+        std::string(name).find("lambda") == std::string::npos ?
+          TimeRole::differential :
+          TimeRole::algebraic;
+      fields.push_back(layout.add_field(std::move(descriptor)));
+    }
+
+  using FieldLayout = ImmersX::BlockFieldLayout<FieldVector, GlobalVector>;
+  FieldLayout field_layout(layout);
+  for (unsigned int block = 0; block < fields.size(); ++block)
+    {
+      field_layout.add_field(fields[block], block);
+      IndexSet owned(2 * n);
+      owned.add_index(rank);
+      owned.compress();
+      field_layout.set_block_distribution(block, 2 * n, owned);
+    }
+
+  const auto differential = field_layout.differential_components();
+  EXPECT_EQ(differential.size(), 5u * 2u * n);
+  EXPECT_EQ(differential.n_elements(), 4u);
+  for (unsigned int block = 0; block < 4; ++block)
+    EXPECT_TRUE(differential.is_element(2u * n * block + rank));
+  EXPECT_FALSE(differential.is_element(2u * n * 4u + rank));
+}
+
+
 TEST(DistributedIDA, MPI_ElastodynamicsBlockIDA) // NOLINT
 {
   ParameterAcceptor::clear();
@@ -181,13 +430,6 @@ TEST(DistributedIDA, MPI_ElastodynamicsBlockIDA) // NOLINT
   field_layout.set_block_distribution(1,
                                       problem.locally_owned_dofs().size(),
                                       problem.locally_owned_dofs());
-
-  const auto n = problem.locally_owned_dofs().size();
-  ImmersX::DifferentialAlgebraicMetadata metadata(semantic.layout(), 2 * n);
-  metadata.add_field(semantic.displacement_field(),
-                     shifted_indices(problem.locally_owned_dofs(), 0, 2 * n));
-  metadata.add_field(semantic.velocity_field(),
-                     shifted_indices(problem.locally_owned_dofs(), n, 2 * n));
 
   GlobalVector                state;
   GlobalVector                state_dot;
@@ -263,7 +505,6 @@ TEST(DistributedIDA, MPI_ElastodynamicsBlockIDA) // NOLINT
   SundialsIDAResidualAdapter<FieldVector, GlobalVector> adapter(
     semantic.model(),
     field_layout,
-    metadata,
     [partitions](GlobalVector &vector) {
       vector.reinit(partitions, MPI_COMM_WORLD);
     },
@@ -362,18 +603,6 @@ TEST(DistributedIDA, MPI_UnsteadyStokesBlockIDAAndJacobian) // NOLINT
     problem.locally_owned_dofs_by_block()[1]);
 
   const auto n_velocity = problem.locally_owned_dofs_by_block()[0].size();
-  const auto n_pressure = problem.locally_owned_dofs_by_block()[1].size();
-  const auto n_total    = n_velocity + n_pressure;
-  ImmersX::DifferentialAlgebraicMetadata metadata(semantic.layout(), n_total);
-  metadata.add_field(semantic.velocity_field(),
-                     shifted_indices(problem.locally_owned_dofs_by_block()[0],
-                                     0,
-                                     n_total));
-  metadata.add_field(semantic.pressure_field(),
-                     shifted_indices(problem.locally_owned_dofs_by_block()[1],
-                                     n_velocity,
-                                     n_total));
-
   const std::vector<IndexSet> partitions = {
     problem.locally_owned_dofs_by_block()[0],
     problem.locally_owned_dofs_by_block()[1]};
@@ -387,17 +616,16 @@ TEST(DistributedIDA, MPI_UnsteadyStokesBlockIDAAndJacobian) // NOLINT
   SundialsIDAResidualAdapter<FieldVector, GlobalVector> adapter(
     semantic.model(),
     field_layout,
-    metadata,
     [partitions](GlobalVector &vector) {
       vector.reinit(partitions, MPI_COMM_WORLD);
     },
     solve_action<GlobalVector>);
 
-  EXPECT_EQ(metadata.differential_components().n_elements(),
+  EXPECT_EQ(field_layout.differential_components().n_elements(),
             problem.locally_owned_dofs_by_block()[0].n_elements());
   for (const auto index : problem.locally_owned_dofs_by_block()[1])
     EXPECT_FALSE(
-      metadata.differential_components().is_element(n_velocity + index));
+      field_layout.differential_components().is_element(n_velocity + index));
 
   dealii::SUNDIALS::IDA<GlobalVector>::AdditionalData data;
   data.initial_time                  = 0.;
