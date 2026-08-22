@@ -10,7 +10,9 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/physics/elastodynamics.h>
+#include <immersx/physics/elastodynamics_semidiscrete.h>
 
 #include <cmath>
 #include <filesystem>
@@ -227,6 +229,113 @@ TEST(Elastodynamics, FirstOrderResiduals)
   EXPECT_NEAR(dynamic_residual.l2_norm(), 0.0, 1.e-10);
 }
 
+
+#ifdef DEAL_II_WITH_SUNDIALS
+TEST(Elastodynamics, IDAResidualAndJacobianOracle)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_small_problem(parameters);
+  initialize_configured_parameters();
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.make_grid();
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+
+  using FieldVector  = ElastodynamicsSolver<2>::VectorType;
+  using GlobalVector = LA::MPI::BlockVector;
+  using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
+  Adapter::AdditionalData data;
+  data.initial_time = 0.;
+  data.final_time   = 0.01;
+  Adapter    ida(data,
+              MPI_COMM_WORLD,
+              [](const dealii::LinearOperator<GlobalVector> &,
+                 const GlobalVector &,
+                 GlobalVector &,
+                 const double) {});
+  const auto fields = ida.add(problem, "solid");
+
+  auto state                                = ida.make_state();
+  auto state_dot                            = ida.make_state();
+  auto residual                             = ida.make_state();
+  ida.field(state, fields.displacement)     = 0.25;
+  ida.field(state, fields.velocity)         = -0.5;
+  ida.field(state_dot, fields.displacement) = 0.75;
+  ida.field(state_dot, fields.velocity)     = 1.25;
+
+  ida.solver().residual(0., state, state_dot, residual);
+  FieldVector expected_displacement;
+  FieldVector expected_velocity;
+  FieldVector work;
+  expected_displacement.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  expected_velocity.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  work.reinit(expected_displacement);
+  problem.mass_matrix().vmult(expected_displacement,
+                              ida.field(state_dot, fields.displacement));
+  problem.mass_matrix().vmult(work, ida.field(state, fields.velocity));
+  expected_displacement -= work;
+  zero_constrained_entries<2>(problem.constraints(), expected_displacement);
+
+  problem.mass_matrix().vmult(expected_velocity,
+                              ida.field(state_dot, fields.velocity));
+  problem.stiffness_matrix().vmult(work, ida.field(state, fields.displacement));
+  expected_velocity += work;
+  problem.damping_matrix().vmult(work, ida.field(state, fields.velocity));
+  expected_velocity += work;
+  FieldVector force;
+  problem.body_force_at_time(0., force);
+  expected_velocity -= force;
+  zero_constrained_entries<2>(problem.velocity_constraints(),
+                              expected_velocity);
+
+  auto difference = ida.field(residual, fields.displacement);
+  difference -= expected_displacement;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = ida.field(residual, fields.velocity);
+  difference -= expected_velocity;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+
+  auto increment                            = ida.make_state();
+  ida.field(increment, fields.displacement) = -0.8;
+  ida.field(increment, fields.velocity)     = 0.6;
+  auto action                               = ida.make_state();
+  ida.solver().setup_jacobian(0., state, state_dot, 2.);
+  ida.current_jacobian().vmult(action, increment);
+
+  FieldVector expected_displacement_action;
+  FieldVector expected_velocity_action;
+  expected_displacement_action.reinit(problem.locally_owned_dofs(),
+                                      MPI_COMM_WORLD);
+  expected_velocity_action.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  problem.mass_matrix().vmult(expected_displacement_action,
+                              ida.field(increment, fields.displacement));
+  expected_displacement_action *= 2.;
+  problem.mass_matrix().vmult(work, ida.field(increment, fields.velocity));
+  expected_displacement_action -= work;
+  zero_constrained_entries<2>(problem.constraints(),
+                              expected_displacement_action);
+
+  problem.stiffness_matrix().vmult(expected_velocity_action,
+                                   ida.field(increment, fields.displacement));
+  problem.damping_matrix().vmult(work, ida.field(increment, fields.velocity));
+  expected_velocity_action += work;
+  problem.mass_matrix().vmult(work, ida.field(increment, fields.velocity));
+  work *= 2.;
+  expected_velocity_action += work;
+  zero_constrained_entries<2>(problem.velocity_constraints(),
+                              expected_velocity_action);
+
+  difference = ida.field(action, fields.displacement);
+  difference -= expected_displacement_action;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+  difference = ida.field(action, fields.velocity);
+  difference -= expected_velocity_action;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-11);
+}
+#endif
 
 TEST(Elastodynamics, NontrivialTransient)
 {

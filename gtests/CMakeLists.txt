@@ -24,18 +24,19 @@ include(GoogleTest)
 # not a runtime test failure.
 set(_public_headers
     immersx/core/constraint_equation.h
+    immersx/core/constraint_contributor.h
+    immersx/core/contributor.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
-    immersx/core/native_field_layout.h
     immersx/core/reduced_field_catalog.h
     immersx/core/reduced_field_utils.h
     immersx/core/reduced_field_values.h
     immersx/core/representation.h
-    immersx/core/residual.h
     immersx/core/semidiscrete_pde_models.h
     immersx/core/state.h
     immersx/core/state_history.h
     immersx/core/sundials_ida_adapter.h
+    immersx/core/linear_adapter.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
     immersx/algebra/lagrange_multiplier_interaction.h
@@ -47,7 +48,8 @@ set(_public_headers
     immersx/physics/elastodynamics_semidiscrete.h
     immersx/physics/fiber_reinforced_elastodynamics.h
     immersx/physics/navier_stokes.h
-    immersx/physics/navier_stokes_semidiscrete.h)
+    immersx/physics/navier_stokes_semidiscrete.h
+    immersx/physics/poisson_residual.h)
 
 set(_public_header_targets)
 string(TOUPPER "${CMAKE_BUILD_TYPE}" _public_build_type)

@@ -37,9 +37,10 @@ Elastodynamics, unsteady-Stokes, and five-field fiber IDA solves. The
 validation covers the configured MPI/deal.II backend and is not a general
 performance or production-robustness claim.
 
-The real PDE adapters are composable contributors. An application adds them
-directly to `IDAAdapter`, chooses prefixes and `HistoryGroupId`s through the
-contributors, and can register multiple instances of the same Problem class.
+The real PDE adapters are composable contributors. An application adds
+Problems directly to `IDAAdapter` or `LinearAdapter`, chooses prefixes and
+`HistoryGroupId`s through the contributor scope, and can register multiple
+instances of the same Problem class.
 The full-order fiber test combines two Elastodynamics contributors and one
 vector multiplier Interaction in the five-field layout
 `matrix.displacement`, `matrix.velocity`, `fiber.displacement`,
@@ -227,14 +228,18 @@ exchange, contact, interface, or auxiliary-field equations. Several
 contributors may add to the same Field row. A prescribed datum is data, not a
 fake Problem.
 
-Concrete adapters such as Elastodynamics and Navier--Stokes expose explicit
-registration functions for this contract. They do not own the caller's
-`StateLayout` or `SemiDiscreteModel`; the application supplies field prefixes,
-history groups, and the model that receives additive terms. Thus two instances
-of one Problem type can coexist without semantic-name collisions or coupling
-to native block numbering. A concrete Interaction may add to Problem-owned
-rows and register its own auxiliary algebraic row, as the vector
+Concrete Problems customize this contract through an ADL-discoverable
+`contribute(builder, problem)` function. They do not own the caller's
+`StateLayout` or `SemiDiscreteModel`; the execution adapter supplies the field
+scope and model that receives additive terms. Thus two instances of one
+Problem type can coexist without semantic-name collisions or coupling to
+native block numbering. A concrete Interaction may add to Problem-owned rows
+and register its own auxiliary algebraic row, as the vector
 Lagrange-multiplier coupling does for `fiber_coupling.lambda`.
+
+`LinearAdapter` is the affine steady execution path. `IDAAdapter` is the
+transient DAE path. Both expose semantic `make_state()` and `field(state,id)`
+access while keeping execution block mapping private.
 
 This model supports Newton/KINSOL, IDA, ARKode, multirate stages, nonlinear
 partitioned iterations, adjoint/sensitivity evaluations, and external state

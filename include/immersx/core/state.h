@@ -263,6 +263,23 @@ namespace ImmersX
       return state_derivative_;
     }
 
+    /** Return the current value of one semantic field. */
+    const VectorType &
+    state(const FieldId field_id) const
+    {
+      return state_.field(field_id, time_);
+    }
+
+    /** Return the current derivative of one semantic field. */
+    const VectorType &
+    derivative(const FieldId field_id) const
+    {
+      AssertThrow(state_derivative_ != nullptr,
+                  dealii::ExcMessage(
+                    "This evaluation has no state derivative."));
+      return state_derivative_->field(field_id, time_);
+    }
+
     bool
     has_state_derivative() const
     {
@@ -299,42 +316,6 @@ namespace ImmersX
     HistoryQuery                     history_query_;
   };
 
-  /** Coefficients of the state and state-derivative parts of a Jacobian. */
-  template <typename VectorType>
-  class LinearizationContext
-  {
-  public:
-    LinearizationContext(const EvaluationContext<VectorType> &evaluation,
-                         const double                         state_weight,
-                         const double                         derivative_weight)
-      : evaluation_(evaluation)
-      , state_weight_(state_weight)
-      , derivative_weight_(derivative_weight)
-    {}
-
-    const EvaluationContext<VectorType> &
-    evaluation() const
-    {
-      return evaluation_;
-    }
-
-    double
-    state_weight() const
-    {
-      return state_weight_;
-    }
-
-    double
-    derivative_weight() const
-    {
-      return derivative_weight_;
-    }
-
-  private:
-    const EvaluationContext<VectorType> &evaluation_;
-    double                               state_weight_;
-    double                               derivative_weight_;
-  };
 } // namespace ImmersX
 
 #endif // immersx_state_h

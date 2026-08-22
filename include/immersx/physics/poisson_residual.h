@@ -17,54 +17,55 @@
 #ifndef immersx_poisson_residual_h
 #define immersx_poisson_residual_h
 
-#include <immersx/core/residual.h>
+#include <immersx/core/contributor.h>
 #include <immersx/physics/poisson.h>
 
 namespace ImmersX
 {
-  /**
-   * Adapt an assembled Poisson operator to the semantic residual interface.
-   *
-   * The state is read from the evaluation context, so this adapter does not
-   * use PoissonSolver::solution() as the argument of the equation. Existing
-   * assembled matrix and right-hand-side APIs remain unchanged. The supplied
-   * PoissonSolver must outlive this contributor.
-   */
-  template <int dim, int spacedim = dim>
-  class PoissonResidualContributor
+  struct PoissonFields
   {
-  public:
-    using VectorType = typename PoissonSolver<dim, spacedim>::VectorType;
-
-    PoissonResidualContributor(const PoissonSolver<dim, spacedim> &problem,
-                               const FieldId                       field_id)
-      : problem_(problem)
-      , field_id_(field_id)
-    {}
-
-    void
-    add_residual(const EvaluationContext<VectorType> &context,
-                 ResidualAccumulator<VectorType>     &residual) const
-    {
-      VectorType contribution;
-      contribution.reinit(residual.field(field_id_));
-      problem_.system_matrix().vmult(contribution,
-                                     context.state().field(field_id_,
-                                                           context.time()));
-      contribution -= problem_.system_rhs();
-      residual.add(field_id_, contribution);
-    }
-
-    FieldId
-    field_id() const
-    {
-      return field_id_;
-    }
-
-  private:
-    const PoissonSolver<dim, spacedim> &problem_;
-    FieldId                             field_id_;
+    FieldId solution;
   };
+
+  /** Register an assembled Poisson problem directly with an execution adapter.
+   */
+  template <typename Builder, int dim, int spacedim = dim>
+  PoissonFields
+  contribute(Builder &builder, const PoissonSolver<dim, spacedim> &problem)
+  {
+    using VectorType    = typename PoissonSolver<dim, spacedim>::VectorType;
+    const auto solution = builder.field("solution",
+                                        TimeRole::algebraic,
+                                        problem.locally_owned_dofs(),
+                                        problem.locally_relevant_dofs());
+    const auto matrix   = ImmersX::payload_free(
+      dealii::linear_operator<VectorType, VectorType>(problem.system_matrix()));
+
+    builder.term(solution, "poisson")
+      .residual([solution, &problem](const auto &context) {
+        const auto                           &state = context.state(solution);
+        dealii::PackagedOperation<VectorType> result;
+        result.reinit_vector = [state](VectorType &vector, const bool omit) {
+          vector.reinit(state, omit);
+        };
+        result.apply = [&problem, &state](VectorType &vector) {
+          problem.system_matrix().vmult(vector, state);
+          vector -= problem.system_rhs();
+        };
+        result.apply_add = [&problem, &state](VectorType &vector) {
+          VectorType contribution;
+          contribution.reinit(state);
+          problem.system_matrix().vmult(contribution, state);
+          contribution -= problem.system_rhs();
+          vector += contribution;
+        };
+        return result;
+      })
+      .state(solution, matrix);
+
+    return {solution};
+  }
+
 } // namespace ImmersX
 
 #endif // immersx_poisson_residual_h

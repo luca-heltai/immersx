@@ -67,9 +67,15 @@ namespace ImmersX
     using BlockId      = std::size_t;
     using Contribution = ConstraintEquationContribution;
 
-    ConstraintEquation(const dealii::IndexSet &multiplier_locally_owned_dofs,
-                       const MPI_Comm          mpi_communicator)
+    ConstraintEquation(
+      const dealii::IndexSet &multiplier_locally_owned_dofs,
+      const MPI_Comm          mpi_communicator,
+      const dealii::IndexSet &multiplier_locally_relevant_dofs = {})
       : multiplier_owned_dofs_storage(multiplier_locally_owned_dofs)
+      , multiplier_relevant_dofs_storage(
+          multiplier_locally_relevant_dofs.size() == 0 ?
+            multiplier_locally_owned_dofs :
+            multiplier_locally_relevant_dofs)
       , mpi_communicator(mpi_communicator)
     {
       rhs_storage.reinit(this->multiplier_owned_dofs_storage,
@@ -124,6 +130,12 @@ namespace ImmersX
     multiplier_locally_owned_dofs() const
     {
       return multiplier_owned_dofs_storage;
+    }
+
+    const dealii::IndexSet &
+    multiplier_locally_relevant_dofs() const
+    {
+      return multiplier_relevant_dofs_storage;
     }
 
     /** Return all signed matrix contributions in insertion order. */
@@ -199,6 +211,7 @@ namespace ImmersX
 
   private:
     const dealii::IndexSet    multiplier_owned_dofs_storage;
+    const dealii::IndexSet    multiplier_relevant_dofs_storage;
     const MPI_Comm            mpi_communicator;
     std::vector<Contribution> contributions;
     const MatrixType         *multiplier_metric_storage = nullptr;

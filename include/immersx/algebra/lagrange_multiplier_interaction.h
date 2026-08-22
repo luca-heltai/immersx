@@ -25,6 +25,7 @@
 #include <deal.II/lac/sparsity_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/constraint_contributor.h>
 #include <immersx/core/constraint_equation.h>
 #include <immersx/core/representation.h>
 #include <immersx/coupling/particle_coupling.h>
@@ -107,7 +108,8 @@ namespace ImmersX
       : first(first)
       , second(second)
       , constraint_equation_storage(second.locally_owned_dofs(),
-                                    second.mpi_communicator())
+                                    second.mpi_communicator(),
+                                    second.locally_relevant_dofs())
       , particle_coupling(search_parameters)
     {
       AssertThrow(first.triangulation().get_mpi_communicator() ==
@@ -292,7 +294,8 @@ namespace ImmersX
       multiplier_mass_matrix_storage.vmult(rhs, datum.coefficients());
 
       ConstraintEquation equation(second.locally_owned_dofs(),
-                                  second.mpi_communicator());
+                                  second.mpi_communicator(),
+                                  second.locally_relevant_dofs());
       equation.add_contribution(0,
                                 coupling_matrix_storage,
                                 ConstraintContributionOrientation::transpose);
@@ -475,6 +478,26 @@ namespace ImmersX
     MatrixType coupling_matrix_storage;
     MatrixType multiplier_mass_matrix_storage;
   };
+
+  template <typename Builder,
+            typename FirstRepresentation,
+            typename SecondRepresentation>
+  ConstraintFields
+  contribute(
+    Builder                                                   &builder,
+    const LagrangeMultiplierInteraction<FirstRepresentation,
+                                        SecondRepresentation> &interaction,
+    const FieldId                                              first,
+    const FieldId                                              second)
+  {
+    AssertThrow(!interaction.constraint_equation().contributions_view().empty(),
+                dealii::ExcMessage(
+                  "A Lagrange multiplier interaction must be assembled "
+                  "before it is contributed."));
+    return contribute_constraint_equation(builder,
+                                          interaction.constraint_equation(),
+                                          std::vector<FieldId>{first, second});
+  }
 
 } // namespace ImmersX
 

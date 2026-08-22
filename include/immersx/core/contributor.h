@@ -2,6 +2,9 @@
 //
 // Copyright (C) 2026 by Luca Heltai
 //
+// This file is part of the ImmersX application, based on the deal.II
+// library.
+//
 // ---------------------------------------------------------------------
 
 #ifndef immersx_contributor_h
@@ -12,16 +15,16 @@
 #include <immersx/core/field.h>
 #include <immersx/core/time_residual.h>
 
+#include <functional>
 #include <string>
 #include <utility>
 
 namespace ImmersX
 {
   /**
-   * Erase a backend-specific LinearOperator payload while retaining the
-   * standard deal.II operator interface. This is useful at the execution
-   * boundary, where a global operator may combine Trilinos and matrix-free
-   * blocks without exposing a backend payload in its type.
+   * Erase a backend-specific LinearOperator payload at an execution boundary.
+   * This is needed when a global operator combines blocks with different
+   * backend payload types.
    */
   template <typename Range, typename Domain, typename Payload>
   dealii::LinearOperator<Range, Domain>
@@ -47,109 +50,132 @@ namespace ImmersX
     return result;
   }
 
+  /** Fallback customization point for callable contributors. */
+  template <typename Builder, typename Callable, typename... Arguments>
+  auto
+  contribute(Builder        &builder,
+             const Callable &callable,
+             Arguments &&...arguments)
+    -> decltype(callable(builder, std::forward<Arguments>(arguments)...))
+  {
+    return callable(builder, std::forward<Arguments>(arguments)...);
+  }
+
+  /** Direct handle for one semantically coherent residual term. */
+  template <typename VectorType>
+  class SemidiscreteTerm
+  {
+  public:
+    using Model           = SemiDiscreteModel<VectorType>;
+    using Operator        = typename Model::Operator;
+    using ResidualFactory = typename Model::ResidualFactory;
+    using OperatorFactory = typename Model::OperatorFactory;
+
+    SemidiscreteTerm(Model &model, const FieldId row, std::string name)
+      : model_(&model)
+      , row_(row)
+      , name_(std::move(name))
+    {}
+
+    template <typename Factory>
+    SemidiscreteTerm &
+    residual(Factory factory)
+    {
+      model_->add_residual(row_, name_, ResidualFactory(std::move(factory)));
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    state(const FieldId column, const Operator &op)
+    {
+      model_->add_state_operator(row_, column, name_, op);
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    state(const FieldId column, OperatorFactory factory)
+    {
+      model_->add_state_operator(row_, column, name_, std::move(factory));
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    derivative(const FieldId column, const Operator &op)
+    {
+      model_->add_derivative_operator(row_, column, name_, op);
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    derivative(const FieldId column, OperatorFactory factory)
+    {
+      model_->add_derivative_operator(row_, column, name_, std::move(factory));
+      return *this;
+    }
+
+    FieldId
+    row() const
+    {
+      return row_;
+    }
+
+    const std::string &
+    name() const
+    {
+      return name_;
+    }
+
+  private:
+    Model      *model_;
+    FieldId     row_;
+    std::string name_;
+  };
+
   /** Minimal solver-neutral semantic authoring API. */
   template <typename VectorType>
   class SemidiscreteBuilder
   {
   public:
-    using Model           = SemiDiscreteModel<VectorType>;
-    using Operation       = typename Model::Operation;
-    using Operator        = typename Model::Operator;
-    using Context         = typename Model::Context;
-    using ResidualFactory = typename Model::ResidualFactory;
-    using OperatorFactory = typename Model::OperatorFactory;
+    using Model = SemiDiscreteModel<VectorType>;
+    using Term  = SemidiscreteTerm<VectorType>;
 
-    SemidiscreteBuilder(StateLayout &layout, Model &model)
+    SemidiscreteBuilder(StateLayout &layout,
+                        Model       &model,
+                        std::string  prefix = {})
       : layout_(layout)
       , model_(model)
+      , prefix_(std::move(prefix))
     {}
 
     FieldId
-    add_field(FieldDescriptor descriptor)
-    {
-      return layout_.add_field(std::move(descriptor));
-    }
-
-    FieldId
-    add_field(const std::string      &prefix,
-              const std::string      &local_name,
-              const TimeRole          role,
-              const dealii::IndexSet &locally_owned,
-              const dealii::IndexSet &locally_relevant = {},
-              const HistoryGroupId    history_group    = HistoryGroupId())
+    field(const std::string      &local_name,
+          const TimeRole          role,
+          const dealii::IndexSet &locally_owned,
+          const dealii::IndexSet &locally_relevant = {},
+          const HistoryGroupId    history_group    = HistoryGroupId())
     {
       FieldDescriptor descriptor;
-      descriptor.name = prefix.empty() ? local_name : prefix + "." + local_name;
+      descriptor.name =
+        prefix_.empty() ? local_name : prefix_ + "." + local_name;
       descriptor.time_role        = role;
       descriptor.history_group    = history_group;
       descriptor.locally_owned    = locally_owned;
       descriptor.locally_relevant = locally_relevant;
-      return add_field(std::move(descriptor));
+      return layout_.add_field(std::move(descriptor));
     }
 
-    void
-    add_residual(const FieldId row, std::string term, ResidualFactory factory)
+    Term
+    term(const FieldId row, const std::string &local_name)
     {
-      model_.add_residual(row, std::move(term), std::move(factory));
-    }
-
-    void
-    add_state_operator(const FieldId   row,
-                       const FieldId   column,
-                       std::string     term,
-                       const Operator &op)
-    {
-      model_.add_state_operator(row, column, std::move(term), op);
-    }
-
-    void
-    add_state_operator(const FieldId                   row,
-                       const FieldId                   column,
-                       std::string                     term,
-                       typename Model::OperatorFactory factory)
-    {
-      model_.add_state_operator(row,
-                                column,
-                                std::move(term),
-                                std::move(factory));
-    }
-
-    void
-    add_derivative_operator(const FieldId   row,
-                            const FieldId   column,
-                            std::string     term,
-                            const Operator &op)
-    {
-      model_.add_derivative_operator(row, column, std::move(term), op);
-    }
-
-    void
-    add_derivative_operator(const FieldId                   row,
-                            const FieldId                   column,
-                            std::string                     term,
-                            typename Model::OperatorFactory factory)
-    {
-      model_.add_derivative_operator(row,
-                                     column,
-                                     std::move(term),
-                                     std::move(factory));
-    }
-
-    StateLayout &
-    layout()
-    {
-      return layout_;
-    }
-
-    Model &
-    model()
-    {
-      return model_;
+      const auto qualified_name =
+        prefix_.empty() ? local_name : prefix_ + "." + local_name;
+      return Term(model_, row, qualified_name);
     }
 
   private:
     StateLayout &layout_;
     Model       &model_;
+    std::string  prefix_;
   };
 } // namespace ImmersX
 

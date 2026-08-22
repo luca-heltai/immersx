@@ -2,63 +2,8 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
 #include <immersx/core/contributor.h>
-
-namespace
-{
-  struct FakeInteraction
-  {
-    using VectorType = dealii::Vector<double>;
-    struct Fields
-    {
-      ImmersX::FieldId first;
-      ImmersX::FieldId second;
-      ImmersX::FieldId multiplier;
-      std::string      prefix;
-
-      std::string
-      term(const char *name) const
-      {
-        return prefix + "." + name;
-      }
-    };
-
-    bool
-    assembly_is_current() const
-    {
-      return true;
-    }
-
-    const dealii::FullMatrix<double> &
-    coupling_matrix() const
-    {
-      return C;
-    }
-
-    const dealii::FullMatrix<double> &
-    pairing_matrix() const
-    {
-      return Q;
-    }
-
-    const dealii::IndexSet &
-    multiplier_locally_owned_dofs() const
-    {
-      return owned;
-    }
-
-    const dealii::IndexSet &
-    multiplier_locally_relevant_dofs() const
-    {
-      return owned;
-    }
-
-    dealii::FullMatrix<double> C;
-    dealii::FullMatrix<double> Q;
-    dealii::IndexSet           owned;
-  };
-} // namespace
+#include <immersx/core/semidiscrete_pde_models.h>
 
 TEST(ContributorCore, PackagedResidualAndSeparateOperators)
 {
@@ -77,12 +22,12 @@ TEST(ContributorCore, PackagedResidualAndSeparateOperators)
   matrix(1, 1) = 3.;
   const auto K =
     ImmersX::payload_free(dealii::linear_operator<Vector, Vector>(matrix));
-  builder.add_residual(temperature, "heat", [temperature, K](const auto &ctx) {
-    return K * ctx.state_derivative()->field(temperature, ctx.time()) +
-           K * ctx.state().field(temperature, ctx.time());
-  });
-  builder.add_state_operator(temperature, temperature, "diffusion", K);
-  builder.add_derivative_operator(temperature, temperature, "mass", K);
+  builder.term(temperature, "heat")
+    .residual([temperature, K](const auto &ctx) {
+      return K * ctx.derivative(temperature) + K * ctx.state(temperature);
+    })
+    .state(temperature, K)
+    .derivative(temperature, K);
 
   Vector state(2), state_dot(2), residual(2);
   state[0]     = 1.;
@@ -106,32 +51,85 @@ TEST(ContributorCore, PackagedResidualAndSeparateOperators)
   EXPECT_DOUBLE_EQ(action[1], 6.);
 }
 
-TEST(ContributorCore, InteractionUsesLinearOperators)
+TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
 {
   using Vector = dealii::Vector<double>;
-  ImmersX::StateLayout     layout;
-  ImmersX::FieldDescriptor descriptor;
-  descriptor.name                             = "first.velocity";
-  const auto first                            = layout.add_field(descriptor);
-  descriptor.name                             = "second.velocity";
-  const auto                           second = layout.add_field(descriptor);
-  ImmersX::SemiDiscreteModel<Vector>   model;
-  ImmersX::SemidiscreteBuilder<Vector> builder(layout, model);
+  dealii::FullMatrix<double> matrix(2, 2);
+  matrix(0, 0) = 1.;
+  matrix(0, 1) = 2.;
+  matrix(1, 0) = 3.;
+  matrix(1, 1) = 4.;
 
-  FakeInteraction interaction;
-  interaction.C.reinit(2, 2);
-  interaction.Q.reinit(2, 2);
-  interaction.C(0, 0) = 1.;
-  interaction.C(1, 1) = 2.;
-  interaction.Q(0, 0) = 3.;
-  interaction.Q(1, 1) = 4.;
-  interaction.owned   = dealii::IndexSet(2);
-  interaction.owned.add_range(0, 2);
-  interaction.owned.compress();
-  const auto fields =
-    ImmersX::vector_lagrange_multiplier(interaction, first, second)(builder,
-                                                                    "coupling");
-  EXPECT_TRUE(fields.multiplier.is_valid());
-  EXPECT_EQ(layout.field(fields.multiplier).time_role,
-            ImmersX::TimeRole::algebraic);
+  dealii::AffineConstraints<double> constraints;
+  constraints.add_line(1);
+  constraints.close();
+  const auto view = dealii::linear_operator<Vector, Vector>(matrix);
+  const auto constrained =
+    ImmersX::semidiscrete_detail::constrained_operator(view, constraints);
+
+  Vector source(2), forward(2), transpose(2), dual(2);
+  source[0] = 5.;
+  source[1] = 7.;
+  dual[0]   = 11.;
+  dual[1]   = 13.;
+  constrained.vmult(forward, source);
+  constrained.Tvmult(transpose, dual);
+
+  EXPECT_DOUBLE_EQ(forward[0], 19.);
+  EXPECT_DOUBLE_EQ(forward[1], 0.);
+  EXPECT_DOUBLE_EQ(transpose[0], 11.);
+  EXPECT_DOUBLE_EQ(transpose[1], 22.);
+  EXPECT_DOUBLE_EQ(forward * dual, source * transpose);
+}
+
+TEST(ContributorCore, TermsAreScopedByContributorPrefix)
+{
+  using Vector = dealii::Vector<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector>;
+
+  ImmersX::StateLayout layout;
+  Model                model;
+  dealii::IndexSet     owned(1);
+  owned.add_index(0);
+  owned.compress();
+  ImmersX::SemidiscreteBuilder<Vector> a_builder(layout, model, "a");
+  ImmersX::SemidiscreteBuilder<Vector> b_builder(layout, model, "b");
+  const auto a = a_builder.field("value", ImmersX::TimeRole::algebraic, owned);
+  const auto b = b_builder.field("value", ImmersX::TimeRole::algebraic, owned);
+
+  a_builder.term(a, "physics").residual([](const auto &context) {
+    (void)context;
+    dealii::PackagedOperation<Vector> result;
+    result.reinit_vector = [](Vector &vector, const bool) { vector.reinit(1); };
+    result.apply         = [](Vector &vector) { vector = 1.; };
+    result.apply_add     = [](Vector &vector) { vector[0] += 1.; };
+    return result;
+  });
+  b_builder.term(b, "physics").residual([](const auto &context) {
+    (void)context;
+    dealii::PackagedOperation<Vector> result;
+    result.reinit_vector = [](Vector &vector, const bool) { vector.reinit(1); };
+    result.apply         = [](Vector &vector) { vector = 2.; };
+    result.apply_add     = [](Vector &vector) { vector[0] += 2.; };
+    return result;
+  });
+
+  Vector a_state(1), b_state(1), a_residual(1), b_residual(1);
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(a, a_state);
+  state_view.bind(b, b_state);
+  const ImmersX::EvaluationContext<Vector> a_context(
+    0., state_view, nullptr, ImmersX::TermSelection::only("a.physics"));
+  const ImmersX::EvaluationContext<Vector> b_context(
+    0., state_view, nullptr, ImmersX::TermSelection::only("b.physics"));
+  model.evaluate_row(a, a_context, a_residual);
+  model.evaluate_row(b, a_context, b_residual);
+  EXPECT_DOUBLE_EQ(a_residual[0], 1.);
+  EXPECT_DOUBLE_EQ(b_residual[0], 0.);
+  a_residual = 0.;
+  b_residual = 0.;
+  model.evaluate_row(a, b_context, a_residual);
+  model.evaluate_row(b, b_context, b_residual);
+  EXPECT_DOUBLE_EQ(a_residual[0], 0.);
+  EXPECT_DOUBLE_EQ(b_residual[0], 2.);
 }
