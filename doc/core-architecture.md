@@ -364,24 +364,29 @@ disassembled solely to satisfy the architecture.
 
 ## H. Differential/algebraic Fields and SUNDIALS mapping
 
-Fields should be queryable as **differential** or **algebraic**, with finer
-granularity left open for later. This metadata describes the time character of
-the field, not a new Problem hierarchy.
+Each `FieldDescriptor` stores a `differential_components` `IndexSet` with the
+same global size as the field vector. A global component participates in
+`ydot` exactly when it belongs to this set; components outside the set are
+algebraic. The set may be empty, complete, or an arbitrary subset, so a single
+semantic field can contain both differential and algebraic components.
 
 Typical classifications are:
 
-- Navier--Stokes/Stokes: velocity differential, pressure algebraic;
-- multiplier coupling: multiplier algebraic;
-- first-order elasticity path: displacement and velocity differential fields
-  in the generic SUNDIALS-oriented formulation.
+- Navier--Stokes/Stokes: the velocity mask is complete and the pressure mask is
+  empty;
+- multiplier coupling: the multiplier mask is empty;
+- first-order elasticity: displacement and velocity masks are complete;
+- mixed external state vectors: the mask contains only the components that
+  participate in the differential equations.
 
-An IDA-style adapter maps this metadata to its differential mask while keeping
-the residual contributor API independent of SUNDIALS. For the production
-block-vector path the source chain is `StateLayout` field roles -> private
-execution layout -> IDA differential mask; callers do not duplicate the DAE
-classification in a second metadata object. The adapter owns solver-specific
-vector conversion, tolerances, callbacks, and masks; a Problem does not include
-IDA policy in its physical equations.
+An IDA-style adapter unions the field masks into its execution-level
+differential mask while keeping the residual contributor API independent of
+SUNDIALS. For the production block-vector path the source chain is
+`FieldDescriptor::differential_components` -> private execution layout -> IDA
+differential mask; callers do not duplicate the DAE classification in a second
+metadata object. The adapter owns solver-specific vector conversion,
+tolerances, callbacks, and masks; a Problem does not include IDA policy in its
+physical equations.
 
 For the validated Navier--Stokes path, the continuous operator is exposed as
 separate velocity mass, pressure metric, and spatial blocks. The pressure

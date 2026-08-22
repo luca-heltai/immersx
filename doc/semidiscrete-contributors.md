@@ -54,8 +54,7 @@ an ADL customization point such as:
 template <typename Builder>
 Fields contribute(Builder &builder, const MyProblem &problem)
 {
-  auto temperature = builder.field("temperature", TimeRole::differential,
-                                  owned, relevant);
+  auto temperature = builder.differential_field("temperature", owned, relevant);
   auto mass = payload_free(linear_operator<Vector, Vector>(problem.mass()));
   auto stiffness =
     payload_free(linear_operator<Vector, Vector>(problem.stiffness()));
@@ -75,6 +74,13 @@ The scoped builder supplies the contributor prefix. The term handle keeps one
 residual and its two Jacobian parts under one semantic name, so term selection
 cannot retain an inconsistent linearization. `PackagedOperation`s are applied
 immediately and must not retain temporary evaluation state.
+
+The general `builder.field(name, owned, relevant, differential_components)`
+form accepts any differential-component `IndexSet` with the field vector's
+global size. Use `differential_field()` for a fully differential field and
+`algebraic_field()` for a field with no differential components. A mixed field
+uses the general form; the execution adapter consumes the mask without knowing
+how its components are organized.
 
 Interactions add terms because systems are related. A Lagrange-multiplier
 Interaction contributes participant multiplier forces and the constraint row:
