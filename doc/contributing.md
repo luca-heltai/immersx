@@ -1,31 +1,34 @@
 # Contributing
 
-This page is the practical guide for contributing code, parameter files,
-fixtures, tests, and documentation to ImmersX. The project is a CMake-based
-C++ application built on deal.II. Before opening a pull request, read
-`AGENTS.md` in the repository root as well; it records the repository-specific
-rules and the expected validation commands.
+This page is the practical guide for contributing code, tests, fixtures,
+parameter files, documentation, and build-system changes to ImmersX.
+
+Coding agents must also read the repository-root
+[`AGENTS.md`](../AGENTS.md). `AGENTS.md` contains the normative repository and
+agent-behavior rules; this page focuses on the human-facing development
+workflow and detailed commands.
 
 ## Repository layout
 
-- `include/` and `source/` contain the library interfaces and implementations.
-- `apps/` contains executable entry points. Files named `app_*.cc` produce the
-  corresponding application executable without the `app_` prefix.
-- `gtests/` contains the GoogleTest unit and integration suite.
-- `tests/` contains deal.II-style regression tests and expected output files.
-- `gtests/parameters/`, `prms/`, and `data/` contain parameter files and input
-  data. Files under `gtests/`, `tests/`, and `data/` ending in `.in` are build
-  templates, not runtime files.
-- `doc/` contains the Sphinx/MyST documentation and generated API inputs.
-- `scripts/` contains repository utilities, including `scripts/indent`.
+The main source-tree areas are:
 
-Keep generated output, build directories, and downloaded libraries out of the
-source tree whenever possible. In particular, do not use `data/tests` or a
-source-side `tests_*_output` directory as a test output directory.
+- `include/immersx/` — public library headers;
+- `source/` — compiled implementation sources;
+- `apps/` — executable entry points;
+- `gtests/` — GoogleTest unit and integration tests;
+- `tests/` — deal.II-style regression tests;
+- `gtests/parameters/`, `prms/`, and `data/` — parameter files and input data;
+- `doc/` — Sphinx/MyST documentation;
+- `scripts/` — repository utilities such as `scripts/indent`.
+
+Keep build directories, generated outputs, downloaded dependencies, and test
+scratch files out of the source tree whenever possible.
 
 ## Configure and build
 
-Use an out-of-source build. A Debug build is the usual development build:
+Always use an out-of-source build.
+
+A typical Debug configuration is:
 
 ```bash
 cmake -S . -B build-debug \
@@ -33,190 +36,465 @@ cmake -S . -B build-debug \
   -DDEAL_II_DIR=/path/to/deal.II \
   -DENABLE_GOOGLE_TESTING=ON \
   -DENABLE_DEAL_II_APP_TESTING=ON
+
 cmake --build build-debug -j
 ```
 
-For a Release build, use `-DCMAKE_BUILD_TYPE=Release`. Depending on the
-deal.II installation, the GoogleTest executable is named
-`build-debug/gtests/gtests_debug` in Debug and `build-release/gtests/gtests` in
-Release. The application executables are placed at the top of the build tree,
-for example `elasticity_debug`, `laplacian_debug`, or `reduced_poisson_debug`.
+When `DEAL_II_DIR` is already discoverable, it may be omitted.
 
-GoogleTest is enabled only when CMake finds GTest. The deal.II regression
-tests are enabled by `ENABLE_DEAL_II_APP_TESTING`. OpenMP, VTK, Trilinos,
-PETSc, HDF5, and the coupled 1D solver remain feature-dependent on the deal.II
-and local installations.
+For Release:
 
-## Parameter-file convention
+```bash
+cmake -S . -B build-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DDEAL_II_DIR=/path/to/deal.II \
+  -DENABLE_GOOGLE_TESTING=ON \
+  -DENABLE_DEAL_II_APP_TESTING=ON
 
-A parameter file used by a test is kept as a `.prm.in` template. CMake applies
-the central rule in the top-level `CMakeLists.txt` to every `.in` file below
-`gtests/`, `tests/`, and `data/`:
-
-```text
-source:   gtests/parameters/case.prm.in
-generated: <build>/gtests/parameters/case.prm
+cmake --build build-release -j
 ```
 
-The relative path is preserved and only the final `.in` suffix is removed.
-The rule applies to any file type, including `.prm.in`, `.txt.in`, `.vtk.in`,
-`.vtu.in`, and `.pvtu.in`. `configure_file(... @ONLY)` substitutes the
-explicit path variables while leaving other CMake-like text untouched.
+Depending on the deal.II installation, GoogleTest binaries are typically:
 
-Templates may use these absolute CMake variables:
+```text
+build-debug/gtests/gtests_debug
+build-release/gtests/gtests
+```
 
-- `@IMMERSX_SOURCE_DIR@` — repository source root;
-- `@IMMERSX_BINARY_DIR@` — build root;
-- `@TEST_DATA_DIR@` — generated build-tree data root;
-- `@TEST_OUTPUT_DIR@` — build-tree scratch/output root.
+Application binaries are generated in the build tree. Debug executables may
+carry the `_debug` suffix.
 
-For example:
+### ccache
+
+ccache is recommended for local development:
+
+```bash
+export CCACHE_DIR="$HOME/.ccache"
+
+cmake -S . -B build-debug \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+```
+
+Parallel git worktrees may share the same ccache, but each worktree must use a
+separate CMake build directory.
+
+## Parameter and fixture preprocessing
+
+The top-level `CMakeLists.txt` preprocesses every file ending in `.in` below:
+
+```text
+gtests/
+tests/
+data/
+```
+
+The generated file is written under the build tree at the same relative path,
+with only the final `.in` suffix removed.
+
+Example:
+
+```text
+source:
+  gtests/parameters/case.prm.in
+
+generated:
+  <build>/gtests/parameters/case.prm
+```
+
+The same rule applies to:
+
+```text
+.prm.in
+.txt.in
+.vtk.in
+.vtu.in
+.pvtu.in
+```
+
+and any other `.in` file.
+
+CMake uses `configure_file(... @ONLY)`. Templates may use:
+
+```text
+@IMMERSX_SOURCE_DIR@
+@IMMERSX_BINARY_DIR@
+@TEST_DATA_DIR@
+@TEST_OUTPUT_DIR@
+```
+
+Example:
 
 ```text
 set Reduced grid name = @TEST_DATA_DIR@/tests/one_cylinder.vtk
 set Output directory  = @TEST_OUTPUT_DIR@/reduced-poisson/one-cylinder
 ```
 
-Do not add `../data/...`, `./output/...`, or another current-working-directory
-assumption to a test parameter file. A consumer must open the generated file
-under the build tree. For C++ tests, use the helpers in
-`gtests/test_paths.h`, such as `data_filename("tests/one_cylinder.vtk")`,
-`parameter_path("gtests/parameters/case.prm")`, and
-`output_directory("my-test")`.
+Runtime code and tests should open the generated build-tree file, not the
+source template.
 
-When adding a new fixture, make it a `.in` template if it is part of the test
-input set. If the fixture contains no substitutions, its contents can simply
-be copied into the template. Reconfigure after adding a template so CMake
-registers it and emits the corresponding build-tree file.
+Do not use relative-runtime assumptions such as:
 
-## Writing robust GoogleTests
+```text
+../data/...
+./output/...
+```
 
-The common test driver in `gtests/gtest_main.cc` initializes MPI and selects
-tests according to the number of ranks. A serial test must not contain `MPI_`
-in its test name. A test intended for the two-rank run must contain an
-`MPI_` component, for example:
+and do not solve path problems by creating source/build symlinks.
+
+Reconfigure CMake after adding new `.in` files.
+
+## GoogleTest infrastructure
+
+GoogleTests live in `gtests/`.
+
+The common test driver in `gtests/gtest_main.cc` initializes MPI and separates
+serial and MPI tests according to the test name.
+
+### Serial and MPI naming
+
+A serial test must not contain `MPI_` in the test-name component:
 
 ```cpp
-TEST(MyCoupling, MPI_DistributedAssembly)
+TEST(MyFeature, BasicBehavior)
 {
   // ...
 }
 ```
 
-Use `gtests/test_paths.h` for every input and output path. Inputs must be
-absolute paths obtained from the configured build/source roots; outputs must
-be below `TEST_OUTPUT_DIR`. Do not create symlinks such as `build/data ->
-source/data`, do not call `chdir()` to make a relative input work, and do not
-write generated VTK, parameter, log, or convergence files into the source
-tree. A test that writes files should use a unique subdirectory below
-`output_directory("<test-name>")`.
+A test intended for MPI execution must contain `MPI_`:
 
-Inline parameter strings need the same treatment. Either compose the string
-with a helper-returned absolute path or use a configured token and expand it
-with `expand_configured_paths()`. Do not put `../data/...` in a raw parameter
-string.
+```cpp
+TEST(MyFeature, MPI_DistributedBehavior)
+{
+  // ...
+}
+```
 
-If a test depends on VTK input, guard the test with `DEAL_II_WITH_VTK` and
-exercise the same VTK/coupling path used by the application. Keep numerical
-assertions focused and document tolerances when they are materially larger
-than machine precision. Add a parameter parsing test when introducing or
-changing a parameter.
+This convention is used by the shared test driver to select tests according to
+the MPI process count.
 
-## Adding deal.II regression tests
+### Test paths
 
-The `tests/` infrastructure uses `DEAL_II_PICKUP_TESTS()`. A source-driven
-test normally consists of:
+Use `gtests/test_paths.h` for input and output paths.
+
+Typical helpers include:
+
+```cpp
+TestPaths::data_filename("tests/one_cylinder.vtk");
+TestPaths::parameter_path("gtests/parameters/case.prm");
+TestPaths::output_directory("my-test");
+```
+
+Generated output belongs below `TEST_OUTPUT_DIR`.
+
+Do not:
+
+- write generated VTK or result files to the source tree;
+- use `chdir()` to make a relative test path work;
+- add cwd-dependent paths to inline parameter strings;
+- create `build/data -> source/data` symlinks.
+
+For inline parameter text, either construct absolute paths with the helpers or
+use configured tokens and `expand_configured_paths()`.
+
+### VTK-dependent tests
+
+When a test requires VTK support, guard it consistently with the project's
+existing `DEAL_II_WITH_VTK` convention and exercise the same code path used by
+the application where practical.
+
+### Focused test runs
+
+Run one serial test with:
+
+```bash
+build-debug/gtests/gtests_debug \
+  --gtest_filter='SuiteName.TestName'
+```
+
+Run one MPI test with:
+
+```bash
+mpirun -np 2 build-debug/gtests/gtests_debug \
+  --gtest_filter='SuiteName.MPI_TestName'
+```
+
+The MPI test driver may augment the filter to select only MPI-named tests.
+
+### Working-directory robustness
+
+Tests must behave the same when launched from different working directories.
+
+For path-sensitive changes, exercise at least:
+
+```bash
+build-debug/gtests/gtests_debug
+
+(cd /path/to/repository && \
+  /absolute/path/to/build-debug/gtests/gtests_debug)
+
+(cd /tmp && \
+  /absolute/path/to/build-debug/gtests/gtests_debug)
+
+(cd /tmp && \
+  mpirun -np 2 /absolute/path/to/build-debug/gtests/gtests_debug)
+```
+
+## deal.II-style regression tests
+
+The `tests/` tree uses the deal.II testsuite infrastructure and
+`DEAL_II_PICKUP_TESTS()`.
+
+### Source-driven tests
+
+A typical source-driven test consists of:
 
 ```text
 tests/<category>/<name>.cc
 tests/<category>/<name>.output
 ```
 
-The executable writes deterministic output through `deallog`, and the
-`.output` file records the expected result. Parameter-driven tests use an
-existing target configured through the relevant CMake variables. Auxiliary
-parameter or data files should use the same `.in` convention and must resolve
-to generated build-tree paths.
+The program writes deterministic output, usually through `deallog`, and the
+`.output` file contains the expected result.
 
-Run one regression test verbosely with:
+### Parameter-driven tests
+
+A parameter-driven test uses an existing executable together with a generated
+parameter file.
+
+Store the parameter source as:
+
+```text
+tests/<category>/<name>.prm.in
+```
+
+CMake generates the runtime `.prm` below the build tree.
+
+The corresponding testsuite directory configures the target through
+`TEST_TARGET`, `TEST_TARGET_DEBUG`, or `TEST_TARGET_RELEASE` as appropriate.
+
+### Running regression tests
+
+List tests:
+
+```bash
+ctest --test-dir build-debug -N
+```
+
+Run all configured tests:
+
+```bash
+ctest --test-dir build-debug --output-on-failure
+```
+
+Run one regression test verbosely:
 
 ```bash
 ctest --test-dir build-debug -V -R '<category>/<name>'
 ```
 
-Use `numdiff` when a test intentionally compares floating-point output with a
-tolerance, and keep expected output stable across supported configurations.
+Use `numdiff` where floating-point expected output requires tolerant
+comparison.
 
-## Running tests and applications
+## Running applications manually
 
-List configured tests and run the regression suite with:
+When debugging application behavior, pass the generated build-tree parameter
+file explicitly.
 
-```bash
-ctest --test-dir build-debug -N
-ctest --test-dir build-debug --output-on-failure
-```
-
-Run the serial GoogleTest binary directly:
-
-```bash
-build-debug/gtests/gtests_debug
-build-debug/gtests/gtests_debug --gtest_filter='SuiteName.TestName'
-```
-
-Run the MPI-selected tests with two ranks:
-
-```bash
-mpirun -np 2 build-debug/gtests/gtests_debug
-```
-
-The binary must behave identically when launched from the build directory,
-the repository root, or an unrelated directory. A useful smoke check is:
-
-```bash
-build-debug/gtests/gtests_debug
-(cd . && /absolute/path/to/build-debug/gtests/gtests_debug)
-(cd /tmp && /absolute/path/to/build-debug/gtests/gtests_debug)
-(cd /tmp && mpirun -np 2 /absolute/path/to/build-debug/gtests/gtests_debug)
-```
-
-Application tests use generated parameter files and a build-tree scratch
-directory. To run an application manually, pass the generated parameter file
-explicitly:
+Example:
 
 ```bash
 build-debug/elasticity_debug \
   build-debug/gtests/parameters/elasticity_strong_dirichlet.prm
 ```
 
-Do not use a source-tree `.prm` as a substitute for the generated file when
-debugging the test workflow; doing so can hide path and preprocessing errors.
+Do not substitute the source `.prm.in` template or an old source-tree `.prm`
+file, because that can hide preprocessing or path problems.
+
+Keep manually generated output in a build-tree or temporary scratch directory.
+
+## CMake changes
+
+When modifying CMake:
+
+- keep builds out of source;
+- avoid source-tree-relative runtime assumptions;
+- keep installed targets relocatable;
+- use standard target-based CMake where possible;
+- use `GNUInstallDirs`-style destinations for installable artifacts;
+- ensure installed targets do not depend on test-only build-tree resources.
+
+Public headers should remain under:
+
+```text
+include/immersx/
+```
+
+and public API should live in:
+
+```cpp
+namespace ImmersX
+{
+  // ...
+}
+```
+
+After adding sources, tests, `.in` templates, or CMake targets, rerun CMake
+configuration before concluding that the build system has not detected them.
+
+## Installation and packaging checks
+
+For changes affecting installation or packaging, validate an install into a
+temporary prefix.
+
+Example:
+
+```bash
+cmake -S . -B build-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/tmp/immersx-install
+
+cmake --build build-release -j
+cmake --install build-release
+```
+
+Inspect the resulting prefix and verify that:
+
+- public headers are installed in the intended include location;
+- libraries are installed in the correct library directory;
+- executables are installed in the correct binary directory;
+- required runtime data/resources are installed where documented;
+- test-only fixtures are not accidentally required at runtime.
+
+If downstream `find_package()` support is changed or added, validate it with a
+small external consumer project.
 
 ## Documentation
 
-Documentation sources live under `doc/` and use Sphinx with MyST Markdown.
-Add a page to the `doc/index.md` toctree when introducing a new topic. Build
-the documentation after changes to prose or examples:
+Documentation sources live in `doc/` and use Sphinx/MyST.
+
+When adding a new page, add it to the `doc/index.md` toctree.
+
+Install documentation requirements and build with:
 
 ```bash
 python3 -m pip install -r doc/requirements.txt
 ./scripts/build_doc.sh
 ```
 
-Keep commands in documentation aligned with the current CMake and test
-conventions. In particular, document generated parameter paths and explicit
-working-directory-independent invocations.
+Documentation examples should use the current public API and the real build-tree
+path conventions.
 
-## Formatting and review checklist
+Prefer documenting the ordinary user-facing API before internal machinery.
 
-Before committing or opening a pull request:
+## Validation strategy
 
-1. Run `./scripts/indent` from the repository root.
-2. Review the resulting diff, including formatter-only changes.
-3. Reconfigure after adding CMake inputs or test templates.
-4. Build the relevant Debug and Release targets when the change affects
-   configuration or portable C++ code.
-5. Run focused tests first, then the relevant serial, MPI, and CTest suites.
-6. Confirm that no generated files were written below the source tree.
+During development, use the smallest test that exercises the code being
+changed.
 
-Pull requests should explain the behavior changed, the tests run, and any
-feature requirements such as VTK, MPI, OpenMP, or the coupled 1D solver.
+Before considering a substantial change complete, broaden validation according
+to scope.
+
+For core, solver, distributed, packaging, or cross-cutting changes, typically
+run:
+
+1. focused unit/integration tests;
+2. complete Debug build;
+3. serial GoogleTest suite;
+4. two-rank MPI GoogleTest suite;
+5. relevant CTest/regression tests;
+6. Release build and relevant tests;
+7. working-directory robustness checks for path-sensitive changes.
+
+Typical commands:
+
+```bash
+cmake --build build-debug -j
+
+build-debug/gtests/gtests_debug
+
+mpirun -np 2 build-debug/gtests/gtests_debug
+
+ctest --test-dir build-debug --output-on-failure
+```
+
+For Release:
+
+```bash
+cmake --build build-release -j
+
+build-release/gtests/gtests
+
+mpirun -np 2 build-release/gtests/gtests
+
+ctest --test-dir build-release --output-on-failure
+```
+
+Keep independent correctness tests when they validate different layers of the
+software. For example, a physics-level residual/Jacobian test and a solver-level
+integration test are complementary rather than redundant.
+
+## Formatting and commits
+
+The repository formatter is:
+
+```bash
+./scripts/indent
+```
+
+Run it from the repository root before every commit.
+
+Because it formats the repository globally, inspect the complete resulting diff
+and make sure unrelated changes are not included.
+
+Useful checks:
+
+```bash
+git diff
+git diff --check
+git status
+```
+
+Implementation work should be split into small, meaningful local commits at
+logical milestones.
+
+Do not push, open a pull request, or merge into `master` unless explicitly
+requested.
+
+## CI reference
+
+The repository GitHub Actions workflows under `.github/workflows/` are the
+authoritative reference for the current CI matrix.
+
+When reproducing CI locally, inspect the workflow first rather than assuming
+that image tags, optional dependencies, or exact commands have remained
+unchanged.
+
+The normal local baseline remains:
+
+- Debug and Release when supported;
+- serial GoogleTests;
+- two-rank MPI GoogleTests;
+- CTest regression tests.
+
+## Final contributor checklist
+
+Before handing off a substantial change:
+
+- [ ] Build is out of source.
+- [ ] No generated output was written into the source tree.
+- [ ] New test inputs use the `.in` preprocessing convention where appropriate.
+- [ ] MPI GoogleTests contain `MPI_` in the test name.
+- [ ] Tests are independent of the working directory.
+- [ ] Relevant Debug tests pass.
+- [ ] Relevant MPI tests pass.
+- [ ] Relevant CTest tests pass.
+- [ ] Release validation was performed when appropriate.
+- [ ] Documentation was updated when public behavior changed.
+- [ ] New documentation pages were added to `doc/index.md`.
+- [ ] `./scripts/indent` was run before each commit.
+- [ ] The complete diff was reviewed.
+- [ ] Commits are small and meaningful.
+- [ ] Nothing was pushed and no pull request was opened unless explicitly
+      requested.
