@@ -102,6 +102,13 @@ namespace ImmersX
       return composition_.field(state, id);
     }
 
+    dealii::IndexSet
+    differential_components()
+    {
+      finalize();
+      return composition_.differential_components();
+    }
+
     const Operator &
     current_jacobian() const
     {

@@ -29,13 +29,6 @@
 
 namespace ImmersX
 {
-  /** Whether a field has a differential or algebraic time role. */
-  enum class TimeRole
-  {
-    differential,
-    algebraic
-  };
-
   /** A stable semantic identifier assigned by StateLayout. */
   class FieldId
   {
@@ -130,14 +123,14 @@ namespace ImmersX
     std::size_t value_ = invalid_value;
   };
 
-  /** Semantic metadata and algebraic ownership information for a field. */
+  /** Semantic metadata and differential-component information for a field. */
   struct FieldDescriptor
   {
     std::string      name;
-    TimeRole         time_role = TimeRole::differential;
     HistoryGroupId   history_group;
     dealii::IndexSet locally_owned;
     dealii::IndexSet locally_relevant;
+    dealii::IndexSet differential_components;
   };
 
   /** Registry mapping semantic field names to stable field identifiers. */
@@ -153,6 +146,15 @@ namespace ImmersX
       AssertThrow(!has_field(descriptor.name),
                   dealii::ExcMessage("Duplicate field name '" +
                                      descriptor.name + "'."));
+      AssertThrow(descriptor.differential_components.size() == 0 ||
+                    descriptor.differential_components.size() ==
+                      descriptor.locally_owned.size(),
+                  dealii::ExcMessage(
+                    "Differential components must have the same global size "
+                    "as the field vector."));
+      if (descriptor.differential_components.size() == 0)
+        descriptor.differential_components =
+          dealii::IndexSet(descriptor.locally_owned.size());
 
       const FieldId id(fields_.size());
       field_names_.emplace(descriptor.name, id);
