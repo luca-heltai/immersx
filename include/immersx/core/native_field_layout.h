@@ -123,6 +123,8 @@ namespace ImmersX
       AssertThrow(layout_.contains(field),
                   dealii::ExcMessage(
                     "Block field is not in the state layout."));
+      if (blocks_by_field_.size() < layout_.n_fields())
+        blocks_by_field_.resize(layout_.n_fields());
       AssertThrow(!blocks_by_field_[field.value()].has_value(),
                   dealii::ExcMessage("Block field was registered twice."));
 
@@ -135,6 +137,19 @@ namespace ImmersX
       fields_by_block_[block]         = field;
       block_sizes_.resize(fields_by_block_.size());
       block_owned_.resize(fields_by_block_.size());
+    }
+
+    /** Assign the next private execution block and its distribution. */
+    void
+    add_field(const FieldId field)
+    {
+      const unsigned int block =
+        static_cast<unsigned int>(fields_by_block_.size());
+      add_field(field, block);
+      const auto &descriptor = layout_.field(field);
+      set_block_distribution(block,
+                             descriptor.locally_owned.size(),
+                             descriptor.locally_owned);
     }
 
     /** Return the execution block assigned to a semantic field. */
@@ -161,6 +176,23 @@ namespace ImmersX
     n_blocks() const
     {
       return static_cast<unsigned int>(fields_by_block_.size());
+    }
+
+    /** Return the automatically assigned global block partitions. */
+    std::vector<dealii::IndexSet>
+    block_partitions() const
+    {
+      validate_complete();
+      std::vector<dealii::IndexSet> result;
+      result.reserve(block_owned_.size());
+      for (const auto &owned : block_owned_)
+        {
+          AssertThrow(owned.has_value(),
+                      dealii::ExcMessage(
+                        "All fields need locally owned indices."));
+          result.push_back(*owned);
+        }
+      return result;
     }
 
     const StateLayout &
