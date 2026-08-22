@@ -20,6 +20,7 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/constraint_equation.h>
+#include <immersx/core/contributor.h>
 #include <immersx/core/representation.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/coupling/particle_coupling.h>
@@ -595,6 +596,99 @@ namespace ImmersX
     std::uint64_t assembled_second_geometry_version =
       std::numeric_limits<std::uint64_t>::max();
   };
+
+  /** Contributor for a vector Lagrange-multiplier interaction. */
+  template <typename Interaction>
+  class VectorLagrangeMultiplierContributor
+  {
+  public:
+    using VectorType = typename Interaction::VectorType;
+    using Fields     = typename Interaction::Fields;
+
+    VectorLagrangeMultiplierContributor(const Interaction &interaction,
+                                        const FieldId      first,
+                                        const FieldId      second)
+      : interaction_(interaction)
+      , first_(first)
+      , second_(second)
+    {}
+
+    template <typename Builder>
+    Fields
+    operator()(Builder &builder, const std::string &prefix) const
+    {
+      AssertThrow(interaction_.assembly_is_current(),
+                  dealii::ExcMessage(
+                    "Cannot register an interaction with stale matrices."));
+
+      FieldDescriptor descriptor;
+      descriptor.name          = prefix + ".lambda";
+      descriptor.time_role     = TimeRole::algebraic;
+      descriptor.locally_owned = interaction_.multiplier_locally_owned_dofs();
+      descriptor.locally_relevant =
+        interaction_.multiplier_locally_relevant_dofs();
+      const auto multiplier = builder.add_field(std::move(descriptor));
+      Fields     fields{first_, second_, multiplier, prefix};
+
+      const auto C =
+        ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
+          interaction_.coupling_matrix()));
+      const auto Q =
+        ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
+          interaction_.pairing_matrix()));
+      const auto Ct = dealii::transpose_operator(C);
+      const auto Qt = dealii::transpose_operator(Q);
+
+      builder.add_residual(
+        first_, fields.term("first"), [fields, C](const auto &context) {
+          return C * context.state().field(fields.multiplier, context.time());
+        });
+      builder.add_residual(
+        second_, fields.term("second"), [fields, Qt](const auto &context) {
+          return (-1. * Qt) *
+                 context.state().field(fields.multiplier, context.time());
+        });
+      builder.add_residual(multiplier,
+                           fields.term("constraint"),
+                           [fields, Ct, Q](const auto &context) {
+                             return Ct * context.state().field(fields.first,
+                                                               context.time()) -
+                                    Q * context.state().field(fields.second,
+                                                              context.time());
+                           });
+
+      builder.add_state_operator(first_, multiplier, fields.term("first"), C);
+      builder.add_state_operator(second_,
+                                 multiplier,
+                                 fields.term("second"),
+                                 -1. * Qt);
+      builder.add_state_operator(multiplier,
+                                 first_,
+                                 fields.term("constraint"),
+                                 Ct);
+      builder.add_state_operator(multiplier,
+                                 second_,
+                                 fields.term("constraint"),
+                                 -1. * Q);
+      return fields;
+    }
+
+  private:
+    const Interaction &interaction_;
+    FieldId            first_;
+    FieldId            second_;
+  };
+
+  template <typename Interaction>
+  VectorLagrangeMultiplierContributor<Interaction>
+  vector_lagrange_multiplier(const Interaction &interaction,
+                             const FieldId      first,
+                             const FieldId      second)
+  {
+    return VectorLagrangeMultiplierContributor<Interaction>(interaction,
+                                                            first,
+                                                            second);
+  }
 
 } // namespace ImmersX
 
