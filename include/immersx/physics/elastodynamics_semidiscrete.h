@@ -10,6 +10,7 @@
 #ifndef immersx_elastodynamics_semidiscrete_h
 #define immersx_elastodynamics_semidiscrete_h
 
+#include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/physics/elastodynamics.h>
 
@@ -31,6 +32,133 @@ namespace ImmersX
       return prefix + "." + local_name;
     }
   };
+
+  /** A solver-neutral elastodynamics contributor. */
+  template <int dim, int spacedim = dim>
+  class ElastodynamicsContributor
+  {
+  public:
+    using Solver     = ElastodynamicsSolver<dim, spacedim>;
+    using VectorType = typename Solver::VectorType;
+
+    explicit ElastodynamicsContributor(const Solver        &problem,
+                                       const HistoryGroupId history_group = {})
+      : problem_(problem)
+      , history_group_(history_group)
+    {}
+
+    template <typename Builder>
+    ElastodynamicsFields
+    operator()(Builder &builder, const std::string &prefix) const
+    {
+      const auto displacement =
+        builder.add_field(prefix,
+                          "displacement",
+                          TimeRole::differential,
+                          problem_.locally_owned_dofs(),
+                          problem_.locally_relevant_dofs(),
+                          history_group_);
+      const auto velocity = builder.add_field(prefix,
+                                              "velocity",
+                                              TimeRole::differential,
+                                              problem_.locally_owned_dofs(),
+                                              problem_.locally_relevant_dofs(),
+                                              history_group_);
+
+      ElastodynamicsFields fields{displacement, velocity, prefix};
+      const auto           mass =
+        ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
+          problem_.mass_matrix()));
+      const auto stiffness =
+        ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
+          problem_.stiffness_matrix()));
+      const auto damping =
+        ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
+          problem_.damping_matrix()));
+
+      builder.add_residual(
+        displacement,
+        fields.term("kinematic"),
+        [fields, &problem = problem_, mass](const auto &context) {
+          const auto &d_dot =
+            context.state_derivative()->field(fields.displacement,
+                                              context.time());
+          const auto &v =
+            context.state().field(fields.velocity, context.time());
+          return semidiscrete_detail::constrained_operation(
+            mass * d_dot - mass * v, problem.constraints());
+        });
+
+      builder.add_residual(
+        velocity,
+        fields.term("dynamics"),
+        [fields, &problem = problem_, mass, stiffness, damping](
+          const auto &context) {
+          const auto &v_dot =
+            context.state_derivative()->field(fields.velocity, context.time());
+          const auto &d =
+            context.state().field(fields.displacement, context.time());
+          const auto &v =
+            context.state().field(fields.velocity, context.time());
+          auto result = mass * v_dot + stiffness * d + damping * v;
+          typename SemiDiscreteModel<VectorType>::Operation forcing;
+          forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
+            vector.reinit(v_dot, omit);
+          };
+          forcing.apply = [&problem,
+                           time = context.time()](VectorType &vector) {
+            problem.body_force_at_time(time, vector);
+          };
+          forcing.apply_add = [&problem,
+                               time = context.time()](VectorType &vector) {
+            VectorType force;
+            problem.body_force_at_time(time, force);
+            vector += force;
+          };
+          return semidiscrete_detail::constrained_operation(
+            result - forcing, problem.velocity_constraints());
+        });
+
+      builder.add_state_operator(displacement,
+                                 velocity,
+                                 fields.term("kinematic"),
+                                 semidiscrete_detail::constrained_operator(
+                                   -1. * mass, problem_.constraints()));
+      builder.add_derivative_operator(displacement,
+                                      displacement,
+                                      fields.term("kinematic"),
+                                      semidiscrete_detail::constrained_operator(
+                                        mass, problem_.constraints()));
+      builder.add_state_operator(velocity,
+                                 displacement,
+                                 fields.term("elasticity"),
+                                 semidiscrete_detail::constrained_operator(
+                                   stiffness, problem_.velocity_constraints()));
+      builder.add_state_operator(velocity,
+                                 velocity,
+                                 fields.term("damping"),
+                                 semidiscrete_detail::constrained_operator(
+                                   damping, problem_.velocity_constraints()));
+      builder.add_derivative_operator(velocity,
+                                      velocity,
+                                      fields.term("inertia"),
+                                      semidiscrete_detail::constrained_operator(
+                                        mass, problem_.velocity_constraints()));
+      return fields;
+    }
+
+  private:
+    const Solver  &problem_;
+    HistoryGroupId history_group_;
+  };
+
+  template <int dim, int spacedim = dim>
+  ElastodynamicsContributor<dim, spacedim>
+  elastodynamics(const ElastodynamicsSolver<dim, spacedim> &problem,
+                 const HistoryGroupId                       history_group = {})
+  {
+    return ElastodynamicsContributor<dim, spacedim>(problem, history_group);
+  }
 
   /**
    * Register one elastodynamics Problem in caller-owned semantic objects.

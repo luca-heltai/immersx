@@ -22,6 +22,7 @@ testing
 contributing
 documentation
 time_residual_sundials
+semidiscrete-contributors
 repository-layout
 architecture-diagram
 funding

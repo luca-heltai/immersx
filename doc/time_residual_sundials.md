@@ -1,31 +1,37 @@
 # Time residual and SUNDIALS integration
 
-The time-residual path now uses the canonical Field/State core. Semantic
-contributors receive `ImmersX::EvaluationContext` and add rows through
-`ImmersX::ResidualAccumulator`; Jacobian contributors use
-`ImmersX::LinearizationContext` and the same semantic field accessors.
-The generic composer for `F(t,y,ydot)=0` is
-`ImmersX::SemiDiscreteModel<VectorType>`, which is also suitable for steady
-evaluations when no state derivative is supplied.
+The time-residual path uses the canonical Field/State core. Semantic
+contributors receive `ImmersX::EvaluationContext` and register residual
+`dealii::PackagedOperation`s plus separate `dealii::LinearOperator` blocks for
+`dF/dy` and `dF/dydot`. The generic composer for `F(t,y,ydot)=0` is
+`ImmersX::SemiDiscreteModel<VectorType>`; its residual operations are applied
+immediately and are not retained after evaluation.
 
 `ImmersX::FieldId` identifies state and residual rows. Independent timelines
 are identified separately by `ImmersX::HistoryGroupId`, so several fields may
 share one history grid. The semantic core is now used by real distributed
 Elastodynamics and unsteady-Stokes contributors.
 
-The production-intended IDA instantiation is
+The public IDA composition API is
 
 ```cpp
-SundialsIDAResidualAdapter<LA::MPI::Vector, LA::MPI::BlockVector>
+IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(data,
+                                                       MPI_COMM_WORLD,
+                                                       linear_solve);
+auto matrix = ida.add(elastodynamics(matrix_problem), "matrix");
+auto fiber  = ida.add(elastodynamics(fiber_problem), "fiber");
+ida.add(vector_lagrange_multiplier(interaction,
+                                   matrix.velocity,
+                                   fiber.velocity),
+        "fiber_coupling");
 ```
 
-Its adapter-local `BlockFieldLayout<FieldVectorType, GlobalBlockVectorType>`
-maps one IDA block directly to one semantic Field. Binding a block to a
-`StateView` or `ResidualAccumulator` therefore creates no scalar gather or
-scatter. The mapping is an execution/storage choice: `FieldId` is not a
-global block number, and native Problem block ordering remains local to the
-Problem. The field layout derives the IDA differential mask directly from
-each field's semantic `TimeRole` and its locally owned block indices.
+The adapter privately maps one automatically assigned IDA block directly to
+each semantic Field. Binding a block to a `StateView` therefore creates no
+scalar gather or scatter. The mapping is an execution/storage choice:
+`FieldId` is not a global block number, and native Problem block ordering
+remains local to the Problem. The adapter derives the IDA differential mask
+directly from each field's semantic `TimeRole` and locally owned indices.
 
 ## Local deal.II/SUNDIALS contracts
 
@@ -85,24 +91,19 @@ SUNDIALS installation provides `arkode/arkode_mristep.h`, including
 stepper wrapper using the same history query rather than a second residual
 model.
 
-## Mapping and Jacobian actions
+## Mapping and Jacobian operators
 
-`ImmersX::JacobianAction<VectorType>` is the universal `vmult` capability. Existing
-deal.II matrices and block matrices can be wrapped with
-`ImmersX::JacobianAction::from_matrix()` or `from_linear_operator()`. These wrappers
-retain the native operator as an optional capability but do not attempt to
-convert a generic matrix-free action back into a sparse matrix.  A
-backend-specific Trilinos/PETSc `LinearOperator` payload can be passed to the
-templated `from_linear_operator()` overload; the action erases that payload at
-the contributor boundary.  The matrix wrapper is non-owning, matching
-deal.II's `linear_operator(matrix)` convention; the problem that owns the
-matrix must outlive the action.
+Contributors use deal.II's `LinearOperator` directly. Backend-specific
+payloads are erased only at the execution boundary by constructing a standard
+payload-free `LinearOperator` whose callbacks capture the native operator.
+The matrix wrapper is non-owning, matching deal.II's
+`linear_operator(matrix)` convention; the Problem that owns the matrix must
+outlive the contributor.
 
-`SundialsIDAResidualAdapter` only translates the deal.II IDA callbacks. The
-residual model supplies physics, the semantic model supplies field-wise `Jv`,
-and a caller-supplied linear solve policy consumes the block-vector
-`ImmersX::JacobianAction`. The differential mask is built from each
-`FieldDescriptor::TimeRole` and the adapter-local block ownership/index sets.
+`IDAAdapter` translates the callbacks and constructs each global block as
+`dF/dy + alpha*dF/dydot`. The caller-supplied linear solve policy consumes the
+resulting standard deal.II `LinearOperator`; contributors never receive IDA's
+`alpha`.
 
 The distributed tests exercise two MPI ranks with one block per Field:
 
@@ -124,11 +125,11 @@ and Jacobian actions with the native distributed operators and run short IDA
 solves. Their small linear solve policy uses FGMRES with an identity
 preconditioner; this is a validation strategy, not a performance claim.
 
-The current real IDA gate is unsteady Stokes
-(`include_convective_term=false`). The five-field fiber model is deliberately
-validated first against the existing backward-Euler/Schur driver: two
-caller-registered Elastodynamics contributors and a vector multiplier
-Interaction provide four differential fields plus one algebraic multiplier
-field. A five-block IDA run is not yet part of that acceptance path. A fully
-implicit convection Jacobian and an ARKode/IMEX execution path remain follow-up
-work.
+The current real IDA gates include unsteady Stokes
+(`include_convective_term=false`) and a distributed five-field fiber model:
+two Elastodynamics contributors and a vector multiplier Interaction provide
+four differential fields plus one algebraic multiplier field. The five-field
+test uses a short ramp-forced IDA integration with FGMRES and an identity
+preconditioner; this validates composition and callback semantics, not
+scalability or production preconditioning. A fully implicit convection
+Jacobian and an ARKode/IMEX execution path remain follow-up work.

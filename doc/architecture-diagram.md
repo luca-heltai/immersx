@@ -104,7 +104,7 @@ The generated API reference provides the current class-level details:
 For the future semantic architecture, start with
 {doc}`core-architecture`, especially the sections on Fields, residual
 contributors, typed Representations, and execution adapters. Prototype names
-such as `FieldId`, `StateView`, `ResidualAccumulator`, or a SUNDIALS adapter
+such as `FieldId`, `StateView`, `EvaluationContext`, or a SUNDIALS adapter
 must not be read as merged API when browsing this current implementation page.
 
 ## Reading the two architecture pages together

@@ -9,11 +9,15 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/lac/solver_gmres.h>
+
 #include <gtest/gtest.h>
+#include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
 
+#include <algorithm>
 #include <cmath>
 
 #include "test_paths.h"
@@ -25,13 +29,15 @@ namespace
 {
   void
   configure_problem(FiberReinforcedElastodynamicsParameters<2> &parameters,
-                    const bool                                  forcing)
+                    const bool                                  forcing,
+                    const bool                                  ramp = false)
   {
     parameters.output_directory = TestPaths::output_directory(
       forcing ? "fiber-reinforced-forced" : "fiber-reinforced-zero");
     parameters.output_frequency = 0;
 
-    initialize_parameters_from_string(std::string(R"(
+    initialize_parameters_from_string(
+      std::string(R"(
         set dimension       = 2
         set space dimension = 2
         subsection Fiber Reinforced Elastodynamics
@@ -50,8 +56,8 @@ namespace
             subsection Functions
               subsection Body force
                 set Function expression = )") +
-                                      (forcing ? "0; 1" : "0; 0") +
-                                      R"(
+      (forcing ? (ramp ? "t; t" : "0; 1") : "0; 0") +
+      R"(
                 set Variable names      = x,y,t
               end
               subsection Displacement boundary
@@ -110,6 +116,24 @@ namespace
         end
       )");
   }
+
+#ifdef DEAL_II_WITH_SUNDIALS
+  using FieldVector  = LA::MPI::Vector;
+  using GlobalVector = LA::MPI::BlockVector;
+
+  void
+  solve_global_operator(
+    const dealii::LinearOperator<GlobalVector> &operator_view,
+    const GlobalVector                         &rhs,
+    GlobalVector                               &dst,
+    const double                                tolerance)
+  {
+    SolverControl              control(5000, std::max(1.e-6, tolerance), false);
+    SolverFGMRES<GlobalVector> solver(control);
+    dst = 0.;
+    solver.solve(operator_view, dst, rhs, PreconditionIdentity());
+  }
+#endif
 } // namespace
 
 
@@ -376,6 +400,65 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldResidualAndJacobian)
   difference -= expected_multiplier;
   EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
 }
+
+#ifdef DEAL_II_WITH_SUNDIALS
+TEST(DistributedIDA, MPI_FiveFieldFiberIDA)
+{
+  ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  ParameterAcceptor::clear();
+  FiberReinforcedElastodynamicsParameters<2> parameters;
+  configure_problem(parameters, true, true);
+  parameters.final_time      = 0.001;
+  parameters.number_of_steps = 1;
+  FiberReinforcedElastodynamics<2> driver(parameters);
+  driver.setup();
+  driver.set_initial_conditions();
+
+  using Adapter = IDAAdapter<FieldVector, GlobalVector>;
+  Adapter::AdditionalData data;
+  data.initial_time                  = 0.;
+  data.final_time                    = 0.001;
+  data.initial_step_size             = 0.0005;
+  data.output_period                 = 0.001;
+  data.absolute_tolerance            = 1.e-7;
+  data.relative_tolerance            = 1.e-7;
+  data.maximum_order                 = 1;
+  data.maximum_non_linear_iterations = 20;
+  data.ic_type                       = Adapter::AdditionalData::none;
+  data.reset_type                    = Adapter::AdditionalData::none;
+  Adapter    ida(data, MPI_COMM_WORLD, solve_global_operator);
+  const auto matrix =
+    ida.add(elastodynamics(driver.matrix_problem()), "matrix");
+  const auto fiber = ida.add(elastodynamics(driver.fiber_problem()), "fiber");
+  const auto coupling = ida.add(vector_lagrange_multiplier(driver.interaction(),
+                                                           matrix.velocity,
+                                                           fiber.velocity),
+                                "fiber_coupling");
+
+  GlobalVector state;
+  GlobalVector state_dot;
+  ida.reinit(state);
+  ida.reinit(state_dot);
+  GlobalVector initial_residual;
+  ida.solver().reinit_vector(initial_residual);
+  ida.solver().residual(0., state, state_dot, initial_residual);
+  ida.solver().setup_jacobian(0., state, state_dot, 1.);
+  GlobalVector initial_action;
+  ida.solver().reinit_vector(initial_action);
+  ida.current_jacobian().vmult(initial_action, state);
+  const auto steps = ida.solve(state, state_dot);
+  EXPECT_GT(steps, 0u);
+  EXPECT_TRUE(std::isfinite(state.l2_norm()));
+  EXPECT_GT(state.block(1).l2_norm(), 1.e-12);
+
+  GlobalVector residual;
+  ida.solver().reinit_vector(residual);
+  ida.solver().residual(data.final_time, state, state_dot, residual);
+  EXPECT_LT(residual.l2_norm(), 1.e-5);
+  EXPECT_LT(residual.block(ida.execution_block(coupling.multiplier)).l2_norm(),
+            1.e-5);
+}
+#endif
 
 
 TEST(FiberReinforcedElastodynamics, MPI_CoupledTransient)
