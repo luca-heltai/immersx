@@ -22,30 +22,28 @@ step.
 **Merged on `master`.** The repository contains problem-specific Poisson,
 elasticity, and standalone Navier--Stokes discretizations, the semantic
 `FieldId`/`FieldDescriptor`/`StateLayout` and `SemiDiscreteModel` core,
-external-state evaluation, additive residual accumulation, linearization
-contexts, DAE metadata, state history/interpolation, immersed and reduced
-coupling classes, `Representation`/`TensorProductSpace` machinery,
+external-state evaluation, PackagedOperation residuals, separate
+LinearOperator Jacobian blocks, DAE metadata, state history/interpolation,
+immersed and reduced coupling classes, `Representation`/`TensorProductSpace` machinery,
 particle/search support, multiplier specializations, and linear algebra
 solvers.
 
 **Validated distributed execution on this branch.** The semantic core is
-connected to `IDA<LA::MPI::BlockVector>` through an adapter-local one-block-per-
-Field layout. Real two-rank tests validate direct block binding, differential
-and algebraic masks, Jacobian actions, mixed-FE velocity Representation
-dependencies, and short Elastodynamics and unsteady-Stokes IDA solves. The
+connected to `IDA<LA::MPI::BlockVector>` through the public `IDAAdapter`, which
+assigns one private execution block per Field. Real two-rank tests validate
+direct block binding, differential and algebraic masks, standard deal.II
+Jacobian operators, mixed-FE velocity Representation dependencies, and short
+Elastodynamics, unsteady-Stokes, and five-field fiber IDA solves. The
 validation covers the configured MPI/deal.II backend and is not a general
 performance or production-robustness claim.
 
-The real PDE adapters are also composable contributors. An application owns a
-`StateLayout` and `SemiDiscreteModel`, chooses prefixes and
-`HistoryGroupId`s, and registers multiple instances of the same Problem class.
+The real PDE adapters are composable contributors. An application adds them
+directly to `IDAAdapter`, chooses prefixes and `HistoryGroupId`s through the
+contributors, and can register multiple instances of the same Problem class.
 The full-order fiber test combines two Elastodynamics contributors and one
 vector multiplier Interaction in the five-field layout
 `matrix.displacement`, `matrix.velocity`, `fiber.displacement`,
-`fiber.velocity`, and `fiber_coupling.lambda`. Its semantic residual and
-Jacobian action are checked against the existing backward-Euler/Schur driver.
-The production fiber driver remains that backward-Euler/Schur application;
-five-field IDA integration is a follow-up step.
+`fiber.velocity`, and `fiber_coupling.lambda`.
 
 **Roadmap.** ARKode/IMEX for Navier--Stokes convection, broader execution
 adapters, moving geometry, multirate/partitioned runs, term-level policies,
@@ -374,12 +372,11 @@ Typical classifications are:
 
 An IDA-style adapter maps this metadata to its differential mask while keeping
 the residual contributor API independent of SUNDIALS. For the production
-block-vector path the source chain is `StateLayout` field roles ->
-`BlockFieldLayout` -> IDA differential mask; callers do not duplicate the DAE
+block-vector path the source chain is `StateLayout` field roles -> private
+execution layout -> IDA differential mask; callers do not duplicate the DAE
 classification in a second metadata object. The adapter owns solver-specific
 vector conversion, tolerances, callbacks, and masks; a Problem does not include
-IDA policy in its physical equations. The legacy metadata path remains only
-for the same-vector/monolithic compatibility route.
+IDA policy in its physical equations.
 
 For the validated Navier--Stokes path, the continuous operator is exposed as
 separate velocity mass, pressure metric, and spatial blocks. The pressure
