@@ -75,10 +75,6 @@ namespace ImmersX
 
     private:
       /**
-       * Unused placeholder linear operator kept for backward compatibility.
-       */
-      LinearOperator<VectorType> K;
-      /**
        * Approximate inverse of the augmented displacement block.
        */
       LinearOperator<VectorType> Aug_inv;

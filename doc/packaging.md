@@ -11,10 +11,10 @@ target_link_libraries(my_solver PRIVATE ImmersX::immersx)
 
 The package configuration still requires the same deal.II installation used
 to build ImmersX. It also discovers OpenMP when the build used it. Coupled
-3D/1D applications additionally require the compatible `lib1dsolver` library;
+3D/1D applications additionally require the `lib1dsolver` library;
 that optional library is intentionally not part of the exported core target.
-The headers under `include/immersx/fvm` mirror the `1dsolver` ABI and retain
-the dependency's global class names for binary compatibility; the ImmersX
+The headers under `include/immersx/fvm` mirror the `1dsolver` interface and
+retain the dependency's global class names; the ImmersX
 coupling wrapper itself is `ImmersX::CoupledModel1d`. The core ImmersX API is
 fully namespaced.
 
@@ -39,7 +39,7 @@ therefore still need those shared libraries.
 
 `-DIMMERSX_PORTABLE=ON` selects a static ImmersX archive and adds `-static` to
 the application link step. This is intended for a Linux toolchain where
-deal.II and every required dependency are themselves available as compatible
+  deal.II and every required dependency are themselves available as matching
 static libraries:
 
 ```bash

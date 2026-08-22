@@ -24,8 +24,8 @@ maps one IDA block directly to one semantic Field. Binding a block to a
 `StateView` or `ResidualAccumulator` therefore creates no scalar gather or
 scatter. The mapping is an execution/storage choice: `FieldId` is not a
 global block number, and native Problem block ordering remains local to the
-Problem. The older `ImmersX::detail::MonolithicFieldLayout` remains only for
-serial synthetic compatibility tests.
+Problem. The field layout derives the IDA differential mask directly from
+each field's semantic `TimeRole` and its locally owned block indices.
 
 ## Local deal.II/SUNDIALS contracts
 
@@ -61,9 +61,9 @@ setup_jacobian(current_u, current_residual)
 solve_with_jacobian(rhs, dst, tolerance)
 ```
 
-along with vector reinitialization, scaling, and optional custom setup.  It is
-therefore compatible with the same residual contributor and action types after
-the time terms have been removed or frozen by the caller.
+along with vector reinitialization, scaling, and optional custom setup.  It can
+use the same residual contributor and action types after the time terms have
+been removed or frozen by the caller.
 
 ARKode uses an `ARKStepper` with additive callbacks
 

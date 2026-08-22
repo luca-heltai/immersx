@@ -18,7 +18,7 @@ time integration.
 This page documents the current `ElasticityProblem` implementation. Its
 problem-specific assembly and transient workflow are production paths on
 `master`; the generic differential-field and residual-contributor vocabulary
-described in {doc}`../core-architecture` is a compatible evolution path, not
+described in {doc}`../core-architecture` is the intended composition path, not
 an already merged replacement.
 
 ## What Problem Is Solved?

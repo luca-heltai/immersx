@@ -71,7 +71,7 @@ main(int argc, char *argv[])
                   std::cout
                     << "Running coupled problem with parameters: Sampling = "
                     << couplingSampling << " Start = " << couplingStart
-                    << " mode (DEPRECATED) = " << coupling_mode << std::endl;
+                    << " mode = " << coupling_mode << std::endl;
                 }
               TimerOutput timer(MPI_COMM_WORLD,
                                 pcout,

@@ -17,8 +17,6 @@
 #include <immersx/core/state.h>
 
 #include <cstddef>
-#include <limits>
-#include <map>
 #include <optional>
 #include <vector>
 
@@ -279,128 +277,6 @@ namespace ImmersX
     std::vector<std::optional<dealii::IndexSet>> block_owned_;
   };
 
-  namespace detail
-  {
-    /**
-     * Local adapter for a monolithic vector such as an IDA vector.
-     *
-     * The index sets are adapter data, not semantic identities. The time role
-     * and field ownership remain in StateLayout and FieldDescriptor. This is
-     * an implementation detail of solver adapters, not an application-level
-     * state container.
-     */
-    template <typename VectorType>
-    class MonolithicFieldLayout
-    {
-    public:
-      MonolithicFieldLayout(const StateLayout &layout,
-                            const std::size_t  global_size)
-        : layout_(layout)
-        , global_size_(global_size)
-        , fields_(layout.n_fields())
-      {}
-
-      void
-      add_field(const FieldId field, const dealii::IndexSet &indices)
-      {
-        AssertThrow(layout_.contains(field),
-                    dealii::ExcMessage(
-                      "Monolithic field is not in the state layout."));
-        AssertThrow(indices.size() == global_size_,
-                    dealii::ExcMessage(
-                      "Monolithic field has the wrong global size."));
-        AssertThrow(!fields_[field.value()].has_value(),
-                    dealii::ExcMessage(
-                      "Monolithic field was registered twice."));
-        fields_[field.value()] = indices;
-      }
-
-      void
-      add_field(const FieldId     field,
-                const std::size_t begin,
-                const std::size_t end)
-      {
-        dealii::IndexSet indices(global_size_);
-        indices.add_range(begin, end);
-        add_field(field, indices);
-      }
-
-      bool
-      has_field(const FieldId field) const
-      {
-        return layout_.contains(field) && fields_[field.value()].has_value();
-      }
-
-      const StateLayout &
-      state_layout() const
-      {
-        return layout_;
-      }
-
-      /** Bind extracted field vectors to a semantic StateView. */
-      void
-      bind(StateView<VectorType>         &view,
-           const std::vector<VectorType> &fields) const
-      {
-        AssertThrow(fields.size() == fields_.size(),
-                    dealii::ExcMessage("Field vector count does not match the "
-                                       "monolithic field layout."));
-        for (std::size_t field = 0; field < fields_.size(); ++field)
-          if (fields_[field].has_value())
-            view.bind(FieldId(field), fields[field]);
-      }
-
-      /** Extract registered monolithic fields into independently owned vectors.
-       */
-      void
-      extract(const VectorType        &monolithic,
-              std::vector<VectorType> &fields) const
-      {
-        AssertThrow(monolithic.size() == global_size_,
-                    dealii::ExcMessage(
-                      "Monolithic vector has the wrong global size."));
-        fields.assign(layout_.n_fields(), VectorType());
-        for (std::size_t field = 0; field < fields_.size(); ++field)
-          if (fields_[field].has_value())
-            {
-              const auto &indices = *fields_[field];
-              fields[field].reinit(indices.n_elements());
-              for (std::size_t local = 0; local < indices.n_elements(); ++local)
-                fields[field][local] =
-                  monolithic[indices.nth_index_in_set(local)];
-            }
-      }
-
-      /** Add independently stored field rows into a monolithic vector. */
-      void
-      scatter_add(const std::vector<VectorType> &fields,
-                  VectorType                    &monolithic) const
-      {
-        AssertThrow(monolithic.size() == global_size_,
-                    dealii::ExcMessage(
-                      "Monolithic vector has the wrong global size."));
-        AssertThrow(fields.size() == fields_.size(),
-                    dealii::ExcMessage("Field vector count does not match the "
-                                       "monolithic field layout."));
-        for (std::size_t field = 0; field < fields_.size(); ++field)
-          if (fields_[field].has_value())
-            {
-              const auto &indices = *fields_[field];
-              AssertThrow(fields[field].size() == indices.n_elements(),
-                          dealii::ExcMessage(
-                            "Field vector does not match its IndexSet."));
-              for (std::size_t local = 0; local < indices.n_elements(); ++local)
-                monolithic[indices.nth_index_in_set(local)] +=
-                  fields[field][local];
-            }
-      }
-
-    private:
-      const StateLayout                           &layout_;
-      std::size_t                                  global_size_;
-      std::vector<std::optional<dealii::IndexSet>> fields_;
-    };
-  } // namespace detail
 } // namespace ImmersX
 
 #endif // immersx_native_field_layout_h

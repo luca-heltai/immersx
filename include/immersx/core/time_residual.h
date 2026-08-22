@@ -11,7 +11,6 @@
 #define immersx_time_residual_h
 
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/index_set.h>
 
 #include <deal.II/lac/linear_operator.h>
 
@@ -21,7 +20,6 @@
 
 #include <cstddef>
 #include <functional>
-#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -248,88 +246,6 @@ namespace ImmersX
   };
 
 
-  /**
-   * Minimal metadata bridge for IDA-like solvers.
-   *
-   * The semantic time role comes from StateLayout. The IndexSet registration is
-   * only the local adapter information needed to project semantic fields onto
-   * the monolithic vector expected by IDA. The StateLayout is held by reference
-   * and must outlive this metadata object.
-   */
-  class DifferentialAlgebraicMetadata
-  {
-  public:
-    DifferentialAlgebraicMetadata(const StateLayout &layout,
-                                  const std::size_t  global_size)
-      : layout_(layout)
-      , global_size_(global_size)
-    {}
-
-    void
-    add_field(const FieldId field, const dealii::IndexSet &indices)
-    {
-      AssertThrow(layout_.contains(field),
-                  dealii::ExcMessage("DAE field is not in the state layout."));
-      AssertThrow(indices.size() == global_size_,
-                  dealii::ExcMessage("DAE field has the wrong global "
-                                     "IndexSet size."));
-      AssertThrow(fields_.find(field) == fields_.end(),
-                  dealii::ExcMessage("DAE field was registered twice."));
-      fields_.emplace(field, indices);
-    }
-
-    void
-    add_field(const FieldId     field,
-              const std::size_t begin,
-              const std::size_t end)
-    {
-      dealii::IndexSet indices(global_size_);
-      indices.add_range(begin, end);
-      add_field(field, indices);
-    }
-
-    bool
-    has_field(const FieldId field) const
-    {
-      return fields_.find(field) != fields_.end();
-    }
-
-    TimeRole
-    time_role(const FieldId field) const
-    {
-      AssertThrow(layout_.contains(field),
-                  dealii::ExcMessage("Unknown DAE field."));
-      return layout_.field(field).time_role;
-    }
-
-    dealii::IndexSet
-    differential_components() const
-    {
-      return components_of(TimeRole::differential);
-    }
-
-    dealii::IndexSet
-    algebraic_components() const
-    {
-      return components_of(TimeRole::algebraic);
-    }
-
-  private:
-    dealii::IndexSet
-    components_of(const TimeRole wanted) const
-    {
-      dealii::IndexSet result(global_size_);
-      for (const auto &entry : fields_)
-        if (layout_.field(entry.first).time_role == wanted)
-          result.add_indices(entry.second);
-      result.compress();
-      return result;
-    }
-
-    const StateLayout                  &layout_;
-    std::size_t                         global_size_;
-    std::map<FieldId, dealii::IndexSet> fields_;
-  };
   /**
    * A term-wise semi-discrete residual model for F(t,y,ydot)=0.
    *
