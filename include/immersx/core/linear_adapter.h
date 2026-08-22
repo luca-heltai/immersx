@@ -11,6 +11,7 @@
 #define immersx_linear_adapter_h
 
 #include <immersx/core/detail/execution_composition.h>
+#include <immersx/core/representation.h>
 
 #include <functional>
 
@@ -27,8 +28,9 @@ namespace ImmersX
   class LinearAdapter
   {
   public:
-    using Operator      = dealii::LinearOperator<GlobalVectorType>;
-    using SolveFunction = std::function<
+    using RepresentationType = Representation<FieldVectorType>;
+    using Operator           = dealii::LinearOperator<GlobalVectorType>;
+    using SolveFunction      = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
     LinearAdapter(const MPI_Comm communicator, SolveFunction solve)
@@ -71,6 +73,14 @@ namespace ImmersX
     field(const GlobalVectorType &state, const FieldId id) const
     {
       return composition_.field(state, id);
+    }
+
+    RepresentationType
+    observe(const FieldId id) const
+    {
+      AssertThrow(composition_.state_layout().contains(id),
+                  dealii::ExcMessage("Cannot observe an unknown Field."));
+      return RepresentationType(id);
     }
 
     void

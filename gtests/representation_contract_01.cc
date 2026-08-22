@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 #include <immersx/core/representation.h>
+#include <immersx/core/state.h>
 
 #include <type_traits>
 
@@ -48,4 +49,31 @@ TEST(RepresentationContract, IdentityAndTensorProductDimensions) // NOLINT
   EXPECT_EQ(VectorField::support_dimension, 2u);
   EXPECT_EQ(VectorField::representative_dimension, 2u);
   EXPECT_EQ(VectorField::ambient_dimension, 2u);
+}
+
+TEST(Representation, Identity) // NOLINT
+{
+  using Vector = dealii::Vector<double>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name        = "temperature";
+  const auto temperature = layout.add_field(descriptor);
+
+  Vector values(3);
+  values[0] = 1.;
+  values[1] = 2.;
+  values[2] = 3.;
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(temperature, values);
+  const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
+
+  ImmersX::Representation<Vector> representation(temperature);
+  EXPECT_EQ(representation.source(), temperature);
+  EXPECT_EQ(&representation.evaluate(context), &values);
+
+  const auto identity = representation.linearize(context);
+  Vector     action(3);
+  identity.vmult(action, values);
+  EXPECT_EQ(action, values);
 }

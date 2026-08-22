@@ -13,6 +13,7 @@
 #include <deal.II/base/config.h>
 
 #include <immersx/core/detail/execution_composition.h>
+#include <immersx/core/representation.h>
 
 #include <functional>
 #include <memory>
@@ -31,6 +32,7 @@ namespace ImmersX
   class IDAAdapter
   {
   public:
+    using RepresentationType  = Representation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
@@ -100,6 +102,14 @@ namespace ImmersX
     field(const GlobalVectorType &state, const FieldId id) const
     {
       return composition_.field(state, id);
+    }
+
+    RepresentationType
+    observe(const FieldId id) const
+    {
+      AssertThrow(composition_.state_layout().contains(id),
+                  dealii::ExcMessage("Cannot observe an unknown Field."));
+      return RepresentationType(id);
     }
 
     dealii::IndexSet

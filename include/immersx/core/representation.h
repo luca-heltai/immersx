@@ -30,9 +30,11 @@
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/linear_operator.h>
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/field.h>
+#include <immersx/core/state.h>
 #include <immersx/coupling/tensor_product_space.h>
 
 #include <map>
@@ -42,6 +44,63 @@
 
 namespace ImmersX
 {
+  /**
+   * A lightweight semantic representation of one Field.
+   *
+   * This identity representation owns no state and creates no execution
+   * storage.  It evaluates by returning the source field from an
+   * EvaluationContext and linearizes to the identity operator on that field.
+   * More general representations can use the same value-object style while
+   * depending on one or more Fields.
+   */
+  template <typename VectorType>
+  class Representation
+  {
+  public:
+    using value_type = VectorType;
+    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+
+    explicit Representation(const FieldId source)
+      : source_(source)
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_;
+    }
+
+    const VectorType &
+    evaluate(const EvaluationContext<VectorType> &context) const
+    {
+      return context.state(source_);
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context) const
+    {
+      const auto *reference = &context.state(source_);
+
+      Operator result;
+      result.reinit_range_vector = [reference](VectorType &vector, bool omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult = [](VectorType &destination, const VectorType &source) {
+        destination = source;
+      };
+      result.vmult_add = [](VectorType &destination, const VectorType &source) {
+        destination += source;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+  private:
+    FieldId source_;
+  };
+
   /**
    * One physical quadrature point together with the algebraic data that
    * represents its physical field value.

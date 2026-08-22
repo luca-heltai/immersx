@@ -44,6 +44,23 @@ auto continuity = linear.add(interaction, "continuity",
 The returned `continuity.multiplier` is an algebraic semantic Field. The
 application never names its execution block.
 
+## What is a Representation?
+
+A `Field` is a semantic state row owned by a Problem. A `Representation` is a
+lightweight observable or lifting derived from one or more Fields. It owns no
+execution block and is not added to an adapter as a Problem. The minimal
+identity representation is obtained from an adapter with:
+
+```{code-block} cpp
+auto poisson = adapter.add(problem, "poisson");
+auto temperature = adapter.observe(poisson.solution);
+```
+
+During evaluation it returns the source Field state, and its linearization is
+the identity operator. Later representations can select components, evaluate
+nonlinear observables, or provide geometry-dependent lifting without changing
+the Problem/Field execution storage.
+
 ## Contributor authors
 
 A Problem contributor declares semantic Fields and contributes residual,
