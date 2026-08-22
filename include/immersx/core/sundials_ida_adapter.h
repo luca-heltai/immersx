@@ -31,9 +31,7 @@ namespace ImmersX
   class IDAAdapter
   {
   public:
-    using Composition =
-      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
-    using Operator            = typename Composition::Operator;
+    using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
@@ -113,6 +111,9 @@ namespace ImmersX
     }
 
   private:
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+
     void
     finalize()
     {

@@ -27,9 +27,7 @@ namespace ImmersX
   class LinearAdapter
   {
   public:
-    using Composition =
-      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
-    using Operator      = typename Composition::Operator;
+    using Operator      = dealii::LinearOperator<GlobalVectorType>;
     using SolveFunction = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
@@ -104,8 +102,10 @@ namespace ImmersX
     }
 
   private:
-    detail::ExecutionComposition<FieldVectorType, GlobalVectorType>
-                  composition_;
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+
+    Composition   composition_;
     SolveFunction solve_;
   };
 } // namespace ImmersX
