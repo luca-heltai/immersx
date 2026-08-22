@@ -33,12 +33,12 @@ namespace ImmersX
   PoissonFields
   contribute(Builder &builder, const PoissonSolver<dim, spacedim> &problem)
   {
-    using VectorType    = typename PoissonSolver<dim, spacedim>::VectorType;
-    const auto solution = builder.field("solution",
-                                        TimeRole::algebraic,
-                                        problem.locally_owned_dofs(),
-                                        problem.locally_relevant_dofs());
-    const auto matrix   = ImmersX::payload_free(
+    using VectorType = typename PoissonSolver<dim, spacedim>::VectorType;
+    const auto solution =
+      builder.algebraic_field("solution",
+                              problem.locally_owned_dofs(),
+                              problem.locally_relevant_dofs());
+    const auto matrix = ImmersX::payload_free(
       dealii::linear_operator<VectorType, VectorType>(problem.system_matrix()));
 
     builder.term(solution, "poisson")

@@ -103,10 +103,9 @@ namespace ImmersX::detail
            block_number < fields_by_block_.size();
            ++block_number)
         {
-          if (layout_.field(fields_by_block_[block_number]).time_role ==
-              TimeRole::differential)
-            for (const auto index : block_owned_[block_number])
-              result.add_index(offset + index);
+          for (const auto index : layout_.field(fields_by_block_[block_number])
+                                    .differential_components)
+            result.add_index(offset + index);
           offset += block_sizes_[block_number];
         }
       result.compress();

@@ -94,8 +94,8 @@ TEST(ContributorCore, TermsAreScopedByContributorPrefix)
   owned.compress();
   ImmersX::SemidiscreteBuilder<Vector> a_builder(layout, model, "a");
   ImmersX::SemidiscreteBuilder<Vector> b_builder(layout, model, "b");
-  const auto a = a_builder.field("value", ImmersX::TimeRole::algebraic, owned);
-  const auto b = b_builder.field("value", ImmersX::TimeRole::algebraic, owned);
+  const auto a = a_builder.algebraic_field("value", owned);
+  const auto b = b_builder.algebraic_field("value", owned);
 
   a_builder.term(a, "physics").residual([](const auto &context) {
     (void)context;

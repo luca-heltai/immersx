@@ -33,15 +33,13 @@ namespace ImmersX
                   "Navier-Stokes semantic fields need two DoF blocks."));
 
     const auto velocity =
-      builder.field("velocity",
-                    TimeRole::differential,
-                    problem.locally_owned_dofs_by_block()[0],
-                    problem.locally_relevant_dofs_by_block()[0]);
+      builder.differential_field("velocity",
+                                 problem.locally_owned_dofs_by_block()[0],
+                                 problem.locally_relevant_dofs_by_block()[0]);
     const auto pressure =
-      builder.field("pressure",
-                    TimeRole::algebraic,
-                    problem.locally_owned_dofs_by_block()[1],
-                    problem.locally_relevant_dofs_by_block()[1]);
+      builder.algebraic_field("pressure",
+                              problem.locally_owned_dofs_by_block()[1],
+                              problem.locally_relevant_dofs_by_block()[1]);
 
     const auto mass =
       problem.density() *

@@ -30,8 +30,10 @@ The adapter privately maps one automatically assigned IDA block directly to
 each semantic Field. Binding a block to a `StateView` therefore creates no
 scalar gather or scatter. The mapping is an execution/storage choice:
 `FieldId` is not a global block number, and native Problem block ordering
-remains local to the Problem. The adapter derives the IDA differential mask
-directly from each field's semantic `TimeRole` and locally owned indices.
+remains local to the Problem. The adapter derives the IDA differential mask by
+offsetting and unioning each field's semantic `differential_components` mask.
+A mask has the field vector's global size and may describe a complete, empty,
+or mixed set of components.
 
 ## Local deal.II/SUNDIALS contracts
 
@@ -133,3 +135,8 @@ test uses a short ramp-forced IDA integration with FGMRES and an identity
 preconditioner; this validates composition and callback semantics, not
 scalability or production preconditioning. A fully implicit convection
 Jacobian and an ARKode/IMEX execution path remain follow-up work.
+
+The mixed-field DAE test uses one four-component semantic field with only its
+first two components marked differential. It checks the mask received by IDA,
+the residual `F = y + ydot`, and the corresponding `dF/dy + alpha*dF/dydot`
+Jacobian action.

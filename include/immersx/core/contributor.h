@@ -149,19 +149,45 @@ namespace ImmersX
 
     FieldId
     field(const std::string      &local_name,
-          const TimeRole          role,
           const dealii::IndexSet &locally_owned,
-          const dealii::IndexSet &locally_relevant = {},
-          const HistoryGroupId    history_group    = HistoryGroupId())
+          const dealii::IndexSet &locally_relevant        = {},
+          const dealii::IndexSet &differential_components = {},
+          const HistoryGroupId    history_group           = HistoryGroupId())
     {
       FieldDescriptor descriptor;
       descriptor.name =
         prefix_.empty() ? local_name : prefix_ + "." + local_name;
-      descriptor.time_role        = role;
-      descriptor.history_group    = history_group;
-      descriptor.locally_owned    = locally_owned;
-      descriptor.locally_relevant = locally_relevant;
+      descriptor.history_group           = history_group;
+      descriptor.locally_owned           = locally_owned;
+      descriptor.locally_relevant        = locally_relevant;
+      descriptor.differential_components = differential_components;
       return layout_.add_field(std::move(descriptor));
+    }
+
+    FieldId
+    differential_field(const std::string      &local_name,
+                       const dealii::IndexSet &locally_owned,
+                       const dealii::IndexSet &locally_relevant = {},
+                       const HistoryGroupId    history_group = HistoryGroupId())
+    {
+      return field(local_name,
+                   locally_owned,
+                   locally_relevant,
+                   locally_owned,
+                   history_group);
+    }
+
+    FieldId
+    algebraic_field(const std::string      &local_name,
+                    const dealii::IndexSet &locally_owned,
+                    const dealii::IndexSet &locally_relevant = {},
+                    const HistoryGroupId    history_group    = HistoryGroupId())
+    {
+      return field(local_name,
+                   locally_owned,
+                   locally_relevant,
+                   dealii::IndexSet(locally_owned.size()),
+                   history_group);
     }
 
     Term
