@@ -455,9 +455,11 @@ immutable property of the model.
 
 ## L. TensorProductSpace and reduced-to-physical lifting
 
-`TensorProductSpace` remains a Representation/lifting mechanism. It maps
-coefficients on a representative/reduced domain to a physical field on a
-higher-dimensional support. Keep the dimension labels explicit:
+`TensorProductRepresentation` is the reusable lifting mechanism. It maps
+coefficients from a representative/reduced domain to a physical field on a
+higher-dimensional support. `TensorProductSpace` remains a compatibility and
+geometry-construction helper for existing reduced Problems; it is not the
+Interaction-facing observable. Keep the dimension labels explicit:
 
 ```text
 representative/reduced dimension -> represented physical dimension
@@ -473,6 +475,16 @@ dimensional wall Problem.
 The lifting may be consumed by elasticity, traction, transport, or more than
 one other Interaction. No full embedded DoF system and no explicit global
 restriction/lifting matrices are required.
+
+New code should construct the lifting from a representative view:
+
+```{code-block} cpp
+auto surface = make_tensor_product_representation(centerline, tensor_space);
+```
+
+The returned Representation is non-owning and reusable. The reduced Problem
+continues to own its mesh, DoFs, and state, while the lifting owns only the
+mapping and transfer view.
 
 The geometric metrics used by reduced coupling also remain distinct:
 

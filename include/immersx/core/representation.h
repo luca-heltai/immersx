@@ -599,6 +599,27 @@ namespace ImmersX
       , metadata_(metadata)
     {}
 
+    /**
+     * Construct a lifting from an existing representative Representation.
+     *
+     * The representative view supplies the reduced Problem's DoF space and
+     * geometry-dependent metadata. TensorProductSpace remains accepted as a
+     * compatibility helper for the reduced mesh and lifted quadrature cache;
+     * the returned object is the reusable lifting consumed by Interactions.
+     */
+    template <typename Representative>
+    TensorProductRepresentation(const TensorProductSpaceType &space,
+                                const Representative         &representative)
+      : TensorProductRepresentation(space,
+                                    representative.dof_handler(),
+                                    representative.locally_owned_dofs(),
+                                    representative.locally_relevant_dofs(),
+                                    representative.constraints(),
+                                    representative.mapping(),
+                                    representative.extractor(),
+                                    representative.metadata())
+    {}
+
     const TriangulationType &
     triangulation() const
     {
@@ -776,6 +797,31 @@ namespace ImmersX
     ImmersX::RepresentationMetadata               metadata_;
     mutable std::uint64_t                         geometry_version_ = 0;
   };
+
+  /**
+   * Build a tensor-product lifting from a representative view and reduced
+   * geometry. This is the representation-first spelling; the direct
+   * TensorProductSpace constructor remains available for existing applications.
+   */
+  template <int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components,
+            typename Representative>
+  auto
+  make_tensor_product_representation(
+    const Representative &representative,
+    const TensorProductSpace<reduced_dim, surface_dim, spacedim, n_components>
+      &space) -> TensorProductRepresentation<reduced_dim,
+                                             surface_dim,
+                                             spacedim,
+                                             n_components>
+  {
+    return TensorProductRepresentation<reduced_dim,
+                                       surface_dim,
+                                       spacedim,
+                                       n_components>(space, representative);
+  }
 
 
   /**
