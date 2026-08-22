@@ -4,7 +4,8 @@ This page is the practical guide for contributing code, tests, fixtures,
 parameter files, documentation, and build-system changes to ImmersX.
 
 Coding agents must also read the repository-root
-[`AGENTS.md`](../AGENTS.md). `AGENTS.md` contains the normative repository and
+[`AGENTS.md`](https://github.com/luca-heltai/immersx/blob/master/AGENTS.md).
+`AGENTS.md` contains the normative repository and
 agent-behavior rules; this page focuses on the human-facing development
 workflow and detailed commands.
 
