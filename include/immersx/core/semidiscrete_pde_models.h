@@ -71,6 +71,27 @@ namespace ImmersX
             contribution(index) = 0.;
         destination += contribution;
       };
+      result.Tvmult = [operator_view, &constraints](VectorType &destination,
+                                                    const VectorType &source) {
+        VectorType projected;
+        operator_view.reinit_range_vector(projected, false);
+        projected = source;
+        for (const auto index : projected.locally_owned_elements())
+          if (constraints.is_constrained(index))
+            projected(index) = 0.;
+        operator_view.Tvmult(destination, projected);
+      };
+      result.Tvmult_add = [operator_view,
+                           &constraints](VectorType       &destination,
+                                         const VectorType &source) {
+        VectorType projected;
+        operator_view.reinit_range_vector(projected, false);
+        projected = source;
+        for (const auto index : projected.locally_owned_elements())
+          if (constraints.is_constrained(index))
+            projected(index) = 0.;
+        operator_view.Tvmult_add(destination, projected);
+      };
       return result;
     }
 
@@ -129,6 +150,28 @@ namespace ImmersX
             if (constraints.is_constrained(offset + index))
               contribution(index) = 0.;
           destination += contribution;
+        };
+      result.Tvmult =
+        [operator_view, &constraints, offset](VectorType       &destination,
+                                              const VectorType &source) {
+          VectorType projected;
+          operator_view.reinit_range_vector(projected, false);
+          projected = source;
+          for (const auto index : projected.locally_owned_elements())
+            if (constraints.is_constrained(offset + index))
+              projected(index) = 0.;
+          operator_view.Tvmult(destination, projected);
+        };
+      result.Tvmult_add =
+        [operator_view, &constraints, offset](VectorType       &destination,
+                                              const VectorType &source) {
+          VectorType projected;
+          operator_view.reinit_range_vector(projected, false);
+          projected = source;
+          for (const auto index : projected.locally_owned_elements())
+            if (constraints.is_constrained(offset + index))
+              projected(index) = 0.;
+          operator_view.Tvmult_add(destination, projected);
         };
       return result;
     }

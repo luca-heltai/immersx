@@ -13,7 +13,6 @@
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/index_set.h>
 
-#include <immersx/core/residual.h>
 #include <immersx/core/state.h>
 
 #include <cstddef>
@@ -22,82 +21,6 @@
 
 namespace ImmersX
 {
-  /**
-   * Local mapping between semantic fields and native block-vector blocks.
-   *
-   * Native block numbers are deliberately local to this object. A Problem
-   * can therefore keep its native BlockMatrix while the rest of the model
-   * addresses rows and columns only through FieldId. The StateLayout is a
-   * non-owning reference and must outlive this layout.
-   */
-  class NativeFieldLayout
-  {
-  public:
-    explicit NativeFieldLayout(const StateLayout &layout)
-      : layout_(layout)
-    {}
-
-    /** Append a native block and return its local block number. */
-    unsigned int
-    add_block(const FieldId field)
-    {
-      AssertThrow(layout_.contains(field),
-                  dealii::ExcMessage(
-                    "Native block field is not in the state layout."));
-      const unsigned int block = static_cast<unsigned int>(fields_.size());
-      fields_.push_back(field);
-      return block;
-    }
-
-    unsigned int
-    n_blocks() const
-    {
-      return static_cast<unsigned int>(fields_.size());
-    }
-
-    FieldId
-    field(const unsigned int native_block) const
-    {
-      AssertThrow(native_block < fields_.size(),
-                  dealii::ExcMessage("Unknown native field block."));
-      return fields_[native_block];
-    }
-
-    /** Gather semantic fields into a native deal.II-style BlockVector. */
-    template <typename VectorType, typename NativeBlockVectorType>
-    void
-    gather(const StateAccessor<VectorType> &state,
-           const double                     time,
-           NativeBlockVectorType           &native) const
-    {
-      native.reinit(fields_.size());
-      for (unsigned int block = 0; block < fields_.size(); ++block)
-        {
-          const auto &values = state.field(fields_[block], time);
-          native.block(block).reinit(values);
-          native.block(block) = values;
-        }
-      native.collect_sizes();
-    }
-
-    /** Scatter native block residual rows additively into semantic rows. */
-    template <typename VectorType, typename NativeBlockVectorType>
-    void
-    scatter_add(const NativeBlockVectorType     &native,
-                ResidualAccumulator<VectorType> &residual) const
-    {
-      AssertThrow(native.n_blocks() == fields_.size(),
-                  dealii::ExcMessage(
-                    "Native vector does not match its field layout."));
-      for (unsigned int block = 0; block < fields_.size(); ++block)
-        residual.field(fields_[block]).add(1., native.block(block));
-    }
-
-  private:
-    const StateLayout   &layout_;
-    std::vector<FieldId> fields_;
-  };
-
   /**
    * Adapter-local mapping between semantic fields and distributed blocks.
    *
@@ -232,19 +155,6 @@ namespace ImmersX
                     "Global block vector does not match its field layout."));
       for (unsigned int block = 0; block < fields_by_block_.size(); ++block)
         view.bind(*fields_by_block_[block], global.block(block));
-    }
-
-    /** Bind the actual global blocks as additive semantic residual rows. */
-    void
-    bind_residual(ResidualAccumulator<FieldVectorType> &accumulator,
-                  GlobalBlockVectorType                &global) const
-    {
-      validate_complete();
-      AssertThrow(global.n_blocks() == fields_by_block_.size(),
-                  dealii::ExcMessage(
-                    "Global block vector does not match its field layout."));
-      for (unsigned int block = 0; block < fields_by_block_.size(); ++block)
-        accumulator.bind(*fields_by_block_[block], global.block(block));
     }
 
     /** Return the flattened locally owned differential IDA components. */

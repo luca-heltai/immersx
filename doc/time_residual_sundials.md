@@ -18,12 +18,12 @@ The public IDA composition API is
 IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(data,
                                                        MPI_COMM_WORLD,
                                                        linear_solve);
-auto matrix = ida.add(elastodynamics(matrix_problem), "matrix");
-auto fiber  = ida.add(elastodynamics(fiber_problem), "fiber");
-ida.add(vector_lagrange_multiplier(interaction,
-                                   matrix.velocity,
-                                   fiber.velocity),
-        "fiber_coupling");
+auto matrix = ida.add(matrix_problem, "matrix");
+auto fiber  = ida.add(fiber_problem, "fiber");
+auto coupling = ida.add(interaction, "fiber_coupling",
+                        matrix.velocity, fiber.velocity);
+auto state     = ida.make_state();
+auto state_dot = ida.make_state();
 ```
 
 The adapter privately maps one automatically assigned IDA block directly to

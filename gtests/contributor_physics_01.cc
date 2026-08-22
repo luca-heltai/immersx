@@ -51,12 +51,9 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
                      double) {
                     FAIL() << "The test only checks composition.";
                   });
-  const auto fields = adapter.add(ImmersX::elastodynamics(problem), "solid");
+  const auto fields = adapter.add(problem, "solid");
   EXPECT_TRUE(fields.displacement.is_valid());
   EXPECT_TRUE(fields.velocity.is_valid());
-  EXPECT_EQ(adapter.layout().n_fields(), 2u);
-  EXPECT_EQ(adapter.layout().field(fields.displacement).time_role,
-            ImmersX::TimeRole::differential);
 
   GlobalVector state;
   GlobalVector state_dot;
@@ -103,11 +100,9 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
                      const GlobalVector &,
                      GlobalVector &,
                      double) {});
-  const auto fields = adapter.add(ImmersX::unsteady_stokes(problem), "fluid");
+  const auto fields = adapter.add(problem, "fluid");
   EXPECT_TRUE(fields.velocity.is_valid());
   EXPECT_TRUE(fields.pressure.is_valid());
-  EXPECT_EQ(adapter.layout().field(fields.pressure).time_role,
-            ImmersX::TimeRole::algebraic);
 }
 
 #else

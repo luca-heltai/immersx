@@ -16,8 +16,11 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/lac/solver_gmres.h>
+
 #include <gtest/gtest.h>
 #include <immersx/algebra/lagrange_multiplier_interaction.h>
+#include <immersx/core/linear_adapter.h>
 
 #include <filesystem>
 #include <vector>
@@ -27,6 +30,7 @@ using namespace ImmersX;
 #include <immersx/core/representation.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
+#include <immersx/physics/poisson_residual.h>
 
 #include "test_paths.h"
 
@@ -204,4 +208,115 @@ TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
   // ghost updates used by the existing output path.
   bulk_problem.output_results();
   embedded_problem.output_results();
+}
+
+TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
+{
+  ParameterAcceptor::clear();
+
+  PoissonParameters<2>          bulk_parameters("/Adapter Bulk/");
+  PoissonParameters<1, 2>       embedded_parameters("/Adapter Embedded/");
+  ParticleCouplingParameters<2> search_parameters;
+  initialize_parameters_from_string(R"(
+    subsection Adapter Bulk
+      set FE degree = 1
+      set Initial refinement = 1
+      set Dirichlet boundary ids = 0
+      subsection Grid generation
+        set Grid generator = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Right hand side
+        set Function expression = 0
+        set Variable names = x,y,t
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0
+        set Variable names = x,y,t
+      end
+    end
+    subsection Adapter Embedded
+      set FE degree = 1
+      set Initial refinement = 1
+      set Dirichlet boundary ids = 0,1
+      subsection Grid generation
+        set Grid generator = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Right hand side
+        set Function expression = 1
+        set Variable names = x,y,t
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0
+        set Variable names = x,y,t
+      end
+    end
+  )");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_directory("linear-adapter-poisson");
+  bulk_parameters.output_directory     = output_directory;
+  embedded_parameters.output_directory = output_directory;
+
+  PoissonSolver<2>    bulk_problem(bulk_parameters);
+  PoissonSolver<1, 2> embedded_problem(embedded_parameters);
+  const auto          initialize_problem = [](auto &problem) {
+    problem.make_grid();
+    problem.setup_fe();
+    problem.setup_system();
+    problem.assemble_system();
+  };
+  initialize_problem(bulk_problem);
+  initialize_problem(embedded_problem);
+
+  IdentityRepresentation<2, 2> bulk_representation(
+    bulk_problem.triangulation(),
+    bulk_problem.dof_handler(),
+    bulk_problem.locally_owned_dofs(),
+    bulk_problem.locally_relevant_dofs(),
+    bulk_problem.constraints());
+  IdentityRepresentation<1, 2> embedded_representation(
+    embedded_problem.triangulation(),
+    embedded_problem.dof_handler(),
+    embedded_problem.locally_owned_dofs(),
+    embedded_problem.locally_relevant_dofs(),
+    embedded_problem.constraints());
+  LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
+                                IdentityRepresentation<1, 2>>
+    interaction(bulk_representation,
+                embedded_representation,
+                search_parameters);
+  interaction.assemble();
+
+  using FieldVector  = ImmersXLA::MPI::Vector;
+  using GlobalVector = ImmersXLA::MPI::BlockVector;
+  using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
+  Adapter    linear(MPI_COMM_WORLD,
+                 [](const dealii::LinearOperator<GlobalVector> &operator_view,
+                    const GlobalVector                         &rhs,
+                    GlobalVector                               &solution) {
+                   dealii::SolverControl control(500, 1.e-10, false);
+                   dealii::SolverFGMRES<GlobalVector> solver(control);
+                   solution = 0.;
+                   solver.solve(operator_view,
+                                solution,
+                                rhs,
+                                dealii::PreconditionIdentity());
+                 });
+  const auto bulk     = linear.add(bulk_problem, "bulk");
+  const auto embedded = linear.add(embedded_problem, "embedded");
+  const auto coupling =
+    linear.add(interaction, "continuity", bulk.solution, embedded.solution);
+  auto state = linear.make_state();
+  linear.solve(state);
+
+  GlobalVector residual;
+  linear.evaluate_residual(state, residual);
+  EXPECT_TRUE(std::isfinite(linear.field(state, bulk.solution).l2_norm()));
+  EXPECT_TRUE(std::isfinite(linear.field(state, embedded.solution).l2_norm()));
+  EXPECT_TRUE(
+    std::isfinite(linear.field(state, coupling.multiplier).l2_norm()));
+  EXPECT_GT(linear.field(state, embedded.solution).l2_norm(), 1.e-12);
+  EXPECT_LT(residual.l2_norm(), 1.e-7);
 }

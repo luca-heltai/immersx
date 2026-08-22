@@ -190,61 +190,6 @@ TEST(NavierStokes, VelocityPressureComponentMask)
 }
 
 
-TEST(NavierStokes, ComposableRegistration)
-{
-  ParameterAcceptor::clear();
-  NavierStokesParameters<2> parameters;
-  initialize_parameters_from_string(two_dimensional_parameters);
-  configure_output(parameters, "immersx_navier_stokes_composable");
-
-  NavierStokesSolver<2> problem(parameters);
-  problem.make_grid();
-  problem.setup_fe();
-  problem.setup_system();
-  problem.assemble_system();
-
-  StateLayout layout;
-  const auto  fields = register_navier_stokes_fields(layout,
-                                                    problem,
-                                                    "fluid_a",
-                                                    HistoryGroupId(17));
-  EXPECT_EQ(layout.field(fields.velocity).name, "fluid_a.velocity");
-  EXPECT_EQ(layout.field(fields.pressure).name, "fluid_a.pressure");
-  EXPECT_EQ(layout.field(fields.velocity).time_role, TimeRole::differential);
-  EXPECT_EQ(layout.field(fields.pressure).time_role, TimeRole::algebraic);
-  EXPECT_EQ(layout.field(fields.velocity).history_group, HistoryGroupId(17));
-
-  SemiDiscreteModel<LA::MPI::Vector> model;
-  add_navier_stokes_terms(model, problem, fields);
-
-  LA::MPI::Vector velocity(problem.locally_owned_dofs_by_block()[0],
-                           MPI_COMM_WORLD);
-  LA::MPI::Vector pressure(problem.locally_owned_dofs_by_block()[1],
-                           MPI_COMM_WORLD);
-  LA::MPI::Vector velocity_dot(velocity);
-  velocity     = 0.5;
-  pressure     = -0.25;
-  velocity_dot = 0.75;
-  StateView<LA::MPI::Vector> state(layout, 0.);
-  state.bind(fields.velocity, velocity);
-  state.bind(fields.pressure, pressure);
-  StateView<LA::MPI::Vector> derivative(layout, 0.);
-  derivative.bind(fields.velocity, velocity_dot);
-  EvaluationContext<LA::MPI::Vector> evaluation(0., state, &derivative);
-
-  LA::MPI::Vector velocity_residual(velocity);
-  LA::MPI::Vector pressure_residual(pressure);
-  velocity_residual = 0.;
-  pressure_residual = 0.;
-  ResidualAccumulator<LA::MPI::Vector> residual(layout);
-  residual.bind(fields.velocity, velocity_residual);
-  residual.bind(fields.pressure, pressure_residual);
-  model.evaluate(evaluation, residual);
-  EXPECT_TRUE(std::isfinite(velocity_residual.l2_norm()));
-  EXPECT_TRUE(std::isfinite(pressure_residual.l2_norm()));
-}
-
-
 TEST(NavierStokes, MPI_TransientStokes)
 {
   ParameterAcceptor::clear();

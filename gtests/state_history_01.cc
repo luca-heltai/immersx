@@ -10,6 +10,7 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/contributor.h>
 #include <immersx/core/state_history.h>
 
 using namespace ImmersX;
@@ -123,19 +124,29 @@ TEST(StateHistory, SameResidualWorksWithIntermediateHistoryQuery) // NOLINT
   ImmersX::EvaluationContext<VectorType> context(
     0.25, state, &state_dot, {}, histories.query());
 
-  model.add_term(ImmersX::time_residual_terms::diffusion,
-                 [active, network](const auto &evaluation, auto &residual) {
-                   const auto other =
-                     evaluation.historical_state(network, evaluation.time());
-                   residual.field(active)[0] +=
-                     evaluation.state().field(active, evaluation.time())[0] +
-                     other[0];
-                 });
+  ImmersX::SemidiscreteBuilder<VectorType> builder(layout, model);
+  builder.term(active, "diffusion")
+    .residual([active, network](const auto &evaluation) {
+      const auto other =
+        evaluation.historical_state(network, evaluation.time());
+      const auto                           &current = evaluation.state(active);
+      dealii::PackagedOperation<VectorType> operation;
+      operation.reinit_vector = [current](VectorType &vector, const bool omit) {
+        vector.reinit(current, omit);
+      };
+      operation.apply = [current, other](VectorType &vector) {
+        vector = current;
+        vector += other;
+      };
+      operation.apply_add = [current, other](VectorType &vector) {
+        vector += current;
+        vector += other;
+      };
+      return operation;
+    });
 
   VectorType residual(1);
   residual = 0.;
-  ImmersX::ResidualAccumulator<VectorType> accumulator(layout);
-  accumulator.bind(active, residual);
-  model.evaluate(context, accumulator);
+  model.evaluate_row(active, context, residual);
   EXPECT_DOUBLE_EQ(residual[0], 3.);
 }

@@ -25,6 +25,7 @@
 #include <deal.II/lac/sparsity_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/constraint_contributor.h>
 #include <immersx/core/constraint_equation.h>
 #include <immersx/core/representation.h>
 #include <immersx/coupling/particle_coupling.h>
@@ -475,6 +476,27 @@ namespace ImmersX
     MatrixType coupling_matrix_storage;
     MatrixType multiplier_mass_matrix_storage;
   };
+
+  template <typename Builder,
+            typename FirstRepresentation,
+            typename SecondRepresentation>
+  ConstraintEquationFields
+  contribute(
+    Builder                                                   &builder,
+    const LagrangeMultiplierInteraction<FirstRepresentation,
+                                        SecondRepresentation> &interaction,
+    const FieldId                                              first,
+    const FieldId                                              second)
+  {
+    AssertThrow(!interaction.constraint_equation().contributions_view().empty(),
+                dealii::ExcMessage(
+                  "A Lagrange multiplier interaction must be assembled "
+                  "before it is contributed."));
+    return contribute_constraint_equation(builder,
+                                          interaction.constraint_equation(),
+                                          first,
+                                          second);
+  }
 
 } // namespace ImmersX
 
