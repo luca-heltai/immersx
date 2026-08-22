@@ -36,10 +36,9 @@ namespace ImmersX
     using Operator   = dealii::LinearOperator<VectorType, VectorType>;
 
     const auto multiplier =
-      builder.field("lambda",
-                    TimeRole::algebraic,
-                    equation.multiplier_locally_owned_dofs(),
-                    equation.multiplier_locally_relevant_dofs());
+      builder.algebraic_field("lambda",
+                              equation.multiplier_locally_owned_dofs(),
+                              equation.multiplier_locally_relevant_dofs());
 
     for (const auto &entry : equation.contributions_view())
       {

@@ -29,14 +29,14 @@ namespace ImmersX
   {
     using VectorType = typename ElastodynamicsSolver<dim, spacedim>::VectorType;
 
-    const auto displacement = builder.field("displacement",
-                                            TimeRole::differential,
-                                            problem.locally_owned_dofs(),
-                                            problem.locally_relevant_dofs());
-    const auto velocity     = builder.field("velocity",
-                                        TimeRole::differential,
-                                        problem.locally_owned_dofs(),
-                                        problem.locally_relevant_dofs());
+    const auto displacement =
+      builder.differential_field("displacement",
+                                 problem.locally_owned_dofs(),
+                                 problem.locally_relevant_dofs());
+    const auto velocity =
+      builder.differential_field("velocity",
+                                 problem.locally_owned_dofs(),
+                                 problem.locally_relevant_dofs());
 
     const auto mass = ImmersX::payload_free(
       dealii::linear_operator<VectorType, VectorType>(problem.mass_matrix()));

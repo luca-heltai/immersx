@@ -25,10 +25,9 @@ namespace ImmersX
   FakeFields
   contribute(Builder &builder, const FakeProblem &problem)
   {
-    const auto solution =
-      builder.field("solution", TimeRole::algebraic, problem.owned);
-    using VectorType  = ImmersXLA::MPI::Vector;
-    const auto matrix = ImmersX::payload_free(
+    const auto solution = builder.algebraic_field("solution", problem.owned);
+    using VectorType    = ImmersXLA::MPI::Vector;
+    const auto matrix   = ImmersX::payload_free(
       dealii::linear_operator<VectorType, VectorType>(problem.matrix));
     builder.term(solution, "fake")
       .residual([solution, &problem](const auto &context) {
