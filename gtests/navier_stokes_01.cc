@@ -10,6 +10,8 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/lac/solver_gmres.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/physics/navier_stokes.h>
