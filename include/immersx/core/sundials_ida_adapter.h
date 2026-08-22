@@ -12,9 +12,7 @@
 
 #include <deal.II/base/config.h>
 
-#include <immersx/core/contributor.h>
-#include <immersx/core/native_field_layout.h>
-#include <immersx/core/time_residual.h>
+#include <immersx/core/detail/execution_composition.h>
 
 #include <functional>
 #include <memory>
@@ -25,24 +23,17 @@
 #  include <deal.II/sundials/ida.h>
 #endif
 
-
 #ifdef DEAL_II_WITH_SUNDIALS
 namespace ImmersX
 {
-
-  /**
-   * Public execution adapter for a dynamically composed distributed IDA
-   * problem. Contributors are added before the first call to reinit/solve;
-   * execution blocks and the differential mask are then derived privately
-   * from their FieldDescriptors.
-   */
+  /** Public transient DAE adapter backed by the private composition engine. */
   template <typename FieldVectorType, typename GlobalVectorType>
   class IDAAdapter
   {
   public:
-    using Model               = SemiDiscreteModel<FieldVectorType>;
-    using Builder             = SemidiscreteBuilder<FieldVectorType>;
-    using Operator            = dealii::LinearOperator<GlobalVectorType>;
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+    using Operator            = typename Composition::Operator;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
@@ -53,33 +44,13 @@ namespace ImmersX
     IDAAdapter(const AdditionalData &data,
                const MPI_Comm        communicator,
                LinearSolveFunction   solve)
-      : communicator_(communicator)
+      : composition_(communicator)
       , solve_(std::move(solve))
       , ida_(data, communicator)
-      , field_layout_(layout_)
     {
       AssertThrow(solve_,
                   dealii::ExcMessage("IDAAdapter requires a linear solve "
                                      "callback."));
-    }
-
-    template <typename Contributor>
-    auto
-    add(const Contributor &contributor, const std::string &prefix)
-      -> decltype(std::declval<const Contributor &>()(
-        std::declval<Builder &>(),
-        std::declval<const std::string &>()))
-    {
-      AssertThrow(!connected_,
-                  dealii::ExcMessage(
-                    "IDAAdapter contributors must be added before reinit or "
-                    "solve."));
-      const auto first_new_field = layout_.n_fields();
-      Builder    builder(layout_, model_);
-      auto       fields = contributor(builder, prefix);
-      for (std::size_t i = first_new_field; i < layout_.n_fields(); ++i)
-        field_layout_.add_field(FieldId(i));
-      return fields;
     }
 
     template <typename Problem, typename... Arguments>
@@ -92,24 +63,15 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "IDAAdapter contributors must be added before reinit or "
                     "solve."));
-      const auto first_new_field = layout_.n_fields();
-      Builder    builder(layout_, model_, prefix);
-      auto       fields = contribute(builder, problem, arguments...);
-      for (std::size_t i = first_new_field; i < layout_.n_fields(); ++i)
-        field_layout_.add_field(FieldId(i));
-      return fields;
+      return composition_.add(problem, prefix, arguments...);
     }
 
-    /** Reinitialize a global state vector from the semantic partitions. */
     void
     reinit(GlobalVectorType &vector)
     {
-      finalize();
-      vector.reinit(field_layout_.block_partitions(), communicator_);
-      vector = 0.;
+      composition_.reinit(vector);
     }
 
-    /** Access the internally owned IDA object for optional configuration. */
     dealii::SUNDIALS::IDA<GlobalVectorType> &
     solver()
     {
@@ -125,24 +87,21 @@ namespace ImmersX
     }
 
     GlobalVectorType
-    make_state()
+    make_state() const
     {
-      GlobalVectorType state;
-      reinit(state);
-      return state;
+      return composition_.make_state();
     }
 
     FieldVectorType &
     field(GlobalVectorType &state, const FieldId id)
     {
-      finalize();
-      return state.block(field_layout_.block(id));
+      return composition_.field(state, id);
     }
 
     const FieldVectorType &
     field(const GlobalVectorType &state, const FieldId id) const
     {
-      return state.block(field_layout_.block(id));
+      return composition_.field(state, id);
     }
 
     const Operator &
@@ -154,48 +113,22 @@ namespace ImmersX
     }
 
   private:
-    /** Own callback state captured by state-dependent operator factories. */
-    struct JacobianSnapshot
-    {
-      JacobianSnapshot(
-        const StateLayout                                         &layout,
-        const BlockFieldLayout<FieldVectorType, GlobalVectorType> &field_layout,
-        const double                                               time,
-        const GlobalVectorType                                    &state,
-        const GlobalVectorType &state_derivative)
-        : state_storage(state)
-        , derivative_storage(state_derivative)
-        , state_view(layout, time)
-        , derivative_view(layout, time)
-        , context(time, state_view, &derivative_view)
-      {
-        field_layout.bind_state(state_view, state_storage);
-        field_layout.bind_state(derivative_view, derivative_storage);
-      }
-
-      GlobalVectorType                   state_storage;
-      GlobalVectorType                   derivative_storage;
-      StateView<FieldVectorType>         state_view;
-      StateView<FieldVectorType>         derivative_view;
-      EvaluationContext<FieldVectorType> context;
-    };
-
     void
     finalize()
     {
       if (connected_)
         return;
 
-      AssertThrow(layout_.n_fields() > 0,
+      AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       ida_.reinit_vector = [this](GlobalVectorType &vector) {
-        vector.reinit(field_layout_.block_partitions(), communicator_);
+        composition_.reinit(vector);
       };
       ida_.residual = [this](const double            time,
                              const GlobalVectorType &state,
                              const GlobalVectorType &state_dot,
                              GlobalVectorType       &residual) {
-        evaluate_residual(time, state, state_dot, residual);
+        composition_.evaluate_residual(time, state, &state_dot, residual);
       };
       ida_.setup_jacobian = [this](const double            time,
                                    const GlobalVectorType &state,
@@ -212,29 +145,9 @@ namespace ImmersX
         solve_(*current_jacobian_, rhs, dst, tolerance);
       };
       ida_.differential_components = [this]() {
-        return field_layout_.differential_components();
+        return composition_.differential_components();
       };
       connected_ = true;
-    }
-
-    void
-    evaluate_residual(const double            time,
-                      const GlobalVectorType &state,
-                      const GlobalVectorType &state_dot,
-                      GlobalVectorType       &residual) const
-    {
-      StateView<FieldVectorType> state_view(layout_, time);
-      StateView<FieldVectorType> derivative_view(layout_, time);
-      field_layout_.bind_state(state_view, state);
-      field_layout_.bind_state(derivative_view, state_dot);
-      const EvaluationContext<FieldVectorType> context(time,
-                                                       state_view,
-                                                       &derivative_view);
-      residual = 0.;
-      for (std::size_t i = 0; i < layout_.n_fields(); ++i)
-        model_.evaluate_row(FieldId(i),
-                            context,
-                            residual.block(field_layout_.block(FieldId(i))));
     }
 
     void
@@ -243,75 +156,46 @@ namespace ImmersX
                      const GlobalVectorType &state_dot,
                      const double            alpha)
     {
-      const auto snapshot = std::make_shared<JacobianSnapshot>(
-        layout_, field_layout_, time, state, state_dot);
+      const auto snapshot = composition_.make_snapshot(time, state, state_dot);
+      const auto operator_view =
+        composition_.jacobian(snapshot->context, alpha);
 
-      using FieldOperator                       = typename Model::Operator;
-      const unsigned int                      n = field_layout_.n_blocks();
-      std::vector<std::vector<FieldOperator>> blocks(
-        n, std::vector<FieldOperator>(n));
-      for (unsigned int i = 0; i < n; ++i)
-        for (unsigned int j = 0; j < n; ++j)
-          {
-            const auto row    = field_layout_.field(i);
-            const auto column = field_layout_.field(j);
-            blocks[i][j] =
-              model_.state_operator(row, column, snapshot->context);
-            blocks[i][j] +=
-              alpha *
-              model_.derivative_operator(row, column, snapshot->context);
-          }
-
-      const auto block_layout = &field_layout_;
-      current_jacobian_       = Operator();
-      current_jacobian_->reinit_range_vector =
-        [block_layout, this](GlobalVectorType &vector, const bool) {
-          vector.reinit(block_layout->block_partitions(), communicator_);
-        };
-      current_jacobian_->reinit_domain_vector =
-        [block_layout, this](GlobalVectorType &vector, const bool) {
-          vector.reinit(block_layout->block_partitions(), communicator_);
-        };
-      current_jacobian_->vmult = [blocks,
-                                  snapshot](GlobalVectorType       &destination,
-                                            const GlobalVectorType &source) {
-        destination = 0.;
-        for (unsigned int i = 0; i < blocks.size(); ++i)
-          for (unsigned int j = 0; j < blocks[i].size(); ++j)
-            blocks[i][j].vmult_add(destination.block(i), source.block(j));
+      Operator stable;
+      stable.reinit_range_vector = [operator_view](GlobalVectorType &vector,
+                                                   const bool        omit) {
+        operator_view.reinit_range_vector(vector, omit);
       };
-      current_jacobian_->vmult_add =
-        [blocks, snapshot](GlobalVectorType       &destination,
-                           const GlobalVectorType &source) {
-          for (unsigned int i = 0; i < blocks.size(); ++i)
-            for (unsigned int j = 0; j < blocks[i].size(); ++j)
-              blocks[i][j].vmult_add(destination.block(i), source.block(j));
-        };
-      current_jacobian_->Tvmult = [blocks,
-                                   snapshot](GlobalVectorType &destination,
-                                             const GlobalVectorType &source) {
-        destination = 0.;
-        for (unsigned int i = 0; i < blocks.size(); ++i)
-          for (unsigned int j = 0; j < blocks[i].size(); ++j)
-            blocks[i][j].Tvmult_add(destination.block(j), source.block(i));
+      stable.reinit_domain_vector = [operator_view](GlobalVectorType &vector,
+                                                    const bool        omit) {
+        operator_view.reinit_domain_vector(vector, omit);
       };
-      current_jacobian_->Tvmult_add =
-        [blocks, snapshot](GlobalVectorType       &destination,
-                           const GlobalVectorType &source) {
-          for (unsigned int i = 0; i < blocks.size(); ++i)
-            for (unsigned int j = 0; j < blocks[i].size(); ++j)
-              blocks[i][j].Tvmult_add(destination.block(j), source.block(i));
-        };
+      stable.vmult = [operator_view, snapshot](GlobalVectorType &destination,
+                                               const GlobalVectorType &source) {
+        operator_view.vmult(destination, source);
+      };
+      stable.vmult_add = [operator_view,
+                          snapshot](GlobalVectorType       &destination,
+                                    const GlobalVectorType &source) {
+        operator_view.vmult_add(destination, source);
+      };
+      stable.Tvmult = [operator_view,
+                       snapshot](GlobalVectorType       &destination,
+                                 const GlobalVectorType &source) {
+        operator_view.Tvmult(destination, source);
+      };
+      stable.Tvmult_add = [operator_view,
+                           snapshot](GlobalVectorType       &destination,
+                                     const GlobalVectorType &source) {
+        operator_view.Tvmult_add(destination, source);
+      };
+      current_jacobian_ = std::move(stable);
     }
 
-    MPI_Comm                                            communicator_;
-    LinearSolveFunction                                 solve_;
-    dealii::SUNDIALS::IDA<GlobalVectorType>             ida_;
-    StateLayout                                         layout_;
-    Model                                               model_;
-    BlockFieldLayout<FieldVectorType, GlobalVectorType> field_layout_;
-    std::optional<Operator>                             current_jacobian_;
-    bool                                                connected_ = false;
+    Composition                             composition_;
+    LinearSolveFunction                     solve_;
+    dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
+    std::optional<Operator>                 current_jacobian_;
+    bool                                    connected_ = false;
   };
 } // namespace ImmersX
 #endif

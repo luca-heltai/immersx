@@ -10,25 +10,27 @@
 #include <immersx/core/constraint_equation.h>
 #include <immersx/core/contributor.h>
 
-#include <array>
 #include <string>
+#include <vector>
 
 namespace ImmersX
 {
-  struct ConstraintEquationFields
+  struct ConstraintFields
   {
-    FieldId first;
-    FieldId second;
     FieldId multiplier;
   };
 
-  /** Translate a two-part ConstraintEquation into semantic terms. */
+  /**
+   * Translate an arbitrary participant list into semantic constraint terms.
+   * Each equation block is mapped to the participant with the same position
+   * in `participants`; the equation itself remains agnostic about the number
+   * of participants.
+   */
   template <typename Builder>
-  ConstraintEquationFields
-  contribute_constraint_equation(Builder                  &builder,
-                                 const ConstraintEquation &equation,
-                                 const FieldId             first,
-                                 const FieldId             second)
+  ConstraintFields
+  contribute_constraint_equation(Builder                    &builder,
+                                 const ConstraintEquation   &equation,
+                                 const std::vector<FieldId> &participants)
   {
     using VectorType = typename ConstraintEquation::VectorType;
     using Operator   = dealii::LinearOperator<VectorType, VectorType>;
@@ -37,9 +39,8 @@ namespace ImmersX
       builder.field("lambda",
                     TimeRole::algebraic,
                     equation.multiplier_locally_owned_dofs(),
-                    equation.multiplier_locally_owned_dofs());
+                    equation.multiplier_locally_relevant_dofs());
 
-    const std::array<FieldId, 2> participants = {first, second};
     for (const auto &entry : equation.contributions_view())
       {
         AssertIndexRange(entry.block_id, participants.size());
@@ -54,54 +55,42 @@ namespace ImmersX
           entry.orientation == ConstraintContributionOrientation::direct ?
             dealii::transpose_operator(map) :
             map;
-        const std::string term =
-          builder.prefix() + ".constraint." + std::to_string(entry.block_id);
-        const double sign = entry.sign;
+        const double sign   = entry.sign;
+        const auto   suffix = "constraint." + std::to_string(entry.block_id);
 
-        builder.add_residual(
-          participant,
-          term + ".participant",
-          [multiplier, from_multiplier, sign](const auto &context) {
+        auto reaction = builder.term(participant, suffix + ".participant");
+        reaction
+          .residual([multiplier, from_multiplier, sign](const auto &context) {
             return sign * (from_multiplier * context.state(multiplier));
-          });
-        builder.add_state_operator(participant,
-                                   multiplier,
-                                   term + ".participant",
-                                   sign * from_multiplier);
+          })
+          .state(multiplier, sign * from_multiplier);
 
-        builder.add_residual(
-          multiplier,
-          term + ".multiplier",
-          [participant, to_multiplier, sign](const auto &context) {
+        auto equation_row = builder.term(multiplier, suffix + ".multiplier");
+        equation_row
+          .residual([participant, to_multiplier, sign](const auto &context) {
             return sign * (to_multiplier * context.state(participant));
-          });
-        builder.add_state_operator(multiplier,
-                                   participant,
-                                   term + ".multiplier",
-                                   sign * to_multiplier);
+          })
+          .state(participant, sign * to_multiplier);
       }
 
     if (equation.rhs().size() != 0)
-      builder.add_residual(multiplier,
-                           builder.prefix() + ".constraint.rhs",
-                           [multiplier, &equation](const auto &context) {
-                             const auto &state = context.state(multiplier);
-                             dealii::PackagedOperation<VectorType> result;
-                             result.reinit_vector = [state](VectorType &vector,
-                                                            const bool  omit) {
-                               vector.reinit(state, omit);
-                             };
-                             result.apply = [&equation](VectorType &vector) {
-                               vector -= equation.rhs();
-                             };
-                             result.apply_add =
-                               [&equation](VectorType &vector) {
-                                 vector -= equation.rhs();
-                               };
-                             return result;
-                           });
+      builder.term(multiplier, "constraint.rhs")
+        .residual([&equation](const auto &) {
+          dealii::PackagedOperation<VectorType> result;
+          result.reinit_vector = [&equation](VectorType &vector, const bool) {
+            vector.reinit(equation.rhs());
+          };
+          result.apply = [&equation](VectorType &vector) {
+            vector = equation.rhs();
+            vector *= -1.;
+          };
+          result.apply_add = [&equation](VectorType &vector) {
+            vector -= equation.rhs();
+          };
+          return result;
+        });
 
-    return {first, second, multiplier};
+    return {multiplier};
   }
 } // namespace ImmersX
 

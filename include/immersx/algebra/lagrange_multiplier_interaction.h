@@ -108,7 +108,8 @@ namespace ImmersX
       : first(first)
       , second(second)
       , constraint_equation_storage(second.locally_owned_dofs(),
-                                    second.mpi_communicator())
+                                    second.mpi_communicator(),
+                                    second.locally_relevant_dofs())
       , particle_coupling(search_parameters)
     {
       AssertThrow(first.triangulation().get_mpi_communicator() ==
@@ -293,7 +294,8 @@ namespace ImmersX
       multiplier_mass_matrix_storage.vmult(rhs, datum.coefficients());
 
       ConstraintEquation equation(second.locally_owned_dofs(),
-                                  second.mpi_communicator());
+                                  second.mpi_communicator(),
+                                  second.locally_relevant_dofs());
       equation.add_contribution(0,
                                 coupling_matrix_storage,
                                 ConstraintContributionOrientation::transpose);
@@ -480,7 +482,7 @@ namespace ImmersX
   template <typename Builder,
             typename FirstRepresentation,
             typename SecondRepresentation>
-  ConstraintEquationFields
+  ConstraintFields
   contribute(
     Builder                                                   &builder,
     const LagrangeMultiplierInteraction<FirstRepresentation,
@@ -494,8 +496,7 @@ namespace ImmersX
                   "before it is contributed."));
     return contribute_constraint_equation(builder,
                                           interaction.constraint_equation(),
-                                          first,
-                                          second);
+                                          std::vector<FieldId>{first, second});
   }
 
 } // namespace ImmersX

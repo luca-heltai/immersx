@@ -18,6 +18,7 @@
 #include <immersx/core/field.h>
 #include <immersx/core/state.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <functional>
 #include <map>
@@ -27,13 +28,16 @@
 
 namespace ImmersX
 {
-  /**
-   * A term-wise semi-discrete residual model for F(t,y,ydot)=0.
-   *
-   * Each semantic term owns its residual, state-Jacobian, and
-   * state-derivative-Jacobian contributions. The execution adapter selects
-   * terms through EvaluationContext and constructs the global operator.
-   */
+  namespace detail
+  {
+    template <typename FieldVectorType, typename GlobalVectorType>
+    class ExecutionComposition;
+  }
+
+  template <typename VectorType>
+  class SemidiscreteTerm;
+
+  /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
   template <typename VectorType>
   class SemiDiscreteModel
   {
@@ -43,6 +47,48 @@ namespace ImmersX
     using Operator        = dealii::LinearOperator<VectorType, VectorType>;
     using ResidualFactory = std::function<Operation(const Context &)>;
     using OperatorFactory = std::function<Operator(const Context &)>;
+
+    void
+    evaluate_row(const FieldId  row,
+                 const Context &context,
+                 VectorType    &destination) const
+    {
+      const auto it = residuals_.find(row);
+      if (it == residuals_.end())
+        return;
+      for (const auto &entry : it->second)
+        if (context.terms().includes(entry.term, TermTreatment::all))
+          entry.factory(context).apply_add(destination);
+    }
+
+    Operator
+    state_operator(const FieldId  row,
+                   const FieldId  column,
+                   const Context &context) const
+    {
+      return combine_operators(state_operators_, row, column, context);
+    }
+
+    Operator
+    derivative_operator(const FieldId  row,
+                        const FieldId  column,
+                        const Context &context) const
+    {
+      return combine_operators(derivative_operators_, row, column, context);
+    }
+
+    bool
+    has_derivative_terms() const
+    {
+      return !derivative_operators_.empty();
+    }
+
+  private:
+    template <typename>
+    friend class SemidiscreteTerm;
+
+    template <typename, typename>
+    friend class detail::ExecutionComposition;
 
     void
     add_residual(const FieldId row, std::string term, ResidualFactory factory)
@@ -96,42 +142,23 @@ namespace ImmersX
         {std::move(term), std::move(factory)});
     }
 
-    void
-    evaluate_row(const FieldId  row,
-                 const Context &context,
-                 VectorType    &destination) const
+    std::vector<std::pair<FieldId, FieldId>>
+    active_operator_blocks() const
     {
-      const auto it = residuals_.find(row);
-      if (it == residuals_.end())
-        return;
-      for (const auto &entry : it->second)
-        if (context.terms().includes(entry.term, TermTreatment::all))
-          entry.factory(context).apply_add(destination);
+      std::vector<std::pair<FieldId, FieldId>> result;
+      for (const auto &entry : state_operators_)
+        result.emplace_back(FieldId(entry.first.first),
+                            FieldId(entry.first.second));
+      for (const auto &entry : derivative_operators_)
+        {
+          const auto pair = std::make_pair(FieldId(entry.first.first),
+                                           FieldId(entry.first.second));
+          if (std::find(result.begin(), result.end(), pair) == result.end())
+            result.push_back(pair);
+        }
+      return result;
     }
 
-    Operator
-    state_operator(const FieldId  row,
-                   const FieldId  column,
-                   const Context &context) const
-    {
-      return combine_operators(state_operators_, row, column, context);
-    }
-
-    Operator
-    derivative_operator(const FieldId  row,
-                        const FieldId  column,
-                        const Context &context) const
-    {
-      return combine_operators(derivative_operators_, row, column, context);
-    }
-
-    bool
-    has_derivative_terms() const
-    {
-      return !derivative_operators_.empty();
-    }
-
-  private:
     struct ResidualEntry
     {
       std::string     term;
