@@ -80,7 +80,7 @@ prepare_parameter_outputs(const std::filesystem::path &parameter_file)
 
 // Run an executable from a private build-tree directory and expect exit
 // status 0. Generated parameter files contain absolute input and output paths,
-// so this working directory is only scratch space for legacy relative files.
+// so this working directory is only scratch space for relative files.
 static void
 run_application(const char                  *exe,
                 const std::filesystem::path &parameter_file,

@@ -639,22 +639,6 @@ namespace ImmersX
     }
 
     template <int dim, int spacedim>
-    std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
-              std::vector<std::string>>
-    vtk_to_finite_element(const std::string &vtk_filename)
-    {
-      FieldCatalog catalog;
-      auto fe = vtk_to_finite_element<dim, spacedim>(vtk_filename, catalog);
-      std::vector<std::string> data_names;
-      data_names.reserve(catalog.size());
-      for (const auto &field : catalog)
-        data_names.push_back(field.name);
-      return std::make_pair(std::move(fe), std::move(data_names));
-    }
-
-
-
-    template <int dim, int spacedim>
     void
     read_vtk(const std::string         &vtk_filename,
              DoFHandler<dim, spacedim> &dof_handler,
@@ -715,25 +699,6 @@ namespace ImmersX
   VTKUtils::read_vtk(const std::string &, Triangulation<2, 3> &, const bool);
   template void
   VTKUtils::read_vtk(const std::string &, Triangulation<3, 3> &, const bool);
-
-  template std::pair<std::unique_ptr<FiniteElement<1, 1>>,
-                     std::vector<std::string>>
-  VTKUtils::vtk_to_finite_element(const std::string &);
-  template std::pair<std::unique_ptr<FiniteElement<1, 2>>,
-                     std::vector<std::string>>
-  VTKUtils::vtk_to_finite_element(const std::string &);
-  template std::pair<std::unique_ptr<FiniteElement<1, 3>>,
-                     std::vector<std::string>>
-  VTKUtils::vtk_to_finite_element(const std::string &);
-  template std::pair<std::unique_ptr<FiniteElement<2, 2>>,
-                     std::vector<std::string>>
-  VTKUtils::vtk_to_finite_element(const std::string &);
-  template std::pair<std::unique_ptr<FiniteElement<2, 3>>,
-                     std::vector<std::string>>
-  VTKUtils::vtk_to_finite_element(const std::string &);
-  template std::pair<std::unique_ptr<FiniteElement<3, 3>>,
-                     std::vector<std::string>>
-  VTKUtils::vtk_to_finite_element(const std::string &);
 
   template std::unique_ptr<FiniteElement<1, 1>>
   VTKUtils::vtk_to_finite_element(const std::string &, FieldCatalog &);

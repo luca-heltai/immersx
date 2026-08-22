@@ -345,7 +345,7 @@ EXTENSION_MAPPING      =
 # documentation. See https://daringfireball.net/projects/markdown/ for details.
 # The output of markdown processing is further processed by Doxygen, so you can
 # mix Doxygen, HTML, and XML commands with Markdown formatting. Disable only in
-# case of backward compatibilities issues.
+# case of parser issues.
 # The default value is: YES.
 
 MARKDOWN_SUPPORT       = YES

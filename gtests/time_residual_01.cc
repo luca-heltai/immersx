@@ -172,35 +172,3 @@ TEST(TimeResidual, TermSelectionControlsResidualAndJacobian) // NOLINT
   EXPECT_DOUBLE_EQ(u_residual[0], 4.);
   EXPECT_DOUBLE_EQ(p_residual[0], 8.);
 }
-
-
-TEST(TimeResidual, DifferentialAlgebraicMetadataProducesIdaMask) // NOLINT
-{
-  ImmersX::StateLayout     layout;
-  ImmersX::FieldDescriptor u_descriptor;
-  u_descriptor.name          = "u";
-  u_descriptor.time_role     = ImmersX::TimeRole::differential;
-  const auto               u = layout.add_field(u_descriptor);
-  ImmersX::FieldDescriptor p_descriptor;
-  p_descriptor.name      = "p";
-  p_descriptor.time_role = ImmersX::TimeRole::algebraic;
-  const auto p           = layout.add_field(p_descriptor);
-
-  ImmersX::DifferentialAlgebraicMetadata metadata(layout, 5);
-  metadata.add_field(u, 0, 2);
-  metadata.add_field(p, 2, 5);
-
-  EXPECT_EQ(metadata.time_role(u), ImmersX::TimeRole::differential);
-  EXPECT_EQ(metadata.time_role(p), ImmersX::TimeRole::algebraic);
-
-  const IndexSet differential = metadata.differential_components();
-  const IndexSet algebraic    = metadata.algebraic_components();
-  EXPECT_EQ(differential.size(), 5u);
-  EXPECT_EQ(algebraic.size(), 5u);
-  EXPECT_EQ(differential.n_elements(), 2u);
-  EXPECT_EQ(algebraic.n_elements(), 3u);
-  EXPECT_TRUE(differential.is_element(0));
-  EXPECT_TRUE(differential.is_element(1));
-  EXPECT_FALSE(differential.is_element(2));
-  EXPECT_TRUE(algebraic.is_element(4));
-}

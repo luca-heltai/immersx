@@ -28,6 +28,7 @@
 
 #include <cstdio>  // For std::remove
 #include <fstream> // For writing temporary VTK file
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -43,7 +44,21 @@ using namespace dealii;
 
 #ifdef DEAL_II_WITH_VTK
 
-TEST(VTKUtils, ReadPointCloudLegacyAndXml)
+template <int dim, int spacedim>
+std::unique_ptr<FiniteElement<dim, spacedim>>
+read_finite_element(const std::string        &filename,
+                    std::vector<std::string> &field_names)
+{
+  FieldCatalog catalog;
+  auto         finite_element =
+    VTKUtils::vtk_to_finite_element<dim, spacedim>(filename, catalog);
+  field_names.clear();
+  for (const auto &field : catalog)
+    field_names.push_back(field.name);
+  return finite_element;
+}
+
+TEST(VTKUtils, ReadPointCloudAndXml)
 {
   for (const std::string &filename :
        {ImmersX::TestPaths::binary_path(
@@ -516,8 +531,8 @@ TEST(VTKUtils, VtkToFiniteElement)
 {
   std::string vtk_filename =
     ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
-  const auto [fe, data_names] =
-    VTKUtils::vtk_to_finite_element<1, 3>(vtk_filename);
+  std::vector<std::string> data_names;
+  const auto fe = read_finite_element<1, 3>(vtk_filename, data_names);
 
   EXPECT_EQ(data_names[0], "path_distance");
   EXPECT_EQ(data_names[1], "edge_length");
@@ -611,8 +626,9 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
   ASSERT_EQ(raw_data_vector.size(), 76);
 
   // 4. Create FiniteElement using VTKUtils::vtk_to_finite_element
-  auto [fe_system_ptr, data_names_from_fe] =
-    VTKUtils::vtk_to_finite_element<dim, spacedim>(temp_vtk_filename);
+  std::vector<std::string> data_names_from_fe;
+  auto                     fe_system_ptr =
+    read_finite_element<dim, spacedim>(temp_vtk_filename, data_names_from_fe);
   ASSERT_TRUE(fe_system_ptr);
   ASSERT_EQ(data_names_from_fe.size(), 4);
   EXPECT_EQ(data_names_from_fe[0], "x");
@@ -717,8 +733,9 @@ TEST(VTKUtils, DataFromSimpleVtkToDealiiVectorAndInterpolate)
   ASSERT_EQ(raw_data_vector.size(), 76);
 
   // 3. Create FiniteElement using VTKUtils::vtk_to_finite_element
-  auto [fe_system_ptr, data_names_from_fe] =
-    VTKUtils::vtk_to_finite_element<dim, spacedim>(vtk_filename);
+  std::vector<std::string> data_names_from_fe;
+  auto                     fe_system_ptr =
+    read_finite_element<dim, spacedim>(vtk_filename, data_names_from_fe);
   ASSERT_TRUE(fe_system_ptr);
   ASSERT_EQ(data_names_from_fe.size(), 4);
   EXPECT_EQ(data_names_from_fe[0], "x");

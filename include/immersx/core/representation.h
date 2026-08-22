@@ -154,10 +154,6 @@ namespace ImmersX
     static constexpr unsigned int ambient_dimension        = spacedim;
     static constexpr unsigned int representative_dimension = dim;
 
-    // Compatibility aliases for the first representation prototype.
-    static constexpr unsigned int dimension       = support_dimension;
-    static constexpr unsigned int space_dimension = ambient_dimension;
-
     using value_type    = ValueType;
     using ExtractorType = Extractor;
     using TriangulationType =
@@ -386,10 +382,6 @@ namespace ImmersX
     static constexpr unsigned int support_dimension        = surface_dim;
     static constexpr unsigned int ambient_dimension        = spacedim;
     static constexpr unsigned int representative_dimension = reduced_dim;
-
-    // Compatibility aliases for the first representation prototype.
-    static constexpr unsigned int dimension       = support_dimension;
-    static constexpr unsigned int space_dimension = ambient_dimension;
 
     using value_type    = ValueType;
     using ExtractorType = Extractor;

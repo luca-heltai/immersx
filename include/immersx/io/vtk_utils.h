@@ -39,14 +39,8 @@
 #include <string>
 #include <vector>
 
-// Transitional source-compatibility aliases. New code must use the generic
-// names from reduced_field_catalog.h directly.
 namespace ImmersX
 {
-  using VTKFieldAssociation = FieldAssociation;
-  using VTKFieldDescriptor  = ReducedFieldDescriptor;
-  using VTKFieldCatalog     = FieldCatalog;
-
 #ifdef DEAL_II_WITH_VTK
 
   using namespace dealii;
@@ -73,7 +67,7 @@ namespace ImmersX
    * and parallel computations.
    */
   {
-    /** Read a particle-only legacy VTK, VTU, or PVTU unstructured grid.
+    /** Read a particle-only VTK, VTU, or PVTU unstructured grid.
      * PointData is copied directly; vertex-cell data is reordered to its point.
      */
     template <int spacedim>
@@ -199,12 +193,6 @@ namespace ImmersX
     std::unique_ptr<FiniteElement<dim, spacedim>>
     vtk_to_finite_element(const std::string &vtk_filename,
                           FieldCatalog      &catalog);
-
-    /** Backwards-compatible helper returning field names. */
-    template <int dim, int spacedim>
-    std::pair<std::unique_ptr<FiniteElement<dim, spacedim>>,
-              std::vector<std::string>>
-    vtk_to_finite_element(const std::string &vtk_filename);
 
     /**
      * @brief Read a VTK mesh and all data fields into a DoFHandler and output

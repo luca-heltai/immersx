@@ -44,8 +44,3 @@ Notes:
 
 - To run only the 1D simulation, set `couplingStart` to `100`.
 - To run only the 3D simulation, provide only `<path_to_input_3d>`.
-
-## Legacy note
-
-An observed compile issue (`invalid template argument`) was historically worked
-around by changing include order in `app_*` files.

@@ -214,8 +214,7 @@ namespace ImmersX
           normals[i]           = support_points[i];
         }
 
-      // Make sure that selected coefficients is the iota vector, when we don't
-      // select anything for backward compatibility.
+      // Use all coefficients when no subset was requested.
       if (selected_coefficients.empty())
         {
           selected_coefficients.resize(n_coefficients * n_vector_components);
