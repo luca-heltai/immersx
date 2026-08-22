@@ -116,6 +116,23 @@ Scalar and vector interactions translate their shared `ConstraintEquation`
 through the same generic semantic mechanism. The multiplier is algebraic and
 contributors never receive IDA's `alpha`.
 
+A non-constraint Interaction can read a Representation and add a load directly
+to an existing Problem-owned row. For example, a pressure representation can
+drive an elasticity force Field without introducing a multiplier or another
+execution block:
+
+```{code-block} cpp
+auto pressure = adapter.observe(fluid.pressure);
+auto traction = PressureLoadInteraction<Vector>(pressure,
+                                                solid.force,
+                                                pressure_to_force);
+adapter.add(traction, "pressure_traction");
+```
+
+The interaction contributes both the load residual and its `dF/dy` operator.
+The adapter still owns the global block layout; the interaction only names the
+semantic target row and the representation-to-force operator.
+
 ## Adapter distinction and lifetime
 
 `LinearAdapter` requires an affine steady residual and rejects derivative
