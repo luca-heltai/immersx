@@ -83,8 +83,8 @@ and adaptive refinement during the coupled run are not implemented here.
 The application driver remains the production backward-Euler + Schur path and
 continues to own the two Problems, Representations, Interaction, accepted
 state, output, and time loop. A separate MPI acceptance test composes those
-existing objects into one caller-owned `StateLayout` and
-`SemiDiscreteModel<LA::MPI::Vector>` with
+existing objects through the public `IDAAdapter` with one private semantic
+execution layout containing
 
 ```text
 matrix.displacement       differential

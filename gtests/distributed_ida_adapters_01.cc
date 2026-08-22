@@ -36,7 +36,7 @@ TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT
                      const double) {});
 
   const auto field = adapter.add(
-    [](auto &builder, const std::string &) {
+    [](auto &builder) {
       dealii::IndexSet owned(2);
       owned.add_index(dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD));
       owned.compress();

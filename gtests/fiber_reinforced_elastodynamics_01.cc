@@ -117,6 +117,17 @@ namespace
       )");
   }
 
+  template <int dim>
+  void
+  zero_constrained_entries(
+    const AffineConstraints<double>                &constraints,
+    typename ElastodynamicsSolver<dim>::VectorType &vector)
+  {
+    for (const auto index : vector.locally_owned_elements())
+      if (constraints.is_constrained(index))
+        vector(index) = 0.;
+  }
+
 #ifdef DEAL_II_WITH_SUNDIALS
   using FieldVector  = LA::MPI::Vector;
   using GlobalVector = LA::MPI::BlockVector;
@@ -183,6 +194,7 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   FiberReinforcedElastodynamics<2> driver(parameters);
   driver.setup();
   driver.set_initial_conditions();
+  const auto &interaction = driver.interaction();
 
   using Adapter = IDAAdapter<FieldVector, GlobalVector>;
   Adapter::AdditionalData data;
@@ -207,17 +219,223 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   auto state     = ida.make_state();
   auto state_dot = ida.make_state();
   auto residual  = ida.make_state();
+
+  ida.field(state, matrix.displacement)     = 0.2;
+  ida.field(state, matrix.velocity)         = -0.4;
+  ida.field(state, fiber.displacement)      = 0.3;
+  ida.field(state, fiber.velocity)          = 0.5;
+  ida.field(state, coupling.multiplier)     = -0.7;
+  ida.field(state_dot, matrix.displacement) = 0.6;
+  ida.field(state_dot, matrix.velocity)     = 0.8;
+  ida.field(state_dot, fiber.displacement)  = -0.9;
+  ida.field(state_dot, fiber.velocity)      = 1.1;
+  ida.field(state_dot, coupling.multiplier) = 0.;
+
   ida.solver().residual(0., state, state_dot, residual);
-  ida.solver().setup_jacobian(0., state, state_dot, 1.);
-  auto action = ida.make_state();
-  ida.current_jacobian().vmult(action, state);
+  const auto  actual_matrix_d = ida.field(residual, matrix.displacement);
+  const auto  actual_matrix_v = ida.field(residual, matrix.velocity);
+  const auto  actual_fiber_d  = ida.field(residual, fiber.displacement);
+  const auto  actual_fiber_v  = ida.field(residual, fiber.velocity);
+  const auto  actual_lambda   = ida.field(residual, coupling.multiplier);
+  FieldVector matrix_d_residual;
+  FieldVector matrix_v_residual;
+  FieldVector fiber_d_residual;
+  FieldVector fiber_v_residual;
+  FieldVector lambda_residual;
+  matrix_d_residual.reinit(actual_matrix_d);
+  matrix_v_residual.reinit(actual_matrix_v);
+  fiber_d_residual.reinit(actual_fiber_d);
+  fiber_v_residual.reinit(actual_fiber_v);
+  lambda_residual.reinit(actual_lambda);
+  FieldVector work;
+  FieldVector work_f;
+  FieldVector work_lambda;
+  work.reinit(matrix_d_residual);
+  work_f.reinit(fiber_d_residual);
+  work_lambda.reinit(lambda_residual);
+
+  driver.matrix_problem().mass_matrix().vmult(matrix_d_residual,
+                                              ida.field(state_dot,
+                                                        matrix.displacement));
+  driver.matrix_problem().mass_matrix().vmult(work,
+                                              ida.field(state,
+                                                        matrix.velocity));
+  matrix_d_residual -= work;
+  zero_constrained_entries<2>(driver.matrix_problem().constraints(),
+                              matrix_d_residual);
+
+  driver.matrix_problem().mass_matrix().vmult(matrix_v_residual,
+                                              ida.field(state_dot,
+                                                        matrix.velocity));
+  driver.matrix_problem().stiffness_matrix().vmult(
+    work, ida.field(state, matrix.displacement));
+  matrix_v_residual += work;
+  driver.matrix_problem().damping_matrix().vmult(work,
+                                                 ida.field(state,
+                                                           matrix.velocity));
+  matrix_v_residual += work;
+  FieldVector force;
+  driver.matrix_problem().body_force_at_time(0., force);
+  matrix_v_residual -= force;
+  interaction.coupling_matrix().vmult(work,
+                                      ida.field(state, coupling.multiplier));
+  matrix_v_residual += work;
+  zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
+                              matrix_v_residual);
+
+  driver.fiber_problem().mass_matrix().vmult(fiber_d_residual,
+                                             ida.field(state_dot,
+                                                       fiber.displacement));
+  driver.fiber_problem().mass_matrix().vmult(work_f,
+                                             ida.field(state, fiber.velocity));
+  fiber_d_residual -= work_f;
+  zero_constrained_entries<2>(driver.fiber_problem().constraints(),
+                              fiber_d_residual);
+
+  driver.fiber_problem().mass_matrix().vmult(fiber_v_residual,
+                                             ida.field(state_dot,
+                                                       fiber.velocity));
+  driver.fiber_problem().stiffness_matrix().vmult(
+    work_f, ida.field(state, fiber.displacement));
+  fiber_v_residual += work_f;
+  driver.fiber_problem().damping_matrix().vmult(work_f,
+                                                ida.field(state,
+                                                          fiber.velocity));
+  fiber_v_residual += work_f;
+  driver.fiber_problem().body_force_at_time(0., force);
+  fiber_v_residual -= force;
+  interaction.pairing_matrix().Tvmult(work_f,
+                                      ida.field(state, coupling.multiplier));
+  fiber_v_residual -= work_f;
+  zero_constrained_entries<2>(driver.fiber_problem().velocity_constraints(),
+                              fiber_v_residual);
+
+  interaction.coupling_matrix().Tvmult(lambda_residual,
+                                       ida.field(state, matrix.velocity));
+  interaction.pairing_matrix().vmult(work_lambda,
+                                     ida.field(state, fiber.velocity));
+  lambda_residual -= work_lambda;
+  auto check = actual_matrix_d;
+  check -= matrix_d_residual;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = actual_matrix_v;
+  check -= matrix_v_residual;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = actual_fiber_d;
+  check -= fiber_d_residual;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = actual_fiber_v;
+  check -= fiber_v_residual;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = actual_lambda;
+  check -= lambda_residual;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+
+  auto increment                            = ida.make_state();
+  ida.field(increment, matrix.displacement) = -0.6;
+  ida.field(increment, matrix.velocity)     = 0.4;
+  ida.field(increment, fiber.displacement)  = 0.7;
+  ida.field(increment, fiber.velocity)      = -0.3;
+  ida.field(increment, coupling.multiplier) = 0.8;
+  auto action                               = ida.make_state();
+  ida.solver().setup_jacobian(0., state, state_dot, 1.5);
+  ida.current_jacobian().vmult(action, increment);
+
+  auto expected_matrix_d_action = ida.field(action, matrix.displacement);
+  auto expected_matrix_v_action = ida.field(action, matrix.velocity);
+  auto expected_fiber_d_action  = ida.field(action, fiber.displacement);
+  auto expected_fiber_v_action  = ida.field(action, fiber.velocity);
+  auto expected_lambda_action   = ida.field(action, coupling.multiplier);
+  work.reinit(expected_matrix_d_action);
+  driver.matrix_problem().mass_matrix().vmult(expected_matrix_d_action,
+                                              ida.field(increment,
+                                                        matrix.displacement));
+  expected_matrix_d_action *= 1.5;
+  driver.matrix_problem().mass_matrix().vmult(work,
+                                              ida.field(increment,
+                                                        matrix.velocity));
+  expected_matrix_d_action -= work;
+  zero_constrained_entries<2>(driver.matrix_problem().constraints(),
+                              expected_matrix_d_action);
+  driver.matrix_problem().stiffness_matrix().vmult(
+    expected_matrix_v_action, ida.field(increment, matrix.displacement));
+  driver.matrix_problem().damping_matrix().vmult(work,
+                                                 ida.field(increment,
+                                                           matrix.velocity));
+  expected_matrix_v_action += work;
+  driver.matrix_problem().mass_matrix().vmult(work,
+                                              ida.field(increment,
+                                                        matrix.velocity));
+  work *= 1.5;
+  expected_matrix_v_action += work;
+  interaction.coupling_matrix().vmult(work,
+                                      ida.field(increment,
+                                                coupling.multiplier));
+  expected_matrix_v_action += work;
+  zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
+                              expected_matrix_v_action);
+
+  work_f.reinit(expected_fiber_d_action);
+  driver.fiber_problem().mass_matrix().vmult(expected_fiber_d_action,
+                                             ida.field(increment,
+                                                       fiber.displacement));
+  expected_fiber_d_action *= 1.5;
+  driver.fiber_problem().mass_matrix().vmult(work_f,
+                                             ida.field(increment,
+                                                       fiber.velocity));
+  expected_fiber_d_action -= work_f;
+  zero_constrained_entries<2>(driver.fiber_problem().constraints(),
+                              expected_fiber_d_action);
+  driver.fiber_problem().stiffness_matrix().vmult(
+    expected_fiber_v_action, ida.field(increment, fiber.displacement));
+  driver.fiber_problem().damping_matrix().vmult(work_f,
+                                                ida.field(increment,
+                                                          fiber.velocity));
+  expected_fiber_v_action += work_f;
+  driver.fiber_problem().mass_matrix().vmult(work_f,
+                                             ida.field(increment,
+                                                       fiber.velocity));
+  work_f *= 1.5;
+  expected_fiber_v_action += work_f;
+  interaction.pairing_matrix().Tvmult(work_f,
+                                      ida.field(increment,
+                                                coupling.multiplier));
+  expected_fiber_v_action -= work_f;
+  zero_constrained_entries<2>(driver.fiber_problem().velocity_constraints(),
+                              expected_fiber_v_action);
+
+  interaction.coupling_matrix().Tvmult(expected_lambda_action,
+                                       ida.field(increment, matrix.velocity));
+  interaction.pairing_matrix().vmult(work_lambda,
+                                     ida.field(increment, fiber.velocity));
+  expected_lambda_action -= work_lambda;
+  check = ida.field(action, matrix.displacement);
+  check -= expected_matrix_d_action;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = ida.field(action, matrix.velocity);
+  check -= expected_matrix_v_action;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = ida.field(action, fiber.displacement);
+  check -= expected_fiber_d_action;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = ida.field(action, fiber.velocity);
+  check -= expected_fiber_v_action;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+  check = ida.field(action, coupling.multiplier);
+  check -= expected_lambda_action;
+  EXPECT_LT(check.l2_norm(), 1.e-11);
+
+  // Use the problem's benign initial state for the nonlinear solve after
+  // exercising the residual and Jacobian at arbitrary states above.
+  state            = 0.;
+  state_dot        = 0.;
   const auto steps = ida.solve(state, state_dot);
   EXPECT_GT(steps, 0u);
   EXPECT_TRUE(std::isfinite(state.l2_norm()));
 
   ida.solver().residual(data.final_time, state, state_dot, residual);
   EXPECT_LT(residual.l2_norm(), 1.e-5);
-  EXPECT_LT(ida.field(state, coupling.multiplier).l2_norm(), 1.e-5);
+  EXPECT_LT(ida.field(residual, coupling.multiplier).l2_norm(), 1.e-5);
 }
 #endif
 

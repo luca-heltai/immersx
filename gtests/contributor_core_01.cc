@@ -81,3 +81,55 @@ TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
   EXPECT_DOUBLE_EQ(transpose[1], 22.);
   EXPECT_DOUBLE_EQ(forward * dual, source * transpose);
 }
+
+TEST(ContributorCore, TermsAreScopedByContributorPrefix)
+{
+  using Vector = dealii::Vector<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector>;
+
+  ImmersX::StateLayout layout;
+  Model                model;
+  dealii::IndexSet     owned(1);
+  owned.add_index(0);
+  owned.compress();
+  ImmersX::SemidiscreteBuilder<Vector> a_builder(layout, model, "a");
+  ImmersX::SemidiscreteBuilder<Vector> b_builder(layout, model, "b");
+  const auto a = a_builder.field("value", ImmersX::TimeRole::algebraic, owned);
+  const auto b = b_builder.field("value", ImmersX::TimeRole::algebraic, owned);
+
+  a_builder.term(a, "physics").residual([](const auto &context) {
+    (void)context;
+    dealii::PackagedOperation<Vector> result;
+    result.reinit_vector = [](Vector &vector, const bool) { vector.reinit(1); };
+    result.apply         = [](Vector &vector) { vector = 1.; };
+    result.apply_add     = [](Vector &vector) { vector[0] += 1.; };
+    return result;
+  });
+  b_builder.term(b, "physics").residual([](const auto &context) {
+    (void)context;
+    dealii::PackagedOperation<Vector> result;
+    result.reinit_vector = [](Vector &vector, const bool) { vector.reinit(1); };
+    result.apply         = [](Vector &vector) { vector = 2.; };
+    result.apply_add     = [](Vector &vector) { vector[0] += 2.; };
+    return result;
+  });
+
+  Vector a_state(1), b_state(1), a_residual(1), b_residual(1);
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(a, a_state);
+  state_view.bind(b, b_state);
+  const ImmersX::EvaluationContext<Vector> a_context(
+    0., state_view, nullptr, ImmersX::TermSelection::only("a.physics"));
+  const ImmersX::EvaluationContext<Vector> b_context(
+    0., state_view, nullptr, ImmersX::TermSelection::only("b.physics"));
+  model.evaluate_row(a, a_context, a_residual);
+  model.evaluate_row(b, a_context, b_residual);
+  EXPECT_DOUBLE_EQ(a_residual[0], 1.);
+  EXPECT_DOUBLE_EQ(b_residual[0], 0.);
+  a_residual = 0.;
+  b_residual = 0.;
+  model.evaluate_row(a, b_context, a_residual);
+  model.evaluate_row(b, b_context, b_residual);
+  EXPECT_DOUBLE_EQ(a_residual[0], 0.);
+  EXPECT_DOUBLE_EQ(b_residual[0], 2.);
+}

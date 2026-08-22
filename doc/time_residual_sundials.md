@@ -3,9 +3,9 @@
 The time-residual path uses the canonical Field/State core. Semantic
 contributors receive `ImmersX::EvaluationContext` and register residual
 `dealii::PackagedOperation`s plus separate `dealii::LinearOperator` blocks for
-`dF/dy` and `dF/dydot`. The generic composer for `F(t,y,ydot)=0` is
-`ImmersX::SemiDiscreteModel<VectorType>`; its residual operations are applied
-immediately and are not retained after evaluation.
+`dF/dy` and `dF/dydot`. The execution adapters share an internal semantic
+model for `F(t,y,ydot)=0`; its residual operations are applied immediately and
+are not retained after evaluation.
 
 `ImmersX::FieldId` identifies state and residual rows. Independent timelines
 are identified separately by `ImmersX::HistoryGroupId`, so several fields may

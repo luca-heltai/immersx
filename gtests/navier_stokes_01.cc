@@ -11,9 +11,11 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/physics/navier_stokes.h>
 #include <immersx/physics/navier_stokes_semidiscrete.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <string>
@@ -215,6 +217,137 @@ TEST(NavierStokes, MPI_TransientStokes)
   EXPECT_LT(problem.divergence_l2_norm(), 1.e-8);
   EXPECT_NEAR(problem.current_time(), 0.05, 1.e-14);
 }
+
+#ifdef DEAL_II_WITH_SUNDIALS
+TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
+{
+  ParameterAcceptor::clear();
+  NavierStokesParameters<2> parameters;
+  initialize_parameters_from_string(two_dimensional_parameters);
+  configure_output(parameters, "immersx_navier_stokes_ida");
+
+  NavierStokesSolver<2> problem(parameters);
+  problem.make_grid();
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_system();
+
+  using FieldVector  = LA::MPI::Vector;
+  using GlobalVector = LA::MPI::BlockVector;
+  using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
+  Adapter::AdditionalData data;
+  data.initial_time      = 0.;
+  data.final_time        = 0.05;
+  data.initial_step_size = 0.025;
+  data.output_period     = 0.05;
+  data.maximum_order     = 1;
+  data.ic_type           = Adapter::AdditionalData::none;
+  Adapter    ida(data,
+              MPI_COMM_WORLD,
+              [](const dealii::LinearOperator<GlobalVector> &operator_view,
+                 const GlobalVector                         &rhs,
+                 GlobalVector                               &dst,
+                 const double                                tolerance) {
+                SolverControl control(5000, std::max(1.e-8, tolerance));
+                SolverFGMRES<GlobalVector> solver(control);
+                dst = 0.;
+                solver.solve(operator_view, dst, rhs, PreconditionIdentity());
+              });
+  const auto fields = ida.add(problem, "fluid");
+
+  auto state                            = ida.make_state();
+  auto state_dot                        = ida.make_state();
+  auto residual                         = ida.make_state();
+  ida.field(state, fields.velocity)     = 0.2;
+  ida.field(state, fields.pressure)     = -0.1;
+  ida.field(state_dot, fields.velocity) = 0.4;
+  ida.field(state_dot, fields.pressure) = 0.;
+  ida.solver().residual(0., state, state_dot, residual);
+
+  auto expected_velocity = ida.field(residual, fields.velocity);
+  auto work              = expected_velocity;
+  problem.velocity_mass_matrix().vmult(expected_velocity,
+                                       ida.field(state_dot, fields.velocity));
+  problem.continuous_operator().block(0, 0).vmult(work,
+                                                  ida.field(state,
+                                                            fields.velocity));
+  expected_velocity += work;
+  problem.continuous_operator().block(0, 1).vmult(work,
+                                                  ida.field(state,
+                                                            fields.pressure));
+  expected_velocity += work;
+  LA::MPI::Vector force;
+  problem.velocity_forcing_at_time(0., force);
+  force *= problem.density();
+  expected_velocity -= force;
+  for (const auto index : expected_velocity.locally_owned_elements())
+    if (problem.constraints().is_constrained(index))
+      expected_velocity(index) = 0.;
+  auto velocity_difference = ida.field(residual, fields.velocity);
+  velocity_difference -= expected_velocity;
+  EXPECT_NEAR(velocity_difference.l2_norm(), 0., 1.e-10);
+
+  auto expected_pressure = ida.field(residual, fields.pressure);
+  problem.continuous_operator().block(1, 0).vmult(expected_pressure,
+                                                  ida.field(state,
+                                                            fields.velocity));
+  for (const auto index : expected_pressure.locally_owned_elements())
+    if (problem.constraints().is_constrained(problem.velocity_block_size() +
+                                             index))
+      expected_pressure(index) = 0.;
+  auto pressure_difference = ida.field(residual, fields.pressure);
+  pressure_difference -= expected_pressure;
+  EXPECT_NEAR(pressure_difference.l2_norm(), 0., 1.e-10);
+
+  auto increment                        = ida.make_state();
+  ida.field(increment, fields.velocity) = -0.3;
+  ida.field(increment, fields.pressure) = 0.5;
+  auto action                           = ida.make_state();
+  ida.solver().setup_jacobian(0., state, state_dot, 2.);
+  ida.current_jacobian().vmult(action, increment);
+
+  auto expected_velocity_action = ida.field(action, fields.velocity);
+  problem.velocity_mass_matrix().vmult(expected_velocity_action,
+                                       ida.field(increment, fields.velocity));
+  expected_velocity_action *= 2.;
+  problem.continuous_operator().block(0, 0).vmult(work,
+                                                  ida.field(increment,
+                                                            fields.velocity));
+  expected_velocity_action += work;
+  problem.continuous_operator().block(0, 1).vmult(work,
+                                                  ida.field(increment,
+                                                            fields.pressure));
+  expected_velocity_action += work;
+  for (const auto index : expected_velocity_action.locally_owned_elements())
+    if (problem.constraints().is_constrained(index))
+      expected_velocity_action(index) = 0.;
+  velocity_difference = ida.field(action, fields.velocity);
+  velocity_difference -= expected_velocity_action;
+  EXPECT_NEAR(velocity_difference.l2_norm(), 0., 1.e-10);
+
+  auto expected_pressure_action = ida.field(action, fields.pressure);
+  problem.continuous_operator().block(1, 0).vmult(expected_pressure_action,
+                                                  ida.field(increment,
+                                                            fields.velocity));
+  for (const auto index : expected_pressure_action.locally_owned_elements())
+    if (problem.constraints().is_constrained(problem.velocity_block_size() +
+                                             index))
+      expected_pressure_action(index) = 0.;
+  pressure_difference = ida.field(action, fields.pressure);
+  pressure_difference -= expected_pressure_action;
+  EXPECT_NEAR(pressure_difference.l2_norm(), 0., 1.e-10);
+
+  auto state_for_solve     = ida.make_state();
+  auto state_dot_for_solve = ida.make_state();
+  EXPECT_GT(ida.solve(state_for_solve, state_dot_for_solve), 0u);
+  ida.solver().residual(data.final_time,
+                        state_for_solve,
+                        state_dot_for_solve,
+                        residual);
+  EXPECT_TRUE(std::isfinite(state_for_solve.l2_norm()));
+  EXPECT_LT(residual.l2_norm(), 1.e-6);
+}
+#endif
 
 
 TEST(NavierStokes, MPI_ExplicitConvectionPath)
