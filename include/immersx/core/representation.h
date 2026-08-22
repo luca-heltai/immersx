@@ -44,6 +44,134 @@
 
 namespace ImmersX
 {
+  /** A non-owning selection of components from one semantic Field. */
+  class FieldComponentView
+  {
+  public:
+    FieldComponentView(const FieldId source, dealii::IndexSet components)
+      : source_(source)
+      , components_(std::move(components))
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_;
+    }
+
+    const dealii::IndexSet &
+    components() const
+    {
+      return components_;
+    }
+
+  private:
+    FieldId          source_;
+    dealii::IndexSet components_;
+  };
+
+  /** A non-owning evaluated value for a FieldComponentView. */
+  template <typename VectorType>
+  class FieldComponentValues
+  {
+  public:
+    FieldComponentValues(const VectorType       &values,
+                         const dealii::IndexSet &components)
+      : values_(&values)
+      , components_(&components)
+    {}
+
+    const VectorType &
+    vector() const
+    {
+      return *values_;
+    }
+
+    bool
+    contains(const dealii::types::global_dof_index index) const
+    {
+      return components_->is_element(index);
+    }
+
+    std::size_t
+    size() const
+    {
+      return components_->n_elements();
+    }
+
+    auto
+    operator[](const dealii::types::global_dof_index index) const
+    {
+      AssertThrow(contains(index),
+                  dealii::ExcMessage("Index is not in the component view."));
+      return (*values_)[index];
+    }
+
+  private:
+    const VectorType       *values_;
+    const dealii::IndexSet *components_;
+  };
+
+  /**
+   * Identity observable for a FieldComponentView.
+   *
+   * Values remain in the source vector's storage.  The linearization is the
+   * corresponding projection in the source Field's vector space, so no state
+   * block or compacted component vector is created.
+   */
+  template <typename VectorType>
+  class ComponentRepresentation
+  {
+  public:
+    using value_type = FieldComponentValues<VectorType>;
+    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+
+    explicit ComponentRepresentation(const FieldComponentView &source)
+      : source_(source)
+    {}
+
+    const FieldComponentView &
+    source() const
+    {
+      return source_;
+    }
+
+    value_type
+    evaluate(const EvaluationContext<VectorType> &context) const
+    {
+      return value_type(context.state(source_.source()), source_.components());
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context) const
+    {
+      const auto *reference = &context.state(source_.source());
+      const auto *mask      = &source_.components();
+
+      Operator result;
+      result.reinit_range_vector = [reference](VectorType &vector, bool omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult = [mask](VectorType &destination, const VectorType &source) {
+        destination = 0.;
+        for (const auto index : *mask)
+          destination[index] = source[index];
+      };
+      result.vmult_add = [mask](VectorType       &destination,
+                                const VectorType &source) {
+        for (const auto index : *mask)
+          destination[index] += source[index];
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+  private:
+    FieldComponentView source_;
+  };
+
   /**
    * A lightweight semantic representation of one Field.
    *

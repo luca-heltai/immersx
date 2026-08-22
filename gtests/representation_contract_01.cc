@@ -77,3 +77,59 @@ TEST(Representation, Identity) // NOLINT
   identity.vmult(action, values);
   EXPECT_EQ(action, values);
 }
+
+TEST(MixedField, ComponentViews) // NOLINT
+{
+  using Vector = dealii::Vector<double>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name          = "mixed_state";
+  descriptor.locally_owned = dealii::IndexSet(4);
+  descriptor.locally_owned.add_range(0, 4);
+  descriptor.locally_owned.compress();
+  descriptor.differential_components = dealii::IndexSet(4);
+  descriptor.differential_components.add_range(0, 2);
+  descriptor.differential_components.compress();
+  const auto mixed_state = layout.add_field(descriptor);
+
+  Vector values(4);
+  values[0] = 10.;
+  values[1] = 20.;
+  values[2] = 30.;
+  values[3] = 40.;
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(mixed_state, values);
+  const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
+
+  dealii::IndexSet area_components(4);
+  area_components.add_range(0, 2);
+  area_components.compress();
+  dealii::IndexSet velocity_components(4);
+  velocity_components.add_range(2, 4);
+  velocity_components.compress();
+
+  const ImmersX::FieldComponentView area_view(mixed_state, area_components);
+  const ImmersX::FieldComponentView velocity_view(mixed_state,
+                                                  velocity_components);
+  const ImmersX::ComponentRepresentation<Vector> area(area_view);
+  const ImmersX::ComponentRepresentation<Vector> velocity(velocity_view);
+
+  const auto area_values     = area.evaluate(context);
+  const auto velocity_values = velocity.evaluate(context);
+  EXPECT_EQ(area_values.size(), 2u);
+  EXPECT_EQ(area_values[0], 10.);
+  EXPECT_EQ(area_values[1], 20.);
+  EXPECT_EQ(velocity_values[2], 30.);
+  EXPECT_EQ(velocity_values[3], 40.);
+  EXPECT_EQ(&area_values.vector(), &values);
+  EXPECT_EQ(&velocity_values.vector(), &values);
+
+  const auto area_jacobian = area.linearize(context);
+  Vector     action(4);
+  area_jacobian.vmult(action, values);
+  EXPECT_EQ(action[0], 10.);
+  EXPECT_EQ(action[1], 20.);
+  EXPECT_EQ(action[2], 0.);
+  EXPECT_EQ(action[3], 0.);
+}

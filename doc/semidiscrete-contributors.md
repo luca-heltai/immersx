@@ -61,6 +61,10 @@ the identity operator. Later representations can select components, evaluate
 nonlinear observables, or provide geometry-dependent lifting without changing
 the Problem/Field execution storage.
 
+For a mixed Field, a component view selects an `IndexSet` in the existing Field
+vector. The view and its Representation remain non-owning; evaluating them
+does not create a compacted vector or a new execution block.
+
 ## Contributor authors
 
 A Problem contributor declares semantic Fields and contributes residual,

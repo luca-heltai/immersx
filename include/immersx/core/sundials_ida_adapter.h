@@ -32,7 +32,9 @@ namespace ImmersX
   class IDAAdapter
   {
   public:
-    using RepresentationType  = Representation<FieldVectorType>;
+    using RepresentationType = Representation<FieldVectorType>;
+    using ComponentRepresentationType =
+      ComponentRepresentation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
@@ -110,6 +112,26 @@ namespace ImmersX
       AssertThrow(composition_.state_layout().contains(id),
                   dealii::ExcMessage("Cannot observe an unknown Field."));
       return RepresentationType(id);
+    }
+
+    FieldComponentView
+    component(const FieldId id, const dealii::IndexSet &components) const
+    {
+      AssertThrow(composition_.state_layout().contains(id),
+                  dealii::ExcMessage("Cannot select an unknown Field."));
+      AssertThrow(components.size() ==
+                    composition_.state_layout().field(id).locally_owned.size(),
+                  dealii::ExcMessage(
+                    "Component view must have the Field's global size."));
+      return FieldComponentView(id, components);
+    }
+
+    ComponentRepresentationType
+    observe(const FieldComponentView &view) const
+    {
+      AssertThrow(composition_.state_layout().contains(view.source()),
+                  dealii::ExcMessage("Cannot observe an unknown Field."));
+      return ComponentRepresentationType(view);
     }
 
     dealii::IndexSet
