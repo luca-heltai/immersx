@@ -81,7 +81,7 @@ test(const std::vector<std::vector<double>> &inclusions,
 
 
 
-  CouplingOperator<dim, double, 1> coupling_mf{
+  MatrixFreeCouplingOperator<dim, double, 1> coupling_mf{
     inclusion, dof_handler, constraints, mapping, fe};
 
   LinearAlgebra::distributed::Vector<double> src, dst;
