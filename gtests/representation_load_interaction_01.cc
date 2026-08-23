@@ -57,7 +57,7 @@ TEST(RepresentationLoadInteraction, PressureMapsToForceWithoutField)
   matrix.set(1, 1, 3.);
   matrix.compress(dealii::VectorOperation::insert);
 
-  const auto pressure = adapter.observe(fields.pressure).scaled(2.);
+  const auto pressure = fields.observe(fields.fields().pressure).scaled(2.);
   const auto load     = ImmersX::payload_free(
     dealii::linear_operator<FieldVector, FieldVector>(matrix));
   FieldVector force_prototype;
@@ -67,27 +67,29 @@ TEST(RepresentationLoadInteraction, PressureMapsToForceWithoutField)
                                                                force_space);
   adapter.add(
     ImmersX::RepresentationLoadInteraction<decltype(pressure), FieldVector>(
-      pressure, fields.force, coupling),
+      pressure, fields.fields().force, coupling),
     "pressure");
 
-  auto state                               = adapter.make_state();
-  adapter.field(state, fields.pressure)[0] = 4.;
-  adapter.field(state, fields.pressure)[1] = 5.;
+  auto state                                        = adapter.make_state();
+  adapter.field(state, fields.fields().pressure)[0] = 4.;
+  adapter.field(state, fields.fields().pressure)[1] = 5.;
 
   EXPECT_EQ(state.n_blocks(), 2u);
 
   GlobalVector residual;
   adapter.evaluate_residual(state, residual);
-  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.pressure)[0], 0.);
-  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.pressure)[1], 0.);
-  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.force)[0], 16.);
-  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.force)[1], 30.);
+  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.fields().pressure)[0], 0.);
+  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.fields().pressure)[1], 0.);
+  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.fields().force)[0], 16.);
+  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.fields().force)[1], 30.);
 
-  auto direction                               = adapter.make_state();
-  adapter.field(direction, fields.pressure)[0] = 1.;
-  adapter.field(direction, fields.pressure)[1] = 1.;
-  auto jacobian_action                         = adapter.make_state();
+  auto direction                                        = adapter.make_state();
+  adapter.field(direction, fields.fields().pressure)[0] = 1.;
+  adapter.field(direction, fields.fields().pressure)[1] = 1.;
+  auto jacobian_action                                  = adapter.make_state();
   adapter.jacobian(state).vmult(jacobian_action, direction);
-  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.force)[0], 4.);
-  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.force)[1], 6.);
+  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.fields().force)[0],
+                   4.);
+  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.fields().force)[1],
+                   6.);
 }

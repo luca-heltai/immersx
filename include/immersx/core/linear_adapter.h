@@ -11,9 +11,12 @@
 #define immersx_linear_adapter_h
 
 #include <immersx/core/detail/execution_composition.h>
+#include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
 #include <functional>
+#include <string>
+#include <utility>
 
 namespace ImmersX
 {
@@ -47,10 +50,23 @@ namespace ImmersX
     template <typename Problem, typename... Arguments>
     auto
     add(const Problem     &problem,
-        const std::string &prefix,
+        const std::string &prefix = {},
         const Arguments &...arguments)
     {
-      return composition_.add(problem, prefix, arguments...);
+      auto fields = composition_.add(problem, prefix, arguments...);
+      return ProblemHandle<LinearAdapter, decltype(fields)>(*this,
+                                                            std::move(fields));
+    }
+
+    template <typename Quantity, typename Target, typename Coupling>
+    auto
+    couple(const Quantity &quantity,
+           const Target   &target,
+           const Coupling &coupling)
+    {
+      auto interaction = detail::invoke_coupling(quantity, target, coupling, 0);
+      return add(std::move(interaction),
+                 "coupling" + std::to_string(coupling_count_++));
     }
 
     GlobalVectorType
@@ -139,6 +155,7 @@ namespace ImmersX
 
     Composition   composition_;
     SolveFunction solve_;
+    std::size_t   coupling_count_ = 0;
   };
 } // namespace ImmersX
 

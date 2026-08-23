@@ -257,26 +257,25 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
               });
   const auto fields = ida.add(problem, "fluid");
 
-  auto state                            = ida.make_state();
-  auto state_dot                        = ida.make_state();
-  auto residual                         = ida.make_state();
-  ida.field(state, fields.velocity)     = 0.2;
-  ida.field(state, fields.pressure)     = -0.1;
-  ida.field(state_dot, fields.velocity) = 0.4;
-  ida.field(state_dot, fields.pressure) = 0.;
+  auto state                                     = ida.make_state();
+  auto state_dot                                 = ida.make_state();
+  auto residual                                  = ida.make_state();
+  ida.field(state, fields.fields().velocity)     = 0.2;
+  ida.field(state, fields.fields().pressure)     = -0.1;
+  ida.field(state_dot, fields.fields().velocity) = 0.4;
+  ida.field(state_dot, fields.fields().pressure) = 0.;
   ida.solver().residual(0., state, state_dot, residual);
 
-  auto expected_velocity = ida.field(residual, fields.velocity);
+  auto expected_velocity = ida.field(residual, fields.fields().velocity);
   auto work              = expected_velocity;
   problem.velocity_mass_matrix().vmult(expected_velocity,
-                                       ida.field(state_dot, fields.velocity));
-  problem.continuous_operator().block(0, 0).vmult(work,
-                                                  ida.field(state,
-                                                            fields.velocity));
+                                       ida.field(state_dot,
+                                                 fields.fields().velocity));
+  problem.continuous_operator().block(0, 0).vmult(
+    work, ida.field(state, fields.fields().velocity));
   expected_velocity += work;
-  problem.continuous_operator().block(0, 1).vmult(work,
-                                                  ida.field(state,
-                                                            fields.pressure));
+  problem.continuous_operator().block(0, 1).vmult(
+    work, ida.field(state, fields.fields().pressure));
   expected_velocity += work;
   LA::MPI::Vector force;
   problem.velocity_forcing_at_time(0., force);
@@ -285,57 +284,54 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   for (const auto index : expected_velocity.locally_owned_elements())
     if (problem.constraints().is_constrained(index))
       expected_velocity(index) = 0.;
-  auto velocity_difference = ida.field(residual, fields.velocity);
+  auto velocity_difference = ida.field(residual, fields.fields().velocity);
   velocity_difference -= expected_velocity;
   EXPECT_NEAR(velocity_difference.l2_norm(), 0., 1.e-10);
 
-  auto expected_pressure = ida.field(residual, fields.pressure);
-  problem.continuous_operator().block(1, 0).vmult(expected_pressure,
-                                                  ida.field(state,
-                                                            fields.velocity));
+  auto expected_pressure = ida.field(residual, fields.fields().pressure);
+  problem.continuous_operator().block(1, 0).vmult(
+    expected_pressure, ida.field(state, fields.fields().velocity));
   for (const auto index : expected_pressure.locally_owned_elements())
     if (problem.constraints().is_constrained(problem.velocity_block_size() +
                                              index))
       expected_pressure(index) = 0.;
-  auto pressure_difference = ida.field(residual, fields.pressure);
+  auto pressure_difference = ida.field(residual, fields.fields().pressure);
   pressure_difference -= expected_pressure;
   EXPECT_NEAR(pressure_difference.l2_norm(), 0., 1.e-10);
 
-  auto increment                        = ida.make_state();
-  ida.field(increment, fields.velocity) = -0.3;
-  ida.field(increment, fields.pressure) = 0.5;
-  auto action                           = ida.make_state();
+  auto increment                                 = ida.make_state();
+  ida.field(increment, fields.fields().velocity) = -0.3;
+  ida.field(increment, fields.fields().pressure) = 0.5;
+  auto action                                    = ida.make_state();
   ida.solver().setup_jacobian(0., state, state_dot, 2.);
   ida.current_jacobian().vmult(action, increment);
 
-  auto expected_velocity_action = ida.field(action, fields.velocity);
+  auto expected_velocity_action = ida.field(action, fields.fields().velocity);
   problem.velocity_mass_matrix().vmult(expected_velocity_action,
-                                       ida.field(increment, fields.velocity));
+                                       ida.field(increment,
+                                                 fields.fields().velocity));
   expected_velocity_action *= 2.;
-  problem.continuous_operator().block(0, 0).vmult(work,
-                                                  ida.field(increment,
-                                                            fields.velocity));
+  problem.continuous_operator().block(0, 0).vmult(
+    work, ida.field(increment, fields.fields().velocity));
   expected_velocity_action += work;
-  problem.continuous_operator().block(0, 1).vmult(work,
-                                                  ida.field(increment,
-                                                            fields.pressure));
+  problem.continuous_operator().block(0, 1).vmult(
+    work, ida.field(increment, fields.fields().pressure));
   expected_velocity_action += work;
   for (const auto index : expected_velocity_action.locally_owned_elements())
     if (problem.constraints().is_constrained(index))
       expected_velocity_action(index) = 0.;
-  velocity_difference = ida.field(action, fields.velocity);
+  velocity_difference = ida.field(action, fields.fields().velocity);
   velocity_difference -= expected_velocity_action;
   EXPECT_NEAR(velocity_difference.l2_norm(), 0., 1.e-10);
 
-  auto expected_pressure_action = ida.field(action, fields.pressure);
-  problem.continuous_operator().block(1, 0).vmult(expected_pressure_action,
-                                                  ida.field(increment,
-                                                            fields.velocity));
+  auto expected_pressure_action = ida.field(action, fields.fields().pressure);
+  problem.continuous_operator().block(1, 0).vmult(
+    expected_pressure_action, ida.field(increment, fields.fields().velocity));
   for (const auto index : expected_pressure_action.locally_owned_elements())
     if (problem.constraints().is_constrained(problem.velocity_block_size() +
                                              index))
       expected_pressure_action(index) = 0.;
-  pressure_difference = ida.field(action, fields.pressure);
+  pressure_difference = ida.field(action, fields.fields().pressure);
   pressure_difference -= expected_pressure_action;
   EXPECT_NEAR(pressure_difference.l2_norm(), 0., 1.e-10);
 

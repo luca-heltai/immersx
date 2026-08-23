@@ -43,7 +43,7 @@ TEST(ElasticStaticProblem, LinearAdapterSolve)
 
   auto state = adapter.make_state();
   adapter.solve(state);
-  problem.set_solution(adapter.field(state, fields.displacement));
+  problem.set_solution(adapter.field(state, fields.fields().displacement));
 
   EXPECT_TRUE(std::isfinite(problem.solution().l2_norm()));
   EXPECT_GT(problem.solution().l2_norm(), 0.);

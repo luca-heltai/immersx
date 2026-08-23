@@ -34,6 +34,7 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/field.h>
+#include <immersx/core/problem_handle.h>
 #include <immersx/core/state.h>
 #include <immersx/coupling/tensor_product_space.h>
 
@@ -284,6 +285,13 @@ namespace ImmersX
       return quantity_space_type(domain_);
     }
 
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
+    }
+
     value_type
     evaluate(const EvaluationContext<VectorType> &context,
              const EvaluationRequest & /*request*/ = {}) const
@@ -368,6 +376,13 @@ namespace ImmersX
       return quantity_space_type(domain_);
     }
 
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
+    }
+
     /** Return the scalar observable q = factor * u. */
     ScaledRepresentation<VectorType>
     scaled(const double factor) const;
@@ -445,6 +460,13 @@ namespace ImmersX
     quantity_space() const
     {
       return quantity_space_type(domain());
+    }
+
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
     }
 
     double
@@ -687,6 +709,13 @@ namespace ImmersX
     extractor() const
     {
       return extractor_;
+    }
+
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
     }
 
     const ImmersX::RepresentationMetadata &
@@ -939,6 +968,13 @@ namespace ImmersX
     extractor() const
     {
       return extractor_;
+    }
+
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
     }
 
     const ImmersX::RepresentationMetadata &
