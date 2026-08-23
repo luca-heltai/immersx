@@ -306,17 +306,21 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
                  });
   const auto bulk     = linear.add(bulk_problem, "bulk");
   const auto embedded = linear.add(embedded_problem, "embedded");
-  const auto coupling =
-    linear.add(interaction, "continuity", bulk.solution, embedded.solution);
-  auto state = linear.make_state();
+  const auto coupling = linear.add(interaction,
+                                   "continuity",
+                                   bulk.fields().solution,
+                                   embedded.fields().solution);
+  auto       state    = linear.make_state();
   linear.solve(state);
 
   GlobalVector residual;
   linear.evaluate_residual(state, residual);
-  EXPECT_TRUE(std::isfinite(linear.field(state, bulk.solution).l2_norm()));
-  EXPECT_TRUE(std::isfinite(linear.field(state, embedded.solution).l2_norm()));
   EXPECT_TRUE(
-    std::isfinite(linear.field(state, coupling.multiplier).l2_norm()));
-  EXPECT_GT(linear.field(state, embedded.solution).l2_norm(), 1.e-12);
+    std::isfinite(linear.field(state, bulk.fields().solution).l2_norm()));
+  EXPECT_TRUE(
+    std::isfinite(linear.field(state, embedded.fields().solution).l2_norm()));
+  EXPECT_TRUE(
+    std::isfinite(linear.field(state, coupling.fields().multiplier).l2_norm()));
+  EXPECT_GT(linear.field(state, embedded.fields().solution).l2_norm(), 1.e-12);
   EXPECT_LT(residual.l2_norm(), 1.e-7);
 }

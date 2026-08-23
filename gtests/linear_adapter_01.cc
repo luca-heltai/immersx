@@ -82,14 +82,14 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                     solution.block(0)[1] /= 4.;
                   });
   const auto fields   = adapter.add(problem, "fake");
-  const auto observed = adapter.observe(fields.solution);
+  const auto observed = fields.observe(fields.fields().solution);
   auto       state    = adapter.make_state();
-  EXPECT_EQ(observed.source(), fields.solution);
+  EXPECT_EQ(observed.source(), fields.fields().solution);
   EXPECT_EQ(state.n_blocks(), 1u);
   adapter.solve(state);
 
-  EXPECT_NEAR(adapter.field(state, fields.solution)[0], 1., 1.e-12);
-  EXPECT_NEAR(adapter.field(state, fields.solution)[1], 2., 1.e-12);
+  EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
+  EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
 
   ImmersX::ImmersXLA::MPI::BlockVector residual;
   adapter.evaluate_residual(state, residual);

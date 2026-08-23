@@ -13,11 +13,13 @@
 #include <deal.II/base/config.h>
 
 #include <immersx/core/detail/execution_composition.h>
+#include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 
 #ifdef DEAL_II_WITH_SUNDIALS
@@ -58,14 +60,31 @@ namespace ImmersX
     template <typename Problem, typename... Arguments>
     auto
     add(const Problem     &problem,
-        const std::string &prefix,
+        const std::string &prefix = {},
         const Arguments &...arguments)
     {
       AssertThrow(!connected_,
                   dealii::ExcMessage(
                     "IDAAdapter contributors must be added before reinit or "
                     "solve."));
-      return composition_.add(problem, prefix, arguments...);
+      auto fields = composition_.add(problem, prefix, arguments...);
+      return ProblemHandle<IDAAdapter, decltype(fields)>(*this,
+                                                         std::move(fields));
+    }
+
+    template <typename Quantity, typename Target, typename Coupling>
+    auto
+    couple(const Quantity &quantity,
+           const Target   &target,
+           const Coupling &coupling)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "IDAAdapter couplings must be added before reinit or "
+                    "solve."));
+      auto interaction = detail::invoke_coupling(quantity, target, coupling, 0);
+      return add(std::move(interaction),
+                 "coupling" + std::to_string(coupling_count_++));
     }
 
     void
@@ -235,7 +254,8 @@ namespace ImmersX
     LinearSolveFunction                     solve_;
     dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
     std::optional<Operator>                 current_jacobian_;
-    bool                                    connected_ = false;
+    std::size_t                             coupling_count_ = 0;
+    bool                                    connected_      = false;
   };
 } // namespace ImmersX
 #endif

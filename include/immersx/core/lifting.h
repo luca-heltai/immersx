@@ -286,6 +286,13 @@ namespace ImmersX
       return quantity_space_type(domain());
     }
 
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
+    }
+
     const SourceRepresentation &
     source_representation() const
     {

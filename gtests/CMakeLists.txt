@@ -39,6 +39,7 @@ set(_public_headers
     immersx/core/state_history.h
     immersx/core/sundials_ida_adapter.h
     immersx/core/linear_adapter.h
+    immersx/core/problem_handle.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
     immersx/coupling/coupling_operator.h

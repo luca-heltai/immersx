@@ -71,9 +71,9 @@ TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT
     },
     "state");
 
-  auto state                  = adapter.make_state();
-  auto state_dot              = adapter.make_state();
-  adapter.field(state, field) = 3.;
+  auto state                           = adapter.make_state();
+  auto state_dot                       = adapter.make_state();
+  adapter.field(state, field.fields()) = 3.;
   adapter.solver().setup_jacobian(0., state, state_dot, 0.);
 
   auto source = adapter.make_state();
@@ -81,7 +81,7 @@ TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT
   source      = 1.;
   adapter.current_jacobian().vmult(result, source);
   const auto rank = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
-  EXPECT_EQ(adapter.field(state, field)[rank], 3.);
+  EXPECT_EQ(adapter.field(state, field.fields())[rank], 3.);
   EXPECT_EQ(result.block(0)[rank], 3.);
 }
 
@@ -195,14 +195,14 @@ TEST(DistributedIDA, MPI_MixedFieldDifferentialComponents) // NOLINT
   state_dot      = 2.;
   adapter.solver().residual(0., state, state_dot, residual);
   const auto local_index = 2 * rank;
-  EXPECT_EQ(adapter.field(residual, field)[local_index], 3.);
+  EXPECT_EQ(adapter.field(residual, field.fields())[local_index], 3.);
 
   adapter.solver().setup_jacobian(0., state, state_dot, 3.);
   auto increment = adapter.make_state();
   auto action    = adapter.make_state();
   increment      = 1.;
   adapter.current_jacobian().vmult(action, increment);
-  EXPECT_EQ(adapter.field(action, field)[local_index], 4.);
+  EXPECT_EQ(adapter.field(action, field.fields())[local_index], 4.);
 }
 
 #else
