@@ -312,8 +312,8 @@ namespace ImmersX
     }
 
     value_type
-    evaluate(const EvaluationContext<source_value_type> &context,
-             const EvaluationRequest                    &request = {}) const
+    evaluate(const EvaluationContext<state_type> &context,
+             const EvaluationRequest             &request = {}) const
     {
       const auto &source_value = source_.evaluate(context, request);
       return request.points.empty() ? transfer_.apply(source_value) :
@@ -321,8 +321,8 @@ namespace ImmersX
     }
 
     Operator
-    linearize(const EvaluationContext<source_value_type> &context,
-              const EvaluationRequest                    &request = {}) const
+    linearize(const EvaluationContext<state_type> &context,
+              const EvaluationRequest             &request = {}) const
     {
       return (request.points.empty() ? transfer_.linearize() :
                                        transfer_.linearize(request)) *

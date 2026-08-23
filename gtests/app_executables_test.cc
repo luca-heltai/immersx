@@ -174,3 +174,41 @@ TEST(AppExecutables, NavierStokes)
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_representative_param("navier_stokes", "navier_stokes_simple_2d");
 }
+
+TEST(AppExecutables, CoupledPoissonElasticity)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+
+  run_app_with_representative_param("coupled_poisson_elasticity",
+                                    "coupled_poisson_elasticity");
+
+  const auto diagnostics = ImmersX::TestPaths::output_path(
+                             "gtests/parameters/coupled_poisson_elasticity") /
+                           "coupled_poisson_elasticity_diagnostics.txt";
+  std::ifstream input(diagnostics);
+  ASSERT_TRUE(input.good()) << diagnostics;
+
+  std::string line;
+  double      residual       = 1.;
+  double      pressure_error = 1.;
+  double      traction_error = 1.;
+  while (std::getline(input, line))
+    {
+      const auto equals = line.find('=');
+      if (equals == std::string::npos)
+        continue;
+      const auto key   = line.substr(0, equals);
+      const auto value = std::stod(line.substr(equals + 1));
+      if (key == "coupled_residual ")
+        residual = value;
+      else if (key == "pressure_scale_error ")
+        pressure_error = value;
+      else if (key == "traction_balance_error ")
+        traction_error = value;
+    }
+
+  EXPECT_LT(residual, 1.e-9);
+  EXPECT_LT(pressure_error, 1.e-14);
+  EXPECT_LT(traction_error, 1.e-9);
+}

@@ -1,0 +1,19 @@
+subsection Poisson
+  set FE degree                   = 1
+  set Initial refinement          = 0
+  set Dirichlet boundary ids      = 0, 1
+  set Output directory            = @TEST_OUTPUT_DIR@/gtests/parameters/coupled_poisson_elasticity
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: false
+    set Triangulation type       = fullydistributed
+  end
+  subsection Right hand side
+    set Function expression = 1
+    set Variable names      = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+end
