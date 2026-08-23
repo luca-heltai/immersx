@@ -30,9 +30,11 @@
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/linear_operator.h>
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/field.h>
+#include <immersx/core/state.h>
 #include <immersx/coupling/tensor_product_space.h>
 
 #include <map>
@@ -42,6 +44,191 @@
 
 namespace ImmersX
 {
+  /** A non-owning selection of components from one semantic Field. */
+  class FieldComponentView
+  {
+  public:
+    FieldComponentView(const FieldId source, dealii::IndexSet components)
+      : source_(source)
+      , components_(std::move(components))
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_;
+    }
+
+    const dealii::IndexSet &
+    components() const
+    {
+      return components_;
+    }
+
+  private:
+    FieldId          source_;
+    dealii::IndexSet components_;
+  };
+
+  /** A non-owning evaluated value for a FieldComponentView. */
+  template <typename VectorType>
+  class FieldComponentValues
+  {
+  public:
+    FieldComponentValues(const VectorType       &values,
+                         const dealii::IndexSet &components)
+      : values_(&values)
+      , components_(&components)
+    {}
+
+    const VectorType &
+    vector() const
+    {
+      return *values_;
+    }
+
+    bool
+    contains(const dealii::types::global_dof_index index) const
+    {
+      return components_->is_element(index);
+    }
+
+    std::size_t
+    size() const
+    {
+      return components_->n_elements();
+    }
+
+    auto
+    operator[](const dealii::types::global_dof_index index) const
+    {
+      AssertThrow(contains(index),
+                  dealii::ExcMessage("Index is not in the component view."));
+      return (*values_)[index];
+    }
+
+  private:
+    const VectorType       *values_;
+    const dealii::IndexSet *components_;
+  };
+
+  /**
+   * Identity observable for a FieldComponentView.
+   *
+   * Values remain in the source vector's storage.  The linearization is the
+   * corresponding projection in the source Field's vector space, so no state
+   * block or compacted component vector is created.
+   */
+  template <typename VectorType>
+  class ComponentRepresentation
+  {
+  public:
+    using value_type = FieldComponentValues<VectorType>;
+    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+
+    explicit ComponentRepresentation(const FieldComponentView &source)
+      : source_(source)
+    {}
+
+    const FieldComponentView &
+    source() const
+    {
+      return source_;
+    }
+
+    value_type
+    evaluate(const EvaluationContext<VectorType> &context) const
+    {
+      return value_type(context.state(source_.source()), source_.components());
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context) const
+    {
+      const auto *reference = &context.state(source_.source());
+      const auto *mask      = &source_.components();
+
+      Operator result;
+      result.reinit_range_vector = [reference](VectorType &vector, bool omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult = [mask](VectorType &destination, const VectorType &source) {
+        destination = 0.;
+        for (const auto index : *mask)
+          destination[index] = source[index];
+      };
+      result.vmult_add = [mask](VectorType       &destination,
+                                const VectorType &source) {
+        for (const auto index : *mask)
+          destination[index] += source[index];
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+  private:
+    FieldComponentView source_;
+  };
+
+  /**
+   * A lightweight semantic representation of one Field.
+   *
+   * This identity representation owns no state and creates no execution
+   * storage.  It evaluates by returning the source field from an
+   * EvaluationContext and linearizes to the identity operator on that field.
+   * More general representations can use the same value-object style while
+   * depending on one or more Fields.
+   */
+  template <typename VectorType>
+  class Representation
+  {
+  public:
+    using value_type = VectorType;
+    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+
+    explicit Representation(const FieldId source)
+      : source_(source)
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_;
+    }
+
+    const VectorType &
+    evaluate(const EvaluationContext<VectorType> &context) const
+    {
+      return context.state(source_);
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context) const
+    {
+      const auto *reference = &context.state(source_);
+
+      Operator result;
+      result.reinit_range_vector = [reference](VectorType &vector, bool omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult = [](VectorType &destination, const VectorType &source) {
+        destination = source;
+      };
+      result.vmult_add = [](VectorType &destination, const VectorType &source) {
+        destination += source;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+  private:
+    FieldId source_;
+  };
+
   /**
    * One physical quadrature point together with the algebraic data that
    * represents its physical field value.
@@ -412,6 +599,27 @@ namespace ImmersX
       , metadata_(metadata)
     {}
 
+    /**
+     * Construct a lifting from an existing representative Representation.
+     *
+     * The representative view supplies the reduced Problem's DoF space and
+     * geometry-dependent metadata. TensorProductSpace remains accepted as a
+     * compatibility helper for the reduced mesh and lifted quadrature cache;
+     * the returned object is the reusable lifting consumed by Interactions.
+     */
+    template <typename Representative>
+    TensorProductRepresentation(const TensorProductSpaceType &space,
+                                const Representative         &representative)
+      : TensorProductRepresentation(space,
+                                    representative.dof_handler(),
+                                    representative.locally_owned_dofs(),
+                                    representative.locally_relevant_dofs(),
+                                    representative.constraints(),
+                                    representative.mapping(),
+                                    representative.extractor(),
+                                    representative.metadata())
+    {}
+
     const TriangulationType &
     triangulation() const
     {
@@ -589,6 +797,31 @@ namespace ImmersX
     ImmersX::RepresentationMetadata               metadata_;
     mutable std::uint64_t                         geometry_version_ = 0;
   };
+
+  /**
+   * Build a tensor-product lifting from a representative view and reduced
+   * geometry. This is the representation-first spelling; the direct
+   * TensorProductSpace constructor remains available for existing applications.
+   */
+  template <int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components,
+            typename Representative>
+  auto
+  make_tensor_product_representation(
+    const Representative &representative,
+    const TensorProductSpace<reduced_dim, surface_dim, spacedim, n_components>
+      &space) -> TensorProductRepresentation<reduced_dim,
+                                             surface_dim,
+                                             spacedim,
+                                             n_components>
+  {
+    return TensorProductRepresentation<reduced_dim,
+                                       surface_dim,
+                                       spacedim,
+                                       n_components>(space, representative);
+  }
 
 
   /**

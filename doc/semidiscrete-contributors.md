@@ -44,6 +44,27 @@ auto continuity = linear.add(interaction, "continuity",
 The returned `continuity.multiplier` is an algebraic semantic Field. The
 application never names its execution block.
 
+## What is a Representation?
+
+A `Field` is a semantic state row owned by a Problem. A `Representation` is a
+lightweight observable or lifting derived from one or more Fields. It owns no
+execution block and is not added to an adapter as a Problem. The minimal
+identity representation is obtained from an adapter with:
+
+```{code-block} cpp
+auto poisson = adapter.add(problem, "poisson");
+auto temperature = adapter.observe(poisson.solution);
+```
+
+During evaluation it returns the source Field state, and its linearization is
+the identity operator. Later representations can select components, evaluate
+nonlinear observables, or provide geometry-dependent lifting without changing
+the Problem/Field execution storage.
+
+For a mixed Field, a component view selects an `IndexSet` in the existing Field
+vector. The view and its Representation remain non-owning; evaluating them
+does not create a compacted vector or a new execution block.
+
 ## Contributor authors
 
 A Problem contributor declares semantic Fields and contributes residual,
@@ -94,6 +115,23 @@ R_lambda = C^T first - Q second
 Scalar and vector interactions translate their shared `ConstraintEquation`
 through the same generic semantic mechanism. The multiplier is algebraic and
 contributors never receive IDA's `alpha`.
+
+A non-constraint Interaction can read a Representation and add a load directly
+to an existing Problem-owned row. For example, a pressure representation can
+drive an elasticity force Field without introducing a multiplier or another
+execution block:
+
+```{code-block} cpp
+auto pressure = adapter.observe(fluid.pressure);
+auto traction = PressureLoadInteraction<Vector>(pressure,
+                                                solid.force,
+                                                pressure_to_force);
+adapter.add(traction, "pressure_traction");
+```
+
+The interaction contributes both the load residual and its `dF/dy` operator.
+The adapter still owns the global block layout; the interaction only names the
+semantic target row and the representation-to-force operator.
 
 ## Adapter distinction and lifetime
 

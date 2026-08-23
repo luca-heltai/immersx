@@ -81,8 +81,11 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                     solution.block(0)[0] /= 2.;
                     solution.block(0)[1] /= 4.;
                   });
-  const auto fields = adapter.add(problem, "fake");
-  auto       state  = adapter.make_state();
+  const auto fields   = adapter.add(problem, "fake");
+  const auto observed = adapter.observe(fields.solution);
+  auto       state    = adapter.make_state();
+  EXPECT_EQ(observed.source(), fields.solution);
+  EXPECT_EQ(state.n_blocks(), 1u);
   adapter.solve(state);
 
   EXPECT_NEAR(adapter.field(state, fields.solution)[0], 1., 1.e-12);

@@ -129,12 +129,17 @@ TEST(TensorProductCoupling, ReducedLineToCylindricalSurface) // NOLINT
     bulk_problem.locally_owned_dofs(),
     bulk_problem.locally_relevant_dofs(),
     bulk_problem.constraints());
-  TensorProductRepresentation<1, 2, 3, 1> cylindrical_representation(
-    tensor_space,
+  IdentityRepresentation<1, 3> reduced_representation(
+    reduced_problem.triangulation(),
     reduced_problem.dof_handler(),
     reduced_problem.locally_owned_dofs(),
     reduced_problem.locally_relevant_dofs(),
     reduced_problem.constraints());
+  auto cylindrical_representation =
+    make_tensor_product_representation(reduced_representation, tensor_space);
+  EXPECT_FALSE(
+    cylindrical_representation.locally_owned_quadrature_points(QGauss<2>(2))
+      .empty());
 
   LagrangeMultiplierInteraction<IdentityRepresentation<3, 3>,
                                 TensorProductRepresentation<1, 2, 3, 1>>
