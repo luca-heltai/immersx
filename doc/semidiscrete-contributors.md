@@ -80,6 +80,29 @@ For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them
 does not create a compacted vector or a new execution block.
 
+## CouplingOperator boundary
+
+A `CouplingOperator` maps evaluated quantity values into a target residual
+space. It owns the target-space action and its reinitialization, but it does
+not know the source Field or Representation:
+
+```{code-block} cpp
+CouplingSpace<Vector> target_space(target_prototype);
+CouplingOperator<Vector, Vector> coupling(weak_form, target_space);
+```
+
+An Interaction composes the two derivatives when registering a term:
+
+$$
+\frac{dR_{target}}{dy_{source}} =
+\frac{dR_{target}}{dq}\frac{dq}{dy_{source}}.
+$$
+
+The Interaction names the target row and registers the residual; weak-form
+actions stay in the CouplingOperator, while Representation supplies the
+quantity and its source linearization. The quantity and target vector types
+are separate so a later lifting can connect different spaces.
+
 ## Contributor authors
 
 A Problem contributor declares semantic Fields and contributes residual,

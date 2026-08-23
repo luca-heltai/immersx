@@ -319,8 +319,9 @@ namespace ImmersX
 #ifdef MATRIX_FREE_PATH
     using VectorType      = LinearAlgebra::distributed::Vector<double>;
     using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;
-    std::unique_ptr<CouplingOperator<spacedim, double, 1>> coupling_operator;
-    MatrixFreeOperators::LaplaceOperator<spacedim, -1>     stiffness_matrix;
+    std::unique_ptr<MatrixFreeCouplingOperator<spacedim, double, 1>>
+                                                       coupling_operator;
+    MatrixFreeOperators::LaplaceOperator<spacedim, -1> stiffness_matrix;
     using LevelMatrixType = MatrixFreeOperators::LaplaceOperator<
       spacedim,
       -1,

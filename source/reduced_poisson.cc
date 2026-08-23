@@ -1071,7 +1071,7 @@ namespace ImmersX
 #ifdef MATRIX_FREE_PATH
         // MappingQ1<spacedim> mapping;
         // coupling_operator =
-        // std::make_unique<CouplingOperator<spacedim,
+        // std::make_unique<MatrixFreeCouplingOperator<spacedim,
         // double>>(
         //   inclusions, dh, constraints,
         //   mapping, *fe);

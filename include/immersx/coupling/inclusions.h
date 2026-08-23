@@ -72,7 +72,7 @@ namespace ImmersX
   {
   public:
     template <int dim, typename number, int n_components>
-    friend class CouplingOperator;
+    friend class MatrixFreeCouplingOperator;
 
     /**
      * @brief Class for computing the inclusions of a given mesh.

@@ -40,6 +40,7 @@ set(_public_headers
     immersx/core/linear_adapter.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
+    immersx/coupling/coupling_operator.h
     immersx/physics/elastic_static.h
     immersx/algebra/lagrange_multiplier_interaction.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
