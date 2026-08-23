@@ -28,6 +28,7 @@ set(_public_headers
     immersx/core/contributor.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
+    immersx/core/lifting.h
     immersx/core/load_interaction.h
     immersx/core/reduced_field_catalog.h
     immersx/core/reduced_field_utils.h

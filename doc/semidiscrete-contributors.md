@@ -66,15 +66,32 @@ a scaled observable evaluates $q=2u$ and linearizes to $2I$:
 auto pressure = adapter.observe(fluid.solution).scaled(2.);
 ```
 
-An `EvaluationDomain` records only dimensions, a geometry identity, and an
-optional evaluation-policy identity. It does not own a mesh, DoFHandler,
-quadrature, or target Problem. The current algebraic identity uses the default
-domain; future pressure and lifting Representations can carry line and
-surface domains without changing their source dependency.
+An `EvaluationDomain` records dimensions, a geometry identity, optional
+evaluation-policy identity, and the points at which a value is evaluated. It
+does not own a mesh, DoFHandler, quadrature, or target Problem. The current
+algebraic identity uses the default domain; pressure and lifting
+Representations can carry line and surface domains without changing their
+source dependency.
 
 Later representations can select components, evaluate other nonlinear
 observables, or provide geometry-dependent lifting without changing the
 Problem/Field execution storage.
+
+A geometry lifting remains a Representation. The geometry owns only the map
+between source parameters and target evaluation points:
+
+```{code-block} cpp
+ParametricLiftingGeometry<Vector, Vector> cylinder(
+  source_prototype, target_prototype, source_parameters, surface_points,
+  surface_domain,
+  [](const dealii::Point<3> &point) { return point[0]; });
+auto surface_quantity = lift(line_quantity, cylinder);
+```
+
+`surface_quantity.source()` is the same Field as `line_quantity.source()`,
+while `surface_quantity.domain()` is the cylindrical surface domain. Its
+evaluation and linearization apply the geometry transfer and then the source
+Representation; no Field, execution block, or Problem is created.
 
 For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them

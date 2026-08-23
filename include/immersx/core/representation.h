@@ -57,14 +57,16 @@ namespace ImmersX
    */
   struct EvaluationDomain
   {
-    EvaluationDomain(const unsigned int         dimension     = 0,
-                     const unsigned int         spacedim      = 0,
-                     std::string                geometry_id   = "algebraic",
-                     std::optional<std::string> evaluation_id = {})
+    EvaluationDomain(const unsigned int            dimension     = 0,
+                     const unsigned int            spacedim      = 0,
+                     std::string                   geometry_id   = "algebraic",
+                     std::optional<std::string>    evaluation_id = {},
+                     std::vector<dealii::Point<3>> evaluation_points = {})
       : dimension(dimension)
       , spacedim(spacedim)
       , geometry_id(std::move(geometry_id))
       , evaluation_id(std::move(evaluation_id))
+      , evaluation_points(std::move(evaluation_points))
     {}
 
     static EvaluationDomain
@@ -73,10 +75,11 @@ namespace ImmersX
       return EvaluationDomain();
     }
 
-    unsigned int               dimension;
-    unsigned int               spacedim;
-    std::string                geometry_id;
-    std::optional<std::string> evaluation_id;
+    unsigned int                  dimension;
+    unsigned int                  spacedim;
+    std::string                   geometry_id;
+    std::optional<std::string>    evaluation_id;
+    std::vector<dealii::Point<3>> evaluation_points;
 
     friend bool
     operator==(const EvaluationDomain &left, const EvaluationDomain &right)
@@ -84,7 +87,8 @@ namespace ImmersX
       return left.dimension == right.dimension &&
              left.spacedim == right.spacedim &&
              left.geometry_id == right.geometry_id &&
-             left.evaluation_id == right.evaluation_id;
+             left.evaluation_id == right.evaluation_id &&
+             left.evaluation_points == right.evaluation_points;
     }
 
     friend bool
