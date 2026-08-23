@@ -57,13 +57,20 @@ auto temperature = adapter.observe(poisson.solution);
 ```
 
 During evaluation it returns the source Field state, and its linearization is
-the identity operator. Every Representation also exposes `support()`, which
-identifies the source support without naming a target Problem. For example, a
-scaled observable evaluates $q=2u$ and linearizes to $2I$:
+the identity operator. Every Representation exposes both `source()` for Field
+dependency identity and `domain()` for the physical evaluation domain. These
+are deliberately distinct: a Field is not a geometric support. For example,
+a scaled observable evaluates $q=2u$ and linearizes to $2I$:
 
 ```{code-block} cpp
 auto pressure = adapter.observe(fluid.solution).scaled(2.);
 ```
+
+An `EvaluationDomain` records only dimensions, a geometry identity, and an
+optional evaluation-policy identity. It does not own a mesh, DoFHandler,
+quadrature, or target Problem. The current algebraic identity uses the default
+domain; future pressure and lifting Representations can carry line and
+surface domains without changing their source dependency.
 
 Later representations can select components, evaluate other nonlinear
 observables, or provide geometry-dependent lifting without changing the

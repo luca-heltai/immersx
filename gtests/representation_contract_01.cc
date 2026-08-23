@@ -70,6 +70,7 @@ TEST(Representation, Identity) // NOLINT
 
   ImmersX::Representation<Vector> representation(temperature);
   EXPECT_EQ(representation.source(), temperature);
+  EXPECT_EQ(representation.domain(), ImmersX::EvaluationDomain::algebraic());
   EXPECT_EQ(&representation.evaluate(context), &values);
 
   const auto identity = representation.linearize(context);
@@ -95,9 +96,16 @@ TEST(Representation, IdentityLinearization) // NOLINT
   state_view.bind(potential, values);
   const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
 
-  const auto pressure = ImmersX::Representation<Vector>(potential).scaled(2.);
+  const ImmersX::EvaluationDomain line_domain(1,
+                                              3,
+                                              "centerline",
+                                              std::string("line-quadrature"));
+  const auto                      pressure =
+    ImmersX::Representation<Vector>(potential, line_domain).scaled(2.);
   EXPECT_EQ(pressure.source(), potential);
-  EXPECT_EQ(pressure.support(), potential);
+  EXPECT_EQ(pressure.domain(), line_domain);
+  EXPECT_EQ(pressure.domain().dimension, 1u);
+  EXPECT_EQ(pressure.domain().spacedim, 3u);
 
   const auto evaluated = pressure.evaluate(context);
   EXPECT_EQ(evaluated[0], 2.);

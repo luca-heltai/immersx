@@ -38,12 +38,66 @@
 #include <immersx/coupling/tensor_product_space.h>
 
 #include <map>
+#include <optional>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace ImmersX
 {
+  /**
+   * Minimal description of the physical domain on which a Representation is
+   * evaluated.
+   *
+   * This is deliberately independent of meshes, DoFHandlers, and Problems.
+   * `geometry_id` is an application-level identity for the support geometry;
+   * `evaluation_id` can identify an optional evaluation/quadrature policy
+   * without making that policy part of the Representation contract.
+   */
+  struct EvaluationDomain
+  {
+    EvaluationDomain(const unsigned int         dimension     = 0,
+                     const unsigned int         spacedim      = 0,
+                     std::string                geometry_id   = "algebraic",
+                     std::optional<std::string> evaluation_id = {})
+      : dimension(dimension)
+      , spacedim(spacedim)
+      , geometry_id(std::move(geometry_id))
+      , evaluation_id(std::move(evaluation_id))
+    {}
+
+    static EvaluationDomain
+    algebraic()
+    {
+      return EvaluationDomain();
+    }
+
+    unsigned int               dimension;
+    unsigned int               spacedim;
+    std::string                geometry_id;
+    std::optional<std::string> evaluation_id;
+
+    friend bool
+    operator==(const EvaluationDomain &left, const EvaluationDomain &right)
+    {
+      return left.dimension == right.dimension &&
+             left.spacedim == right.spacedim &&
+             left.geometry_id == right.geometry_id &&
+             left.evaluation_id == right.evaluation_id;
+    }
+
+    friend bool
+    operator!=(const EvaluationDomain &left, const EvaluationDomain &right)
+    {
+      return !(left == right);
+    }
+  };
+
+  template <typename RangeVectorType, typename DomainVectorType>
+  using RepresentationOperator =
+    dealii::LinearOperator<RangeVectorType, DomainVectorType>;
+
   template <typename VectorType>
   class ScaledRepresentation;
 
@@ -129,8 +183,11 @@ namespace ImmersX
     using value_type = FieldComponentValues<VectorType>;
     using Operator   = dealii::LinearOperator<VectorType, VectorType>;
 
-    explicit ComponentRepresentation(const FieldComponentView &source)
+    explicit ComponentRepresentation(
+      const FieldComponentView &source,
+      const EvaluationDomain    domain = EvaluationDomain::algebraic())
       : source_(source)
+      , domain_(domain)
     {}
 
     const FieldComponentView &
@@ -139,10 +196,10 @@ namespace ImmersX
       return source_;
     }
 
-    FieldId
-    support() const
+    const EvaluationDomain &
+    domain() const
     {
-      return source_.source();
+      return domain_;
     }
 
     value_type
@@ -179,6 +236,7 @@ namespace ImmersX
 
   private:
     FieldComponentView source_;
+    EvaluationDomain   domain_;
   };
 
   /**
@@ -195,10 +253,13 @@ namespace ImmersX
   {
   public:
     using value_type = VectorType;
-    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+    using Operator   = RepresentationOperator<VectorType, VectorType>;
 
-    explicit Representation(const FieldId source)
+    explicit Representation(
+      const FieldId          source,
+      const EvaluationDomain domain = EvaluationDomain::algebraic())
       : source_(source)
+      , domain_(domain)
     {}
 
     FieldId
@@ -207,11 +268,12 @@ namespace ImmersX
       return source_;
     }
 
-    /** Return the source Field's algebraic/geometric support identity. */
-    FieldId
-    support() const
+    /** Return the physical evaluation domain, independent of the source Field.
+     */
+    const EvaluationDomain &
+    domain() const
     {
-      return source_;
+      return domain_;
     }
 
     /** Return the scalar observable q = factor * u. */
@@ -246,7 +308,8 @@ namespace ImmersX
     }
 
   private:
-    FieldId source_;
+    FieldId          source_;
+    EvaluationDomain domain_;
   };
 
   /**
@@ -262,7 +325,7 @@ namespace ImmersX
   {
   public:
     using value_type = VectorType;
-    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+    using Operator   = RepresentationOperator<VectorType, VectorType>;
 
     ScaledRepresentation(const Representation<VectorType> &source,
                          const double                      factor)
@@ -276,10 +339,10 @@ namespace ImmersX
       return source_.source();
     }
 
-    FieldId
-    support() const
+    const EvaluationDomain &
+    domain() const
     {
-      return source_.support();
+      return source_.domain();
     }
 
     double
