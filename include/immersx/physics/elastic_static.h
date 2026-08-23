@@ -137,6 +137,12 @@ namespace ImmersX
       return locally_relevant_dofs_;
     }
 
+    const dealii::DoFHandler<spacedim> &
+    dof_handler() const
+    {
+      return dof_handler_;
+    }
+
     const dealii::AffineConstraints<double> &
     constraints() const
     {

@@ -20,6 +20,7 @@ tutorials grouped here scales well as more guides are added for `laplacian`,
 poisson
 reduced-poisson
 elasticity
+coupled-poisson-elasticity
 elastodynamics
 fiber-reinforced-elastodynamics
 navier-stokes
