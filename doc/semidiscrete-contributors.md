@@ -81,17 +81,17 @@ A geometry lifting remains a Representation. The geometry owns only the map
 between source parameters and target evaluation points:
 
 ```{code-block} cpp
-ParametricLiftingGeometry<Vector, Vector> cylinder(
-  source_prototype, target_prototype, source_parameters, surface_points,
-  surface_domain,
+ParametricGeometryMap cylinder_map(
+  source_parameters, surface_points, surface_domain,
   [](const dealii::Point<3> &point) { return point[0]; });
-auto surface_quantity = lift(line_quantity, cylinder);
+auto surface_quantity = lift(line_quantity, cylinder_map, target_prototype);
 ```
 
 `surface_quantity.source()` is the same Field as `line_quantity.source()`,
 while `surface_quantity.domain()` is the cylindrical surface domain. Its
-evaluation and linearization apply the geometry transfer and then the source
-Representation; no Field, execution block, or Problem is created.
+geometry map is independent of its vector-valued transfer. Evaluation and
+linearization apply the transfer and then the source Representation; no Field,
+execution block, or Problem is created.
 
 For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them

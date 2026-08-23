@@ -148,14 +148,17 @@ TEST(Representation, Lifting) // NOLINT
   const ImmersX::Representation<Vector> line_quantity(temperature, line_domain);
 
   const std::vector<Point>        surface_points = {Point(0., 1., 0.),
+                                                    Point(0., 0., 1.),
                                                     Point(.5, 0., 1.),
                                                     Point(1., -1., 0.)};
   const ImmersX::EvaluationDomain surface_domain(
     2, 3, "cylindrical-surface", std::string("surface-points"), surface_points);
-  Vector                                             target_prototype(3);
-  ImmersX::ParametricLiftingGeometry<Vector, Vector> cylinder(
-    values, target_prototype, {0., 1.}, surface_points, surface_domain);
-  const auto surface_quantity = ImmersX::lift(line_quantity, cylinder);
+  Vector                               target_prototype(4);
+  const ImmersX::ParametricGeometryMap cylinder_map({0., 1.},
+                                                    surface_points,
+                                                    surface_domain);
+  const auto                           surface_quantity =
+    ImmersX::lift(line_quantity, cylinder_map, target_prototype);
 
   EXPECT_EQ(layout.n_fields(), 1u);
   EXPECT_EQ(surface_quantity.source(), temperature);
@@ -164,11 +167,12 @@ TEST(Representation, Lifting) // NOLINT
 
   const auto lifted_values = surface_quantity.evaluate(context);
   EXPECT_DOUBLE_EQ(lifted_values[0], 0.);
-  EXPECT_DOUBLE_EQ(lifted_values[1], .5);
-  EXPECT_DOUBLE_EQ(lifted_values[2], 1.);
+  EXPECT_DOUBLE_EQ(lifted_values[1], 0.);
+  EXPECT_DOUBLE_EQ(lifted_values[2], .5);
+  EXPECT_DOUBLE_EQ(lifted_values[3], 1.);
 
-  dealii::FullMatrix<double> weak_form(1, 3);
-  weak_form(0, 1) = 1.;
+  dealii::FullMatrix<double> weak_form(1, 4);
+  weak_form(0, 2) = 1.;
   const auto coupling_matrix =
     ImmersX::payload_free(dealii::linear_operator<Vector, Vector>(weak_form));
   Vector                         target_residual_prototype(1);
@@ -197,6 +201,7 @@ TEST(Representation, LiftingLinearization) // NOLINT
   const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
 
   const std::vector<Point>              surface_points = {Point(0., 1., 0.),
+                                                          Point(0., 0., 1.),
                                                           Point(.5, 0., 1.),
                                                           Point(1., -1., 0.)};
   const ImmersX::Representation<Vector> line_quantity(
@@ -206,22 +211,25 @@ TEST(Representation, LiftingLinearization) // NOLINT
                               "centerline",
                               std::string("line-points"),
                               {Point(0., 0., 0.), Point(1., 0., 0.)}));
-  Vector                          target_prototype(3);
+  Vector                          target_prototype(4);
   const ImmersX::EvaluationDomain surface_domain(
     2, 3, "cylindrical-surface", std::string("surface-points"), surface_points);
-  ImmersX::ParametricLiftingGeometry<Vector, Vector> cylinder(
-    values, target_prototype, {0., 1.}, surface_points, surface_domain);
-  const auto surface_quantity = ImmersX::lift(line_quantity, cylinder);
+  const ImmersX::ParametricGeometryMap cylinder_map({0., 1.},
+                                                    surface_points,
+                                                    surface_domain);
+  const auto                           surface_quantity =
+    ImmersX::lift(line_quantity, cylinder_map, target_prototype);
 
   Vector direction(2);
   direction[0] = 2.;
   direction[1] = 4.;
-  Vector action(3);
+  Vector action(4);
   surface_quantity.linearize(context).vmult(action, direction);
 
   EXPECT_DOUBLE_EQ(action[0], 2.);
-  EXPECT_DOUBLE_EQ(action[1], 3.);
-  EXPECT_DOUBLE_EQ(action[2], 4.);
+  EXPECT_DOUBLE_EQ(action[1], 2.);
+  EXPECT_DOUBLE_EQ(action[2], 3.);
+  EXPECT_DOUBLE_EQ(action[3], 4.);
   EXPECT_EQ(surface_quantity.source(), line_quantity.source());
   EXPECT_NE(surface_quantity.domain(), line_quantity.domain());
 }
