@@ -2,23 +2,34 @@
 
 Application authors compose standalone Problems and Interactions through an
 execution adapter. The adapter owns storage, execution blocks, DAE metadata,
-and solver policy.
+and solver policy. The public composition vocabulary is deliberately small:
+add a Problem, observe a quantity, lift it to a user-described support, couple
+it to another Problem, and solve.
 
 ## Application authors
 
-Transient elastodynamics uses direct Problem and Interaction additions:
+The returned value is a semantic Problem handle. It keeps the contributor's
+Field identifiers and a non-owning view of the adapter; it does not duplicate
+Problem state or execution storage. A typical coupled workflow is:
 
 ```{code-block} cpp
 IDAAdapter<FieldVector, GlobalVector> ida(data, MPI_COMM_WORLD, solve);
-auto matrix = ida.add(matrix_problem, "matrix");
-auto fiber  = ida.add(fiber_problem, "fiber");
-auto coupling = ida.add(interaction, "fiber_coupling",
-                        matrix.velocity, fiber.velocity);
+auto fluid = ida.add(flow_problem, "fluid");
+auto wall  = ida.add(elastic_problem, "wall");
+
+auto pressure = fluid.observe(Pressure{});
+auto wall_pressure = pressure.lift(VesselSurface{});
+ida.couple(wall_pressure, wall, Traction{});
 
 auto state     = ida.make_state();
 auto state_dot = ida.make_state();
 ida.solve(state, state_dot);
 ```
+
+`Pressure`, `VesselSurface`, and `Traction` are small descriptors supplied by
+the relevant physics modules. ImmersX core does not need to know what those
+quantities mean. The module interprets them and creates the appropriate
+observable, lifting, and interaction implementation.
 
 For an affine steady problem, use `LinearAdapter`:
 
@@ -28,46 +39,72 @@ Adapter linear(MPI_COMM_WORLD, solve_global_operator);
 auto bulk = linear.add(bulk_problem, "bulk");
 auto state = linear.make_state();
 linear.solve(state);
-bulk_problem.set_solution(linear.field(state, bulk.solution));
+bulk_problem.set_solution(linear.field(state, bulk.fields().solution));
 ```
 
-Two standalone Poisson Problems and a scalar continuity Interaction use the
-same API:
+For a direct contributor-level workflow, Field identifiers are available from
+the handle's `fields()` view:
 
 ```{code-block} cpp
 auto bulk = linear.add(bulk_problem, "bulk");
 auto embedded = linear.add(embedded_problem, "embedded");
 auto continuity = linear.add(interaction, "continuity",
-                             bulk.solution, embedded.solution);
+                             bulk.fields().solution,
+                             embedded.fields().solution);
 ```
 
-The returned `continuity.multiplier` is an algebraic semantic Field. The
-application never names its execution block.
+The returned `continuity.fields().multiplier` is an algebraic semantic Field.
+The application never names its execution block.
 
-## What is a Representation?
+## Observables, lifting, and coupling
 
-A `Field` is a semantic state row owned by a Problem. A `Representation` is a
-lightweight observable or lifting derived from one or more Fields. It owns no
-execution block and is not added to an adapter as a Problem. The minimal
-identity representation is obtained from an adapter with:
+Application code does not construct observable or coupling implementation
+objects. Physics modules expose descriptors and interpret them through the
+following customization shapes:
 
 ```{code-block} cpp
-auto poisson = adapter.add(problem, "poisson");
-auto temperature = adapter.observe(poisson.solution);
+template <typename ProblemHandle>
+auto make_representation(const ProblemHandle &problem, Pressure)
+{
+  return make_pressure_quantity(problem.fields().pressure);
+}
+
+template <typename Quantity>
+auto make_lift(const Quantity &quantity, VesselSurface surface)
+{
+  return make_surface_quantity(quantity, surface);
+}
+
+template <typename Quantity, typename ProblemHandle>
+auto make_interaction(const Quantity &quantity,
+                      const ProblemHandle &wall,
+                      Traction traction)
+{
+  return make_traction_interaction(quantity,
+                                   wall.fields().force,
+                                   traction);
+}
 ```
 
-During evaluation it returns the source Field state, and its linearization is
-the identity operator. Every Representation exposes both `source()` for Field
-dependency identity and `domain()` for the physical evaluation domain. These
-are deliberately distinct: a Field is not a geometric support. For example,
-a scaled observable evaluates $q=2u$ and linearizes to $2I$:
+These functions are ordinary templates found by ADL. A descriptor may instead
+provide a `create(...)` member. No `ObservableBase`, factory, registry, or
+inheritance hierarchy is required.
+
+The implementation returned by `make_representation` is a reusable observable
+view derived from one or more Fields. It owns no execution block. For example,
+physics code may expose a scaled quantity:
 
 ```{code-block} cpp
-auto pressure = adapter.observe(fluid.solution).scaled(2.);
+auto pressure = fluid.observe(Pressure{}).scaled(2.);
 ```
 
-`RepresentationDomain` records only dimensions and a geometry identity. It
-does not own a mesh, DoFHandler, quadrature, or target Problem. An
+The following details are useful when implementing a descriptor, but are not
+needed by application authors. A representation has a source Field dependency
+and a physical evaluation domain. `RepresentationDomain` records dimensions
+and a geometry identity; an `EvaluationRequest` supplies points for one
+evaluation. `QuantitySpace<ValueType>` carries the typed value and domain.
+
+It does not own a mesh, DoFHandler, quadrature, or target Problem. An
 `EvaluationRequest` supplies the points and optional evaluation-policy
 identity for one call. Thus the same cylindrical Representation can be
 evaluated at several point sets without changing its domain or source
@@ -196,22 +233,19 @@ Scalar and vector interactions translate their shared `ConstraintEquation`
 through the same generic semantic mechanism. The multiplier is algebraic and
 contributors never receive IDA's `alpha`.
 
-A non-constraint Interaction can read a Representation and add a load directly
-to an existing Problem-owned row. For example, a pressure representation can
-drive an elasticity force Field without introducing a multiplier or another
-execution block:
+A non-constraint Interaction can read an observable and add a load directly to
+an existing Problem-owned row. Application code uses the same descriptor API:
 
 ```{code-block} cpp
-auto pressure = adapter.observe(fluid.pressure);
-auto traction = PressureLoadInteraction<Vector>(pressure,
-                                                solid.force,
-                                                pressure_to_force);
-adapter.add(traction, "pressure_traction");
+auto pressure = fluid.observe(Pressure{});
+auto wall_pressure = pressure.lift(VesselSurface{});
+adapter.couple(wall_pressure, solid, Traction{});
 ```
 
-The interaction contributes both the load residual and its `dF/dy` operator.
-The adapter still owns the global block layout; the interaction only names the
-semantic target row and the representation-to-force operator.
+The physics descriptor implementation contributes both the load residual and
+its `dF/dy` operator. The adapter still owns the global block layout; the
+interaction only names the semantic target row and the observable-to-force
+operator.
 
 ## Adapter distinction and lifetime
 

@@ -21,7 +21,8 @@ IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(data,
 auto matrix = ida.add(matrix_problem, "matrix");
 auto fiber  = ida.add(fiber_problem, "fiber");
 auto coupling = ida.add(interaction, "fiber_coupling",
-                        matrix.velocity, fiber.velocity);
+                        matrix.fields().velocity,
+                        fiber.fields().velocity);
 auto state     = ida.make_state();
 auto state_dot = ida.make_state();
 ```
