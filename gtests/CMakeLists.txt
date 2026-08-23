@@ -28,6 +28,7 @@ set(_public_headers
     immersx/core/contributor.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
+    immersx/core/lifting.h
     immersx/core/load_interaction.h
     immersx/core/reduced_field_catalog.h
     immersx/core/reduced_field_utils.h
@@ -40,6 +41,8 @@ set(_public_headers
     immersx/core/linear_adapter.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
+    immersx/coupling/coupling_operator.h
+    immersx/physics/elastic_static.h
     immersx/algebra/lagrange_multiplier_interaction.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h

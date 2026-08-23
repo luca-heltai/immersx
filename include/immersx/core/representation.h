@@ -38,12 +38,87 @@
 #include <immersx/coupling/tensor_product_space.h>
 
 #include <map>
+#include <optional>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace ImmersX
 {
+  /** A minimal description of a Representation's physical support. */
+  struct RepresentationDomain
+  {
+    RepresentationDomain(const unsigned int dimension   = 0,
+                         const unsigned int spacedim    = 0,
+                         std::string        geometry_id = "algebraic")
+      : dimension(dimension)
+      , spacedim(spacedim)
+      , geometry_id(std::move(geometry_id))
+    {}
+
+    static RepresentationDomain
+    algebraic()
+    {
+      return RepresentationDomain();
+    }
+
+    unsigned int dimension;
+    unsigned int spacedim;
+    std::string  geometry_id;
+
+    friend bool
+    operator==(const RepresentationDomain &left,
+               const RepresentationDomain &right)
+    {
+      return left.dimension == right.dimension &&
+             left.spacedim == right.spacedim &&
+             left.geometry_id == right.geometry_id;
+    }
+
+    friend bool
+    operator!=(const RepresentationDomain &left,
+               const RepresentationDomain &right)
+    {
+      return !(left == right);
+    }
+  };
+
+  /** Points and policy used for one Representation evaluation. */
+  struct EvaluationRequest
+  {
+    using Point = dealii::Point<3>;
+
+    EvaluationRequest(std::vector<Point>         points        = {},
+                      std::optional<std::string> evaluation_id = {})
+      : points(std::move(points))
+      , evaluation_id(std::move(evaluation_id))
+    {}
+
+    std::vector<Point>         points;
+    std::optional<std::string> evaluation_id;
+
+    friend bool
+    operator==(const EvaluationRequest &left, const EvaluationRequest &right)
+    {
+      return left.points == right.points &&
+             left.evaluation_id == right.evaluation_id;
+    }
+
+    friend bool
+    operator!=(const EvaluationRequest &left, const EvaluationRequest &right)
+    {
+      return !(left == right);
+    }
+  };
+
+  template <typename RangeVectorType, typename DomainVectorType>
+  using RepresentationOperator =
+    dealii::LinearOperator<RangeVectorType, DomainVectorType>;
+
+  template <typename VectorType>
+  class ScaledRepresentation;
+
   /** A non-owning selection of components from one semantic Field. */
   class FieldComponentView
   {
@@ -126,8 +201,11 @@ namespace ImmersX
     using value_type = FieldComponentValues<VectorType>;
     using Operator   = dealii::LinearOperator<VectorType, VectorType>;
 
-    explicit ComponentRepresentation(const FieldComponentView &source)
+    explicit ComponentRepresentation(
+      const FieldComponentView  &source,
+      const RepresentationDomain domain = RepresentationDomain::algebraic())
       : source_(source)
+      , domain_(domain)
     {}
 
     const FieldComponentView &
@@ -136,14 +214,22 @@ namespace ImmersX
       return source_;
     }
 
+    const RepresentationDomain &
+    domain() const
+    {
+      return domain_;
+    }
+
     value_type
-    evaluate(const EvaluationContext<VectorType> &context) const
+    evaluate(const EvaluationContext<VectorType> &context,
+             const EvaluationRequest & /*request*/ = {}) const
     {
       return value_type(context.state(source_.source()), source_.components());
     }
 
     Operator
-    linearize(const EvaluationContext<VectorType> &context) const
+    linearize(const EvaluationContext<VectorType> &context,
+              const EvaluationRequest & /*request*/ = {}) const
     {
       const auto *reference = &context.state(source_.source());
       const auto *mask      = &source_.components();
@@ -169,7 +255,8 @@ namespace ImmersX
     }
 
   private:
-    FieldComponentView source_;
+    FieldComponentView   source_;
+    RepresentationDomain domain_;
   };
 
   /**
@@ -186,10 +273,13 @@ namespace ImmersX
   {
   public:
     using value_type = VectorType;
-    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+    using Operator   = RepresentationOperator<VectorType, VectorType>;
 
-    explicit Representation(const FieldId source)
+    explicit Representation(
+      const FieldId              source,
+      const RepresentationDomain domain = RepresentationDomain::algebraic())
       : source_(source)
+      , domain_(domain)
     {}
 
     FieldId
@@ -198,14 +288,28 @@ namespace ImmersX
       return source_;
     }
 
+    /** Return the physical evaluation domain, independent of the source Field.
+     */
+    const RepresentationDomain &
+    domain() const
+    {
+      return domain_;
+    }
+
+    /** Return the scalar observable q = factor * u. */
+    ScaledRepresentation<VectorType>
+    scaled(const double factor) const;
+
     const VectorType &
-    evaluate(const EvaluationContext<VectorType> &context) const
+    evaluate(const EvaluationContext<VectorType> &context,
+             const EvaluationRequest & /*request*/ = {}) const
     {
       return context.state(source_);
     }
 
     Operator
-    linearize(const EvaluationContext<VectorType> &context) const
+    linearize(const EvaluationContext<VectorType> &context,
+              const EvaluationRequest & /*request*/ = {}) const
     {
       const auto *reference = &context.state(source_);
 
@@ -226,8 +330,97 @@ namespace ImmersX
     }
 
   private:
-    FieldId source_;
+    FieldId              source_;
+    RepresentationDomain domain_;
   };
+
+  /**
+   * A scalar transform of an algebraic Representation.
+   *
+   * This value type owns no state and does not know the target Problem.  Its
+   * evaluation is an owned vector value because a transformed observable no
+   * longer aliases the source Field; its linearization remains an operator on
+   * the source Field's vector space.
+   */
+  template <typename VectorType>
+  class ScaledRepresentation
+  {
+  public:
+    using value_type = VectorType;
+    using Operator   = RepresentationOperator<VectorType, VectorType>;
+
+    ScaledRepresentation(const Representation<VectorType> &source,
+                         const double                      factor)
+      : source_(source)
+      , factor_(factor)
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_.source();
+    }
+
+    const RepresentationDomain &
+    domain() const
+    {
+      return source_.domain();
+    }
+
+    double
+    factor() const
+    {
+      return factor_;
+    }
+
+    value_type
+    evaluate(const EvaluationContext<VectorType> &context,
+             const EvaluationRequest             &request = {}) const
+    {
+      value_type result = source_.evaluate(context, request);
+      result *= factor_;
+      return result;
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const EvaluationRequest & /*request*/ = {}) const
+    {
+      const auto *reference = &context.state(source_.source());
+      const auto  factor    = factor_;
+
+      Operator result;
+      result.reinit_range_vector = [reference](VectorType &vector, bool omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = [factor](VectorType       &destination,
+                              const VectorType &source) {
+        destination = source;
+        destination *= factor;
+      };
+      result.vmult_add = [factor](VectorType       &destination,
+                                  const VectorType &source) {
+        VectorType contribution = source;
+        contribution *= factor;
+        destination += contribution;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+  private:
+    Representation<VectorType> source_;
+    double                     factor_;
+  };
+
+  template <typename VectorType>
+  ScaledRepresentation<VectorType>
+  Representation<VectorType>::scaled(const double factor) const
+  {
+    return ScaledRepresentation<VectorType>(*this, factor);
+  }
 
   /**
    * One physical quadrature point together with the algebraic data that

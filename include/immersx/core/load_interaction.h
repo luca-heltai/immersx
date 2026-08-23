@@ -12,6 +12,7 @@
 
 #include <immersx/core/contributor.h>
 #include <immersx/core/representation.h>
+#include <immersx/coupling/coupling_operator.h>
 
 #include <utility>
 
@@ -21,31 +22,29 @@ namespace ImmersX
    * A residual contribution that maps a represented pressure/load to a
    * Problem-owned force row.
    *
-   * The interaction owns neither state nor an execution block.  Its load
-   * operator maps the source Representation's vector space into the target
-   * Field's vector space; the same operator is registered as the state
-   * Jacobian.  PressureLoadInteraction is the application-facing name for
-   * this first representation-driven load specialization.
+   * The interaction owns neither state nor an execution block.  It composes
+   * the Representation derivative with a CouplingOperator that maps quantity
+   * values into the target Field's residual space.
    */
-  template <typename VectorType>
+  template <typename RepresentationType, typename TargetVectorType>
   class RepresentationLoadInteraction
   {
   public:
-    using RepresentationType = Representation<VectorType>;
-    using Operator           = dealii::LinearOperator<VectorType, VectorType>;
+    using QuantityVectorType = typename RepresentationType::value_type;
+    using CouplingType = CouplingOperator<QuantityVectorType, TargetVectorType>;
 
-    RepresentationLoadInteraction(const RepresentationType &pressure,
+    RepresentationLoadInteraction(const RepresentationType &quantity,
                                   const FieldId             target,
-                                  Operator                  load_operator)
-      : pressure_(pressure)
+                                  const CouplingType       &coupling)
+      : quantity_(quantity)
       , target_(target)
-      , load_operator_(std::move(load_operator))
+      , coupling_(coupling)
     {}
 
     const RepresentationType &
-    pressure() const
+    quantity() const
     {
-      return pressure_;
+      return quantity_;
     }
 
     FieldId
@@ -54,43 +53,43 @@ namespace ImmersX
       return target_;
     }
 
-    const Operator &
-    load_operator() const
+    const CouplingType &
+    coupling() const
     {
-      return load_operator_;
+      return coupling_;
     }
 
   private:
-    RepresentationType pressure_;
+    RepresentationType quantity_;
     FieldId            target_;
-    Operator           load_operator_;
+    CouplingType       coupling_;
   };
-
-  template <typename VectorType>
-  using PressureLoadInteraction = RepresentationLoadInteraction<VectorType>;
 
   /** This interaction introduces no auxiliary semantic fields. */
   struct RepresentationLoadFields
   {};
 
   /** Register a representation-driven load residual and its dF/dy term. */
-  template <typename Builder, typename VectorType>
+  template <typename Builder,
+            typename RepresentationType,
+            typename TargetVectorType>
   RepresentationLoadFields
-  contribute(Builder                                         &builder,
-             const RepresentationLoadInteraction<VectorType> &interaction)
+  contribute(Builder                                               &builder,
+             const RepresentationLoadInteraction<RepresentationType,
+                                                 TargetVectorType> &interaction)
   {
     using OperatorFactory = typename Builder::Model::OperatorFactory;
 
-    const auto pressure = interaction.pressure();
-    const auto load     = interaction.load_operator();
+    const auto quantity = interaction.quantity();
+    const auto coupling = interaction.coupling();
 
     builder.term(interaction.target(), "pressure-load")
-      .residual([pressure, load](const auto &context) {
-        return load * pressure.evaluate(context);
+      .residual([quantity, coupling](const auto &context) {
+        return coupling.residual(quantity.evaluate(context));
       })
-      .state(pressure.source(),
-             OperatorFactory([pressure, load](const auto &context) {
-               return load * pressure.linearize(context);
+      .state(quantity.source(),
+             OperatorFactory([quantity, coupling](const auto &context) {
+               return coupling.linearize() * quantity.linearize(context);
              }));
 
     return {};

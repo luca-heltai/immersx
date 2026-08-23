@@ -36,12 +36,12 @@
 namespace ImmersX
 {
   template <int dim, typename number, int n_components>
-  CouplingOperator<dim, number, n_components>::CouplingOperator(
-    const Inclusions<dim>           &inclusions_,
-    const DoFHandler<dim>           &dof_handler_,
-    const AffineConstraints<number> &constraints_,
-    const MappingQ<dim>             &mapping_,
-    const FiniteElement<dim>        &fe_)
+  MatrixFreeCouplingOperator<dim, number, n_components>::
+    MatrixFreeCouplingOperator(const Inclusions<dim>           &inclusions_,
+                               const DoFHandler<dim>           &dof_handler_,
+                               const AffineConstraints<number> &constraints_,
+                               const MappingQ<dim>             &mapping_,
+                               const FiniteElement<dim>        &fe_)
     : rpe{{1e-9, true, inclusions_.rtree_extraction_level, {}}}
     , n_coefficients{inclusions_.n_coefficients}
   {
@@ -77,7 +77,7 @@ namespace ImmersX
 
   template <int dim, typename number, int n_components>
   void
-  CouplingOperator<dim, number, n_components>::initialize_dof_vector(
+  MatrixFreeCouplingOperator<dim, number, n_components>::initialize_dof_vector(
     VectorType &vec) const
   {
     (void)vec;
@@ -87,7 +87,7 @@ namespace ImmersX
 
   template <int dim, typename number, int n_components>
   void
-  CouplingOperator<dim, number, n_components>::vmult(
+  MatrixFreeCouplingOperator<dim, number, n_components>::vmult(
     VectorType       &dst,
     const VectorType &src) const
   {
@@ -164,7 +164,7 @@ namespace ImmersX
 
   template <int dim, typename number, int n_components>
   void
-  CouplingOperator<dim, number, n_components>::Tvmult(
+  MatrixFreeCouplingOperator<dim, number, n_components>::Tvmult(
     VectorType       &dst,
     const VectorType &src) const
   {
@@ -235,7 +235,7 @@ namespace ImmersX
 
   template <int dim, typename number, int n_components>
   void
-  CouplingOperator<dim, number, n_components>::vmult_add(
+  MatrixFreeCouplingOperator<dim, number, n_components>::vmult_add(
     VectorType       &dst,
     const VectorType &src) const
   {
@@ -249,7 +249,7 @@ namespace ImmersX
 
   template <int dim, typename number, int n_components>
   void
-  CouplingOperator<dim, number, n_components>::Tvmult_add(
+  MatrixFreeCouplingOperator<dim, number, n_components>::Tvmult_add(
     VectorType       &dst,
     const VectorType &src) const
   {
@@ -264,9 +264,9 @@ namespace ImmersX
 
 
   // Template instantiations
-  template class CouplingOperator<2, double, 1>;
-  template class CouplingOperator<3, double, 1>;
-  template class CouplingOperator<2, float, 1>;
-  template class CouplingOperator<3, float, 1>;
+  template class MatrixFreeCouplingOperator<2, double, 1>;
+  template class MatrixFreeCouplingOperator<3, double, 1>;
+  template class MatrixFreeCouplingOperator<2, float, 1>;
+  template class MatrixFreeCouplingOperator<3, float, 1>;
 
 } // namespace ImmersX

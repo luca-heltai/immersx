@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------
 
 /**
- * @brief Header with the interface of the CouplingOperator class.
+ * @brief Header with the interface of the MatrixFreeCouplingOperator class.
  */
 #ifndef rdlm_mf_utils
 #define rdlm_mf_utils
@@ -51,7 +51,7 @@ namespace ImmersX
    * matrix-free fashion.
    */
   template <int dim, typename number, int n_components = 1>
-  class CouplingOperator
+  class MatrixFreeCouplingOperator
   {
   public:
     /**
@@ -64,12 +64,12 @@ namespace ImmersX
      * triangulation and an optional mapping to initialize the evaluator on
      * remote points.
      */
-    CouplingOperator(const Inclusions<dim>           &inclusions,
-                     const DoFHandler<dim>           &dof_handler,
-                     const AffineConstraints<number> &constraints =
-                       AffineConstraints<number>(),
-                     const MappingQ<dim>      &mapping = MappingQ1<dim>(),
-                     const FiniteElement<dim> &fe      = FE_Q<dim>(1));
+    MatrixFreeCouplingOperator(const Inclusions<dim>           &inclusions,
+                               const DoFHandler<dim>           &dof_handler,
+                               const AffineConstraints<number> &constraints =
+                                 AffineConstraints<number>(),
+                               const MappingQ<dim> &mapping = MappingQ1<dim>(),
+                               const FiniteElement<dim> &fe = FE_Q<dim>(1));
 
     /**
      * Initialize a vector with the layout expected by this operator.

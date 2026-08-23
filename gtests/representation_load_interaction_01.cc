@@ -13,6 +13,7 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/linear_adapter.h>
 #include <immersx/core/load_interaction.h>
+#include <immersx/coupling/coupling_operator.h>
 
 namespace ImmersX
 {
@@ -56,13 +57,18 @@ TEST(RepresentationLoadInteraction, PressureMapsToForceWithoutField)
   matrix.set(1, 1, 3.);
   matrix.compress(dealii::VectorOperation::insert);
 
-  const auto pressure = adapter.observe(fields.pressure);
+  const auto pressure = adapter.observe(fields.pressure).scaled(2.);
   const auto load     = ImmersX::payload_free(
     dealii::linear_operator<FieldVector, FieldVector>(matrix));
-  adapter.add(ImmersX::PressureLoadInteraction<FieldVector>(pressure,
-                                                            fields.force,
-                                                            load),
-              "pressure");
+  FieldVector force_prototype;
+  force_prototype.reinit(owned, MPI_COMM_WORLD);
+  ImmersX::CouplingSpace<FieldVector> force_space(force_prototype);
+  ImmersX::CouplingOperator<FieldVector, FieldVector> coupling(load,
+                                                               force_space);
+  adapter.add(
+    ImmersX::RepresentationLoadInteraction<decltype(pressure), FieldVector>(
+      pressure, fields.force, coupling),
+    "pressure");
 
   auto state                               = adapter.make_state();
   adapter.field(state, fields.pressure)[0] = 4.;
@@ -74,14 +80,14 @@ TEST(RepresentationLoadInteraction, PressureMapsToForceWithoutField)
   adapter.evaluate_residual(state, residual);
   EXPECT_DOUBLE_EQ(adapter.field(residual, fields.pressure)[0], 0.);
   EXPECT_DOUBLE_EQ(adapter.field(residual, fields.pressure)[1], 0.);
-  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.force)[0], 8.);
-  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.force)[1], 15.);
+  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.force)[0], 16.);
+  EXPECT_DOUBLE_EQ(adapter.field(residual, fields.force)[1], 30.);
 
   auto direction                               = adapter.make_state();
   adapter.field(direction, fields.pressure)[0] = 1.;
   adapter.field(direction, fields.pressure)[1] = 1.;
   auto jacobian_action                         = adapter.make_state();
   adapter.jacobian(state).vmult(jacobian_action, direction);
-  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.force)[0], 2.);
-  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.force)[1], 3.);
+  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.force)[0], 4.);
+  EXPECT_DOUBLE_EQ(adapter.field(jacobian_action, fields.force)[1], 6.);
 }

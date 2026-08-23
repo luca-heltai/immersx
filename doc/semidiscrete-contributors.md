@@ -57,13 +57,80 @@ auto temperature = adapter.observe(poisson.solution);
 ```
 
 During evaluation it returns the source Field state, and its linearization is
-the identity operator. Later representations can select components, evaluate
-nonlinear observables, or provide geometry-dependent lifting without changing
-the Problem/Field execution storage.
+the identity operator. Every Representation exposes both `source()` for Field
+dependency identity and `domain()` for the physical evaluation domain. These
+are deliberately distinct: a Field is not a geometric support. For example,
+a scaled observable evaluates $q=2u$ and linearizes to $2I$:
+
+```{code-block} cpp
+auto pressure = adapter.observe(fluid.solution).scaled(2.);
+```
+
+`RepresentationDomain` records only dimensions and a geometry identity. It
+does not own a mesh, DoFHandler, quadrature, or target Problem. An
+`EvaluationRequest` supplies the points and optional evaluation-policy
+identity for one call. Thus the same cylindrical Representation can be
+evaluated at several point sets without changing its domain or source
+dependency:
+
+```{code-block} cpp
+RepresentationDomain surface_domain(2, 3, "cylindrical-surface");
+EvaluationRequest request_a(surface_points_a, "surface-points-a");
+EvaluationRequest request_b(surface_points_b, "surface-points-b");
+auto values_a = surface_quantity.evaluate(context, request_a);
+auto values_b = surface_quantity.evaluate(context, request_b);
+```
+
+Later representations can select components, evaluate other nonlinear
+observables, or provide geometry-dependent lifting without changing the
+Problem/Field execution storage.
+
+A geometry lifting remains a Representation. The geometry owns only the map
+between target points and source parameters; it does not know vectors or
+evaluation point sets. `ValueTransfer` owns the algebraic interpolation, and
+the lifting composes the transfer with the source Representation:
+
+```{code-block} cpp
+ParametricGeometryMap cylinder_map(
+  source_parameters, surface_domain,
+  [](const dealii::Point<3> &point) { return point[0]; });
+EvaluationRequest surface_request(surface_points, "surface-points");
+auto surface_quantity =
+  lift(line_quantity, cylinder_map, target_prototype, surface_request);
+```
+
+`surface_quantity.source()` is the same Field as `line_quantity.source()`,
+while `surface_quantity.domain()` is the cylindrical surface domain. Its
+geometry map is independent of its vector-valued transfer. Evaluation and
+linearization apply the requested transfer and then the source Representation;
+no Field, execution block, or Problem is created.
 
 For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them
 does not create a compacted vector or a new execution block.
+
+## CouplingOperator boundary
+
+A `CouplingOperator` maps evaluated quantity values into a target residual
+space. It owns the target-space action and its reinitialization, but it does
+not know the source Field or Representation:
+
+```{code-block} cpp
+CouplingSpace<Vector> target_space(target_prototype);
+CouplingOperator<Vector, Vector> coupling(weak_form, target_space);
+```
+
+An Interaction composes the two derivatives when registering a term:
+
+$$
+\frac{dR_{target}}{dy_{source}} =
+\frac{dR_{target}}{dq}\frac{dq}{dy_{source}}.
+$$
+
+The Interaction names the target row and registers the residual; weak-form
+actions stay in the CouplingOperator, while Representation supplies the
+quantity and its source linearization. The quantity and target vector types
+are separate so a later lifting can connect different spaces.
 
 ## Contributor authors
 
