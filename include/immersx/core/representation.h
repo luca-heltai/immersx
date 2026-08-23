@@ -46,53 +46,67 @@
 
 namespace ImmersX
 {
-  /**
-   * Minimal description of the physical domain on which a Representation is
-   * evaluated.
-   *
-   * This is deliberately independent of meshes, DoFHandlers, and Problems.
-   * `geometry_id` is an application-level identity for the support geometry;
-   * `evaluation_id` can identify an optional evaluation/quadrature policy
-   * without making that policy part of the Representation contract.
-   */
-  struct EvaluationDomain
+  /** A minimal description of a Representation's physical support. */
+  struct RepresentationDomain
   {
-    EvaluationDomain(const unsigned int            dimension     = 0,
-                     const unsigned int            spacedim      = 0,
-                     std::string                   geometry_id   = "algebraic",
-                     std::optional<std::string>    evaluation_id = {},
-                     std::vector<dealii::Point<3>> evaluation_points = {})
+    RepresentationDomain(const unsigned int dimension   = 0,
+                         const unsigned int spacedim    = 0,
+                         std::string        geometry_id = "algebraic")
       : dimension(dimension)
       , spacedim(spacedim)
       , geometry_id(std::move(geometry_id))
-      , evaluation_id(std::move(evaluation_id))
-      , evaluation_points(std::move(evaluation_points))
     {}
 
-    static EvaluationDomain
+    static RepresentationDomain
     algebraic()
     {
-      return EvaluationDomain();
+      return RepresentationDomain();
     }
 
-    unsigned int                  dimension;
-    unsigned int                  spacedim;
-    std::string                   geometry_id;
-    std::optional<std::string>    evaluation_id;
-    std::vector<dealii::Point<3>> evaluation_points;
+    unsigned int dimension;
+    unsigned int spacedim;
+    std::string  geometry_id;
 
     friend bool
-    operator==(const EvaluationDomain &left, const EvaluationDomain &right)
+    operator==(const RepresentationDomain &left,
+               const RepresentationDomain &right)
     {
       return left.dimension == right.dimension &&
              left.spacedim == right.spacedim &&
-             left.geometry_id == right.geometry_id &&
-             left.evaluation_id == right.evaluation_id &&
-             left.evaluation_points == right.evaluation_points;
+             left.geometry_id == right.geometry_id;
     }
 
     friend bool
-    operator!=(const EvaluationDomain &left, const EvaluationDomain &right)
+    operator!=(const RepresentationDomain &left,
+               const RepresentationDomain &right)
+    {
+      return !(left == right);
+    }
+  };
+
+  /** Points and policy used for one Representation evaluation. */
+  struct EvaluationRequest
+  {
+    using Point = dealii::Point<3>;
+
+    EvaluationRequest(std::vector<Point>         points        = {},
+                      std::optional<std::string> evaluation_id = {})
+      : points(std::move(points))
+      , evaluation_id(std::move(evaluation_id))
+    {}
+
+    std::vector<Point>         points;
+    std::optional<std::string> evaluation_id;
+
+    friend bool
+    operator==(const EvaluationRequest &left, const EvaluationRequest &right)
+    {
+      return left.points == right.points &&
+             left.evaluation_id == right.evaluation_id;
+    }
+
+    friend bool
+    operator!=(const EvaluationRequest &left, const EvaluationRequest &right)
     {
       return !(left == right);
     }
@@ -188,8 +202,8 @@ namespace ImmersX
     using Operator   = dealii::LinearOperator<VectorType, VectorType>;
 
     explicit ComponentRepresentation(
-      const FieldComponentView &source,
-      const EvaluationDomain    domain = EvaluationDomain::algebraic())
+      const FieldComponentView  &source,
+      const RepresentationDomain domain = RepresentationDomain::algebraic())
       : source_(source)
       , domain_(domain)
     {}
@@ -200,20 +214,22 @@ namespace ImmersX
       return source_;
     }
 
-    const EvaluationDomain &
+    const RepresentationDomain &
     domain() const
     {
       return domain_;
     }
 
     value_type
-    evaluate(const EvaluationContext<VectorType> &context) const
+    evaluate(const EvaluationContext<VectorType> &context,
+             const EvaluationRequest & /*request*/ = {}) const
     {
       return value_type(context.state(source_.source()), source_.components());
     }
 
     Operator
-    linearize(const EvaluationContext<VectorType> &context) const
+    linearize(const EvaluationContext<VectorType> &context,
+              const EvaluationRequest & /*request*/ = {}) const
     {
       const auto *reference = &context.state(source_.source());
       const auto *mask      = &source_.components();
@@ -239,8 +255,8 @@ namespace ImmersX
     }
 
   private:
-    FieldComponentView source_;
-    EvaluationDomain   domain_;
+    FieldComponentView   source_;
+    RepresentationDomain domain_;
   };
 
   /**
@@ -260,8 +276,8 @@ namespace ImmersX
     using Operator   = RepresentationOperator<VectorType, VectorType>;
 
     explicit Representation(
-      const FieldId          source,
-      const EvaluationDomain domain = EvaluationDomain::algebraic())
+      const FieldId              source,
+      const RepresentationDomain domain = RepresentationDomain::algebraic())
       : source_(source)
       , domain_(domain)
     {}
@@ -274,7 +290,7 @@ namespace ImmersX
 
     /** Return the physical evaluation domain, independent of the source Field.
      */
-    const EvaluationDomain &
+    const RepresentationDomain &
     domain() const
     {
       return domain_;
@@ -285,13 +301,15 @@ namespace ImmersX
     scaled(const double factor) const;
 
     const VectorType &
-    evaluate(const EvaluationContext<VectorType> &context) const
+    evaluate(const EvaluationContext<VectorType> &context,
+             const EvaluationRequest & /*request*/ = {}) const
     {
       return context.state(source_);
     }
 
     Operator
-    linearize(const EvaluationContext<VectorType> &context) const
+    linearize(const EvaluationContext<VectorType> &context,
+              const EvaluationRequest & /*request*/ = {}) const
     {
       const auto *reference = &context.state(source_);
 
@@ -312,8 +330,8 @@ namespace ImmersX
     }
 
   private:
-    FieldId          source_;
-    EvaluationDomain domain_;
+    FieldId              source_;
+    RepresentationDomain domain_;
   };
 
   /**
@@ -343,7 +361,7 @@ namespace ImmersX
       return source_.source();
     }
 
-    const EvaluationDomain &
+    const RepresentationDomain &
     domain() const
     {
       return source_.domain();
@@ -356,15 +374,17 @@ namespace ImmersX
     }
 
     value_type
-    evaluate(const EvaluationContext<VectorType> &context) const
+    evaluate(const EvaluationContext<VectorType> &context,
+             const EvaluationRequest             &request = {}) const
     {
-      value_type result = source_.evaluate(context);
+      value_type result = source_.evaluate(context, request);
       result *= factor_;
       return result;
     }
 
     Operator
-    linearize(const EvaluationContext<VectorType> &context) const
+    linearize(const EvaluationContext<VectorType> &context,
+              const EvaluationRequest & /*request*/ = {}) const
     {
       const auto *reference = &context.state(source_.source());
       const auto  factor    = factor_;

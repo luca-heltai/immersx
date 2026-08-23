@@ -66,32 +66,44 @@ a scaled observable evaluates $q=2u$ and linearizes to $2I$:
 auto pressure = adapter.observe(fluid.solution).scaled(2.);
 ```
 
-An `EvaluationDomain` records dimensions, a geometry identity, optional
-evaluation-policy identity, and the points at which a value is evaluated. It
-does not own a mesh, DoFHandler, quadrature, or target Problem. The current
-algebraic identity uses the default domain; pressure and lifting
-Representations can carry line and surface domains without changing their
-source dependency.
+`RepresentationDomain` records only dimensions and a geometry identity. It
+does not own a mesh, DoFHandler, quadrature, or target Problem. An
+`EvaluationRequest` supplies the points and optional evaluation-policy
+identity for one call. Thus the same cylindrical Representation can be
+evaluated at several point sets without changing its domain or source
+dependency:
+
+```{code-block} cpp
+RepresentationDomain surface_domain(2, 3, "cylindrical-surface");
+EvaluationRequest request_a(surface_points_a, "surface-points-a");
+EvaluationRequest request_b(surface_points_b, "surface-points-b");
+auto values_a = surface_quantity.evaluate(context, request_a);
+auto values_b = surface_quantity.evaluate(context, request_b);
+```
 
 Later representations can select components, evaluate other nonlinear
 observables, or provide geometry-dependent lifting without changing the
 Problem/Field execution storage.
 
 A geometry lifting remains a Representation. The geometry owns only the map
-between source parameters and target evaluation points:
+between target points and source parameters; it does not know vectors or
+evaluation point sets. `ValueTransfer` owns the algebraic interpolation, and
+the lifting composes the transfer with the source Representation:
 
 ```{code-block} cpp
 ParametricGeometryMap cylinder_map(
-  source_parameters, surface_points, surface_domain,
+  source_parameters, surface_domain,
   [](const dealii::Point<3> &point) { return point[0]; });
-auto surface_quantity = lift(line_quantity, cylinder_map, target_prototype);
+EvaluationRequest surface_request(surface_points, "surface-points");
+auto surface_quantity =
+  lift(line_quantity, cylinder_map, target_prototype, surface_request);
 ```
 
 `surface_quantity.source()` is the same Field as `line_quantity.source()`,
 while `surface_quantity.domain()` is the cylindrical surface domain. Its
 geometry map is independent of its vector-valued transfer. Evaluation and
-linearization apply the transfer and then the source Representation; no Field,
-execution block, or Problem is created.
+linearization apply the requested transfer and then the source Representation;
+no Field, execution block, or Problem is created.
 
 For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them

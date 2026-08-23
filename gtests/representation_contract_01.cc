@@ -75,7 +75,8 @@ TEST(Representation, IdentityDomain) // NOLINT
 
   ImmersX::Representation<Vector> representation(temperature);
   EXPECT_EQ(representation.source(), temperature);
-  EXPECT_EQ(representation.domain(), ImmersX::EvaluationDomain::algebraic());
+  EXPECT_EQ(representation.domain(),
+            ImmersX::RepresentationDomain::algebraic());
   EXPECT_EQ(&representation.evaluate(context), &values);
 
   const auto identity = representation.linearize(context);
@@ -101,11 +102,8 @@ TEST(Representation, ScaledDomain) // NOLINT
   state_view.bind(potential, values);
   const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
 
-  const ImmersX::EvaluationDomain line_domain(1,
-                                              3,
-                                              "centerline",
-                                              std::string("line-quadrature"));
-  const auto                      pressure =
+  const ImmersX::RepresentationDomain line_domain(1, 3, "centerline");
+  const auto                          pressure =
     ImmersX::Representation<Vector>(potential, line_domain).scaled(2.);
   EXPECT_EQ(pressure.source(), potential);
   EXPECT_EQ(pressure.domain(), line_domain);
@@ -143,29 +141,31 @@ TEST(Representation, Lifting) // NOLINT
   const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
 
   const std::vector<Point> line_points = {Point(0., 0., 0.), Point(1., 0., 0.)};
-  const ImmersX::EvaluationDomain line_domain(
-    1, 3, "centerline", std::string("line-points"), line_points);
+  const ImmersX::RepresentationDomain   line_domain(1, 3, "centerline");
   const ImmersX::Representation<Vector> line_quantity(temperature, line_domain);
 
-  const std::vector<Point>        surface_points = {Point(0., 1., 0.),
-                                                    Point(0., 0., 1.),
-                                                    Point(.5, 0., 1.),
-                                                    Point(1., -1., 0.)};
-  const ImmersX::EvaluationDomain surface_domain(
-    2, 3, "cylindrical-surface", std::string("surface-points"), surface_points);
+  const std::vector<Point>            surface_points = {Point(0., 1., 0.),
+                                                        Point(0., 0., 1.),
+                                                        Point(.5, 0., 1.),
+                                                        Point(1., -1., 0.)};
+  const ImmersX::RepresentationDomain surface_domain(2,
+                                                     3,
+                                                     "cylindrical-surface");
+  const ImmersX::EvaluationRequest    surface_request(
+    surface_points, std::string("surface-points"));
   Vector                               target_prototype(4);
-  const ImmersX::ParametricGeometryMap cylinder_map({0., 1.},
-                                                    surface_points,
-                                                    surface_domain);
-  const auto                           surface_quantity =
-    ImmersX::lift(line_quantity, cylinder_map, target_prototype);
+  const ImmersX::ParametricGeometryMap cylinder_map({0., 1.}, surface_domain);
+  const auto surface_quantity = ImmersX::lift(line_quantity,
+                                              cylinder_map,
+                                              target_prototype,
+                                              surface_request);
 
   EXPECT_EQ(layout.n_fields(), 1u);
   EXPECT_EQ(surface_quantity.source(), temperature);
   EXPECT_EQ(surface_quantity.domain(), surface_domain);
-  EXPECT_EQ(surface_quantity.domain().evaluation_points, surface_points);
 
-  const auto lifted_values = surface_quantity.evaluate(context);
+  const auto lifted_values =
+    surface_quantity.evaluate(context, surface_request);
   EXPECT_DOUBLE_EQ(lifted_values[0], 0.);
   EXPECT_DOUBLE_EQ(lifted_values[1], 0.);
   EXPECT_DOUBLE_EQ(lifted_values[2], .5);
@@ -205,26 +205,24 @@ TEST(Representation, LiftingLinearization) // NOLINT
                                                           Point(.5, 0., 1.),
                                                           Point(1., -1., 0.)};
   const ImmersX::Representation<Vector> line_quantity(
-    temperature,
-    ImmersX::EvaluationDomain(1,
-                              3,
-                              "centerline",
-                              std::string("line-points"),
-                              {Point(0., 0., 0.), Point(1., 0., 0.)}));
-  Vector                          target_prototype(4);
-  const ImmersX::EvaluationDomain surface_domain(
-    2, 3, "cylindrical-surface", std::string("surface-points"), surface_points);
-  const ImmersX::ParametricGeometryMap cylinder_map({0., 1.},
-                                                    surface_points,
-                                                    surface_domain);
-  const auto                           surface_quantity =
-    ImmersX::lift(line_quantity, cylinder_map, target_prototype);
+    temperature, ImmersX::RepresentationDomain(1, 3, "centerline"));
+  Vector                              target_prototype(4);
+  const ImmersX::RepresentationDomain surface_domain(2,
+                                                     3,
+                                                     "cylindrical-surface");
+  const ImmersX::EvaluationRequest    surface_request(
+    surface_points, std::string("surface-points"));
+  const ImmersX::ParametricGeometryMap cylinder_map({0., 1.}, surface_domain);
+  const auto surface_quantity = ImmersX::lift(line_quantity,
+                                              cylinder_map,
+                                              target_prototype,
+                                              surface_request);
 
   Vector direction(2);
   direction[0] = 2.;
   direction[1] = 4.;
   Vector action(4);
-  surface_quantity.linearize(context).vmult(action, direction);
+  surface_quantity.linearize(context, surface_request).vmult(action, direction);
 
   EXPECT_DOUBLE_EQ(action[0], 2.);
   EXPECT_DOUBLE_EQ(action[1], 2.);
@@ -232,6 +230,88 @@ TEST(Representation, LiftingLinearization) // NOLINT
   EXPECT_DOUBLE_EQ(action[3], 4.);
   EXPECT_EQ(surface_quantity.source(), line_quantity.source());
   EXPECT_NE(surface_quantity.domain(), line_quantity.domain());
+}
+
+TEST(Representation, DomainIsIndependentOfEvaluationRequest) // NOLINT
+{
+  using Vector = dealii::Vector<double>;
+  using Point  = dealii::Point<3>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name        = "line_temperature";
+  const auto temperature = layout.add_field(descriptor);
+
+  Vector values(2);
+  values[0] = 0.;
+  values[1] = 1.;
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(temperature, values);
+  const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
+
+  const ImmersX::Representation<Vector> line_quantity(
+    temperature, ImmersX::RepresentationDomain(1, 3, "centerline"));
+  const ImmersX::RepresentationDomain  surface_domain(2,
+                                                     3,
+                                                     "cylindrical-surface");
+  const ImmersX::ParametricGeometryMap geometry({0., 1.}, surface_domain);
+  const Vector                         target_prototype(3);
+  const ImmersX::EvaluationRequest     request_a({Point(0., 1., 0.),
+                                                  Point(.25, 0., 1.),
+                                                  Point(1., -1., 0.)},
+                                             std::string("surface-points-a"));
+  const ImmersX::EvaluationRequest     request_b({Point(.5, 1., 0.),
+                                                  Point(.75, 0., 1.),
+                                                  Point(1., -1., 0.)},
+                                             std::string("surface-points-b"));
+  const auto                           surface_quantity =
+    ImmersX::lift(line_quantity, geometry, target_prototype, request_a);
+
+  const auto domain_before = surface_quantity.domain();
+  const auto values_a      = surface_quantity.evaluate(context, request_a);
+  const auto values_b      = surface_quantity.evaluate(context, request_b);
+
+  EXPECT_EQ(surface_quantity.domain(), domain_before);
+  EXPECT_EQ(surface_quantity.domain(), surface_domain);
+  EXPECT_DOUBLE_EQ(values_a[0], 0.);
+  EXPECT_DOUBLE_EQ(values_a[1], .25);
+  EXPECT_DOUBLE_EQ(values_a[2], 1.);
+  EXPECT_DOUBLE_EQ(values_b[0], .5);
+  EXPECT_DOUBLE_EQ(values_b[1], .75);
+  EXPECT_DOUBLE_EQ(values_b[2], 1.);
+}
+
+TEST(Representation, GeometryMapIsIndependentOfValueTransfer) // NOLINT
+{
+  using Vector = dealii::Vector<double>;
+  using Point  = dealii::Point<3>;
+
+  const ImmersX::RepresentationDomain  domain(2, 3, "surface");
+  const ImmersX::ParametricGeometryMap geometry({0., 1.}, domain);
+  const ImmersX::EvaluationRequest     request_a(
+    {Point(0., 0., 0.), Point(.5, 0., 0.)});
+  const ImmersX::EvaluationRequest request_b(
+    {Point(.25, 0., 0.), Point(1., 0., 0.)});
+  const Vector                                 target_prototype(2);
+  const ImmersX::ValueTransfer<Vector, Vector> transfer_a(geometry,
+                                                          target_prototype,
+                                                          request_a);
+  const ImmersX::ValueTransfer<Vector, Vector> transfer_b(geometry,
+                                                          target_prototype,
+                                                          request_b);
+  Vector                                       source(2);
+  source[0] = 0.;
+  source[1] = 1.;
+
+  const auto values_a = transfer_a.apply(source);
+  const auto values_b = transfer_b.apply(source);
+
+  EXPECT_EQ(geometry.domain(), domain);
+  EXPECT_DOUBLE_EQ(geometry.source_parameter(Point(.25, 0., 0.)), .25);
+  EXPECT_DOUBLE_EQ(values_a[0], 0.);
+  EXPECT_DOUBLE_EQ(values_a[1], .5);
+  EXPECT_DOUBLE_EQ(values_b[0], .25);
+  EXPECT_DOUBLE_EQ(values_b[1], 1.);
 }
 
 TEST(MixedField, ComponentViews) // NOLINT

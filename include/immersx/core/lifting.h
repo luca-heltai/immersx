@@ -22,42 +22,30 @@
 
 namespace ImmersX
 {
-  /**
-   * A geometry-only map from target evaluation points to source parameters.
-   *
-   * The map owns no vectors, Fields, Representations, or residual data. A
-   * source parameter may occur at any number of target points, which is the
-   * natural direction for line-to-surface pullbacks.
-   */
+  /** A geometry-only map from target points to source parameters. */
   class ParametricGeometryMap
   {
   public:
     using Point        = dealii::Point<3>;
     using ParameterMap = std::function<double(const Point &)>;
 
-    ParametricGeometryMap(std::vector<double>    source_parameters,
-                          std::vector<Point>     target_points,
-                          const EvaluationDomain target_domain)
+    ParametricGeometryMap(std::vector<double>        source_parameters,
+                          const RepresentationDomain target_domain)
       : ParametricGeometryMap(std::move(source_parameters),
-                              std::move(target_points),
                               target_domain,
                               default_source_parameter)
     {}
 
-    ParametricGeometryMap(std::vector<double>    source_parameters,
-                          std::vector<Point>     target_points,
-                          const EvaluationDomain target_domain,
-                          ParameterMap           source_parameter)
+    ParametricGeometryMap(std::vector<double>        source_parameters,
+                          const RepresentationDomain target_domain,
+                          ParameterMap               source_parameter)
       : source_parameters_(std::move(source_parameters))
-      , target_points_(std::move(target_points))
       , target_domain_(target_domain)
       , source_parameter_(std::move(source_parameter))
     {
-      AssertDimension(target_domain_.evaluation_points.size(),
-                      target_points_.size());
-      AssertThrow(!source_parameters_.empty() || target_points_.empty(),
+      AssertThrow(!source_parameters_.empty(),
                   dealii::ExcMessage(
-                    "A non-empty target requires source parameters."));
+                    "A geometry map requires source parameters."));
       AssertThrow(
         std::is_sorted(source_parameters_.begin(), source_parameters_.end()),
         dealii::ExcMessage("Geometry-map source parameters must be sorted."));
@@ -68,7 +56,7 @@ namespace ImmersX
                     "Geometry-map source parameters must be distinct."));
     }
 
-    const EvaluationDomain &
+    const RepresentationDomain &
     domain() const
     {
       return target_domain_;
@@ -78,12 +66,6 @@ namespace ImmersX
     source_parameters() const
     {
       return source_parameters_;
-    }
-
-    const std::vector<Point> &
-    target_points() const
-    {
-      return target_points_;
     }
 
     double
@@ -99,21 +81,14 @@ namespace ImmersX
       return point[0];
     }
 
-    std::vector<double> source_parameters_;
-    std::vector<Point>  target_points_;
-    EvaluationDomain    target_domain_;
-    ParameterMap        source_parameter_;
+    std::vector<double>  source_parameters_;
+    RepresentationDomain target_domain_;
+    ParameterMap         source_parameter_;
   };
 
-  /**
-   * The algebraic value transfer associated with a ParametricGeometryMap.
-   *
-   * This object is deliberately separate from the map: it knows vector types
-   * and constructs the LinearOperator, while the map knows only domains and
-   * coordinates.
-   */
+  /** A vector-valued transfer associated with a geometry map. */
   template <typename SourceVectorType, typename TargetVectorType>
-  class ParametricValueTransfer
+  class ValueTransfer
   {
   public:
     using Operator = RepresentationOperator<TargetVectorType, SourceVectorType>;
@@ -126,28 +101,43 @@ namespace ImmersX
       unsigned int upper_index;
     };
 
-    ParametricValueTransfer(const ParametricGeometryMap &geometry,
-                            const TargetVectorType      &target_prototype)
+    ValueTransfer(const ParametricGeometryMap &geometry,
+                  const TargetVectorType      &target_prototype,
+                  const EvaluationRequest     &default_request = {})
       : source_size_(geometry.source_parameters().size())
       , target_prototype_(&target_prototype)
-      , weights_(interpolation_weights(geometry))
+      , geometry_(&geometry)
+      , default_request_(default_request)
     {}
 
     TargetVectorType
     apply(const SourceVectorType &source) const
     {
+      return apply(source, default_request_);
+    }
+
+    TargetVectorType
+    apply(const SourceVectorType  &source,
+          const EvaluationRequest &request) const
+    {
       TargetVectorType result;
       result.reinit(*target_prototype_);
-      linearize().vmult(result, source);
+      linearize(request).vmult(result, source);
       return result;
     }
 
     Operator
     linearize() const
     {
+      return linearize(default_request_);
+    }
+
+    Operator
+    linearize(const EvaluationRequest &request) const
+    {
       const auto *target_prototype = target_prototype_;
       const auto  source_size      = source_size_;
-      const auto  weights          = weights_;
+      const auto  weights          = interpolation_weights(request);
 
       Operator result;
       result.reinit_range_vector = [target_prototype](TargetVectorType &vector,
@@ -200,15 +190,17 @@ namespace ImmersX
 
   private:
     std::vector<Weight>
-    interpolation_weights(const ParametricGeometryMap &geometry) const
+    interpolation_weights(const EvaluationRequest &request) const
     {
-      const auto         &parameters = geometry.source_parameters();
+      const auto         &parameters = geometry_->source_parameters();
       std::vector<Weight> weights;
-      weights.reserve(geometry.target_points().size());
+      weights.reserve(request.points.size());
 
-      for (const auto &point : geometry.target_points())
+      AssertDimension(request.points.size(), target_prototype_->size());
+
+      for (const auto &point : request.points)
         {
-          const double parameter = geometry.source_parameter(point);
+          const double parameter = geometry_->source_parameter(point);
           const auto   upper =
             std::lower_bound(parameters.begin(), parameters.end(), parameter);
 
@@ -239,9 +231,10 @@ namespace ImmersX
       return weights;
     }
 
-    std::size_t             source_size_;
-    const TargetVectorType *target_prototype_;
-    std::vector<Weight>     weights_;
+    std::size_t                  source_size_;
+    const TargetVectorType      *target_prototype_;
+    const ParametricGeometryMap *geometry_;
+    EvaluationRequest            default_request_;
   };
 
   /** A Representation obtained by lifting another Representation through a
@@ -257,14 +250,15 @@ namespace ImmersX
     using value_type        = TargetVectorType;
     using Operator = RepresentationOperator<value_type, source_value_type>;
     using ValueTransfer =
-      ParametricValueTransfer<source_value_type, TargetVectorType>;
+      ImmersX::ValueTransfer<source_value_type, TargetVectorType>;
 
     LiftingRepresentation(const SourceRepresentation &source,
                           const GeometryMap          &geometry,
-                          const TargetVectorType     &target_prototype)
+                          const TargetVectorType     &target_prototype,
+                          const EvaluationRequest    &default_request = {})
       : source_(source)
       , geometry_(geometry)
-      , transfer_(geometry_, target_prototype)
+      , transfer_(geometry_, target_prototype, default_request)
     {}
 
     FieldId
@@ -273,7 +267,7 @@ namespace ImmersX
       return source_.source();
     }
 
-    const EvaluationDomain &
+    const RepresentationDomain &
     domain() const
     {
       return geometry_.domain();
@@ -298,15 +292,21 @@ namespace ImmersX
     }
 
     value_type
-    evaluate(const EvaluationContext<source_value_type> &context) const
+    evaluate(const EvaluationContext<source_value_type> &context,
+             const EvaluationRequest                    &request = {}) const
     {
-      return transfer_.apply(source_.evaluate(context));
+      const auto &source_value = source_.evaluate(context, request);
+      return request.points.empty() ? transfer_.apply(source_value) :
+                                      transfer_.apply(source_value, request);
     }
 
     Operator
-    linearize(const EvaluationContext<source_value_type> &context) const
+    linearize(const EvaluationContext<source_value_type> &context,
+              const EvaluationRequest                    &request = {}) const
     {
-      return transfer_.linearize() * source_.linearize(context);
+      return (request.points.empty() ? transfer_.linearize() :
+                                       transfer_.linearize(request)) *
+             source_.linearize(context, request);
     }
 
   private:
@@ -321,13 +321,15 @@ namespace ImmersX
   LiftingRepresentation<SourceRepresentation, GeometryMap, TargetVectorType>
   lift(const SourceRepresentation &source,
        const GeometryMap          &geometry,
-       const TargetVectorType     &target_prototype)
+       const TargetVectorType     &target_prototype,
+       const EvaluationRequest    &default_request = {})
   {
     return LiftingRepresentation<SourceRepresentation,
                                  GeometryMap,
                                  TargetVectorType>(source,
                                                    geometry,
-                                                   target_prototype);
+                                                   target_prototype,
+                                                   default_request);
   }
 } // namespace ImmersX
 
