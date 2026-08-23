@@ -57,9 +57,17 @@ auto temperature = adapter.observe(poisson.solution);
 ```
 
 During evaluation it returns the source Field state, and its linearization is
-the identity operator. Later representations can select components, evaluate
-nonlinear observables, or provide geometry-dependent lifting without changing
-the Problem/Field execution storage.
+the identity operator. Every Representation also exposes `support()`, which
+identifies the source support without naming a target Problem. For example, a
+scaled observable evaluates $q=2u$ and linearizes to $2I$:
+
+```{code-block} cpp
+auto pressure = adapter.observe(fluid.solution).scaled(2.);
+```
+
+Later representations can select components, evaluate other nonlinear
+observables, or provide geometry-dependent lifting without changing the
+Problem/Field execution storage.
 
 For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them

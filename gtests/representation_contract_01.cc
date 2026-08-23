@@ -78,6 +78,40 @@ TEST(Representation, Identity) // NOLINT
   EXPECT_EQ(action, values);
 }
 
+TEST(Representation, IdentityLinearization) // NOLINT
+{
+  using Vector = dealii::Vector<double>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name      = "potential";
+  const auto potential = layout.add_field(descriptor);
+
+  Vector values(3);
+  values[0] = 1.;
+  values[1] = 2.;
+  values[2] = 3.;
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(potential, values);
+  const ImmersX::EvaluationContext<Vector> context(0., state_view, nullptr);
+
+  const auto pressure = ImmersX::Representation<Vector>(potential).scaled(2.);
+  EXPECT_EQ(pressure.source(), potential);
+  EXPECT_EQ(pressure.support(), potential);
+
+  const auto evaluated = pressure.evaluate(context);
+  EXPECT_EQ(evaluated[0], 2.);
+  EXPECT_EQ(evaluated[1], 4.);
+  EXPECT_EQ(evaluated[2], 6.);
+
+  const auto jacobian = pressure.linearize(context);
+  Vector     action(3);
+  jacobian.vmult(action, values);
+  EXPECT_EQ(action[0], 2.);
+  EXPECT_EQ(action[1], 4.);
+  EXPECT_EQ(action[2], 6.);
+}
+
 TEST(MixedField, ComponentViews) // NOLINT
 {
   using Vector = dealii::Vector<double>;

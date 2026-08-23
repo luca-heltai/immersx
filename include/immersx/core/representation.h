@@ -44,6 +44,9 @@
 
 namespace ImmersX
 {
+  template <typename VectorType>
+  class ScaledRepresentation;
+
   /** A non-owning selection of components from one semantic Field. */
   class FieldComponentView
   {
@@ -136,6 +139,12 @@ namespace ImmersX
       return source_;
     }
 
+    FieldId
+    support() const
+    {
+      return source_.source();
+    }
+
     value_type
     evaluate(const EvaluationContext<VectorType> &context) const
     {
@@ -198,6 +207,17 @@ namespace ImmersX
       return source_;
     }
 
+    /** Return the source Field's algebraic/geometric support identity. */
+    FieldId
+    support() const
+    {
+      return source_;
+    }
+
+    /** Return the scalar observable q = factor * u. */
+    ScaledRepresentation<VectorType>
+    scaled(const double factor) const;
+
     const VectorType &
     evaluate(const EvaluationContext<VectorType> &context) const
     {
@@ -228,6 +248,92 @@ namespace ImmersX
   private:
     FieldId source_;
   };
+
+  /**
+   * A scalar transform of an algebraic Representation.
+   *
+   * This value type owns no state and does not know the target Problem.  Its
+   * evaluation is an owned vector value because a transformed observable no
+   * longer aliases the source Field; its linearization remains an operator on
+   * the source Field's vector space.
+   */
+  template <typename VectorType>
+  class ScaledRepresentation
+  {
+  public:
+    using value_type = VectorType;
+    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+
+    ScaledRepresentation(const Representation<VectorType> &source,
+                         const double                      factor)
+      : source_(source)
+      , factor_(factor)
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_.source();
+    }
+
+    FieldId
+    support() const
+    {
+      return source_.support();
+    }
+
+    double
+    factor() const
+    {
+      return factor_;
+    }
+
+    value_type
+    evaluate(const EvaluationContext<VectorType> &context) const
+    {
+      value_type result = source_.evaluate(context);
+      result *= factor_;
+      return result;
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context) const
+    {
+      const auto *reference = &context.state(source_.source());
+      const auto  factor    = factor_;
+
+      Operator result;
+      result.reinit_range_vector = [reference](VectorType &vector, bool omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = [factor](VectorType       &destination,
+                              const VectorType &source) {
+        destination = source;
+        destination *= factor;
+      };
+      result.vmult_add = [factor](VectorType       &destination,
+                                  const VectorType &source) {
+        VectorType contribution = source;
+        contribution *= factor;
+        destination += contribution;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+  private:
+    Representation<VectorType> source_;
+    double                     factor_;
+  };
+
+  template <typename VectorType>
+  ScaledRepresentation<VectorType>
+  Representation<VectorType>::scaled(const double factor) const
+  {
+    return ScaledRepresentation<VectorType>(*this, factor);
+  }
 
   /**
    * One physical quadrature point together with the algebraic data that
