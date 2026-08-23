@@ -15,7 +15,7 @@
 
 namespace ImmersX
 {
-  /** Non-owning target test-space storage information for a coupling. */
+  /** Non-owning residual/test-space storage information for a coupling. */
   template <typename VectorType>
   class CouplingSpace
   {
@@ -35,11 +35,13 @@ namespace ImmersX
   };
 
   /**
-   * A value-type map from represented quantity values to target residuals.
+   * A value-type map from represented quantity values to residual/test values.
    *
-   * The quantity and target vector types are intentionally separate.  The
-   * operator owns the target-space reinitialization and the weak-form action;
-   * it has no knowledge of source Fields or Representations.
+   * The quantity and target vector types are intentionally separate. Value
+   * transfer remains a primal-to-primal operation; this operator is the
+   * quantity-to-residual/test boundary and owns the weak-form action and
+   * target-space reinitialization. It has no knowledge of source Fields or
+   * Representations.
    */
   template <typename QuantityVectorType, typename TargetVectorType>
   class CouplingOperator

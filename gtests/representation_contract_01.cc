@@ -77,6 +77,8 @@ TEST(Representation, IdentityDomain) // NOLINT
   EXPECT_EQ(representation.source(), temperature);
   EXPECT_EQ(representation.domain(),
             ImmersX::RepresentationDomain::algebraic());
+  EXPECT_EQ(representation.quantity_space().domain(), representation.domain());
+  EXPECT_EQ(representation.quantity_space().dimension(), 0u);
   EXPECT_EQ(&representation.evaluate(context), &values);
 
   const auto identity = representation.linearize(context);
@@ -109,6 +111,8 @@ TEST(Representation, ScaledDomain) // NOLINT
   EXPECT_EQ(pressure.domain(), line_domain);
   EXPECT_EQ(pressure.domain().dimension, 1u);
   EXPECT_EQ(pressure.domain().spacedim, 3u);
+  EXPECT_EQ(pressure.quantity_space().domain(), line_domain);
+  EXPECT_EQ(pressure.quantity_space().dimension(), 1u);
 
   const auto evaluated = pressure.evaluate(context);
   EXPECT_EQ(evaluated[0], 2.);
@@ -163,6 +167,8 @@ TEST(Representation, Lifting) // NOLINT
   EXPECT_EQ(layout.n_fields(), 1u);
   EXPECT_EQ(surface_quantity.source(), temperature);
   EXPECT_EQ(surface_quantity.domain(), surface_domain);
+  EXPECT_EQ(surface_quantity.quantity_space().domain(), surface_domain);
+  EXPECT_EQ(surface_quantity.quantity_space().dimension(), 2u);
 
   const auto lifted_values =
     surface_quantity.evaluate(context, surface_request);
@@ -279,6 +285,61 @@ TEST(Representation, DomainIsIndependentOfEvaluationRequest) // NOLINT
   EXPECT_DOUBLE_EQ(values_b[0], .5);
   EXPECT_DOUBLE_EQ(values_b[1], .75);
   EXPECT_DOUBLE_EQ(values_b[2], 1.);
+}
+
+TEST(Representation, ScaledLiftingDerivativeComposition) // NOLINT
+{
+  using StateVector    = dealii::Vector<double>;
+  using QuantityVector = dealii::Vector<float>;
+  using Point          = dealii::Point<3>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name        = "line_temperature";
+  const auto temperature = layout.add_field(descriptor);
+
+  StateVector values(2);
+  values[0] = 0.;
+  values[1] = 1.;
+  ImmersX::StateView<StateVector> state_view(layout, 0.);
+  state_view.bind(temperature, values);
+  const ImmersX::EvaluationContext<StateVector> context(0.,
+                                                        state_view,
+                                                        nullptr);
+
+  const ImmersX::Representation<StateVector> line_quantity(
+    temperature, ImmersX::RepresentationDomain(1, 3, "centerline"));
+  const auto scaled_quantity = line_quantity.scaled(2.);
+  const ImmersX::RepresentationDomain surface_domain(2,
+                                                     3,
+                                                     "cylindrical-surface");
+  const ImmersX::EvaluationRequest    request(
+    {Point(0., 1., 0.), Point(.5, 0., 1.), Point(1., -1., 0.)});
+  const ImmersX::ParametricGeometryMap geometry({0., 1.}, surface_domain);
+  const QuantityVector                 target_prototype(3);
+  const auto                           lifted_quantity =
+    ImmersX::lift(scaled_quantity, geometry, target_prototype, request);
+
+  const auto source_derivative = scaled_quantity.linearize(context, request);
+  const auto transfer_derivative =
+    lifted_quantity.value_transfer().linearize(request);
+  const auto composed_derivative = transfer_derivative * source_derivative;
+  const auto lifted_derivative   = lifted_quantity.linearize(context, request);
+
+  StateVector direction(2);
+  direction[0] = 2.;
+  direction[1] = 4.;
+  QuantityVector composed_action(3);
+  QuantityVector lifted_action(3);
+  composed_derivative.vmult(composed_action, direction);
+  lifted_derivative.vmult(lifted_action, direction);
+
+  EXPECT_EQ(lifted_quantity.source(), line_quantity.source());
+  EXPECT_EQ(lifted_quantity.quantity_space().domain(), surface_domain);
+  EXPECT_EQ(composed_action, lifted_action);
+  EXPECT_FLOAT_EQ(lifted_action[0], 4.f);
+  EXPECT_FLOAT_EQ(lifted_action[1], 6.f);
+  EXPECT_FLOAT_EQ(lifted_action[2], 8.f);
 }
 
 TEST(Representation, GeometryMapIsIndependentOfValueTransfer) // NOLINT

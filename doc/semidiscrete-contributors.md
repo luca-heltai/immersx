@@ -81,6 +81,14 @@ auto values_a = surface_quantity.evaluate(context, request_a);
 auto values_b = surface_quantity.evaluate(context, request_b);
 ```
 
+The physical value space is described by `QuantitySpace<ValueType>`. It
+combines the typed quantity value with its `RepresentationDomain`, while
+owning no mesh, DoFHandler, Problem, residual, or execution storage. A
+Representation therefore has a state type and a quantity type; its derivative
+is the map $dq/dy$ from state perturbations to quantity perturbations. Those
+types are allowed to differ even when the identity and scaled examples happen
+to use the same algebraic vector type.
+
 Later representations can select components, evaluate other nonlinear
 observables, or provide geometry-dependent lifting without changing the
 Problem/Field execution storage.
@@ -104,6 +112,11 @@ while `surface_quantity.domain()` is the cylindrical surface domain. Its
 geometry map is independent of its vector-valued transfer. Evaluation and
 linearization apply the requested transfer and then the source Representation;
 no Field, execution block, or Problem is created.
+
+`ValueTransfer` maps quantity values to quantity values. It is distinct from a
+`CouplingOperator`, which applies the weak form from quantity values into a
+residual/test space. The latter is the boundary where integration and target
+residual storage enter.
 
 For a mixed Field, a component view selects an `IndexSet` in the existing Field
 vector. The view and its Representation remain non-owning; evaluating them

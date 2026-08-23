@@ -112,9 +112,65 @@ namespace ImmersX
     }
   };
 
-  template <typename RangeVectorType, typename DomainVectorType>
+  /**
+   * A lightweight description of the space occupied by physical quantity
+   * values.
+   *
+   * The value type is part of the C++ type; the geometric support is carried
+   * by the RepresentationDomain.  This object owns no discretization or
+   * execution data.
+   */
+  template <typename ValueType>
+  class QuantitySpace
+  {
+  public:
+    using value_type = ValueType;
+
+    explicit QuantitySpace(RepresentationDomain domain = {})
+      : domain_(std::move(domain))
+    {}
+
+    const RepresentationDomain &
+    domain() const
+    {
+      return domain_;
+    }
+
+    unsigned int
+    dimension() const
+    {
+      return domain_.dimension;
+    }
+
+    unsigned int
+    spacedim() const
+    {
+      return domain_.spacedim;
+    }
+
+    friend bool
+    operator==(const QuantitySpace &left, const QuantitySpace &right)
+    {
+      return left.domain_ == right.domain_;
+    }
+
+    friend bool
+    operator!=(const QuantitySpace &left, const QuantitySpace &right)
+    {
+      return !(left == right);
+    }
+
+  private:
+    RepresentationDomain domain_;
+  };
+
+  /**
+   * A Representation derivative maps state perturbations to quantity
+   * perturbations.  The two vector types are intentionally independent.
+   */
+  template <typename QuantityVectorType, typename StateVectorType>
   using RepresentationOperator =
-    dealii::LinearOperator<RangeVectorType, DomainVectorType>;
+    dealii::LinearOperator<QuantityVectorType, StateVectorType>;
 
   template <typename VectorType>
   class ScaledRepresentation;
@@ -198,8 +254,10 @@ namespace ImmersX
   class ComponentRepresentation
   {
   public:
-    using value_type = FieldComponentValues<VectorType>;
-    using Operator   = dealii::LinearOperator<VectorType, VectorType>;
+    using value_type          = FieldComponentValues<VectorType>;
+    using state_type          = VectorType;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = dealii::LinearOperator<VectorType, VectorType>;
 
     explicit ComponentRepresentation(
       const FieldComponentView  &source,
@@ -218,6 +276,12 @@ namespace ImmersX
     domain() const
     {
       return domain_;
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(domain_);
     }
 
     value_type
@@ -272,8 +336,10 @@ namespace ImmersX
   class Representation
   {
   public:
-    using value_type = VectorType;
-    using Operator   = RepresentationOperator<VectorType, VectorType>;
+    using value_type          = VectorType;
+    using state_type          = VectorType;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = RepresentationOperator<value_type, state_type>;
 
     explicit Representation(
       const FieldId              source,
@@ -294,6 +360,12 @@ namespace ImmersX
     domain() const
     {
       return domain_;
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(domain_);
     }
 
     /** Return the scalar observable q = factor * u. */
@@ -346,8 +418,10 @@ namespace ImmersX
   class ScaledRepresentation
   {
   public:
-    using value_type = VectorType;
-    using Operator   = RepresentationOperator<VectorType, VectorType>;
+    using value_type          = VectorType;
+    using state_type          = VectorType;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = RepresentationOperator<value_type, state_type>;
 
     ScaledRepresentation(const Representation<VectorType> &source,
                          const double                      factor)
@@ -365,6 +439,12 @@ namespace ImmersX
     domain() const
     {
       return source_.domain();
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(domain());
     }
 
     double

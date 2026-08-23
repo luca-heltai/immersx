@@ -86,7 +86,12 @@ namespace ImmersX
     ParameterMap         source_parameter_;
   };
 
-  /** A vector-valued transfer associated with a geometry map. */
+  /**
+   * A primal-to-primal transfer between physical quantity value spaces.
+   *
+   * This object knows vector storage because it implements the transfer, but
+   * it knows no Fields, Problems, residuals, or test functions.
+   */
   template <typename SourceVectorType, typename TargetVectorType>
   class ValueTransfer
   {
@@ -246,9 +251,11 @@ namespace ImmersX
   class LiftingRepresentation
   {
   public:
-    using source_value_type = typename SourceRepresentation::value_type;
-    using value_type        = TargetVectorType;
-    using Operator = RepresentationOperator<value_type, source_value_type>;
+    using source_value_type   = typename SourceRepresentation::value_type;
+    using value_type          = TargetVectorType;
+    using state_type          = typename SourceRepresentation::state_type;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = RepresentationOperator<value_type, state_type>;
     using ValueTransfer =
       ImmersX::ValueTransfer<source_value_type, TargetVectorType>;
 
@@ -271,6 +278,12 @@ namespace ImmersX
     domain() const
     {
       return geometry_.domain();
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(domain());
     }
 
     const SourceRepresentation &
