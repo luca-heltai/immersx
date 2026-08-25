@@ -19,7 +19,9 @@ namespace ImmersX
     , variable_names(spacedim == 1 ? "x,t" :
                      spacedim == 2 ? "x,y,t" :
                                      "x,y,z,t")
-  {}
+  {
+    parse_stored_function();
+  }
 
   template <int spacedim>
   void

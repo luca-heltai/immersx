@@ -212,3 +212,14 @@ TEST(AppExecutables, CoupledPoissonElasticity)
   EXPECT_LT(pressure_error, 1.e-14);
   EXPECT_LT(traction_error, 1.e-9);
 }
+
+TEST(AppExecutables, ElasticStatic)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+  run_app_with_representative_param("elastic_static", "elastic_static");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("gtests/parameters/elastic_static");
+  EXPECT_TRUE(std::filesystem::exists(output_directory));
+}
