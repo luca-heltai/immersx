@@ -46,6 +46,14 @@ vector multiplier Interaction in the five-field layout
 `matrix.displacement`, `matrix.velocity`, `fiber.displacement`,
 `fiber.velocity`, and `fiber_coupling.lambda`.
 
+### Capability baseline after PR #115
+
+The first post-#115 maturation slice records the current feature baseline in
+the [ElasticStatic production design](../docs/superpowers/specs/2026-08-25-elastic-static-production-design.md).
+That matrix is intentionally capability-oriented: it distinguishes the
+legacy monolithic Elasticity path from the semantic adapter path and identifies
+which parity gaps are concrete work rather than speculative roadmap items.
+
 **Roadmap.** ARKode/IMEX for Navier--Stokes convection, broader execution
 adapters, moving geometry, multirate/partitioned runs, term-level policies,
 and a lightweight global composer may be integrated incrementally after
