@@ -38,14 +38,10 @@ main(int argc, char *argv[])
                                                                   argv,
                                                                   1);
 
-      PoissonParameters<1, 3> poisson_parameters;
-      const std::string       prm_file = argc > 1 ? argv[1] : "parameters.prm";
+      PoissonParameters<1, 3>       poisson_parameters;
+      ElasticStaticParameters<3, 3> elasticity_parameters;
+      const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
       initialize_parameters(prm_file);
-
-      poisson_parameters.initial_refinement = 0;
-      poisson_parameters.name_of_grid       = "hyper_cube";
-      poisson_parameters.arguments_for_grid = "0: 1: false";
-      poisson_parameters.dirichlet_ids      = {0, 1};
 
       PoissonSolver<1, 3> poisson_problem(poisson_parameters);
       poisson_problem.make_grid();
@@ -53,7 +49,7 @@ main(int argc, char *argv[])
       poisson_problem.setup_system();
       poisson_problem.assemble_system();
 
-      ElasticStaticProblem<3, 3> elasticity_problem(MPI_COMM_WORLD, 2);
+      ElasticStaticProblem<3, 3> elasticity_problem(elasticity_parameters);
       elasticity_problem.setup();
 
       CoupledPoissonElasticity::CylinderSurface surface;

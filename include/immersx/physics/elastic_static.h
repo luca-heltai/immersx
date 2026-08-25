@@ -211,7 +211,6 @@ namespace ImmersX
       , communicator_(communicator)
       , triangulation_storage_(make_triangulation_storage(communicator_))
       , tria_(nullptr)
-      , dof_handler_()
       , fe_(FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim)
     {
       reset_triangulation();
@@ -221,28 +220,28 @@ namespace ImmersX
     void
     setup()
     {
-      AssertThrow(dof_handler_.n_dofs() == 0,
+      AssertThrow(dof_handler_->n_dofs() == 0,
                   ExcMessage(
                     "ElasticStaticProblem::setup() may only be called once."));
 
       make_grid();
-      dof_handler_.distribute_dofs(fe_);
+      dof_handler_->distribute_dofs(fe_);
 
-      locally_owned_dofs_ = dof_handler_.locally_owned_dofs();
+      locally_owned_dofs_ = dof_handler_->locally_owned_dofs();
       locally_relevant_dofs_ =
-        DoFTools::extract_locally_relevant_dofs(dof_handler_);
+        DoFTools::extract_locally_relevant_dofs(*dof_handler_);
 
       constraints_.clear();
-      DoFTools::make_hanging_node_constraints(dof_handler_, constraints_);
+      DoFTools::make_hanging_node_constraints(*dof_handler_, constraints_);
       for (const auto boundary_id : parameters_.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(dof_handler_,
+        VectorTools::interpolate_boundary_values(*dof_handler_,
                                                  boundary_id,
                                                  parameters_.bc,
                                                  constraints_);
       constraints_.close();
 
       DynamicSparsityPattern sparsity(locally_relevant_dofs_);
-      DoFTools::make_sparsity_pattern(dof_handler_,
+      DoFTools::make_sparsity_pattern(*dof_handler_,
                                       sparsity,
                                       constraints_,
                                       true);
@@ -287,7 +286,7 @@ namespace ImmersX
     const dealii::DoFHandler<dim, spacedim> &
     dof_handler() const
     {
-      return dof_handler_;
+      return *dof_handler_;
     }
 
     const dealii::AffineConstraints<double> &
@@ -326,7 +325,7 @@ namespace ImmersX
     {
       AssertThrow(function.n_components == spacedim,
                   ExcDimensionMismatch(function.n_components, spacedim));
-      AssertThrow(dof_handler_.n_dofs() != 0,
+      AssertThrow(dof_handler_->n_dofs() != 0,
                   ExcMessage(
                     "Call setup() before setting the elasticity forcing."));
       assemble_system(&function);
@@ -348,7 +347,7 @@ namespace ImmersX
       std::filesystem::create_directories(parameters_.output_directory);
 
       DataOut<dim, spacedim> data_out;
-      data_out.attach_dof_handler(dof_handler_);
+      data_out.attach_dof_handler(*dof_handler_);
       const std::vector<std::string> names(spacedim, "displacement");
       const std::vector<
         DataComponentInterpretation::DataComponentInterpretation>
@@ -400,7 +399,7 @@ namespace ImmersX
           return selected_tria;
         },
         triangulation_storage_);
-      dof_handler_.reinit(*tria_);
+      dof_handler_ = std::make_unique<DoFHandler<dim, spacedim>>(*tria_);
     }
 
     template <typename TriangulationType>
@@ -429,6 +428,14 @@ namespace ImmersX
     {
       const bool fully_distributed =
         parameters_.triangulation_type == "fullydistributed";
+
+      if ((fully_distributed &&
+           std::holds_alternative<DistributedTriangulation>(
+             triangulation_storage_)) ||
+          (!fully_distributed &&
+           std::holds_alternative<FullyDistributedTriangulation>(
+             triangulation_storage_)))
+        dof_handler_.reset();
 
       if (fully_distributed &&
           !std::holds_alternative<FullyDistributedTriangulation>(
@@ -486,7 +493,7 @@ namespace ImmersX
       stiffness_matrix_ = 0.;
       forcing_          = 0.;
 
-      for (const auto &cell : dof_handler_.active_cell_iterators())
+      for (const auto &cell : dof_handler_->active_cell_iterators())
         if (cell->is_locally_owned())
           {
             cell_matrix = 0.;
@@ -602,7 +609,7 @@ namespace ImmersX
     MPI_Comm                                      communicator_;
     TriangulationVariant                          triangulation_storage_;
     parallel::TriangulationBase<dim, spacedim>   *tria_;
-    DoFHandler<dim, spacedim>                     dof_handler_;
+    std::unique_ptr<DoFHandler<dim, spacedim>>    dof_handler_;
     FESystem<dim, spacedim>                       fe_;
     AffineConstraints<double>                     constraints_;
 

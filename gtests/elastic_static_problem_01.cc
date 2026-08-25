@@ -19,6 +19,9 @@
 #include <immersx/physics/elastic_static.h>
 
 #include <cmath>
+#include <filesystem>
+
+#include "test_paths.h"
 
 TEST(ElasticStaticProblem, ParameterParsingAndIsolation)
 {
@@ -256,3 +259,57 @@ TEST(ElasticStaticProblem, IndependentResidualOracle)
   residual -= problem.forcing();
   EXPECT_LT(residual.l2_norm(), 1.e-8);
 }
+
+class ElasticStaticBackendTest : public ::testing::TestWithParam<std::string>
+{};
+
+TEST_P(ElasticStaticBackendTest, MPI_BackendSetupAndOutput)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  const auto output_directory =
+    ImmersX::TestPaths::output_directory("elastic-static/" + GetParam());
+  ImmersX::initialize_parameters_from_string("subsection Elastic static\n"
+                                             "  set Initial refinement = 1\n"
+                                             "  set Output directory = " +
+                                             output_directory +
+                                             "\n"
+                                             "  subsection Grid generation\n"
+                                             "    set Triangulation type = " +
+                                             GetParam() +
+                                             "\n"
+                                             "  end\n"
+                                             "end\n");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  EXPECT_GT(problem.triangulation().n_active_cells(), 0U);
+  typename Problem::VectorType probe;
+  probe.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  probe = 1.;
+  typename Problem::VectorType image;
+  image.reinit(probe);
+  problem.stiffness_operator().vmult(image, probe);
+  EXPECT_TRUE(std::isfinite(image.l2_norm()));
+
+  problem.output_results();
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      ASSERT_TRUE(std::filesystem::exists(output_directory));
+      bool has_vtk_output = false;
+      for (const auto &entry :
+           std::filesystem::directory_iterator(output_directory))
+        has_vtk_output |= entry.path().extension() == ".vtu" ||
+                          entry.path().extension() == ".pvtu";
+      EXPECT_TRUE(has_vtk_output);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
+                         ElasticStaticBackendTest,
+                         ::testing::Values("distributed", "fullydistributed"));
