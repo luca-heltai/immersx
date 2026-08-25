@@ -212,3 +212,28 @@ TEST(AppExecutables, CoupledPoissonElasticity)
   EXPECT_LT(pressure_error, 1.e-14);
   EXPECT_LT(traction_error, 1.e-9);
 }
+
+TEST(AppExecutables, ElasticStatic)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+  run_app_with_representative_param("elastic_static", "elastic_static");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("gtests/parameters/elastic_static");
+  EXPECT_TRUE(std::filesystem::exists(output_directory));
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "elastic_static.pvd"));
+
+  bool has_material_id = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_material_id |= contents.find("material_id") != std::string::npos;
+      }
+  EXPECT_TRUE(has_material_id);
+}
