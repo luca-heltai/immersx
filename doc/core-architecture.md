@@ -49,7 +49,7 @@ vector multiplier Interaction in the five-field layout
 ### Capability baseline after PR #115
 
 The first post-#115 maturation slice records the current feature baseline in
-the [ElasticStatic production design](../docs/superpowers/specs/2026-08-25-elastic-static-production-design.md).
+the [ElasticStatic production design](https://github.com/luca-heltai/immersx/blob/master/docs/superpowers/specs/2026-08-25-elastic-static-production-design.md).
 That matrix is intentionally capability-oriented: it distinguishes the
 legacy monolithic Elasticity path from the semantic adapter path and identifies
 which parity gaps are concrete work rather than speculative roadmap items.
