@@ -115,6 +115,36 @@ end
   EXPECT_DOUBLE_EQ(parameters.get_material_properties(1).Lame_lambda, 7.);
 }
 
+TEST(ElasticStaticProblem, FileMeshSetup)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  const auto grid_file = ImmersX::TestPaths::source_path(
+    "data/elasticity/geometry/circle_1hole.msh");
+  ImmersX::initialize_parameters_from_string(
+    "subsection Elastic static\n"
+    "  set Initial refinement = 0\n"
+    "  set Dirichlet boundary ids =\n"
+    "  set Neumann boundary ids =\n"
+    "  subsection Grid generation\n"
+    "    set Domain type = file\n"
+    "    set Grid generator = " +
+    grid_file.string() +
+    "\n"
+    "    set Grid generator arguments =\n"
+    "\n"
+    "  end\n"
+    "end\n");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  EXPECT_GT(problem.triangulation().n_global_active_cells(), 0U);
+}
+
 TEST(ElasticStaticProblem, LinearAdapterSolve)
 {
   using Problem      = ImmersX::ElasticStaticProblem<3, 3>;
@@ -295,6 +325,8 @@ TEST_P(ElasticStaticBackendTest, MPI_BackendSetupAndOutput)
   image.reinit(probe);
   problem.stiffness_operator().vmult(image, probe);
   EXPECT_TRUE(std::isfinite(image.l2_norm()));
+
+  problem.set_solution(probe);
 
   problem.output_results();
   MPI_Barrier(MPI_COMM_WORLD);

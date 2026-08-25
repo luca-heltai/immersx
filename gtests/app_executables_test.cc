@@ -222,4 +222,18 @@ TEST(AppExecutables, ElasticStatic)
   const auto output_directory =
     ImmersX::TestPaths::output_path("gtests/parameters/elastic_static");
   EXPECT_TRUE(std::filesystem::exists(output_directory));
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "elastic_static.pvd"));
+
+  bool has_material_id = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_material_id |= contents.find("material_id") != std::string::npos;
+      }
+  EXPECT_TRUE(has_material_id);
 }

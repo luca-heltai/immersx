@@ -231,7 +231,7 @@ namespace ImmersX
       locally_relevant_dofs_ =
         DoFTools::extract_locally_relevant_dofs(*dof_handler_);
 
-      constraints_.clear();
+      constraints_.reinit(locally_owned_dofs_, locally_relevant_dofs_);
       DoFTools::make_hanging_node_constraints(*dof_handler_, constraints_);
       for (const auto boundary_id : parameters_.dirichlet_ids)
         VectorTools::interpolate_boundary_values(*dof_handler_,
@@ -359,9 +359,13 @@ namespace ImmersX
                                interpretation);
 
       Vector<float> subdomain(tria_->n_active_cells());
+      Vector<float> material_id(tria_->n_active_cells());
       for (unsigned int i = 0; i < subdomain.size(); ++i)
         subdomain(i) = tria_->locally_owned_subdomain();
+      for (const auto &cell : tria_->active_cell_iterators())
+        material_id(cell->active_cell_index()) = cell->material_id();
       data_out.add_data_vector(subdomain, "subdomain");
+      data_out.add_data_vector(material_id, "material_id");
       data_out.build_patches();
 
       const std::string filename = parameters_.output_name + ".vtu";
