@@ -147,3 +147,112 @@ TEST(ElasticStaticProblem, LinearAdapterSolve)
   adapter.evaluate_residual(state, residual);
   EXPECT_LT(residual.l2_norm(), 1.e-8);
 }
+
+TEST(ElasticStaticProblem, ParsedBodyForceAndNonzeroDirichlet)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 1
+  set Dirichlet boundary ids = 0
+  subsection Functions
+    subsection Right hand side
+      set Function expression = 1; 2
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 1; 0
+    end
+  end
+end
+  )");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  bool has_nonzero_dirichlet = false;
+  for (const auto &line : problem.constraints().get_lines())
+    has_nonzero_dirichlet |= std::abs(line.inhomogeneity) > 1.e-14;
+
+  EXPECT_TRUE(has_nonzero_dirichlet);
+  EXPECT_GT(problem.forcing().l2_norm(), 0.);
+}
+
+TEST(ElasticStaticProblem, ParsedNeumannTraction)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 1
+  set Dirichlet boundary ids =
+  set Neumann boundary ids = 0
+  subsection Functions
+    subsection Dirichlet boundary conditions
+      set Function expression = 0; 0
+    end
+    subsection Neumann boundary conditions
+      set Function expression = 3; 0
+    end
+  end
+end
+  )");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  EXPECT_EQ(parameters.neumann_ids, (std::set<dealii::types::boundary_id>{0}));
+  EXPECT_DOUBLE_EQ(parameters.neumann_bc.value(dealii::Point<2>(0.5, 1.), 0),
+                   3.);
+  unsigned int boundary_zero_faces = 0;
+  for (const auto &cell : problem.dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int face = 0; face < cell->n_faces(); ++face)
+        if (cell->face(face)->at_boundary() &&
+            cell->face(face)->boundary_id() == 0)
+          ++boundary_zero_faces;
+  EXPECT_GT(boundary_zero_faces, 0U);
+  EXPECT_GT(problem.forcing().l2_norm(), 0.);
+}
+
+TEST(ElasticStaticProblem, IndependentResidualOracle)
+{
+  using Problem      = ImmersX::ElasticStaticProblem<2>;
+  using FieldVector  = typename Problem::VectorType;
+  using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
+  using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
+
+  dealii::ParameterAcceptor::clear();
+  ImmersX::ElasticStaticParameters<2> parameters;
+  ImmersX::initialize_parameters_from_string("");
+  Problem problem(parameters);
+  problem.setup();
+  problem.set_forcing(
+    dealii::Functions::ConstantFunction<2>(std::vector<double>{0., 1.}));
+
+  Adapter    adapter(MPI_COMM_WORLD,
+                  [](const auto &operator_view,
+                     const auto &rhs,
+                     auto       &solution) {
+                    dealii::SolverControl          control(1000, 1.e-10);
+                    dealii::SolverCG<GlobalVector> solver(control);
+                    dealii::PreconditionIdentity   preconditioner;
+                    solver.solve(operator_view, solution, rhs, preconditioner);
+                  });
+  const auto fields = adapter.add(problem, "elastic-static-oracle");
+  auto       state  = adapter.make_state();
+  adapter.solve(state);
+  problem.set_solution(adapter.field(state, fields.fields().displacement));
+
+  FieldVector residual;
+  residual.reinit(problem.solution());
+  problem.stiffness_operator().vmult(residual, problem.solution());
+  residual -= problem.forcing();
+  EXPECT_LT(residual.l2_norm(), 1.e-8);
+}
