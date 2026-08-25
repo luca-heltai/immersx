@@ -33,9 +33,10 @@ namespace ImmersX
     /**
      * Construct and register one material-parameter subsection.
      */
-    MaterialProperties(const std::string &material_tag = "default")
-      : ParameterAcceptor("/Immersed Problem/Material properties/" +
-                          material_tag + "/")
+    MaterialProperties(
+      const std::string &material_tag = "default",
+      const std::string &subsection = "/Immersed Problem/Material properties/")
+      : ParameterAcceptor(normalize_subsection(subsection) + material_tag + "/")
       , material_tag(material_tag)
     {
       add_parameter("Lame mu", Lame_mu);
@@ -59,6 +60,18 @@ namespace ImmersX
         // Shear modulus is just Lame mu
         shear_modulus = Lame_mu;
       });
+    }
+
+    static std::string
+    normalize_subsection(std::string subsection)
+    {
+      if (subsection.empty() || subsection == "/")
+        return "/";
+      if (subsection.front() != '/')
+        subsection.insert(subsection.begin(), '/');
+      if (subsection.back() != '/')
+        subsection.push_back('/');
+      return subsection;
     }
 
     /**
