@@ -13,6 +13,7 @@
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/parameter_acceptor.h>
+#include <deal.II/base/parsed_convergence_table.h>
 #include <deal.II/base/patterns.h>
 #include <deal.II/base/quadrature_lib.h>
 
@@ -50,6 +51,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -93,20 +95,29 @@ namespace ImmersX
       , rhs(elastic_static_detail::normalize_subsection(subsection) +
               "Functions/Right hand side",
             spacedim)
+      , exact_solution(elastic_static_detail::normalize_subsection(subsection) +
+                         "Functions/Exact solution",
+                       spacedim)
       , bc(elastic_static_detail::normalize_subsection(subsection) +
              "Functions/Dirichlet boundary conditions",
            spacedim)
       , neumann_bc(elastic_static_detail::normalize_subsection(subsection) +
                      "Functions/Neumann boundary conditions",
                    spacedim)
+      , convergence_table(std::vector<std::string>(spacedim, "u"))
     {
       add_parameter(
         "FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
       add_parameter("Initial refinement", initial_refinement);
       add_parameter("Dirichlet boundary ids", dirichlet_ids);
       add_parameter("Neumann boundary ids", neumann_ids);
+      add_parameter("Rhs material ids", rhs_material_ids);
       add_parameter("Output directory", output_directory);
       add_parameter("Output name", output_name);
+
+      enter_subsection("Refinement");
+      add_parameter("Number of refinement cycles", n_refinement_cycles);
+      leave_subsection();
 
       enter_subsection("Grid generation");
       add_parameter("Domain type",
@@ -129,11 +140,117 @@ namespace ImmersX
                     material_tags_by_material_id);
       leave_subsection();
 
+      this->prm.enter_subsection("Error");
+      convergence_table.add_parameters(this->prm);
+      this->prm.leave_subsection();
+
       parse_parameters_call_back.connect([this]() {
+        bool created_dynamic_acceptors = false;
+
+        const auto split_subsection_path = [](const std::string &path) {
+          std::vector<std::string> subsections;
+          std::string              subsection;
+          std::istringstream       stream(path);
+          while (std::getline(stream, subsection, '/'))
+            if (!subsection.empty())
+              subsections.emplace_back(subsection);
+          return subsections;
+        };
+
+        struct SubsectionScope
+        {
+          SubsectionScope(ParameterHandler               &prm,
+                          const std::vector<std::string> &subsections)
+            : prm(prm)
+            , n_subsections(subsections.size())
+          {
+            for (const auto &subsection : subsections)
+              prm.enter_subsection(subsection);
+          }
+
+          ~SubsectionScope()
+          {
+            for (unsigned int i = 0; i < n_subsections; ++i)
+              prm.leave_subsection();
+          }
+
+          ParameterHandler &prm;
+          unsigned int      n_subsections;
+        };
+
+        const auto copy_function_entries = [this](const std::string &from,
+                                                  const std::string &to,
+                                                  const auto &split_path) {
+          const auto get_entry = [this,
+                                  &split_path](const std::string &subsection,
+                                               const std::string &entry) {
+            const SubsectionScope scope(this->prm, split_path(subsection));
+            return this->prm.get(entry);
+          };
+          const auto set_entry = [this,
+                                  &split_path](const std::string &subsection,
+                                               const std::string &entry,
+                                               const std::string &value) {
+            const SubsectionScope scope(this->prm, split_path(subsection));
+            this->prm.set(entry, value);
+          };
+
+          for (const auto &entry : {"Function constants",
+                                    "Function expression",
+                                    "Variable names",
+                                    "Modulation frequency",
+                                    "Phase shift"})
+            set_entry(to, entry, get_entry(from, entry));
+        };
+
+        const auto ensure_function_overrides =
+          [this,
+           &created_dynamic_acceptors,
+           &copy_function_entries,
+           &split_subsection_path](const auto        &ids,
+                                   auto              &overrides,
+                                   const auto        &fallback,
+                                   const std::string &prefix) {
+            for (const auto id : ids)
+              if (overrides.find(id) == overrides.end())
+                {
+                  const auto subsection =
+                    prefix + " " +
+                    std::to_string(static_cast<unsigned int>(id));
+                  auto function =
+                    std::make_shared<ModulatedParsedFunction<spacedim>>(
+                      subsection, spacedim);
+                  function->set_fallback_configuration_source(&fallback);
+                  function->enter_my_subsection(this->prm);
+                  function->declare_parameters(this->prm);
+                  function->leave_my_subsection(this->prm);
+                  overrides.emplace(id, function);
+                  created_dynamic_acceptors = true;
+                  copy_function_entries(prefix,
+                                        subsection,
+                                        split_subsection_path);
+                }
+          };
+
+        this->leave_my_subsection(this->prm);
+        ensure_function_overrides(rhs_material_ids,
+                                  rhs_by_material_id,
+                                  rhs,
+                                  subsection_ + "Functions/Right hand side");
+        ensure_function_overrides(dirichlet_ids,
+                                  dirichlet_bc_by_id,
+                                  bc,
+                                  subsection_ +
+                                    "Functions/Dirichlet boundary conditions");
+        ensure_function_overrides(neumann_ids,
+                                  neumann_bc_by_id,
+                                  neumann_bc,
+                                  subsection_ +
+                                    "Functions/Neumann boundary conditions");
+
         if (material_properties_by_id.empty() &&
             !material_tags_by_material_id.empty())
           {
-            this->leave_my_subsection(this->prm);
             for (const auto &[material_id, material_tag] :
                  material_tags_by_material_id)
               material_properties_by_id.emplace(
@@ -141,8 +258,13 @@ namespace ImmersX
                 std::make_unique<MaterialProperties>(material_tag,
                                                      subsection_ +
                                                        "Material properties/"));
-            this->enter_my_subsection(this->prm);
+            created_dynamic_acceptors = true;
           }
+
+        this->enter_my_subsection(this->prm);
+
+        if (created_dynamic_acceptors)
+          return;
       });
     }
 
@@ -155,14 +277,37 @@ namespace ImmersX
                *it->second;
     }
 
+    const ModulatedParsedFunction<spacedim> &
+    get_dirichlet_bc(const types::boundary_id boundary_id) const
+    {
+      const auto it = dirichlet_bc_by_id.find(boundary_id);
+      return it == dirichlet_bc_by_id.end() ? bc : *it->second;
+    }
+
+    const ModulatedParsedFunction<spacedim> &
+    get_neumann_bc(const types::boundary_id boundary_id) const
+    {
+      const auto it = neumann_bc_by_id.find(boundary_id);
+      return it == neumann_bc_by_id.end() ? neumann_bc : *it->second;
+    }
+
+    const ModulatedParsedFunction<spacedim> &
+    get_rhs(const types::material_id material_id) const
+    {
+      const auto it = rhs_by_material_id.find(material_id);
+      return it == rhs_by_material_id.end() ? rhs : *it->second;
+    }
+
     std::string output_directory = ".";
     std::string output_name      = "elastic_static";
 
-    unsigned int fe_degree          = 1;
-    unsigned int initial_refinement = 2;
+    unsigned int fe_degree           = 1;
+    unsigned int initial_refinement  = 2;
+    unsigned int n_refinement_cycles = 1;
 
     std::set<types::boundary_id> dirichlet_ids{0};
     std::set<types::boundary_id> neumann_ids{};
+    std::set<types::material_id> rhs_material_ids{};
 
     std::string domain_type        = "generate";
     std::string name_of_grid       = "hyper_cube";
@@ -176,8 +321,19 @@ namespace ImmersX
       material_properties_by_id;
 
     mutable ModulatedParsedFunction<spacedim> rhs;
+    std::map<types::material_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                              rhs_by_material_id;
+    mutable ModulatedParsedFunction<spacedim> exact_solution;
     mutable ModulatedParsedFunction<spacedim> bc;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                              dirichlet_bc_by_id;
     mutable ModulatedParsedFunction<spacedim> neumann_bc;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                   neumann_bc_by_id;
+    mutable ParsedConvergenceTable convergence_table;
   };
 
   /**

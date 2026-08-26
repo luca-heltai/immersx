@@ -23,67 +23,74 @@
 
 #include "test_paths.h"
 
-TEST(ElasticStaticProblem, ParameterParsingAndIsolation)
+TEST(ElasticStaticProblem, ParameterParsingAndOverrides)
 {
   using namespace ImmersX;
 
   dealii::ParameterAcceptor::clear();
-  ElasticStaticParameters<2> left("/Left/Elastic static/");
-  ElasticStaticParameters<2> right("/Right/Elastic static/");
+  ElasticStaticParameters<2> parameters;
 
-  initialize_parameters_from_string(R"(
-subsection Left
-  subsection Elastic static
-    set FE degree = 2
-    set Dirichlet boundary ids = 0, 2
-    set Neumann boundary ids = 1
-    subsection Functions
-      subsection Right hand side
-        set Function expression = 1; 2
-      end
-      subsection Dirichlet boundary conditions
-        set Function expression = 3; 4
-      end
-      subsection Neumann boundary conditions
-        set Function expression = 5; 6
-      end
+  const auto parameter_text = R"(
+subsection Elastic static
+  set Dirichlet boundary ids = 0, 3
+  set Neumann boundary ids = 1, 2
+  set Rhs material ids = 4, 7
+  subsection Functions
+    subsection Right hand side
+      set Function expression = 1; 2
+    end
+    subsection Right hand side 4
+      set Function expression = x; 0
+    end
+    subsection Right hand side 7
+      set Function expression = 0; y
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 0; 0
+    end
+    subsection Dirichlet boundary conditions 0
+      set Function expression = x; 0
+    end
+    subsection Dirichlet boundary conditions 3
+      set Function expression = 0; y
+    end
+    subsection Neumann boundary conditions
+      set Function expression = 0; 0
+    end
+    subsection Neumann boundary conditions 1
+      set Function expression = 2; 0
+    end
+    subsection Neumann boundary conditions 2
+      set Function expression = 0; 3
+    end
+    subsection Exact solution
+      set Function expression = x; y
     end
   end
 end
-subsection Right
-  subsection Elastic static
-    set FE degree = 1
-    set Dirichlet boundary ids = 3
-    set Neumann boundary ids = 0
-    subsection Functions
-      subsection Right hand side
-        set Function expression = 7; 8
-      end
-      subsection Dirichlet boundary conditions
-        set Function expression = 9; 10
-      end
-      subsection Neumann boundary conditions
-        set Function expression = 11; 12
-      end
-    end
-  end
-end
-  )");
+  )";
 
-  EXPECT_EQ(left.fe_degree, 2U);
-  EXPECT_EQ(right.fe_degree, 1U);
-  EXPECT_EQ(left.dirichlet_ids, (std::set<dealii::types::boundary_id>{0, 2}));
-  EXPECT_EQ(right.dirichlet_ids, (std::set<dealii::types::boundary_id>{3}));
-  EXPECT_EQ(left.neumann_ids, (std::set<dealii::types::boundary_id>{1}));
-  EXPECT_EQ(right.neumann_ids, (std::set<dealii::types::boundary_id>{0}));
+  initialize_parameters_from_string(parameter_text);
 
-  dealii::Point<2> point(0.25, 0.5);
-  EXPECT_EQ(left.rhs.value(point, 0), 1.);
-  EXPECT_EQ(right.rhs.value(point, 0), 7.);
-  EXPECT_EQ(left.bc.value(point, 1), 4.);
-  EXPECT_EQ(right.bc.value(point, 1), 10.);
-  EXPECT_EQ(left.neumann_bc.value(point, 0), 5.);
-  EXPECT_EQ(right.neumann_bc.value(point, 0), 11.);
+  const dealii::Point<2> point(0.25, 0.5);
+  EXPECT_EQ(parameters.get_dirichlet_bc(0).value(point, 0), 0.25);
+  EXPECT_EQ(parameters.get_dirichlet_bc(3).value(point, 1), 0.5);
+  EXPECT_EQ(parameters.get_neumann_bc(1).value(point, 0), 2.);
+  EXPECT_EQ(parameters.get_neumann_bc(2).value(point, 1), 3.);
+  EXPECT_EQ(parameters.get_rhs(4).value(point, 0), 0.25);
+  EXPECT_EQ(parameters.get_rhs(7).value(point, 1), 0.5);
+  EXPECT_EQ(parameters.get_dirichlet_bc(1).value(point, 0), 0.);
+  EXPECT_EQ(parameters.get_neumann_bc(3).value(point, 0), 0.);
+  EXPECT_EQ(parameters.get_rhs(0).value(point, 0), 1.);
+  EXPECT_EQ(parameters.get_rhs(0).value(point, 1), 2.);
+  EXPECT_EQ(parameters.exact_solution.value(point, 0), 0.25);
+  EXPECT_EQ(parameters.exact_solution.value(point, 1), 0.5);
+
+  initialize_parameters_from_string(parameter_text);
+
+  EXPECT_EQ(parameters.get_dirichlet_bc(0).value(point, 0), 0.25);
+  EXPECT_EQ(parameters.get_neumann_bc(2).value(point, 1), 3.);
+  EXPECT_EQ(parameters.get_rhs(7).value(point, 1), 0.5);
 }
 
 TEST(ElasticStaticProblem, MaterialPropertiesById)
