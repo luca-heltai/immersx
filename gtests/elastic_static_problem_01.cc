@@ -171,6 +171,31 @@ end
   EXPECT_EQ(parameters.get_rhs(7).value(point, 1), 0.5);
 }
 
+TEST(ElasticStaticProblem, ParsesGeneratedConvergenceParameterFixture)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  ImmersX::initialize_parameters(
+    ImmersX::TestPaths::parameter_path("gtests/parameters/elastic_static.prm"));
+
+  const dealii::Point<2> point(0.25, 0.5);
+  EXPECT_EQ(parameters.initial_refinement, 0U);
+  EXPECT_EQ(parameters.n_refinement_cycles, 2U);
+  EXPECT_EQ(parameters.dirichlet_ids,
+            (std::set<dealii::types::boundary_id>{0, 2, 3}));
+  EXPECT_EQ(parameters.neumann_ids, (std::set<dealii::types::boundary_id>{1}));
+  EXPECT_EQ(parameters.triangulation_type, "distributed");
+  EXPECT_EQ(parameters.get_dirichlet_bc(0).value(point, 0), 0.25);
+  EXPECT_EQ(parameters.get_dirichlet_bc(2).value(point, 1), 0.5);
+  EXPECT_EQ(parameters.get_neumann_bc(1).value(point, 1), 1.);
+  EXPECT_EQ(parameters.rhs.value(point, 0), 1.);
+  EXPECT_EQ(parameters.exact_solution.value(point, 1), 0.5);
+  EXPECT_EQ(parameters.get_material_properties(1).Lame_mu, 5.);
+  EXPECT_EQ(parameters.get_material_properties(1).Lame_lambda, 7.);
+}
+
 TEST(ElasticStaticProblem, ExactSolutionAndErrorObservation)
 {
   using Parameters = ImmersX::ElasticStaticParameters<2>;
@@ -726,17 +751,62 @@ TEST_P(ElasticStaticBackendTest, MPI_BackendSetupAndOutput)
 
   problem.set_solution(probe);
 
-  problem.output_results();
+  problem.output_results(0);
   MPI_Barrier(MPI_COMM_WORLD);
   if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     {
       ASSERT_TRUE(std::filesystem::exists(output_directory));
+      EXPECT_TRUE(
+        std::filesystem::exists(output_directory + "/elastic_static.pvd"));
       bool has_vtk_output = false;
       for (const auto &entry :
            std::filesystem::directory_iterator(output_directory))
-        has_vtk_output |= entry.path().extension() == ".vtu" ||
-                          entry.path().extension() == ".pvtu";
+        has_vtk_output |= (entry.path().stem() == "elastic_static_0" &&
+                           (entry.path().extension() == ".vtu" ||
+                            entry.path().extension() == ".pvtu"));
       EXPECT_TRUE(has_vtk_output);
+    }
+}
+
+TEST(ElasticStaticProblem, MPI_DistributedOutputRecordsEveryRefinementCycle)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  const auto output_directory =
+    ImmersX::TestPaths::output_directory("elastic-static/distributed-cycles");
+  ImmersX::initialize_parameters_from_string(
+    "subsection Elastic static\n"
+    "  set Initial refinement = 0\n"
+    "  set Output directory = " +
+    output_directory +
+    "\n"
+    "  subsection Grid generation\n"
+    "    set Triangulation type = distributed\n"
+    "  end\n"
+    "end\n");
+
+  Problem problem(parameters);
+  problem.setup();
+  problem.output_results(0);
+  problem.refine_global();
+  problem.output_results(1);
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      ASSERT_TRUE(std::filesystem::exists(output_directory));
+      EXPECT_TRUE(
+        std::filesystem::exists(output_directory + "/elastic_static.pvd"));
+      for (const auto cycle : {0U, 1U})
+        {
+          const auto filename =
+            output_directory + "/elastic_static_" + std::to_string(cycle);
+          EXPECT_TRUE(std::filesystem::exists(filename + ".vtu") ||
+                      std::filesystem::exists(filename + ".pvtu"));
+        }
     }
 }
 

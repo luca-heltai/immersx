@@ -140,9 +140,11 @@ namespace ImmersX
                     material_tags_by_material_id);
       leave_subsection();
 
+      this->enter_my_subsection(this->prm);
       this->prm.enter_subsection("Error");
       convergence_table.add_parameters(this->prm);
       this->prm.leave_subsection();
+      this->leave_my_subsection(this->prm);
 
       parse_parameters_call_back.connect([this]() {
         bool created_dynamic_acceptors = false;
@@ -497,10 +499,11 @@ namespace ImmersX
                              parameters_.exact_solution);
     }
 
-    /** Write the accepted displacement and subdomain id to configured output.
+    /** Write the accepted displacement and subdomain id for one observation
+     * cycle to configured output.
      */
     void
-    output_results() const
+    output_results(const unsigned int cycle) const
     {
       std::filesystem::create_directories(parameters_.output_directory);
 
@@ -526,16 +529,19 @@ namespace ImmersX
       data_out.add_data_vector(material_id, "material_id");
       data_out.build_patches();
 
-      const std::string filename = parameters_.output_name + ".vtu";
+      const std::string filename =
+        parameters_.output_name + "_" + std::to_string(cycle) + ".vtu";
       data_out.write_vtu_in_parallel(parameters_.output_directory + "/" +
                                        filename,
                                      communicator_);
+
+      output_records_.emplace_back(static_cast<double>(cycle), filename);
 
       if (Utilities::MPI::this_mpi_process(communicator_) == 0)
         {
           std::ofstream pvd(parameters_.output_directory + "/" +
                             parameters_.output_name + ".pvd");
-          DataOutBase::write_pvd_record(pvd, {{0., filename}});
+          DataOutBase::write_pvd_record(pvd, output_records_);
         }
     }
 
@@ -805,6 +811,7 @@ namespace ImmersX
     VectorType         forcing_;
     VectorType         solution_;
     mutable VectorType locally_relevant_solution_;
+    mutable std::vector<std::pair<double, std::string>> output_records_;
 
     FEValuesExtractors::Vector displacement_{0};
   };

@@ -2,18 +2,21 @@ set dimension       = 2
 set space dimension = 2
 
 subsection Elastic static
-  set FE degree               = 1
-  set Initial refinement      = 1
-  set Dirichlet boundary ids  = 0
-  set Neumann boundary ids    =
-  set Output directory        = @TEST_OUTPUT_DIR@/gtests/parameters/elastic_static
-  set Output name             = elastic_static
+  set FE degree              = 1
+  set Initial refinement     = 0
+  set Dirichlet boundary ids = 0, 2, 3
+  set Neumann boundary ids   = 1
+  set Output directory       = @TEST_OUTPUT_DIR@/gtests/parameters/elastic_static
+  set Output name            = elastic_static
   subsection Grid generation
     set Domain type              = generate
     set Grid generator           = hyper_cube
-    set Grid generator arguments = 0: 1: false
+    set Grid generator arguments = 0: 1: true
     set Grid scale               = 1
     set Triangulation type       = distributed
+  end
+  subsection Refinement
+    set Number of refinement cycles = 2
   end
   subsection Functions
     subsection Right hand side
@@ -24,16 +27,48 @@ subsection Elastic static
       set Function expression = 0; 0
       set Variable names      = x,y,t
     end
+    subsection Dirichlet boundary conditions 0
+      set Function expression = x; 0
+      set Variable names      = x,y,t
+    end
+    subsection Dirichlet boundary conditions 2
+      set Function expression = 0; y
+      set Variable names      = x,y,t
+    end
+    subsection Dirichlet boundary conditions 3
+      set Function expression = x; y
+      set Variable names      = x,y,t
+    end
     subsection Neumann boundary conditions
       set Function expression = 0; 0
       set Variable names      = x,y,t
     end
+    subsection Neumann boundary conditions 1
+      set Function expression = 0; 1
+      set Variable names      = x,y,t
+    end
+    subsection Exact solution
+      set Function expression = x; y
+      set Variable names      = x,y,t
+    end
   end
   subsection Material properties
-    set Material tags by material id =
+    set Material tags by material id = 1:stiff
     subsection default
       set Lame mu     = 2
       set Lame lambda = 3
     end
+    subsection stiff
+      set Lame mu     = 5
+      set Lame lambda = 7
+    end
+  end
+  subsection Error
+    set Enable computation of the errors = true
+    set Error file name = @TEST_OUTPUT_DIR@/gtests/parameters/elastic_static/elastic_static_errors.txt
+    set Extra columns = cells, dofs
+    set List of error norms to compute = L2_norm, H1_seminorm
+    set Rate key = dofs
+    set Rate mode = reduction_rate_log2
   end
 end

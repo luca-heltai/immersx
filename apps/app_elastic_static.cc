@@ -26,13 +26,49 @@ namespace
 {
   template <int dim>
   void
-  run_static_elasticity(const std::string &parameter_file)
+  solve_one_cycle(ImmersX::ElasticStaticProblem<dim> &problem,
+                  const unsigned int                  cycle)
   {
     using namespace ImmersX;
     using FieldVector  = ImmersXLA::MPI::Vector;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
-    using Problem      = ElasticStaticProblem<dim>;
+
+    Adapter adapter(
+      MPI_COMM_WORLD,
+      [](const auto &operator_view, const auto &rhs, auto &solution) {
+        using Vector = std::decay_t<decltype(solution)>;
+        dealii::SolverControl        control(1000,
+                                      1.e-12 * std::max(1., rhs.l2_norm()));
+        dealii::SolverGMRES<Vector>  solver(control);
+        dealii::PreconditionIdentity preconditioner;
+        solver.solve(operator_view, solution, rhs, preconditioner);
+      });
+
+    const auto fields = adapter.add(problem, "elastic-static");
+    auto       state  = adapter.make_state();
+    adapter.solve(state);
+    problem.set_solution(adapter.field(state, fields.fields().displacement));
+
+    FieldVector residual;
+    residual.reinit(problem.solution());
+    problem.stiffness_operator().vmult(residual, problem.solution());
+    residual -= problem.forcing();
+    problem.constraints().set_zero(residual);
+    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      std::cout << "elastic_static_residual = " << residual.l2_norm() << '\n';
+
+    AssertThrow(residual.l2_norm() < 1.e-9,
+                ExcMessage("Static elasticity residual is too large in cycle " +
+                           std::to_string(cycle) + "."));
+  }
+
+  template <int dim>
+  void
+  run_static_elasticity(const std::string &parameter_file)
+  {
+    using namespace ImmersX;
+    using Problem = ElasticStaticProblem<dim>;
 
     ElasticStaticParameters<dim> parameters;
     initialize_parameters(parameter_file);
@@ -49,41 +85,16 @@ namespace
     for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
          ++cycle)
       {
-        {
-          Adapter adapter(
-            MPI_COMM_WORLD,
-            [](const auto &operator_view, const auto &rhs, auto &solution) {
-              using Vector = std::decay_t<decltype(solution)>;
-              dealii::SolverControl        control(1000,
-                                            1.e-12 *
-                                              std::max(1., rhs.l2_norm()));
-              dealii::SolverGMRES<Vector>  solver(control);
-              dealii::PreconditionIdentity preconditioner;
-              solver.solve(operator_view, solution, rhs, preconditioner);
-            });
-
-          const auto fields = adapter.add(problem, "elastic-static");
-          auto       state  = adapter.make_state();
-          adapter.solve(state);
-          problem.set_solution(
-            adapter.field(state, fields.fields().displacement));
-
-          GlobalVector residual;
-          adapter.evaluate_residual(state, residual);
-          if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-            std::cout << "elastic_static_residual = " << residual.l2_norm()
-                      << '\n';
-
-          AssertThrow(residual.l2_norm() < 1.e-9,
-                      ExcMessage("Static elasticity residual is too large."));
-
-          if (cycle + 1 == parameters.n_refinement_cycles)
-            problem.output_results();
-        }
+        solve_one_cycle(problem, cycle);
+        problem.compute_error(parameters.convergence_table);
+        problem.output_results(cycle);
 
         if (cycle + 1 < parameters.n_refinement_cycles)
           problem.refine_global();
       }
+
+    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      parameters.convergence_table.output_table(std::cout);
   }
 } // namespace
 
