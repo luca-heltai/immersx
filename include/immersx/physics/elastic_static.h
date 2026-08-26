@@ -13,6 +13,7 @@
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/parameter_acceptor.h>
+#include <deal.II/base/parsed_convergence_table.h>
 #include <deal.II/base/patterns.h>
 #include <deal.II/base/quadrature_lib.h>
 
@@ -50,6 +51,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -93,20 +95,29 @@ namespace ImmersX
       , rhs(elastic_static_detail::normalize_subsection(subsection) +
               "Functions/Right hand side",
             spacedim)
+      , exact_solution(elastic_static_detail::normalize_subsection(subsection) +
+                         "Functions/Exact solution",
+                       spacedim)
       , bc(elastic_static_detail::normalize_subsection(subsection) +
              "Functions/Dirichlet boundary conditions",
            spacedim)
       , neumann_bc(elastic_static_detail::normalize_subsection(subsection) +
                      "Functions/Neumann boundary conditions",
                    spacedim)
+      , convergence_table(std::vector<std::string>(spacedim, "u"))
     {
       add_parameter(
         "FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
       add_parameter("Initial refinement", initial_refinement);
       add_parameter("Dirichlet boundary ids", dirichlet_ids);
       add_parameter("Neumann boundary ids", neumann_ids);
+      add_parameter("Rhs material ids", rhs_material_ids);
       add_parameter("Output directory", output_directory);
       add_parameter("Output name", output_name);
+
+      enter_subsection("Refinement");
+      add_parameter("Number of refinement cycles", n_refinement_cycles);
+      leave_subsection();
 
       enter_subsection("Grid generation");
       add_parameter("Domain type",
@@ -129,11 +140,119 @@ namespace ImmersX
                     material_tags_by_material_id);
       leave_subsection();
 
+      this->enter_my_subsection(this->prm);
+      this->prm.enter_subsection("Error");
+      convergence_table.add_parameters(this->prm);
+      this->prm.leave_subsection();
+      this->leave_my_subsection(this->prm);
+
       parse_parameters_call_back.connect([this]() {
+        bool created_dynamic_acceptors = false;
+
+        const auto split_subsection_path = [](const std::string &path) {
+          std::vector<std::string> subsections;
+          std::string              subsection;
+          std::istringstream       stream(path);
+          while (std::getline(stream, subsection, '/'))
+            if (!subsection.empty())
+              subsections.emplace_back(subsection);
+          return subsections;
+        };
+
+        struct SubsectionScope
+        {
+          SubsectionScope(ParameterHandler               &prm,
+                          const std::vector<std::string> &subsections)
+            : prm(prm)
+            , n_subsections(subsections.size())
+          {
+            for (const auto &subsection : subsections)
+              prm.enter_subsection(subsection);
+          }
+
+          ~SubsectionScope()
+          {
+            for (unsigned int i = 0; i < n_subsections; ++i)
+              prm.leave_subsection();
+          }
+
+          ParameterHandler &prm;
+          unsigned int      n_subsections;
+        };
+
+        const auto copy_function_entries = [this](const std::string &from,
+                                                  const std::string &to,
+                                                  const auto &split_path) {
+          const auto get_entry = [this,
+                                  &split_path](const std::string &subsection,
+                                               const std::string &entry) {
+            const SubsectionScope scope(this->prm, split_path(subsection));
+            return this->prm.get(entry);
+          };
+          const auto set_entry = [this,
+                                  &split_path](const std::string &subsection,
+                                               const std::string &entry,
+                                               const std::string &value) {
+            const SubsectionScope scope(this->prm, split_path(subsection));
+            this->prm.set(entry, value);
+          };
+
+          for (const auto &entry : {"Function constants",
+                                    "Function expression",
+                                    "Variable names",
+                                    "Modulation frequency",
+                                    "Phase shift"})
+            set_entry(to, entry, get_entry(from, entry));
+        };
+
+        const auto ensure_function_overrides =
+          [this,
+           &created_dynamic_acceptors,
+           &copy_function_entries,
+           &split_subsection_path](const auto        &ids,
+                                   auto              &overrides,
+                                   const auto        &fallback,
+                                   const std::string &prefix) {
+            for (const auto id : ids)
+              if (overrides.find(id) == overrides.end())
+                {
+                  const auto subsection =
+                    prefix + " " +
+                    std::to_string(static_cast<unsigned int>(id));
+                  auto function =
+                    std::make_shared<ModulatedParsedFunction<spacedim>>(
+                      subsection, spacedim);
+                  function->set_fallback_configuration_source(&fallback);
+                  function->enter_my_subsection(this->prm);
+                  function->declare_parameters(this->prm);
+                  function->leave_my_subsection(this->prm);
+                  overrides.emplace(id, function);
+                  created_dynamic_acceptors = true;
+                  copy_function_entries(prefix,
+                                        subsection,
+                                        split_subsection_path);
+                }
+          };
+
+        this->leave_my_subsection(this->prm);
+        ensure_function_overrides(rhs_material_ids,
+                                  rhs_by_material_id,
+                                  rhs,
+                                  subsection_ + "Functions/Right hand side");
+        ensure_function_overrides(dirichlet_ids,
+                                  dirichlet_bc_by_id,
+                                  bc,
+                                  subsection_ +
+                                    "Functions/Dirichlet boundary conditions");
+        ensure_function_overrides(neumann_ids,
+                                  neumann_bc_by_id,
+                                  neumann_bc,
+                                  subsection_ +
+                                    "Functions/Neumann boundary conditions");
+
         if (material_properties_by_id.empty() &&
             !material_tags_by_material_id.empty())
           {
-            this->leave_my_subsection(this->prm);
             for (const auto &[material_id, material_tag] :
                  material_tags_by_material_id)
               material_properties_by_id.emplace(
@@ -141,8 +260,13 @@ namespace ImmersX
                 std::make_unique<MaterialProperties>(material_tag,
                                                      subsection_ +
                                                        "Material properties/"));
-            this->enter_my_subsection(this->prm);
+            created_dynamic_acceptors = true;
           }
+
+        this->enter_my_subsection(this->prm);
+
+        if (created_dynamic_acceptors)
+          return;
       });
     }
 
@@ -155,14 +279,37 @@ namespace ImmersX
                *it->second;
     }
 
+    const ModulatedParsedFunction<spacedim> &
+    get_dirichlet_bc(const types::boundary_id boundary_id) const
+    {
+      const auto it = dirichlet_bc_by_id.find(boundary_id);
+      return it == dirichlet_bc_by_id.end() ? bc : *it->second;
+    }
+
+    const ModulatedParsedFunction<spacedim> &
+    get_neumann_bc(const types::boundary_id boundary_id) const
+    {
+      const auto it = neumann_bc_by_id.find(boundary_id);
+      return it == neumann_bc_by_id.end() ? neumann_bc : *it->second;
+    }
+
+    const ModulatedParsedFunction<spacedim> &
+    get_rhs(const types::material_id material_id) const
+    {
+      const auto it = rhs_by_material_id.find(material_id);
+      return it == rhs_by_material_id.end() ? rhs : *it->second;
+    }
+
     std::string output_directory = ".";
     std::string output_name      = "elastic_static";
 
-    unsigned int fe_degree          = 1;
-    unsigned int initial_refinement = 2;
+    unsigned int fe_degree           = 1;
+    unsigned int initial_refinement  = 2;
+    unsigned int n_refinement_cycles = 1;
 
     std::set<types::boundary_id> dirichlet_ids{0};
     std::set<types::boundary_id> neumann_ids{};
+    std::set<types::material_id> rhs_material_ids{};
 
     std::string domain_type        = "generate";
     std::string name_of_grid       = "hyper_cube";
@@ -176,8 +323,19 @@ namespace ImmersX
       material_properties_by_id;
 
     mutable ModulatedParsedFunction<spacedim> rhs;
+    std::map<types::material_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                              rhs_by_material_id;
+    mutable ModulatedParsedFunction<spacedim> exact_solution;
     mutable ModulatedParsedFunction<spacedim> bc;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                              dirichlet_bc_by_id;
     mutable ModulatedParsedFunction<spacedim> neumann_bc;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                   neumann_bc_by_id;
+    mutable ParsedConvergenceTable convergence_table;
   };
 
   /**
@@ -209,7 +367,10 @@ namespace ImmersX
       const MPI_Comm communicator = MPI_COMM_WORLD)
       : parameters_(parameters)
       , communicator_(communicator)
-      , triangulation_storage_(make_triangulation_storage(communicator_))
+      , triangulation_storage_(
+          make_triangulation_storage(communicator_,
+                                     parameters_.triangulation_type ==
+                                       "fullydistributed"))
       , tria_(nullptr)
       , fe_(FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim)
     {
@@ -225,43 +386,34 @@ namespace ImmersX
                     "ElasticStaticProblem::setup() may only be called once."));
 
       make_grid();
-      dof_handler_->distribute_dofs(fe_);
+      setup_system();
+      assemble_system(nullptr);
+    }
 
-      locally_owned_dofs_ = dof_handler_->locally_owned_dofs();
-      locally_relevant_dofs_ =
-        DoFTools::extract_locally_relevant_dofs(*dof_handler_);
+    /**
+     * Globally refine a distributed mesh and rebuild the static system.
+     *
+     * The candidate solution is reset because each static refinement cycle
+     * solves the refined problem anew.
+     */
+    void
+    refine_global()
+    {
+      AssertThrow(
+        dof_handler_->n_dofs() != 0,
+        ExcMessage("Call setup() before refining the static elasticity mesh."));
+      AssertThrow(
+        std::holds_alternative<DistributedTriangulation>(
+          triangulation_storage_),
+        ExcMessage(
+          "ElasticStaticProblem::refine_global() is unavailable for "
+          "parallel::fullydistributed::Triangulation because its mesh is "
+          "immutable after copy_triangulation()."));
 
-      constraints_.reinit(locally_owned_dofs_, locally_relevant_dofs_);
-      DoFTools::make_hanging_node_constraints(*dof_handler_, constraints_);
-      for (const auto boundary_id : parameters_.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(*dof_handler_,
-                                                 boundary_id,
-                                                 parameters_.bc,
-                                                 constraints_);
-      constraints_.close();
-
-      DynamicSparsityPattern sparsity(locally_relevant_dofs_);
-      DoFTools::make_sparsity_pattern(*dof_handler_,
-                                      sparsity,
-                                      constraints_,
-                                      true);
-      SparsityTools::distribute_sparsity_pattern(sparsity,
-                                                 locally_owned_dofs_,
-                                                 communicator_,
-                                                 locally_relevant_dofs_);
-
-      stiffness_matrix_.reinit(locally_owned_dofs_,
-                               locally_owned_dofs_,
-                               sparsity,
-                               communicator_);
-      forcing_.reinit(locally_owned_dofs_, communicator_);
-      solution_.reinit(locally_owned_dofs_, communicator_);
-      locally_relevant_solution_.reinit(locally_owned_dofs_,
-                                        locally_relevant_dofs_,
-                                        communicator_);
-      forcing_  = 0.;
-      solution_ = 0.;
-
+      dof_handler_->clear();
+      std::get<DistributedTriangulation>(triangulation_storage_)
+        .refine_global(1);
+      setup_system();
       assemble_system(nullptr);
     }
 
@@ -339,10 +491,19 @@ namespace ImmersX
       update_locally_relevant_solution();
     }
 
-    /** Write the accepted displacement and subdomain id to configured output.
+    void
+    compute_error(dealii::ParsedConvergenceTable &table) const
+    {
+      table.error_from_exact(dof_handler(),
+                             locally_relevant_solution_,
+                             parameters_.exact_solution);
+    }
+
+    /** Write the accepted displacement and subdomain id for one observation
+     * cycle to configured output.
      */
     void
-    output_results() const
+    output_results(const unsigned int cycle) const
     {
       std::filesystem::create_directories(parameters_.output_directory);
 
@@ -368,23 +529,31 @@ namespace ImmersX
       data_out.add_data_vector(material_id, "material_id");
       data_out.build_patches();
 
-      const std::string filename = parameters_.output_name + ".vtu";
+      const std::string filename =
+        parameters_.output_name + "_" + std::to_string(cycle) + ".vtu";
       data_out.write_vtu_in_parallel(parameters_.output_directory + "/" +
                                        filename,
                                      communicator_);
+
+      output_records_.emplace_back(static_cast<double>(cycle), filename);
 
       if (Utilities::MPI::this_mpi_process(communicator_) == 0)
         {
           std::ofstream pvd(parameters_.output_directory + "/" +
                             parameters_.output_name + ".pvd");
-          DataOutBase::write_pvd_record(pvd, {{0., filename}});
+          DataOutBase::write_pvd_record(pvd, output_records_);
         }
     }
 
   private:
     static TriangulationVariant
-    make_triangulation_storage(const MPI_Comm communicator)
+    make_triangulation_storage(const MPI_Comm communicator,
+                               const bool     fully_distributed)
     {
+      if (fully_distributed)
+        return TriangulationVariant(
+          std::in_place_type<FullyDistributedTriangulation>, communicator);
+
       return TriangulationVariant(
         std::in_place_type<DistributedTriangulation>,
         communicator,
@@ -430,35 +599,8 @@ namespace ImmersX
     void
     make_grid()
     {
-      const bool fully_distributed =
-        parameters_.triangulation_type == "fullydistributed";
-
-      if ((fully_distributed &&
-           std::holds_alternative<DistributedTriangulation>(
-             triangulation_storage_)) ||
-          (!fully_distributed &&
-           std::holds_alternative<FullyDistributedTriangulation>(
-             triangulation_storage_)))
-        dof_handler_.reset();
-
-      if (fully_distributed &&
-          !std::holds_alternative<FullyDistributedTriangulation>(
+      if (std::holds_alternative<DistributedTriangulation>(
             triangulation_storage_))
-        triangulation_storage_.template emplace<FullyDistributedTriangulation>(
-          communicator_);
-      else if (!fully_distributed &&
-               !std::holds_alternative<DistributedTriangulation>(
-                 triangulation_storage_))
-        triangulation_storage_.template emplace<DistributedTriangulation>(
-          communicator_,
-          typename Triangulation<dim, spacedim>::MeshSmoothing(
-            Triangulation<dim, spacedim>::smoothing_on_refinement |
-            Triangulation<dim, spacedim>::smoothing_on_coarsening),
-          DistributedTriangulation::construct_multigrid_hierarchy);
-
-      reset_triangulation();
-
-      if (!fully_distributed)
         {
           make_grid_in(
             std::get<DistributedTriangulation>(triangulation_storage_));
@@ -472,7 +614,49 @@ namespace ImmersX
       make_grid_in(serial_tria);
       std::get<FullyDistributedTriangulation>(triangulation_storage_)
         .copy_triangulation(serial_tria);
-      reset_triangulation();
+    }
+
+    void
+    setup_system()
+    {
+      dof_handler_->distribute_dofs(fe_);
+
+      locally_owned_dofs_ = dof_handler_->locally_owned_dofs();
+      locally_relevant_dofs_ =
+        DoFTools::extract_locally_relevant_dofs(*dof_handler_);
+
+      constraints_.reinit(locally_owned_dofs_, locally_relevant_dofs_);
+      DoFTools::make_hanging_node_constraints(*dof_handler_, constraints_);
+      for (const auto boundary_id : parameters_.dirichlet_ids)
+        VectorTools::interpolate_boundary_values(*dof_handler_,
+                                                 boundary_id,
+                                                 parameters_.get_dirichlet_bc(
+                                                   boundary_id),
+                                                 constraints_);
+      constraints_.close();
+
+      DynamicSparsityPattern sparsity(locally_relevant_dofs_);
+      DoFTools::make_sparsity_pattern(*dof_handler_,
+                                      sparsity,
+                                      constraints_,
+                                      true);
+      SparsityTools::distribute_sparsity_pattern(sparsity,
+                                                 locally_owned_dofs_,
+                                                 communicator_,
+                                                 locally_relevant_dofs_);
+
+      stiffness_matrix_.reinit(locally_owned_dofs_,
+                               locally_owned_dofs_,
+                               sparsity,
+                               communicator_);
+      forcing_.reinit(locally_owned_dofs_, communicator_);
+      solution_.reinit(locally_owned_dofs_, communicator_);
+      locally_relevant_solution_.reinit(locally_owned_dofs_,
+                                        locally_relevant_dofs_,
+                                        communicator_);
+      forcing_                   = 0.;
+      solution_                  = 0.;
+      locally_relevant_solution_ = 0.;
     }
 
     void
@@ -530,9 +714,10 @@ namespace ImmersX
                 fe_values.get_quadrature_points(), values);
             else
               {
-                parameters_.rhs.vector_value_list(
-                  fe_values.get_quadrature_points(), values);
-                const double scale = parameters_.rhs.scale(0.);
+                const auto &rhs = parameters_.get_rhs(cell->material_id());
+                rhs.vector_value_list(fe_values.get_quadrature_points(),
+                                      values);
+                const double scale = rhs.scale(0.);
                 for (auto &value : values)
                   value *= scale;
               }
@@ -571,9 +756,11 @@ namespace ImmersX
                     {
                       face_rhs = 0.;
                       face_values.reinit(cell, face);
-                      parameters_.neumann_bc.vector_value_list(
+                      const auto &traction = parameters_.get_neumann_bc(
+                        cell->face(face)->boundary_id());
+                      traction.vector_value_list(
                         face_values.get_quadrature_points(), face_values_list);
-                      const double scale = parameters_.neumann_bc.scale(0.);
+                      const double scale = traction.scale(0.);
                       for (auto &value : face_values_list)
                         value *= scale;
 
@@ -624,6 +811,7 @@ namespace ImmersX
     VectorType         forcing_;
     VectorType         solution_;
     mutable VectorType locally_relevant_solution_;
+    mutable std::vector<std::pair<double, std::string>> output_records_;
 
     FEValuesExtractors::Vector displacement_{0};
   };

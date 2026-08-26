@@ -26,19 +26,13 @@ namespace
 {
   template <int dim>
   void
-  run_static_elasticity(const std::string &parameter_file)
+  solve_one_cycle(ImmersX::ElasticStaticProblem<dim> &problem,
+                  const unsigned int                  cycle)
   {
     using namespace ImmersX;
     using FieldVector  = ImmersXLA::MPI::Vector;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
-    using Problem      = ElasticStaticProblem<dim>;
-
-    ElasticStaticParameters<dim> parameters;
-    initialize_parameters(parameter_file);
-
-    Problem problem(parameters);
-    problem.setup();
 
     Adapter adapter(
       MPI_COMM_WORLD,
@@ -56,14 +50,52 @@ namespace
     adapter.solve(state);
     problem.set_solution(adapter.field(state, fields.fields().displacement));
 
-    GlobalVector residual;
-    adapter.evaluate_residual(state, residual);
+    FieldVector residual;
+    residual.reinit(problem.solution());
+    problem.stiffness_operator().vmult(residual, problem.solution());
+    residual -= problem.forcing();
+    problem.constraints().set_zero(residual);
+    const double residual_norm = residual.l2_norm();
     if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      std::cout << "elastic_static_residual = " << residual.l2_norm() << '\n';
+      std::cout << "elastic_static_residual = " << residual_norm << '\n';
 
-    problem.output_results();
-    AssertThrow(residual.l2_norm() < 1.e-9,
-                ExcMessage("Static elasticity residual is too large."));
+    AssertThrow(residual_norm < 1.e-9,
+                ExcMessage("Static elasticity residual is too large in cycle " +
+                           std::to_string(cycle) + "."));
+  }
+
+  template <int dim>
+  void
+  run_static_elasticity(const std::string &parameter_file)
+  {
+    using namespace ImmersX;
+    using Problem = ElasticStaticProblem<dim>;
+
+    ElasticStaticParameters<dim> parameters;
+    initialize_parameters(parameter_file);
+    AssertThrow(parameters.triangulation_type != "fullydistributed" ||
+                  parameters.n_refinement_cycles <= 1,
+                ExcMessage(
+                  "parallel::fullydistributed::Triangulation supports only one "
+                  "static refinement cycle because its mesh is immutable after "
+                  "copy_triangulation()."));
+
+    Problem problem(parameters);
+    problem.setup();
+
+    for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
+         ++cycle)
+      {
+        solve_one_cycle(problem, cycle);
+        problem.compute_error(parameters.convergence_table);
+        problem.output_results(cycle);
+
+        if (cycle + 1 < parameters.n_refinement_cycles)
+          problem.refine_global();
+      }
+
+    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      parameters.convergence_table.output_table(std::cout);
   }
 } // namespace
 
