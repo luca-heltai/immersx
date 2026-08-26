@@ -138,18 +138,15 @@ namespace CoupledPoissonElasticity
         for (unsigned int i = 0; i < values.size(); ++i)
           destination[i] += values[i];
       };
-      result.Tvmult = [factor = factor_](state_type       &destination,
-                                         const value_type &source) {
-        destination = 0.;
-        for (const auto index : destination.locally_owned_elements())
-          if (index < source.size())
-            destination[index] = factor * source[index];
+      result.Tvmult = [problem, scale, points](state_type       &destination,
+                                               const value_type &source) {
+        apply_point_evaluation_transpose(
+          *problem, scale, points, source, destination, false);
       };
-      result.Tvmult_add = [factor = factor_](state_type       &destination,
-                                             const value_type &source) {
-        for (const auto index : destination.locally_owned_elements())
-          if (index < source.size())
-            destination[index] += factor * source[index];
+      result.Tvmult_add = [problem, scale, points](state_type &destination,
+                                                   const value_type &source) {
+        apply_point_evaluation_transpose(
+          *problem, scale, points, source, destination, true);
       };
       return result;
     }
@@ -290,36 +287,105 @@ namespace CoupledPoissonElasticity
       relevant = source;
       relevant.update_ghost_values();
 
-      dealii::Vector<double>                       result(points.size());
-      const dealii::MappingQ1<1, 3>                mapping;
-      std::vector<dealii::types::global_dof_index> dof_indices(
-        problem.dof_handler().get_fe().n_dofs_per_cell());
+      dealii::Vector<double> result(points.size());
       for (unsigned int q = 0; q < points.size(); ++q)
         {
-          const auto cell_and_unit_point =
-            dealii::GridTools::find_active_cell_around_point(
-              mapping, problem.dof_handler(), points[q]);
-          const auto &cell = cell_and_unit_point.first;
-          if (cell == problem.dof_handler().end() || !cell->is_locally_owned())
+          const auto data = local_shape_data(problem, points[q]);
+          if (data.dof_indices.empty())
             continue;
-          const dealii::Quadrature<1> point_quadrature(
-            std::vector<dealii::Point<1>>{cell_and_unit_point.second});
-          dealii::FEValues<1, 3> fe_values(mapping,
-                                           problem.dof_handler().get_fe(),
-                                           point_quadrature,
-                                           dealii::update_values);
-          fe_values.reinit(cell);
-          cell->get_dof_indices(dof_indices);
-          for (unsigned int i = 0;
-               i < problem.dof_handler().get_fe().n_dofs_per_cell();
-               ++i)
-            result[q] += scale * fe_values[ExtractorType(0)].value(i, 0) *
-                         relevant[dof_indices[i]];
+          for (unsigned int i = 0; i < data.shape_values.size(); ++i)
+            result[q] +=
+              scale * data.shape_values[i] * relevant[data.dof_indices[i]];
         }
       return result;
     }
 
   private:
+    /** Local FE data at one physical point on a locally owned cell. */
+    struct LocalShapeData
+    {
+      std::vector<dealii::types::global_dof_index> dof_indices;
+      std::vector<double>                          shape_values;
+    };
+
+    /**
+     * Evaluate the scalar shape functions of the source FE space at one
+     * physical point. The returned data is empty when the point does not lie
+     * in a locally owned cell.
+     */
+    static LocalShapeData
+    local_shape_data(const ProblemType &problem, const dealii::Point<3> &point)
+    {
+      LocalShapeData                result;
+      const dealii::MappingQ1<1, 3> mapping;
+      const auto                    cell_and_unit_point =
+        dealii::GridTools::find_active_cell_around_point(mapping,
+                                                         problem.dof_handler(),
+                                                         point);
+      const auto &cell = cell_and_unit_point.first;
+      if (cell == problem.dof_handler().end() || !cell->is_locally_owned())
+        return result;
+
+      const dealii::Quadrature<1> point_quadrature(
+        std::vector<dealii::Point<1>>{cell_and_unit_point.second});
+      dealii::FEValues<1, 3> fe_values(mapping,
+                                       problem.dof_handler().get_fe(),
+                                       point_quadrature,
+                                       dealii::update_values);
+      fe_values.reinit(cell);
+      const unsigned int n_dofs =
+        problem.dof_handler().get_fe().n_dofs_per_cell();
+      result.dof_indices.resize(n_dofs);
+      cell->get_dof_indices(result.dof_indices);
+      result.shape_values.resize(n_dofs);
+      for (unsigned int i = 0; i < n_dofs; ++i)
+        result.shape_values[i] =
+          fe_values[dealii::FEValuesExtractors::Scalar(0)].value(i, 0);
+      return result;
+    }
+
+    /**
+     * Accumulate r = A^T z (or add it to destination) for the point
+     * evaluation operator A: r_i = sum_j phi_i(x_j) z_j. Contributions are
+     * gathered locally and compressed into the owned DoFs; no assumption is
+     * made about point or DoF numbering.
+     */
+    static void
+    apply_point_evaluation_transpose(
+      const ProblemType                   &problem,
+      const double                         scale,
+      const std::vector<dealii::Point<3>> &points,
+      const dealii::Vector<double>        &source,
+      state_type                          &destination,
+      const bool                           add)
+    {
+      // deal.II's own distributed vector permits accumulating into ghost
+      // entries; the Trilinos wrapper does not. We gather locally and then
+      // compress so that every owned DoF receives the sum of all local cell
+      // contributions, including DoFs stored as ghosts on other ranks' cells.
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(problem.locally_owned_dofs(),
+                          problem.locally_relevant_dofs(),
+                          problem.triangulation().get_mpi_communicator());
+      contribution = 0.;
+      for (unsigned int q = 0; q < points.size(); ++q)
+        {
+          const auto data = local_shape_data(problem, points[q]);
+          if (data.dof_indices.empty())
+            continue;
+          for (unsigned int i = 0; i < data.shape_values.size(); ++i)
+            contribution[data.dof_indices[i]] +=
+              scale * data.shape_values[i] * source[q];
+        }
+      contribution.compress(dealii::VectorOperation::add);
+      if (add)
+        for (const auto index : destination.locally_owned_elements())
+          destination[index] += contribution[index];
+      else
+        for (const auto index : destination.locally_owned_elements())
+          destination[index] = contribution[index];
+    }
+
     ImmersX::FieldId   source_;
     const ProblemType *problem_;
     double             factor_;
