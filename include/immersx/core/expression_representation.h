@@ -10,6 +10,7 @@
 #ifndef immersx_expression_representation_h
 #define immersx_expression_representation_h
 
+#include <immersx/core/lifting.h>
 #include <immersx/core/representation.h>
 #include <immersx/core/symbolic_expression_kernel.h>
 
@@ -82,6 +83,21 @@ namespace ImmersX
         result |= expression_update_flags(binding);
       return result;
     }
+
+    inline std::vector<FieldId>
+    expression_dependencies(const std::vector<ExpressionBinding> &bindings)
+    {
+      std::vector<FieldId> result;
+      for (const auto &binding : bindings)
+        std::visit(
+          [&result](const auto &observable) {
+            if (std::find(result.begin(), result.end(), observable.field) ==
+                result.end())
+              result.push_back(observable.field);
+          },
+          binding);
+      return result;
+    }
   } // namespace detail
 
   /**
@@ -110,8 +126,13 @@ namespace ImmersX
 
     ExpressionRepresentation(const std::vector<Binding> &bindings,
                              const SamplingPlan         &sampling,
-                             SymbolicExpressionKernel    kernel)
-      : kernel_(std::make_shared<SymbolicExpressionKernel>(std::move(kernel)))
+                             SymbolicExpressionKernel    kernel,
+                             RepresentationDomain        domain =
+                               RepresentationDomain(spacedim,
+                                                    spacedim,
+                                                    "retained-fe-sampling"))
+      : domain_(std::move(domain))
+      , kernel_(std::make_shared<SymbolicExpressionKernel>(std::move(kernel)))
     {
       AssertThrow(!bindings.empty(),
                   dealii::ExcMessage(
@@ -122,6 +143,7 @@ namespace ImmersX
                     "The number of expression symbols must match the number "
                     "of field bindings."));
 
+      dependencies_ = detail::expression_dependencies(bindings);
       bindings_.reserve(bindings.size());
       for (const auto &binding : bindings)
         std::visit(
@@ -148,10 +170,6 @@ namespace ImmersX
                                  is_gradient,
                                  component,
                                  sampling});
-            if (std::find(dependencies_.begin(),
-                          dependencies_.end(),
-                          observable.field) == dependencies_.end())
-              dependencies_.push_back(observable.field);
           },
           binding);
     }
@@ -168,12 +186,15 @@ namespace ImmersX
       const std::vector<Binding>          &bindings,
       const SamplingPlan                  &sampling,
       const std::string                   &expression,
-      const std::map<std::string, double> &constants = {})
+      const std::map<std::string, double> &constants = {},
+      const RepresentationDomain           domain =
+        RepresentationDomain(spacedim, spacedim, "retained-fe-sampling"))
       : ExpressionRepresentation(bindings,
                                  sampling,
                                  make_kernel(expression,
                                              symbols(bindings),
-                                             constants))
+                                             constants),
+                                 domain)
     {}
 
     ExpressionRepresentation(
@@ -181,11 +202,14 @@ namespace ImmersX
       const SamplingPlan                  &sampling,
       const std::string                   &expression,
       const std::string                   &symbol    = "A",
-      const std::map<std::string, double> &constants = {})
+      const std::map<std::string, double> &constants = {},
+      const RepresentationDomain           domain =
+        RepresentationDomain(spacedim, spacedim, "retained-fe-sampling"))
       : ExpressionRepresentation(std::vector<Binding>{value(source, symbol)},
                                  sampling,
                                  expression,
-                                 constants)
+                                 constants,
+                                 domain)
     {}
 
     const std::vector<FieldId> &
@@ -209,8 +233,13 @@ namespace ImmersX
     quantity_space_type
     quantity_space() const
     {
-      return quantity_space_type(
-        RepresentationDomain(spacedim, spacedim, "retained-fe-sampling"));
+      return quantity_space_type(domain_);
+    }
+
+    const RepresentationDomain &
+    domain() const
+    {
+      return domain_;
     }
 
     value_type
@@ -398,6 +427,7 @@ namespace ImmersX
 
     std::vector<InstalledBinding>             bindings_;
     std::vector<FieldId>                      dependencies_;
+    RepresentationDomain                      domain_;
     std::shared_ptr<SymbolicExpressionKernel> kernel_;
   };
 
@@ -425,10 +455,117 @@ namespace ImmersX
       make_retained_sampling_plan(representation,
                                   quadrature,
                                   detail::expression_update_flags(bindings));
-    return ExpressionRepresentation<spacedim>(bindings,
-                                              sampling,
-                                              expression,
-                                              constants);
+    return ExpressionRepresentation<spacedim>(
+      bindings,
+      sampling,
+      expression,
+      constants,
+      RepresentationDomain(dim, spacedim, "retained-fe-sampling"));
+  }
+
+  /**
+   * A scalar finite-element expression before its sampling geometry is known.
+   *
+   * This is deliberately a description rather than a Representation: it owns
+   * no quadrature, retained sampling plan, sampled values, or coupling data.
+   * The finite-element view is a small non-owning value type, so copying this
+   * description preserves the same Problem-owned lifetime requirements as the
+   * view itself.
+   */
+  template <typename FERepresentation>
+  class FiniteElementExpression
+  {
+  public:
+    using SourceRepresentation = FERepresentation;
+    using Binding              = ExpressionBinding;
+
+    static constexpr unsigned int support_dimension =
+      FERepresentation::support_dimension;
+    static constexpr unsigned int ambient_dimension =
+      FERepresentation::ambient_dimension;
+
+    FiniteElementExpression(const FERepresentation       &source,
+                            std::vector<Binding>          bindings,
+                            std::string                   expression,
+                            std::map<std::string, double> constants = {})
+      : source_(source)
+      , bindings_(std::move(bindings))
+      , expression_(std::move(expression))
+      , constants_(std::move(constants))
+    {
+      AssertThrow(!bindings_.empty(),
+                  dealii::ExcMessage(
+                    "A finite-element expression needs at least one "
+                    "binding."));
+      dependencies_ = detail::expression_dependencies(bindings_);
+    }
+
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
+    }
+
+    const FERepresentation &
+    source_representation() const
+    {
+      return source_;
+    }
+
+    const std::vector<Binding> &
+    bindings() const
+    {
+      return bindings_;
+    }
+
+    const std::string &
+    expression() const
+    {
+      return expression_;
+    }
+
+    const std::map<std::string, double> &
+    constants() const
+    {
+      return constants_;
+    }
+
+    const std::vector<FieldId> &
+    dependencies() const
+    {
+      return dependencies_;
+    }
+
+    RepresentationDomain
+    domain() const
+    {
+      return RepresentationDomain(support_dimension,
+                                  ambient_dimension,
+                                  "finite-element-expression");
+    }
+
+  private:
+    FERepresentation              source_;
+    std::vector<Binding>          bindings_;
+    std::string                   expression_;
+    std::map<std::string, double> constants_;
+    std::vector<FieldId>          dependencies_;
+  };
+
+  /** Describe a scalar expression without selecting its sampling quadrature. */
+  template <typename FERepresentation>
+  auto
+  make_fe_expression(const FERepresentation        &source,
+                     std::vector<ExpressionBinding> bindings,
+                     std::string                    expression,
+                     std::map<std::string, double>  constants = {})
+    -> FiniteElementExpression<FERepresentation>
+  {
+    return FiniteElementExpression<FERepresentation>(source,
+                                                     std::move(bindings),
+                                                     std::move(expression),
+                                                     std::move(constants));
   }
 
   /** Lift an already sampled representation through retained lift points. */
@@ -436,17 +573,26 @@ namespace ImmersX
   class TensorProductExpressionLiftRepresentation
   {
   public:
+    static constexpr unsigned int support_dimension =
+      GeometryLiftRepresentation::support_dimension;
+    static constexpr unsigned int ambient_dimension =
+      GeometryLiftRepresentation::ambient_dimension;
+    static constexpr unsigned int representative_dimension =
+      GeometryLiftRepresentation::representative_dimension;
+
     using value_type          = typename SourceRepresentation::value_type;
     using state_type          = typename SourceRepresentation::state_type;
     using quantity_space_type = QuantitySpace<value_type>;
     using Operator            = RepresentationOperator<value_type, state_type>;
     using ValueOperator       = RepresentationOperator<value_type, value_type>;
+    using QuadraturePoint =
+      typename GeometryLiftRepresentation::QuadraturePoint;
 
     TensorProductExpressionLiftRepresentation(
-      const SourceRepresentation       &source,
-      const GeometryLiftRepresentation &geometry)
-      : source_(source)
-      , geometry_(geometry)
+      SourceRepresentation       source,
+      GeometryLiftRepresentation geometry)
+      : source_(std::move(source))
+      , geometry_(std::move(geometry))
     {
       AssertThrow(source_.sampling_plan().points().size() > 0,
                   dealii::ExcMessage(
@@ -493,11 +639,36 @@ namespace ImmersX
       return lifted_owned_;
     }
 
+    const dealii::IndexSet &
+    locally_relevant_points() const
+    {
+      return lifted_relevant_;
+    }
+
     dealii::types::global_dof_index
     point_index(const std::size_t local_point) const
     {
       AssertIndexRange(local_point, lifted_indices_.size());
       return lifted_indices_[local_point];
+    }
+
+    const RepresentationDomain &
+    domain() const
+    {
+      return geometry_.domain();
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return geometry_.mpi_communicator();
+    }
+
+    std::vector<QuadraturePoint>
+    locally_owned_quadrature_points(
+      const dealii::Quadrature<support_dimension> &quadrature) const
+    {
+      return geometry_.locally_owned_quadrature_points(quadrature);
     }
 
     const std::vector<FieldId> &
@@ -509,8 +680,7 @@ namespace ImmersX
     quantity_space_type
     quantity_space() const
     {
-      return quantity_space_type(
-        RepresentationDomain(0, 0, "tensor-product-expression-lift"));
+      return quantity_space_type(geometry_.domain());
     }
 
     value_type
@@ -619,8 +789,8 @@ namespace ImmersX
       return result;
     }
 
-    const SourceRepresentation                  &source_;
-    const GeometryLiftRepresentation            &geometry_;
+    SourceRepresentation                         source_;
+    GeometryLiftRepresentation                   geometry_;
     dealii::IndexSet                             lifted_owned_;
     dealii::IndexSet                             lifted_relevant_;
     std::vector<dealii::types::global_dof_index> lifted_indices_;
@@ -638,6 +808,47 @@ namespace ImmersX
     return TensorProductExpressionLiftRepresentation<
       SourceRepresentation,
       GeometryLiftRepresentation>(source, geometry);
+  }
+
+  /** Concretize a deferred FE expression on the supplied quadrature. */
+  template <typename FERepresentation>
+  auto
+  sample(
+    const FiniteElementExpression<FERepresentation>               &expression,
+    const dealii::Quadrature<FERepresentation::support_dimension> &quadrature)
+    -> ExpressionRepresentation<FERepresentation::ambient_dimension>
+  {
+    return make_expression_representation(expression.source_representation(),
+                                          quadrature,
+                                          expression.bindings(),
+                                          expression.expression(),
+                                          expression.constants());
+  }
+
+  /**
+   * Supply the representative quadrature when a deferred expression is
+   * consumed by a tensor-product lift, then reuse the sampled lift adapter.
+   */
+  template <typename FERepresentation,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components>
+  auto
+  make_lift(
+    const FiniteElementExpression<FERepresentation> &expression,
+    const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+      &lift)
+  {
+    static_assert(FERepresentation::support_dimension == reduced_dim,
+                  "A tensor-product lift must use the FE source dimension.");
+    static_assert(FERepresentation::ambient_dimension == spacedim,
+                  "A tensor-product lift must use the FE source space.");
+
+    auto geometry = make_lift(expression.source_representation(), lift);
+    auto sampled =
+      sample(expression, geometry.support().representative_quadrature());
+    return make_tensor_product_expression_lift(sampled, geometry);
   }
 
   /** Construct a multi-field expression representation from expression text. */

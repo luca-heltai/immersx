@@ -317,6 +317,70 @@ namespace
                 local_dot(data.locally_owned, direction, gradient_transpose),
                 1.e-8);
   }
+
+  void
+  check_deferred_sampling(const bool mpi)
+  {
+    if (mpi)
+      ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+    else
+      ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+
+    ExpressionData  data;
+    const QGauss<2> quadrature(3);
+    const auto      deferred = make_fe_expression(*data.representation,
+                                                  {value(data.field, "A")},
+                                             "factor*A",
+                                                  {{"factor", 2.5}});
+
+    // The description has no sampling plan until this explicit conversion.
+    const auto sampled = sample(deferred, quadrature);
+    EXPECT_EQ(deferred.domain(),
+              (RepresentationDomain(2, 2, "finite-element-expression")));
+    EXPECT_EQ(sampled.quantity_space().domain(),
+              (RepresentationDomain(2, 2, "retained-fe-sampling")));
+
+    ImmersXLA::MPI::Vector state;
+    fill_vector(data.locally_owned, state);
+    ImmersXLA::MPI::Vector direction;
+    fill_vector(data.locally_owned, direction);
+    StateView<ImmersXLA::MPI::Vector> state_view(data.layout, 0.);
+    state_view.bind(data.field, state);
+    EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
+
+    const auto             value_result = sampled.evaluate(context);
+    const auto             jacobian     = sampled.linearize(context);
+    ImmersXLA::MPI::Vector action;
+    jacobian.reinit_range_vector(action, false);
+    jacobian.vmult(action, direction);
+
+    const auto            &plan               = sampled.sampling_plan();
+    const auto             sampling           = plan.linearize(state);
+    const auto             direction_sampling = plan.linearize(direction);
+    ImmersXLA::MPI::Vector samples;
+    ImmersXLA::MPI::Vector direction_values;
+    sampling.reinit_range_vector(samples, false);
+    direction_sampling.reinit_range_vector(direction_values, false);
+    sampling.vmult(samples, state);
+    direction_sampling.vmult(direction_values, direction);
+    for (std::size_t q = 0; q < plan.points().size(); ++q)
+      {
+        const auto index = plan.point_index(q);
+        EXPECT_DOUBLE_EQ(value_result[index], 2.5 * samples[index]);
+        EXPECT_DOUBLE_EQ(action[index], 2.5 * direction_values[index]);
+      }
+
+    ImmersXLA::MPI::Vector weights;
+    weights.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
+    for (const auto index : plan.locally_owned_points())
+      weights[index] = 1. + 0.1 * index;
+    ImmersXLA::MPI::Vector transpose;
+    jacobian.reinit_domain_vector(transpose, false);
+    jacobian.Tvmult(transpose, weights);
+    EXPECT_NEAR(local_dot(plan.locally_owned_points(), action, weights),
+                local_dot(data.locally_owned, direction, transpose),
+                1.e-10);
+  }
 } // namespace
 
 
@@ -329,6 +393,18 @@ TEST(ExpressionRepresentation, ValueAndJacobian) // NOLINT
 TEST(ExpressionRepresentation, MPI_ValueAndJacobian) // NOLINT
 {
   check_expression(true);
+}
+
+
+TEST(ExpressionRepresentation, DeferredSampling) // NOLINT
+{
+  check_deferred_sampling(false);
+}
+
+
+TEST(ExpressionRepresentation, MPI_DeferredSampling) // NOLINT
+{
+  check_deferred_sampling(true);
 }
 
 
@@ -399,15 +475,12 @@ namespace
     lift.section.n_q_points               = 3;
     lift.section.n_quadrature_repetitions = 1;
 
-    const auto geometry   = data.representation->lift(lift);
-    const auto expression = make_expression_representation(
-      *data.representation,
-      geometry.support().representative_quadrature(),
-      {value(data.field, "A")},
-      "A*A + 1.25*A");
-    const auto &plan = expression.sampling_plan();
-    const auto  lifted =
-      make_tensor_product_expression_lift(expression, geometry);
+    const auto  expression = make_fe_expression(*data.representation,
+                                                {value(data.field, "A")},
+                                               "A*A + 1.25*A");
+    const auto  lifted     = expression.lift(lift);
+    const auto &sampled    = lifted.source_representation();
+    const auto &plan       = sampled.sampling_plan();
 
     ImmersXLA::MPI::Vector state;
     state.reinit(data.locally_owned, MPI_COMM_WORLD);
@@ -421,8 +494,8 @@ namespace
     StateView<ImmersXLA::MPI::Vector> state_view(data.layout, 0.);
     state_view.bind(data.field, state);
     EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
-    const auto source_value    = expression.evaluate(context);
-    const auto source_jacobian = expression.linearize(context);
+    const auto source_value    = sampled.evaluate(context);
+    const auto source_jacobian = sampled.linearize(context);
     const auto lifted_value    = lifted.evaluate(context);
     for (std::size_t q = 0; q < lifted.lifted_points().size(); ++q)
       {

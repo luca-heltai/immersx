@@ -98,6 +98,28 @@ physics code may expose a scaled quantity:
 auto pressure = fluid.observe(Pressure{}).scaled(2.);
 ```
 
+When the sampling geometry is selected by a later lift, a physics module can
+return a deferred finite-element expression. It describes the source FE view,
+semantic bindings, expression text, and constants, but does not create a
+quadrature or retained sampling plan:
+
+```{code-block} cpp
+const Pressure descriptor;
+auto pressure = make_fe_expression(
+  source_view,
+  {value(problem.fields().solution, "A")},
+  "factor*A",
+  {{"factor", descriptor.factor}});
+auto lifted_pressure = pressure.lift(pressure_lift);
+```
+
+`pressure.lift(pressure_lift)` obtains the representative quadrature from the
+lift, samples the expression through the existing
+`make_expression_representation` path, and then composes the existing value
+transfer. Applications do not provide `UpdateFlags`,
+`RetainedSamplingPlan`, or symbolic-kernel objects. For an explicit sampling
+conversion, use `sample(expression, quadrature)`.
+
 The following details are useful when implementing a descriptor, but are not
 needed by application authors. A representation has a source Field dependency
 and a physical evaluation domain. `RepresentationDomain` records dimensions
