@@ -143,22 +143,12 @@ namespace ImmersX
    * and three dimensions (`dim == spacedim`). The spatial finite-element space
    * is one vector-valued `FESystem<dim>(FE_Q<dim>, spacedim)`, represented by
    * one DoFHandler. Displacement and velocity are separate algebraic vectors on
-   * that same space.
-   *
-   * The continuous semidiscrete equations are
-   * [
-   *   M\dot d - Mv = 0, \qquad
-   *   M\dot v + Kd + Dv = f.
-   * ]
-   * Here `M` is the consistent physical mass matrix, also used for the weak
-   * kinematic equation. `K` is the linear isotropic elasticity operator and `D`
-   * is the optional Kelvin--Voigt damping operator. These three matrices remain
-   * separate public operators; the backward-Euler matrix is only a standalone
+   * that same space. The solver exposes separate mass, stiffness, and optional
+   * damping operators and advances the state with a standalone backward-Euler
    * driver.
    *
-   * No coupling, particles, multipliers, moving geometry, nonlinear materials,
-   * or SUNDIALS dependency belongs to this class. Its intended next use is as a
-   * clean source of a `SemiDiscreteModel` residual for SUNDIALS and future FSI.
+   * Coupling, particles, multipliers, moving geometry, nonlinear materials,
+   * and SUNDIALS policy belong outside this class.
    */
   class ElastodynamicsSolver : public dealii::EnableObserverPointer
   {
