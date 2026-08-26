@@ -640,6 +640,13 @@ namespace ImmersX
 
     using value_type    = ValueType;
     using ExtractorType = Extractor;
+    /**
+     * Algebraic coefficient space of the represented field. Geometry-only
+     * views do not implement evaluate/linearize; the typedef satisfies the
+     * lifting contract so that views can be composed with tensor-product
+     * lifts without owning field state.
+     */
+    using state_type = ImmersXLA::MPI::Vector;
     using TriangulationType =
       dealii::parallel::TriangulationBase<dim, spacedim>;
     using DoFHandlerType  = dealii::DoFHandler<dim, spacedim>;
@@ -653,8 +660,9 @@ namespace ImmersX
       const dealii::AffineConstraints<double> &constraints,
       const dealii::Mapping<dim, spacedim>    &mapping =
         dealii::StaticMappingQ1<dim, spacedim>::mapping,
-      const ExtractorType                   &extractor = ExtractorType(0),
-      const ImmersX::RepresentationMetadata &metadata  = {})
+      const ExtractorType                   &extractor      = ExtractorType(0),
+      const ImmersX::RepresentationMetadata &metadata       = {},
+      const bool                             all_components = false)
       : triangulation_(triangulation)
       , dof_handler_(dof_handler)
       , locally_owned_dofs_(locally_owned_dofs)
@@ -663,6 +671,7 @@ namespace ImmersX
       , mapping_(mapping)
       , extractor_(extractor)
       , metadata_(metadata)
+      , all_components_(all_components)
     {}
 
     const TriangulationType &
@@ -807,8 +816,19 @@ namespace ImmersX
                 point.weight      = fe_values.JxW(q);
                 point.dof_indices = dof_indices;
                 point.basis_values.resize(n_dofs_per_cell());
-                for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
-                  point.basis_values[i] = fe_values[extractor_].value(i, q);
+                if (all_components_)
+                  {
+                    // A modal finite element (e.g. FESystem(scalar_fe,
+                    // n_modes)) exposes one algebraic slot per (local DoF,
+                    // mode). The plain shape value of each slot is the
+                    // reduced basis of that slot's component, which is what a
+                    // tensor-product lift multiplies by the section mode.
+                    for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                      point.basis_values[i] = fe_values.shape_value(i, q);
+                  }
+                else
+                  for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                    point.basis_values[i] = fe_values[extractor_].value(i, q);
                 points.emplace_back(std::move(point));
               }
           }
@@ -825,6 +845,7 @@ namespace ImmersX
     const dealii::Mapping<dim, spacedim>    &mapping_;
     const ExtractorType                      extractor_;
     ImmersX::RepresentationMetadata          metadata_;
+    const bool                               all_components_;
     mutable std::uint64_t                    geometry_version_ = 0;
   };
 
@@ -1122,6 +1143,21 @@ namespace ImmersX
    * The source view remains the sole owner of the representative mesh, FE,
    * DoF space, and dependencies. This class owns only the lifting support and
    * the local tensor-product quadrature metadata.
+   *
+   * Two algebraic semantics are supported and are never silently conflated:
+   *
+   * - Physical source (CASE A): the source is one scalar (or vector)
+   *   coefficient set, e.g. a pressure field lifted as constant across the
+   *   cross-section. Only mode 0 is meaningful as a new coefficient; the
+   *   default (non-modal) construction enforces that.
+   *
+   * - Modal source (CASE B): the source field itself owns independent
+   *   coefficients indexed by (representative DoF, mode), e.g. an RLM
+   *   multiplier lambda_{i,m}. The source representation must expose one
+   *   algebraic slot per (local DoF, mode) in component-major order. The
+   *   modal construction pairs slot (mode, i) with section mode `mode` and
+   *   keeps the slot's algebraic index, so mode 0 and mode 1 are distinct
+   *   unknowns.
    */
   template <typename SourceRepresentation,
             int reduced_dim,
@@ -1157,10 +1193,12 @@ namespace ImmersX
     using QuadraturePoint   = RepresentationQuadraturePoint<spacedim, double>;
 
     TensorProductLiftRepresentation(const SourceRepresentation &source,
-                                    const Lift                 &lift)
+                                    const Lift                 &lift,
+                                    const bool                  modal = false)
       : source_(source)
       , lift_(lift)
       , support_(lift.parameters())
+      , modal_(modal)
       , lifted_points_(build_lifted_points())
     {}
 
@@ -1202,6 +1240,16 @@ namespace ImmersX
     lift_descriptor() const
     {
       return lift_;
+    }
+
+    /**
+     * Return whether this lift treats the source slots as independent modal
+     * coefficients (CASE B) or as one physical coefficient set (CASE A).
+     */
+    bool
+    modal() const
+    {
+      return modal_;
     }
 
     const Support &
@@ -1329,14 +1377,50 @@ namespace ImmersX
                                         n_modes);
               point.basis_values.reserve(source_point.dof_indices.size() *
                                          n_modes);
-              for (unsigned int mode = 0; mode < n_modes; ++mode)
-                for (unsigned int i = 0; i < source_point.dof_indices.size();
-                     ++i)
-                  {
-                    point.dof_indices.push_back(source_point.dof_indices[i]);
-                    point.basis_values.push_back(source_point.basis_values[i] *
-                                                 lifted.mode_values[mode]);
-                  }
+              if (modal_)
+                {
+                  // The source slots are (mode, local DoF) component-major.
+                  // Each slot keeps its own algebraic index, so different
+                  // modes are independent unknowns.
+                  const unsigned int n_slots =
+                    static_cast<unsigned int>(source_point.dof_indices.size());
+                  AssertThrow(
+                    n_slots % n_modes == 0,
+                    dealii::ExcMessage(
+                      "A modal tensor-product lift requires the source "
+                      "representation to expose one algebraic slot per "
+                      "(local DoF, mode) in component-major order."));
+                  const unsigned int n_scalar_dofs = n_slots / n_modes;
+                  for (unsigned int mode = 0; mode < n_modes; ++mode)
+                    for (unsigned int i = 0; i < n_scalar_dofs; ++i)
+                      {
+                        const unsigned int slot = mode * n_scalar_dofs + i;
+                        point.dof_indices.push_back(
+                          source_point.dof_indices[slot]);
+                        point.basis_values.push_back(
+                          source_point.basis_values[slot] *
+                          lifted.mode_values[mode]);
+                      }
+                }
+              else
+                {
+                  // CASE A: one physical coefficient set. A scalar source
+                  // field cannot silently become n_modes independent unknowns.
+                  AssertThrow(
+                    n_modes == 1,
+                    dealii::ExcMessage(
+                      "A physical (non-modal) tensor-product lift supports "
+                      "only mode 0; selected modes beyond 0 require a modal "
+                      "source representation that owns one coefficient per "
+                      "(representative DoF, mode)."));
+                  for (unsigned int i = 0; i < source_point.dof_indices.size();
+                       ++i)
+                    {
+                      point.dof_indices.push_back(source_point.dof_indices[i]);
+                      point.basis_values.push_back(
+                        source_point.basis_values[i] * lifted.mode_values[0]);
+                    }
+                }
               result.emplace_back(std::move(point));
               ++lifted_index;
             }
@@ -1471,6 +1555,7 @@ namespace ImmersX
     SourceRepresentation                                       source_;
     const Lift                                                &lift_;
     Support                                                    support_;
+    const bool                                                 modal_;
     std::vector<TensorProductLiftPoint<surface_dim, spacedim>> lifted_points_;
   };
 
