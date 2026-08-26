@@ -392,7 +392,8 @@ namespace ImmersX
       for (const auto boundary_id : parameters_.dirichlet_ids)
         VectorTools::interpolate_boundary_values(*dof_handler_,
                                                  boundary_id,
-                                                 parameters_.bc,
+                                                 parameters_.get_dirichlet_bc(
+                                                   boundary_id),
                                                  constraints_);
       constraints_.close();
 
@@ -686,9 +687,10 @@ namespace ImmersX
                 fe_values.get_quadrature_points(), values);
             else
               {
-                parameters_.rhs.vector_value_list(
-                  fe_values.get_quadrature_points(), values);
-                const double scale = parameters_.rhs.scale(0.);
+                const auto &rhs = parameters_.get_rhs(cell->material_id());
+                rhs.vector_value_list(fe_values.get_quadrature_points(),
+                                      values);
+                const double scale = rhs.scale(0.);
                 for (auto &value : values)
                   value *= scale;
               }
@@ -727,9 +729,11 @@ namespace ImmersX
                     {
                       face_rhs = 0.;
                       face_values.reinit(cell, face);
-                      parameters_.neumann_bc.vector_value_list(
+                      const auto &traction = parameters_.get_neumann_bc(
+                        cell->face(face)->boundary_id());
+                      traction.vector_value_list(
                         face_values.get_quadrature_points(), face_values_list);
-                      const double scale = parameters_.neumann_bc.scale(0.);
+                      const double scale = traction.scale(0.);
                       for (auto &value : face_values_list)
                         value *= scale;
 

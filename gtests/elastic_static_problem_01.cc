@@ -13,13 +13,18 @@
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_cg.h>
 
+#include <deal.II/numerics/vector_tools_rhs.templates.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastic_static.h>
 
+#include <array>
 #include <cmath>
 #include <filesystem>
+#include <map>
+#include <vector>
 
 #include "test_paths.h"
 
@@ -259,6 +264,214 @@ end
           ++boundary_zero_faces;
   EXPECT_GT(boundary_zero_faces, 0U);
   EXPECT_GT(problem.forcing().l2_norm(), 0.);
+}
+
+TEST(ElasticStaticProblem, BoundarySpecificDirichletConstraints)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 1
+  set Dirichlet boundary ids = 0, 3
+  subsection Grid generation
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Functions
+    subsection Dirichlet boundary conditions
+      set Function expression = 0; 0
+    end
+    subsection Dirichlet boundary conditions 0
+      set Function expression = x; 0
+    end
+    subsection Dirichlet boundary conditions 3
+      set Function expression = 0; y
+    end
+  end
+end
+  )");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  const auto support_points =
+    dealii::DoFTools::map_dofs_to_support_points(dealii::MappingQ1<2>(),
+                                                 problem.dof_handler());
+  std::map<dealii::types::global_dof_index, unsigned int> component_by_dof;
+  std::vector<dealii::types::global_dof_index>            local_dof_indices(
+    problem.dof_handler().get_fe().n_dofs_per_cell());
+  for (const auto &cell : problem.dof_handler().active_cell_iterators())
+    {
+      cell->get_dof_indices(local_dof_indices);
+      for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+        component_by_dof.emplace(
+          local_dof_indices[i],
+          problem.dof_handler().get_fe().system_to_component_index(i).first);
+    }
+
+  bool found_boundary_zero_x  = false;
+  bool found_boundary_three_y = false;
+  for (const auto &line : problem.constraints().get_lines())
+    {
+      const auto &point     = support_points.at(line.index);
+      const auto  component = component_by_dof.at(line.index);
+      if (component == 0 && std::abs(point[0]) < 1.e-12 && point[1] > 1.e-12 &&
+          point[1] < 1. - 1.e-12)
+        {
+          EXPECT_NEAR(line.inhomogeneity, point[0], 1.e-12);
+          EXPECT_GT(std::abs(line.inhomogeneity - point[1]), 1.e-12);
+          found_boundary_zero_x = true;
+        }
+      if (component == 1 && std::abs(point[1] - 1.) < 1.e-12 &&
+          point[0] > 1.e-12 && point[0] < 1. - 1.e-12)
+        {
+          EXPECT_NEAR(line.inhomogeneity, point[1], 1.e-12);
+          EXPECT_GT(std::abs(line.inhomogeneity - point[0]), 1.e-12);
+          found_boundary_three_y = true;
+        }
+    }
+
+  EXPECT_TRUE(found_boundary_zero_x);
+  EXPECT_TRUE(found_boundary_three_y);
+}
+
+TEST(ElasticStaticProblem, BoundarySpecificNeumannOracle)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 1
+  set Dirichlet boundary ids =
+  set Neumann boundary ids = 1, 3
+  subsection Grid generation
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Functions
+    subsection Right hand side
+      set Function expression = 0; 0
+    end
+    subsection Neumann boundary conditions
+      set Function expression = 0; 0
+    end
+    subsection Neumann boundary conditions 1
+      set Function expression = 2; 0
+    end
+    subsection Neumann boundary conditions 3
+      set Function expression = 0; 3
+    end
+  end
+end
+  )");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  Problem::VectorType expected;
+  expected.reinit(problem.forcing());
+  expected = 0.;
+  for (const auto boundary_id : parameters.neumann_ids)
+    {
+      Problem::VectorType contribution;
+      contribution.reinit(problem.forcing());
+      contribution = 0.;
+      dealii::VectorTools::create_boundary_right_hand_side(
+        problem.dof_handler(),
+        dealii::QGauss<1>(2),
+        parameters.get_neumann_bc(boundary_id),
+        contribution,
+        {boundary_id});
+      contribution *= parameters.get_neumann_bc(boundary_id).scale(0.);
+      expected += contribution;
+    }
+  expected.compress(dealii::VectorOperation::add);
+
+  expected -= problem.forcing();
+  EXPECT_LT(expected.linfty_norm(), 1.e-11);
+}
+
+TEST(ElasticStaticProblem, MaterialSpecificRHS)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  const auto mesh_file = ImmersX::TestPaths::source_path(
+    "data/tests/elastic_static_two_materials.msh");
+  ImmersX::initialize_parameters_from_string(
+    "subsection Elastic static\n"
+    "  set Initial refinement = 0\n"
+    "  set Dirichlet boundary ids =\n"
+    "  set Neumann boundary ids =\n"
+    "  set Rhs material ids = 0, 1\n"
+    "  subsection Grid generation\n"
+    "    set Domain type = file\n"
+    "    set Grid generator = " +
+    mesh_file.string() +
+    "\n"
+    "    set Grid generator arguments =\n"
+    "  end\n"
+    "  subsection Functions\n"
+    "    subsection Right hand side\n"
+    "      set Function expression = 3; 4\n"
+    "    end\n"
+    "    subsection Right hand side 0\n"
+    "      set Function expression = 1; 0\n"
+    "    end\n"
+    "    subsection Right hand side 1\n"
+    "      set Function expression = 0; 2\n"
+    "    end\n"
+    "  end\n"
+    "end\n");
+
+  Problem problem(parameters);
+  problem.setup();
+
+  Problem::VectorType expected;
+  expected.reinit(problem.forcing());
+  expected = 0.;
+  const dealii::QGauss<2> quadrature(2);
+  dealii::FEValues<2>     fe_values(problem.dof_handler().get_fe(),
+                                quadrature,
+                                dealii::update_values |
+                                  dealii::update_JxW_values);
+  std::vector<dealii::types::global_dof_index> local_dof_indices(
+    problem.dof_handler().get_fe().n_dofs_per_cell());
+  for (const auto &cell : problem.dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        ASSERT_LT(cell->material_id(), 2U);
+        const std::array<double, 2> rhs = cell->material_id() == 0 ?
+                                            std::array<double, 2>{1., 0.} :
+                                            std::array<double, 2>{0., 2.};
+        fe_values.reinit(cell);
+        cell->get_dof_indices(local_dof_indices);
+        dealii::Vector<double> cell_rhs(local_dof_indices.size());
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          for (unsigned int i = 0; i < local_dof_indices.size(); ++i)
+            {
+              const auto component = problem.dof_handler()
+                                       .get_fe()
+                                       .system_to_component_index(i)
+                                       .first;
+              cell_rhs(i) += fe_values.shape_value_component(i, q, component) *
+                             rhs[component] * fe_values.JxW(q);
+            }
+        expected.add(local_dof_indices, cell_rhs);
+      }
+  expected.compress(dealii::VectorOperation::add);
+
+  expected -= problem.forcing();
+  EXPECT_LT(expected.linfty_norm(), 1.e-11);
+  EXPECT_DOUBLE_EQ(parameters.get_rhs(2).value(dealii::Point<2>(), 0), 3.);
+  EXPECT_DOUBLE_EQ(parameters.get_rhs(2).value(dealii::Point<2>(), 1), 4.);
 }
 
 TEST(ElasticStaticProblem, IndependentResidualOracle)
