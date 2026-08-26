@@ -20,6 +20,7 @@
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/quadrature.h>
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/tensor.h>
 
 #include <deal.II/distributed/tria_base.h>
 
@@ -614,6 +615,7 @@ namespace ImmersX
     std::uint64_t stable_id = std::numeric_limits<std::uint64_t>::max();
     std::vector<dealii::types::global_dof_index> dof_indices;
     std::vector<ValueType>                       basis_values;
+    std::vector<dealii::Tensor<1, spacedim>>     basis_gradients;
   };
 
 
@@ -848,12 +850,22 @@ namespace ImmersX
       const dealii::Quadrature<dim> &quadrature,
       const dealii::UpdateFlags requested_flags = dealii::update_values) const
     {
+      const unsigned int requested = static_cast<unsigned int>(requested_flags);
+      const unsigned int supported =
+        static_cast<unsigned int>(dealii::update_values) |
+        static_cast<unsigned int>(dealii::update_gradients);
+      AssertThrow((requested & ~supported) == 0,
+                  dealii::ExcMessage(
+                    "Retained FE sampling supports only values and "
+                    "gradients."));
       // Values, physical points, and physical weights are part of the
       // retained-point payload. The caller supplies only additional FE data
       // requirements.
       dealii::UpdateFlags update_flags =
         requested_flags | dealii::update_values |
         dealii::update_quadrature_points | dealii::update_JxW_values;
+      if ((requested_flags & dealii::update_gradients) != 0)
+        update_flags |= dealii::update_gradients;
       if constexpr (dim > 1 && dim < spacedim)
         update_flags |= dealii::update_normal_vectors;
       dealii::FEValues<dim, spacedim> fe_values(mapping_,
@@ -898,6 +910,18 @@ namespace ImmersX
                 else
                   for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
                     point.basis_values[i] = fe_values[extractor_].value(i, q);
+                if constexpr (std::is_same_v<ValueType, double>)
+                  if ((requested_flags & dealii::update_gradients) != 0)
+                    {
+                      point.basis_gradients.resize(n_dofs_per_cell());
+                      if (all_components_)
+                        for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                          point.basis_gradients[i] = fe_values.shape_grad(i, q);
+                      else
+                        for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                          point.basis_gradients[i] =
+                            fe_values[extractor_].gradient(i, q);
+                    }
                 points.emplace_back(std::move(point));
               }
           }
@@ -1357,6 +1381,32 @@ namespace ImmersX
     Operator
     linearize(const StateVectorType &prototype) const
     {
+      return linearize_impl(prototype, false, 0);
+    }
+
+    /** Return the retained operator for one physical gradient component. */
+    Operator
+    gradient_linearize(const StateVectorType &prototype,
+                       const unsigned int     component) const
+    {
+      AssertThrow(!points_.empty() || component < spacedim,
+                  dealii::ExcMessage("Invalid gradient component."));
+      if (!points_.empty())
+        AssertThrow(points_.front().basis_gradients.size() ==
+                      points_.front().dof_indices.size(),
+                    dealii::ExcMessage(
+                      "This sampling plan was not built with gradients."));
+      return linearize_impl(prototype, true, component);
+    }
+
+  private:
+    Operator
+    linearize_impl(const StateVectorType &prototype,
+                   const bool             gradient,
+                   const unsigned int     component) const
+    {
+      AssertThrow(component < spacedim,
+                  dealii::ExcMessage("Invalid gradient component."));
       const auto points          = points_;
       const auto point_indices   = point_indices_;
       const auto point_owned     = point_owned_;
@@ -1383,8 +1433,10 @@ namespace ImmersX
                       source_owned,
                       source_relevant,
                       constraints,
-                      communicator](QuantityVectorType    &destination,
-                                    const StateVectorType &source) {
+                      communicator,
+                      gradient,
+                      component](QuantityVectorType    &destination,
+                                 const StateVectorType &source) {
         const auto relevant = make_relevant_source(source,
                                                    source_owned,
                                                    source_relevant,
@@ -1393,17 +1445,17 @@ namespace ImmersX
                                                    true);
         for (std::size_t q = 0; q < points.size(); ++q)
           destination[point_indices[q]] =
-            detail::evaluate_stencil(relevant,
-                                     points[q].dof_indices,
-                                     points[q].basis_values);
+            evaluate_stencil(relevant, points[q], gradient, component);
       };
       result.vmult_add = [points,
                           point_indices,
                           source_owned,
                           source_relevant,
                           constraints,
-                          communicator](QuantityVectorType    &destination,
-                                        const StateVectorType &source) {
+                          communicator,
+                          gradient,
+                          component](QuantityVectorType    &destination,
+                                     const StateVectorType &source) {
         const auto relevant = make_relevant_source(source,
                                                    source_owned,
                                                    source_relevant,
@@ -1412,23 +1464,25 @@ namespace ImmersX
                                                    true);
         for (std::size_t q = 0; q < points.size(); ++q)
           destination[point_indices[q]] +=
-            detail::evaluate_stencil(relevant,
-                                     points[q].dof_indices,
-                                     points[q].basis_values);
+            evaluate_stencil(relevant, points[q], gradient, component);
       };
       result.Tvmult = [points,
                        point_indices,
                        source_owned,
                        source_relevant,
                        constraints,
-                       communicator](StateVectorType          &destination,
-                                     const QuantityVectorType &source) {
+                       communicator,
+                       gradient,
+                       component](StateVectorType          &destination,
+                                  const QuantityVectorType &source) {
         apply_transpose(points,
                         point_indices,
                         source_owned,
                         source_relevant,
                         constraints,
                         communicator,
+                        gradient,
+                        component,
                         source,
                         destination,
                         false);
@@ -1438,14 +1492,18 @@ namespace ImmersX
                            source_owned,
                            source_relevant,
                            constraints,
-                           communicator](StateVectorType          &destination,
-                                         const QuantityVectorType &source) {
+                           communicator,
+                           gradient,
+                           component](StateVectorType          &destination,
+                                      const QuantityVectorType &source) {
         apply_transpose(points,
                         point_indices,
                         source_owned,
                         source_relevant,
                         constraints,
                         communicator,
+                        gradient,
+                        component,
                         source,
                         destination,
                         true);
@@ -1453,7 +1511,26 @@ namespace ImmersX
       return result;
     }
 
-  private:
+    template <typename VectorType>
+    static double
+    evaluate_stencil(const VectorType  &source,
+                     const Point       &point,
+                     const bool         gradient,
+                     const unsigned int component)
+    {
+      if (gradient)
+        {
+          double result = 0.;
+          for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
+            result += point.basis_gradients[i][component] *
+                      source[point.dof_indices[i]];
+          return result;
+        }
+      return detail::evaluate_stencil(source,
+                                      point.dof_indices,
+                                      point.basis_values);
+    }
+
     static StateVectorType
     make_relevant_source(const StateVectorType  &source,
                          const dealii::IndexSet &source_owned,
@@ -1498,6 +1575,8 @@ namespace ImmersX
       const dealii::IndexSet                             &source_relevant,
       const dealii::AffineConstraints<double>            *constraints,
       const MPI_Comm                                      communicator,
+      const bool                                          gradient,
+      const unsigned int                                  component,
       const QuantityVectorType                           &source,
       StateVectorType                                    &destination,
       const bool                                          add)
@@ -1508,7 +1587,9 @@ namespace ImmersX
       for (std::size_t q = 0; q < points.size(); ++q)
         for (std::size_t i = 0; i < points[q].dof_indices.size(); ++i)
           contribution[points[q].dof_indices[i]] +=
-            points[q].basis_values[i] * source[point_indices[q]];
+            (gradient ? points[q].basis_gradients[i][component] :
+                        points[q].basis_values[i]) *
+            source[point_indices[q]];
       contribution.compress(dealii::VectorOperation::add);
 
       if (constraints != nullptr)

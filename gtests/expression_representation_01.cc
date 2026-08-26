@@ -110,6 +110,9 @@ namespace
                                      "A*A + beta*A",
                                      {{"beta", beta}});
     const auto &plan = expression.sampling_plan();
+    ASSERT_FALSE(plan.points().empty());
+    EXPECT_EQ(plan.update_flags() & update_gradients, update_default);
+    EXPECT_TRUE(plan.points().front().basis_gradients.empty());
 
     ImmersXLA::MPI::Vector state;
     fill_vector(data.locally_owned, state);
@@ -215,6 +218,102 @@ namespace
     for (std::size_t q = 0; q < plan.points().size(); ++q)
       EXPECT_DOUBLE_EQ(multi_action[plan.point_index(q)],
                        2. * second_direction[plan.point_index(q)]);
+
+    const auto gradient_expression =
+      make_expression_representation(*data.representation,
+                                     quadrature,
+                                     {value(data.field, "A"),
+                                      gradient(data.field, "grad_A_0", 0),
+                                      gradient(data.field, "grad_A_1", 1)},
+                                     "A*A + grad_A_0 + 2*grad_A_1");
+    const auto &gradient_plan = gradient_expression.sampling_plan();
+    EXPECT_EQ(gradient_plan.update_flags() & update_gradients,
+              update_gradients);
+    ASSERT_FALSE(gradient_plan.points().front().basis_gradients.empty());
+    const auto gradient_value      = gradient_expression.evaluate(context);
+    const auto gradient_sampling   = gradient_plan.linearize(state);
+    const auto gradient_x_sampling = gradient_plan.gradient_linearize(state, 0);
+    const auto gradient_y_sampling = gradient_plan.gradient_linearize(state, 1);
+    ImmersXLA::MPI::Vector gradient_samples;
+    ImmersXLA::MPI::Vector gradient_x_samples;
+    ImmersXLA::MPI::Vector gradient_y_samples;
+    gradient_sampling.reinit_range_vector(gradient_samples, false);
+    gradient_x_sampling.reinit_range_vector(gradient_x_samples, false);
+    gradient_y_sampling.reinit_range_vector(gradient_y_samples, false);
+    gradient_sampling.vmult(gradient_samples, state);
+    gradient_x_sampling.vmult(gradient_x_samples, state);
+    gradient_y_sampling.vmult(gradient_y_samples, state);
+    for (std::size_t q = 0; q < gradient_plan.points().size(); ++q)
+      {
+        const auto index = gradient_plan.point_index(q);
+        EXPECT_DOUBLE_EQ(gradient_value[index],
+                         gradient_samples[index] * gradient_samples[index] +
+                           gradient_x_samples[index] +
+                           2. * gradient_y_samples[index]);
+      }
+
+    const auto gradient_jacobian = gradient_expression.linearize(context);
+    ImmersXLA::MPI::Vector gradient_action;
+    gradient_jacobian.reinit_range_vector(gradient_action, false);
+    gradient_jacobian.vmult(gradient_action, direction);
+    const auto gradient_direction = gradient_plan.linearize(direction);
+    const auto gradient_x_direction =
+      gradient_plan.gradient_linearize(direction, 0);
+    const auto gradient_y_direction =
+      gradient_plan.gradient_linearize(direction, 1);
+    ImmersXLA::MPI::Vector gradient_direction_values;
+    ImmersXLA::MPI::Vector gradient_x_direction_values;
+    ImmersXLA::MPI::Vector gradient_y_direction_values;
+    gradient_direction.reinit_range_vector(gradient_direction_values, false);
+    gradient_x_direction.reinit_range_vector(gradient_x_direction_values,
+                                             false);
+    gradient_y_direction.reinit_range_vector(gradient_y_direction_values,
+                                             false);
+    gradient_direction.vmult(gradient_direction_values, direction);
+    gradient_x_direction.vmult(gradient_x_direction_values, direction);
+    gradient_y_direction.vmult(gradient_y_direction_values, direction);
+    for (std::size_t q = 0; q < gradient_plan.points().size(); ++q)
+      {
+        const auto index = gradient_plan.point_index(q);
+        EXPECT_DOUBLE_EQ(gradient_action[index],
+                         2. * gradient_samples[index] *
+                             gradient_direction_values[index] +
+                           gradient_x_direction_values[index] +
+                           2. * gradient_y_direction_values[index]);
+      }
+
+    ImmersXLA::MPI::Vector gradient_perturbed = state;
+    gradient_perturbed.add(epsilon, direction);
+    StateView<ImmersXLA::MPI::Vector> gradient_perturbed_view(data.layout, 0.);
+    gradient_perturbed_view.bind(data.field, gradient_perturbed);
+    gradient_perturbed_view.bind(data.second_field, second_state);
+    EvaluationContext<ImmersXLA::MPI::Vector> gradient_perturbed_context(
+      0., gradient_perturbed_view);
+    const auto gradient_perturbed_value =
+      gradient_expression.evaluate(gradient_perturbed_context);
+    for (std::size_t q = 0; q < gradient_plan.points().size(); ++q)
+      EXPECT_NEAR((gradient_perturbed_value[gradient_plan.point_index(q)] -
+                   gradient_value[gradient_plan.point_index(q)]) /
+                    epsilon,
+                  gradient_action[gradient_plan.point_index(q)],
+                  3.e-7 *
+                    std::max(1.,
+                             std::abs(
+                               gradient_action[gradient_plan.point_index(q)])));
+
+    ImmersXLA::MPI::Vector gradient_weights;
+    gradient_weights.reinit(gradient_plan.locally_owned_points(),
+                            MPI_COMM_WORLD);
+    for (const auto index : gradient_plan.locally_owned_points())
+      gradient_weights[index] = 0.5 + 0.05 * index;
+    ImmersXLA::MPI::Vector gradient_transpose;
+    gradient_jacobian.reinit_domain_vector(gradient_transpose, false);
+    gradient_jacobian.Tvmult(gradient_transpose, gradient_weights);
+    EXPECT_NEAR(local_dot(gradient_plan.locally_owned_points(),
+                          gradient_action,
+                          gradient_weights),
+                local_dot(data.locally_owned, direction, gradient_transpose),
+                1.e-8);
   }
 } // namespace
 

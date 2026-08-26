@@ -18,24 +18,71 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace ImmersX
 {
-  /** Semantic binding of one scalar value observable to an expression symbol.
-   */
-  struct ExpressionBinding
+  /** A value observable bound to one independent expression symbol. */
+  struct ValueBinding
   {
     FieldId     field;
     std::string symbol;
   };
 
+  /** A physical gradient component bound to one independent symbol. */
+  struct GradientBinding
+  {
+    FieldId      field;
+    std::string  symbol;
+    unsigned int component;
+  };
+
+  /** Semantic expression observable, independent of FE storage details. */
+  using ExpressionBinding = std::variant<ValueBinding, GradientBinding>;
+
   /** Bind a semantic value observable to an expression symbol. */
   inline ExpressionBinding
   value(const FieldId field, std::string symbol)
   {
-    return {field, std::move(symbol)};
+    return ValueBinding{field, std::move(symbol)};
   }
+
+  /** Bind a physical gradient component to an expression symbol. */
+  inline ExpressionBinding
+  gradient(const FieldId      field,
+           std::string        symbol,
+           const unsigned int component)
+  {
+    return GradientBinding{field, std::move(symbol), component};
+  }
+
+  namespace detail
+  {
+    inline dealii::UpdateFlags
+    expression_update_flags(const ExpressionBinding &binding)
+    {
+      return std::visit(
+        [](const auto &observable) {
+          using Observable = std::decay_t<decltype(observable)>;
+          if constexpr (std::is_same_v<Observable, GradientBinding>)
+            return dealii::UpdateFlags(dealii::update_values |
+                                       dealii::update_gradients);
+          else
+            return dealii::update_values;
+        },
+        binding);
+    }
+
+    inline dealii::UpdateFlags
+    expression_update_flags(const std::vector<ExpressionBinding> &bindings)
+    {
+      auto result = dealii::update_values;
+      for (const auto &binding : bindings)
+        result |= expression_update_flags(binding);
+      return result;
+    }
+  } // namespace detail
 
   /**
    * A symbolic pointwise transform of one or more retained observables.
@@ -77,19 +124,42 @@ namespace ImmersX
 
       bindings_.reserve(bindings.size());
       for (const auto &binding : bindings)
-        {
-          bindings_.push_back({binding.field, binding.symbol, sampling});
-          if (std::find(dependencies_.begin(),
-                        dependencies_.end(),
-                        binding.field) == dependencies_.end())
-            dependencies_.push_back(binding.field);
-        }
+        std::visit(
+          [&](const auto &observable) {
+            using Observable = std::decay_t<decltype(observable)>;
+            const bool is_gradient =
+              std::is_same_v<Observable, GradientBinding>;
+            unsigned int component = 0;
+            if constexpr (is_gradient)
+              {
+                component = observable.component;
+                AssertThrow(component < spacedim,
+                            dealii::ExcMessage(
+                              "A gradient binding has an invalid "
+                              "component."));
+                AssertThrow(
+                  (sampling.update_flags() & dealii::update_gradients) != 0,
+                  dealii::ExcMessage(
+                    "A gradient binding requires a sampling plan with "
+                    "update_gradients."));
+              }
+            bindings_.push_back({observable.field,
+                                 observable.symbol,
+                                 is_gradient,
+                                 component,
+                                 sampling});
+            if (std::find(dependencies_.begin(),
+                          dependencies_.end(),
+                          observable.field) == dependencies_.end())
+              dependencies_.push_back(observable.field);
+          },
+          binding);
     }
 
     ExpressionRepresentation(const FieldId            source,
                              const SamplingPlan      &sampling,
                              SymbolicExpressionKernel kernel)
-      : ExpressionRepresentation(std::vector<Binding>{{source, "A"}},
+      : ExpressionRepresentation(std::vector<Binding>{value(source, "A")},
                                  sampling,
                                  std::move(kernel))
     {}
@@ -112,7 +182,7 @@ namespace ImmersX
       const std::string                   &expression,
       const std::string                   &symbol    = "A",
       const std::map<std::string, double> &constants = {})
-      : ExpressionRepresentation(std::vector<Binding>{{source, symbol}},
+      : ExpressionRepresentation(std::vector<Binding>{value(source, symbol)},
                                  sampling,
                                  expression,
                                  constants)
@@ -200,7 +270,7 @@ namespace ImmersX
             auto        term =
               make_diagonal_operator(bindings_[binding_index].sampling,
                                      diagonal) *
-              bindings_[binding_index].sampling.linearize(state);
+              sampling_operator_for(bindings_[binding_index], state);
             if (has_term)
               result += term;
             else
@@ -221,6 +291,8 @@ namespace ImmersX
     {
       FieldId      field;
       std::string  symbol;
+      bool         gradient;
+      unsigned int component;
       SamplingPlan sampling;
     };
 
@@ -230,7 +302,11 @@ namespace ImmersX
       std::vector<std::string> result;
       result.reserve(bindings.size());
       for (const auto &binding : bindings)
-        result.push_back(binding.symbol);
+        std::visit(
+          [&result](const auto &observable) {
+            result.push_back(observable.symbol);
+          },
+          binding);
       return result;
     }
 
@@ -252,7 +328,7 @@ namespace ImmersX
       for (const auto &binding : bindings_)
         {
           const auto sampling_operator =
-            binding.sampling.linearize(context.state(binding.field));
+            sampling_operator_for(binding, context.state(binding.field));
           value_type samples;
           sampling_operator.reinit_range_vector(samples, false);
           sampling_operator.vmult(samples, context.state(binding.field));
@@ -278,6 +354,15 @@ namespace ImmersX
                                              values));
         }
       return result;
+    }
+
+    Operator
+    sampling_operator_for(const InstalledBinding &binding,
+                          const state_type       &state) const
+    {
+      if (binding.gradient)
+        return binding.sampling.gradient_linearize(state, binding.component);
+      return binding.sampling.linearize(state);
     }
 
     ValueOperator
@@ -336,9 +421,10 @@ namespace ImmersX
   {
     static_assert(std::is_same_v<ValueType, double>,
                   "Retained scalar expressions require a scalar FE view.");
-    const auto sampling = make_retained_sampling_plan(representation,
-                                                      quadrature,
-                                                      dealii::update_values);
+    const auto sampling =
+      make_retained_sampling_plan(representation,
+                                  quadrature,
+                                  detail::expression_update_flags(bindings));
     return ExpressionRepresentation<spacedim>(bindings,
                                               sampling,
                                               expression,
