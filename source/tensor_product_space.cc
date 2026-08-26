@@ -155,11 +155,11 @@ namespace ImmersX
     , triangulation(mpi_communicator)
     , fe(FE_Q<reduced_dim, spacedim>(par.fe_degree),
          reference_cross_section.n_selected_basis())
-    , quadrature_formula(QIterated<reduced_dim>(
-        QuadratureSelector<1>(par.quadrature_type,
-                              quadrature_selector_order(par.quadrature_type,
-                                                        par.n_q_points,
-                                                        par.fe_degree)),
+    , quadrature_formula(detail::make_tensor_product_quadrature<reduced_dim>(
+        par.quadrature_type,
+        quadrature_selector_order(par.quadrature_type,
+                                  par.n_q_points,
+                                  par.fe_degree),
         par.n_quadrature_repetitions))
     , dof_handler(triangulation)
     , properties_dh(triangulation)
@@ -717,22 +717,23 @@ namespace ImmersX
               if constexpr (reduced_dim == 2)
                 new_vertical = fev.normal_vector(q);
               // [TODO] Make radius a function of the cell
-              auto cross_section_qpoints = TensorProductLiftSupport<
-                reduced_dim,
-                dim,
-                spacedim,
-                n_components>::transform_section(reference_cross_section,
-                                                 qpoint,
-                                                 new_vertical,
-                                                 thickness_values[q]);
-
-              all_qpoints.insert(all_qpoints.end(),
-                                 cross_section_qpoints.get_points().begin(),
-                                 cross_section_qpoints.get_points().end());
-
-              for (const auto &w : cross_section_qpoints.get_weights())
-                all_weights.emplace_back(
-                  std::vector<double>(1, w * fev.JxW(q)));
+              const auto lifted =
+                detail::transform_representative_point<dim, spacedim>(
+                  reference_cross_section,
+                  par.section.selected_coefficients,
+                  n_components,
+                  qpoint,
+                  new_vertical,
+                  fev.JxW(q),
+                  thickness_values[q],
+                  q,
+                  {});
+              for (const auto &point : lifted)
+                {
+                  all_qpoints.push_back(point.point);
+                  all_weights.emplace_back(
+                    std::vector<double>(1, point.weight));
+                }
             }
         }
   };
