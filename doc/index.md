@@ -23,6 +23,7 @@ contributing
 documentation
 time_residual_sundials
 semidiscrete-contributors
+tensor-product-lift-parity
 repository-layout
 architecture-diagram
 funding
