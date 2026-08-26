@@ -13,6 +13,7 @@
 #include <deal.II/base/point.h>
 
 #include <immersx/core/representation.h>
+#include <immersx/coupling/tensor_product_lift.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -350,6 +351,25 @@ namespace ImmersX
                                                    geometry,
                                                    target_prototype,
                                                    default_request);
+  }
+
+  /** Build the parameterized tensor-product lift of a source representation. */
+  template <typename SourceRepresentation,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components>
+  auto
+  make_lift(
+    const SourceRepresentation &source,
+    const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+      &lift)
+  {
+    return TensorProductLiftRepresentation<SourceRepresentation,
+                                           reduced_dim,
+                                           surface_dim,
+                                           spacedim,
+                                           n_components>(source, lift);
   }
 } // namespace ImmersX
 

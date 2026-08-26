@@ -36,6 +36,7 @@
 #include <immersx/core/field.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/state.h>
+#include <immersx/coupling/tensor_product_lift.h>
 #include <immersx/coupling/tensor_product_space.h>
 
 #include <map>
@@ -546,6 +547,7 @@ namespace ImmersX
     using value_type = ValueType;
 
     dealii::Point<spacedim>                      point;
+    dealii::Tensor<1, spacedim>                  tangent;
     double                                       weight = 0.;
     std::vector<dealii::types::global_dof_index> dof_indices;
     std::vector<ValueType>                       basis_values;
@@ -773,9 +775,11 @@ namespace ImmersX
     locally_owned_quadrature_points(
       const dealii::Quadrature<dim> &quadrature) const
     {
-      const auto update_flags = dealii::update_values |
-                                dealii::update_quadrature_points |
-                                dealii::update_JxW_values;
+      dealii::UpdateFlags update_flags = dealii::update_values |
+                                         dealii::update_quadrature_points |
+                                         dealii::update_JxW_values;
+      if constexpr (dim > 1)
+        update_flags |= dealii::update_normal_vectors;
       dealii::FEValues<dim, spacedim> fe_values(mapping_,
                                                 finite_element(),
                                                 quadrature,
@@ -795,7 +799,11 @@ namespace ImmersX
             for (const auto q : fe_values.quadrature_point_indices())
               {
                 QuadraturePoint point;
-                point.point       = fe_values.quadrature_point(q);
+                point.point = fe_values.quadrature_point(q);
+                if constexpr (dim == 1)
+                  point.tangent = cell->vertex(1) - cell->vertex(0);
+                else if constexpr (dim > 1)
+                  point.tangent = fe_values.normal_vector(q);
                 point.weight      = fe_values.JxW(q);
                 point.dof_indices = dof_indices;
                 point.basis_values.resize(n_dofs_per_cell());
@@ -1105,6 +1113,354 @@ namespace ImmersX
     const ExtractorType                           extractor_;
     ImmersX::RepresentationMetadata               metadata_;
     mutable std::uint64_t                         geometry_version_ = 0;
+  };
+
+
+  /**
+   * A parameterized tensor-product lift of a source Representation.
+   *
+   * The source view remains the sole owner of the representative mesh, FE,
+   * DoF space, and dependencies. This class owns only the lifting support and
+   * the local tensor-product quadrature metadata.
+   */
+  template <typename SourceRepresentation,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components = 1>
+  class TensorProductLiftRepresentation
+  {
+  public:
+    static constexpr unsigned int support_dimension        = surface_dim;
+    static constexpr unsigned int ambient_dimension        = spacedim;
+    static constexpr unsigned int representative_dimension = reduced_dim;
+
+    using value_type          = typename SourceRepresentation::value_type;
+    using state_type          = typename SourceRepresentation::state_type;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = RepresentationOperator<value_type, state_type>;
+    using Parameters          = TensorProductLiftParameters<reduced_dim,
+                                                   surface_dim,
+                                                   spacedim,
+                                                   n_components>;
+    using Lift =
+      TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>;
+    using Support = TensorProductLiftSupport<reduced_dim,
+                                             surface_dim,
+                                             spacedim,
+                                             n_components>;
+    using SourceQuadraturePoint =
+      typename SourceRepresentation::QuadraturePoint;
+    using TriangulationType = typename SourceRepresentation::TriangulationType;
+    using DoFHandlerType    = typename SourceRepresentation::DoFHandlerType;
+    using ExtractorType     = typename SourceRepresentation::ExtractorType;
+    using QuadraturePoint   = RepresentationQuadraturePoint<spacedim, double>;
+
+    TensorProductLiftRepresentation(const SourceRepresentation &source,
+                                    const Lift                 &lift)
+      : source_(source)
+      , lift_(lift)
+      , support_(lift.parameters())
+      , lifted_points_(build_lifted_points())
+    {}
+
+    FieldId
+    source() const
+    {
+      return source_.source();
+    }
+
+    const RepresentationDomain &
+    domain() const
+    {
+      static const RepresentationDomain domain(surface_dim,
+                                               spacedim,
+                                               "tensor-product-lift");
+      return domain;
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(domain());
+    }
+
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
+    }
+
+    const SourceRepresentation &
+    source_representation() const
+    {
+      return source_;
+    }
+
+    const Lift &
+    lift_descriptor() const
+    {
+      return lift_;
+    }
+
+    const Support &
+    support() const
+    {
+      return support_;
+    }
+
+    const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &
+    lifted_points() const
+    {
+      return lifted_points_;
+    }
+
+    const TriangulationType &
+    triangulation() const
+    {
+      return source_.triangulation();
+    }
+
+    const DoFHandlerType &
+    dof_handler() const
+    {
+      return source_.dof_handler();
+    }
+
+    const dealii::FiniteElement<reduced_dim, spacedim> &
+    finite_element() const
+    {
+      return source_.finite_element();
+    }
+
+    const dealii::Mapping<reduced_dim, spacedim> &
+    mapping() const
+    {
+      return source_.mapping();
+    }
+
+    const dealii::IndexSet &
+    locally_owned_dofs() const
+    {
+      return source_.locally_owned_dofs();
+    }
+
+    const dealii::IndexSet &
+    locally_relevant_dofs() const
+    {
+      return source_.locally_relevant_dofs();
+    }
+
+    const dealii::AffineConstraints<double> &
+    constraints() const
+    {
+      return source_.constraints();
+    }
+
+    const ExtractorType &
+    extractor() const
+    {
+      return source_.extractor();
+    }
+
+    const ImmersX::RepresentationMetadata &
+    metadata() const
+    {
+      return source_.metadata();
+    }
+
+    const std::vector<ImmersX::FieldId> &
+    dependencies() const
+    {
+      return source_.dependencies();
+    }
+
+    std::uint64_t
+    geometry_version() const
+    {
+      return source_.geometry_version();
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return source_.mpi_communicator();
+    }
+
+    unsigned int
+    n_dofs_per_cell() const
+    {
+      return source_.n_dofs_per_cell();
+    }
+
+    std::vector<QuadraturePoint>
+    locally_owned_quadrature_points(
+      const dealii::Quadrature<surface_dim> &surface_quadrature) const
+    {
+      (void)surface_quadrature;
+      std::vector<QuadraturePoint> result;
+      result.reserve(lifted_points_.size());
+      const unsigned int n_modes =
+        support_.reference_cross_section().n_selected_basis() * n_components;
+
+      const auto source_points = source_.locally_owned_quadrature_points(
+        support_.representative_quadrature());
+      AssertDimension(source_points.size() * support_.reference_cross_section()
+                                               .n_quadrature_points(),
+                      lifted_points_.size());
+
+      std::size_t lifted_index = 0;
+      for (const auto &source_point : source_points)
+        {
+          const auto transformed =
+            support_.transform(source_point.point,
+                               source_point.tangent,
+                               source_point.weight,
+                               support_.thickness(),
+                               static_cast<unsigned int>(&source_point -
+                                                         source_points.data()));
+          for (const auto &lifted : transformed)
+            {
+              QuadraturePoint point;
+              point.point  = lifted.point;
+              point.weight = lifted.weight;
+              point.dof_indices.reserve(source_point.dof_indices.size() *
+                                        n_modes);
+              point.basis_values.reserve(source_point.dof_indices.size() *
+                                         n_modes);
+              for (unsigned int mode = 0; mode < n_modes; ++mode)
+                for (unsigned int i = 0; i < source_point.dof_indices.size();
+                     ++i)
+                  {
+                    point.dof_indices.push_back(source_point.dof_indices[i]);
+                    point.basis_values.push_back(source_point.basis_values[i] *
+                                                 lifted.mode_values[mode]);
+                  }
+              result.emplace_back(std::move(point));
+              ++lifted_index;
+            }
+        }
+      AssertDimension(lifted_index, lifted_points_.size());
+      return result;
+    }
+
+    value_type
+    evaluate(const EvaluationContext<state_type> &context,
+             const EvaluationRequest             &request = {}) const
+    {
+      const auto representative_points = representative_evaluation_points();
+      const auto source_values =
+        source_.evaluate(context, EvaluationRequest(representative_points));
+
+      value_type result;
+      result.reinit(lifted_points_.size());
+      for (unsigned int q = 0; q < lifted_points_.size(); ++q)
+        result[q] = source_values[lifted_points_[q].representative_qpoint];
+      (void)request;
+      return result;
+    }
+
+    Operator
+    linearize(const EvaluationContext<state_type> &context,
+              const EvaluationRequest             &request = {}) const
+    {
+      const auto representative_points = representative_evaluation_points();
+      const auto source_operator =
+        source_.linearize(context, EvaluationRequest(representative_points));
+      const auto lifted_points = lifted_points_;
+
+      Operator result;
+      result.reinit_range_vector =
+        [n = lifted_points.size()](value_type &vector, bool omit) {
+          vector.reinit(n);
+          if (!omit)
+            vector = 0.;
+        };
+      result.reinit_domain_vector = source_operator.reinit_domain_vector;
+      result.vmult                = [source_operator,
+                      lifted_points](value_type       &destination,
+                                     const state_type &source) {
+        value_type representative;
+        source_operator.vmult(representative, source);
+        destination.reinit(lifted_points.size());
+        for (unsigned int q = 0; q < lifted_points.size(); ++q)
+          destination[q] =
+            representative[lifted_points[q].representative_qpoint];
+      };
+      result.vmult_add = [source_operator,
+                          lifted_points](value_type       &destination,
+                                         const state_type &source) {
+        value_type representative;
+        source_operator.vmult(representative, source);
+        for (unsigned int q = 0; q < lifted_points.size(); ++q)
+          destination[q] +=
+            representative[lifted_points[q].representative_qpoint];
+      };
+      result.Tvmult = [source_operator,
+                       lifted_points](state_type       &destination,
+                                      const value_type &source) {
+        value_type representative;
+        representative.reinit(0);
+        if (!lifted_points.empty())
+          representative.reinit(lifted_points.back().representative_qpoint + 1);
+        representative = 0.;
+        for (unsigned int q = 0; q < lifted_points.size(); ++q)
+          representative[lifted_points[q].representative_qpoint] += source[q];
+        source_operator.Tvmult(destination, representative);
+      };
+      result.Tvmult_add = [source_operator,
+                           lifted_points](state_type       &destination,
+                                          const value_type &source) {
+        value_type representative;
+        if (!lifted_points.empty())
+          representative.reinit(lifted_points.back().representative_qpoint + 1);
+        if (representative.size() > 0)
+          representative = 0.;
+        for (unsigned int q = 0; q < lifted_points.size(); ++q)
+          representative[lifted_points[q].representative_qpoint] += source[q];
+        source_operator.Tvmult_add(destination, representative);
+      };
+      (void)request;
+      return result;
+    }
+
+  private:
+    std::vector<dealii::Point<spacedim>>
+    representative_evaluation_points() const
+    {
+      std::vector<dealii::Point<spacedim>> result;
+      result.reserve(lifted_points_.size());
+      for (const auto &point : lifted_points_)
+        result.push_back(point.representative_point);
+      return result;
+    }
+
+    std::vector<TensorProductLiftPoint<surface_dim, spacedim>>
+    build_lifted_points() const
+    {
+      const auto source_points = source_.locally_owned_quadrature_points(
+        support_.representative_quadrature());
+      std::vector<TensorProductLiftPoint<surface_dim, spacedim>> result;
+      result.reserve(source_points.size() *
+                     support_.reference_cross_section().n_quadrature_points());
+      for (unsigned int q = 0; q < source_points.size(); ++q)
+        {
+          const auto transformed = support_.transform(source_points[q].point,
+                                                      source_points[q].tangent,
+                                                      source_points[q].weight,
+                                                      support_.thickness(),
+                                                      q,
+                                                      {});
+          result.insert(result.end(), transformed.begin(), transformed.end());
+        }
+      return result;
+    }
+
+    SourceRepresentation                                       source_;
+    const Lift                                                &lift_;
+    Support                                                    support_;
+    std::vector<TensorProductLiftPoint<surface_dim, spacedim>> lifted_points_;
   };
 
   /**

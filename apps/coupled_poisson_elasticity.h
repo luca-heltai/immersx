@@ -36,27 +36,37 @@ namespace CoupledPoissonElasticity
 {
   struct Pressure
   {
-    unsigned int source_size = 2;
-    double       factor      = 2.;
+    double factor = 2.;
   };
 
-  /** The pressure observable p=2u, with a serial value space for lifting. */
+  using PressureLift = ImmersX::TensorProductLift<1, 2, 3, 1>;
+
+  /** The pressure observable p=2u evaluated in the source Poisson FE space. */
   class PressureRepresentation
   {
   public:
+    using ProblemType         = ImmersX::PoissonSolver<1, 3>;
     using SourceVectorType    = ImmersX::ImmersXLA::MPI::Vector;
     using value_type          = dealii::Vector<double>;
     using state_type          = SourceVectorType;
     using quantity_space_type = ImmersX::QuantitySpace<value_type>;
     using Operator = ImmersX::RepresentationOperator<value_type, state_type>;
+    using TriangulationType = dealii::parallel::TriangulationBase<1, 3>;
+    using DoFHandlerType    = dealii::DoFHandler<1, 3>;
+    using ExtractorType     = dealii::FEValuesExtractors::Scalar;
+    using QuadraturePoint   = ImmersX::RepresentationQuadraturePoint<3, double>;
 
     PressureRepresentation(const ImmersX::FieldId source,
-                           const unsigned int     source_size,
+                           const ProblemType     &problem,
                            const double           factor)
       : source_(source)
-      , source_size_(source_size)
+      , problem_(&problem)
       , factor_(factor)
     {}
+
+    static constexpr unsigned int support_dimension        = 1;
+    static constexpr unsigned int ambient_dimension        = 3;
+    static constexpr unsigned int representative_dimension = 1;
 
     ImmersX::FieldId
     source() const
@@ -86,27 +96,29 @@ namespace CoupledPoissonElasticity
 
     value_type
     evaluate(const ImmersX::EvaluationContext<state_type> &context,
-             const ImmersX::EvaluationRequest & = {}) const
+             const ImmersX::EvaluationRequest             &request = {}) const
     {
-      const auto values = gather(context.state(source_));
-      value_type result(source_size_);
-      for (unsigned int i = 0; i < source_size_; ++i)
-        result[i] = factor_ * values[i];
-      return result;
+      AssertThrow(!request.points.empty(),
+                  dealii::ExcMessage(
+                    "Pressure FE evaluation requires representative points."));
+      return evaluate_points(context.state(source_), request.points);
     }
 
     Operator
     linearize(const ImmersX::EvaluationContext<state_type> &context,
-              const ImmersX::EvaluationRequest & = {}) const
+              const ImmersX::EvaluationRequest             &request = {}) const
     {
-      const auto *reference   = &context.state(source_);
-      const auto  source_size = source_size_;
-      const auto  factor      = factor_;
+      const auto *reference = &context.state(source_);
+      const auto  points    = request.points;
+      AssertThrow(!points.empty(),
+                  dealii::ExcMessage(
+                    "Pressure FE linearization requires representative "
+                    "points."));
 
       Operator result;
-      result.reinit_range_vector = [source_size](value_type &vector,
-                                                 const bool  omit) {
-        vector.reinit(source_size);
+      result.reinit_range_vector = [n = points.size()](value_type &vector,
+                                                       const bool  omit) {
+        vector.reinit(n);
         if (!omit)
           vector = 0.;
       };
@@ -114,28 +126,27 @@ namespace CoupledPoissonElasticity
                                                 const bool  omit) {
         vector.reinit(*reference, omit);
       };
-      result.vmult = [source_size, factor](value_type       &destination,
-                                           const state_type &source) {
-        const auto values = gather(source);
-        destination.reinit(source_size);
-        for (unsigned int i = 0; i < source_size; ++i)
-          destination[i] = factor * values[i];
+      const auto *problem = problem_;
+      const auto  scale   = factor_;
+      result.vmult = [problem, scale, points](value_type       &destination,
+                                              const state_type &source) {
+        destination = evaluate_points(*problem, scale, source, points);
       };
-      result.vmult_add = [source_size, factor](value_type       &destination,
-                                               const state_type &source) {
-        const auto values = gather(source);
-        for (unsigned int i = 0; i < source_size; ++i)
-          destination[i] += factor * values[i];
+      result.vmult_add = [problem, scale, points](value_type       &destination,
+                                                  const state_type &source) {
+        const auto values = evaluate_points(*problem, scale, source, points);
+        for (unsigned int i = 0; i < values.size(); ++i)
+          destination[i] += values[i];
       };
-      result.Tvmult = [factor](state_type       &destination,
-                               const value_type &source) {
+      result.Tvmult = [factor = factor_](state_type       &destination,
+                                         const value_type &source) {
         destination = 0.;
         for (const auto index : destination.locally_owned_elements())
           if (index < source.size())
             destination[index] = factor * source[index];
       };
-      result.Tvmult_add = [factor](state_type       &destination,
-                                   const value_type &source) {
+      result.Tvmult_add = [factor = factor_](state_type       &destination,
+                                             const value_type &source) {
         for (const auto index : destination.locally_owned_elements())
           if (index < source.size())
             destination[index] += factor * source[index];
@@ -143,27 +154,175 @@ namespace CoupledPoissonElasticity
       return result;
     }
 
-  private:
-    static std::vector<double>
-    gather(const state_type &source)
+    const TriangulationType &
+    triangulation() const
     {
-      std::vector<double> local(source.size(), 0.);
-      for (const auto index : source.locally_owned_elements())
-        local[index] = source[index];
-
-      std::vector<double> global(source.size(), 0.);
-      MPI_Allreduce(local.data(),
-                    global.data(),
-                    static_cast<int>(source.size()),
-                    MPI_DOUBLE,
-                    MPI_SUM,
-                    source.get_mpi_communicator());
-      return global;
+      return problem_->triangulation();
     }
 
-    ImmersX::FieldId source_;
-    unsigned int     source_size_;
-    double           factor_;
+    const DoFHandlerType &
+    dof_handler() const
+    {
+      return problem_->dof_handler();
+    }
+
+    const dealii::FiniteElement<1, 3> &
+    finite_element() const
+    {
+      return dof_handler().get_fe();
+    }
+
+    const dealii::Mapping<1, 3> &
+    mapping() const
+    {
+      return dealii::StaticMappingQ1<1, 3>::mapping;
+    }
+
+    const dealii::IndexSet &
+    locally_owned_dofs() const
+    {
+      return problem_->locally_owned_dofs();
+    }
+
+    const dealii::IndexSet &
+    locally_relevant_dofs() const
+    {
+      return problem_->locally_relevant_dofs();
+    }
+
+    const dealii::AffineConstraints<double> &
+    constraints() const
+    {
+      return problem_->constraints();
+    }
+
+    const ExtractorType &
+    extractor() const
+    {
+      static const ExtractorType extractor(0);
+      return extractor;
+    }
+
+    const ImmersX::RepresentationMetadata &
+    metadata() const
+    {
+      static const ImmersX::RepresentationMetadata metadata;
+      return metadata;
+    }
+
+    const std::vector<ImmersX::FieldId> &
+    dependencies() const
+    {
+      return metadata().dependencies;
+    }
+
+    std::uint64_t
+    geometry_version() const
+    {
+      return 0;
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return triangulation().get_mpi_communicator();
+    }
+
+    unsigned int
+    n_dofs_per_cell() const
+    {
+      return finite_element().n_dofs_per_cell();
+    }
+
+    std::vector<QuadraturePoint>
+    locally_owned_quadrature_points(
+      const dealii::Quadrature<1> &quadrature) const
+    {
+      dealii::FEValues<1, 3>       fe_values(mapping(),
+                                       finite_element(),
+                                       quadrature,
+                                       dealii::update_values |
+                                         dealii::update_quadrature_points |
+                                         dealii::update_JxW_values);
+      std::vector<QuadraturePoint> result;
+      result.reserve(triangulation().n_locally_owned_active_cells() *
+                     quadrature.size());
+      std::vector<dealii::types::global_dof_index> dof_indices(
+        n_dofs_per_cell());
+      for (const auto &cell : dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            fe_values.reinit(cell);
+            cell->get_dof_indices(dof_indices);
+            for (const auto q : fe_values.quadrature_point_indices())
+              {
+                QuadraturePoint point;
+                point.point       = fe_values.quadrature_point(q);
+                point.tangent     = cell->vertex(1) - cell->vertex(0);
+                point.weight      = fe_values.JxW(q);
+                point.dof_indices = dof_indices;
+                point.basis_values.resize(n_dofs_per_cell());
+                for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                  point.basis_values[i] = fe_values[extractor()].value(i, q);
+                result.emplace_back(std::move(point));
+              }
+          }
+      return result;
+    }
+
+    dealii::Vector<double>
+    evaluate_points(const state_type                    &source,
+                    const std::vector<dealii::Point<3>> &points) const
+    {
+      return evaluate_points(*problem_, factor_, source, points);
+    }
+
+    static dealii::Vector<double>
+    evaluate_points(const ProblemType                   &problem,
+                    const double                         scale,
+                    const state_type                    &source,
+                    const std::vector<dealii::Point<3>> &points)
+    {
+      state_type relevant;
+      relevant.reinit(problem.locally_owned_dofs(),
+                      problem.locally_relevant_dofs(),
+                      problem.triangulation().get_mpi_communicator());
+      relevant = source;
+      relevant.update_ghost_values();
+
+      dealii::Vector<double>                       result(points.size());
+      const dealii::MappingQ1<1, 3>                mapping;
+      std::vector<dealii::types::global_dof_index> dof_indices(
+        problem.dof_handler().get_fe().n_dofs_per_cell());
+      for (unsigned int q = 0; q < points.size(); ++q)
+        {
+          const auto cell_and_unit_point =
+            dealii::GridTools::find_active_cell_around_point(
+              mapping, problem.dof_handler(), points[q]);
+          const auto &cell = cell_and_unit_point.first;
+          if (cell == problem.dof_handler().end() || !cell->is_locally_owned())
+            continue;
+          const dealii::Quadrature<1> point_quadrature(
+            std::vector<dealii::Point<1>>{cell_and_unit_point.second});
+          dealii::FEValues<1, 3> fe_values(mapping,
+                                           problem.dof_handler().get_fe(),
+                                           point_quadrature,
+                                           dealii::update_values);
+          fe_values.reinit(cell);
+          cell->get_dof_indices(dof_indices);
+          for (unsigned int i = 0;
+               i < problem.dof_handler().get_fe().n_dofs_per_cell();
+               ++i)
+            result[q] += scale * fe_values[ExtractorType(0)].value(i, 0) *
+                         relevant[dof_indices[i]];
+        }
+      return result;
+    }
+
+  private:
+    ImmersX::FieldId   source_;
+    const ProblemType *problem_;
+    double             factor_;
   };
 
   /** Fixed cylindrical support for the lifted pressure. */
@@ -255,10 +414,8 @@ namespace CoupledPoissonElasticity
   class Traction
   {
   public:
-    Traction(const ImmersX::ElasticStaticProblem<3, 3> &problem,
-             const CylinderSurface                     &surface)
+    explicit Traction(const ImmersX::ElasticStaticProblem<3, 3> &problem)
       : problem_(&problem)
-      , surface_(&surface)
     {}
 
     const ImmersX::ElasticStaticProblem<3, 3> &
@@ -267,15 +424,8 @@ namespace CoupledPoissonElasticity
       return *problem_;
     }
 
-    const CylinderSurface &
-    surface() const
-    {
-      return *surface_;
-    }
-
   private:
     const ImmersX::ElasticStaticProblem<3, 3> *problem_;
-    const CylinderSurface                     *surface_;
   };
 
   template <typename Adapter, typename Fields>
@@ -284,7 +434,7 @@ namespace CoupledPoissonElasticity
                       const Pressure                                &pressure)
   {
     return PressureRepresentation(problem.fields().solution,
-                                  pressure.source_size,
+                                  *problem.fields().problem,
                                   pressure.factor);
   }
 
@@ -302,30 +452,29 @@ namespace CoupledPoissonElasticity
                   surface.request());
   }
 
-  template <typename ElasticVector>
+  template <typename Quantity, typename ElasticVector>
   dealii::LinearOperator<ElasticVector, dealii::Vector<double>>
-  make_traction_operator(const Traction &traction)
+  make_traction_operator(const Quantity &quantity, const Traction &traction)
   {
     using Operator =
       dealii::LinearOperator<ElasticVector, dealii::Vector<double>>;
 
     const auto &problem        = traction.problem();
-    const auto &surface        = traction.surface();
+    const auto &surface_points = quantity.lifted_points();
     const auto &dof_handler    = problem.dof_handler();
     const auto &finite_element = dof_handler.get_fe();
     const auto &owned_dofs     = problem.locally_owned_dofs();
 
     std::vector<std::vector<std::pair<dealii::types::global_dof_index, double>>>
-                                             entries(surface.points().size());
+                                             entries(surface_points.size());
     const dealii::MappingQ1<3>               mapping;
     const dealii::FEValuesExtractors::Vector displacement(0);
 
-    for (unsigned int q = 0; q < surface.points().size(); ++q)
+    for (unsigned int q = 0; q < surface_points.size(); ++q)
       {
         const auto cell_and_unit_point =
-          dealii::GridTools::find_active_cell_around_point(mapping,
-                                                           dof_handler,
-                                                           surface.points()[q]);
+          dealii::GridTools::find_active_cell_around_point(
+            mapping, dof_handler, surface_points[q].point);
         const auto &cell = cell_and_unit_point.first;
         if (cell == dof_handler.end())
           continue;
@@ -344,14 +493,21 @@ namespace CoupledPoissonElasticity
         cell->get_dof_indices(dof_indices);
         for (unsigned int i = 0; i < dof_indices.size(); ++i)
           if (owned_dofs.is_element(dof_indices[i]))
-            entries[q].emplace_back(dof_indices[i],
-                                    surface.weights()[q] *
-                                      (surface.normals()[q] *
-                                       fe_values[displacement].value(i, 0)));
+            {
+              const auto normal = (surface_points[q].point -
+                                   surface_points[q].representative_point) /
+                                  (surface_points[q].point -
+                                   surface_points[q].representative_point)
+                                    .norm();
+              entries[q].emplace_back(dof_indices[i],
+                                      surface_points[q].weight *
+                                        (normal *
+                                         fe_values[displacement].value(i, 0)));
+            }
       }
 
     const auto *prototype = &problem.solution();
-    const auto  n_points  = surface.points().size();
+    const auto  n_points  = surface_points.size();
 
     Operator result;
     result.reinit_range_vector = [prototype](ElasticVector &vector,
@@ -393,43 +549,30 @@ namespace CoupledPoissonElasticity
     return result;
   }
 
+  template <typename Quantity>
   inline dealii::Vector<double>
-  sample_pressure(const CylinderSurface                 &surface,
+  sample_pressure(const Quantity                        &quantity,
                   const ImmersX::ImmersXLA::MPI::Vector &solution)
   {
-    std::vector<double> local(solution.size(), 0.);
-    for (const auto index : solution.locally_owned_elements())
-      local[index] = solution[index];
-    std::vector<double> global(solution.size(), 0.);
-    MPI_Allreduce(local.data(),
-                  global.data(),
-                  static_cast<int>(solution.size()),
-                  MPI_DOUBLE,
-                  MPI_SUM,
-                  solution.get_mpi_communicator());
-
-    AssertThrow(solution.size() == 2,
-                dealii::ExcMessage(
-                  "The vertical slice expects a two-DoF line pressure."));
-    dealii::Vector<double> result(surface.points().size());
-    for (unsigned int q = 0; q < surface.points().size(); ++q)
-      {
-        const double s =
-          surface.geometry().source_parameter(surface.points()[q]);
-        result[q] = 2. * ((1. - s) * global[0] + s * global[1]);
-      }
-    return result;
+    std::vector<dealii::Point<3>> points;
+    points.reserve(quantity.lifted_points().size());
+    for (const auto &point : quantity.lifted_points())
+      points.push_back(point.representative_point);
+    return quantity.source_representation().evaluate_points(solution, points);
   }
 
+  template <typename Quantity>
   inline double
-  traction_balance(const Traction                        &traction,
+  traction_balance(const Quantity                        &quantity,
+                   const Traction                        &traction,
                    const ImmersX::ImmersXLA::MPI::Vector &pressure_state,
                    const ImmersX::ImmersXLA::MPI::Vector &elastic_state)
   {
     using ElasticVector = ImmersX::ElasticStaticProblem<3, 3>::VectorType;
 
-    const auto expected = make_traction_operator<ElasticVector>(traction);
-    const auto pressure = sample_pressure(traction.surface(), pressure_state);
+    const auto expected =
+      make_traction_operator<Quantity, ElasticVector>(quantity, traction);
+    const auto    pressure = sample_pressure(quantity, pressure_state);
     ElasticVector expected_load;
     expected.reinit_range_vector(expected_load, false);
     expected.vmult(expected_load, pressure);
@@ -457,7 +600,8 @@ namespace CoupledPoissonElasticity
     using Coupling =
       ImmersX::CouplingOperator<dealii::Vector<double>, ElasticVector>;
 
-    const auto operator_view = make_traction_operator<ElasticVector>(traction);
+    const auto operator_view =
+      make_traction_operator<Quantity, ElasticVector>(quantity, traction);
     const ImmersX::CouplingSpace<ElasticVector> target_space(
       traction.problem().solution());
     const Coupling coupling(operator_view, target_space);

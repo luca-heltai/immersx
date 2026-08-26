@@ -717,9 +717,14 @@ namespace ImmersX
               if constexpr (reduced_dim == 2)
                 new_vertical = fev.normal_vector(q);
               // [TODO] Make radius a function of the cell
-              auto cross_section_qpoints =
-                reference_cross_section.get_transformed_quadrature(
-                  qpoint, new_vertical, thickness_values[q]);
+              auto cross_section_qpoints = TensorProductLiftSupport<
+                reduced_dim,
+                dim,
+                spacedim,
+                n_components>::transform_section(reference_cross_section,
+                                                 qpoint,
+                                                 new_vertical,
+                                                 thickness_values[q]);
 
               all_qpoints.insert(all_qpoints.end(),
                                  cross_section_qpoints.get_points().begin(),
@@ -1431,9 +1436,11 @@ namespace ImmersX
       reduced_weights.push_back({1.0});
       section_measure.push_back({reference_cross_section.measure(thickness)});
       const auto transformed =
-        reference_cross_section.get_transformed_quadrature(position,
-                                                           orientation,
-                                                           thickness);
+        TensorProductLiftSupport<0, dim, spacedim, n_components>::
+          transform_section(reference_cross_section,
+                            position,
+                            orientation,
+                            thickness);
       for (const auto q : transformed.get_points())
         all_qpoints.push_back(q);
       unsigned int section_q = 0;

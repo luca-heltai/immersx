@@ -64,7 +64,8 @@ namespace ImmersX
   struct ReferenceCrossSectionParameters : public ParameterAcceptor
   {
     /// Constructor that registers parameters.
-    ReferenceCrossSectionParameters();
+    explicit ReferenceCrossSectionParameters(
+      const std::string &subsection = "Cross section");
 
     /// Refinement level of the mesh.
     unsigned int refinement_level = 1;
@@ -77,6 +78,15 @@ namespace ImmersX
 
     /// List of selected coefficient indices for reduced modeling.
     mutable std::vector<unsigned int> selected_coefficients;
+
+    /// Quadrature family used on the reference cross section.
+    std::string quadrature_type = "gauss";
+
+    /// Explicit number of points for the one-dimensional base rule.
+    unsigned int n_q_points = 0;
+
+    /// Number of repetitions of the base quadrature rule.
+    unsigned int n_quadrature_repetitions = 1;
   };
 
   /**
@@ -173,7 +183,7 @@ namespace ImmersX
     Triangulation<dim, spacedim> triangulation;
 
     /// Quadrature formula for integration on the reference domain.
-    QGauss<dim> quadrature_formula;
+    Quadrature<dim> quadrature_formula;
 
     /// Finite element space for the inclusion.
     FESystem<dim, spacedim> fe;

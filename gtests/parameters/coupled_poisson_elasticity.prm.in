@@ -1,6 +1,6 @@
 subsection Poisson
-  set FE degree                   = 1
-  set Initial refinement          = 0
+  set FE degree                   = 2
+  set Initial refinement          = 2
   set Dirichlet boundary ids      = 0, 1
   set Output directory            = @TEST_OUTPUT_DIR@/gtests/parameters/coupled_poisson_elasticity
   subsection Grid generation
@@ -15,6 +15,24 @@ subsection Poisson
   subsection Dirichlet boundary conditions
     set Function expression = 0
     set Variable names      = x,y,z,t
+  end
+end
+
+subsection Pressure lift
+  set Thickness = 0.2
+  subsection Representative quadrature
+    set Type = gauss
+    set Number of points = 3
+    set Number of repetitions = 1
+  end
+  subsection Cross section
+    set Geometry type = hyper_ball
+    set Refinement level = 1
+    set Maximum basis degree = 0
+    set Selected modes = 0
+    set Quadrature type = gauss
+    set Number of points = 4
+    set Number of repetitions = 1
   end
 end
 
