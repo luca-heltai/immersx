@@ -36,34 +36,54 @@ namespace
 
     ElasticStaticParameters<dim> parameters;
     initialize_parameters(parameter_file);
+    AssertThrow(parameters.triangulation_type != "fullydistributed" ||
+                  parameters.n_refinement_cycles <= 1,
+                ExcMessage(
+                  "parallel::fullydistributed::Triangulation supports only one "
+                  "static refinement cycle because its mesh is immutable after "
+                  "copy_triangulation()."));
 
     Problem problem(parameters);
     problem.setup();
 
-    Adapter adapter(
-      MPI_COMM_WORLD,
-      [](const auto &operator_view, const auto &rhs, auto &solution) {
-        using Vector = std::decay_t<decltype(solution)>;
-        dealii::SolverControl        control(1000,
-                                      1.e-12 * std::max(1., rhs.l2_norm()));
-        dealii::SolverGMRES<Vector>  solver(control);
-        dealii::PreconditionIdentity preconditioner;
-        solver.solve(operator_view, solution, rhs, preconditioner);
-      });
+    for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
+         ++cycle)
+      {
+        {
+          Adapter adapter(
+            MPI_COMM_WORLD,
+            [](const auto &operator_view, const auto &rhs, auto &solution) {
+              using Vector = std::decay_t<decltype(solution)>;
+              dealii::SolverControl        control(1000,
+                                            1.e-12 *
+                                              std::max(1., rhs.l2_norm()));
+              dealii::SolverGMRES<Vector>  solver(control);
+              dealii::PreconditionIdentity preconditioner;
+              solver.solve(operator_view, solution, rhs, preconditioner);
+            });
 
-    const auto fields = adapter.add(problem, "elastic-static");
-    auto       state  = adapter.make_state();
-    adapter.solve(state);
-    problem.set_solution(adapter.field(state, fields.fields().displacement));
+          const auto fields = adapter.add(problem, "elastic-static");
+          auto       state  = adapter.make_state();
+          adapter.solve(state);
+          problem.set_solution(
+            adapter.field(state, fields.fields().displacement));
 
-    GlobalVector residual;
-    adapter.evaluate_residual(state, residual);
-    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      std::cout << "elastic_static_residual = " << residual.l2_norm() << '\n';
+          GlobalVector residual;
+          adapter.evaluate_residual(state, residual);
+          if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+            std::cout << "elastic_static_residual = " << residual.l2_norm()
+                      << '\n';
 
-    problem.output_results();
-    AssertThrow(residual.l2_norm() < 1.e-9,
-                ExcMessage("Static elasticity residual is too large."));
+          AssertThrow(residual.l2_norm() < 1.e-9,
+                      ExcMessage("Static elasticity residual is too large."));
+
+          if (cycle + 1 == parameters.n_refinement_cycles)
+            problem.output_results();
+        }
+
+        if (cycle + 1 < parameters.n_refinement_cycles)
+          problem.refine_global();
+      }
   }
 } // namespace
 

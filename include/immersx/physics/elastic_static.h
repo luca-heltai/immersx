@@ -365,7 +365,10 @@ namespace ImmersX
       const MPI_Comm communicator = MPI_COMM_WORLD)
       : parameters_(parameters)
       , communicator_(communicator)
-      , triangulation_storage_(make_triangulation_storage(communicator_))
+      , triangulation_storage_(
+          make_triangulation_storage(communicator_,
+                                     parameters_.triangulation_type ==
+                                       "fullydistributed"))
       , tria_(nullptr)
       , fe_(FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim)
     {
@@ -381,44 +384,34 @@ namespace ImmersX
                     "ElasticStaticProblem::setup() may only be called once."));
 
       make_grid();
-      dof_handler_->distribute_dofs(fe_);
+      setup_system();
+      assemble_system(nullptr);
+    }
 
-      locally_owned_dofs_ = dof_handler_->locally_owned_dofs();
-      locally_relevant_dofs_ =
-        DoFTools::extract_locally_relevant_dofs(*dof_handler_);
+    /**
+     * Globally refine a distributed mesh and rebuild the static system.
+     *
+     * The candidate solution is reset because each static refinement cycle
+     * solves the refined problem anew.
+     */
+    void
+    refine_global()
+    {
+      AssertThrow(
+        dof_handler_->n_dofs() != 0,
+        ExcMessage("Call setup() before refining the static elasticity mesh."));
+      AssertThrow(
+        std::holds_alternative<DistributedTriangulation>(
+          triangulation_storage_),
+        ExcMessage(
+          "ElasticStaticProblem::refine_global() is unavailable for "
+          "parallel::fullydistributed::Triangulation because its mesh is "
+          "immutable after copy_triangulation()."));
 
-      constraints_.reinit(locally_owned_dofs_, locally_relevant_dofs_);
-      DoFTools::make_hanging_node_constraints(*dof_handler_, constraints_);
-      for (const auto boundary_id : parameters_.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(*dof_handler_,
-                                                 boundary_id,
-                                                 parameters_.get_dirichlet_bc(
-                                                   boundary_id),
-                                                 constraints_);
-      constraints_.close();
-
-      DynamicSparsityPattern sparsity(locally_relevant_dofs_);
-      DoFTools::make_sparsity_pattern(*dof_handler_,
-                                      sparsity,
-                                      constraints_,
-                                      true);
-      SparsityTools::distribute_sparsity_pattern(sparsity,
-                                                 locally_owned_dofs_,
-                                                 communicator_,
-                                                 locally_relevant_dofs_);
-
-      stiffness_matrix_.reinit(locally_owned_dofs_,
-                               locally_owned_dofs_,
-                               sparsity,
-                               communicator_);
-      forcing_.reinit(locally_owned_dofs_, communicator_);
-      solution_.reinit(locally_owned_dofs_, communicator_);
-      locally_relevant_solution_.reinit(locally_owned_dofs_,
-                                        locally_relevant_dofs_,
-                                        communicator_);
-      forcing_  = 0.;
-      solution_ = 0.;
-
+      dof_handler_->clear();
+      std::get<DistributedTriangulation>(triangulation_storage_)
+        .refine_global(1);
+      setup_system();
       assemble_system(nullptr);
     }
 
@@ -548,8 +541,13 @@ namespace ImmersX
 
   private:
     static TriangulationVariant
-    make_triangulation_storage(const MPI_Comm communicator)
+    make_triangulation_storage(const MPI_Comm communicator,
+                               const bool     fully_distributed)
     {
+      if (fully_distributed)
+        return TriangulationVariant(
+          std::in_place_type<FullyDistributedTriangulation>, communicator);
+
       return TriangulationVariant(
         std::in_place_type<DistributedTriangulation>,
         communicator,
@@ -595,35 +593,8 @@ namespace ImmersX
     void
     make_grid()
     {
-      const bool fully_distributed =
-        parameters_.triangulation_type == "fullydistributed";
-
-      if ((fully_distributed &&
-           std::holds_alternative<DistributedTriangulation>(
-             triangulation_storage_)) ||
-          (!fully_distributed &&
-           std::holds_alternative<FullyDistributedTriangulation>(
-             triangulation_storage_)))
-        dof_handler_.reset();
-
-      if (fully_distributed &&
-          !std::holds_alternative<FullyDistributedTriangulation>(
+      if (std::holds_alternative<DistributedTriangulation>(
             triangulation_storage_))
-        triangulation_storage_.template emplace<FullyDistributedTriangulation>(
-          communicator_);
-      else if (!fully_distributed &&
-               !std::holds_alternative<DistributedTriangulation>(
-                 triangulation_storage_))
-        triangulation_storage_.template emplace<DistributedTriangulation>(
-          communicator_,
-          typename Triangulation<dim, spacedim>::MeshSmoothing(
-            Triangulation<dim, spacedim>::smoothing_on_refinement |
-            Triangulation<dim, spacedim>::smoothing_on_coarsening),
-          DistributedTriangulation::construct_multigrid_hierarchy);
-
-      reset_triangulation();
-
-      if (!fully_distributed)
         {
           make_grid_in(
             std::get<DistributedTriangulation>(triangulation_storage_));
@@ -637,7 +608,49 @@ namespace ImmersX
       make_grid_in(serial_tria);
       std::get<FullyDistributedTriangulation>(triangulation_storage_)
         .copy_triangulation(serial_tria);
-      reset_triangulation();
+    }
+
+    void
+    setup_system()
+    {
+      dof_handler_->distribute_dofs(fe_);
+
+      locally_owned_dofs_ = dof_handler_->locally_owned_dofs();
+      locally_relevant_dofs_ =
+        DoFTools::extract_locally_relevant_dofs(*dof_handler_);
+
+      constraints_.reinit(locally_owned_dofs_, locally_relevant_dofs_);
+      DoFTools::make_hanging_node_constraints(*dof_handler_, constraints_);
+      for (const auto boundary_id : parameters_.dirichlet_ids)
+        VectorTools::interpolate_boundary_values(*dof_handler_,
+                                                 boundary_id,
+                                                 parameters_.get_dirichlet_bc(
+                                                   boundary_id),
+                                                 constraints_);
+      constraints_.close();
+
+      DynamicSparsityPattern sparsity(locally_relevant_dofs_);
+      DoFTools::make_sparsity_pattern(*dof_handler_,
+                                      sparsity,
+                                      constraints_,
+                                      true);
+      SparsityTools::distribute_sparsity_pattern(sparsity,
+                                                 locally_owned_dofs_,
+                                                 communicator_,
+                                                 locally_relevant_dofs_);
+
+      stiffness_matrix_.reinit(locally_owned_dofs_,
+                               locally_owned_dofs_,
+                               sparsity,
+                               communicator_);
+      forcing_.reinit(locally_owned_dofs_, communicator_);
+      solution_.reinit(locally_owned_dofs_, communicator_);
+      locally_relevant_solution_.reinit(locally_owned_dofs_,
+                                        locally_relevant_dofs_,
+                                        communicator_);
+      forcing_                   = 0.;
+      solution_                  = 0.;
+      locally_relevant_solution_ = 0.;
     }
 
     void
