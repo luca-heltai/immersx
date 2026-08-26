@@ -15,6 +15,7 @@ namespace ImmersX
 
 namespace ImmersX
 {
+  /** @cond INTERNAL */
   struct SymbolicExpressionKernel::Impl
   {
     std::string                   expression;
@@ -25,6 +26,7 @@ namespace ImmersX
     std::shared_ptr<internal::SymbolicOptimizerData> optimizer_data;
 #endif
   };
+  /** @endcond */
 
   SymbolicExpressionKernel::SymbolicExpressionKernel()
     : impl(std::make_unique<Impl>())

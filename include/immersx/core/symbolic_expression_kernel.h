@@ -26,11 +26,14 @@ namespace ImmersX
   class SymbolicExpressionKernel
   {
   public:
+    /** @cond INTERNAL */
+    /** Value and partial derivatives returned by one pointwise evaluation. */
     struct Evaluation
     {
       double              value;
       std::vector<double> derivatives;
     };
+    /** @endcond */
 
     SymbolicExpressionKernel();
     ~SymbolicExpressionKernel();
@@ -73,7 +76,9 @@ namespace ImmersX
     available();
 
   private:
+    /** @cond INTERNAL */
     struct Impl;
+    /** @endcond */
     std::unique_ptr<Impl> impl;
   };
 
