@@ -41,6 +41,7 @@ main(int argc, char *argv[])
       PoissonParameters<1, 3>                poisson_parameters;
       ElasticStaticParameters<3, 3>          elasticity_parameters;
       CoupledPoissonElasticity::PressureLift pressure_lift("/Pressure lift/");
+      CoupledPoissonElasticity::Traction     traction("/Pressure traction/");
       const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
       initialize_parameters(prm_file);
 
@@ -52,8 +53,7 @@ main(int argc, char *argv[])
 
       ElasticStaticProblem<3, 3> elasticity_problem(elasticity_parameters);
       elasticity_problem.setup();
-
-      CoupledPoissonElasticity::Traction traction(elasticity_problem);
+      traction.attach(elasticity_problem);
 
       using FieldVector  = ImmersXLA::MPI::Vector;
       using GlobalVector = ImmersXLA::MPI::BlockVector;
