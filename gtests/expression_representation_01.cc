@@ -102,11 +102,14 @@ namespace
 
     ExpressionData  data;
     const QGauss<2> quadrature(3);
-    const auto      plan =
-      make_retained_sampling_plan(*data.representation, quadrature);
-    const double beta       = 1.5;
-    const auto   expression = make_expression_representation(
-      data.field, plan, "A*A + beta*A", "A", {{"beta", beta}});
+    const double    beta = 1.5;
+    const auto      expression =
+      make_expression_representation(*data.representation,
+                                     quadrature,
+                                     {value(data.field, "A")},
+                                     "A*A + beta*A",
+                                     {{"beta", beta}});
+    const auto &plan = expression.sampling_plan();
 
     ImmersXLA::MPI::Vector state;
     fill_vector(data.locally_owned, state);
@@ -122,7 +125,7 @@ namespace
     state_view.bind(data.second_field, second_state);
     EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
 
-    const auto             value             = expression.evaluate(context);
+    const auto             expression_value  = expression.evaluate(context);
     const auto             sampling_operator = plan.linearize(state);
     ImmersXLA::MPI::Vector samples;
     sampling_operator.reinit_range_vector(samples, false);
@@ -130,7 +133,8 @@ namespace
     for (std::size_t q = 0; q < plan.points().size(); ++q)
       {
         const double a = samples[plan.point_index(q)];
-        EXPECT_DOUBLE_EQ(value[plan.point_index(q)], a * a + beta * a);
+        EXPECT_DOUBLE_EQ(expression_value[plan.point_index(q)],
+                         a * a + beta * a);
       }
 
     const auto             jacobian = expression.linearize(context);
@@ -157,11 +161,13 @@ namespace
                                                                 perturbed_view);
     const auto perturbed_value = expression.evaluate(perturbed_context);
     for (std::size_t q = 0; q < plan.points().size(); ++q)
-      EXPECT_NEAR(
-        (perturbed_value[plan.point_index(q)] - value[plan.point_index(q)]) /
-          epsilon,
-        jacobian_action[plan.point_index(q)],
-        1.e-7 * std::max(1., std::abs(jacobian_action[plan.point_index(q)])));
+      EXPECT_NEAR((perturbed_value[plan.point_index(q)] -
+                   expression_value[plan.point_index(q)]) /
+                    epsilon,
+                  jacobian_action[plan.point_index(q)],
+                  1.e-7 *
+                    std::max(1.,
+                             std::abs(jacobian_action[plan.point_index(q)])));
 
     ImmersXLA::MPI::Vector weights;
     weights.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
@@ -176,11 +182,12 @@ namespace
                 local_dot(data.locally_owned, direction, transpose),
                 1.e-8);
 
-    using Binding    = typename decltype(expression)::Binding;
-    const auto multi = make_expression_representation(
-      std::vector<Binding>{{data.field, "A"}, {data.second_field, "U"}},
-      plan,
-      "A*A + 2*U");
+    const auto multi =
+      make_expression_representation(*data.representation,
+                                     quadrature,
+                                     {value(data.field, "A"),
+                                      value(data.second_field, "U")},
+                                     "A*A + 2*U");
     ASSERT_EQ(multi.dependencies().size(), 2u);
     EXPECT_EQ(multi.dependencies()[0], data.field);
     EXPECT_EQ(multi.dependencies()[1], data.second_field);

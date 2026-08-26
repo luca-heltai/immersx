@@ -845,11 +845,15 @@ namespace ImmersX
      */
     std::vector<QuadraturePoint>
     locally_owned_quadrature_points(
-      const dealii::Quadrature<dim> &quadrature) const
+      const dealii::Quadrature<dim> &quadrature,
+      const dealii::UpdateFlags requested_flags = dealii::update_values) const
     {
-      dealii::UpdateFlags update_flags = dealii::update_values |
-                                         dealii::update_quadrature_points |
-                                         dealii::update_JxW_values;
+      // Values, physical points, and physical weights are part of the
+      // retained-point payload. The caller supplies only additional FE data
+      // requirements.
+      dealii::UpdateFlags update_flags =
+        requested_flags | dealii::update_values |
+        dealii::update_quadrature_points | dealii::update_JxW_values;
       if constexpr (dim > 1 && dim < spacedim)
         update_flags |= dealii::update_normal_vectors;
       dealii::FEValues<dim, spacedim> fe_values(mapping_,
@@ -1261,16 +1265,19 @@ namespace ImmersX
     using Operator =
       RepresentationOperator<QuantityVectorType, StateVectorType>;
 
-    RetainedSamplingPlan(std::vector<Point>      points,
-                         const dealii::IndexSet &source_owned,
-                         const dealii::IndexSet &source_relevant,
-                         const dealii::AffineConstraints<double> *constraints,
-                         const MPI_Comm                           communicator)
+    RetainedSamplingPlan(
+      std::vector<Point>                       points,
+      const dealii::IndexSet                  &source_owned,
+      const dealii::IndexSet                  &source_relevant,
+      const dealii::AffineConstraints<double> *constraints,
+      const MPI_Comm                           communicator,
+      const dealii::UpdateFlags update_flags = dealii::update_values)
       : points_(std::move(points))
       , source_owned_(source_owned)
       , source_relevant_(source_relevant)
       , constraints_(constraints)
       , communicator_(communicator)
+      , update_flags_(update_flags)
     {
       const auto [offset, size] =
         dealii::Utilities::MPI::partial_and_total_sum(points_.size(),
@@ -1338,6 +1345,13 @@ namespace ImmersX
                                    points_[q].dof_indices,
                                    points_[q].basis_values);
       return result;
+    }
+
+    /** FE data requirements retained by this sampling plan. */
+    dealii::UpdateFlags
+    update_flags() const
+    {
+      return update_flags_;
     }
 
     Operator
@@ -1529,6 +1543,7 @@ namespace ImmersX
     std::vector<dealii::types::global_dof_index> point_indices_;
     const dealii::AffineConstraints<double>     *constraints_;
     MPI_Comm                                     communicator_;
+    dealii::UpdateFlags                          update_flags_;
   };
 
 
@@ -1538,16 +1553,19 @@ namespace ImmersX
   make_retained_sampling_plan(
     const FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>
                                   &representation,
-    const dealii::Quadrature<dim> &quadrature) -> RetainedSamplingPlan<spacedim>
+    const dealii::Quadrature<dim> &quadrature,
+    const dealii::UpdateFlags      update_flags = dealii::update_values)
+    -> RetainedSamplingPlan<spacedim>
   {
     static_assert(std::is_same_v<ValueType, double>,
                   "Retained scalar sampling requires a scalar FE view.");
     return RetainedSamplingPlan<spacedim>(
-      representation.locally_owned_quadrature_points(quadrature),
+      representation.locally_owned_quadrature_points(quadrature, update_flags),
       representation.locally_owned_dofs(),
       representation.locally_relevant_dofs(),
       &representation.constraints(),
-      representation.mpi_communicator());
+      representation.mpi_communicator(),
+      update_flags);
   }
 
 

@@ -22,7 +22,29 @@
 
 namespace ImmersX
 {
-  /** A symbolic pointwise transform of one or more retained observables. */
+  /** Semantic binding of one scalar value observable to an expression symbol.
+   */
+  struct ExpressionBinding
+  {
+    FieldId     field;
+    std::string symbol;
+  };
+
+  /** Bind a semantic value observable to an expression symbol. */
+  inline ExpressionBinding
+  value(const FieldId field, std::string symbol)
+  {
+    return {field, std::move(symbol)};
+  }
+
+  /**
+   * A symbolic pointwise transform of one or more retained observables.
+   *
+   * All bindings use one common retained sampling space. The normal factory
+   * constructs that space from the supplied finite-element representation and
+   * quadrature; the retained-plan overload is an advanced escape hatch for
+   * tests and adapters.
+   */
   template <int spacedim,
             typename StateVectorType    = ImmersXLA::MPI::Vector,
             typename QuantityVectorType = ImmersXLA::MPI::Vector>
@@ -37,12 +59,7 @@ namespace ImmersX
     using Operator      = RepresentationOperator<value_type, state_type>;
     using ValueOperator = RepresentationOperator<value_type, value_type>;
 
-    /** A semantic Field and the independent symbol bound to it. */
-    struct Binding
-    {
-      FieldId     field;
-      std::string symbol;
-    };
+    using Binding = ExpressionBinding;
 
     ExpressionRepresentation(const std::vector<Binding> &bindings,
                              const SamplingPlan         &sampling,
@@ -101,16 +118,6 @@ namespace ImmersX
                                  constants)
     {}
 
-    /** Return the sole source Field; only valid for scalar expressions. */
-    FieldId
-    source() const
-    {
-      AssertThrow(bindings_.size() == 1,
-                  dealii::ExcMessage(
-                    "A multi-field expression has no single source field."));
-      return bindings_.front().field;
-    }
-
     const std::vector<FieldId> &
     dependencies() const
     {
@@ -141,24 +148,14 @@ namespace ImmersX
              const EvaluationRequest             &request = {}) const
     {
       (void)request;
-      const auto samples = sample_bindings(context);
+      const auto samples     = sample_bindings(context);
+      const auto evaluations = evaluate_kernel(context, samples);
       value_type result;
       result.reinit(sampling_plan().locally_owned_points(),
                     sampling_plan().locally_relevant_points(),
                     sampling_plan().mpi_communicator());
       for (std::size_t q = 0; q < sampling_plan().points().size(); ++q)
-        {
-          std::vector<double> values;
-          values.reserve(samples.size());
-          for (const auto &sample : samples)
-            values.push_back(sample[sampling_plan().point_index(q)]);
-          result[sampling_plan().point_index(q)] =
-            kernel_
-              ->evaluate(sampling_plan().points()[q].point,
-                         context.time(),
-                         values)
-              .value;
-        }
+        result[sampling_plan().point_index(q)] = evaluations[q].value;
       return result;
     }
 
@@ -181,7 +178,8 @@ namespace ImmersX
               const EvaluationRequest             &request = {}) const
     {
       (void)request;
-      const auto samples = sample_bindings(context);
+      const auto samples     = sample_bindings(context);
+      const auto evaluations = evaluate_kernel(context, samples);
       Operator   result;
       bool       has_term = false;
       for (std::size_t binding_index = 0; binding_index < bindings_.size();
@@ -194,16 +192,8 @@ namespace ImmersX
                              sampling_plan().mpi_communicator());
             for (std::size_t q = 0; q < sampling_plan().points().size(); ++q)
               {
-                std::vector<double> values;
-                values.reserve(samples.size());
-                for (const auto &sample : samples)
-                  values.push_back(sample[sampling_plan().point_index(q)]);
                 (*diagonal)[sampling_plan().point_index(q)] =
-                  kernel_
-                    ->evaluate(sampling_plan().points()[q].point,
-                               context.time(),
-                               values)
-                    .derivatives[binding_index];
+                  evaluations[q].derivatives[binding_index];
               }
 
             const auto &state = context.state(field);
@@ -271,6 +261,25 @@ namespace ImmersX
       return result;
     }
 
+    std::vector<SymbolicExpressionKernel::Evaluation>
+    evaluate_kernel(const EvaluationContext<state_type> &context,
+                    const std::vector<value_type>       &samples) const
+    {
+      std::vector<SymbolicExpressionKernel::Evaluation> result;
+      result.reserve(sampling_plan().points().size());
+      for (std::size_t q = 0; q < sampling_plan().points().size(); ++q)
+        {
+          std::vector<double> values;
+          values.reserve(samples.size());
+          for (const auto &sample : samples)
+            values.push_back(sample[sampling_plan().point_index(q)]);
+          result.push_back(kernel_->evaluate(sampling_plan().points()[q].point,
+                                             context.time(),
+                                             values));
+        }
+      return result;
+    }
+
     ValueOperator
     make_diagonal_operator(const SamplingPlan                &sampling,
                            const std::shared_ptr<value_type> &diagonal) const
@@ -306,6 +315,35 @@ namespace ImmersX
     std::vector<FieldId>                      dependencies_;
     std::shared_ptr<SymbolicExpressionKernel> kernel_;
   };
+
+  /**
+   * Construct a value-only expression and infer its FE requirements.
+   *
+   * This is the normal user-facing path. All bindings are sampled on the
+   * supplied finite-element representation and quadrature, so the expression
+   * has one common sampling point space by construction.
+   */
+  template <int dim, int spacedim, typename ValueType, typename Extractor>
+  auto
+  make_expression_representation(
+    const FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>
+                                         &representation,
+    const dealii::Quadrature<dim>        &quadrature,
+    const std::vector<ExpressionBinding> &bindings,
+    const std::string                    &expression,
+    const std::map<std::string, double>  &constants = {})
+    -> ExpressionRepresentation<spacedim>
+  {
+    static_assert(std::is_same_v<ValueType, double>,
+                  "Retained scalar expressions require a scalar FE view.");
+    const auto sampling = make_retained_sampling_plan(representation,
+                                                      quadrature,
+                                                      dealii::update_values);
+    return ExpressionRepresentation<spacedim>(bindings,
+                                              sampling,
+                                              expression,
+                                              constants);
+  }
 
   /** Construct a multi-field expression representation from expression text. */
   template <int spacedim, typename StateVectorType, typename QuantityVectorType>
