@@ -55,10 +55,11 @@ namespace
     problem.stiffness_operator().vmult(residual, problem.solution());
     residual -= problem.forcing();
     problem.constraints().set_zero(residual);
+    const double residual_norm = residual.l2_norm();
     if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      std::cout << "elastic_static_residual = " << residual.l2_norm() << '\n';
+      std::cout << "elastic_static_residual = " << residual_norm << '\n';
 
-    AssertThrow(residual.l2_norm() < 1.e-9,
+    AssertThrow(residual_norm < 1.e-9,
                 ExcMessage("Static elasticity residual is too large in cycle " +
                            std::to_string(cycle) + "."));
   }
