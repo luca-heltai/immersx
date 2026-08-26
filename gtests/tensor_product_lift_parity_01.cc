@@ -194,6 +194,48 @@ namespace
     new_lift.section.n_q_points               = 4;
     new_lift.section.n_quadrature_repetitions = 1;
   }
+
+  /**
+   * Minimal modern source that owns a symbolic thickness evaluation, used to
+   * exercise the source-provider seam without any imported-field storage.
+   */
+  struct SourceProvidedThickness
+  {
+    using value_type      = dealii::Vector<double>;
+    using state_type      = ImmersX::ImmersXLA::MPI::Vector;
+    using QuadraturePoint = ImmersX::RepresentationQuadraturePoint<3, double>;
+    using TriangulationType =
+      dealii::parallel::TriangulationBase<reduced_dim, spacedim>;
+    using DoFHandlerType = dealii::DoFHandler<reduced_dim, spacedim>;
+    using ExtractorType  = dealii::FEValuesExtractors::Scalar;
+
+    std::vector<QuadraturePoint>
+    locally_owned_quadrature_points(
+      const dealii::Quadrature<1> &quadrature) const
+    {
+      std::vector<QuadraturePoint> result;
+      result.reserve(quadrature.size());
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          QuadraturePoint point;
+          point.point      = dealii::Point<3>(0.5, 0.5, quadrature.point(q)[0]);
+          point.tangent[2] = 1.;
+          point.weight     = 0.5;
+          point.dof_indices  = {0};
+          point.basis_values = {1.};
+          result.push_back(point);
+        }
+      return result;
+    }
+
+    double
+    evaluate_thickness(const dealii::Point<3> &point,
+                       const double,
+                       const std::vector<double> &) const
+    {
+      return 0.1 + 0.5 * point[2];
+    }
+  };
 } // namespace
 
 
@@ -433,6 +475,84 @@ TEST(TensorProductLift, ModalSourceDistinctCoefficients) // NOLINT
                         1.e-12)
               << "Lifted basis at point " << q << ", slot " << slot;
           }
+    }
+}
+
+
+/**
+ * A symbolic thickness expression without a source-side provider must fail
+ * with a clear error instead of silently using a fallback thickness.
+ */
+TEST(TensorProductLift, SymbolicThicknessWithoutProviderFails) // NOLINT
+{
+  ParameterAcceptor::clear();
+
+  TensorProductLift<reduced_dim, surface_dim, spacedim, n_components> lift(
+    "/No provider/");
+  TensorProductSpaceParameters<reduced_dim, surface_dim, spacedim, n_components>
+    old_parameters;
+  configure_two_modes(old_parameters, lift);
+  lift.section.selected_coefficients = {0};
+  lift.thickness                     = "radius";
+
+  ModalLineSource fixture(1);
+  const auto      source = make_modal_source(fixture);
+  EXPECT_THROW(source.lift(lift), dealii::ExceptionBase);
+}
+
+
+/**
+ * The modern source-provider seam: a source that naturally owns a thickness
+ * evaluation provides per-point values for a symbolic expression. The lift
+ * never reads the file or stores the field; it only forwards the evaluation.
+ */
+TEST(TensorProductLift, SourceProvidedSymbolicThickness) // NOLINT
+{
+  ParameterAcceptor::clear();
+
+  TensorProductLift<reduced_dim, surface_dim, spacedim, n_components> lift(
+    "/Source thickness/");
+  TensorProductSpaceParameters<reduced_dim, surface_dim, spacedim, n_components>
+    old_parameters;
+  configure_two_modes(old_parameters, lift);
+  lift.section.selected_coefficients = {0};
+  lift.thickness                     = "radius";
+
+  SourceProvidedThickness source;
+  const auto              lifted  = ImmersX::make_lift(source, lift);
+  const auto             &support = lifted.support();
+  const auto             &section = support.reference_cross_section();
+  const auto              source_points =
+    source.locally_owned_quadrature_points(support.representative_quadrature());
+  const auto &lifted_points = lifted.lifted_points();
+
+  ASSERT_FALSE(source_points.empty());
+  ASSERT_EQ(lifted_points.size(),
+            source_points.size() * section.n_quadrature_points());
+  for (unsigned int q = 0; q < source_points.size(); ++q)
+    {
+      const double thickness =
+        source.evaluate_thickness(source_points[q].point, 0., {});
+      const auto expected =
+        section.get_transformed_quadrature(source_points[q].point,
+                                           source_points[q].tangent,
+                                           thickness);
+      for (unsigned int section_q = 0;
+           section_q < section.n_quadrature_points();
+           ++section_q)
+        {
+          const unsigned int index =
+            q * section.n_quadrature_points() + section_q;
+          for (unsigned int d = 0; d < spacedim; ++d)
+            EXPECT_NEAR(lifted_points[index].point[d],
+                        expected.point(section_q)[d],
+                        1.e-12)
+              << "Lifted point " << index << ", coordinate " << d;
+          EXPECT_NEAR(lifted_points[index].weight,
+                      expected.weight(section_q) * source_points[q].weight,
+                      1.e-12)
+            << "Lifted weight " << index;
+        }
     }
 }
 

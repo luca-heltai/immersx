@@ -122,6 +122,20 @@ namespace ImmersX
     }
   } // namespace detail
 
+  /**
+   * Source-side thickness evaluation contract for the modern lift.
+   *
+   * Provides the thickness at one representative point, given the evaluation
+   * time and any named source properties the source can resolve. The lift
+   * never owns imported fields: a source installs a provider that evaluates
+   * its own properties.
+   */
+  template <int spacedim>
+  using SourceThicknessEvaluator =
+    std::function<double(const dealii::Point<spacedim> &point,
+                         double                         time,
+                         const std::vector<double>     &source_properties)>;
+
   /** Lifting-only configuration for a tensor-product representation. */
   template <int reduced_dim,
             int surface_dim,
@@ -272,6 +286,13 @@ namespace ImmersX
       return parameters_.section.selected_coefficients;
     }
 
+    /** Install a source-side provider for symbolic thickness expressions. */
+    void
+    set_thickness_evaluator(SourceThicknessEvaluator<spacedim> evaluator)
+    {
+      thickness_evaluator_ = std::move(evaluator);
+    }
+
     std::vector<Point>
     transform(const dealii::Point<spacedim>     &origin,
               const dealii::Tensor<1, spacedim> &tangent,
@@ -302,33 +323,42 @@ namespace ImmersX
       return section.get_transformed_quadrature(origin, tangent, thickness);
     }
 
-    /** Evaluate a numeric modern thickness expression. */
+    /**
+     * Evaluate a numeric modern thickness expression.
+     *
+     * Symbolic expressions require a source-side evaluator; use the
+     * point-dependent overload once one is installed.
+     */
     double
     thickness() const
     {
-      std::size_t consumed = 0;
-      double      value    = 0.;
-      try
-        {
-          value = std::stod(parameters_.thickness, &consumed);
-        }
-      catch (const std::exception &)
-        {
-          AssertThrow(false,
-                      dealii::ExcMessage(
-                        "The modern tensor-product lift currently supports "
-                        "constant numeric thickness only; expression '" +
-                        parameters_.thickness +
-                        "' requires a source-property "
-                        "evaluator."));
-        }
-      AssertThrow(consumed == parameters_.thickness.size(),
+      AssertThrow(has_constant_thickness(),
                   dealii::ExcMessage(
-                    "The modern tensor-product lift currently supports "
-                    "constant numeric thickness only; expression '" +
+                    "The modern tensor-product lift thickness expression '" +
                     parameters_.thickness +
-                    "' requires a source-property "
-                    "evaluator."));
+                    "' requires a source-property evaluator; install one with "
+                    "set_thickness_evaluator() or use a constant thickness."));
+      return constant_thickness_value();
+    }
+
+    /**
+     * Evaluate the thickness at one representative point.
+     *
+     * Constant expressions return the parsed value; symbolic expressions are
+     * delegated to the installed source-side evaluator.
+     */
+    double
+    thickness(const dealii::Point<spacedim> &point, const double time) const
+    {
+      if (has_constant_thickness())
+        return constant_thickness_value();
+      AssertThrow(thickness_evaluator_,
+                  dealii::ExcMessage(
+                    "The modern tensor-product lift thickness expression '" +
+                    parameters_.thickness +
+                    "' requires a source-property evaluator; install one with "
+                    "set_thickness_evaluator() or use a constant thickness."));
+      const double value = thickness_evaluator_(point, time, {});
       AssertThrow(std::isfinite(value) && value > 0.,
                   dealii::ExcMessage(
                     "Lift thickness must be finite and positive."));
@@ -336,6 +366,42 @@ namespace ImmersX
     }
 
   private:
+    bool
+    has_constant_thickness() const
+    {
+      parse_constant_thickness();
+      return constant_is_parsed_;
+    }
+
+    double
+    constant_thickness_value() const
+    {
+      parse_constant_thickness();
+      AssertThrow(constant_is_parsed_, dealii::ExcInternalError());
+      return constant_thickness_value_;
+    }
+
+    void
+    parse_constant_thickness() const
+    {
+      if (constant_thickness_parsed_)
+        return;
+      constant_thickness_parsed_ = true;
+      std::size_t consumed       = 0;
+      try
+        {
+          constant_thickness_value_ =
+            std::stod(parameters_.thickness, &consumed);
+        }
+      catch (const std::exception &)
+        {
+          return;
+        }
+      constant_is_parsed_ = consumed == parameters_.thickness.size() &&
+                            std::isfinite(constant_thickness_value_) &&
+                            constant_thickness_value_ > 0.;
+    }
+
     dealii::Quadrature<reduced_dim>
     make_representative_quadrature() const
     {
@@ -349,9 +415,13 @@ namespace ImmersX
         parameters_.representative_n_repetitions);
     }
 
-    const Parameters               &parameters_;
-    std::shared_ptr<Section>        section_;
-    dealii::Quadrature<reduced_dim> representative_quadrature_;
+    const Parameters                  &parameters_;
+    std::shared_ptr<Section>           section_;
+    dealii::Quadrature<reduced_dim>    representative_quadrature_;
+    SourceThicknessEvaluator<spacedim> thickness_evaluator_;
+    mutable bool                       constant_thickness_parsed_ = false;
+    mutable bool                       constant_is_parsed_        = false;
+    mutable double                     constant_thickness_value_  = 0.;
   };
 } // namespace ImmersX
 
