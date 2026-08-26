@@ -1190,6 +1190,268 @@ namespace ImmersX
 
 
   /**
+   * A state-independent finite-element sampling plan.
+   *
+   * The plan is a retained collection of FE stencils.  It owns the point
+   * payload copied from a Representation, including the source DoF indices
+   * and basis values, but it never stores a state vector and never searches
+   * for a cell.  Point values are distributed according to the rank that
+   * retained each stencil, which makes the output a regular distributed
+   * vector and keeps the transpose local except for the normal DoF
+   * compression.
+   */
+  template <int spacedim,
+            typename StateVectorType    = ImmersXLA::MPI::Vector,
+            typename QuantityVectorType = ImmersXLA::MPI::Vector>
+  class RetainedSamplingPlan
+  {
+  public:
+    using Point = RepresentationQuadraturePoint<spacedim, double>;
+    using Operator =
+      RepresentationOperator<QuantityVectorType, StateVectorType>;
+
+    RetainedSamplingPlan(std::vector<Point>      points,
+                         const dealii::IndexSet &source_owned,
+                         const dealii::IndexSet &source_relevant,
+                         const dealii::AffineConstraints<double> *constraints,
+                         const MPI_Comm                           communicator)
+      : points_(std::move(points))
+      , source_owned_(source_owned)
+      , source_relevant_(source_relevant)
+      , constraints_(constraints)
+      , communicator_(communicator)
+    {
+      const auto [offset, size] =
+        dealii::Utilities::MPI::partial_and_total_sum(points_.size(),
+                                                      communicator_);
+      point_owned_.set_size(size);
+      point_owned_.add_range(offset, offset + points_.size());
+      point_owned_.compress();
+      point_relevant_ = point_owned_;
+      point_indices_.reserve(points_.size());
+      for (std::size_t q = 0; q < points_.size(); ++q)
+        point_indices_.push_back(offset + q);
+    }
+
+    const std::vector<Point> &
+    points() const
+    {
+      return points_;
+    }
+
+    const dealii::IndexSet &
+    locally_owned_points() const
+    {
+      return point_owned_;
+    }
+
+    const dealii::IndexSet &
+    locally_relevant_points() const
+    {
+      return point_relevant_;
+    }
+
+    dealii::types::global_dof_index
+    point_index(const std::size_t local_point) const
+    {
+      AssertIndexRange(local_point, point_indices_.size());
+      return point_indices_[local_point];
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return communicator_;
+    }
+
+    Operator
+    linearize(const StateVectorType &prototype) const
+    {
+      const auto points          = points_;
+      const auto point_indices   = point_indices_;
+      const auto point_owned     = point_owned_;
+      const auto point_relevant  = point_relevant_;
+      const auto source_owned    = source_owned_;
+      const auto source_relevant = source_relevant_;
+      const auto constraints     = constraints_;
+      const auto communicator    = communicator_;
+
+      Operator result;
+      result.reinit_range_vector =
+        [point_owned, point_relevant, communicator](QuantityVectorType &vector,
+                                                    const bool          omit) {
+          vector.reinit(point_owned, point_relevant, communicator);
+          if (!omit)
+            vector = 0.;
+        };
+      result.reinit_domain_vector = [prototype](StateVectorType &vector,
+                                                const bool       omit) {
+        vector.reinit(prototype, omit);
+      };
+      result.vmult = [points,
+                      point_indices,
+                      source_owned,
+                      source_relevant,
+                      constraints,
+                      communicator](QuantityVectorType    &destination,
+                                    const StateVectorType &source) {
+        const auto relevant = make_relevant_source(
+          source, source_owned, source_relevant, constraints, communicator);
+        for (std::size_t q = 0; q < points.size(); ++q)
+          destination[point_indices[q]] =
+            detail::evaluate_stencil(relevant,
+                                     points[q].dof_indices,
+                                     points[q].basis_values);
+      };
+      result.vmult_add = [points,
+                          point_indices,
+                          source_owned,
+                          source_relevant,
+                          constraints,
+                          communicator](QuantityVectorType    &destination,
+                                        const StateVectorType &source) {
+        const auto relevant = make_relevant_source(
+          source, source_owned, source_relevant, constraints, communicator);
+        for (std::size_t q = 0; q < points.size(); ++q)
+          destination[point_indices[q]] +=
+            detail::evaluate_stencil(relevant,
+                                     points[q].dof_indices,
+                                     points[q].basis_values);
+      };
+      result.Tvmult = [points,
+                       point_indices,
+                       source_owned,
+                       source_relevant,
+                       constraints,
+                       communicator](StateVectorType          &destination,
+                                     const QuantityVectorType &source) {
+        apply_transpose(points,
+                        point_indices,
+                        source_owned,
+                        source_relevant,
+                        constraints,
+                        communicator,
+                        source,
+                        destination,
+                        false);
+      };
+      result.Tvmult_add = [points,
+                           point_indices,
+                           source_owned,
+                           source_relevant,
+                           constraints,
+                           communicator](StateVectorType          &destination,
+                                         const QuantityVectorType &source) {
+        apply_transpose(points,
+                        point_indices,
+                        source_owned,
+                        source_relevant,
+                        constraints,
+                        communicator,
+                        source,
+                        destination,
+                        true);
+      };
+      return result;
+    }
+
+  private:
+    static StateVectorType
+    make_relevant_source(const StateVectorType  &source,
+                         const dealii::IndexSet &source_owned,
+                         const dealii::IndexSet &source_relevant,
+                         const dealii::AffineConstraints<double> *constraints,
+                         const MPI_Comm                           communicator)
+    {
+      StateVectorType owned;
+      owned.reinit(source_owned, communicator);
+      owned = source;
+      if (constraints != nullptr)
+        constraints->distribute(owned);
+
+      StateVectorType relevant;
+      relevant.reinit(source_owned, source_relevant, communicator);
+      relevant = owned;
+      relevant.update_ghost_values();
+      return relevant;
+    }
+
+    static void
+    apply_transpose(
+      const std::vector<Point>                           &points,
+      const std::vector<dealii::types::global_dof_index> &point_indices,
+      const dealii::IndexSet                             &source_owned,
+      const dealii::IndexSet                             &source_relevant,
+      const dealii::AffineConstraints<double>            *constraints,
+      const MPI_Comm                                      communicator,
+      const QuantityVectorType                           &source,
+      StateVectorType                                    &destination,
+      const bool                                          add)
+    {
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(source_owned, source_relevant, communicator);
+      contribution = 0.;
+      for (std::size_t q = 0; q < points.size(); ++q)
+        for (std::size_t i = 0; i < points[q].dof_indices.size(); ++i)
+          contribution[points[q].dof_indices[i]] +=
+            points[q].basis_values[i] * source[point_indices[q]];
+      contribution.compress(dealii::VectorOperation::add);
+
+      if (constraints != nullptr)
+        {
+          dealii::LinearAlgebra::distributed::Vector<double> correction;
+          correction.reinit(source_owned, source_relevant, communicator);
+          correction = 0.;
+          for (const auto &line : constraints->get_lines())
+            if (source_owned.is_element(line.index))
+              {
+                const double constrained = contribution[line.index];
+                correction[line.index] -= constrained;
+                for (const auto &[master, coefficient] : line.entries)
+                  correction[master] += coefficient * constrained;
+              }
+          correction.compress(dealii::VectorOperation::add);
+          for (const auto index : source_owned)
+            contribution[index] += correction[index];
+        }
+
+      if (!add)
+        destination = 0.;
+      for (const auto index : source_owned)
+        destination[index] += contribution[index];
+    }
+
+    std::vector<Point>                           points_;
+    dealii::IndexSet                             source_owned_;
+    dealii::IndexSet                             source_relevant_;
+    dealii::IndexSet                             point_owned_;
+    dealii::IndexSet                             point_relevant_;
+    std::vector<dealii::types::global_dof_index> point_indices_;
+    const dealii::AffineConstraints<double>     *constraints_;
+    MPI_Comm                                     communicator_;
+  };
+
+
+  /** Build a retained value-sampling plan from a finite-element view. */
+  template <int dim, int spacedim, typename ValueType, typename Extractor>
+  auto
+  make_retained_sampling_plan(
+    const FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>
+                                  &representation,
+    const dealii::Quadrature<dim> &quadrature) -> RetainedSamplingPlan<spacedim>
+  {
+    static_assert(std::is_same_v<ValueType, double>,
+                  "Retained scalar sampling requires a scalar FE view.");
+    return RetainedSamplingPlan<spacedim>(
+      representation.locally_owned_quadrature_points(quadrature),
+      representation.locally_owned_dofs(),
+      representation.locally_relevant_dofs(),
+      &representation.constraints(),
+      representation.mpi_communicator());
+  }
+
+
+  /**
    * A parameterized tensor-product lift of a source Representation.
    *
    * The source view remains the sole owner of the representative mesh, FE,
