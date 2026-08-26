@@ -6,7 +6,7 @@ subsection Reduced Poisson
   set Assemble full AL system            = false
   set Dirichlet boundary ids             = 0,1,2,3,4
   set FE degree                          = 1
-  set Output directory                   = ./output/reduced_poisson_single_cylinder
+  set Output directory                   = @TEST_OUTPUT_DIR@/tutorial-output/reduced-poisson-single-cylinder
   set Output name                        = single_cylinder
   set Output results also before solving = false
   set Solver type                        = AL
@@ -73,7 +73,7 @@ subsection Tensor product coupling
     set Finite element degree       = 1
     set Quadrature type             = trapez
     set Number of quadrature repetitions = 3
-    set Reduced grid name           = ../data/tests/one_cylinder.vtk
+    set Reduced grid name           = @TEST_DATA_DIR@/tests/one_cylinder.vtk
     set Reduced right hand side     = 1
     set Thickness                   = 0.05
   end

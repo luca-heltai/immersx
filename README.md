@@ -1,4 +1,4 @@
-# ImmersX: embedded & mixed-dimensional simulation framework
+# ImmersX
 
 ![ImmersX logo](https://raw.githubusercontent.com/luca-heltai/immersx/master/doc/immersx-logo.png)
 
@@ -6,55 +6,29 @@
 ![Documentation](https://github.com/luca-heltai/immersx/actions/workflows/doxygen.yml/badge.svg)
 ![Indent](https://github.com/luca-heltai/immersx/actions/workflows/indentation.yml/badge.svg)
 
-ImmersX is a C++ framework for embedded and mixed-dimensional finite element
-simulations, with tools for immersed coupling, reduced multiplier spaces,
-elasticity, Poisson-type models, and coupled 3D/1D workflows. It is built on top
-of [deal.II](https://www.dealii.org). Required version: 9.7.1 or later.
+ImmersX is a C++ framework for embedded and mixed-dimensional finite-element
+simulations. It provides Poisson and elasticity problems, reduced multiplier
+spaces, immersed coupling, and coupled 3D/1D workflows on top of
+[deal.II](https://www.dealii.org) 9.7.1 or later.
 
-The website documentation is available at <https://luca-heltai.github.io/immersx/>.
+Read the [documentation](https://luca-heltai.github.io/immersx/) for guided
+tutorials, how-to guides, concepts, application reference, and API reference.
 
-For the ownership and data-flow specification, start with
-[`doc/core-architecture.md`](https://github.com/luca-heltai/immersx/blob/master/doc/core-architecture.md).
-It distinguishes the current `master` implementation from validated prototypes
-and roadmap work; [`doc/architecture-diagram.md`](https://github.com/luca-heltai/immersx/blob/master/doc/architecture-diagram.md)
-inventories the classes and data paths currently present on `master`.
-
-## Quick Start
+## Quick start
 
 ```bash
-mkdir -p build
-cd build
-cmake -DDEAL_II_DIR=/path/to/deal.II ..
-cmake --build . -j
-./elasticity path/to/input.prm # or any other app_*.cc executable
-cd ..
-python3 -m pip install -r doc/requirements.txt
-./scripts/build_doc.sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDEAL_II_DIR=/path/to/deal.II
+cmake --build build -j
+./build/poisson path/to/input.prm
 ```
 
-## Repository Layout
-
-- `include/`, `source/`: library headers and implementations.
-- `apps/`: executable entry points derived from `app_*.cc`.
-- `tests/`, `gtests/`: regression and GoogleTest-based test suites.
-- `doc/`: Doxygen and Sphinx source for the published documentation site.
-- `scripts/`: helper scripts, including `scripts/build_doc.sh`.
-- `prms/`, `benchmarks/`: parameter files, meshes, and benchmark assets.
-- `blood/`: auxiliary 1D hemodynamics code and data used by coupled workflows.
-
-## Notes
-
-- This repository contains large benchmark/data files
-
-## Coupled 3D/1D workflow
-
-For setup/build/run notes specific to the coupled elasticity problem, see
-`COUPLED_PROBLEM.md`.
+See the [getting-started guide](https://luca-heltai.github.io/immersx/getting-started/)
+for dependencies, configuration, and the first runnable example.
 
 ## References
 
 - Giovanni Alzetta and Luca Heltai, *Multiscale modeling of fiber reinforced materials via non-matching immersed methods*, Computers & Structures, 239 (2020), 106334. DOI: <https://doi.org/10.1016/j.compstruc.2020.106334>
-- Camilla Belponer, Alfonso Caiazzo, and Luca Heltai, *Mixed-dimensional modeling of vascular tissues with reduced Lagrange multipliers* (2025). Local PDF: `doc/papers/2309.06797v2.pdf`
+- Camilla Belponer, Alfonso Caiazzo, and Luca Heltai, *Mixed-dimensional modeling of vascular tissues with reduced Lagrange multipliers* (2025).
 - Luca Heltai and Alfonso Caiazzo, *Multiscale modeling of vascularized tissues via nonmatching immersed methods*, International Journal for Numerical Methods in Biomedical Engineering, 35(12) (2019), e3264. DOI: <https://doi.org/10.1002/cnm.3264>
 - Luca Heltai, Alfonso Caiazzo, and Lucas O. Muller, *Multiscale Coupling of One-dimensional Vascular Models and Elastic Tissues*, Annals of Biomedical Engineering, 49 (2021), 3243-3254. DOI: <https://doi.org/10.1007/s10439-021-02804-0>
 - Luca Heltai and Paolo Zunino, *Reduced Lagrange multiplier approach for non-matching coupling of mixed-dimensional domains*, Mathematical Models and Methods in Applied Sciences, 33(12) (2023), 2425-2462. DOI: <https://doi.org/10.1142/S0218202523500525>

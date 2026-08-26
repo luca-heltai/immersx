@@ -3,7 +3,7 @@
 These three inputs are first-order-in-time convergence cases based on the MMS
 fields documented under `tutorials/elasticity/`:
 
-- `strong_dirichlet.prm`
+- `strong_dirichlet.prm.in`
 - `neumann.prm`
 - `kelvin_voigt.prm`
 
@@ -23,9 +23,9 @@ operators.
 Run, for example:
 
 ```text
-./build/elastodynamics_debug tutorials/elastodynamics/strong_dirichlet.prm
+./build/elastodynamics_debug build/tutorials/elastodynamics/strong_dirichlet.prm
 ```
 
 The tables are printed on rank zero. Output fields are disabled in these
-inputs; the ignored `output/elastodynamics_convergence/` directories only
-contain the used parameter files.
+inputs. The `.prm.in` templates are configured into the build tree before
+running.

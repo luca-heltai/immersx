@@ -1,12 +1,13 @@
-# Coupled 1D–3D Elasticity
+# Specialized vascular-tree elasticity
 
-This tutorial describes a pulsatile one-dimensional network coupled to a
+This guide describes a pulsatile one-dimensional network coupled to a
 three-dimensional tissue elasticity problem. The reduced vascular tree drives
 the surrounding tissue through the tensor-product coupling representation.
 
-This is the current application-level workflow on `master`: the executable
-owns the orchestration of this particular 1D–3D example. In the architectural
-direction described in {doc}`../core-architecture`, the network and tissue
+This is a specialized application-level workflow: the `elasticity` executable
+owns the orchestration of this particular 1D–3D example. It is distinct from
+`coupled_elasticity`, which is a legacy `lib1dsolver` workflow. In the
+architectural direction described in {doc}`../concepts/architecture`, the network and tissue
 physics can eventually contribute to the same residual through reusable
 Representations and Interactions, with monolithic or partitioned execution
 selected outside the physics layer. That common adapter is a roadmap item,
@@ -14,7 +15,7 @@ not an API claim about this tutorial.
 
 ## Quasi-Static Vascular-Tree Traveling Wave
 
-File: `tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm`
+Input: `tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm`
 
 Run from the repository root with:
 
@@ -39,7 +40,7 @@ without inertial dynamics. This example requires a SymEngine-enabled deal.II
 build because the reduced coupling expressions depend on the imported VTK
 field.
 
-```{figure} assets/vascular_tree_pulsatile_displacement.gif
+```{figure} ../tutorials/assets/vascular_tree_pulsatile_displacement.gif
 :name: fig-vascular-tree-pulsatile-displacement
 :alt: Animation of the pulsatile vascular-tree tissue displacement contour
 

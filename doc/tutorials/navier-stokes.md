@@ -7,7 +7,7 @@ immersed coupling, and the semantic residual architecture.
 
 The runnable example is:
 
-- `tutorials/navier_stokes/transient_2d.prm`
+- `tutorials/navier_stokes/transient_2d.prm.in`
 
 The implementation was extracted from the fluid portion of deal.II step-80.
 The reference fluid/manufactured-solution test is the revision
@@ -110,16 +110,17 @@ Build the project, then run the example from the repository root:
 
 ```bash
 CCACHE_DIR=/Users/heltai/.ccache cmake --build build --target navier_stokes_debug -j2
-./build/navier_stokes_debug tutorials/navier_stokes/transient_2d.prm
+./build/navier_stokes_debug build/tutorials/navier_stokes/transient_2d.prm
 ```
 
 The Release executable is named `./build/navier_stokes`. The example writes a
-time series under `./output/navier_stokes_2d` and emits output every second
-time step. Set `Output frequency = 0` to disable visualization output. For a
+time series under `build/test_output/tutorial-output/navier-stokes-2d` and
+emits output every second time step. Set `Output frequency = 0` to disable
+visualization output. For a
 parallel run, use two MPI ranks:
 
 ```bash
-mpirun -np 2 ./build/navier_stokes_debug tutorials/navier_stokes/transient_2d.prm
+mpirun -np 2 ./build/navier_stokes_debug build/tutorials/navier_stokes/transient_2d.prm
 ```
 
 The application synchronizes the ranks before releasing the solver resources,
@@ -156,7 +157,7 @@ the constraints for that step.
 
 The complete input file used by this tutorial is:
 
-```{literalinclude} ../../tutorials/navier_stokes/transient_2d.prm
+```{literalinclude} ../../tutorials/navier_stokes/transient_2d.prm.in
 :language: bash
 ```
 
@@ -182,13 +183,13 @@ observed rates are approximately three.
 The application is implemented in:
 
 - `apps/app_navier_stokes.cc` — MPI initialization and 2D/3D dispatch;
-- `include/navier_stokes.h` — parameter and solver interfaces;
+- `include/immersx/physics/navier_stokes.h` — parameter and solver interfaces;
 - `source/navier_stokes.cc` — mesh setup, mixed assembly, block solve,
   time-stepping, and output;
 - `gtests/navier_stokes_01.cc` — setup and transient Stokes/Navier–Stokes
   coverage;
 - `gtests/navier_stokes_step80_mms_01.cc` — manufactured-solution convergence;
-- `tutorials/navier_stokes/transient_2d.prm` — the runnable tutorial input.
+- `tutorials/navier_stokes/transient_2d.prm.in` — the runnable tutorial input.
 
 This Problem is intentionally shaped like `PoissonSolver` so it can later be
 adapted to ImmersX's semantic Field, Representation, and residual interfaces.

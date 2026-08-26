@@ -1,0 +1,67 @@
+subsection Poisson
+  set FE degree              = 2
+  set Initial refinement     = 1
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/coupled-poisson-elasticity
+  set Dirichlet boundary ids = 0, 1
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: false
+    set Triangulation type       = fullydistributed
+  end
+  subsection Right hand side
+    set Function expression = 1
+    set Variable names      = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+end
+
+subsection Pressure lift
+  set Thickness = 0.2
+  subsection Representative quadrature
+    set Type = gauss
+    set Number of points = 3
+    set Number of repetitions = 1
+  end
+  subsection Cross section
+    set Geometry type = hyper_ball
+    set Refinement level = 1
+    set Maximum basis degree = 0
+    set Selected modes = 0
+    set Quadrature type = gauss
+    set Number of points = 4
+    set Number of repetitions = 1
+  end
+end
+
+subsection Elastic static
+  set FE degree              = 1
+  set Initial refinement     = 1
+  set Dirichlet boundary ids = 0
+  set Neumann boundary ids   =
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/coupled-poisson-elasticity
+  set Output name            = coupled_elasticity
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: false
+    set Grid scale               = 1
+    set Triangulation type       = fullydistributed
+  end
+  subsection Functions
+    subsection Right hand side
+      set Function expression = 0; 0; 0
+      set Variable names      = x,y,z,t
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 0; 0; 0
+      set Variable names      = x,y,z,t
+    end
+    subsection Neumann boundary conditions
+      set Function expression = 0; 0; 0
+      set Variable names      = x,y,z,t
+    end
+  end
+end

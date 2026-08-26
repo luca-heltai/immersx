@@ -1,0 +1,53 @@
+set dimension       = 2
+set space dimension = 2
+
+subsection Elastic static
+  set FE degree              = 1
+  set Initial refinement     = 0
+  set Dirichlet boundary ids = 0, 2, 3
+  set Neumann boundary ids   = 1
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/elastic-static
+  set Output name            = elastic_static
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
+    set Grid scale               = 1
+    set Triangulation type       = distributed
+  end
+  subsection Refinement
+    set Number of refinement cycles = 1
+  end
+  subsection Functions
+    subsection Right hand side
+      set Function expression = 1; 0
+      set Variable names      = x,y,t
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Dirichlet boundary conditions 0
+      set Function expression = x; 0
+      set Variable names      = x,y,t
+    end
+    subsection Dirichlet boundary conditions 2
+      set Function expression = 0; y
+      set Variable names      = x,y,t
+    end
+    subsection Dirichlet boundary conditions 3
+      set Function expression = x; y
+      set Variable names      = x,y,t
+    end
+    subsection Neumann boundary conditions
+      set Function expression = 0; 1
+      set Variable names      = x,y,t
+    end
+  end
+  subsection Material properties
+    subsection default
+      set Lame mu     = 2
+      set Lame lambda = 3
+    end
+  end
+end

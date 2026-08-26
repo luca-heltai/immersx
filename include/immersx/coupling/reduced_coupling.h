@@ -190,26 +190,12 @@ namespace ImmersX
     /**
      * @brief Assemble the right-hand side vector for the reduced space.
      *
-     * Computes the right-hand side vector for the reduced space based on the
-     * following assumption: we would like to assemble the following $<Rg, w> =
-     * \sum_i \int_Gamma \phi_i\cdot g w_i \circ \Pi$ for a function $g$ defined
-     * on the full domain $\Gamma$.
-     *
-     * Our assumption here is that the user does not provide $g$, but rather a
-     * function $\bar g$ defined on the reduced domain $\gamma$, such that $g =
-     * R^T \bar g$. With such a construction, we can specify, for example, a
-     * constant expression on the reduced domain by saying $g_0 = 1$, and we'd
-     * get $g = 1$ on the full domain. What we are actually assembling here is
-     * then
-     * $<R R^T \bar g, w> = <R^T \bar g, R^T w> = \sum_i \int_gamma \bar g_i
-     * \cdot w_i \int_D \phi_i^2 dD  d\gamma$.
-     *
-     * We know that $\int_D \phi_i^2 dD =
-     * \int_{\hat D} \hat{\phi}_i^2 J d\hat{D} = |\hat{D}| a^d = |D|$
-     * is the scaling factor of the basis functions, where $a$ is the scaling of
-     * the cross-section. Notice that this means, in particular, that
-     * $||\phi_i||^2 = |D|$, and that this is the scaling that should be used in
-     * the mass matrix.
+     * Computes the right-hand side induced by coefficient functions on the
+     * reduced domain. The selected transverse basis is integrated over the
+     * reference cross section, so the local cross-section measure scales both
+     * the reduced mass matrix and the assembled right-hand side. A constant
+     * reduced expression therefore produces a constant represented datum when
+     * the constant mode is selected.
      *
      * @tparam VectorType The vector type (e.g., Vector<double>).
      * @param reduced_rhs The right-hand side vector to assemble.

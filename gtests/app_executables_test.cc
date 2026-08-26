@@ -108,15 +108,12 @@ is_single_rank()
   return dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1;
 }
 
-// Run one deliberately small representative parameter file. The full
-// parameter matrix is covered by the dedicated application and solver tests;
-// this test only verifies that each executable can start, parse its input, and
-// complete one representative run.
+// Run one deliberately small canonical parameter file. The full parameter
+// matrix is covered by dedicated application and solver tests; this test also
+// verifies that the input used by the published tutorials remains executable.
 static void
-run_app_with_representative_param(const char *exe, const char *parameter_name)
+run_app_with_parameter(const char *exe, const char *relative_parameter_path)
 {
-  const auto relative_parameter_path =
-    std::string("gtests/parameters/") + parameter_name + ".prm";
   auto parameter_file =
     ImmersX::TestPaths::binary_path(relative_parameter_path);
   if (!std::filesystem::is_regular_file(parameter_file))
@@ -135,15 +132,16 @@ TEST(AppExecutables, Elasticity)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_representative_param("elasticity",
-                                    "elasticity_dynamic_purely_elastic_strong");
+  run_app_with_parameter(
+    "elasticity",
+    "gtests/parameters/elasticity_dynamic_purely_elastic_strong.prm");
 }
 
 TEST(AppExecutables, Laplacian)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_representative_param("laplacian", "laplacian_simple");
+  run_app_with_parameter("laplacian", "gtests/parameters/laplacian_simple.prm");
 }
 
 TEST(AppExecutables, CoupledElasticity)
@@ -164,15 +162,16 @@ TEST(AppExecutables, ReducedPoisson)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_representative_param("reduced_poisson",
-                                    "reduced_poisson_single_cylinder_3d");
+  run_app_with_parameter("reduced_poisson",
+                         "tutorials/reduced_poisson/single_cylinder_3d.prm");
 }
 
 TEST(AppExecutables, NavierStokes)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_representative_param("navier_stokes", "navier_stokes_simple_2d");
+  run_app_with_parameter("navier_stokes",
+                         "tutorials/navier_stokes/transient_2d.prm");
 }
 
 TEST(AppExecutables, CoupledPoissonElasticity)
@@ -180,11 +179,12 @@ TEST(AppExecutables, CoupledPoissonElasticity)
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
 
-  run_app_with_representative_param("coupled_poisson_elasticity",
-                                    "coupled_poisson_elasticity");
+  run_app_with_parameter(
+    "coupled_poisson_elasticity",
+    "tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm");
 
   const auto diagnostics = ImmersX::TestPaths::output_path(
-                             "gtests/parameters/coupled_poisson_elasticity") /
+                             "tutorial-output/coupled-poisson-elasticity") /
                            "coupled_poisson_elasticity_diagnostics.txt";
   std::ifstream input(diagnostics);
   ASSERT_TRUE(input.good()) << diagnostics;
@@ -217,10 +217,11 @@ TEST(AppExecutables, ElasticStatic)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_representative_param("elastic_static", "elastic_static");
+  run_app_with_parameter("elastic_static",
+                         "tutorials/elastic_static/elastic_static.prm");
 
   const auto output_directory =
-    ImmersX::TestPaths::output_path("gtests/parameters/elastic_static");
+    ImmersX::TestPaths::output_path("tutorial-output/elastic-static");
   EXPECT_TRUE(std::filesystem::exists(output_directory));
   EXPECT_TRUE(std::filesystem::exists(output_directory / "elastic_static.pvd"));
 
@@ -236,4 +237,28 @@ TEST(AppExecutables, ElasticStatic)
         has_material_id |= contents.find("material_id") != std::string::npos;
       }
   EXPECT_TRUE(has_material_id);
+}
+
+TEST(AppExecutables, TutorialPoisson)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+  run_app_with_parameter("poisson", "tutorials/poisson/poisson_2d.prm");
+}
+
+TEST(AppExecutables, TutorialElastodynamics)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+  run_app_with_parameter("elastodynamics",
+                         "tutorials/elastodynamics/strong_dirichlet.prm");
+}
+
+TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+  run_app_with_parameter(
+    "fiber_reinforced_elastodynamics",
+    "tutorials/fiber_reinforced_elastodynamics/parameters.prm");
 }

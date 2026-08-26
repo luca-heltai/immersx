@@ -3,7 +3,7 @@ set dimension       = 2
 set space dimension = 2
 
 subsection Fiber Reinforced Elastodynamics
-  set Output directory  = ./output/fiber_reinforced_elastodynamics
+  set Output directory  = @TEST_OUTPUT_DIR@/tutorial-output/fiber-reinforced-elastodynamics
   set Output frequency  = 1
 
   subsection Time integration
