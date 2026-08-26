@@ -98,7 +98,8 @@ FOREACH(_build_type ${_d2_build_types})
     
     MESSAGE("-- Setting up ${_exe}")
     add_executable(${_exe} ${_test_files})
-    target_include_directories(${_exe} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(${_exe} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+                                               ${CMAKE_SOURCE_DIR}/apps)
 
     TARGET_LINK_LIBRARIES(${_exe} ${TEST_LIBRARIES_${_BUILD_TYPE}} ${GTEST_MAIN_LIBRARY} ${GTEST_LIBRARIES})   
     # Test paths are configured explicitly so the gtest binary can be launched
