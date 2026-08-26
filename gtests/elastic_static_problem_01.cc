@@ -13,6 +13,7 @@
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_cg.h>
 
+#include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/vector_tools_rhs.templates.h>
 
 #include <gtest/gtest.h>
@@ -24,6 +25,7 @@
 #include <cmath>
 #include <filesystem>
 #include <map>
+#include <sstream>
 #include <vector>
 
 #include "test_paths.h"
@@ -96,6 +98,91 @@ end
   EXPECT_EQ(parameters.get_dirichlet_bc(0).value(point, 0), 0.25);
   EXPECT_EQ(parameters.get_neumann_bc(2).value(point, 1), 3.);
   EXPECT_EQ(parameters.get_rhs(7).value(point, 1), 0.5);
+}
+
+TEST(ElasticStaticProblem, ExactSolutionAndErrorObservation)
+{
+  using Parameters = ImmersX::ElasticStaticParameters<2>;
+  using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+  dealii::ParameterAcceptor::clear();
+  Parameters parameters;
+  Parameters other_parameters("/Other elastic static/");
+  ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 1
+  set Dirichlet boundary ids =
+  subsection Functions
+    subsection Exact solution
+      set Function expression = x; y
+    end
+  end
+end
+
+subsection Other elastic static
+  subsection Functions
+    subsection Exact solution
+      set Function expression = x; y
+    end
+  end
+end
+  )");
+
+  const dealii::Point<2> point(0.25, 0.5);
+  EXPECT_DOUBLE_EQ(parameters.exact_solution.value(point, 0), 0.25);
+  EXPECT_DOUBLE_EQ(parameters.exact_solution.value(point, 1), 0.5);
+  EXPECT_DOUBLE_EQ(other_parameters.exact_solution.value(point, 0), 0.25);
+  EXPECT_DOUBLE_EQ(other_parameters.exact_solution.value(point, 1), 0.5);
+
+  Problem problem(parameters);
+  problem.setup();
+
+  Problem::VectorType interpolated;
+  interpolated.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  dealii::VectorTools::interpolate(problem.dof_handler(),
+                                   parameters.exact_solution,
+                                   interpolated);
+  interpolated.compress(dealii::VectorOperation::insert);
+  problem.set_solution(interpolated);
+
+  dealii::ParsedConvergenceTable table(
+    std::vector<std::string>(2, "displacement"),
+    {{dealii::VectorTools::L2_norm, dealii::VectorTools::H1_seminorm}});
+  problem.compute_error(table);
+
+  std::ostringstream table_output;
+  table.output_table(table_output);
+  EXPECT_NE(table_output.str().find("displacement_L2_norm"), std::string::npos);
+  EXPECT_NE(table_output.str().find("displacement_H1_seminorm"),
+            std::string::npos);
+
+  const dealii::Functions::IdentityFunction<2> exact_displacement;
+  dealii::Vector<double>                       difference_per_cell(
+    problem.triangulation().n_global_active_cells());
+  dealii::VectorTools::integrate_difference(problem.dof_handler(),
+                                            interpolated,
+                                            exact_displacement,
+                                            difference_per_cell,
+                                            dealii::QGauss<2>(3),
+                                            dealii::VectorTools::L2_norm);
+  const auto l2_error =
+    dealii::VectorTools::compute_global_error(problem.triangulation(),
+                                              difference_per_cell,
+                                              dealii::VectorTools::L2_norm);
+
+  dealii::VectorTools::integrate_difference(problem.dof_handler(),
+                                            interpolated,
+                                            exact_displacement,
+                                            difference_per_cell,
+                                            dealii::QGauss<2>(3),
+                                            dealii::VectorTools::H1_seminorm);
+  const auto h1_seminorm_error =
+    dealii::VectorTools::compute_global_error(problem.triangulation(),
+                                              difference_per_cell,
+                                              dealii::VectorTools::H1_seminorm);
+
+  EXPECT_LT(l2_error, 1.e-12);
+  EXPECT_LT(h1_seminorm_error, 1.e-12);
 }
 
 TEST(ElasticStaticProblem, MaterialPropertiesById)

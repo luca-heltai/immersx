@@ -496,6 +496,14 @@ namespace ImmersX
       update_locally_relevant_solution();
     }
 
+    void
+    compute_error(dealii::ParsedConvergenceTable &table) const
+    {
+      table.error_from_exact(dof_handler(),
+                             locally_relevant_solution_,
+                             parameters_.exact_solution);
+    }
+
     /** Write the accepted displacement and subdomain id to configured output.
      */
     void
