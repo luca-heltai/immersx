@@ -30,6 +30,77 @@
 
 #include "test_paths.h"
 
+namespace
+{
+  void
+  check_distributed_refinement()
+  {
+    using Parameters = ImmersX::ElasticStaticParameters<2>;
+    using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+    dealii::ParameterAcceptor::clear();
+    Parameters parameters;
+    ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 0
+  subsection Grid generation
+    set Triangulation type = distributed
+  end
+end
+)");
+
+    Problem problem(parameters);
+    problem.setup();
+    const auto n_cells_before = problem.triangulation().n_global_active_cells();
+    const auto n_dofs_before  = problem.dof_handler().n_dofs();
+    Problem::VectorType previous_solution;
+    previous_solution.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+    previous_solution = 1.;
+    problem.set_solution(previous_solution);
+
+    problem.refine_global();
+
+    EXPECT_GT(problem.triangulation().n_global_active_cells(), n_cells_before);
+    EXPECT_GT(problem.dof_handler().n_dofs(), n_dofs_before);
+    EXPECT_EQ(problem.forcing().locally_owned_elements(),
+              problem.locally_owned_dofs());
+    EXPECT_EQ(problem.solution().locally_owned_elements(),
+              problem.locally_owned_dofs());
+    EXPECT_EQ(problem.solution().l2_norm(), 0.);
+
+    Problem::VectorType probe;
+    probe.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+    probe = 1.;
+    Problem::VectorType image;
+    image.reinit(probe);
+    problem.stiffness_operator().vmult(image, probe);
+    EXPECT_TRUE(std::isfinite(image.l2_norm()));
+  }
+
+  void
+  check_fullydistributed_refinement()
+  {
+    using Parameters = ImmersX::ElasticStaticParameters<2>;
+    using Problem    = ImmersX::ElasticStaticProblem<2>;
+
+    dealii::ParameterAcceptor::clear();
+    Parameters parameters;
+    ImmersX::initialize_parameters_from_string(R"(
+subsection Elastic static
+  set Initial refinement = 0
+  subsection Grid generation
+    set Triangulation type = fullydistributed
+  end
+end
+)");
+
+    Problem problem(parameters);
+    problem.setup();
+
+    EXPECT_THROW(problem.refine_global(), dealii::ExceptionBase);
+  }
+} // namespace
+
 TEST(ElasticStaticProblem, ParameterParsingAndOverrides)
 {
   using namespace ImmersX;
@@ -599,68 +670,22 @@ TEST(ElasticStaticProblem, IndependentResidualOracle)
 
 TEST(ElasticStaticProblem, DistributedRefinement)
 {
-  using Parameters = ImmersX::ElasticStaticParameters<2>;
-  using Problem    = ImmersX::ElasticStaticProblem<2>;
-
-  dealii::ParameterAcceptor::clear();
-  Parameters parameters;
-  ImmersX::initialize_parameters_from_string(R"(
-subsection Elastic static
-  set Initial refinement = 0
-  subsection Grid generation
-    set Triangulation type = distributed
-  end
-end
-)");
-
-  Problem problem(parameters);
-  problem.setup();
-  const auto n_cells_before = problem.triangulation().n_global_active_cells();
-  const auto n_dofs_before  = problem.dof_handler().n_dofs();
-  Problem::VectorType previous_solution;
-  previous_solution.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
-  previous_solution = 1.;
-  problem.set_solution(previous_solution);
-
-  problem.refine_global();
-
-  EXPECT_GT(problem.triangulation().n_global_active_cells(), n_cells_before);
-  EXPECT_GT(problem.dof_handler().n_dofs(), n_dofs_before);
-  EXPECT_EQ(problem.forcing().locally_owned_elements(),
-            problem.locally_owned_dofs());
-  EXPECT_EQ(problem.solution().locally_owned_elements(),
-            problem.locally_owned_dofs());
-  EXPECT_EQ(problem.solution().l2_norm(), 0.);
-
-  Problem::VectorType probe;
-  probe.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
-  probe = 1.;
-  Problem::VectorType image;
-  image.reinit(probe);
-  problem.stiffness_operator().vmult(image, probe);
-  EXPECT_TRUE(std::isfinite(image.l2_norm()));
+  check_distributed_refinement();
 }
 
 TEST(ElasticStaticProblem, FullyDistributedRefinement)
 {
-  using Parameters = ImmersX::ElasticStaticParameters<2>;
-  using Problem    = ImmersX::ElasticStaticProblem<2>;
+  check_fullydistributed_refinement();
+}
 
-  dealii::ParameterAcceptor::clear();
-  Parameters parameters;
-  ImmersX::initialize_parameters_from_string(R"(
-subsection Elastic static
-  set Initial refinement = 0
-  subsection Grid generation
-    set Triangulation type = fullydistributed
-  end
-end
-)");
+TEST(ElasticStaticProblem, MPI_DistributedRefinement)
+{
+  check_distributed_refinement();
+}
 
-  Problem problem(parameters);
-  problem.setup();
-
-  EXPECT_THROW(problem.refine_global(), dealii::ExceptionBase);
+TEST(ElasticStaticProblem, MPI_FullyDistributedRefinement)
+{
+  check_fullydistributed_refinement();
 }
 
 class ElasticStaticBackendTest : public ::testing::TestWithParam<std::string>
