@@ -4,7 +4,7 @@ Run the tutorial from the repository root with:
 
 ```text
 ./build/fiber_reinforced_elastodynamics_debug \
-  tutorials/fiber_reinforced_elastodynamics/parameters.prm
+  build/tutorials/fiber_reinforced_elastodynamics/parameters.prm
 ```
 
 The matrix occupies `[-1,1]^2`. The fiber is an independently meshed thin

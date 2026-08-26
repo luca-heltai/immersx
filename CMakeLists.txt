@@ -130,21 +130,23 @@ IF(ENABLE_COUPLED_PROBLEMS AND FVM_LIB)
 ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
-# Test inputs are configured into the build tree so that tests never need to
-# infer the location of source data from their current working directory.
+# Test and tutorial inputs are configured into the build tree so that tests and
+# documented commands never need to infer the location of source data from
+# their current working directory.
 SET(IMMERSX_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 SET(IMMERSX_BINARY_DIR "${CMAKE_BINARY_DIR}")
 SET(TEST_DATA_DIR "${IMMERSX_BINARY_DIR}/data")
 SET(TEST_OUTPUT_DIR "${IMMERSX_BINARY_DIR}/test_output")
 
-# Keep the test-input convention in one place. Every template below gtests/,
-# tests/, or data/ is emitted at the same relative path below the build tree,
-# with only the final .in suffix removed. @ONLY is intentional: parameter
+# Keep the input convention in one place. Every template below gtests/, tests/,
+# data/, or tutorials/ is emitted at the same relative path below the build
+# tree, with only the final .in suffix removed. @ONLY is intentional: parameter
 # files may contain CMake-like ${...} text which must reach the test unchanged.
 FILE(GLOB_RECURSE _immersx_test_input_templates CONFIGURE_DEPENDS
   "${IMMERSX_SOURCE_DIR}/gtests/*.in"
   "${IMMERSX_SOURCE_DIR}/tests/*.in"
-  "${IMMERSX_SOURCE_DIR}/data/*.in")
+  "${IMMERSX_SOURCE_DIR}/data/*.in"
+  "${IMMERSX_SOURCE_DIR}/tutorials/*.in")
 
 FOREACH(_template ${_immersx_test_input_templates})
   FILE(RELATIVE_PATH _relative_template

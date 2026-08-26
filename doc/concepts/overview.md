@@ -19,7 +19,8 @@ additively to a semi-discrete residual $F(t,y,\dot y)=0$, and execution
 adapters provide the steady, DAE, IMEX, multirate, or partitioned policy. This
 common Field/residual vocabulary is a validated development direction, not yet
 a claim that those names are public API on `master`; see
-{doc}`core-architecture` for the status boundary.
+{doc}`../developer/design/architecture-status` for the implementation status
+boundary.
 
 The mathematical and algorithmic background of the repository is described in {cite:p}`HeltaiZunino-2023-a`.
 

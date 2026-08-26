@@ -1,28 +1,33 @@
 # Tutorials
 
-This section collects application-level walkthroughs.
+Tutorials are a learning path through real ImmersX executables. Each runnable
+example names its canonical input, includes that input from the repository, and
+is exercised by the application smoke tests.
 
-The intent is different from the API reference and from the mathematical
-background pages:
+## Main path
 
-- the API reference explains classes and functions;
-- the background page explains the abstract method;
-- the tutorials explain how a specific executable is modeled, configured, and
-  run in practice.
+1. [Poisson](poisson) — your first scalar finite-element simulation.
+2. [Static elasticity](elasticity) — vector-valued finite elements, material
+   data, and boundary conditions.
+3. [Elastodynamics](elastodynamics) — time-dependent displacement and velocity
+   fields.
+4. [Reduced Poisson](reduced-poisson) — a lower-dimensional coupling geometry.
+5. [Coupled Poisson–elasticity](coupled-poisson-elasticity) — observe, lift,
+   couple, and solve.
+6. [Fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics) — an
+   advanced full-order distributed coupling workflow.
 
-This is the right place to add one page per program under `apps/`. Keeping
-tutorials grouped here scales well as more guides are added for `laplacian`,
-`elasticity`, `coupled_elasticity`, and the other executables.
+[Navier–Stokes](navier-stokes) is an independent fluid tutorial. The
+application reference lists other specialized and legacy executables.
 
 ```{toctree}
 :maxdepth: 1
 
 poisson
-reduced-poisson
 elasticity
-coupled-poisson-elasticity
 elastodynamics
+reduced-poisson
+coupled-poisson-elasticity
 fiber-reinforced-elastodynamics
 navier-stokes
-coupled-elasticity
 ```

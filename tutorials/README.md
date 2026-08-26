@@ -1,17 +1,21 @@
-git add # Tutorials Assets
+# Tutorial assets
 
-This directory stores runnable assets used by the documentation tutorials.
+This directory stores canonical runnable inputs used by the documentation
+tutorials.
 
-The intended layout is one subdirectory per application in `apps/`, for
+The layout follows learning workflows rather than one page per executable. For
 example:
 
 - `tutorials/poisson/`
 - `tutorials/reduced_poisson/`
-- `tutorials/laplacian/`
-- `tutorials/elasticity/`
+- `tutorials/elastic_static/`
+- `tutorials/elasticity/` (verification and specialized legacy cases)
 - `tutorials/elastodynamics/`
 - `tutorials/navier_stokes/`
-- `tutorials/coupled_elasticity/`
+- `tutorials/coupled_poisson_elasticity/`
+- `tutorials/fiber_reinforced_elastodynamics/`
 
-Each application subdirectory should contain the actual input files referenced
-verbatim by the corresponding page in `doc/tutorials/`.
+Inputs ending in `.prm.in` are configured by CMake into the build tree. They
+may use `@TEST_DATA_DIR@` and `@TEST_OUTPUT_DIR@` so tests and documentation
+commands do not depend on the current working directory. The application smoke
+tests use these same generated inputs.

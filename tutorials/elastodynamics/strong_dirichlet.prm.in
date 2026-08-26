@@ -4,7 +4,7 @@ set space dimension = 2
 
 subsection Elastodynamics
   set FE degree                  = 1
-  set Output directory            = ./output/elastodynamics_convergence/strong_dirichlet
+  set Output directory            = @TEST_OUTPUT_DIR@/tutorial-output/elastodynamics-strong
   set Output name                 = strong_dirichlet
   set Output frequency            = 0
   set Initial refinement          = 1

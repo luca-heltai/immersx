@@ -1,471 +1,50 @@
-# ReducedPoisson
+# Reduced Poisson
 
-This tutorial explains the `ReducedPoisson` application from four angles:
+This tutorial introduces the first mixed-dimensional workflow: a scalar bulk
+Poisson problem coupled to a reduced multiplier space supported on an immersed
+geometry. The example is intentionally one straight cylinder with one
+transverse mode.
 
-1. the mathematical problem it solves;
-2. how that problem is represented in the code;
-3. how to run `app_reduced_poisson`;
-4. how to write parameter files, from a single cylinder to a network.
+The executable is `reduced_poisson`, implemented by
+`apps/app_reduced_poisson.cc`. It requires deal.II with VTK support. The
+canonical input is `tutorials/reduced_poisson/single_cylinder_3d.prm.in`:
 
-The main implementation lives in `include/reduced_poisson.h`,
-`source/reduced_poisson.cc`, `include/reduced_coupling.h`, and
-`source/tensor_product_space.cc`.
-
-:::{admonition} Current implementation scope
-:class: note
-
-This tutorial documents the `ReducedPoisson` workflow currently available on
-`master`: a Poisson Problem plus a reduced Lagrange-multiplier coupling and a
-Schur/augmented-Lagrangian solve. The Field/residual/execution architecture in
-{doc}`../core-architecture` is the migration direction around this production
-path, not an assertion that this application already exposes the common
-`F(t,y,ydot)=0` API.
-:::
-
-## What Problem Is Solved?
-
-`ReducedPoisson` solves a Poisson problem in a bulk domain $\Omega$, coupled to
-an immersed lower-dimensional geometry $\gamma$ through a reduced
-Lagrange-multiplier formulation.
-
-The bulk unknown is a scalar field
-
-```{math}
-u : \Omega \to \mathbb{R},
+```{literalinclude} ../../tutorials/reduced_poisson/single_cylinder_3d.prm.in
+:language: ini
 ```
 
-and the reduced geometry is typically a centerline stored in a VTK file, for
-example `data/tests/one_cylinder.vtk` or `data/medium_tree_8_3d.vtk`.
+## What is reduced
 
-The reduced geometry is not the actual coupling surface. Instead, the code:
+The bulk problem lives in 3D, while the representative geometry is a 1D
+centerline. A reference cross section is swept along that centerline to form
+the represented interface. The multiplier is expanded in the selected
+cross-section basis, so `Selected indices = 0` is the smallest useful case.
 
-- reads a one-dimensional grid $\gamma$;
-- picks a reference cross section $D$;
-- selects a small set of cross-section basis functions $\phi_i$;
-- sweeps that cross section along $\gamma$;
-- uses the tensor-product space on $\gamma \times D$ as the multiplier space.
+The root entries explicitly select `dimension`, `space dimension`, and
+`reduced dimension`. As with the other applications, the filename has no role
+in dimension dispatch.
 
-This gives an immersed two-dimensional interface in 3D, or an immersed
-one-dimensional interface in 2D, without meshing that interface explicitly in
-the bulk mesh. The bulk mesh also supplies the local search cells used by the
-coupling implementation; it is not a privileged architectural owner.
-
-## Continuous Formulation
-
-Let $f$ be the bulk forcing, let $u_D$ be the Dirichlet data on the selected
-outer boundary ids, and let
-
-```{math}
-g(s,y) = \sum_{i=1}^N \bar g_i(s)\,\phi_i(y)
-```
-
-be the reduced target value on the immersed interface generated from $\gamma$
-and $D$.
-
-The problem solved by `ReducedPoisson` is:
-
-```{math}
-\begin{aligned}
--\Delta u &= f &&\text{in }\Omega, \\
-u &= u_D &&\text{on }\partial\Omega_D, \\
-u|_{\Gamma_\gamma} &= g &&\text{in a reduced weak sense.}
-\end{aligned}
-```
-
-The constraint on $\Gamma_\gamma$ is enforced with a reduced multiplier
-$\lambda \in Q_{\mathrm{red}}$. The weak form is:
-
-```{math}
-\int_\Omega \nabla u \cdot \nabla v \, dx
-+ \int_{\gamma}\int_D \lambda(s,y)\,v(X(s,y))\,dy\,ds
-= \int_\Omega f\,v\,dx
-\qquad \forall v \in V_0,
-```
-
-and
-
-```{math}
-\int_{\gamma}\int_D u(X(s,y))\,\mu(s,y)\,dy\,ds
-= \int_{\gamma}\int_D g(s,y)\,\mu(s,y)\,dy\,ds
-\qquad \forall \mu \in Q_{\mathrm{red}}.
-```
-
-Here $X(s,y)$ maps reduced coordinates on $\gamma \times D$ to physical points
-on the immersed interface.
-
-The crucial approximation is that both the multiplier and the interface data
-are represented with only a few transverse modes:
-
-```{math}
-\lambda(s,y) \approx \sum_{i=1}^N \lambda_i(s)\,\phi_i(y),
-\qquad
-g(s,y) \approx \sum_{i=1}^N \bar g_i(s)\,\phi_i(y).
-```
-
-That is the reduction.
-
-## Discrete Block System
-
-After discretization, the code solves
-
-```{math}
-\begin{bmatrix}
-A & B^T \\
-B & 0
-\end{bmatrix}
-\begin{bmatrix}
-u \\
-\lambda
-\end{bmatrix}
-=
-\begin{bmatrix}
-f \\
-g
-\end{bmatrix}.
-```
-
-In the implementation:
-
-- `A` is the bulk Poisson stiffness matrix assembled in `source/reduced_poisson.cc`.
-- `B` is the reduced trace/projection operator assembled in
-  `include/reduced_coupling.h`.
-- `g` is the reduced right-hand side assembled in
-  `include/reduced_coupling.h`.
-- the Schur or augmented-Lagrangian solve is implemented in
-  `source/reduced_poisson.cc`.
-
-So the program is not computing a forcing generated by the network. It is
-computing a bulk harmonic or forced scalar field whose trace matches prescribed
-reduced data on the immersed interface.
-
-## How The Geometry Is Built
-
-The reduced geometry comes from a VTK file representing a one-dimensional mesh.
-For each quadrature point on that mesh, the code creates physical quadrature
-points on the immersed interface by transforming the reference cross section.
-This happens in `source/tensor_product_space.cc`.
-
-In practice:
-
-- in 3D, the reduced grid is a centerline and the interface is a tube surface;
-- in 2D, the reduced grid is a curve and the interface is a pair of offset
-  points generated from the one-dimensional reference cross section.
-
-The local interface thickness is specified by `Representative domain/Thickness`.
-It may be a constant or an expression involving selected fields from the
-reduced VTK file.
-
-For example, `data/tests/one_cylinder_properties.vtk` contains a field named
-`radius`.
-
-## How To Run The Program
-
-The entry point is `apps/app_reduced_poisson.cc`.
-
-After building the project, run:
+## Run it
 
 ```bash
-./build/reduced_poisson[_debug] ../tutorials/reduced_poisson/<input_file.prm>
+cmake --build build -j
+./build/reduced_poisson_debug \
+  build/tutorials/reduced_poisson/single_cylinder_3d.prm
 ```
 
-The program reads the root-level `dimension`, `space dimension`, and
-`reduced dimension` parameters before constructing the statically typed
-problem. Standard 3D line-coupling inputs use `3`, `3`, and `1`; 2D
-point-coupling inputs can use `2`, `2`, and `0`. The defaults are `2`, `2`, and
-`1`, respectively.
-
-The parameter-file name has no effect on dimension selection, so input files
-do not need a special suffix.
-
-### Typical Output
-
-Each run writes:
-
-- a bulk solution file for each cycle such as `solution_0.vtu`;
-- a particle/interface file for each cycle such as `solution_particles_0.vtu`;
-- a `.pvd` collection for both outputs;
-- a dumped parameter file `used_parameters_*.prm`.
-
-This is handled in `source/reduced_poisson.cc`.
-
-## Anatomy Of The Parameter File
-
-The main section is:
-
-```text
-subsection Reduced Poisson
-  ...
-end
-```
-
-Inside it, the most important groups are:
-
-### Bulk Problem
-
-These parameters define the bulk PDE and mesh:
-
-- `FE degree`: polynomial degree of the bulk FE space.
-- `Dirichlet boundary ids`: boundary ids where $u = u_D$ is imposed.
-- `Grid generation/Grid generator`: bulk mesh type or input file.
-- `Grid generation/Grid generator arguments`: arguments for the grid generator.
-- `Right hand side`: the bulk forcing $f$.
-- `Dirichlet boundary conditions`: the outer boundary value $u_D$.
-
-### Bulk refinement and output
-
-- `Output directory`
-- `Output name`
-- `Output results also before solving`
-- `Refinement and remeshing/*`
-
-These affect postprocessing and adaptive refinement of the bulk mesh only.
-
-### Linear solver
-
-- `Solver type`: currently `Schur` or `AL`.
-- `Assemble full AL system`: whether to build the augmented operator
-  explicitly in the augmented-Lagrangian path.
-- `Solver/Inner control`
-- `Solver/Outer control`
-
-`Schur` follows the explicit Schur-complement path. `AL` uses the
-augmented-Lagrangian preconditioned solve.
-
-### Tensor-product coupling
-
-The reduced interface data comes from the `Tensor product coupling` subtree:
-
-- `Representative domain/Reduced grid name`: the VTK file containing the
-  reduced geometry.
-- `Representative domain/Finite element degree`: FE degree along the reduced
-  manifold $\gamma$.
-- `Representative domain/Quadrature type`: 1D quadrature family used by
-  `QuadratureSelector` before applying the iterated rule. The default is
-  `gauss`.
-- `Representative domain/Number of quadrature points`: quadrature order on
-  $\gamma$.
-- `Representative domain/Number of quadrature repetitions`: how many times to
-  repeat the reduced-cell Gauss quadrature. The default value `1` keeps the
-  standard Gauss rule.
-- `Representative domain/Thickness`: constant radius, half-thickness, or a
-  symbolic expression evaluated at reduced quadrature points.
-- `Representative domain/Input file fields`: comma-separated VTK fields to
-  expose as scalar symbols. Use `alias=point:name`, `alias=cell:name`, or
-  `alias=name[component]` for explicit bindings; `*` exposes every scalar and
-  vector component.
-- `Representative domain/Reduced right hand side`: the coefficient functions
-  $\bar g_i(s)$ for the reduced target data. Separate multiple entries with
-  semicolons, and provide one expression for each selected cross-section mode.
-
-### Cross-section basis
-
-These live in the nested `Cross section` subsection:
-
-- `Maximum inclusion degree`: polynomial degree used to generate transverse
-  basis functions.
-- `Selected indices`: which transverse modes are kept.
-- `Inclusion type`: currently `hyper_ball` or `hyper_cube`.
-- `Refinement level`: resolution of the reference cross section.
-
-If you keep only `Selected indices = 0`, the interface data are reduced to one
-transverse mode. If you keep more indices, the interface data can vary in the
-cross section with higher fidelity.
-
-### Reduced-grid preprocessing
-
-These are the `Local refinement parameters`:
-
-- `Refinement strategy`
-- `Space pre-refinement cycles`
-- `Embedded pre-refinement cycles`
-- `Space post-refinement cycles`
-- `Embedded post-refinement cycles`
-- `Refinement factor`
-- `Max refinement level`
-
-They control how the reduced grid and the bulk mesh are balanced before
-coupling.
-
-### Particle lookup
-
-Under `Particle coupling`:
-
-- `RTree extraction level`
-
-This controls how aggressively the bounding-box search structure is compressed
-before particles are inserted into the bulk search mesh.
-
-## A Minimal 3D Single-Cylinder Example
-
-This is the simplest useful `ReducedPoisson<3>` setup:
-
-- cube bulk domain `[-1,1]^3`;
-- zero outer Dirichlet boundary;
-- one straight cylinder centerline;
-- one reduced transverse mode;
-- constant target value $g = 1$ on the immersed interface.
-
-The actual tutorial input file is stored at
-`tutorials/reduced_poisson/single_cylinder_3d.prm`:
-
-```{literalinclude} ../../tutorials/reduced_poisson/single_cylinder_3d.prm
-:language: bash
-```
-
-Run it with:
-
-```bash
-./build/reduced_poisson single_cylinder_3d.prm
-```
-
-What this computes:
-
-- the bulk equation is $-\Delta u = 0$;
-- the outer cube boundary is fixed at zero on all lateral faces, and the top and bottom faces are treated as homogeneous Neumann boundaries;
-- along the swept cylinder interface, the average reduced trace is driven
-  toward `1`;
-- with only one transverse basis function, the interface condition is the
-  simplest possible reduced one.
-
-```{image} assets/reduced_poisson_single_cylinder.png
-:alt: ReducedPoisson single-cylinder tutorial example
-:width: 70%
-:align: center
-```
-
-## Single Cylinder With Variable Radius
-
-The next step is to read radius data from the VTK file instead of using a
-constant thickness.
-
-The file `data/tests/one_cylinder_properties.vtk` contains a field named
-`radius`. The corresponding tutorial input file is
-`tutorials/reduced_poisson/single_cylinder_variable_radius_3d.prm`:
-
-```{literalinclude} ../../tutorials/reduced_poisson/single_cylinder_variable_radius_3d.prm
-:language: bash
-```
-
-Here:
-
-- `Thickness` evaluates the local thickness expression;
-- `Input file fields = radius` exposes the point field named `radius`;
-- `Thickness = radius` evaluates the local radius at each reduced
-  quadrature point;
-- the local cross-section measure in both the reduced mass matrix and reduced
-  right-hand side is scaled accordingly.
-
-```{image} assets/reduced_poisson_single_cylinder_variable_radius.png
-:alt: ReducedPoisson single-cylinder tutorial example
-:width: 70%
-:align: center
-```
-
-## Single Cylinder With More Transverse Modes
-
-To allow nontrivial variation across the cross section, increase the polynomial
-degree and keep more selected modes. The corresponding tutorial input file is
-`tutorials/reduced_poisson/single_cylinder_multimode_3d.prm`:
-
-```{literalinclude} ../../tutorials/reduced_poisson/single_cylinder_multimode_3d.prm
-:language: bash
-```
-
-Interpretation:
-
-- mode `0` is usually the constant transverse mode;
-- the additional entries activate higher-order cross-sectional content;
-- the length of `Reduced right hand side` must match the number of selected
-  basis functions for the scalar problem.
-
-This is the first setting where the reduced interface condition is more than a
-simple averaged trace.
-
-```{image} assets/reduced_poisson_single_cylinder_multimode.png
-:alt: ReducedPoisson single-cylinder multimode tutorial example
-:width: 70%
-:align: center
-```
-
-## Three-Cylinder Example
-
-A slightly richer geometry is provided by the three-cylinder reduced grids such
-as `data/three_cylinders_R005.vtk`.
-
-A representative parameter file is stored at
-`tutorials/reduced_poisson/three_cylinders_3d.prm`:
-
-```{literalinclude} ../../tutorials/reduced_poisson/three_cylinders_3d.prm
-:language: bash
-```
-
-Compared with the single-cylinder case, only the reduced geometry changes. That
-is one of the main advantages of this workflow: the bulk solver and bulk-mesh
-setup stay the same while the embedded geometry can become much more
-complex.
-
-```{image} assets/reduced_poisson_three_cylinders.png
-:alt: ReducedPoisson three-cylinder tutorial example
-:width: 70%
-:align: center
-```
-
-## Complex Network Example
-
-For a network-scale case, use a real tree-like reduced grid such as
-`data/medium_tree_8_3d.vtk`.
-
-A practical starting point is stored at
-`tutorials/reduced_poisson/medium_tree_3d.prm`:
-
-```{literalinclude} ../../tutorials/reduced_poisson/medium_tree_3d.prm
-:language: bash
-```
-
-For this class of example:
-
-- use `AL` before `Schur` unless you have a specific reason not to;
-- start with one transverse mode;
-- keep the reduced FE degree low initially;
-- use adaptive bulk refinement only after the geometry and solver settings are
-  stable.
-
-```{image} assets/reduced_poisson_medium_tree.png
-:alt: ReducedPoisson medium-tree tutorial example
-:width: 70%
-:align: center
-```
-
-## How To Read A ReducedPoisson Parameter File
-
-A good reading order is:
-
-1. `Reduced Poisson`: define the bulk PDE and the solver.
-2. `Tensor product coupling/Representative domain/Reduced right hand side`: define
-   what trace you want on the immersed interface.
-3. `Representative domain`: define where the reduced geometry lives and how it
-   is discretized.
-4. `Cross section`: define how rich the transverse basis is.
-5. `Local refinement parameters` and `Particle coupling`: tune geometric
-   robustness and search behavior.
-
-This order mirrors the code:
-
-1. build the bulk mesh;
-2. build the reduced space;
-3. create immersed quadrature particles;
-4. assemble `A`, `B`, and `g`;
-5. solve the block system.
-
-## Common Pitfalls
-
-- If a 3D run starts the 2D executable path, check the filename. It must
-  contain `3d`.
-- If `Reduced right hand side` has the wrong number of entries, check
-  `Cross section/Selected indices`.
-- If the reduced geometry seems too thick or too thin, check the `Thickness`
-  expression and its selected input fields.
-- If the coupling looks weak or noisy, increase the reduced quadrature points
-  before increasing the bulk FE degree.
-- If the network case becomes expensive, first reduce the number of transverse
-  modes, then reduce bulk refinement, and only then change solver settings.
+The generated parameter file points to the configured cylinder mesh under
+`build/data/tests/one_cylinder.vtk` and writes output below
+`build/test_output/tutorial-output/reduced-poisson-single-cylinder`. The same
+input is exercised by the application smoke test.
+
+## Explore the coupling
+
+After the first run, try the canonical variable-radius and multimode inputs
+under `tutorials/reduced_poisson/`. The [reduced-coupling how-to](../how-to/reduced-coupling)
+explains imported fields, thickness, modes, quadrature, and distributed point
+search. The [mathematical background](../concepts/mathematical-background)
+explains the reduced Lagrange-multiplier formulation.
+
+Continue with [Coupled Poisson–elasticity](coupled-poisson-elasticity) to see a
+public composition workflow that observes and lifts a field before coupling
+it to another Problem.

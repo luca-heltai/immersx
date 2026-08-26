@@ -2,7 +2,7 @@
 
 This page is an inventory of the implementation currently visible on
 `master`. It complements the normative design in
-{doc}`core-architecture`: the class diagram below describes existing classes
+{doc}`../../concepts/architecture`: the class diagram below describes existing classes
 and dependencies, while the core page describes the Field/residual/execution
 direction that is being introduced incrementally.
 
@@ -88,21 +88,21 @@ classes. A local search mesh is an implementation detail, not a permanent
 
 The generated API reference provides the current class-level details:
 
-- {doc}`api/class_immers_x_1_1_elasticity_problem`
-- {doc}`api/class_immers_x_1_1_poisson_problem`
-- {doc}`api/class_immers_x_1_1_inclusions`
-- {doc}`api/class_immers_x_1_1_coupling_operator`
-- {doc}`api/class_immers_x_1_1_particle_coupling`
-- {doc}`api/class_immers_x_1_1_tensor_product_space`
-- {doc}`api/class_immers_x_1_1_reference_cross_section`
-- {doc}`api/class_immers_x_1_1_input_field_selector`
-- {doc}`api/class_immers_x_1_1_reduced_field_values`
-- {doc}`api/class_immers_x_1_1_symbolic_field_evaluator`
-- {doc}`api/class_immers_x_1_1_lagrange_multiplier_interaction`
-- {doc}`api/class_immers_x_1_1_constraint_equation`
+- {doc}`../../api/class_immers_x_1_1_elasticity_problem`
+- {doc}`../../api/class_immers_x_1_1_poisson_problem`
+- {doc}`../../api/class_immers_x_1_1_inclusions`
+- {doc}`../../api/class_immers_x_1_1_coupling_operator`
+- {doc}`../../api/class_immers_x_1_1_particle_coupling`
+- {doc}`../../api/class_immers_x_1_1_tensor_product_space`
+- {doc}`../../api/class_immers_x_1_1_reference_cross_section`
+- {doc}`../../api/class_immers_x_1_1_input_field_selector`
+- {doc}`../../api/class_immers_x_1_1_reduced_field_values`
+- {doc}`../../api/class_immers_x_1_1_symbolic_field_evaluator`
+- {doc}`../../api/class_immers_x_1_1_lagrange_multiplier_interaction`
+- {doc}`../../api/class_immers_x_1_1_constraint_equation`
 
 For the future semantic architecture, start with
-{doc}`core-architecture`, especially the sections on Fields, residual
+{doc}`../../concepts/architecture`, especially the sections on Fields, residual
 contributors, typed Representations, and execution adapters. Prototype names
 such as `FieldId`, `StateView`, `EvaluationContext`, or a SUNDIALS adapter
 must not be read as merged API when browsing this current implementation page.
@@ -111,7 +111,7 @@ must not be read as merged API when browsing this current implementation page.
 
 | Page | Purpose |
 | --- | --- |
-| {doc}`architecture-diagram` | Existing classes and current data paths on `master`. |
-| {doc}`core-architecture` | Normative ownership, residual, representation, and execution design; status-marked roadmap. |
-| {doc}`background` | Mathematical motivation and reduced Lagrange-multiplier context. |
-| {doc}`tutorials/index` | Executable-specific operational workflows. |
+| {doc}`current-implementation` | Existing classes and current data paths on `master`. |
+| {doc}`../../concepts/architecture` | Normative ownership, residual, representation, and execution design. |
+| {doc}`../../concepts/mathematical-background` | Mathematical motivation and reduced Lagrange-multiplier context. |
+| {doc}`../../tutorials/index` | Runnable learning workflows. |

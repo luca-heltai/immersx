@@ -2,7 +2,7 @@ set dimension       = 2
 set space dimension = 2
 
 subsection Navier-Stokes
-  set Output directory       = ./output/navier_stokes_2d
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/navier-stokes-2d
   set Output name            = transient_stokes
   set Output frequency       = 2
   set Initial refinement     = 2

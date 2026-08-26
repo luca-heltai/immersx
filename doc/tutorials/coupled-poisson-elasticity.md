@@ -10,6 +10,13 @@ The executable is `coupled_poisson_elasticity`. It is a deliberately small
 vertical slice showing how application-specific physics can extend the public
 composition API without adding a global coupled-system class.
 
+The canonical input is
+`tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm.in`:
+
+```{literalinclude} ../../tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm.in
+:language: ini
+```
+
 ## Application vocabulary
 
 The example defines three descriptors next to the application:
@@ -44,12 +51,13 @@ Build the project and run the generated smoke-test parameters:
 
 ```bash
 mpirun -np 1 ./build/coupled_poisson_elasticity_debug \
-  build/gtests/parameters/coupled_poisson_elasticity.prm
+  build/tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm
 ```
 
 The application prints and records checks for the coupled residual, the
 pressure scaling, and the traction balance. The regression test launches the
 same executable from an unrelated working directory and checks those values.
+Its canonical input is the one shown above.
 
 ## Scope of this slice
 
@@ -58,3 +66,6 @@ nonlinear elasticity terms, ALE/metric-flow terms, FSI time integration, or
 new solver infrastructure. The example is intended to establish the public
 composition workflow before a future metric-flow-x tutorial expands the
 geometry and execution model.
+
+Next, continue to [fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics)
+for a distributed composed example.

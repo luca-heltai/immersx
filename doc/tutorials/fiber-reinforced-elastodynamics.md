@@ -8,12 +8,18 @@ matrix: ElastodynamicsSolver<d,d>
 fiber:  ElastodynamicsSolver<d,d>
 ```
 
-The example input is
-`tutorials/fiber_reinforced_elastodynamics/parameters.prm`. A Debug run is:
+The canonical input is
+`tutorials/fiber_reinforced_elastodynamics/parameters.prm.in`:
+
+```{literalinclude} ../../tutorials/fiber_reinforced_elastodynamics/parameters.prm.in
+:language: ini
+```
+
+A Debug run is:
 
 ```bash
 ./build/fiber_reinforced_elastodynamics_debug \
-  tutorials/fiber_reinforced_elastodynamics/parameters.prm
+  build/tutorials/fiber_reinforced_elastodynamics/parameters.prm
 ```
 
 ## Geometry and material meaning

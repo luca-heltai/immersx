@@ -6,7 +6,7 @@ This repository is about partial differential equations posed on a bulk domain a
 - vascularized tissues, where a three-dimensional elastic matrix interacts with one-dimensional vessels;
 - scalar diffusion or Poisson problems with lower-dimensional inclusions.
 
-The common theme is that the embedded structure is geometrically thin, so resolving it with a fully conforming mesh is often too expensive or unnecessary. The repository contains several weak-coupling formulations, including reduced Lagrange-multiplier formulations, but a multiplier is one interaction family rather than the definition of every mixed-dimensional model. The architectural common denominator is the additive semi-discrete residual described in {doc}`core-architecture`. The main references behind the reduced-coupling viewpoint are {cite:p}`AlzettaHeltai-2020-a`, {cite:p}`HeltaiCaiazzo-2019-a`, {cite:p}`HeltaiZunino-2023-a`, and {cite:p}`BelponerCaiazzoHeltai-2025-a`.
+The common theme is that the embedded structure is geometrically thin, so resolving it with a fully conforming mesh is often too expensive or unnecessary. The repository contains several weak-coupling formulations, including reduced Lagrange-multiplier formulations, but a multiplier is one interaction family rather than the definition of every mixed-dimensional model. The architectural common denominator is the additive semi-discrete residual described in {doc}`architecture`. The main references behind the reduced-coupling viewpoint are {cite:p}`AlzettaHeltai-2020-a`, {cite:p}`HeltaiCaiazzo-2019-a`, {cite:p}`HeltaiZunino-2023-a`, and {cite:p}`BelponerCaiazzoHeltai-2025-a`.
 
 ## Geometric Setting
 
@@ -55,7 +55,7 @@ a(u,v) = \int_\Omega \kappa \nabla u \cdot \nabla v \, dx,
 \ell(v) = \int_\Omega f v \, dx.
 $$
 
-This is the mathematical background behind `PoissonProblem` and the reduced scalar coupling tools in `include/reduced_poisson.h`.
+This is the mathematical background behind `PoissonProblem` and the reduced scalar coupling tools in `include/immersx/physics/reduced_poisson.h`.
 
 ### Elasticity model
 
@@ -171,7 +171,7 @@ system is a special case whose residual happens to have multiplier rows and
 block structure. This viewpoint lets the same physics be evaluated by a
 steady Newton solve, a DAE or IMEX integrator, or a history-backed
 partitioned driver. The specific state-access and Jacobian contracts are
-documented in {doc}`core-architecture`.
+documented in {doc}`architecture`.
 
 ## Reduced Lagrange Multiplier Spaces
 
