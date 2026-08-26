@@ -41,6 +41,7 @@ namespace
     std::unique_ptr<FiniteElementRepresentation<2>> representation;
     StateLayout                                     layout;
     FieldId                                         field;
+    FieldId                                         second_field;
 
     ExpressionData()
       : triangulation(MPI_COMM_WORLD)
@@ -66,6 +67,8 @@ namespace
       descriptor.locally_owned    = locally_owned;
       descriptor.locally_relevant = locally_relevant;
       field                       = layout.add_field(descriptor);
+      descriptor.name             = "U";
+      second_field                = layout.add_field(descriptor);
     }
   };
 
@@ -109,9 +112,14 @@ namespace
     fill_vector(data.locally_owned, state);
     ImmersXLA::MPI::Vector direction;
     fill_vector(data.locally_owned, direction);
+    ImmersXLA::MPI::Vector second_state;
+    second_state.reinit(data.locally_owned, MPI_COMM_WORLD);
+    for (const auto index : data.locally_owned)
+      second_state[index] = 0.25 + 0.125 * index;
 
     StateView<ImmersXLA::MPI::Vector> state_view(data.layout, 0.);
     state_view.bind(data.field, state);
+    state_view.bind(data.second_field, second_state);
     EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
 
     const auto             value             = expression.evaluate(context);
@@ -167,6 +175,39 @@ namespace
                           weights),
                 local_dot(data.locally_owned, direction, transpose),
                 1.e-8);
+
+    using Binding    = typename decltype(expression)::Binding;
+    const auto multi = make_expression_representation(
+      std::vector<Binding>{{data.field, "A"}, {data.second_field, "U"}},
+      plan,
+      "A*A + 2*U");
+    ASSERT_EQ(multi.dependencies().size(), 2u);
+    EXPECT_EQ(multi.dependencies()[0], data.field);
+    EXPECT_EQ(multi.dependencies()[1], data.second_field);
+
+    const auto             multi_value     = multi.evaluate(context);
+    const auto             second_sampling = plan.linearize(second_state);
+    ImmersXLA::MPI::Vector second_samples;
+    second_sampling.reinit_range_vector(second_samples, false);
+    second_sampling.vmult(second_samples, second_state);
+    for (std::size_t q = 0; q < plan.points().size(); ++q)
+      {
+        const auto   index = plan.point_index(q);
+        const double a     = samples[index];
+        EXPECT_DOUBLE_EQ(multi_value[index],
+                         a * a + 2. * second_samples[index]);
+      }
+
+    const auto multi_jacobian = multi.linearize(context, data.second_field);
+    ImmersXLA::MPI::Vector multi_action;
+    multi_jacobian.reinit_range_vector(multi_action, false);
+    multi_jacobian.vmult(multi_action, direction);
+    ImmersXLA::MPI::Vector second_direction;
+    second_sampling.reinit_range_vector(second_direction, false);
+    second_sampling.vmult(second_direction, direction);
+    for (std::size_t q = 0; q < plan.points().size(); ++q)
+      EXPECT_DOUBLE_EQ(multi_action[plan.point_index(q)],
+                       2. * second_direction[plan.point_index(q)]);
   }
 } // namespace
 

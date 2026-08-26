@@ -276,6 +276,12 @@ namespace ImmersX
       return source_;
     }
 
+    std::vector<FieldId>
+    dependencies() const
+    {
+      return {source_.source()};
+    }
+
     const RepresentationDomain &
     domain() const
     {
@@ -329,6 +335,17 @@ namespace ImmersX
       return result;
     }
 
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_.source(),
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
+    }
+
   private:
     FieldComponentView   source_;
     RepresentationDomain domain_;
@@ -363,6 +380,12 @@ namespace ImmersX
     source() const
     {
       return source_;
+    }
+
+    std::vector<FieldId>
+    dependencies() const
+    {
+      return {source_};
     }
 
     /** Return the physical evaluation domain, independent of the source Field.
@@ -419,6 +442,17 @@ namespace ImmersX
       return result;
     }
 
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_,
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
+    }
+
   private:
     FieldId              source_;
     RepresentationDomain domain_;
@@ -451,6 +485,12 @@ namespace ImmersX
     source() const
     {
       return source_.source();
+    }
+
+    std::vector<FieldId>
+    dependencies() const
+    {
+      return source_.dependencies();
     }
 
     const RepresentationDomain &
@@ -513,6 +553,17 @@ namespace ImmersX
       result.Tvmult     = result.vmult;
       result.Tvmult_add = result.vmult_add;
       return result;
+    }
+
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_.source(),
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
     }
 
   private:
