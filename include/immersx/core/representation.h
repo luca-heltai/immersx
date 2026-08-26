@@ -1136,6 +1136,24 @@ namespace ImmersX
     mutable std::uint64_t                         geometry_version_ = 0;
   };
 
+  namespace detail
+  {
+    /** Detect a source-provided symbolic thickness evaluation. */
+    template <typename Source, int spacedim, typename = void>
+    struct has_source_thickness : std::false_type
+    {};
+
+    template <typename Source, int spacedim>
+    struct has_source_thickness<
+      Source,
+      spacedim,
+      std::void_t<decltype(std::declval<const Source &>().evaluate_thickness(
+        std::declval<const dealii::Point<spacedim> &>(),
+        std::declval<double>(),
+        std::declval<const std::vector<double> &>()))>> : std::true_type
+    {};
+  } // namespace detail
+
 
   /**
    * A parameterized tensor-product lift of a source Representation.
@@ -1199,8 +1217,10 @@ namespace ImmersX
       , lift_(lift)
       , support_(lift.parameters())
       , modal_(modal)
-      , lifted_points_(build_lifted_points())
-    {}
+    {
+      install_source_thickness_provider();
+      lifted_points_ = build_lifted_points();
+    }
 
     FieldId
     source() const
@@ -1510,6 +1530,26 @@ namespace ImmersX
     }
 
   private:
+    /**
+     * Forward the source's own thickness evaluation to the lifting support.
+     *
+     * The modern path never reads VTK files and never stores imported fields:
+     * a source Problem that naturally owns properties provides the symbolic
+     * thickness through this duck-typed seam.
+     */
+    void
+    install_source_thickness_provider()
+    {
+      if constexpr (detail::has_source_thickness<SourceRepresentation,
+                                                 spacedim>::value)
+        support_.set_thickness_evaluator(
+          [this](const dealii::Point<spacedim> &point,
+                 const double                   time,
+                 const std::vector<double>     &properties) {
+            return source_.evaluate_thickness(point, time, properties);
+          });
+    }
+
     std::vector<dealii::Point<spacedim>>
     representative_evaluation_points() const
     {
@@ -1541,12 +1581,13 @@ namespace ImmersX
                      support_.reference_cross_section().n_quadrature_points());
       for (unsigned int q = 0; q < source_points.size(); ++q)
         {
-          const auto transformed = support_.transform(source_points[q].point,
-                                                      source_points[q].tangent,
-                                                      source_points[q].weight,
-                                                      support_.thickness(),
-                                                      q,
-                                                      {});
+          const auto transformed =
+            support_.transform(source_points[q].point,
+                               source_points[q].tangent,
+                               source_points[q].weight,
+                               support_.thickness(source_points[q].point, 0.),
+                               q,
+                               {});
           result.insert(result.end(), transformed.begin(), transformed.end());
         }
       return result;
