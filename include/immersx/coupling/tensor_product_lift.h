@@ -19,7 +19,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -222,14 +224,23 @@ namespace ImmersX
   template <int surface_dim, int spacedim>
   struct TensorProductLiftPoint
   {
-    dealii::Point<spacedim>   point;
-    dealii::Point<spacedim>   representative_point;
-    double                    weight                = 0.;
-    unsigned int              representative_qpoint = 0;
-    unsigned int              section_qpoint        = 0;
-    std::vector<unsigned int> selected_modes;
-    std::vector<double>       mode_values;
-    std::vector<double>       tensor_product_basis_values;
+    dealii::Point<spacedim>          point;
+    dealii::Point<spacedim>          representative_point;
+    double                           weight = 0.;
+    dealii::types::global_cell_index source_entity_id =
+      dealii::numbers::invalid_unsigned_int;
+    std::uint64_t stable_id = std::numeric_limits<std::uint64_t>::max();
+    /** Index in the source-owned quadrature vector used for evaluation. */
+    unsigned int representative_qpoint = 0;
+    /** Quadrature slot within the source representative entity. */
+    unsigned int source_representative_qpoint =
+      dealii::numbers::invalid_unsigned_int;
+    unsigned int                                 section_qpoint = 0;
+    std::vector<unsigned int>                    selected_modes;
+    std::vector<double>                          mode_values;
+    std::vector<double>                          tensor_product_basis_values;
+    std::vector<dealii::types::global_dof_index> source_dof_indices;
+    std::vector<double>                          source_basis_values;
   };
 
   /** Shared lifting-side geometry, quadrature, and modal support. */
