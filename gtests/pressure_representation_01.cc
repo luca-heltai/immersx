@@ -81,7 +81,10 @@ namespace
                          const unsigned int initial_refinement)
   {
     ParameterAcceptor::clear();
-    PoissonParameters<1, 3> parameters;
+    PoissonParameters<1, 3>                parameters;
+    CoupledPoissonElasticity::PressureLift lift("/Pressure duality lift/");
+    lift.thickness                 = "0.1";
+    lift.representative_n_q_points = 2;
     configure_poisson_problem(fe_degree, initial_refinement, parameters);
     PoissonSolver<1, 3> problem(parameters);
     problem.make_grid();
@@ -113,17 +116,11 @@ namespace
                                                               problem,
                                                               factor);
 
-    // Use the representation's own locally owned representative quadrature
-    // points: each rank evaluates exactly the points it owns, so the forward
-    // and transpose operators agree rank-locally in the distributed case.
-    std::vector<Point<3>> points;
-    for (const auto &point :
-         pressure.locally_owned_quadrature_points(QGauss<1>(2)))
-      points.push_back(point.point);
-    ASSERT_FALSE(points.empty());
-    const ImmersX::EvaluationRequest request(points,
-                                             std::string("duality-points"));
-    const auto                       A = pressure.linearize(context, request);
+    // The lift uses the source FE stencils retained by the representation;
+    // no physical point-location or FE reconstruction is needed here.
+    const auto quantity = pressure.lift(lift);
+    ASSERT_FALSE(quantity.lifted_points().empty());
+    const auto A = quantity.linearize(context);
 
     // Deterministic coefficient and point-value vectors.
     StateVector x;
@@ -132,7 +129,7 @@ namespace
       x[index] = std::sin(1. + 0.7 * static_cast<double>(index)) +
                  0.5 * static_cast<double>(index);
 
-    dealii::Vector<double> y(points.size());
+    dealii::Vector<double> y(quantity.lifted_points().size());
     for (unsigned int j = 0; j < y.size(); ++j)
       y[j] = 0.3 * static_cast<double>(j) + 1.;
 
@@ -145,7 +142,7 @@ namespace
     A.Tvmult(ATy, y);
 
     double forward_local = 0.;
-    for (unsigned int j = 0; j < points.size(); ++j)
+    for (unsigned int j = 0; j < quantity.lifted_points().size(); ++j)
       forward_local += Ax[j] * y[j];
     const double inner_forward =
       Utilities::MPI::sum(forward_local, MPI_COMM_WORLD);
@@ -156,10 +153,10 @@ namespace
       << "Forward and transpose point evaluations are not adjoint.";
 
     // Additive variants must agree with the non-additive ones.
-    dealii::Vector<double> Ax_add(points.size());
+    dealii::Vector<double> Ax_add(quantity.lifted_points().size());
     Ax_add = 0.;
     A.vmult_add(Ax_add, x);
-    for (unsigned int j = 0; j < points.size(); ++j)
+    for (unsigned int j = 0; j < quantity.lifted_points().size(); ++j)
       EXPECT_NEAR(Ax_add[j], Ax[j], 1.e-12 * std::max(1., std::abs(Ax[j])))
         << "vmult_add disagrees at point " << j;
 

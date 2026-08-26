@@ -1157,6 +1157,21 @@ namespace ImmersX
 
   namespace detail
   {
+    /** Evaluate one retained FE stencil without locating its physical cell. */
+    template <typename VectorType>
+    double
+    evaluate_stencil(
+      const VectorType                                   &source,
+      const std::vector<dealii::types::global_dof_index> &dof_indices,
+      const std::vector<double>                          &basis_values)
+    {
+      AssertDimension(dof_indices.size(), basis_values.size());
+      double result = 0.;
+      for (unsigned int i = 0; i < dof_indices.size(); ++i)
+        result += basis_values[i] * source[dof_indices[i]];
+      return result;
+    }
+
     /** Detect a source-provided symbolic thickness evaluation. */
     template <typename Source, int spacedim, typename = void>
     struct has_source_thickness : std::false_type
@@ -1301,6 +1316,17 @@ namespace ImmersX
     lifted_points() const
     {
       return lifted_points_;
+    }
+
+    /** Evaluate all lifted points using their retained source FE stencils. */
+    value_type
+    evaluate_stencils(const state_type &source) const
+    {
+      return evaluate_stencils(source,
+                               lifted_points_,
+                               source_.locally_owned_dofs(),
+                               source_.locally_relevant_dofs(),
+                               source_.mpi_communicator());
     }
 
     const TriangulationType &
@@ -1456,26 +1482,19 @@ namespace ImmersX
     evaluate(const EvaluationContext<state_type> &context,
              const EvaluationRequest             &request = {}) const
     {
-      const auto representative_points = representative_evaluation_points();
-      const auto source_values =
-        source_.evaluate(context, EvaluationRequest(representative_points));
-
-      value_type result;
-      result.reinit(lifted_points_.size());
-      for (unsigned int q = 0; q < lifted_points_.size(); ++q)
-        result[q] = source_values[lifted_points_[q].representative_qpoint];
       (void)request;
-      return result;
+      return evaluate_stencils(context.state(source_.source()));
     }
 
     Operator
     linearize(const EvaluationContext<state_type> &context,
               const EvaluationRequest             &request = {}) const
     {
-      const auto representative_points = representative_evaluation_points();
-      const auto source_operator =
-        source_.linearize(context, EvaluationRequest(representative_points));
-      const auto lifted_points = lifted_points_;
+      const auto  lifted_points   = lifted_points_;
+      const auto  source_owned    = source_.locally_owned_dofs();
+      const auto  source_relevant = source_.locally_relevant_dofs();
+      const auto  communicator    = source_.mpi_communicator();
+      const auto *reference       = &context.state(source_.source());
 
       Operator result;
       result.reinit_range_vector =
@@ -1484,55 +1503,107 @@ namespace ImmersX
           if (!omit)
             vector = 0.;
         };
-      result.reinit_domain_vector = source_operator.reinit_domain_vector;
-      result.vmult                = [source_operator,
-                      lifted_points](value_type       &destination,
-                                     const state_type &source) {
-        value_type representative;
-        source_operator.vmult(representative, source);
-        destination.reinit(lifted_points.size());
-        for (unsigned int q = 0; q < lifted_points.size(); ++q)
-          destination[q] =
-            representative[lifted_points[q].representative_qpoint];
+      result.reinit_domain_vector = [reference](state_type &vector,
+                                                const bool  omit) {
+        vector.reinit(*reference, omit);
       };
-      result.vmult_add = [source_operator,
-                          lifted_points](value_type       &destination,
-                                         const state_type &source) {
-        value_type representative;
-        source_operator.vmult(representative, source);
-        for (unsigned int q = 0; q < lifted_points.size(); ++q)
-          destination[q] +=
-            representative[lifted_points[q].representative_qpoint];
+      result.vmult = [lifted_points,
+                      source_owned,
+                      source_relevant,
+                      communicator](value_type       &destination,
+                                    const state_type &source) {
+        destination = evaluate_stencils(
+          source, lifted_points, source_owned, source_relevant, communicator);
       };
-      result.Tvmult = [source_operator,
-                       lifted_points](state_type       &destination,
-                                      const value_type &source) {
-        value_type representative;
-        representative.reinit(0);
-        if (!lifted_points.empty())
-          representative.reinit(lifted_points.back().representative_qpoint + 1);
-        representative = 0.;
-        for (unsigned int q = 0; q < lifted_points.size(); ++q)
-          representative[lifted_points[q].representative_qpoint] += source[q];
-        source_operator.Tvmult(destination, representative);
+      result.vmult_add = [lifted_points,
+                          source_owned,
+                          source_relevant,
+                          communicator](value_type       &destination,
+                                        const state_type &source) {
+        const auto values = evaluate_stencils(
+          source, lifted_points, source_owned, source_relevant, communicator);
+        for (unsigned int q = 0; q < values.size(); ++q)
+          destination[q] += values[q];
       };
-      result.Tvmult_add = [source_operator,
-                           lifted_points](state_type       &destination,
-                                          const value_type &source) {
-        value_type representative;
-        if (!lifted_points.empty())
-          representative.reinit(lifted_points.back().representative_qpoint + 1);
-        if (representative.size() > 0)
-          representative = 0.;
-        for (unsigned int q = 0; q < lifted_points.size(); ++q)
-          representative[lifted_points[q].representative_qpoint] += source[q];
-        source_operator.Tvmult_add(destination, representative);
+      result.Tvmult = [lifted_points,
+                       source_owned,
+                       source_relevant,
+                       communicator](state_type       &destination,
+                                     const value_type &source) {
+        apply_stencil_transpose(lifted_points,
+                                source_owned,
+                                source_relevant,
+                                communicator,
+                                source,
+                                destination,
+                                false);
+      };
+      result.Tvmult_add = [lifted_points,
+                           source_owned,
+                           source_relevant,
+                           communicator](state_type       &destination,
+                                         const value_type &source) {
+        apply_stencil_transpose(lifted_points,
+                                source_owned,
+                                source_relevant,
+                                communicator,
+                                source,
+                                destination,
+                                true);
       };
       (void)request;
       return result;
     }
 
   private:
+    static value_type
+    evaluate_stencils(
+      const state_type                                                 &source,
+      const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &points,
+      const dealii::IndexSet                                           &owned,
+      const dealii::IndexSet &relevant,
+      const MPI_Comm          communicator)
+    {
+      state_type relevant_source;
+      relevant_source.reinit(owned, relevant, communicator);
+      relevant_source = source;
+      relevant_source.update_ghost_values();
+
+      value_type result;
+      result.reinit(points.size());
+      for (unsigned int q = 0; q < points.size(); ++q)
+        result[q] = detail::evaluate_stencil(relevant_source,
+                                             points[q].source_dof_indices,
+                                             points[q].source_basis_values);
+      return result;
+    }
+
+    static void
+    apply_stencil_transpose(
+      const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &points,
+      const dealii::IndexSet                                           &owned,
+      const dealii::IndexSet &relevant,
+      const MPI_Comm          communicator,
+      const value_type       &source,
+      state_type             &destination,
+      const bool              add)
+    {
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(owned, relevant, communicator);
+      contribution = 0.;
+      for (unsigned int q = 0; q < points.size(); ++q)
+        for (unsigned int i = 0; i < points[q].source_dof_indices.size(); ++i)
+          contribution[points[q].source_dof_indices[i]] +=
+            points[q].source_basis_values[i] * source[q];
+      contribution.compress(dealii::VectorOperation::add);
+      if (add)
+        for (const auto index : destination.locally_owned_elements())
+          destination[index] += contribution[index];
+      else
+        for (const auto index : destination.locally_owned_elements())
+          destination[index] = contribution[index];
+    }
+
     /**
      * Forward the source's own thickness evaluation to the lifting support.
      *
@@ -1551,27 +1622,6 @@ namespace ImmersX
                  const std::vector<double>     &properties) {
             return source_.evaluate_thickness(point, time, properties);
           });
-    }
-
-    std::vector<dealii::Point<spacedim>>
-    representative_evaluation_points() const
-    {
-      // Lifted points are ordered section-major: every point carrying the
-      // same representative_qpoint shares one representative location. The
-      // source operator is evaluated once per representative quadrature point
-      // and the result is expanded to the lifted points by index.
-      std::vector<dealii::Point<spacedim>> result;
-      if (lifted_points_.empty())
-        return result;
-      result.reserve(lifted_points_.back().representative_qpoint + 1);
-      unsigned int current_representative = 0;
-      for (const auto &point : lifted_points_)
-        if (point.representative_qpoint == current_representative)
-          {
-            result.push_back(point.representative_point);
-            ++current_representative;
-          }
-      return result;
     }
 
     std::vector<TensorProductLiftPoint<surface_dim, spacedim>>

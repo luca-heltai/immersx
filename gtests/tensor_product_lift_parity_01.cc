@@ -9,13 +9,12 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_system.h>
-
-#include <deal.II/grid/grid_tools.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/full_matrix.h>
@@ -24,6 +23,7 @@
 #include <immersx/core/lifting.h>
 #include <immersx/core/representation.h>
 #include <immersx/core/state.h>
+#include <immersx/coupling/particle_coupling.h>
 #include <immersx/coupling/reduced_coupling.h>
 #include <immersx/coupling/tensor_product_lift.h>
 #include <immersx/coupling/tensor_product_space.h>
@@ -31,6 +31,8 @@
 #include <immersx/physics/poisson.h>
 
 #include <cstdint>
+#include <limits>
+#include <map>
 
 #include "coupled_poisson_elasticity.h"
 #include "test_paths.h"
@@ -142,12 +144,26 @@ namespace
     AffineConstraints<double>         constraints;
   };
 
+  /** Build the target mesh with the complementary x-partition. */
+  void
+  make_distributed_parity_target(
+    parallel::distributed::Triangulation<spacedim> &tria)
+  {
+    Triangulation<spacedim> serial;
+    GridGenerator::subdivided_hyper_rectangle(serial,
+                                              {2, 2, 2},
+                                              Point<spacedim>(0., 1., 2.),
+                                              Point<spacedim>(1., 2., 3.));
+    tria.copy_triangulation(serial);
+  }
+
   /**
    * Build a modal (CASE B) source view that exposes one algebraic slot per
    * (local DoF, mode) in component-major order.
    */
+  template <typename ModalSource>
   FiniteElementRepresentation<reduced_dim, spacedim>
-  make_modal_source(ModalLineSource &fixture)
+  make_modal_source(ModalSource &fixture)
   {
     return FiniteElementRepresentation<reduced_dim, spacedim>(
       fixture.tria,
@@ -701,13 +717,16 @@ namespace
       &old_parameters,
     TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
                                     &new_lift,
-    const std::vector<unsigned int> &modes)
+    const std::vector<unsigned int> &modes,
+    const std::string               &reduced_grid = {})
   {
     auto &space_parameters = old_parameters.tensor_product_space_parameters;
     old_parameters.coupling_rhs_expressions =
       std::vector<std::string>(std::max<std::size_t>(modes.size(), 1), "0");
     space_parameters.reduced_grid_name =
-      ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+      reduced_grid.empty() ?
+        ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk") :
+        reduced_grid;
     space_parameters.fe_degree                = 1;
     space_parameters.quadrature_type          = "gauss";
     space_parameters.n_q_points               = 2;
@@ -737,42 +756,289 @@ namespace
     new_lift.section.n_quadrature_repetitions = 1;
   }
 
-  /** Assemble the coupling matrix of the modern modal path. */
+  /** Evaluate the legacy ReducedCoupling formula from its ParticleHandler. */
+  struct LegacyParticleCoupling
+  {
+    LegacyParticleCoupling(
+      const ReducedCoupling<reduced_dim, surface_dim, spacedim, n_components>
+                                 &coupling,
+      const DoFHandler<spacedim> &background_dh)
+      : coupling(coupling)
+      , background_dh(background_dh)
+      , communicator(background_dh.get_triangulation().get_mpi_communicator())
+      , source_owned(coupling.get_dof_handler().locally_owned_dofs())
+      , source_relevant(complete_index_set(coupling.get_dof_handler().n_dofs()))
+      , target_owned(background_dh.locally_owned_dofs())
+      , target_relevant(DoFTools::extract_locally_relevant_dofs(background_dh))
+    {}
+
+    ImmersXLA::MPI::Vector
+    forward(const ImmersXLA::MPI::Vector &source) const
+    {
+      dealii::LinearAlgebra::distributed::Vector<double> source_relevant_values;
+      source_relevant_values.reinit(source_owned,
+                                    source_relevant,
+                                    communicator);
+      for (const auto index : source_owned)
+        source_relevant_values[index] = source[index];
+      source_relevant_values.update_ghost_values();
+
+      dealii::LinearAlgebra::distributed::Vector<double> result;
+      result.reinit(target_owned, target_relevant, communicator);
+      result                    = 0.;
+      const auto &background_fe = background_dh.get_fe();
+      const auto &source_fe     = coupling.get_dof_handler().get_fe();
+      std::vector<types::global_dof_index> background_dofs(
+        background_fe.n_dofs_per_cell());
+      for (const auto &particle : coupling.get_particles())
+        {
+          const typename DoFHandler<spacedim>::cell_iterator cell(
+            *particle.get_surrounding_cell(), &background_dh);
+          cell->get_dof_indices(background_dofs);
+          const auto [entity, representative_q, section_q] =
+            coupling.particle_id_to_representative_indices(particle.get_id());
+          const auto &source_dofs = coupling.get_dof_indices(entity);
+          const auto  representative_point =
+            coupling.get_quadrature().point(representative_q);
+          for (unsigned int i = 0; i < background_dofs.size(); ++i)
+            {
+              double value = 0.;
+              for (unsigned int j = 0; j < source_dofs.size(); ++j)
+                value += source_fe.shape_value(j, representative_point) *
+                         coupling.get_reference_cross_section().shape_value(
+                           source_fe.system_to_component_index(j).first,
+                           section_q,
+                           background_fe.system_to_component_index(i).first) *
+                         source_relevant_values[source_dofs[j]];
+              result[background_dofs[i]] +=
+                background_fe.shape_value(i,
+                                          particle.get_reference_location()) *
+                value * particle.get_properties()[0];
+            }
+        }
+      result.compress(VectorOperation::add);
+
+      ImmersXLA::MPI::Vector owned_result;
+      owned_result.reinit(target_owned, communicator);
+      for (const auto index : target_owned)
+        owned_result[index] = result[index];
+      return owned_result;
+    }
+
+    ImmersXLA::MPI::Vector
+    transpose(const ImmersXLA::MPI::Vector &target) const
+    {
+      dealii::LinearAlgebra::distributed::Vector<double> target_relevant_values;
+      target_relevant_values.reinit(target_owned,
+                                    target_relevant,
+                                    communicator);
+      for (const auto index : target_owned)
+        target_relevant_values[index] = target[index];
+      target_relevant_values.update_ghost_values();
+
+      dealii::LinearAlgebra::distributed::Vector<double> result;
+      result.reinit(source_owned, source_relevant, communicator);
+      result                    = 0.;
+      const auto &background_fe = background_dh.get_fe();
+      const auto &source_fe     = coupling.get_dof_handler().get_fe();
+      std::vector<types::global_dof_index> background_dofs(
+        background_fe.n_dofs_per_cell());
+      for (const auto &particle : coupling.get_particles())
+        {
+          const typename DoFHandler<spacedim>::cell_iterator cell(
+            *particle.get_surrounding_cell(), &background_dh);
+          cell->get_dof_indices(background_dofs);
+          const auto [entity, representative_q, section_q] =
+            coupling.particle_id_to_representative_indices(particle.get_id());
+          const auto &source_dofs = coupling.get_dof_indices(entity);
+          const auto  representative_point =
+            coupling.get_quadrature().point(representative_q);
+          double target_value = 0.;
+          for (unsigned int i = 0; i < background_dofs.size(); ++i)
+            target_value +=
+              background_fe.shape_value(i, particle.get_reference_location()) *
+              target_relevant_values[background_dofs[i]];
+          for (unsigned int j = 0; j < source_dofs.size(); ++j)
+            result[source_dofs[j]] +=
+              source_fe.shape_value(j, representative_point) *
+              coupling.get_reference_cross_section().shape_value(
+                source_fe.system_to_component_index(j).first,
+                section_q,
+                /*component=*/0) *
+              target_value * particle.get_properties()[0];
+        }
+      result.compress(VectorOperation::add);
+
+      ImmersXLA::MPI::Vector owned_result;
+      owned_result.reinit(source_owned, communicator);
+      for (const auto index : source_owned)
+        owned_result[index] = result[index];
+      return owned_result;
+    }
+
+    const ReducedCoupling<reduced_dim, surface_dim, spacedim, n_components>
+                               &coupling;
+    const DoFHandler<spacedim> &background_dh;
+    MPI_Comm                    communicator;
+    IndexSet                    source_owned;
+    IndexSet                    source_relevant;
+    IndexSet                    target_owned;
+    IndexSet                    target_relevant;
+  };
+
+  /** Target-side entries assembled from ParticleHandler-owned cells. */
+  struct DistributedModalCoupling
+  {
+    using SourcePoint = RepresentationQuadraturePoint<3, double>;
+    using Entry       = std::pair<types::global_dof_index, double>;
+
+    template <typename ModalLift>
+    DistributedModalCoupling(
+      const ModalLift                             &modal_lift,
+      const parallel::TriangulationBase<spacedim> &target_tria,
+      const DoFHandler<spacedim>                  &target_dh,
+      const IndexSet                              &source_owned_dofs,
+      const IndexSet                              &source_relevant_dofs,
+      const ParticleCouplingParameters<spacedim>  &parameters)
+      : source_points(
+          modal_lift.locally_owned_quadrature_points(Quadrature<surface_dim>()))
+      , target_owned(target_dh.locally_owned_dofs())
+      , target_relevant(DoFTools::extract_locally_relevant_dofs(target_dh))
+      , source_owned(source_owned_dofs)
+      , source_relevant(source_relevant_dofs)
+      , communicator(target_tria.get_mpi_communicator())
+      , distribution(
+          std::make_shared<DistributedLiftedQuadrature<3>>(parameters))
+    {
+      const MappingQ1<3> mapping;
+      distribution->initialize(target_tria, mapping, source_points);
+
+      std::vector<types::global_dof_index> target_dof_indices(
+        target_dh.get_fe().n_dofs_per_cell());
+      for (const auto &particle :
+           distribution->particle_coupling().get_particles())
+        {
+          const auto &cell = particle.get_surrounding_cell();
+          const typename DoFHandler<3>::cell_iterator dh_cell(*cell,
+                                                              &target_dh);
+          dh_cell->get_dof_indices(target_dof_indices);
+          const Quadrature<3> point_quadrature(
+            std::vector<Point<3>>{particle.get_reference_location()});
+          FEValues<3> fe_values(mapping,
+                                target_dh.get_fe(),
+                                point_quadrature,
+                                update_values);
+          fe_values.reinit(dh_cell);
+          auto &point_entries = entries[particle.get_id()];
+          for (unsigned int i = 0; i < target_dof_indices.size(); ++i)
+            point_entries.emplace_back(
+              target_dof_indices[i],
+              fe_values.shape_value(i, 0) *
+                distribution->stencil(particle.get_id()).physical_weight);
+        }
+    }
+
+    ImmersXLA::MPI::Vector
+    forward(const ImmersXLA::MPI::Vector &source) const
+    {
+      ImmersXLA::MPI::Vector relevant;
+      relevant.reinit(source_owned, source_relevant, communicator);
+      relevant = source;
+      relevant.update_ghost_values();
+
+      dealii::Vector<double> source_values(source_points.size());
+      for (unsigned int q = 0; q < source_points.size(); ++q)
+        source_values[q] =
+          detail::evaluate_stencil(relevant,
+                                   source_points[q].dof_indices,
+                                   source_points[q].basis_values);
+
+      const auto values = distribution->values_on_target(source_values);
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(target_owned, target_relevant, communicator);
+      contribution = 0.;
+      for (const auto &[id, point_entries] : entries)
+        for (const auto &[row, value] : point_entries)
+          contribution[row] += value * values.at(id);
+      contribution.compress(VectorOperation::add);
+
+      ImmersXLA::MPI::Vector result;
+      result.reinit(target_owned, communicator);
+      for (const auto index : target_owned)
+        result[index] = contribution[index];
+      return result;
+    }
+
+    ImmersXLA::MPI::Vector
+    transpose(const ImmersXLA::MPI::Vector &target) const
+    {
+      ImmersXLA::MPI::Vector relevant;
+      relevant.reinit(target_owned, target_relevant, communicator);
+      relevant = target;
+      relevant.update_ghost_values();
+
+      std::map<types::particle_index, double> target_values;
+      for (const auto &[id, point_entries] : entries)
+        for (const auto &[row, value] : point_entries)
+          target_values[id] += value * relevant[row];
+
+      dealii::Vector<double> source_values(source_points.size());
+      source_values = 0.;
+      distribution->add_transpose_to_source(target_values, source_values);
+
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(source_owned, source_relevant, communicator);
+      contribution = 0.;
+      for (unsigned int q = 0; q < source_points.size(); ++q)
+        for (unsigned int j = 0; j < source_points[q].dof_indices.size(); ++j)
+          contribution[source_points[q].dof_indices[j]] +=
+            source_points[q].basis_values[j] * source_values[q];
+      contribution.compress(VectorOperation::add);
+
+      ImmersXLA::MPI::Vector result;
+      result.reinit(source_owned, communicator);
+      for (const auto index : source_owned)
+        result[index] = contribution[index];
+      return result;
+    }
+
+    std::vector<SourcePoint>                            source_points;
+    IndexSet                                            target_owned;
+    IndexSet                                            target_relevant;
+    IndexSet                                            source_owned;
+    IndexSet                                            source_relevant;
+    MPI_Comm                                            communicator;
+    std::shared_ptr<DistributedLiftedQuadrature<3>>     distribution;
+    std::map<types::particle_index, std::vector<Entry>> entries;
+  };
+
+  /** Assemble the modern coupling entries without physical point search. */
   template <typename ModalLift>
   void
-  assemble_modal_coupling_matrix(const ModalLift            &modal_lift,
-                                 const DoFHandler<3>        &background_dh,
-                                 const unsigned int          n_immersed_dofs,
-                                 dealii::FullMatrix<double> &matrix)
+  assemble_modal_coupling_matrix(
+    const ModalLift                             &modal_lift,
+    const parallel::TriangulationBase<spacedim> &background_tria,
+    const DoFHandler<spacedim>                  &background_dh,
+    const IndexSet                              &source_owned,
+    const IndexSet                              &source_relevant,
+    const ParticleCouplingParameters<spacedim>  &parameters,
+    const unsigned int                           n_immersed_dofs,
+    dealii::FullMatrix<double>                  &matrix)
   {
     matrix.reinit(background_dh.n_dofs(), n_immersed_dofs);
-    const auto lifted_points =
-      modal_lift.locally_owned_quadrature_points(Quadrature<surface_dim>());
-    const dealii::MappingQ1<3>                   mapping;
-    std::vector<dealii::types::global_dof_index> background_dof_indices(
-      background_dh.get_fe().n_dofs_per_cell());
-    for (const auto &point : lifted_points)
+    const DistributedModalCoupling data(modal_lift,
+                                        background_tria,
+                                        background_dh,
+                                        source_owned,
+                                        source_relevant,
+                                        parameters);
+    for (const auto &[id, point_entries] : data.entries)
       {
-        const auto cell_and_unit_point =
-          dealii::GridTools::find_active_cell_around_point(mapping,
-                                                           background_dh,
-                                                           point.point);
-        const auto &cell = cell_and_unit_point.first;
-        if (cell == background_dh.end())
-          continue;
-        const dealii::Quadrature<3> point_quadrature(
-          std::vector<dealii::Point<3>>{cell_and_unit_point.second});
-        dealii::FEValues<3> fe_values(mapping,
-                                      background_dh.get_fe(),
-                                      point_quadrature,
-                                      dealii::update_values);
-        fe_values.reinit(cell);
-        cell->get_dof_indices(background_dof_indices);
-        for (unsigned int i = 0; i < background_dof_indices.size(); ++i)
-          for (unsigned int j = 0; j < point.dof_indices.size(); ++j)
-            matrix(background_dof_indices[i], point.dof_indices[j]) +=
-              fe_values.shape_value(i, 0) * point.basis_values[j] *
-              point.weight;
+        const auto &stencil = data.distribution->stencil(id);
+        for (const auto &[row, value] : point_entries)
+          for (unsigned int j = 0; j < stencil.source_dof_indices.size(); ++j)
+            matrix(row, stencil.source_dof_indices[j]) +=
+              value * stencil.source_basis_values[j];
       }
   }
 
@@ -829,9 +1095,16 @@ namespace
     EXPECT_EQ(coupling.get_dof_handler().n_dofs(),
               fixture.dof_handler.n_dofs());
 
+    ParticleCouplingParameters<3> particle_parameters(
+      "/Coupling parity particle coupling/");
     dealii::FullMatrix<double> coupling_new;
     assemble_modal_coupling_matrix(modal_lift,
+                                   background_tria,
                                    background_dh,
+                                   fixture.dof_handler.locally_owned_dofs(),
+                                   DoFTools::extract_locally_relevant_dofs(
+                                     fixture.dof_handler),
+                                   particle_parameters,
                                    fixture.dof_handler.n_dofs(),
                                    coupling_new);
 
@@ -900,6 +1173,165 @@ TEST(TensorProductLiftParity, ReducedCouplingActionSingleMode) // NOLINT
 TEST(TensorProductLiftParity, ReducedCouplingActionMultiMode) // NOLINT
 {
   check_coupling_action_parity({0, 1});
+}
+
+
+/**
+ * Verify the complete modal coupling path when source and target ownership are
+ * distributed independently. The legacy ReducedCoupling particle formula is
+ * the reference; the modern action evaluates retained source stencils,
+ * transfers lifted values through ParticleHandler, and compresses the
+ * transpose back to the source DoFs.
+ */
+TEST(TensorProductLiftParity,
+     MPI_DistributedMultiModeCrossPartition) // NOLINT
+{
+  const MPI_Comm comm = MPI_COMM_WORLD;
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(comm), 2u);
+
+  ParameterAcceptor::clear();
+
+  parallel::distributed::Triangulation<spacedim> background_tria(comm);
+  make_distributed_parity_target(background_tria);
+
+  ReducedCouplingParameters<reduced_dim, surface_dim, spacedim, n_components>
+    old_parameters;
+  TensorProductLift<reduced_dim, surface_dim, spacedim, n_components> lift(
+    "/Distributed multimode parity lift/");
+  configure_coupling_parity(old_parameters,
+                            lift,
+                            {0, 1},
+                            ImmersX::TestPaths::data_filename(
+                              "tests/simple_1d_grid.vtk"));
+
+  ReducedCoupling<reduced_dim, surface_dim, spacedim, n_components>
+    old_coupling(background_tria, old_parameters);
+  old_coupling.initialize();
+
+  FE_Q<spacedim>       background_fe(1);
+  DoFHandler<spacedim> background_dh(background_tria);
+  background_dh.distribute_dofs(background_fe);
+  const IndexSet background_owned = background_dh.locally_owned_dofs();
+  const IndexSet background_relevant =
+    DoFTools::extract_locally_relevant_dofs(background_dh);
+  const LegacyParticleCoupling legacy_coupling(old_coupling, background_dh);
+
+  const auto modal_source = FiniteElementRepresentation<reduced_dim, spacedim>(
+    old_coupling.get_triangulation(),
+    old_coupling.get_dof_handler(),
+    old_coupling.get_dof_handler().locally_owned_dofs(),
+    DoFTools::extract_locally_relevant_dofs(old_coupling.get_dof_handler()),
+    old_coupling.get_coupling_constraints(),
+    dealii::StaticMappingQ1<reduced_dim, spacedim>::mapping,
+    dealii::FEValuesExtractors::Scalar(0),
+    ImmersX::RepresentationMetadata(),
+    /*all_components=*/true);
+  const auto modal_lift = ImmersX::make_modal_lift(modal_source, lift);
+  ASSERT_EQ(old_coupling.get_dof_handler().n_dofs(), 20u);
+
+  ParticleCouplingParameters<3> particle_parameters(
+    "/Distributed multimode parity particle coupling/");
+  DistributedModalCoupling new_coupling(
+    modal_lift,
+    background_tria,
+    background_dh,
+    old_coupling.get_dof_handler().locally_owned_dofs(),
+    DoFTools::extract_locally_relevant_dofs(old_coupling.get_dof_handler()),
+    particle_parameters);
+
+  unsigned int local_migrated      = 0;
+  unsigned int local_from_rank0    = 0;
+  unsigned int local_from_rank1    = 0;
+  bool         valid_modal_stencil = false;
+  const auto   rank                = Utilities::MPI::this_mpi_process(comm);
+  for (const auto &[id, stencil] : new_coupling.distribution->target_stencils())
+    {
+      EXPECT_NE(id, std::numeric_limits<types::particle_index>::max());
+      EXPECT_NE(stencil.source_entity_id, numbers::invalid_unsigned_int);
+      EXPECT_NE(stencil.representative_qpoint, numbers::invalid_unsigned_int);
+      EXPECT_NE(stencil.section_qpoint, numbers::invalid_unsigned_int);
+      ASSERT_EQ(stencil.source_dof_indices.size(),
+                stencil.source_basis_values.size());
+      ASSERT_GE(stencil.source_dof_indices.size(), 4u);
+      if (stencil.source_dof_indices[0] != stencil.source_dof_indices[1])
+        valid_modal_stencil = true;
+      if (stencil.source_rank != rank)
+        {
+          ++local_migrated;
+          if (stencil.source_rank == 0)
+            ++local_from_rank0;
+          else if (stencil.source_rank == 1)
+            ++local_from_rank1;
+        }
+    }
+  EXPECT_TRUE(valid_modal_stencil);
+
+  const unsigned int migrated = Utilities::MPI::sum(local_migrated, comm);
+  EXPECT_GT(migrated, 0u);
+  EXPECT_GT(Utilities::MPI::sum(local_from_rank0, comm), 0u);
+  EXPECT_GT(Utilities::MPI::sum(local_from_rank1, comm), 0u);
+
+  ImmersXLA::MPI::Vector x_old;
+  x_old.reinit(old_coupling.get_dof_handler().locally_owned_dofs(), comm);
+  for (const auto index : x_old.locally_owned_elements())
+    x_old[index] = 1. + 0.25 * static_cast<double>(index);
+
+  ImmersXLA::MPI::Vector x_new;
+  x_new.reinit(old_coupling.get_dof_handler().locally_owned_dofs(), comm);
+  for (const auto index : x_new.locally_owned_elements())
+    x_new[index] = 1. + 0.25 * static_cast<double>(index);
+
+  ImmersXLA::MPI::Vector old_forward;
+  old_forward.reinit(background_owned, comm);
+  old_forward            = legacy_coupling.forward(x_old);
+  const auto new_forward = new_coupling.forward(x_new);
+
+  double local_forward_error = 0.;
+  for (const auto index : background_owned)
+    local_forward_error =
+      std::max(local_forward_error,
+               std::abs(old_forward[index] - new_forward[index]));
+  const double forward_error = Utilities::MPI::max(local_forward_error, comm);
+  EXPECT_LT(forward_error, 1.e-11);
+
+  ImmersXLA::MPI::Vector y;
+  y.reinit(background_owned, comm);
+  for (const auto index : y.locally_owned_elements())
+    y[index] = std::cos(0.3 * static_cast<double>(index)) +
+               0.1 * static_cast<double>(index);
+
+  ImmersXLA::MPI::Vector old_transpose;
+  old_transpose.reinit(old_coupling.get_dof_handler().locally_owned_dofs(),
+                       comm);
+  old_transpose            = legacy_coupling.transpose(y);
+  const auto new_transpose = new_coupling.transpose(y);
+
+  using Coefficient = types::global_dof_index;
+  std::map<Coefficient, double> old_local;
+  std::map<Coefficient, double> new_local;
+  for (const auto index : old_transpose.locally_owned_elements())
+    old_local[index] = old_transpose[index];
+  for (const auto index : new_transpose.locally_owned_elements())
+    new_local[index] = new_transpose[index];
+
+  const auto old_parts = Utilities::MPI::all_gather(comm, old_local);
+  const auto new_parts = Utilities::MPI::all_gather(comm, new_local);
+  std::map<Coefficient, double> old_global;
+  std::map<Coefficient, double> new_global;
+  for (const auto &part : old_parts)
+    old_global.insert(part.begin(), part.end());
+  for (const auto &part : new_parts)
+    new_global.insert(part.begin(), part.end());
+
+  ASSERT_EQ(old_global.size(), new_global.size());
+  double transpose_error = 0.;
+  for (const auto &[index, value] : old_global)
+    {
+      ASSERT_TRUE(new_global.find(index) != new_global.end());
+      transpose_error =
+        std::max(transpose_error, std::abs(value - new_global.at(index)));
+    }
+  EXPECT_LT(transpose_error, 1.e-11);
 }
 
 #endif // DEAL_II_WITH_VTK
