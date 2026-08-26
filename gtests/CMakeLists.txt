@@ -26,6 +26,7 @@ set(_public_headers
     immersx/core/constraint_equation.h
     immersx/core/constraint_contributor.h
     immersx/core/contributor.h
+    immersx/core/expression_representation.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
     immersx/core/lifting.h
