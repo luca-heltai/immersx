@@ -9,6 +9,8 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_system.h>
@@ -16,11 +18,13 @@
 #include <deal.II/grid/grid_tools.h>
 
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/full_matrix.h>
 
 #include <gtest/gtest.h>
 #include <immersx/core/lifting.h>
 #include <immersx/core/representation.h>
 #include <immersx/core/state.h>
+#include <immersx/coupling/reduced_coupling.h>
 #include <immersx/coupling/tensor_product_lift.h>
 #include <immersx/coupling/tensor_product_space.h>
 #include <immersx/io/utils.h>
@@ -463,11 +467,11 @@ TEST(TensorProductLift, ModalSourceDistinctCoefficients) // NOLINT
       for (unsigned int mode = 0; mode < n_modes; ++mode)
         for (unsigned int i = 0; i < n_scalar_dofs; ++i)
           {
-            const unsigned int slot = mode * n_scalar_dofs + i;
+            const unsigned int slot = i * n_modes + mode;
             // Mode 0 and mode 1 must be independent algebraic unknowns.
             if (mode > 0)
               EXPECT_NE(lifted_points[q].dof_indices[slot],
-                        lifted_points[q].dof_indices[i])
+                        lifted_points[q].dof_indices[i * n_modes])
                 << "Mode " << mode << " aliases mode 0 at point " << q;
             EXPECT_NEAR(lifted_points[q].basis_values[slot],
                         source_points[representative_q].basis_values[slot] *
@@ -650,7 +654,7 @@ TEST(TensorProductLiftParity, MultiModeSingleLineCell) // NOLINT
 
       // Mode 0 and mode 1 use different algebraic indices.
       for (unsigned int mode = 1; mode < 2; ++mode)
-        EXPECT_NE(new_points[q].dof_indices[mode * n_scalar_dofs],
+        EXPECT_NE(new_points[q].dof_indices[mode],
                   new_points[q].dof_indices[0]);
 
       // Lifted tensor-product basis values match the reference product
@@ -660,13 +664,228 @@ TEST(TensorProductLiftParity, MultiModeSingleLineCell) // NOLINT
       const unsigned int section_q = q % old_section.n_quadrature_points();
       for (unsigned int mode = 0; mode < 2; ++mode)
         for (unsigned int i = 0; i < n_scalar_dofs; ++i)
-          EXPECT_NEAR(new_points[q].basis_values[mode * n_scalar_dofs + i],
-                      source_points[representative_q]
-                          .basis_values[mode * n_scalar_dofs + i] *
-                        new_section.shape_value(mode, section_q, 0),
-                      1.e-12)
+          EXPECT_NEAR(
+            new_points[q].basis_values[i * 2 + mode],
+            source_points[representative_q].basis_values[i * 2 + mode] *
+              new_section.shape_value(mode, section_q, 0),
+            1.e-12)
             << "Basis at point " << q << ", mode " << mode << ", dof " << i;
     }
+}
+
+
+namespace
+{
+  /**
+   * Configure the shared settings for the ReducedCoupling parity test. The
+   * representative domain is one_cylinder.vtk and the modal source uses the
+   * same geometry programmatically.
+   */
+  void
+  configure_coupling_parity(
+    ReducedCouplingParameters<reduced_dim, surface_dim, spacedim, n_components>
+      &old_parameters,
+    TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+                                    &new_lift,
+    const std::vector<unsigned int> &modes)
+  {
+    auto &space_parameters = old_parameters.tensor_product_space_parameters;
+    old_parameters.coupling_rhs_expressions =
+      std::vector<std::string>(std::max<std::size_t>(modes.size(), 1), "0");
+    space_parameters.reduced_grid_name =
+      ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+    space_parameters.fe_degree                = 1;
+    space_parameters.quadrature_type          = "gauss";
+    space_parameters.n_q_points               = 2;
+    space_parameters.n_quadrature_repetitions = 1;
+    space_parameters.thickness                = "0.2";
+
+    space_parameters.section.inclusion_type   = "hyper_ball";
+    space_parameters.section.refinement_level = 1;
+    space_parameters.section.inclusion_degree =
+      modes.empty() ? 0 : modes.back();
+    space_parameters.section.selected_coefficients    = modes;
+    space_parameters.section.quadrature_type          = "gauss";
+    space_parameters.section.n_q_points               = 4;
+    space_parameters.section.n_quadrature_repetitions = 1;
+
+    new_lift.thickness                      = "0.2";
+    new_lift.representative_quadrature_type = "gauss";
+    new_lift.representative_n_q_points      = 2;
+    new_lift.representative_n_repetitions   = 1;
+
+    new_lift.section.inclusion_type        = "hyper_ball";
+    new_lift.section.refinement_level      = 1;
+    new_lift.section.inclusion_degree      = modes.empty() ? 0 : modes.back();
+    new_lift.section.selected_coefficients = modes;
+    new_lift.section.quadrature_type       = "gauss";
+    new_lift.section.n_q_points            = 4;
+    new_lift.section.n_quadrature_repetitions = 1;
+  }
+
+  /** Assemble the coupling matrix of the modern modal path. */
+  template <typename ModalLift>
+  void
+  assemble_modal_coupling_matrix(const ModalLift            &modal_lift,
+                                 const DoFHandler<3>        &background_dh,
+                                 const unsigned int          n_immersed_dofs,
+                                 dealii::FullMatrix<double> &matrix)
+  {
+    matrix.reinit(background_dh.n_dofs(), n_immersed_dofs);
+    const auto lifted_points =
+      modal_lift.locally_owned_quadrature_points(Quadrature<surface_dim>());
+    const dealii::MappingQ1<3>                   mapping;
+    std::vector<dealii::types::global_dof_index> background_dof_indices(
+      background_dh.get_fe().n_dofs_per_cell());
+    for (const auto &point : lifted_points)
+      {
+        const auto cell_and_unit_point =
+          dealii::GridTools::find_active_cell_around_point(mapping,
+                                                           background_dh,
+                                                           point.point);
+        const auto &cell = cell_and_unit_point.first;
+        if (cell == background_dh.end())
+          continue;
+        const dealii::Quadrature<3> point_quadrature(
+          std::vector<dealii::Point<3>>{cell_and_unit_point.second});
+        dealii::FEValues<3> fe_values(mapping,
+                                      background_dh.get_fe(),
+                                      point_quadrature,
+                                      dealii::update_values);
+        fe_values.reinit(cell);
+        cell->get_dof_indices(background_dof_indices);
+        for (unsigned int i = 0; i < background_dof_indices.size(); ++i)
+          for (unsigned int j = 0; j < point.dof_indices.size(); ++j)
+            matrix(background_dof_indices[i], point.dof_indices[j]) +=
+              fe_values.shape_value(i, 0) * point.basis_values[j] *
+              point.weight;
+      }
+  }
+
+  /**
+   * Compare the action and transpose-action of the legacy ReducedCoupling
+   * matrix and the modern modal-path coupling matrix.
+   */
+  void
+  check_coupling_action_parity(const std::vector<unsigned int> &modes)
+  {
+    ParameterAcceptor::clear();
+
+    // Shared background mesh.
+    parallel::distributed::Triangulation<3> background_tria(MPI_COMM_WORLD);
+    GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
+    background_tria.refine_global(2);
+
+    // ---- OLD PATH: reference ReducedCoupling. ----
+    ReducedCouplingParameters<reduced_dim, surface_dim, spacedim, n_components>
+      old_parameters;
+    TensorProductLift<reduced_dim, surface_dim, spacedim, n_components> lift(
+      "/Coupling parity lift/");
+    configure_coupling_parity(old_parameters, lift, modes);
+
+    ReducedCoupling<reduced_dim, surface_dim, spacedim, n_components> coupling(
+      background_tria, old_parameters);
+    coupling.initialize();
+
+    FE_Q<3>       background_fe(1);
+    DoFHandler<3> background_dh(background_tria);
+    background_dh.distribute_dofs(background_fe);
+    const dealii::IndexSet background_owned =
+      background_dh.locally_owned_dofs();
+    const dealii::IndexSet background_relevant =
+      DoFTools::extract_locally_relevant_dofs(background_dh);
+    dealii::AffineConstraints<double> constraints(background_owned,
+                                                  background_relevant);
+    constraints.close();
+
+    DynamicSparsityPattern dsp(background_dh.n_dofs(),
+                               coupling.get_dof_handler().n_dofs());
+    coupling.assemble_coupling_sparsity(dsp, background_dh, constraints);
+    ImmersXLA::MPI::SparseMatrix coupling_old;
+    coupling_old.reinit(background_owned,
+                        coupling.get_dof_handler().locally_owned_dofs(),
+                        dsp,
+                        MPI_COMM_WORLD);
+    coupling.assemble_coupling_matrix(coupling_old, background_dh, constraints);
+
+    // ---- NEW PATH: modal representation lifted on the same geometry. ----
+    ModalLineSource fixture(static_cast<unsigned int>(modes.size()));
+    const auto      modal_source = make_modal_source(fixture);
+    const auto      modal_lift   = ImmersX::make_modal_lift(modal_source, lift);
+    EXPECT_EQ(coupling.get_dof_handler().n_dofs(),
+              fixture.dof_handler.n_dofs());
+
+    dealii::FullMatrix<double> coupling_new;
+    assemble_modal_coupling_matrix(modal_lift,
+                                   background_dh,
+                                   fixture.dof_handler.n_dofs(),
+                                   coupling_new);
+
+    // ---- Forward action C * x. ----
+    ImmersXLA::MPI::Vector x;
+    x.reinit(coupling.get_dof_handler().locally_owned_dofs(), MPI_COMM_WORLD);
+    for (const auto index : x.locally_owned_elements())
+      x[index] = std::sin(1. + 0.7 * static_cast<double>(index)) +
+                 0.2 * static_cast<double>(index);
+
+    ImmersXLA::MPI::Vector forward_old;
+    forward_old.reinit(background_owned, MPI_COMM_WORLD);
+    coupling_old.vmult(forward_old, x);
+
+    dealii::Vector<double> x_serial(fixture.dof_handler.n_dofs());
+    for (const auto index : x.locally_owned_elements())
+      x_serial[index] = x[index];
+    dealii::Vector<double> forward_new(background_dh.n_dofs());
+    coupling_new.vmult(forward_new, x_serial);
+
+    for (const auto index : background_owned)
+      EXPECT_NEAR(forward_old[index],
+                  forward_new[index],
+                  1.e-10 * std::max(1., std::abs(forward_old[index])))
+        << "C x differs at background DoF " << index;
+
+    // ---- Transpose action C^T * y. ----
+    ImmersXLA::MPI::Vector y;
+    y.reinit(background_owned, MPI_COMM_WORLD);
+    for (const auto index : y.locally_owned_elements())
+      y[index] = std::cos(0.3 * static_cast<double>(index)) +
+                 0.1 * static_cast<double>(index);
+
+    ImmersXLA::MPI::Vector transpose_old;
+    transpose_old.reinit(coupling.get_dof_handler().locally_owned_dofs(),
+                         MPI_COMM_WORLD);
+    coupling_old.Tvmult(transpose_old, y);
+
+    dealii::Vector<double> y_serial(background_dh.n_dofs());
+    for (const auto index : y.locally_owned_elements())
+      y_serial[index] = y[index];
+    dealii::Vector<double> transpose_new(fixture.dof_handler.n_dofs());
+    coupling_new.Tvmult(transpose_new, y_serial);
+
+    for (const auto index : coupling.get_dof_handler().locally_owned_dofs())
+      EXPECT_NEAR(transpose_old[index],
+                  transpose_new[index],
+                  1.e-10 * std::max(1., std::abs(transpose_old[index])))
+        << "C^T y differs at immersed DoF " << index;
+  }
+} // namespace
+
+
+/**
+ * Phase-7 readiness gate: the legacy ReducedCoupling matrix and the modern
+ * modal-path coupling matrix must have the same action and transpose-action
+ * for identical settings. Both a single-mode and a multi-mode configuration
+ * are exercised.
+ */
+TEST(TensorProductLiftParity, ReducedCouplingActionSingleMode) // NOLINT
+{
+  check_coupling_action_parity({0});
+}
+
+
+TEST(TensorProductLiftParity, ReducedCouplingActionMultiMode) // NOLINT
+{
+  check_coupling_action_parity({0, 1});
 }
 
 #endif // DEAL_II_WITH_VTK

@@ -1399,9 +1399,11 @@ namespace ImmersX
                                          n_modes);
               if (modal_)
                 {
-                  // The source slots are (mode, local DoF) component-major.
-                  // Each slot keeps its own algebraic index, so different
-                  // modes are independent unknowns.
+                  // The source slots follow the deal.II FESystem layout:
+                  // (local DoF, component) with the component varying
+                  // fastest. For a scalar modal source the component is the
+                  // selected mode. Each slot keeps its own algebraic index,
+                  // so different modes are independent unknowns.
                   const unsigned int n_slots =
                     static_cast<unsigned int>(source_point.dof_indices.size());
                   AssertThrow(
@@ -1409,12 +1411,13 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "A modal tensor-product lift requires the source "
                       "representation to expose one algebraic slot per "
-                      "(local DoF, mode) in component-major order."));
+                      "(local DoF, mode) in deal.II FESystem order (mode "
+                      "varying fastest)."));
                   const unsigned int n_scalar_dofs = n_slots / n_modes;
-                  for (unsigned int mode = 0; mode < n_modes; ++mode)
-                    for (unsigned int i = 0; i < n_scalar_dofs; ++i)
+                  for (unsigned int i = 0; i < n_scalar_dofs; ++i)
+                    for (unsigned int mode = 0; mode < n_modes; ++mode)
                       {
-                        const unsigned int slot = mode * n_scalar_dofs + i;
+                        const unsigned int slot = i * n_modes + mode;
                         point.dof_indices.push_back(
                           source_point.dof_indices[slot]);
                         point.basis_values.push_back(
