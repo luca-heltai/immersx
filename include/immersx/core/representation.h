@@ -1745,7 +1745,7 @@ namespace ImmersX
       return source_.metadata();
     }
 
-    const std::vector<ImmersX::FieldId> &
+    std::vector<ImmersX::FieldId>
     dependencies() const
     {
       return source_.dependencies();
@@ -1915,6 +1915,17 @@ namespace ImmersX
       };
       (void)request;
       return result;
+    }
+
+    Operator
+    linearize(const EvaluationContext<state_type> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_.source(),
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
     }
 
   private:

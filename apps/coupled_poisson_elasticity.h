@@ -150,10 +150,10 @@ namespace CoupledPoissonElasticity
       return metadata;
     }
 
-    const std::vector<ImmersX::FieldId> &
+    std::vector<ImmersX::FieldId>
     dependencies() const
     {
-      return metadata().dependencies;
+      return {source_};
     }
 
     std::uint64_t
