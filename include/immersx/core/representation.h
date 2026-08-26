@@ -778,7 +778,7 @@ namespace ImmersX
       dealii::UpdateFlags update_flags = dealii::update_values |
                                          dealii::update_quadrature_points |
                                          dealii::update_JxW_values;
-      if constexpr (dim > 1)
+      if constexpr (dim > 1 && dim < spacedim)
         update_flags |= dealii::update_normal_vectors;
       dealii::FEValues<dim, spacedim> fe_values(mapping_,
                                                 finite_element(),
@@ -802,7 +802,7 @@ namespace ImmersX
                 point.point = fe_values.quadrature_point(q);
                 if constexpr (dim == 1)
                   point.tangent = cell->vertex(1) - cell->vertex(0);
-                else if constexpr (dim > 1)
+                else if constexpr (dim > 1 && dim < spacedim)
                   point.tangent = fe_values.normal_vector(q);
                 point.weight      = fe_values.JxW(q);
                 point.dof_indices = dof_indices;
@@ -1429,10 +1429,21 @@ namespace ImmersX
     std::vector<dealii::Point<spacedim>>
     representative_evaluation_points() const
     {
+      // Lifted points are ordered section-major: every point carrying the
+      // same representative_qpoint shares one representative location. The
+      // source operator is evaluated once per representative quadrature point
+      // and the result is expanded to the lifted points by index.
       std::vector<dealii::Point<spacedim>> result;
-      result.reserve(lifted_points_.size());
+      if (lifted_points_.empty())
+        return result;
+      result.reserve(lifted_points_.back().representative_qpoint + 1);
+      unsigned int current_representative = 0;
       for (const auto &point : lifted_points_)
-        result.push_back(point.representative_point);
+        if (point.representative_qpoint == current_representative)
+          {
+            result.push_back(point.representative_point);
+            ++current_representative;
+          }
       return result;
     }
 
