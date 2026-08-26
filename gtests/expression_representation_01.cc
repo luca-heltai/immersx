@@ -10,6 +10,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/quadrature_lib.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_tools.h>
@@ -20,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include <immersx/core/expression_representation.h>
+#include <immersx/core/lifting.h>
 
 #include <algorithm>
 #include <cmath>
@@ -327,4 +329,151 @@ TEST(ExpressionRepresentation, ValueAndJacobian) // NOLINT
 TEST(ExpressionRepresentation, MPI_ValueAndJacobian) // NOLINT
 {
   check_expression(true);
+}
+
+
+namespace
+{
+  struct LiftExpressionData
+  {
+    parallel::fullydistributed::Triangulation<1, 2>    triangulation;
+    FE_Q<1, 2>                                         finite_element;
+    DoFHandler<1, 2>                                   dof_handler;
+    IndexSet                                           locally_owned;
+    IndexSet                                           locally_relevant;
+    AffineConstraints<double>                          constraints;
+    std::unique_ptr<FiniteElementRepresentation<1, 2>> representation;
+    StateLayout                                        layout;
+    FieldId                                            field;
+
+    LiftExpressionData()
+      : triangulation(MPI_COMM_WORLD)
+      , finite_element(2)
+      , dof_handler(triangulation)
+    {
+      Triangulation<1, 2> serial;
+      GridGenerator::hyper_cube(serial, 0., 1.);
+      serial.refine_global(2);
+      triangulation.copy_triangulation(serial);
+      dof_handler.distribute_dofs(finite_element);
+      locally_owned    = dof_handler.locally_owned_dofs();
+      locally_relevant = DoFTools::extract_locally_relevant_dofs(dof_handler);
+      constraints.reinit(locally_owned, locally_relevant);
+      constraints.close();
+      representation =
+        std::make_unique<FiniteElementRepresentation<1, 2>>(triangulation,
+                                                            dof_handler,
+                                                            locally_owned,
+                                                            locally_relevant,
+                                                            constraints);
+
+      FieldDescriptor descriptor;
+      descriptor.name             = "A";
+      descriptor.locally_owned    = locally_owned;
+      descriptor.locally_relevant = locally_relevant;
+      field                       = layout.add_field(descriptor);
+    }
+  };
+
+  void
+  check_expression_lift(const bool mpi)
+  {
+    if (mpi)
+      ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+    else
+      ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+    ASSERT_TRUE(SymbolicExpressionKernel::available());
+
+    ParameterAcceptor::clear();
+    LiftExpressionData         data;
+    TensorProductLift<1, 2, 2> lift("/Expression lift/");
+    lift.thickness                        = "0.2";
+    lift.representative_quadrature_type   = "gauss";
+    lift.representative_n_q_points        = 3;
+    lift.representative_n_repetitions     = 1;
+    lift.section.inclusion_type           = "hyper_ball";
+    lift.section.refinement_level         = 1;
+    lift.section.inclusion_degree         = 0;
+    lift.section.selected_coefficients    = {0};
+    lift.section.quadrature_type          = "gauss";
+    lift.section.n_q_points               = 3;
+    lift.section.n_quadrature_repetitions = 1;
+
+    const auto geometry   = data.representation->lift(lift);
+    const auto expression = make_expression_representation(
+      *data.representation,
+      geometry.support().representative_quadrature(),
+      {value(data.field, "A")},
+      "A*A + 1.25*A");
+    const auto &plan = expression.sampling_plan();
+    const auto  lifted =
+      make_tensor_product_expression_lift(expression, geometry);
+
+    ImmersXLA::MPI::Vector state;
+    state.reinit(data.locally_owned, MPI_COMM_WORLD);
+    for (const auto index : data.locally_owned)
+      state[index] = 0.5 + 0.2 * index;
+    ImmersXLA::MPI::Vector direction;
+    direction.reinit(data.locally_owned, MPI_COMM_WORLD);
+    for (const auto index : data.locally_owned)
+      direction[index] = 0.25 + 0.1 * index;
+
+    StateView<ImmersXLA::MPI::Vector> state_view(data.layout, 0.);
+    state_view.bind(data.field, state);
+    EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
+    const auto source_value    = expression.evaluate(context);
+    const auto source_jacobian = expression.linearize(context);
+    const auto lifted_value    = lifted.evaluate(context);
+    for (std::size_t q = 0; q < lifted.lifted_points().size(); ++q)
+      {
+        const auto &point = lifted.lifted_points()[q];
+        ASSERT_LT(point.source_representative_qpoint, plan.points().size());
+        const auto source_index =
+          plan.point_index(point.source_representative_qpoint);
+        EXPECT_DOUBLE_EQ(lifted_value[lifted.point_index(q)],
+                         point.mode_values[0] * source_value[source_index]);
+      }
+
+    const auto             lifted_jacobian = lifted.linearize(context);
+    ImmersXLA::MPI::Vector lifted_action;
+    lifted_jacobian.reinit_range_vector(lifted_action, false);
+    lifted_jacobian.vmult(lifted_action, direction);
+    ImmersXLA::MPI::Vector source_action;
+    source_jacobian.reinit_range_vector(source_action, false);
+    source_jacobian.vmult(source_action, direction);
+    for (std::size_t q = 0; q < lifted.lifted_points().size(); ++q)
+      {
+        const auto &point = lifted.lifted_points()[q];
+        const auto  source_index =
+          plan.point_index(point.source_representative_qpoint);
+        EXPECT_DOUBLE_EQ(lifted_action[lifted.point_index(q)],
+                         point.mode_values[0] * source_action[source_index]);
+      }
+
+    ImmersXLA::MPI::Vector weights;
+    weights.reinit(lifted.locally_owned_points(), MPI_COMM_WORLD);
+    for (const auto index : lifted.locally_owned_points())
+      weights[index] = 0.75 + 0.05 * index;
+    ImmersXLA::MPI::Vector transpose;
+    lifted_jacobian.reinit_domain_vector(transpose, false);
+    lifted_jacobian.Tvmult(transpose, weights);
+    double forward = 0.;
+    for (const auto index : lifted.locally_owned_points())
+      forward += lifted_action[index] * weights[index];
+    EXPECT_NEAR(Utilities::MPI::sum(forward, MPI_COMM_WORLD),
+                local_dot(data.locally_owned, direction, transpose),
+                1.e-8);
+  }
+} // namespace
+
+
+TEST(ExpressionRepresentation, TensorProductLiftValueAndJacobian) // NOLINT
+{
+  check_expression_lift(false);
+}
+
+
+TEST(ExpressionRepresentation, MPI_TensorProductLiftValueAndJacobian) // NOLINT
+{
+  check_expression_lift(true);
 }

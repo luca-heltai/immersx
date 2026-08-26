@@ -431,6 +431,214 @@ namespace ImmersX
                                               constants);
   }
 
+  /** Lift an already sampled representation through retained lift points. */
+  template <typename SourceRepresentation, typename GeometryLiftRepresentation>
+  class TensorProductExpressionLiftRepresentation
+  {
+  public:
+    using value_type          = typename SourceRepresentation::value_type;
+    using state_type          = typename SourceRepresentation::state_type;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = RepresentationOperator<value_type, state_type>;
+
+    TensorProductExpressionLiftRepresentation(
+      const SourceRepresentation       &source,
+      const GeometryLiftRepresentation &geometry)
+      : source_(source)
+      , geometry_(geometry)
+    {
+      AssertThrow(source_.sampling_plan().points().size() > 0,
+                  dealii::ExcMessage(
+                    "An expression lift requires representative points."));
+      for (const auto &point : geometry_.lifted_points())
+        AssertThrow(point.mode_values.size() == 1,
+                    dealii::ExcMessage(
+                      "Expression lifting currently supports the physical "
+                      "mode-zero tensor-product lift."));
+
+      const auto [offset, size] = dealii::Utilities::MPI::partial_and_total_sum(
+        geometry_.lifted_points().size(), geometry_.mpi_communicator());
+      lifted_owned_.set_size(size);
+      lifted_owned_.add_range(offset,
+                              offset + geometry_.lifted_points().size());
+      lifted_owned_.compress();
+      lifted_relevant_ = lifted_owned_;
+      lifted_indices_.reserve(geometry_.lifted_points().size());
+      for (std::size_t q = 0; q < geometry_.lifted_points().size(); ++q)
+        lifted_indices_.push_back(offset + q);
+    }
+
+    const SourceRepresentation &
+    source_representation() const
+    {
+      return source_;
+    }
+
+    const GeometryLiftRepresentation &
+    geometry_representation() const
+    {
+      return geometry_;
+    }
+
+    const auto &
+    lifted_points() const
+    {
+      return geometry_.lifted_points();
+    }
+
+    const dealii::IndexSet &
+    locally_owned_points() const
+    {
+      return lifted_owned_;
+    }
+
+    dealii::types::global_dof_index
+    point_index(const std::size_t local_point) const
+    {
+      AssertIndexRange(local_point, lifted_indices_.size());
+      return lifted_indices_[local_point];
+    }
+
+    const std::vector<FieldId> &
+    dependencies() const
+    {
+      return source_.dependencies();
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(
+        RepresentationDomain(0, 0, "tensor-product-expression-lift"));
+    }
+
+    value_type
+    evaluate(const EvaluationContext<state_type> &context,
+             const EvaluationRequest             &request = {}) const
+    {
+      return apply_values(source_.evaluate(context, request));
+    }
+
+    Operator
+    linearize(const EvaluationContext<state_type> &context,
+              const EvaluationRequest             &request = {}) const
+    {
+      return make_lift_operator() * source_.linearize(context, request);
+    }
+
+    Operator
+    linearize(const EvaluationContext<state_type> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      return make_lift_operator() * source_.linearize(context, field, request);
+    }
+
+  private:
+    value_type
+    apply_values(const value_type &representative) const
+    {
+      value_type result;
+      result.reinit(lifted_owned_,
+                    lifted_relevant_,
+                    geometry_.mpi_communicator());
+      for (std::size_t q = 0; q < lifted_indices_.size(); ++q)
+        {
+          const auto representative_index = source_.sampling_plan().point_index(
+            geometry_.lifted_points()[q].source_representative_qpoint);
+          result[lifted_indices_[q]] =
+            geometry_.lifted_points()[q].mode_values[0] *
+            representative[representative_index];
+        }
+      return result;
+    }
+
+    Operator
+    make_lift_operator() const
+    {
+      const auto lifted_points   = geometry_.lifted_points();
+      const auto lifted_indices  = lifted_indices_;
+      const auto lifted_owned    = lifted_owned_;
+      const auto lifted_relevant = lifted_relevant_;
+      const auto source_plan     = source_.sampling_plan();
+      const auto communicator    = geometry_.mpi_communicator();
+
+      Operator result;
+      result.reinit_range_vector =
+        [lifted_owned, lifted_relevant, communicator](value_type &vector,
+                                                      const bool  omit) {
+          vector.reinit(lifted_owned, lifted_relevant, communicator);
+          if (!omit)
+            vector = 0.;
+        };
+      result.reinit_domain_vector = [source_plan](value_type &vector,
+                                                  const bool  omit) {
+        vector.reinit(source_plan.locally_owned_points(),
+                      source_plan.locally_relevant_points(),
+                      source_plan.mpi_communicator());
+        if (!omit)
+          vector = 0.;
+      };
+      result.vmult =
+        [lifted_points, lifted_indices, source_plan](value_type &destination,
+                                                     const value_type &source) {
+          destination = 0.;
+          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
+            destination[lifted_indices[q]] =
+              lifted_points[q].mode_values[0] *
+              source[source_plan.point_index(
+                lifted_points[q].source_representative_qpoint)];
+        };
+      result.vmult_add =
+        [lifted_points, lifted_indices, source_plan](value_type &destination,
+                                                     const value_type &source) {
+          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
+            destination[lifted_indices[q]] +=
+              lifted_points[q].mode_values[0] *
+              source[source_plan.point_index(
+                lifted_points[q].source_representative_qpoint)];
+        };
+      result.Tvmult =
+        [lifted_points, lifted_indices, source_plan](value_type &destination,
+                                                     const value_type &source) {
+          destination = 0.;
+          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
+            destination[source_plan.point_index(
+              lifted_points[q].source_representative_qpoint)] +=
+              lifted_points[q].mode_values[0] * source[lifted_indices[q]];
+        };
+      result.Tvmult_add =
+        [lifted_points, lifted_indices, source_plan](value_type &destination,
+                                                     const value_type &source) {
+          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
+            destination[source_plan.point_index(
+              lifted_points[q].source_representative_qpoint)] +=
+              lifted_points[q].mode_values[0] * source[lifted_indices[q]];
+        };
+      return result;
+    }
+
+    const SourceRepresentation                  &source_;
+    const GeometryLiftRepresentation            &geometry_;
+    dealii::IndexSet                             lifted_owned_;
+    dealii::IndexSet                             lifted_relevant_;
+    std::vector<dealii::types::global_dof_index> lifted_indices_;
+  };
+
+  /** Compose a sampled expression with an existing tensor-product lift. */
+  template <typename SourceRepresentation, typename GeometryLiftRepresentation>
+  auto
+  make_tensor_product_expression_lift(
+    const SourceRepresentation       &source,
+    const GeometryLiftRepresentation &geometry)
+    -> TensorProductExpressionLiftRepresentation<SourceRepresentation,
+                                                 GeometryLiftRepresentation>
+  {
+    return TensorProductExpressionLiftRepresentation<
+      SourceRepresentation,
+      GeometryLiftRepresentation>(source, geometry);
+  }
+
   /** Construct a multi-field expression representation from expression text. */
   template <int spacedim, typename StateVectorType, typename QuantityVectorType>
   auto

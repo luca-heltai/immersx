@@ -1378,6 +1378,24 @@ namespace ImmersX
       return update_flags_;
     }
 
+    const dealii::IndexSet &
+    source_locally_owned() const
+    {
+      return source_owned_;
+    }
+
+    const dealii::IndexSet &
+    source_locally_relevant() const
+    {
+      return source_relevant_;
+    }
+
+    const dealii::AffineConstraints<double> *
+    source_constraints() const
+    {
+      return constraints_;
+    }
+
     Operator
     linearize(const StateVectorType &prototype) const
     {
