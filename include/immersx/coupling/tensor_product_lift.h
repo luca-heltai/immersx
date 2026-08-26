@@ -27,6 +27,9 @@
 
 namespace ImmersX
 {
+  template <int surface_dim, int spacedim>
+  struct TensorProductLiftPoint;
+
   namespace detail
   {
     inline std::string
@@ -40,6 +43,81 @@ namespace ImmersX
         result.insert(result.begin(), '/');
       if (result.back() != '/')
         result.push_back('/');
+      return result;
+    }
+
+    /**
+     * Build the iterated reduced-domain quadrature rule shared by the legacy
+     * TensorProductSpace and the modern tensor-product lift.
+     */
+    template <int dim>
+    dealii::Quadrature<dim>
+    make_tensor_product_quadrature(const std::string &quadrature_type,
+                                   const unsigned int n_points,
+                                   const unsigned int repetitions)
+    {
+      AssertThrow(repetitions > 0,
+                  dealii::ExcMessage(
+                    "Tensor-product quadrature repetitions must be positive."));
+      return dealii::QIterated<dim>(
+        dealii::QuadratureSelector<1>(quadrature_type, n_points), repetitions);
+    }
+
+    /**
+     * Expand one representative quadrature point into the lifted cross-section
+     * points, weights, and selected-mode values.
+     *
+     * Both the legacy TensorProductSpace and the modern TensorProductLift
+     * compute the actual lifting through this function, so the transformed
+     * cross-section quadrature, weight scaling, section measure, selected-mode
+     * lookup, and representative/section indexing are defined once.
+     */
+    template <int surface_dim, int spacedim, typename Section>
+    std::vector<TensorProductLiftPoint<surface_dim, spacedim>>
+    transform_representative_point(
+      const Section                     &section,
+      const std::vector<unsigned int>   &selected_modes,
+      const unsigned int                 n_components,
+      const dealii::Point<spacedim>     &origin,
+      const dealii::Tensor<1, spacedim> &tangent,
+      const double                       representative_weight,
+      const double                       thickness,
+      const unsigned int                 representative_qpoint,
+      const std::vector<double>         &representative_basis)
+    {
+      const auto transformed =
+        section.get_transformed_quadrature(origin, tangent, thickness);
+      std::vector<TensorProductLiftPoint<surface_dim, spacedim>> result;
+      result.reserve(transformed.size());
+      for (unsigned int section_q = 0; section_q < transformed.size();
+           ++section_q)
+        {
+          TensorProductLiftPoint<surface_dim, spacedim> point;
+          point.point                = transformed.point(section_q);
+          point.representative_point = origin;
+          point.weight = transformed.weight(section_q) * representative_weight;
+          point.representative_qpoint = representative_qpoint;
+          point.section_qpoint        = section_q;
+          point.selected_modes        = selected_modes;
+          point.mode_values.resize(section.n_selected_basis() * n_components);
+          for (unsigned int mode = 0; mode < section.n_selected_basis(); ++mode)
+            for (unsigned int component = 0; component < n_components;
+                 ++component)
+              point.mode_values[mode * n_components + component] =
+                section.shape_value(mode, section_q, component);
+
+          if (!representative_basis.empty())
+            {
+              point.tensor_product_basis_values.resize(
+                representative_basis.size() * point.mode_values.size());
+              unsigned int index = 0;
+              for (const auto mode_value : point.mode_values)
+                for (const auto representative_value : representative_basis)
+                  point.tensor_product_basis_values[index++] =
+                    representative_value * mode_value;
+            }
+          result.emplace_back(std::move(point));
+        }
       return result;
     }
   } // namespace detail
@@ -202,41 +280,16 @@ namespace ImmersX
               const unsigned int                 representative_qpoint,
               const std::vector<double> &representative_basis = {}) const
     {
-      const auto transformed =
-        section_->get_transformed_quadrature(origin, tangent, thickness);
-      std::vector<Point> result;
-      result.reserve(transformed.size());
-      for (unsigned int section_q = 0; section_q < transformed.size();
-           ++section_q)
-        {
-          Point point;
-          point.point                = transformed.point(section_q);
-          point.representative_point = origin;
-          point.weight = transformed.weight(section_q) * representative_weight;
-          point.representative_qpoint = representative_qpoint;
-          point.section_qpoint        = section_q;
-          point.selected_modes = parameters_.section.selected_coefficients;
-          point.mode_values.resize(section_->n_selected_basis() * n_components);
-          for (unsigned int mode = 0; mode < section_->n_selected_basis();
-               ++mode)
-            for (unsigned int component = 0; component < n_components;
-                 ++component)
-              point.mode_values[mode * n_components + component] =
-                section_->shape_value(mode, section_q, component);
-
-          if (!representative_basis.empty())
-            {
-              point.tensor_product_basis_values.resize(
-                representative_basis.size() * point.mode_values.size());
-              unsigned int index = 0;
-              for (const auto mode_value : point.mode_values)
-                for (const auto representative_value : representative_basis)
-                  point.tensor_product_basis_values[index++] =
-                    representative_value * mode_value;
-            }
-          result.emplace_back(std::move(point));
-        }
-      return result;
+      return detail::transform_representative_point<surface_dim, spacedim>(
+        *section_,
+        parameters_.section.selected_coefficients,
+        n_components,
+        origin,
+        tangent,
+        representative_weight,
+        thickness,
+        representative_qpoint,
+        representative_basis);
     }
 
     /** Apply the common reference-section transformation to legacy users. */
@@ -290,9 +343,9 @@ namespace ImmersX
         parameters_.representative_n_q_points == 0 ?
           2 * parameters_.section.inclusion_degree + 1 :
           parameters_.representative_n_q_points;
-      return dealii::QIterated<reduced_dim>(
-        dealii::QuadratureSelector<1>(
-          parameters_.representative_quadrature_type, n_points),
+      return detail::make_tensor_product_quadrature<reduced_dim>(
+        parameters_.representative_quadrature_type,
+        n_points,
         parameters_.representative_n_repetitions);
     }
 
