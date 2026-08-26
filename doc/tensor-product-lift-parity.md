@@ -26,12 +26,16 @@ replaceable. Rows are marked `parity verified`, `partial`, or `unsupported`.
 | Constant thickness | Numeric `Thickness` | Numeric `Thickness` | parity verified |
 | Symbolic thickness | Imported reduced-grid field expressions (`Thickness = radius`, time-dependent expressions) through `SymbolicFieldEvaluator` | Source-side `evaluate_thickness(point, time, properties)` provider seam; clear error when no provider is installed | partial |
 | Imported fields | VTK/legacy input with `FieldCatalog`, `InputFieldBinding`, property interpolation | Not supported by design: the lift never reads VTK and never stores imported fields; sources resolve their own properties | unsupported |
-| Distributed source ownership | Repartitioned fully distributed reduced mesh | Source representation owns the distributed mesh; transpose compression is distributed-correct | partial (serial parity tests only) |
+| Distributed source ownership | Repartitioned fully distributed reduced mesh | Source representation owns the distributed mesh; lifted points retain global source identity and source stencils | parity verified |
 | 0D source | Point-cloud / particle representative domains | `TensorProductLiftSupport` accepts `reduced_dim == 0` but the modern path has no 0D test or application yet | partial |
 | 1D source | VTK line input (`one_cylinder.vtk`, `mstree_*.vtk`) | Source FE representation on the same 1D embedded line | parity verified |
 | Scalar values | Scalar `n_components == 1` | Scalar `n_components == 1` | parity verified |
 | Vector values | `n_components > 1` supported | `n_components` parameter exists; no multi-component test on the modern path | partial |
-| ParticleCoupling | `ParticleCoupling` search/transfer machinery | Representation-driven lifted quadrature; no particle-based output parity test | partial |
+| ParticleCoupling target redistribution | `ParticleCoupling` search/transfer machinery | `DistributedLiftedQuadrature` inserts source-owned lifted points into a target `ParticleHandler`, which supplies target cells and reference coordinates | parity verified |
+| Cross-partition point ownership | Existing particle-based coupling | Source and target partitions are independent; the MPI test deliberately sends each rank's point to the other rank | parity verified |
+| Source-stencil exchange | `TensorProductSpace::update_local_dof_indices()` exchanges only required representative data | `DistributedLiftedQuadrature` uses the particle insertion map and targeted `some_to_some()` exchanges for lifted source stencils | parity verified |
+| Distributed mode-0 coupling | `ReducedCoupling` particle assembly | Modern traction coupling uses target-owned particles and routed lifted values | parity verified |
+| Distributed multi-mode coupling | `ReducedCoupling` modal assembly | Lifted modal source stencils are retained; a distributed modal coupling parity test remains to be added | partial |
 | Coupling matrix | `ReducedCoupling::assemble_coupling_matrix` | Direct assembly from `locally_owned_quadrature_points` of the modal lift | parity verified (single and multi-mode action and transpose-action) |
 | Mass matrix | `ReducedCoupling::assemble_coupling_mass_matrix` | No equivalent on the modern path | unsupported |
 | Reduced RHS | `ReducedCoupling::assemble_reduced_rhs` | No equivalent on the modern path | unsupported |
@@ -75,12 +79,32 @@ them:
 A lifted physical observable never fabricates new Field storage: CASE B
 requires the owning multiplier Field to provide the modal coefficient space.
 
+## Distributed lifted coupling architecture
+
+The lift is target-independent. It creates physical quadrature points and
+weights according to the source representation's ownership, while retaining a
+stable point id and the source DoF/basis stencil needed to evaluate the source
+quantity. It does not know the target mesh.
+
+`ParticleCoupling` (through `DistributedLiftedQuadrature`) maps those physical
+points to the target mesh. `ParticleHandler` performs distributed point
+redistribution and supplies each target-owned particle's surrounding cell and
+reference location. The source stencil is exchanged only to ranks that own a
+received particle.
+
+The coupling operator performs the weak-form pairing. Its forward action routes
+lifted source values to target-owning ranks, and its transpose routes target
+contributions back to source-owning ranks. Source and target mesh partitions are
+therefore independent.
+
 ## Known gaps before ReducedPoisson migration
 
 - Symbolic thickness on the modern path requires a source that owns the
   referenced properties; the app-level Poisson source does not currently
   expose such properties.
 - The modern path has no mass-matrix or reduced-RHS assembly yet.
-- Distributed multi-rank parity tests for the modal path are not yet present.
+- Distributed multi-rank parity tests for the modal path are not yet present;
+  the current cross-partition test covers the mode-0 source-stencil and value
+  exchange path.
 - `ReducedPoisson` and the legacy `Elasticity` tensor-product coupling have not
   been migrated; `TensorProductSpace` remains the reference implementation.
