@@ -25,6 +25,7 @@
 #include <immersx/core/lifting.h>
 #include <immersx/core/load_interaction.h>
 #include <immersx/core/problem_handle.h>
+#include <immersx/coupling/particle_coupling.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/poisson_residual.h>
 
@@ -254,10 +255,12 @@ namespace CoupledPoissonElasticity
             for (const auto q : fe_values.quadrature_point_indices())
               {
                 QuadraturePoint point;
-                point.point       = fe_values.quadrature_point(q);
-                point.tangent     = cell->vertex(1) - cell->vertex(0);
-                point.weight      = fe_values.JxW(q);
-                point.dof_indices = dof_indices;
+                point.point                 = fe_values.quadrature_point(q);
+                point.tangent               = cell->vertex(1) - cell->vertex(0);
+                point.weight                = fe_values.JxW(q);
+                point.source_entity_id      = cell->global_active_cell_index();
+                point.representative_qpoint = q;
+                point.dof_indices           = dof_indices;
                 point.basis_values.resize(n_dofs_per_cell());
                 for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
                   point.basis_values[i] = fe_values[extractor()].value(i, q);
@@ -525,55 +528,61 @@ namespace CoupledPoissonElasticity
     using Operator =
       dealii::LinearOperator<ElasticVector, dealii::Vector<double>>;
 
-    const auto &problem        = traction.problem();
-    const auto &surface_points = quantity.lifted_points();
-    const auto &dof_handler    = problem.dof_handler();
-    const auto &finite_element = dof_handler.get_fe();
-    const auto &owned_dofs     = problem.locally_owned_dofs();
+    const auto                &problem        = traction.problem();
+    const auto                &dof_handler    = problem.dof_handler();
+    const auto                &finite_element = dof_handler.get_fe();
+    const auto                &owned_dofs     = problem.locally_owned_dofs();
+    const dealii::MappingQ1<3> mapping;
 
-    std::vector<std::vector<std::pair<dealii::types::global_dof_index, double>>>
-                                             entries(surface_points.size());
-    const dealii::MappingQ1<3>               mapping;
+    const auto source_points = quantity.locally_owned_quadrature_points(
+      dealii::Quadrature<Quantity::support_dimension>());
+    static const ImmersX::ParticleCouplingParameters<3> particle_parameters(
+      "/Coupled Poisson elasticity particle coupling/");
+    auto distribution =
+      std::make_shared<ImmersX::DistributedLiftedQuadrature<3>>(
+        particle_parameters);
+    distribution->initialize(problem.triangulation(), mapping, source_points);
+
+    using Entry  = std::pair<dealii::types::global_dof_index, double>;
+    auto entries = std::make_shared<
+      std::map<dealii::types::particle_index, std::vector<Entry>>>();
     const dealii::FEValuesExtractors::Vector displacement(0);
-
-    for (unsigned int q = 0; q < surface_points.size(); ++q)
+    for (const auto &particle :
+         distribution->particle_coupling().get_particles())
       {
-        const auto cell_and_unit_point =
-          dealii::GridTools::find_active_cell_around_point(
-            mapping, dof_handler, surface_points[q].point);
-        const auto &cell = cell_and_unit_point.first;
-        if (cell == dof_handler.end())
-          continue;
-
-        const std::vector<dealii::Point<3>> unit_points{
-          cell_and_unit_point.second};
-        const dealii::Quadrature<3> point_quadrature(unit_points);
-        dealii::FEValues<3>         fe_values(mapping,
+        const auto &cell = particle.get_surrounding_cell();
+        const typename dealii::DoFHandler<3>::cell_iterator dh_cell(
+          *cell, &dof_handler);
+        std::vector<dealii::types::global_dof_index> dof_indices(
+          finite_element.n_dofs_per_cell());
+        dh_cell->get_dof_indices(dof_indices);
+        const dealii::Quadrature<3> point_quadrature(
+          std::vector<dealii::Point<3>>{particle.get_reference_location()});
+        dealii::FEValues<3> fe_values(mapping,
                                       finite_element,
                                       point_quadrature,
                                       dealii::update_values);
-        fe_values.reinit(cell);
-
-        std::vector<dealii::types::global_dof_index> dof_indices(
-          finite_element.n_dofs_per_cell());
-        cell->get_dof_indices(dof_indices);
+        fe_values.reinit(dh_cell);
+        const auto &stencil = distribution->stencil(particle.get_id());
+        const auto  offset =
+          particle.get_location() - stencil.representative_point;
+        const auto normal = offset / offset.norm();
         for (unsigned int i = 0; i < dof_indices.size(); ++i)
           if (owned_dofs.is_element(dof_indices[i]))
             {
-              const auto normal = (surface_points[q].point -
-                                   surface_points[q].representative_point) /
-                                  (surface_points[q].point -
-                                   surface_points[q].representative_point)
-                                    .norm();
-              entries[q].emplace_back(dof_indices[i],
-                                      surface_points[q].weight *
-                                        (normal *
-                                         fe_values[displacement].value(i, 0)));
+              const auto component =
+                finite_element.system_to_component_index(i).first;
+              (*entries)[particle.get_id()].emplace_back(
+                dof_indices[i],
+                stencil.physical_weight *
+                  (component < 3 ?
+                     (normal * fe_values[displacement].value(i, 0)) :
+                     0.));
             }
       }
 
     const auto *prototype = &problem.solution();
-    const auto  n_points  = surface_points.size();
+    const auto  n_points  = source_points.size();
 
     Operator result;
     result.reinit_range_vector = [prototype](ElasticVector &vector,
@@ -586,31 +595,40 @@ namespace CoupledPoissonElasticity
       if (!omit)
         vector = 0.;
     };
-    result.vmult = [entries](ElasticVector                &destination,
-                             const dealii::Vector<double> &source) {
+    result.vmult = [entries,
+                    distribution](ElasticVector                &destination,
+                                  const dealii::Vector<double> &source) {
+      const auto values = distribution->values_on_target(source);
+      destination       = 0.;
+      for (const auto &[id, point_entries] : *entries)
+        for (const auto &[row, value] : point_entries)
+          destination[row] += value * values.at(id);
+    };
+    result.vmult_add = [entries,
+                        distribution](ElasticVector                &destination,
+                                      const dealii::Vector<double> &source) {
+      const auto values = distribution->values_on_target(source);
+      for (const auto &[id, point_entries] : *entries)
+        for (const auto &[row, value] : point_entries)
+          destination[row] += value * values.at(id);
+    };
+    result.Tvmult = [entries, distribution](dealii::Vector<double> &destination,
+                                            const ElasticVector    &source) {
+      std::map<dealii::types::particle_index, double> values;
+      for (const auto &[id, point_entries] : *entries)
+        for (const auto &[row, value] : point_entries)
+          values[id] += value * source[row];
       destination = 0.;
-      for (unsigned int q = 0; q < entries.size(); ++q)
-        for (const auto &[row, value] : entries[q])
-          destination[row] += value * source[q];
+      distribution->add_transpose_to_source(values, destination);
     };
-    result.vmult_add = [entries](ElasticVector                &destination,
-                                 const dealii::Vector<double> &source) {
-      for (unsigned int q = 0; q < entries.size(); ++q)
-        for (const auto &[row, value] : entries[q])
-          destination[row] += value * source[q];
-    };
-    result.Tvmult = [entries](dealii::Vector<double> &destination,
-                              const ElasticVector    &source) {
-      destination = 0.;
-      for (unsigned int q = 0; q < entries.size(); ++q)
-        for (const auto &[row, value] : entries[q])
-          destination[q] += value * source[row];
-    };
-    result.Tvmult_add = [entries](dealii::Vector<double> &destination,
-                                  const ElasticVector    &source) {
-      for (unsigned int q = 0; q < entries.size(); ++q)
-        for (const auto &[row, value] : entries[q])
-          destination[q] += value * source[row];
+    result.Tvmult_add = [entries,
+                         distribution](dealii::Vector<double> &destination,
+                                       const ElasticVector    &source) {
+      std::map<dealii::types::particle_index, double> values;
+      for (const auto &[id, point_entries] : *entries)
+        for (const auto &[row, value] : point_entries)
+          values[id] += value * source[row];
+      distribution->add_transpose_to_source(values, destination);
     };
     return result;
   }

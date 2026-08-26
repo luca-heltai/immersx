@@ -30,6 +30,8 @@
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
 
+#include <cstdint>
+
 #include "coupled_poisson_elasticity.h"
 #include "test_paths.h"
 
@@ -360,6 +362,18 @@ TEST(TensorProductLiftParity, Mode0SingleLineCell) // NOLINT
                 q / old_section.n_quadrature_points());
       EXPECT_EQ(lifted_points[q].section_qpoint,
                 q % old_section.n_quadrature_points());
+      const auto representative_qpoint = q / old_section.n_quadrature_points();
+      EXPECT_EQ(lifted_points[q].source_entity_id,
+                source_points[representative_qpoint].source_entity_id);
+      EXPECT_EQ(lifted_points[q].stable_id,
+                static_cast<std::uint64_t>(lifted_points[q].source_entity_id) *
+                    source_points.size() * old_section.n_quadrature_points() +
+                  representative_qpoint * old_section.n_quadrature_points() +
+                  q % old_section.n_quadrature_points());
+      EXPECT_EQ(lifted_points[q].source_dof_indices,
+                source_points[representative_qpoint].dof_indices);
+      EXPECT_EQ(lifted_points[q].source_basis_values,
+                source_points[representative_qpoint].basis_values);
       old_total_measure += old_weights[q][0];
       new_total_measure += lifted_points[q].weight;
     }

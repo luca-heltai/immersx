@@ -39,6 +39,8 @@
 #include <immersx/coupling/tensor_product_lift.h>
 #include <immersx/coupling/tensor_product_space.h>
 
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -546,9 +548,19 @@ namespace ImmersX
   {
     using value_type = ValueType;
 
-    dealii::Point<spacedim>                      point;
-    dealii::Tensor<1, spacedim>                  tangent;
-    double                                       weight = 0.;
+    dealii::Point<spacedim>     point;
+    dealii::Point<spacedim>     representative_point;
+    dealii::Tensor<1, spacedim> tangent;
+    double                      weight = 0.;
+    /** Stable source entity identity, when the source has geometric cells. */
+    dealii::types::global_cell_index source_entity_id =
+      dealii::numbers::invalid_unsigned_int;
+    /** Quadrature slot on the source representative entity. */
+    unsigned int representative_qpoint = dealii::numbers::invalid_unsigned_int;
+    /** Quadrature slot on a lifted cross-section. */
+    unsigned int section_qpoint = dealii::numbers::invalid_unsigned_int;
+    /** Stable identity used when this point is redistributed. */
+    std::uint64_t stable_id = std::numeric_limits<std::uint64_t>::max();
     std::vector<dealii::types::global_dof_index> dof_indices;
     std::vector<ValueType>                       basis_values;
   };
@@ -808,7 +820,9 @@ namespace ImmersX
             for (const auto q : fe_values.quadrature_point_indices())
               {
                 QuadraturePoint point;
-                point.point = fe_values.quadrature_point(q);
+                point.point                 = fe_values.quadrature_point(q);
+                point.source_entity_id      = cell->global_active_cell_index();
+                point.representative_qpoint = q;
                 if constexpr (dim == 1)
                   point.tangent = cell->vertex(1) - cell->vertex(0);
                 else if constexpr (dim > 1 && dim < spacedim)
@@ -1109,8 +1123,13 @@ namespace ImmersX
                                 "physical weight."));
 
                   QuadraturePoint point;
-                  point.point       = lifted_points[point_index];
-                  point.weight      = lifted_weights[point_index][0];
+                  point.point            = lifted_points[point_index];
+                  point.weight           = lifted_weights[point_index][0];
+                  point.source_entity_id = cell->global_active_cell_index();
+                  point.representative_qpoint = q;
+                  point.section_qpoint        = section_q;
+                  if constexpr (reduced_dim == 1)
+                    point.tangent = cell->vertex(1) - cell->vertex(0);
                   point.dof_indices = dof_indices;
                   point.basis_values.resize(n_dofs_per_cell());
                   for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
@@ -1372,83 +1391,64 @@ namespace ImmersX
       const unsigned int n_modes =
         support_.reference_cross_section().n_selected_basis() * n_components;
 
-      const auto source_points = source_.locally_owned_quadrature_points(
-        support_.representative_quadrature());
-      AssertDimension(source_points.size() * support_.reference_cross_section()
-                                               .n_quadrature_points(),
-                      lifted_points_.size());
-
-      std::size_t lifted_index = 0;
-      for (const auto &source_point : source_points)
+      for (const auto &lifted : lifted_points_)
         {
-          const auto transformed =
-            support_.transform(source_point.point,
-                               source_point.tangent,
-                               source_point.weight,
-                               support_.thickness(),
-                               static_cast<unsigned int>(&source_point -
-                                                         source_points.data()));
-          for (const auto &lifted : transformed)
+          QuadraturePoint point;
+          point.point                 = lifted.point;
+          point.representative_point  = lifted.representative_point;
+          point.weight                = lifted.weight;
+          point.source_entity_id      = lifted.source_entity_id;
+          point.representative_qpoint = lifted.source_representative_qpoint;
+          point.section_qpoint        = lifted.section_qpoint;
+          point.stable_id             = lifted.stable_id;
+          point.dof_indices.reserve(lifted.source_dof_indices.size());
+          point.basis_values.reserve(lifted.source_dof_indices.size());
+
+          if (modal_)
             {
-              QuadraturePoint point;
-              point.point  = lifted.point;
-              point.weight = lifted.weight;
-              point.dof_indices.reserve(source_point.dof_indices.size() *
-                                        n_modes);
-              point.basis_values.reserve(source_point.dof_indices.size() *
-                                         n_modes);
-              if (modal_)
-                {
-                  // The source slots follow the deal.II FESystem layout:
-                  // (local DoF, component) with the component varying
-                  // fastest. For a scalar modal source the component is the
-                  // selected mode. Each slot keeps its own algebraic index,
-                  // so different modes are independent unknowns.
-                  const unsigned int n_slots =
-                    static_cast<unsigned int>(source_point.dof_indices.size());
-                  AssertThrow(
-                    n_slots % n_modes == 0,
-                    dealii::ExcMessage(
-                      "A modal tensor-product lift requires the source "
-                      "representation to expose one algebraic slot per "
-                      "(local DoF, mode) in deal.II FESystem order (mode "
-                      "varying fastest)."));
-                  const unsigned int n_scalar_dofs = n_slots / n_modes;
-                  for (unsigned int i = 0; i < n_scalar_dofs; ++i)
-                    for (unsigned int mode = 0; mode < n_modes; ++mode)
-                      {
-                        const unsigned int slot = i * n_modes + mode;
-                        point.dof_indices.push_back(
-                          source_point.dof_indices[slot]);
-                        point.basis_values.push_back(
-                          source_point.basis_values[slot] *
-                          lifted.mode_values[mode]);
-                      }
-                }
-              else
-                {
-                  // CASE A: one physical coefficient set. A scalar source
-                  // field cannot silently become n_modes independent unknowns.
-                  AssertThrow(
-                    n_modes == 1,
-                    dealii::ExcMessage(
-                      "A physical (non-modal) tensor-product lift supports "
-                      "only mode 0; selected modes beyond 0 require a modal "
-                      "source representation that owns one coefficient per "
-                      "(representative DoF, mode)."));
-                  for (unsigned int i = 0; i < source_point.dof_indices.size();
-                       ++i)
-                    {
-                      point.dof_indices.push_back(source_point.dof_indices[i]);
-                      point.basis_values.push_back(
-                        source_point.basis_values[i] * lifted.mode_values[0]);
-                    }
-                }
-              result.emplace_back(std::move(point));
-              ++lifted_index;
+              // The source slots follow the deal.II FESystem layout:
+              // (local DoF, component) with the component varying fastest.
+              const unsigned int n_slots =
+                static_cast<unsigned int>(lifted.source_dof_indices.size());
+              AssertThrow(n_slots % n_modes == 0,
+                          dealii::ExcMessage(
+                            "A modal tensor-product lift requires the source "
+                            "representation to expose one algebraic slot per "
+                            "(local DoF, mode) in deal.II FESystem order (mode "
+                            "varying fastest)."));
+              const unsigned int n_scalar_dofs = n_slots / n_modes;
+              for (unsigned int i = 0; i < n_scalar_dofs; ++i)
+                for (unsigned int mode = 0; mode < n_modes; ++mode)
+                  {
+                    const unsigned int slot = i * n_modes + mode;
+                    point.dof_indices.push_back(
+                      lifted.source_dof_indices[slot]);
+                    point.basis_values.push_back(
+                      lifted.source_basis_values[slot] *
+                      lifted.mode_values[mode]);
+                  }
             }
+          else
+            {
+              // CASE A: one physical coefficient set. A scalar source field
+              // cannot silently become n_modes independent unknowns.
+              AssertThrow(
+                n_modes == 1,
+                dealii::ExcMessage(
+                  "A physical (non-modal) tensor-product lift supports "
+                  "only mode 0; selected modes beyond 0 require a modal "
+                  "source representation that owns one coefficient per "
+                  "(representative DoF, mode)."));
+              for (unsigned int i = 0; i < lifted.source_dof_indices.size();
+                   ++i)
+                {
+                  point.dof_indices.push_back(lifted.source_dof_indices[i]);
+                  point.basis_values.push_back(lifted.source_basis_values[i] *
+                                               lifted.mode_values[0]);
+                }
+            }
+          result.emplace_back(std::move(point));
         }
-      AssertDimension(lifted_index, lifted_points_.size());
       return result;
     }
 
@@ -1591,7 +1591,41 @@ namespace ImmersX
                                support_.thickness(source_points[q].point, 0.),
                                q,
                                {});
-          result.insert(result.end(), transformed.begin(), transformed.end());
+          for (unsigned int section_q = 0; section_q < transformed.size();
+               ++section_q)
+            {
+              auto point             = transformed[section_q];
+              point.source_entity_id = source_points[q].source_entity_id;
+              point.source_representative_qpoint =
+                source_points[q].representative_qpoint ==
+                    dealii::numbers::invalid_unsigned_int ?
+                  q :
+                  source_points[q].representative_qpoint;
+              point.section_qpoint = section_q;
+              point.source_dof_indices.assign(
+                source_points[q].dof_indices.begin(),
+                source_points[q].dof_indices.end());
+              point.source_basis_values.assign(
+                source_points[q].basis_values.begin(),
+                source_points[q].basis_values.end());
+
+              const auto n_representative_qpoints =
+                support_.representative_quadrature().size();
+              const auto n_section_qpoints =
+                support_.reference_cross_section().n_quadrature_points();
+              if (point.source_entity_id !=
+                  dealii::numbers::invalid_unsigned_int)
+                point.stable_id =
+                  static_cast<std::uint64_t>(point.source_entity_id) *
+                    n_representative_qpoints * n_section_qpoints +
+                  point.source_representative_qpoint * n_section_qpoints +
+                  section_q;
+              else if (source_points[q].stable_id !=
+                       std::numeric_limits<std::uint64_t>::max())
+                point.stable_id =
+                  source_points[q].stable_id * n_section_qpoints + section_q;
+              result.emplace_back(std::move(point));
+            }
         }
       return result;
     }
