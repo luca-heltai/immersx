@@ -35,7 +35,7 @@ replaceable. Rows are marked `parity verified`, `partial`, or `unsupported`.
 | Cross-partition point ownership | Existing particle-based coupling | Source and target partitions are independent; the MPI test deliberately sends each rank's point to the other rank | parity verified |
 | Source-stencil exchange | `TensorProductSpace::update_local_dof_indices()` exchanges only required representative data | `DistributedLiftedQuadrature` uses the particle insertion map and targeted `some_to_some()` exchanges for lifted source stencils | parity verified |
 | Distributed mode-0 coupling | `ReducedCoupling` particle assembly | Modern traction coupling uses target-owned particles and routed lifted values | parity verified |
-| Distributed multi-mode coupling | `ReducedCoupling` modal assembly | Lifted modal source stencils are retained; a distributed modal coupling parity test remains to be added | partial |
+| Distributed multi-mode coupling | `ReducedCoupling` modal assembly | Lifted modal source stencils are retained and transferred across independent source/target partitions | parity verified |
 | Coupling matrix | `ReducedCoupling::assemble_coupling_matrix` | Direct assembly from `locally_owned_quadrature_points` of the modal lift | parity verified (single and multi-mode action and transpose-action) |
 | Mass matrix | `ReducedCoupling::assemble_coupling_mass_matrix` | No equivalent on the modern path | unsupported |
 | Reduced RHS | `ReducedCoupling::assemble_reduced_rhs` | No equivalent on the modern path | unsupported |
@@ -55,6 +55,9 @@ The following GoogleTests pin the current parity:
   `TensorProductLiftParity.ReducedCouplingActionMultiMode` — the legacy
   `ReducedCoupling` matrix and the modern modal-path coupling matrix have the
   same action `C x` and transpose-action `C^T y`.
+- `TensorProductLiftParity.MPI_DistributedMultiModeCrossPartition` — two-rank
+  modal action and transpose-action parity with source points deliberately
+  migrated between independently owned target cells.
 - `PressureRepresentation.PointEvaluationDuality` and
   `PressureRepresentation.MPI_PointEvaluationDuality` — the FE point
   evaluation is an exact adjoint pair, including the additive variants.
@@ -97,14 +100,19 @@ lifted source values to target-owning ranks, and its transpose routes target
 contributions back to source-owning ranks. Source and target mesh partitions are
 therefore independent.
 
+The modern path evaluates source values from the retained FE stencils and uses
+the `ParticleHandler` particle's surrounding target cell and reference
+location. It does not perform a fresh `GridTools::find_active_cell_around_point`
+search during lift evaluation or coupling application.
+
 ## Known gaps before ReducedPoisson migration
 
 - Symbolic thickness on the modern path requires a source that owns the
   referenced properties; the app-level Poisson source does not currently
   expose such properties.
 - The modern path has no mass-matrix or reduced-RHS assembly yet.
-- Distributed multi-rank parity tests for the modal path are not yet present;
-  the current cross-partition test covers the mode-0 source-stencil and value
-  exchange path.
+- The distributed modal parity gate currently covers scalar two-mode sources;
+  vector-valued modes, zero-dimensional sources, and symbolic thickness remain
+  separate follow-up cases.
 - `ReducedPoisson` and the legacy `Elasticity` tensor-product coupling have not
   been migrated; `TensorProductSpace` remains the reference implementation.
