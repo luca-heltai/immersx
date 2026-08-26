@@ -58,9 +58,10 @@ The following GoogleTests pin the current parity:
 - `TensorProductLiftParity.MPI_DistributedMultiModeCrossPartition` — two-rank
   modal action and transpose-action parity with source points deliberately
   migrated between independently owned target cells.
-- `PressureRepresentation.PointEvaluationDuality` and
-  `PressureRepresentation.MPI_PointEvaluationDuality` — the FE point
-  evaluation is an exact adjoint pair, including the additive variants.
+- `DeferredPressureExpression.PointEvaluationDuality` and
+  `DeferredPressureExpression.MPI_PointEvaluationDuality` — the deferred FE
+  expression point evaluation is an exact adjoint pair, including the
+  additive variants.
 
 ## Physical versus modal lifting semantics
 

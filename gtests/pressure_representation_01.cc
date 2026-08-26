@@ -111,15 +111,26 @@ namespace
                                                           state_view,
                                                           nullptr);
 
-    const double                                     factor = 2.;
-    CoupledPoissonElasticity::PressureRepresentation pressure(pressure_field,
-                                                              problem,
-                                                              factor);
+    const double                            factor = 2.;
+    const FiniteElementRepresentation<1, 3> source_representation(
+      problem.triangulation(),
+      problem.dof_handler(),
+      problem.locally_owned_dofs(),
+      problem.locally_relevant_dofs(),
+      problem.constraints());
+    const auto pressure = make_fe_expression(source_representation,
+                                             {value(pressure_field, "A")},
+                                             "factor*A",
+                                             {{"factor", factor}});
 
-    // The lift uses the source FE stencils retained by the representation;
-    // no physical point-location or FE reconstruction is needed here.
+    // Sampling is deferred until the tensor-product lift supplies its
+    // representative quadrature.
     const auto quantity = pressure.lift(lift);
     ASSERT_FALSE(quantity.lifted_points().empty());
+    EXPECT_EQ(quantity.source_representation().quantity_space().domain(),
+              (RepresentationDomain(1, 3, "retained-fe-sampling")));
+    EXPECT_EQ(quantity.quantity_space().domain(),
+              (RepresentationDomain(2, 3, "tensor-product-lift")));
     const auto A = quantity.linearize(context);
 
     // Deterministic coefficient and point-value vectors.
@@ -129,11 +140,15 @@ namespace
       x[index] = std::sin(1. + 0.7 * static_cast<double>(index)) +
                  0.5 * static_cast<double>(index);
 
-    dealii::Vector<double> y(quantity.lifted_points().size());
-    for (unsigned int j = 0; j < y.size(); ++j)
-      y[j] = 0.3 * static_cast<double>(j) + 1.;
+    using QuantityVector = typename decltype(quantity)::value_type;
+    QuantityVector y;
+    y.reinit(quantity.locally_owned_points(),
+             quantity.locally_relevant_points(),
+             MPI_COMM_WORLD);
+    for (const auto index : quantity.locally_owned_points())
+      y[index] = 0.3 * static_cast<double>(index) + 1.;
 
-    dealii::Vector<double> Ax;
+    QuantityVector Ax;
     A.reinit_range_vector(Ax, false);
     A.vmult(Ax, x);
 
@@ -142,8 +157,8 @@ namespace
     A.Tvmult(ATy, y);
 
     double forward_local = 0.;
-    for (unsigned int j = 0; j < quantity.lifted_points().size(); ++j)
-      forward_local += Ax[j] * y[j];
+    for (const auto index : quantity.locally_owned_points())
+      forward_local += Ax[index] * y[index];
     const double inner_forward =
       Utilities::MPI::sum(forward_local, MPI_COMM_WORLD);
     const double inner_transpose = owned_dot(x, ATy);
@@ -153,12 +168,17 @@ namespace
       << "Forward and transpose point evaluations are not adjoint.";
 
     // Additive variants must agree with the non-additive ones.
-    dealii::Vector<double> Ax_add(quantity.lifted_points().size());
+    QuantityVector Ax_add;
+    Ax_add.reinit(quantity.locally_owned_points(),
+                  quantity.locally_relevant_points(),
+                  MPI_COMM_WORLD);
     Ax_add = 0.;
     A.vmult_add(Ax_add, x);
-    for (unsigned int j = 0; j < quantity.lifted_points().size(); ++j)
-      EXPECT_NEAR(Ax_add[j], Ax[j], 1.e-12 * std::max(1., std::abs(Ax[j])))
-        << "vmult_add disagrees at point " << j;
+    for (const auto index : quantity.locally_owned_points())
+      EXPECT_NEAR(Ax_add[index],
+                  Ax[index],
+                  1.e-12 * std::max(1., std::abs(Ax[index])))
+        << "vmult_add disagrees at point " << index;
 
     StateVector ATy_add;
     A.reinit_domain_vector(ATy_add, false);
@@ -173,13 +193,13 @@ namespace
 } // namespace
 
 
-TEST(PressureRepresentation, PointEvaluationDuality) // NOLINT
+TEST(DeferredPressureExpression, PointEvaluationDuality) // NOLINT
 {
   check_pressure_duality(2, 2);
 }
 
 
-TEST(PressureRepresentation, MPI_PointEvaluationDuality) // NOLINT
+TEST(DeferredPressureExpression, MPI_PointEvaluationDuality) // NOLINT
 {
   // Refined enough that every rank owns cells in a two-rank run.
   check_pressure_duality(2, 3);
