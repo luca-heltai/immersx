@@ -32,6 +32,16 @@
 #include <deal.II/particles/particle_handler.h>
 #include <deal.II/particles/utilities.h>
 
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/vector.hpp>
+
+#include <immersx/core/representation.h>
+
+#include <cstdint>
+#include <limits>
+#include <map>
+#include <vector>
+
 using namespace dealii;
 
 
@@ -129,8 +139,9 @@ namespace ImmersX
      * where the local qpoints ended up being locate w.r.t. the background grid.
      */
     std::map<unsigned int, IndexSet>
-    insert_points(const std::vector<Point<dim>>          &points,
-                  const std::vector<std::vector<double>> &properties = {});
+    insert_points(const std::vector<Point<dim>>            &points,
+                  const std::vector<std::vector<double>>   &properties = {},
+                  const std::vector<types::particle_index> &ids        = {});
 
   protected:
     /**
@@ -166,6 +177,217 @@ namespace ImmersX
      * @brief Handler for managing particles in the simulation.
      */
     Particles::ParticleHandler<dim> particles;
+  };
+
+
+  namespace detail
+  {
+    /** Source-side data retained for one redistributed lifted point. */
+    template <int spacedim>
+    struct LiftedSourceStencil
+    {
+      types::particle_index stable_id =
+        std::numeric_limits<types::particle_index>::max();
+      types::global_cell_index source_entity_id = numbers::invalid_unsigned_int;
+      unsigned int    representative_qpoint     = numbers::invalid_unsigned_int;
+      unsigned int    section_qpoint            = numbers::invalid_unsigned_int;
+      Point<spacedim> representative_point;
+      double          physical_weight    = 0.;
+      unsigned int    source_rank        = numbers::invalid_unsigned_int;
+      std::size_t     source_local_index = 0;
+      std::vector<types::global_dof_index> source_dof_indices;
+      std::vector<double>                  source_basis_values;
+
+      template <class Archive>
+      void
+      serialize(Archive &archive, const unsigned int)
+      {
+        archive &stable_id;
+        archive &source_entity_id;
+        archive &representative_qpoint;
+        archive &section_qpoint;
+        for (unsigned int d = 0; d < spacedim; ++d)
+          archive &representative_point[d];
+        archive &physical_weight;
+        archive &source_rank;
+        archive &source_local_index;
+        archive &source_dof_indices;
+        archive &source_basis_values;
+      }
+    };
+  } // namespace detail
+
+
+  /**
+   * Redistribute source-owned lifted quadrature to a target mesh.
+   *
+   * Particle ids are the stable lifted-point ids. The source stencil is sent
+   * only to ranks that receive one of the source points; no source vector or
+   * global stencil table is replicated.
+   */
+  template <int spacedim>
+  class DistributedLiftedQuadrature
+  {
+  public:
+    using Point   = RepresentationQuadraturePoint<spacedim, double>;
+    using Stencil = detail::LiftedSourceStencil<spacedim>;
+
+    explicit DistributedLiftedQuadrature(
+      const ParticleCouplingParameters<spacedim> &parameters)
+      : particle_coupling_(parameters)
+    {}
+
+    void
+    initialize(const parallel::TriangulationBase<spacedim> &target_tria,
+               const Mapping<spacedim>                     &target_mapping,
+               const std::vector<Point>                    &source_points)
+    {
+      communicator_ = target_tria.get_mpi_communicator();
+      source_ids_by_target_.clear();
+      std::vector<dealii::Point<spacedim>> positions;
+      std::vector<types::particle_index>   ids;
+      source_stencils_.clear();
+      positions.reserve(source_points.size());
+      ids.reserve(source_points.size());
+
+      for (const auto &source_point : source_points)
+        {
+          AssertThrow(
+            source_point.stable_id != std::numeric_limits<std::uint64_t>::max(),
+            ExcMessage(
+              "Distributed lifted coupling requires a stable point id."));
+          const auto id =
+            static_cast<types::particle_index>(source_point.stable_id);
+          AssertThrow(source_stencils_.find(id) == source_stencils_.end(),
+                      ExcMessage("Stable lifted point ids must be unique."));
+
+          Stencil stencil;
+          stencil.stable_id             = id;
+          stencil.source_entity_id      = source_point.source_entity_id;
+          stencil.representative_qpoint = source_point.representative_qpoint;
+          stencil.section_qpoint        = source_point.section_qpoint;
+          stencil.representative_point  = source_point.representative_point;
+          stencil.physical_weight       = source_point.weight;
+          stencil.source_rank           = Utilities::MPI::this_mpi_process(
+            target_tria.get_mpi_communicator());
+          stencil.source_local_index =
+            static_cast<std::size_t>(&source_point - source_points.data());
+          stencil.source_dof_indices = source_point.dof_indices;
+          stencil.source_basis_values.assign(source_point.basis_values.begin(),
+                                             source_point.basis_values.end());
+          source_stencils_.emplace(id, std::move(stencil));
+          positions.push_back(source_point.point);
+          ids.push_back(id);
+        }
+
+      particle_coupling_.initialize_particle_handler(target_tria,
+                                                     target_mapping,
+                                                     0);
+      const auto receiving_ranks =
+        particle_coupling_.insert_points(positions, {}, ids);
+
+      // On a receiving rank, receiving_ranks is keyed by source rank and
+      // contains source-local point indices. Exchange that request map back to
+      // the source ranks, which can then send only the required stencils.
+      const auto target_to_indices =
+        Utilities::MPI::some_to_some(target_tria.get_mpi_communicator(),
+                                     receiving_ranks);
+      std::map<unsigned int, std::vector<Stencil>> stencils_by_target;
+      for (const auto &[target_rank, indices] : target_to_indices)
+        {
+          auto &stencils       = stencils_by_target[target_rank];
+          auto &ids_for_target = source_ids_by_target_[target_rank];
+          stencils.reserve(indices.n_elements());
+          ids_for_target.reserve(indices.n_elements());
+          for (const auto index : indices)
+            {
+              AssertIndexRange(index, source_points.size());
+              const auto id = ids[index];
+              ids_for_target.push_back(id);
+              stencils.push_back(source_stencils_.at(id));
+            }
+        }
+
+      const auto source_to_stencils =
+        Utilities::MPI::some_to_some(target_tria.get_mpi_communicator(),
+                                     stencils_by_target);
+      target_stencils_.clear();
+      for (const auto &[unused_source_rank, stencils] : source_to_stencils)
+        {
+          (void)unused_source_rank;
+          for (const auto &stencil : stencils)
+            target_stencils_[stencil.stable_id] = stencil;
+        }
+    }
+
+    std::map<types::particle_index, double>
+    values_on_target(const dealii::Vector<double> &source_values) const
+    {
+      std::map<unsigned int, std::map<types::particle_index, double>>
+        values_by_target;
+      for (const auto &[target_rank, ids] : source_ids_by_target_)
+        for (const auto id : ids)
+          values_by_target[target_rank][id] =
+            source_values[source_stencils_.at(id).source_local_index];
+
+      const auto received =
+        Utilities::MPI::some_to_some(communicator_, values_by_target);
+      std::map<types::particle_index, double> result;
+      for (const auto &[unused_source_rank, values] : received)
+        {
+          (void)unused_source_rank;
+          result.insert(values.begin(), values.end());
+        }
+      return result;
+    }
+
+    void
+    add_transpose_to_source(
+      const std::map<types::particle_index, double> &target_values,
+      dealii::Vector<double>                        &source_values) const
+    {
+      std::map<unsigned int, std::map<types::particle_index, double>>
+        values_by_source;
+      for (const auto &[id, value] : target_values)
+        values_by_source[target_stencils_.at(id).source_rank][id] += value;
+
+      const auto received =
+        Utilities::MPI::some_to_some(communicator_, values_by_source);
+      for (const auto &[unused_target_rank, values] : received)
+        {
+          (void)unused_target_rank;
+          for (const auto &[id, value] : values)
+            source_values[source_stencils_.at(id).source_local_index] += value;
+        }
+    }
+
+    const ParticleCoupling<spacedim> &
+    particle_coupling() const
+    {
+      return particle_coupling_;
+    }
+
+    const std::map<types::particle_index, Stencil> &
+    target_stencils() const
+    {
+      return target_stencils_;
+    }
+
+    const Stencil &
+    stencil(const types::particle_index id) const
+    {
+      AssertThrow(target_stencils_.find(id) != target_stencils_.end(),
+                  ExcMessage("No source stencil was received for particle."));
+      return target_stencils_.at(id);
+    }
+
+  private:
+    ParticleCoupling<spacedim>               particle_coupling_;
+    MPI_Comm                                 communicator_ = MPI_COMM_WORLD;
+    std::map<types::particle_index, Stencil> source_stencils_;
+    std::map<types::particle_index, Stencil> target_stencils_;
+    std::map<unsigned int, std::vector<types::particle_index>>
+      source_ids_by_target_;
   };
 
 } // namespace ImmersX

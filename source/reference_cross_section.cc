@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------
 
 #include <deal.II/base/function.h>
+#include <deal.II/base/quadrature_selector.h>
 
 #include <deal.II/dofs/dof_tools.h>
 
@@ -39,12 +40,30 @@
 
 namespace ImmersX
 {
+  namespace
+  {
+    template <int dim, int spacedim, int n_components>
+    Quadrature<dim>
+    make_reference_quadrature(
+      const ReferenceCrossSectionParameters<dim, spacedim, n_components> &par)
+    {
+      const unsigned int n_points =
+        par.n_q_points == 0 ? 2 * par.inclusion_degree + 1 : par.n_q_points;
+      AssertThrow(par.n_quadrature_repetitions > 0,
+                  ExcMessage("Reference cross-section quadrature repetitions "
+                             "must be positive."));
+      return QIterated<dim>(QuadratureSelector<1>(par.quadrature_type,
+                                                  n_points),
+                            par.n_quadrature_repetitions);
+    }
+  } // namespace
+
   template <int dim, int spacedim, int n_components>
   ReferenceCrossSection<dim, spacedim, n_components>::ReferenceCrossSection(
     const ReferenceCrossSectionParameters<dim, spacedim, n_components> &par)
     : par(par)
     , polynomials(par.inclusion_degree)
-    , quadrature_formula(2 * par.inclusion_degree + 1)
+    , quadrature_formula(make_reference_quadrature(par))
     , fe(FE_Q<dim, spacedim>(std::max(par.inclusion_degree, 1u)), n_components)
     , mapping(fe.degree)
     , dof_handler(triangulation)
@@ -329,10 +348,11 @@ namespace ImmersX
 
   template <int dim, int spacedim, int n_components>
   ReferenceCrossSectionParameters<dim, spacedim, n_components>::
-    ReferenceCrossSectionParameters()
-    : ParameterAcceptor("Cross section")
+    ReferenceCrossSectionParameters(const std::string &subsection)
+    : ParameterAcceptor(subsection)
   {
     add_parameter("Maximum inclusion degree", inclusion_degree);
+    add_parameter("Maximum basis degree", inclusion_degree);
     add_parameter(
       "Selected indices",
       selected_coefficients,
@@ -343,8 +363,20 @@ namespace ImmersX
       "is, dimension of the space P^{inclusion_degree} number of Fourier coefficients x number of vector "
       "components. In particular any entry of this list must be in "
       "the set [0,inclusion_degree*n_components). ");
+    add_parameter("Selected modes", selected_coefficients);
     add_parameter("Inclusion type", inclusion_type);
+    add_parameter("Geometry type", inclusion_type);
     add_parameter("Refinement level", refinement_level);
+    add_parameter("Quadrature type",
+                  quadrature_type,
+                  "Quadrature family used on the cross section.",
+                  this->prm,
+                  Patterns::Selection(
+                    QuadratureSelector<1>::get_quadrature_names()));
+    add_parameter("Number of quadrature points", n_q_points);
+    add_parameter("Number of points", n_q_points);
+    add_parameter("Number of quadrature repetitions", n_quadrature_repetitions);
+    add_parameter("Number of repetitions", n_quadrature_repetitions);
   }
 
   template <int dim, int spacedim, int n_components>

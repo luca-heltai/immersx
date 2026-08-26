@@ -102,14 +102,13 @@ namespace ImmersX
   template <int dim>
   std::map<unsigned int, IndexSet>
   ParticleCoupling<dim>::insert_points(
-    const std::vector<Point<dim>>          &points,
-    const std::vector<std::vector<double>> &properties)
+    const std::vector<Point<dim>>            &points,
+    const std::vector<std::vector<double>>   &properties,
+    const std::vector<types::particle_index> &ids)
   {
     AssertThrow(tria_background, ExcNotInitialized());
-    auto local_indices_map =
-      particles.insert_global_particles(points,
-                                        global_bounding_boxes,
-                                        properties);
+    auto local_indices_map = particles.insert_global_particles(
+      points, global_bounding_boxes, properties, ids);
     return local_indices_map;
   }
 

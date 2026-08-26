@@ -22,15 +22,17 @@
 
 namespace ImmersX
 {
+  template <int dim, int spacedim = dim>
   struct PoissonFields
   {
-    FieldId solution;
+    FieldId                             solution;
+    const PoissonSolver<dim, spacedim> *problem = nullptr;
   };
 
   /** Register an assembled Poisson problem directly with an execution adapter.
    */
   template <typename Builder, int dim, int spacedim = dim>
-  PoissonFields
+  PoissonFields<dim, spacedim>
   contribute(Builder &builder, const PoissonSolver<dim, spacedim> &problem)
   {
     using VectorType = typename PoissonSolver<dim, spacedim>::VectorType;
@@ -63,7 +65,7 @@ namespace ImmersX
       })
       .state(solution, matrix);
 
-    return {solution};
+    return {solution, &problem};
   }
 
 } // namespace ImmersX

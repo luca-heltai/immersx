@@ -15,6 +15,8 @@
 #include <immersx/core/representation.h>
 #include <immersx/core/state.h>
 #include <immersx/coupling/coupling_operator.h>
+#include <immersx/coupling/tensor_product_lift.h>
+#include <immersx/io/utils.h>
 
 #include <type_traits>
 
@@ -54,6 +56,111 @@ TEST(RepresentationContract, IdentityAndTensorProductDimensions) // NOLINT
   EXPECT_EQ(VectorField::support_dimension, 2u);
   EXPECT_EQ(VectorField::representative_dimension, 2u);
   EXPECT_EQ(VectorField::ambient_dimension, 2u);
+}
+
+TEST(TensorProductLift, ParameterRootsAreIndependent) // NOLINT
+{
+  ParameterAcceptor::clear();
+
+  TensorProductLift<1, 2, 3, 1> pressure_lift("/Pressure lift/");
+  TensorProductLift<1, 2, 3, 1> displacement_lift("/Displacement lift/");
+
+  initialize_parameters_from_string(R"(
+subsection Pressure lift
+  set Thickness = 0.2
+  subsection Representative quadrature
+    set Number of points = 3
+    set Number of repetitions = 2
+  end
+  subsection Cross section
+    set Maximum basis degree = 1
+    set Selected modes = 0, 1
+    set Number of points = 5
+    set Number of repetitions = 2
+  end
+end
+subsection Displacement lift
+  set Thickness = 0.4
+  subsection Representative quadrature
+    set Number of points = 4
+    set Number of repetitions = 1
+  end
+  subsection Cross section
+    set Maximum basis degree = 0
+    set Selected modes = 0
+    set Number of points = 6
+    set Number of repetitions = 1
+  end
+end
+)");
+
+  EXPECT_EQ(pressure_lift.parameters().thickness, "0.2");
+  EXPECT_EQ(pressure_lift.parameters().representative_n_q_points, 3u);
+  EXPECT_EQ(pressure_lift.parameters().representative_n_repetitions, 2u);
+  EXPECT_EQ(pressure_lift.parameters().section.inclusion_degree, 1u);
+  EXPECT_EQ(pressure_lift.parameters().section.selected_coefficients,
+            (std::vector<unsigned int>{0u, 1u}));
+  EXPECT_EQ(pressure_lift.parameters().section.n_q_points, 5u);
+  EXPECT_EQ(pressure_lift.parameters().section.n_quadrature_repetitions, 2u);
+
+  EXPECT_EQ(displacement_lift.parameters().thickness, "0.4");
+  EXPECT_EQ(displacement_lift.parameters().representative_n_q_points, 4u);
+  EXPECT_EQ(displacement_lift.parameters().section.inclusion_degree, 0u);
+  EXPECT_EQ(displacement_lift.parameters().section.n_q_points, 6u);
+}
+
+TEST(TensorProductLift, ModalProductsAndWeights) // NOLINT
+{
+  ParameterAcceptor::clear();
+  TensorProductLift<1, 2, 3, 1> lift("/Modal lift/");
+  initialize_parameters_from_string(R"(
+subsection Modal lift
+  set Thickness = 0.25
+  subsection Representative quadrature
+    set Number of points = 2
+    set Number of repetitions = 1
+  end
+  subsection Cross section
+    set Maximum basis degree = 1
+    set Selected modes = 0, 1
+    set Number of points = 5
+    set Number of repetitions = 1
+  end
+end
+)");
+
+  using Support = TensorProductLiftSupport<1, 2, 3, 1>;
+  const Support        support(lift.parameters());
+  dealii::Tensor<1, 3> tangent;
+  tangent[0]        = 1.;
+  tangent[1]        = 0.;
+  tangent[2]        = 0.;
+  const auto points = support.transform(dealii::Point<3>(0., 0., 0.5),
+                                        tangent,
+                                        2.,
+                                        support.thickness(),
+                                        0,
+                                        {3., 5.});
+
+  ASSERT_EQ(points.size(),
+            support.reference_cross_section().n_quadrature_points());
+  ASSERT_EQ(points.front().selected_modes, (std::vector<unsigned int>{0u, 1u}));
+  ASSERT_EQ(points.front().tensor_product_basis_values.size(), 4u);
+  EXPECT_DOUBLE_EQ(points.front().tensor_product_basis_values[0],
+                   3. * points.front().mode_values[0]);
+  EXPECT_DOUBLE_EQ(points.front().tensor_product_basis_values[1],
+                   5. * points.front().mode_values[0]);
+  EXPECT_DOUBLE_EQ(points.front().tensor_product_basis_values[2],
+                   3. * points.front().mode_values[1]);
+  EXPECT_DOUBLE_EQ(points.front().tensor_product_basis_values[3],
+                   5. * points.front().mode_values[1]);
+
+  double weight_sum = 0.;
+  for (const auto &point : points)
+    weight_sum += point.weight;
+  EXPECT_NEAR(weight_sum,
+              2. * support.section_measure(support.thickness()),
+              1.e-12);
 }
 
 TEST(Representation, IdentityDomain) // NOLINT

@@ -36,8 +36,11 @@
 #include <immersx/core/field.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/state.h>
+#include <immersx/coupling/tensor_product_lift.h>
 #include <immersx/coupling/tensor_product_space.h>
 
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -545,8 +548,19 @@ namespace ImmersX
   {
     using value_type = ValueType;
 
-    dealii::Point<spacedim>                      point;
-    double                                       weight = 0.;
+    dealii::Point<spacedim>     point;
+    dealii::Point<spacedim>     representative_point;
+    dealii::Tensor<1, spacedim> tangent;
+    double                      weight = 0.;
+    /** Stable source entity identity, when the source has geometric cells. */
+    dealii::types::global_cell_index source_entity_id =
+      dealii::numbers::invalid_unsigned_int;
+    /** Quadrature slot on the source representative entity. */
+    unsigned int representative_qpoint = dealii::numbers::invalid_unsigned_int;
+    /** Quadrature slot on a lifted cross-section. */
+    unsigned int section_qpoint = dealii::numbers::invalid_unsigned_int;
+    /** Stable identity used when this point is redistributed. */
+    std::uint64_t stable_id = std::numeric_limits<std::uint64_t>::max();
     std::vector<dealii::types::global_dof_index> dof_indices;
     std::vector<ValueType>                       basis_values;
   };
@@ -638,6 +652,13 @@ namespace ImmersX
 
     using value_type    = ValueType;
     using ExtractorType = Extractor;
+    /**
+     * Algebraic coefficient space of the represented field. Geometry-only
+     * views do not implement evaluate/linearize; the typedef satisfies the
+     * lifting contract so that views can be composed with tensor-product
+     * lifts without owning field state.
+     */
+    using state_type = ImmersXLA::MPI::Vector;
     using TriangulationType =
       dealii::parallel::TriangulationBase<dim, spacedim>;
     using DoFHandlerType  = dealii::DoFHandler<dim, spacedim>;
@@ -651,8 +672,9 @@ namespace ImmersX
       const dealii::AffineConstraints<double> &constraints,
       const dealii::Mapping<dim, spacedim>    &mapping =
         dealii::StaticMappingQ1<dim, spacedim>::mapping,
-      const ExtractorType                   &extractor = ExtractorType(0),
-      const ImmersX::RepresentationMetadata &metadata  = {})
+      const ExtractorType                   &extractor      = ExtractorType(0),
+      const ImmersX::RepresentationMetadata &metadata       = {},
+      const bool                             all_components = false)
       : triangulation_(triangulation)
       , dof_handler_(dof_handler)
       , locally_owned_dofs_(locally_owned_dofs)
@@ -661,6 +683,7 @@ namespace ImmersX
       , mapping_(mapping)
       , extractor_(extractor)
       , metadata_(metadata)
+      , all_components_(all_components)
     {}
 
     const TriangulationType &
@@ -773,9 +796,11 @@ namespace ImmersX
     locally_owned_quadrature_points(
       const dealii::Quadrature<dim> &quadrature) const
     {
-      const auto update_flags = dealii::update_values |
-                                dealii::update_quadrature_points |
-                                dealii::update_JxW_values;
+      dealii::UpdateFlags update_flags = dealii::update_values |
+                                         dealii::update_quadrature_points |
+                                         dealii::update_JxW_values;
+      if constexpr (dim > 1 && dim < spacedim)
+        update_flags |= dealii::update_normal_vectors;
       dealii::FEValues<dim, spacedim> fe_values(mapping_,
                                                 finite_element(),
                                                 quadrature,
@@ -795,12 +820,29 @@ namespace ImmersX
             for (const auto q : fe_values.quadrature_point_indices())
               {
                 QuadraturePoint point;
-                point.point       = fe_values.quadrature_point(q);
+                point.point                 = fe_values.quadrature_point(q);
+                point.source_entity_id      = cell->global_active_cell_index();
+                point.representative_qpoint = q;
+                if constexpr (dim == 1)
+                  point.tangent = cell->vertex(1) - cell->vertex(0);
+                else if constexpr (dim > 1 && dim < spacedim)
+                  point.tangent = fe_values.normal_vector(q);
                 point.weight      = fe_values.JxW(q);
                 point.dof_indices = dof_indices;
                 point.basis_values.resize(n_dofs_per_cell());
-                for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
-                  point.basis_values[i] = fe_values[extractor_].value(i, q);
+                if (all_components_)
+                  {
+                    // A modal finite element (e.g. FESystem(scalar_fe,
+                    // n_modes)) exposes one algebraic slot per (local DoF,
+                    // mode). The plain shape value of each slot is the
+                    // reduced basis of that slot's component, which is what a
+                    // tensor-product lift multiplies by the section mode.
+                    for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                      point.basis_values[i] = fe_values.shape_value(i, q);
+                  }
+                else
+                  for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                    point.basis_values[i] = fe_values[extractor_].value(i, q);
                 points.emplace_back(std::move(point));
               }
           }
@@ -817,6 +859,7 @@ namespace ImmersX
     const dealii::Mapping<dim, spacedim>    &mapping_;
     const ExtractorType                      extractor_;
     ImmersX::RepresentationMetadata          metadata_;
+    const bool                               all_components_;
     mutable std::uint64_t                    geometry_version_ = 0;
   };
 
@@ -1080,8 +1123,13 @@ namespace ImmersX
                                 "physical weight."));
 
                   QuadraturePoint point;
-                  point.point       = lifted_points[point_index];
-                  point.weight      = lifted_weights[point_index][0];
+                  point.point            = lifted_points[point_index];
+                  point.weight           = lifted_weights[point_index][0];
+                  point.source_entity_id = cell->global_active_cell_index();
+                  point.representative_qpoint = q;
+                  point.section_qpoint        = section_q;
+                  if constexpr (reduced_dim == 1)
+                    point.tangent = cell->vertex(1) - cell->vertex(0);
                   point.dof_indices = dof_indices;
                   point.basis_values.resize(n_dofs_per_cell());
                   for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
@@ -1105,6 +1153,538 @@ namespace ImmersX
     const ExtractorType                           extractor_;
     ImmersX::RepresentationMetadata               metadata_;
     mutable std::uint64_t                         geometry_version_ = 0;
+  };
+
+  namespace detail
+  {
+    /** Evaluate one retained FE stencil without locating its physical cell. */
+    template <typename VectorType>
+    double
+    evaluate_stencil(
+      const VectorType                                   &source,
+      const std::vector<dealii::types::global_dof_index> &dof_indices,
+      const std::vector<double>                          &basis_values)
+    {
+      AssertDimension(dof_indices.size(), basis_values.size());
+      double result = 0.;
+      for (unsigned int i = 0; i < dof_indices.size(); ++i)
+        result += basis_values[i] * source[dof_indices[i]];
+      return result;
+    }
+
+    /** Detect a source-provided symbolic thickness evaluation. */
+    template <typename Source, int spacedim, typename = void>
+    struct has_source_thickness : std::false_type
+    {};
+
+    template <typename Source, int spacedim>
+    struct has_source_thickness<
+      Source,
+      spacedim,
+      std::void_t<decltype(std::declval<const Source &>().evaluate_thickness(
+        std::declval<const dealii::Point<spacedim> &>(),
+        std::declval<double>(),
+        std::declval<const std::vector<double> &>()))>> : std::true_type
+    {};
+  } // namespace detail
+
+
+  /**
+   * A parameterized tensor-product lift of a source Representation.
+   *
+   * The source view remains the sole owner of the representative mesh, FE,
+   * DoF space, and dependencies. This class owns only the lifting support and
+   * the local tensor-product quadrature metadata.
+   *
+   * Two algebraic semantics are supported and are never silently conflated:
+   *
+   * - Physical source (CASE A): the source is one scalar (or vector)
+   *   coefficient set, e.g. a pressure field lifted as constant across the
+   *   cross-section. Only mode 0 is meaningful as a new coefficient; the
+   *   default (non-modal) construction enforces that.
+   *
+   * - Modal source (CASE B): the source field itself owns independent
+   *   coefficients indexed by (representative DoF, mode), e.g. an RLM
+   *   multiplier lambda_{i,m}. The source representation must expose one
+   *   algebraic slot per (local DoF, mode) in deal.II `FESystem` order (mode
+   *   varying fastest). The modal construction pairs slot (i, mode) with
+   *   section mode `mode` and keeps the slot's algebraic index, so mode 0
+   *   and mode 1 are distinct unknowns.
+   */
+  template <typename SourceRepresentation,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components = 1>
+  class TensorProductLiftRepresentation
+  {
+  public:
+    static constexpr unsigned int support_dimension        = surface_dim;
+    static constexpr unsigned int ambient_dimension        = spacedim;
+    static constexpr unsigned int representative_dimension = reduced_dim;
+
+    using value_type          = typename SourceRepresentation::value_type;
+    using state_type          = typename SourceRepresentation::state_type;
+    using quantity_space_type = QuantitySpace<value_type>;
+    using Operator            = RepresentationOperator<value_type, state_type>;
+    using Parameters          = TensorProductLiftParameters<reduced_dim,
+                                                   surface_dim,
+                                                   spacedim,
+                                                   n_components>;
+    using Lift =
+      TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>;
+    using Support = TensorProductLiftSupport<reduced_dim,
+                                             surface_dim,
+                                             spacedim,
+                                             n_components>;
+    using SourceQuadraturePoint =
+      typename SourceRepresentation::QuadraturePoint;
+    using TriangulationType = typename SourceRepresentation::TriangulationType;
+    using DoFHandlerType    = typename SourceRepresentation::DoFHandlerType;
+    using ExtractorType     = typename SourceRepresentation::ExtractorType;
+    using QuadraturePoint   = RepresentationQuadraturePoint<spacedim, double>;
+
+    TensorProductLiftRepresentation(const SourceRepresentation &source,
+                                    const Lift                 &lift,
+                                    const bool                  modal = false)
+      : source_(source)
+      , lift_(lift)
+      , support_(lift.parameters())
+      , modal_(modal)
+    {
+      install_source_thickness_provider();
+      lifted_points_ = build_lifted_points();
+    }
+
+    FieldId
+    source() const
+    {
+      return source_.source();
+    }
+
+    const RepresentationDomain &
+    domain() const
+    {
+      static const RepresentationDomain domain(surface_dim,
+                                               spacedim,
+                                               "tensor-product-lift");
+      return domain;
+    }
+
+    quantity_space_type
+    quantity_space() const
+    {
+      return quantity_space_type(domain());
+    }
+
+    template <typename Geometry>
+    decltype(auto)
+    lift(const Geometry &geometry) const
+    {
+      return detail::invoke_lift(*this, geometry, 0);
+    }
+
+    const SourceRepresentation &
+    source_representation() const
+    {
+      return source_;
+    }
+
+    const Lift &
+    lift_descriptor() const
+    {
+      return lift_;
+    }
+
+    /**
+     * Return whether this lift treats the source slots as independent modal
+     * coefficients (CASE B) or as one physical coefficient set (CASE A).
+     */
+    bool
+    modal() const
+    {
+      return modal_;
+    }
+
+    const Support &
+    support() const
+    {
+      return support_;
+    }
+
+    const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &
+    lifted_points() const
+    {
+      return lifted_points_;
+    }
+
+    /** Evaluate all lifted points using their retained source FE stencils. */
+    value_type
+    evaluate_stencils(const state_type &source) const
+    {
+      return evaluate_stencils(source,
+                               lifted_points_,
+                               source_.locally_owned_dofs(),
+                               source_.locally_relevant_dofs(),
+                               source_.mpi_communicator());
+    }
+
+    const TriangulationType &
+    triangulation() const
+    {
+      return source_.triangulation();
+    }
+
+    const DoFHandlerType &
+    dof_handler() const
+    {
+      return source_.dof_handler();
+    }
+
+    const dealii::FiniteElement<reduced_dim, spacedim> &
+    finite_element() const
+    {
+      return source_.finite_element();
+    }
+
+    const dealii::Mapping<reduced_dim, spacedim> &
+    mapping() const
+    {
+      return source_.mapping();
+    }
+
+    const dealii::IndexSet &
+    locally_owned_dofs() const
+    {
+      return source_.locally_owned_dofs();
+    }
+
+    const dealii::IndexSet &
+    locally_relevant_dofs() const
+    {
+      return source_.locally_relevant_dofs();
+    }
+
+    const dealii::AffineConstraints<double> &
+    constraints() const
+    {
+      return source_.constraints();
+    }
+
+    const ExtractorType &
+    extractor() const
+    {
+      return source_.extractor();
+    }
+
+    const ImmersX::RepresentationMetadata &
+    metadata() const
+    {
+      return source_.metadata();
+    }
+
+    const std::vector<ImmersX::FieldId> &
+    dependencies() const
+    {
+      return source_.dependencies();
+    }
+
+    std::uint64_t
+    geometry_version() const
+    {
+      return source_.geometry_version();
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return source_.mpi_communicator();
+    }
+
+    unsigned int
+    n_dofs_per_cell() const
+    {
+      return source_.n_dofs_per_cell();
+    }
+
+    std::vector<QuadraturePoint>
+    locally_owned_quadrature_points(
+      const dealii::Quadrature<surface_dim> &surface_quadrature) const
+    {
+      (void)surface_quadrature;
+      std::vector<QuadraturePoint> result;
+      result.reserve(lifted_points_.size());
+      const unsigned int n_modes =
+        support_.reference_cross_section().n_selected_basis() * n_components;
+
+      for (const auto &lifted : lifted_points_)
+        {
+          QuadraturePoint point;
+          point.point                 = lifted.point;
+          point.representative_point  = lifted.representative_point;
+          point.weight                = lifted.weight;
+          point.source_entity_id      = lifted.source_entity_id;
+          point.representative_qpoint = lifted.source_representative_qpoint;
+          point.section_qpoint        = lifted.section_qpoint;
+          point.stable_id             = lifted.stable_id;
+          point.dof_indices.reserve(lifted.source_dof_indices.size());
+          point.basis_values.reserve(lifted.source_dof_indices.size());
+
+          if (modal_)
+            {
+              // The source slots follow the deal.II FESystem layout:
+              // (local DoF, component) with the component varying fastest.
+              const unsigned int n_slots =
+                static_cast<unsigned int>(lifted.source_dof_indices.size());
+              AssertThrow(n_slots % n_modes == 0,
+                          dealii::ExcMessage(
+                            "A modal tensor-product lift requires the source "
+                            "representation to expose one algebraic slot per "
+                            "(local DoF, mode) in deal.II FESystem order (mode "
+                            "varying fastest)."));
+              const unsigned int n_scalar_dofs = n_slots / n_modes;
+              for (unsigned int i = 0; i < n_scalar_dofs; ++i)
+                for (unsigned int mode = 0; mode < n_modes; ++mode)
+                  {
+                    const unsigned int slot = i * n_modes + mode;
+                    point.dof_indices.push_back(
+                      lifted.source_dof_indices[slot]);
+                    point.basis_values.push_back(
+                      lifted.source_basis_values[slot] *
+                      lifted.mode_values[mode]);
+                  }
+            }
+          else
+            {
+              // CASE A: one physical coefficient set. A scalar source field
+              // cannot silently become n_modes independent unknowns.
+              AssertThrow(
+                n_modes == 1,
+                dealii::ExcMessage(
+                  "A physical (non-modal) tensor-product lift supports "
+                  "only mode 0; selected modes beyond 0 require a modal "
+                  "source representation that owns one coefficient per "
+                  "(representative DoF, mode)."));
+              for (unsigned int i = 0; i < lifted.source_dof_indices.size();
+                   ++i)
+                {
+                  point.dof_indices.push_back(lifted.source_dof_indices[i]);
+                  point.basis_values.push_back(lifted.source_basis_values[i] *
+                                               lifted.mode_values[0]);
+                }
+            }
+          result.emplace_back(std::move(point));
+        }
+      return result;
+    }
+
+    value_type
+    evaluate(const EvaluationContext<state_type> &context,
+             const EvaluationRequest             &request = {}) const
+    {
+      (void)request;
+      return evaluate_stencils(context.state(source_.source()));
+    }
+
+    Operator
+    linearize(const EvaluationContext<state_type> &context,
+              const EvaluationRequest             &request = {}) const
+    {
+      const auto  lifted_points   = lifted_points_;
+      const auto  source_owned    = source_.locally_owned_dofs();
+      const auto  source_relevant = source_.locally_relevant_dofs();
+      const auto  communicator    = source_.mpi_communicator();
+      const auto *reference       = &context.state(source_.source());
+
+      Operator result;
+      result.reinit_range_vector =
+        [n = lifted_points.size()](value_type &vector, bool omit) {
+          vector.reinit(n);
+          if (!omit)
+            vector = 0.;
+        };
+      result.reinit_domain_vector = [reference](state_type &vector,
+                                                const bool  omit) {
+        vector.reinit(*reference, omit);
+      };
+      result.vmult = [lifted_points,
+                      source_owned,
+                      source_relevant,
+                      communicator](value_type       &destination,
+                                    const state_type &source) {
+        destination = evaluate_stencils(
+          source, lifted_points, source_owned, source_relevant, communicator);
+      };
+      result.vmult_add = [lifted_points,
+                          source_owned,
+                          source_relevant,
+                          communicator](value_type       &destination,
+                                        const state_type &source) {
+        const auto values = evaluate_stencils(
+          source, lifted_points, source_owned, source_relevant, communicator);
+        for (unsigned int q = 0; q < values.size(); ++q)
+          destination[q] += values[q];
+      };
+      result.Tvmult = [lifted_points,
+                       source_owned,
+                       source_relevant,
+                       communicator](state_type       &destination,
+                                     const value_type &source) {
+        apply_stencil_transpose(lifted_points,
+                                source_owned,
+                                source_relevant,
+                                communicator,
+                                source,
+                                destination,
+                                false);
+      };
+      result.Tvmult_add = [lifted_points,
+                           source_owned,
+                           source_relevant,
+                           communicator](state_type       &destination,
+                                         const value_type &source) {
+        apply_stencil_transpose(lifted_points,
+                                source_owned,
+                                source_relevant,
+                                communicator,
+                                source,
+                                destination,
+                                true);
+      };
+      (void)request;
+      return result;
+    }
+
+  private:
+    static value_type
+    evaluate_stencils(
+      const state_type                                                 &source,
+      const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &points,
+      const dealii::IndexSet                                           &owned,
+      const dealii::IndexSet &relevant,
+      const MPI_Comm          communicator)
+    {
+      state_type relevant_source;
+      relevant_source.reinit(owned, relevant, communicator);
+      relevant_source = source;
+      relevant_source.update_ghost_values();
+
+      value_type result;
+      result.reinit(points.size());
+      for (unsigned int q = 0; q < points.size(); ++q)
+        result[q] = detail::evaluate_stencil(relevant_source,
+                                             points[q].source_dof_indices,
+                                             points[q].source_basis_values);
+      return result;
+    }
+
+    static void
+    apply_stencil_transpose(
+      const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &points,
+      const dealii::IndexSet                                           &owned,
+      const dealii::IndexSet &relevant,
+      const MPI_Comm          communicator,
+      const value_type       &source,
+      state_type             &destination,
+      const bool              add)
+    {
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(owned, relevant, communicator);
+      contribution = 0.;
+      for (unsigned int q = 0; q < points.size(); ++q)
+        for (unsigned int i = 0; i < points[q].source_dof_indices.size(); ++i)
+          contribution[points[q].source_dof_indices[i]] +=
+            points[q].source_basis_values[i] * source[q];
+      contribution.compress(dealii::VectorOperation::add);
+      if (add)
+        for (const auto index : destination.locally_owned_elements())
+          destination[index] += contribution[index];
+      else
+        for (const auto index : destination.locally_owned_elements())
+          destination[index] = contribution[index];
+    }
+
+    /**
+     * Forward the source's own thickness evaluation to the lifting support.
+     *
+     * The modern path never reads VTK files and never stores imported fields:
+     * a source Problem that naturally owns properties provides the symbolic
+     * thickness through this duck-typed seam.
+     */
+    void
+    install_source_thickness_provider()
+    {
+      if constexpr (detail::has_source_thickness<SourceRepresentation,
+                                                 spacedim>::value)
+        support_.set_thickness_evaluator(
+          [this](const dealii::Point<spacedim> &point,
+                 const double                   time,
+                 const std::vector<double>     &properties) {
+            return source_.evaluate_thickness(point, time, properties);
+          });
+    }
+
+    std::vector<TensorProductLiftPoint<surface_dim, spacedim>>
+    build_lifted_points() const
+    {
+      const auto source_points = source_.locally_owned_quadrature_points(
+        support_.representative_quadrature());
+      std::vector<TensorProductLiftPoint<surface_dim, spacedim>> result;
+      result.reserve(source_points.size() *
+                     support_.reference_cross_section().n_quadrature_points());
+      for (unsigned int q = 0; q < source_points.size(); ++q)
+        {
+          const auto transformed =
+            support_.transform(source_points[q].point,
+                               source_points[q].tangent,
+                               source_points[q].weight,
+                               support_.thickness(source_points[q].point, 0.),
+                               q,
+                               {});
+          for (unsigned int section_q = 0; section_q < transformed.size();
+               ++section_q)
+            {
+              auto point             = transformed[section_q];
+              point.source_entity_id = source_points[q].source_entity_id;
+              point.source_representative_qpoint =
+                source_points[q].representative_qpoint ==
+                    dealii::numbers::invalid_unsigned_int ?
+                  q :
+                  source_points[q].representative_qpoint;
+              point.section_qpoint = section_q;
+              point.source_dof_indices.assign(
+                source_points[q].dof_indices.begin(),
+                source_points[q].dof_indices.end());
+              point.source_basis_values.assign(
+                source_points[q].basis_values.begin(),
+                source_points[q].basis_values.end());
+
+              const auto n_representative_qpoints =
+                support_.representative_quadrature().size();
+              const auto n_section_qpoints =
+                support_.reference_cross_section().n_quadrature_points();
+              if (point.source_entity_id !=
+                  dealii::numbers::invalid_unsigned_int)
+                point.stable_id =
+                  static_cast<std::uint64_t>(point.source_entity_id) *
+                    n_representative_qpoints * n_section_qpoints +
+                  point.source_representative_qpoint * n_section_qpoints +
+                  section_q;
+              else if (source_points[q].stable_id !=
+                       std::numeric_limits<std::uint64_t>::max())
+                point.stable_id =
+                  source_points[q].stable_id * n_section_qpoints + section_q;
+              result.emplace_back(std::move(point));
+            }
+        }
+      return result;
+    }
+
+    SourceRepresentation                                       source_;
+    const Lift                                                &lift_;
+    Support                                                    support_;
+    const bool                                                 modal_;
+    std::vector<TensorProductLiftPoint<surface_dim, spacedim>> lifted_points_;
   };
 
   /**

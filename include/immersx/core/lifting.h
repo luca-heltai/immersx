@@ -13,6 +13,7 @@
 #include <deal.II/base/point.h>
 
 #include <immersx/core/representation.h>
+#include <immersx/coupling/tensor_product_lift.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -350,6 +351,51 @@ namespace ImmersX
                                                    geometry,
                                                    target_prototype,
                                                    default_request);
+  }
+
+  /** Build the parameterized tensor-product lift of a source representation. */
+  template <typename SourceRepresentation,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components>
+  auto
+  make_lift(
+    const SourceRepresentation &source,
+    const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+      &lift)
+  {
+    return TensorProductLiftRepresentation<SourceRepresentation,
+                                           reduced_dim,
+                                           surface_dim,
+                                           spacedim,
+                                           n_components>(source, lift);
+  }
+
+  /**
+   * Build the modal tensor-product lift of a source Representation.
+   *
+   * The modal path treats the source algebraic slots as independent
+   * (representative DoF, mode) coefficients. The source field must therefore
+   * already own one coefficient per mode; the lift never fabricates new
+   * algebraic storage. This is the CASE B companion of `make_lift`.
+   */
+  template <typename SourceRepresentation,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components>
+  auto
+  make_modal_lift(
+    const SourceRepresentation &source,
+    const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+      &lift)
+  {
+    return TensorProductLiftRepresentation<SourceRepresentation,
+                                           reduced_dim,
+                                           surface_dim,
+                                           spacedim,
+                                           n_components>(source, lift, true);
   }
 } // namespace ImmersX
 
