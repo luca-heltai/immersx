@@ -1172,10 +1172,10 @@ namespace ImmersX
    * - Modal source (CASE B): the source field itself owns independent
    *   coefficients indexed by (representative DoF, mode), e.g. an RLM
    *   multiplier lambda_{i,m}. The source representation must expose one
-   *   algebraic slot per (local DoF, mode) in component-major order. The
-   *   modal construction pairs slot (mode, i) with section mode `mode` and
-   *   keeps the slot's algebraic index, so mode 0 and mode 1 are distinct
-   *   unknowns.
+   *   algebraic slot per (local DoF, mode) in deal.II `FESystem` order (mode
+   *   varying fastest). The modal construction pairs slot (i, mode) with
+   *   section mode `mode` and keeps the slot's algebraic index, so mode 0
+   *   and mode 1 are distinct unknowns.
    */
   template <typename SourceRepresentation,
             int reduced_dim,
