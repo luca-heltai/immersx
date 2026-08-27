@@ -14,6 +14,7 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/linear_adapter.h>
 #include <immersx/core/state.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
@@ -21,6 +22,7 @@
 #include <cmath>
 
 #include "coupled_poisson_elasticity.h"
+#include "test_paths.h"
 
 using namespace ImmersX;
 using namespace dealii;
@@ -204,4 +206,62 @@ TEST(DeferredPressureExpression, MPI_PointEvaluationDuality) // NOLINT
 {
   // Refined enough that every rank owns cells in a two-rank run.
   check_pressure_duality(2, 3);
+}
+
+
+TEST(DeferredPressureExpression, ImportedPathLengthWithElasticity)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  ParameterAcceptor::clear();
+
+  PoissonParameters<1, 3> parameters;
+  configure_poisson_problem(2, 0, parameters);
+  const auto path_filename =
+    TestPaths::data_filename("tests/path_length_1d.vtk");
+  parameters.name_of_grid       = path_filename;
+  parameters.arguments_for_grid = "";
+
+  PoissonSolver<1, 3> poisson(parameters);
+  poisson.make_grid();
+  poisson.set_imported_fields(
+    std::make_shared<PoissonSolver<1, 3>::ImportedFields>(
+      path_filename, poisson.triangulation()));
+  poisson.setup_fe();
+  poisson.setup_system();
+  poisson.assemble_system();
+
+  ElasticStaticParameters<3, 3> elasticity_parameters;
+  elasticity_parameters.initial_refinement = 1;
+  elasticity_parameters.triangulation_type = "fullydistributed";
+  ElasticStaticProblem<3, 3> elasticity(elasticity_parameters);
+  elasticity.setup();
+  CoupledPoissonElasticity::Traction traction;
+  traction.attach(elasticity);
+
+  using FieldVector  = ImmersXLA::MPI::Vector;
+  using GlobalVector = ImmersXLA::MPI::BlockVector;
+  using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
+  Adapter adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
+
+  const auto poisson_handle = adapter.add(poisson);
+  const auto elastic_handle = adapter.add(elasticity);
+  const auto pressure =
+    poisson_handle.observe(CoupledPoissonElasticity::Pressure{});
+  const auto lifted = pressure.lift(CoupledPoissonElasticity::PressureLift());
+  adapter.couple(lifted, elastic_handle, traction);
+
+  EXPECT_EQ(lifted.source_representation().dependencies().size(), 1u);
+  EXPECT_EQ(lifted.source_representation().dependencies().front(),
+            poisson_handle.fields().solution);
+
+  auto        state = adapter.make_state();
+  const auto &poisson_state =
+    adapter.field(state, poisson_handle.fields().solution);
+  const auto sampled =
+    CoupledPoissonElasticity::sample_pressure(lifted, poisson_state);
+  bool has_nonzero_path_signal = false;
+  for (const auto index : sampled.locally_owned_elements())
+    has_nonzero_path_signal |= std::abs(sampled[index]) > 1.e-12;
+  EXPECT_TRUE(
+    Utilities::MPI::max(has_nonzero_path_signal ? 1 : 0, MPI_COMM_WORLD) > 0);
 }

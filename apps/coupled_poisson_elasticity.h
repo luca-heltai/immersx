@@ -37,7 +37,8 @@ namespace CoupledPoissonElasticity
 {
   struct Pressure
   {
-    double factor = 2.;
+    double      factor     = 2.;
+    std::string path_field = "path_length";
   };
 
   using PressureLift = ImmersX::TensorProductLift<1, 2, 3, 1>;
@@ -174,8 +175,24 @@ namespace CoupledPoissonElasticity
       poisson.constraints());
     return ImmersX::make_fe_expression(
       source,
-      {ImmersX::value(problem.fields().solution, "A")},
-      "factor*A",
+      [&]() {
+        const auto active =
+          ImmersX::state_field(source, problem.fields().solution);
+        if (poisson.imported_fields() != nullptr)
+          {
+            const auto path = ImmersX::frozen_field(
+              poisson.imported_fields()->field(pressure.path_field));
+            return std::vector<ImmersX::ExpressionBinding<
+              ImmersX::FiniteElementRepresentation<1, 3>>>{
+              ImmersX::gradient(active, "grad_A_2", 2),
+              ImmersX::value(path, "path_length")};
+          }
+        return std::vector<ImmersX::ExpressionBinding<
+          ImmersX::FiniteElementRepresentation<1, 3>>>{
+          ImmersX::value(active, "A")};
+      }(),
+      poisson.imported_fields() != nullptr ? "factor*(grad_A_2 + path_length)" :
+                                             "factor*A",
       {{"factor", pressure.factor}});
   }
 
