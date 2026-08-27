@@ -35,6 +35,23 @@ TEST(SymbolicExpressionKernel, PreservesIndependentSymbolOrder)
 #endif
 }
 
+TEST(SymbolicExpressionKernel, PreservesDuplicateDerivativeExpressions)
+{
+  SymbolicExpressionKernel kernel;
+#ifdef DEAL_II_WITH_SYMENGINE
+  kernel.initialize("a + b", {"a", "b"});
+
+  const auto result = kernel.evaluate(std::vector<double>{}, 0.0, {2.0, 5.0});
+  EXPECT_DOUBLE_EQ(result.value, 7.0);
+  ASSERT_EQ(result.derivatives.size(), 2u);
+  EXPECT_DOUBLE_EQ(result.derivatives[0], 1.0);
+  EXPECT_DOUBLE_EQ(result.derivatives[1], 1.0);
+#else
+  EXPECT_FALSE(SymbolicExpressionKernel::available());
+  EXPECT_THROW(kernel.initialize("a + b", {"a", "b"}), std::runtime_error);
+#endif
+}
+
 TEST(SymbolicExpressionKernel, CoordinatesTimeAndConstants)
 {
   SymbolicExpressionKernel kernel;

@@ -1,6 +1,7 @@
 #include "symbolic_expression_support.h"
 
 #include <cctype>
+#include <cmath>
 #include <regex>
 #include <set>
 #include <stdexcept>
@@ -146,6 +147,24 @@ namespace ImmersX
                             const std::vector<SD::Expression> &expressions)
     {
       return make_optimizer_data(symbol_names, expressions, "expression set");
+    }
+
+    std::vector<double>
+    evaluate_symbolic_expressions(const SymbolicOptimizerData &data)
+    {
+      const auto evaluated = data.optimizer.evaluate(data.expressions);
+      if (evaluated.size() != data.expressions.size())
+        throw std::runtime_error(
+          "Symbolic optimizer returned " + std::to_string(evaluated.size()) +
+          " values for " + std::to_string(data.expressions.size()) +
+          " expressions.");
+
+      for (unsigned int i = 0; i < evaluated.size(); ++i)
+        if (!std::isfinite(evaluated[i]))
+          throw std::runtime_error("expression " + std::to_string(i) +
+                                   " evaluated to a non-finite value");
+
+      return evaluated;
     }
 #endif
   } // namespace internal
