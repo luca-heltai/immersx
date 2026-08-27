@@ -440,6 +440,7 @@ namespace ImmersX
     using state_type          = typename SourceRepresentation::state_type;
     using quantity_space_type = QuantitySpace<value_type>;
     using Operator            = RepresentationOperator<value_type, state_type>;
+    using ValueOperator       = RepresentationOperator<value_type, value_type>;
 
     TensorProductExpressionLiftRepresentation(
       const SourceRepresentation       &source,
@@ -553,7 +554,7 @@ namespace ImmersX
       return result;
     }
 
-    Operator
+    ValueOperator
     make_lift_operator() const
     {
       const auto lifted_points   = geometry_.lifted_points();
@@ -563,7 +564,7 @@ namespace ImmersX
       const auto source_plan     = source_.sampling_plan();
       const auto communicator    = geometry_.mpi_communicator();
 
-      Operator result;
+      ValueOperator result;
       result.reinit_range_vector =
         [lifted_owned, lifted_relevant, communicator](value_type &vector,
                                                       const bool  omit) {
