@@ -42,6 +42,7 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/contributor.h>
+#include <immersx/io/imported_finite_element_fields.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
@@ -465,6 +466,28 @@ namespace ImmersX
       return solution_;
     }
 
+    using ImportedFields = ImportedFiniteElementFields<dim, spacedim>;
+
+    /** Attach reusable frozen FE fields living on this problem mesh. */
+    void
+    set_imported_fields(std::shared_ptr<const ImportedFields> fields)
+    {
+      AssertThrow(fields != nullptr,
+                  ExcMessage(
+                    "Imported finite-element fields must not be null."));
+      AssertThrow(&fields->triangulation() == tria_,
+                  ExcMessage(
+                    "Imported finite-element fields must use the problem "
+                    "triangulation."));
+      imported_fields_storage_ = std::move(fields);
+    }
+
+    const std::shared_ptr<const ImportedFields> &
+    imported_fields() const
+    {
+      return imported_fields_storage_;
+    }
+
     /**
      * Reassemble the body force from a programmatic Function.
      *
@@ -812,6 +835,7 @@ namespace ImmersX
     VectorType         solution_;
     mutable VectorType locally_relevant_solution_;
     mutable std::vector<std::pair<double, std::string>> output_records_;
+    std::shared_ptr<const ImportedFields> imported_fields_storage_;
 
     FEValuesExtractors::Vector displacement_{0};
   };

@@ -40,6 +40,14 @@ namespace CoupledPoissonElasticity
     double factor = 2.;
   };
 
+  struct PathPressure
+  {
+    double      alpha      = 1.25;
+    double      beta       = 0.75;
+    double      omega      = 0.5;
+    std::string path_field = "path_length";
+  };
+
   using PressureLift = ImmersX::TensorProductLift<1, 2, 3, 1>;
 
   /** Fixed cylindrical support for the lifted pressure. */
@@ -172,11 +180,39 @@ namespace CoupledPoissonElasticity
       poisson.locally_owned_dofs(),
       poisson.locally_relevant_dofs(),
       poisson.constraints());
+    const auto active = ImmersX::state_field(source, problem.fields().solution);
+    return ImmersX::make_fe_expression(source,
+                                       {ImmersX::value(active, "A")},
+                                       "factor*A",
+                                       {{"factor", pressure.factor}});
+  }
+
+  template <typename Adapter, typename Fields>
+  auto
+  make_representation(const ImmersX::ProblemHandle<Adapter, Fields> &problem,
+                      const PathPressure                            &pressure)
+  {
+    const auto &poisson = *problem.fields().problem;
+    AssertThrow(poisson.imported_fields() != nullptr,
+                dealii::ExcMessage(
+                  "PathPressure requires imported finite-element fields."));
+    const ImmersX::FiniteElementRepresentation<1, 3> source(
+      poisson.triangulation(),
+      poisson.dof_handler(),
+      poisson.locally_owned_dofs(),
+      poisson.locally_relevant_dofs(),
+      poisson.constraints());
+    const auto active = ImmersX::state_field(source, problem.fields().solution);
+    const auto path   = ImmersX::frozen_field(
+      poisson.imported_fields()->field(pressure.path_field));
     return ImmersX::make_fe_expression(
       source,
-      {ImmersX::value(problem.fields().solution, "A")},
-      "factor*A",
-      {{"factor", pressure.factor}});
+      {ImmersX::gradient(active, "grad_u_2", 2),
+       ImmersX::value(path, "path_length")},
+      "alpha*grad_u_2 + beta*cos(path_length*omega)",
+      {{"alpha", pressure.alpha},
+       {"beta", pressure.beta},
+       {"omega", pressure.omega}});
   }
 
   template <typename Quantity>

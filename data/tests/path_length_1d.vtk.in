@@ -1,0 +1,28 @@
+# vtk DataFile Version 3.0
+ImmersX one-dimensional path-length fixture
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 double
+0.5 0.5 0
+0.5 0.5 1
+0.5 0.5 2
+0.5 0.5 3
+0.5 0.5 4
+CELLS 4 12
+2 0 1
+2 1 2
+2 2 3
+2 3 4
+CELL_TYPES 4
+3
+3
+3
+3
+POINT_DATA 5
+SCALARS path_length double
+LOOKUP_TABLE default
+0
+1
+2
+3
+4
