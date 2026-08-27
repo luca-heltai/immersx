@@ -18,55 +18,114 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace ImmersX
 {
-  /** A value observable bound to one independent expression symbol. */
+  /** An active FE source whose coefficients come from one state field. */
+  template <typename FERepresentation>
+  struct StateField
+  {
+    FERepresentation representation;
+    FieldId          field;
+  };
+
+  /** A frozen FE source whose coefficients are fixed for the solve. */
+  template <typename FERepresentation>
+  struct FrozenField
+  {
+    FERepresentation                              representation;
+    std::shared_ptr<const ImmersXLA::MPI::Vector> coefficients;
+  };
+
+  template <typename FERepresentation>
+  using FEFieldSource =
+    std::variant<StateField<FERepresentation>, FrozenField<FERepresentation>>;
+
+  /** A value observable bound to one FE source and expression symbol. */
+  template <typename FERepresentation>
   struct ValueBinding
   {
-    FieldId     field;
-    std::string symbol;
+    FEFieldSource<FERepresentation> source;
+    std::string                     symbol;
   };
 
-  /** A physical gradient component bound to one independent symbol. */
+  /** A physical gradient component bound to one FE source and symbol. */
+  template <typename FERepresentation>
   struct GradientBinding
   {
-    FieldId      field;
-    std::string  symbol;
-    unsigned int component;
+    FEFieldSource<FERepresentation> source;
+    std::string                     symbol;
+    unsigned int                    component;
   };
 
-  /** Semantic expression observable, independent of FE storage details. */
-  using ExpressionBinding = std::variant<ValueBinding, GradientBinding>;
+  template <typename FERepresentation>
+  using ExpressionBinding = std::variant<ValueBinding<FERepresentation>,
+                                         GradientBinding<FERepresentation>>;
 
-  /** Bind a semantic value observable to an expression symbol. */
-  inline ExpressionBinding
-  value(const FieldId field, std::string symbol)
+  /** Bind a finite-element view to an active state field. */
+  template <typename FERepresentation>
+  StateField<std::decay_t<FERepresentation>>
+  state_field(const FERepresentation &representation, const FieldId field)
   {
-    return ValueBinding{field, std::move(symbol)};
+    return {representation, field};
   }
 
-  /** Bind a physical gradient component to an expression symbol. */
-  inline ExpressionBinding
-  gradient(const FieldId      field,
-           std::string        symbol,
-           const unsigned int component)
+  /** Bind a finite-element view to explicitly supplied frozen coefficients. */
+  template <typename FERepresentation>
+  FrozenField<std::decay_t<FERepresentation>>
+  frozen_field(const FERepresentation                       &representation,
+               std::shared_ptr<const ImmersXLA::MPI::Vector> coefficients)
   {
-    return GradientBinding{field, std::move(symbol), component};
+    AssertThrow(coefficients != nullptr,
+                dealii::ExcMessage("Frozen FE coefficients must not be null."));
+    return {representation, std::move(coefficients)};
+  }
+
+  /** Bind an imported field view, retaining its shared coefficient storage. */
+  template <typename ImportedFieldView>
+  auto
+  frozen_field(const ImportedFieldView &field)
+  {
+    using FERepresentation = std::decay_t<decltype(field.representation())>;
+    return FrozenField<FERepresentation>{field.representation(),
+                                         field.coefficients_handle()};
+  }
+
+  /** Bind a semantic value observable to an FE source and symbol. */
+  template <typename Source>
+  auto
+  value(Source source, std::string symbol)
+  {
+    using FERepresentation = decltype(source.representation);
+    return ValueBinding<FERepresentation>{std::move(source), std::move(symbol)};
+  }
+
+  /** Bind a physical gradient component to an FE source and symbol. */
+  template <typename Source>
+  auto
+  gradient(Source source, std::string symbol, const unsigned int component)
+  {
+    using FERepresentation = decltype(source.representation);
+    return GradientBinding<FERepresentation>{std::move(source),
+                                             std::move(symbol),
+                                             component};
   }
 
   namespace detail
   {
+    template <typename FERepresentation>
     inline dealii::UpdateFlags
-    expression_update_flags(const ExpressionBinding &binding)
+    expression_update_flags(const ExpressionBinding<FERepresentation> &binding)
     {
       return std::visit(
         [](const auto &observable) {
           using Observable = std::decay_t<decltype(observable)>;
-          if constexpr (std::is_same_v<Observable, GradientBinding>)
+          if constexpr (std::is_same_v<Observable,
+                                       GradientBinding<FERepresentation>>)
             return dealii::UpdateFlags(dealii::update_values |
                                        dealii::update_gradients);
           else
@@ -75,8 +134,10 @@ namespace ImmersX
         binding);
     }
 
+    template <typename FERepresentation>
     inline dealii::UpdateFlags
-    expression_update_flags(const std::vector<ExpressionBinding> &bindings)
+    expression_update_flags(
+      const std::vector<ExpressionBinding<FERepresentation>> &bindings)
     {
       auto result = dealii::update_values;
       for (const auto &binding : bindings)
@@ -84,19 +145,39 @@ namespace ImmersX
       return result;
     }
 
+    template <typename FERepresentation>
     inline std::vector<FieldId>
-    expression_dependencies(const std::vector<ExpressionBinding> &bindings)
+    expression_dependencies(
+      const std::vector<ExpressionBinding<FERepresentation>> &bindings)
     {
       std::vector<FieldId> result;
       for (const auto &binding : bindings)
         std::visit(
           [&result](const auto &observable) {
-            if (std::find(result.begin(), result.end(), observable.field) ==
-                result.end())
-              result.push_back(observable.field);
+            std::visit(
+              [&result](const auto &source) {
+                using Source = std::decay_t<decltype(source)>;
+                if constexpr (std::is_same_v<Source,
+                                             StateField<FERepresentation>>)
+                  if (std::find(result.begin(), result.end(), source.field) ==
+                      result.end())
+                    result.push_back(source.field);
+              },
+              observable.source);
           },
           binding);
       return result;
+    }
+
+    template <typename FERepresentation>
+    const FERepresentation &
+    source_representation(const FEFieldSource<FERepresentation> &source)
+    {
+      return std::visit(
+        [](const auto &field) -> const FERepresentation & {
+          return field.representation;
+        },
+        source);
     }
   } // namespace detail
 
@@ -110,7 +191,9 @@ namespace ImmersX
    */
   template <int spacedim,
             typename StateVectorType    = ImmersXLA::MPI::Vector,
-            typename QuantityVectorType = ImmersXLA::MPI::Vector>
+            typename QuantityVectorType = ImmersXLA::MPI::Vector,
+            typename FERepresentation =
+              FiniteElementRepresentation<1, spacedim>>
   class ExpressionRepresentation
   {
   public:
@@ -122,12 +205,13 @@ namespace ImmersX
     using Operator      = RepresentationOperator<value_type, state_type>;
     using ValueOperator = RepresentationOperator<value_type, value_type>;
 
-    using Binding = ExpressionBinding;
+    using Binding = ExpressionBinding<FERepresentation>;
+    using Source  = FEFieldSource<FERepresentation>;
 
-    ExpressionRepresentation(const std::vector<Binding> &bindings,
-                             const SamplingPlan         &sampling,
-                             SymbolicExpressionKernel    kernel,
-                             RepresentationDomain        domain =
+    ExpressionRepresentation(const std::vector<Binding>      &bindings,
+                             const std::vector<SamplingPlan> &samplings,
+                             SymbolicExpressionKernel         kernel,
+                             RepresentationDomain             domain =
                                RepresentationDomain(spacedim,
                                                     spacedim,
                                                     "retained-fe-sampling"))
@@ -143,43 +227,85 @@ namespace ImmersX
                     "The number of expression symbols must match the number "
                     "of field bindings."));
 
-      dependencies_ = detail::expression_dependencies(bindings);
-      bindings_.reserve(bindings.size());
-      for (const auto &binding : bindings)
-        std::visit(
-          [&](const auto &observable) {
-            using Observable = std::decay_t<decltype(observable)>;
-            const bool is_gradient =
-              std::is_same_v<Observable, GradientBinding>;
-            unsigned int component = 0;
-            if constexpr (is_gradient)
-              {
-                component = observable.component;
-                AssertThrow(component < spacedim,
-                            dealii::ExcMessage(
-                              "A gradient binding has an invalid "
-                              "component."));
-                AssertThrow(
-                  (sampling.update_flags() & dealii::update_gradients) != 0,
+      AssertThrow(bindings.size() == samplings.size(),
                   dealii::ExcMessage(
-                    "A gradient binding requires a sampling plan with "
-                    "update_gradients."));
-              }
-            bindings_.push_back({observable.field,
-                                 observable.symbol,
-                                 is_gradient,
-                                 component,
-                                 sampling});
-          },
-          binding);
+                    "Each expression binding needs one sampling plan."));
+      AssertThrow(!samplings.empty(),
+                  dealii::ExcMessage(
+                    "An expression needs at least one sampling plan."));
+      dependencies_ = detail::expression_dependencies(bindings);
+      for (std::size_t i = 1; i < samplings.size(); ++i)
+        {
+          AssertThrow(samplings[i].points().size() ==
+                        samplings[0].points().size(),
+                      dealii::ExcMessage(
+                        "Expression bindings must have the same number of "
+                        "sampling points."));
+          AssertThrow(samplings[i].locally_owned_points() ==
+                          samplings[0].locally_owned_points() &&
+                        samplings[i].locally_relevant_points() ==
+                          samplings[0].locally_relevant_points(),
+                      dealii::ExcMessage(
+                        "Expression bindings must share a sampling index "
+                        "space."));
+          for (std::size_t q = 0; q < samplings[0].points().size(); ++q)
+            AssertThrow(samplings[i].points()[q].point.distance(
+                          samplings[0].points()[q].point) < 1e-12 &&
+                          samplings[i].points()[q].source_entity_id ==
+                            samplings[0].points()[q].source_entity_id &&
+                          samplings[i].points()[q].representative_qpoint ==
+                            samplings[0].points()[q].representative_qpoint,
+                        dealii::ExcMessage(
+                          "Expression bindings must describe the same physical "
+                          "sampling points."));
+        }
+      bindings_.reserve(bindings.size());
+      for (std::size_t binding_index = 0; binding_index < bindings.size();
+           ++binding_index)
+        {
+          const auto &binding = bindings[binding_index];
+          std::visit(
+            [&](const auto &observable) {
+              using Observable = std::decay_t<decltype(observable)>;
+              const bool is_gradient =
+                std::is_same_v<Observable, GradientBinding<FERepresentation>>;
+              unsigned int component = 0;
+              if constexpr (is_gradient)
+                {
+                  component = observable.component;
+                  AssertThrow(component < spacedim,
+                              dealii::ExcMessage(
+                                "A gradient binding has an invalid "
+                                "component."));
+                  AssertThrow(
+                    (samplings[binding_index].update_flags() &
+                     dealii::update_gradients) != 0,
+                    dealii::ExcMessage(
+                      "A gradient binding requires a sampling plan with "
+                      "update_gradients."));
+                }
+              bindings_.push_back({observable.source,
+                                   observable.symbol,
+                                   is_gradient,
+                                   component,
+                                   samplings[binding_index]});
+            },
+            binding);
+        }
     }
 
-    ExpressionRepresentation(const FieldId            source,
-                             const SamplingPlan      &sampling,
-                             SymbolicExpressionKernel kernel)
-      : ExpressionRepresentation(std::vector<Binding>{value(source, "A")},
-                                 sampling,
-                                 std::move(kernel))
+    ExpressionRepresentation(const std::vector<Binding> &bindings,
+                             const SamplingPlan         &sampling,
+                             SymbolicExpressionKernel    kernel,
+                             RepresentationDomain        domain =
+                               RepresentationDomain(spacedim,
+                                                    spacedim,
+                                                    "retained-fe-sampling"))
+      : ExpressionRepresentation(bindings,
+                                 std::vector<SamplingPlan>(bindings.size(),
+                                                           sampling),
+                                 std::move(kernel),
+                                 std::move(domain))
     {}
 
     ExpressionRepresentation(
@@ -198,17 +324,17 @@ namespace ImmersX
     {}
 
     ExpressionRepresentation(
-      const FieldId                        source,
-      const SamplingPlan                  &sampling,
+      const std::vector<Binding>          &bindings,
+      const std::vector<SamplingPlan>     &samplings,
       const std::string                   &expression,
-      const std::string                   &symbol    = "A",
       const std::map<std::string, double> &constants = {},
       const RepresentationDomain           domain =
         RepresentationDomain(spacedim, spacedim, "retained-fe-sampling"))
-      : ExpressionRepresentation(std::vector<Binding>{value(source, symbol)},
-                                 sampling,
-                                 expression,
-                                 constants,
+      : ExpressionRepresentation(bindings,
+                                 samplings,
+                                 make_kernel(expression,
+                                             symbols(bindings),
+                                             constants),
                                  domain)
     {}
 
@@ -222,6 +348,13 @@ namespace ImmersX
     sampling_plan() const
     {
       return bindings_.front().sampling;
+    }
+
+    const SamplingPlan &
+    sampling_plan(const std::size_t binding) const
+    {
+      AssertIndexRange(binding, bindings_.size());
+      return bindings_[binding].sampling;
     }
 
     const SymbolicExpressionKernel &
@@ -283,7 +416,11 @@ namespace ImmersX
       bool       has_term = false;
       for (std::size_t binding_index = 0; binding_index < bindings_.size();
            ++binding_index)
-        if (bindings_[binding_index].field == field)
+        if (std::holds_alternative<StateField<FERepresentation>>(
+              bindings_[binding_index].source) &&
+            std::get<StateField<FERepresentation>>(
+              bindings_[binding_index].source)
+                .field == field)
           {
             auto diagonal = std::make_shared<value_type>();
             diagonal->reinit(sampling_plan().locally_owned_points(),
@@ -318,7 +455,7 @@ namespace ImmersX
   private:
     struct InstalledBinding
     {
-      FieldId      field;
+      Source       source;
       std::string  symbol;
       bool         gradient;
       unsigned int component;
@@ -356,11 +493,21 @@ namespace ImmersX
       result.reserve(bindings_.size());
       for (const auto &binding : bindings_)
         {
+          const auto source_vector = std::visit(
+            [&context](const auto &source) -> const state_type & {
+              using SourceType = std::decay_t<decltype(source)>;
+              if constexpr (std::is_same_v<SourceType,
+                                           StateField<FERepresentation>>)
+                return context.state(source.field);
+              else
+                return *source.coefficients;
+            },
+            binding.source);
           const auto sampling_operator =
-            sampling_operator_for(binding, context.state(binding.field));
+            sampling_operator_for(binding, source_vector);
           value_type samples;
           sampling_operator.reinit_range_vector(samples, false);
-          sampling_operator.vmult(samples, context.state(binding.field));
+          sampling_operator.vmult(samples, source_vector);
           result.push_back(std::move(samples));
         }
       return result;
@@ -376,8 +523,11 @@ namespace ImmersX
         {
           std::vector<double> values;
           values.reserve(samples.size());
-          for (const auto &sample : samples)
-            values.push_back(sample[sampling_plan().point_index(q)]);
+          for (std::size_t binding_index = 0; binding_index < samples.size();
+               ++binding_index)
+            values.push_back(
+              samples[binding_index]
+                     [bindings_[binding_index].sampling.point_index(q)]);
           result.push_back(kernel_->evaluate(sampling_plan().points()[q].point,
                                              context.time(),
                                              values));
@@ -442,25 +592,47 @@ namespace ImmersX
   auto
   make_expression_representation(
     const FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>
-                                         &representation,
-    const dealii::Quadrature<dim>        &quadrature,
-    const std::vector<ExpressionBinding> &bindings,
-    const std::string                    &expression,
-    const std::map<std::string, double>  &constants = {})
-    -> ExpressionRepresentation<spacedim>
+                                  &representation,
+    const dealii::Quadrature<dim> &quadrature,
+    const std::vector<ExpressionBinding<
+      FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>>>
+                                        &bindings,
+    const std::string                   &expression,
+    const std::map<std::string, double> &constants = {})
+    -> ExpressionRepresentation<
+      spacedim,
+      ImmersXLA::MPI::Vector,
+      ImmersXLA::MPI::Vector,
+      FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>>
   {
+    (void)representation;
     static_assert(std::is_same_v<ValueType, double>,
                   "Retained scalar expressions require a scalar FE view.");
-    const auto sampling =
-      make_retained_sampling_plan(representation,
-                                  quadrature,
-                                  detail::expression_update_flags(bindings));
-    return ExpressionRepresentation<spacedim>(
-      bindings,
-      sampling,
-      expression,
-      constants,
-      RepresentationDomain(dim, spacedim, "retained-fe-sampling"));
+    using FERepresentation =
+      FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>;
+    using Expression        = ExpressionRepresentation<spacedim,
+                                                ImmersXLA::MPI::Vector,
+                                                ImmersXLA::MPI::Vector,
+                                                FERepresentation>;
+    const auto update_flags = detail::expression_update_flags(bindings);
+    std::vector<typename Expression::SamplingPlan> samplings;
+    samplings.reserve(bindings.size());
+    for (const auto &binding : bindings)
+      samplings.push_back(make_retained_sampling_plan(
+        std::visit(
+          [](const auto &observable) -> const FERepresentation & {
+            return detail::source_representation(observable.source);
+          },
+          binding),
+        quadrature,
+        update_flags));
+    return Expression(bindings,
+                      samplings,
+                      expression,
+                      constants,
+                      RepresentationDomain(dim,
+                                           spacedim,
+                                           "retained-fe-sampling"));
   }
 
   /**
@@ -477,7 +649,7 @@ namespace ImmersX
   {
   public:
     using SourceRepresentation = FERepresentation;
-    using Binding              = ExpressionBinding;
+    using Binding              = ExpressionBinding<FERepresentation>;
 
     static constexpr unsigned int support_dimension =
       FERepresentation::support_dimension;
@@ -556,10 +728,10 @@ namespace ImmersX
   /** Describe a scalar expression without selecting its sampling quadrature. */
   template <typename FERepresentation>
   auto
-  make_fe_expression(const FERepresentation        &source,
-                     std::vector<ExpressionBinding> bindings,
-                     std::string                    expression,
-                     std::map<std::string, double>  constants = {})
+  make_fe_expression(const FERepresentation                          &source,
+                     std::vector<ExpressionBinding<FERepresentation>> bindings,
+                     std::string                   expression,
+                     std::map<std::string, double> constants = {})
     -> FiniteElementExpression<FERepresentation>
   {
     return FiniteElementExpression<FERepresentation>(source,
@@ -816,7 +988,10 @@ namespace ImmersX
   sample(
     const FiniteElementExpression<FERepresentation>               &expression,
     const dealii::Quadrature<FERepresentation::support_dimension> &quadrature)
-    -> ExpressionRepresentation<FERepresentation::ambient_dimension>
+    -> ExpressionRepresentation<FERepresentation::ambient_dimension,
+                                ImmersXLA::MPI::Vector,
+                                ImmersXLA::MPI::Vector,
+                                FERepresentation>
   {
     return make_expression_representation(expression.source_representation(),
                                           quadrature,
@@ -873,23 +1048,6 @@ namespace ImmersX
                                                         constants);
   }
 
-  /** Construct a scalar expression representation from expression text. */
-  template <int spacedim, typename StateVectorType, typename QuantityVectorType>
-  auto
-  make_expression_representation(
-    const FieldId source,
-    const RetainedSamplingPlan<spacedim, StateVectorType, QuantityVectorType>
-                                        &sampling,
-    const std::string                   &expression,
-    const std::string                   &symbol    = "A",
-    const std::map<std::string, double> &constants = {})
-    -> ExpressionRepresentation<spacedim, StateVectorType, QuantityVectorType>
-  {
-    return ExpressionRepresentation<spacedim,
-                                    StateVectorType,
-                                    QuantityVectorType>(
-      source, sampling, expression, symbol, constants);
-  }
 } // namespace ImmersX
 
 #endif // immersx_expression_representation_h
