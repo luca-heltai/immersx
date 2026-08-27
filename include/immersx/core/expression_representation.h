@@ -46,8 +46,6 @@ namespace ImmersX
   {
     FERepresentation                              representation;
     std::shared_ptr<const ImmersXLA::MPI::Vector> coefficients;
-    /** Optional owner for FE storage referenced by the representation. */
-    std::shared_ptr<const void> lifetime;
     /** Optional factory for representations whose storage may be refined. */
     std::function<FERepresentation()> representation_factory;
 
@@ -99,7 +97,7 @@ namespace ImmersX
   {
     AssertThrow(coefficients != nullptr,
                 dealii::ExcMessage("Frozen FE coefficients must not be null."));
-    return {representation, std::move(coefficients), nullptr, {}};
+    return {representation, std::move(coefficients), {}};
   }
 
   /** Bind an imported field view, retaining its shared coefficient storage. */
@@ -112,7 +110,6 @@ namespace ImmersX
     auto owner             = std::make_shared<const FieldView>(field);
     return FrozenField<FERepresentation>{field.representation(),
                                          field.coefficients_handle(),
-                                         owner,
                                          [owner]() {
                                            return owner->representation();
                                          }};

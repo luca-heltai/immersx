@@ -133,7 +133,7 @@ namespace ImmersX
     const MPI_Comm           communicator)
     : storage_(std::make_shared<Storage>(triangulation, communicator))
   {
-    const auto storage      = std::const_pointer_cast<Storage>(storage_);
+    const auto storage      = storage_;
     auto       coefficients = std::make_shared<VectorType>();
 #ifdef DEAL_II_WITH_VTK
     AssertThrow(triangulation.n_global_active_cells() > 0,
@@ -158,29 +158,10 @@ namespace ImmersX
     coefficients->reinit(storage->locally_owned_dofs, communicator);
     AssertDimension(serial_coefficients.size(), serial_dof_handler.n_dofs());
     AssertDimension(storage->dof_handler.n_dofs(), serial_dof_handler.n_dofs());
-    std::vector<dealii::types::global_dof_index> serial_indices(
-      serial_dof_handler.get_fe().n_dofs_per_cell());
-    std::vector<dealii::types::global_dof_index> target_indices(
-      storage->dof_handler.get_fe().n_dofs_per_cell());
-    auto serial_cell = serial_dof_handler.begin_active();
-    for (const auto &target_cell : storage->dof_handler.active_cell_iterators())
-      if (target_cell->is_locally_owned())
-        {
-          while (serial_cell->id() < target_cell->id())
-            ++serial_cell;
-          AssertThrow(serial_cell->id() == target_cell->id(),
-                      dealii::ExcMessage(
-                        "Imported field DoF transfer encountered a missing "
-                        "active cell."));
-          serial_cell->get_dof_indices(serial_indices);
-          target_cell->get_dof_indices(target_indices);
-          for (unsigned int i = 0; i < target_indices.size(); ++i)
-            if (coefficients->locally_owned_elements().is_element(
-                  target_indices[i]))
-              (*coefficients)[target_indices[i]] =
-                serial_coefficients[serial_indices[i]];
-        }
-    coefficients->compress(dealii::VectorOperation::insert);
+    ReducedFieldUtils::serial_vector_to_distributed_vector(serial_dof_handler,
+                                                           storage->dof_handler,
+                                                           serial_coefficients,
+                                                           *coefficients);
     storage->coefficients = std::move(coefficients);
 
 #else

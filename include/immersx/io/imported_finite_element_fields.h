@@ -234,7 +234,7 @@ namespace ImmersX
     }
 
   private:
-    std::shared_ptr<const Storage> storage_;
+    std::shared_ptr<Storage> storage_;
   };
 
   /** Import a scalar field using the same generic storage type from a Problem.

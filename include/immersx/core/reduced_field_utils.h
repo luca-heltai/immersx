@@ -47,13 +47,13 @@ namespace ImmersX
     }
 
     /** Transfer serial reduced-field values to the distributed DoF vector. */
-    template <int dim, int spacedim>
+    template <int dim, int spacedim, typename ParallelVectorType>
     void
     serial_vector_to_distributed_vector(
-      const dealii::DoFHandler<dim, spacedim>            &serial_dh,
-      const dealii::DoFHandler<dim, spacedim>            &parallel_dh,
-      const dealii::Vector<double>                       &serial_vec,
-      dealii::LinearAlgebra::distributed::Vector<double> &parallel_vec);
+      const dealii::DoFHandler<dim, spacedim> &serial_dh,
+      const dealii::DoFHandler<dim, spacedim> &parallel_dh,
+      const dealii::Vector<double>            &serial_vec,
+      ParallelVectorType                      &parallel_vec);
 
     /** Map distributed locally owned vertices back to serial vertex indices. */
     template <int dim, int spacedim>
