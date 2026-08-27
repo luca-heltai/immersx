@@ -7,6 +7,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 
+#include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/reduced_field_utils.h>
 
 namespace ImmersX
@@ -58,13 +59,13 @@ namespace ImmersX
         field_fe_ptrs, std::vector<unsigned int>(field_fe_ptrs.size(), 1));
     }
 
-    template <int dim, int spacedim>
+    template <int dim, int spacedim, typename ParallelVectorType>
     void
     serial_vector_to_distributed_vector(
-      const dealii::DoFHandler<dim, spacedim>            &serial_dh,
-      const dealii::DoFHandler<dim, spacedim>            &parallel_dh,
-      const dealii::Vector<double>                       &serial_vec,
-      dealii::LinearAlgebra::distributed::Vector<double> &parallel_vec)
+      const dealii::DoFHandler<dim, spacedim> &serial_dh,
+      const dealii::DoFHandler<dim, spacedim> &parallel_dh,
+      const dealii::Vector<double>            &serial_vec,
+      ParallelVectorType                      &parallel_vec)
     {
       AssertDimension(serial_vec.size(), serial_dh.n_dofs());
       AssertDimension(parallel_vec.size(), parallel_dh.n_dofs());
@@ -144,41 +145,96 @@ namespace ImmersX
     field_catalog_to_finite_element<3, 3>(const FieldCatalog &);
 
     template void
-    serial_vector_to_distributed_vector<1, 1>(
+    serial_vector_to_distributed_vector<
+      1,
+      1,
+      dealii::LinearAlgebra::distributed::Vector<double>>(
       const dealii::DoFHandler<1, 1> &,
       const dealii::DoFHandler<1, 1> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<1, 2>(
+    serial_vector_to_distributed_vector<
+      1,
+      2,
+      dealii::LinearAlgebra::distributed::Vector<double>>(
       const dealii::DoFHandler<1, 2> &,
       const dealii::DoFHandler<1, 2> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<1, 3>(
+    serial_vector_to_distributed_vector<
+      1,
+      3,
+      dealii::LinearAlgebra::distributed::Vector<double>>(
       const dealii::DoFHandler<1, 3> &,
       const dealii::DoFHandler<1, 3> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<2, 2>(
+    serial_vector_to_distributed_vector<
+      2,
+      2,
+      dealii::LinearAlgebra::distributed::Vector<double>>(
       const dealii::DoFHandler<2, 2> &,
       const dealii::DoFHandler<2, 2> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<2, 3>(
+    serial_vector_to_distributed_vector<
+      2,
+      3,
+      dealii::LinearAlgebra::distributed::Vector<double>>(
       const dealii::DoFHandler<2, 3> &,
       const dealii::DoFHandler<2, 3> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<3, 3>(
+    serial_vector_to_distributed_vector<
+      3,
+      3,
+      dealii::LinearAlgebra::distributed::Vector<double>>(
       const dealii::DoFHandler<3, 3> &,
       const dealii::DoFHandler<3, 3> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
+
+    template void
+    serial_vector_to_distributed_vector<1, 1, ImmersXLA::MPI::Vector>(
+      const dealii::DoFHandler<1, 1> &,
+      const dealii::DoFHandler<1, 1> &,
+      const dealii::Vector<double> &,
+      ImmersXLA::MPI::Vector &);
+    template void
+    serial_vector_to_distributed_vector<1, 2, ImmersXLA::MPI::Vector>(
+      const dealii::DoFHandler<1, 2> &,
+      const dealii::DoFHandler<1, 2> &,
+      const dealii::Vector<double> &,
+      ImmersXLA::MPI::Vector &);
+    template void
+    serial_vector_to_distributed_vector<1, 3, ImmersXLA::MPI::Vector>(
+      const dealii::DoFHandler<1, 3> &,
+      const dealii::DoFHandler<1, 3> &,
+      const dealii::Vector<double> &,
+      ImmersXLA::MPI::Vector &);
+    template void
+    serial_vector_to_distributed_vector<2, 2, ImmersXLA::MPI::Vector>(
+      const dealii::DoFHandler<2, 2> &,
+      const dealii::DoFHandler<2, 2> &,
+      const dealii::Vector<double> &,
+      ImmersXLA::MPI::Vector &);
+    template void
+    serial_vector_to_distributed_vector<2, 3, ImmersXLA::MPI::Vector>(
+      const dealii::DoFHandler<2, 3> &,
+      const dealii::DoFHandler<2, 3> &,
+      const dealii::Vector<double> &,
+      ImmersXLA::MPI::Vector &);
+    template void
+    serial_vector_to_distributed_vector<3, 3, ImmersXLA::MPI::Vector>(
+      const dealii::DoFHandler<3, 3> &,
+      const dealii::DoFHandler<3, 3> &,
+      const dealii::Vector<double> &,
+      ImmersXLA::MPI::Vector &);
 
     template std::vector<dealii::types::global_vertex_index>
     distributed_to_serial_vertex_indices<1, 1>(

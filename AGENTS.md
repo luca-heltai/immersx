@@ -3,7 +3,8 @@
 This file contains repository-specific instructions for coding agents working on
 ImmersX.
 
-The detailed contributor guide is [`doc/contributing.md`](doc/contributing.md).
+The detailed contributor guide is
+[`doc/developer/contributing.md`](doc/developer/contributing.md).
 Read both files before making changes. When the two differ, this file is
 normative for agent behavior.
 
@@ -20,7 +21,7 @@ Before editing the repository:
    ```
 2. Fetch and inspect the current remote `master`. Do not assume a previously
    observed SHA is still current.
-3. Read this file and `doc/contributing.md`.
+3. Read this file and `doc/developer/contributing.md`.
 4. Inspect the relevant implementation, tests, and documentation before
    proposing a new abstraction.
 5. Preserve unrelated local changes. Never reset, clean, stash, overwrite, or
