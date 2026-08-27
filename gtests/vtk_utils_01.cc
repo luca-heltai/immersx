@@ -9,6 +9,7 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/mapping_q1.h>
 
@@ -476,6 +477,33 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
   const double serial_norm   = serial_data.l2_norm();
   const double parallel_norm = parallel_data.l2_norm();
   ASSERT_DOUBLE_EQ(serial_norm, parallel_norm);
+}
+
+TEST(VTKUtils, MPI_RejectsMismatchedCellIds)
+{
+  Triangulation<1> serial_tria;
+  GridGenerator::hyper_cube(serial_tria, 0., 1.);
+  serial_tria.refine_global(1);
+  DoFHandler<1> serial_dof_handler(serial_tria);
+  FE_DGQ<1>     serial_fe(0);
+  serial_dof_handler.distribute_dofs(serial_fe);
+  Vector<double> serial_values(serial_dof_handler.n_dofs());
+
+  parallel::distributed::Triangulation<1> parallel_tria(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(parallel_tria,
+                                            {2u},
+                                            Point<1>(0.),
+                                            Point<1>(1.));
+  DoFHandler<1> parallel_dof_handler(parallel_tria);
+  parallel_dof_handler.distribute_dofs(serial_fe);
+  LA::distributed::Vector<double> parallel_values;
+  parallel_values.reinit(parallel_dof_handler.locally_owned_dofs(),
+                         MPI_COMM_WORLD);
+
+  EXPECT_THROW(
+    ReducedFieldUtils::serial_vector_to_distributed_vector(
+      serial_dof_handler, parallel_dof_handler, serial_values, parallel_values),
+    ExceptionBase);
 }
 
 
