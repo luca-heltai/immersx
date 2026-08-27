@@ -66,18 +66,10 @@ namespace ImmersX
     const std::string       &vtk_filename,
     const TriangulationType &triangulation,
     const MPI_Comm           communicator)
-    : triangulation_(&triangulation)
-    , dof_handler_(const_cast<TriangulationType &>(triangulation))
-    , constraints_()
-    , coefficients_(std::make_shared<VectorType>())
-    , communicator_(communicator)
-    , representation_(triangulation,
-                      dof_handler_,
-                      locally_owned_dofs_,
-                      locally_relevant_dofs_,
-                      constraints_)
+    : storage_(std::make_shared<Storage>(triangulation, communicator))
   {
-    constraints_.close();
+    const auto storage      = std::const_pointer_cast<Storage>(storage_);
+    auto       coefficients = std::make_shared<VectorType>();
 #ifdef DEAL_II_WITH_VTK
     AssertThrow(triangulation.n_global_active_cells() > 0,
                 dealii::ExcMessage(
@@ -90,23 +82,23 @@ namespace ImmersX
     VTKUtils::read_vtk(vtk_filename,
                        serial_dof_handler,
                        serial_coefficients,
-                       catalog_);
+                       storage->catalog);
     assert_same_mesh(serial_triangulation, triangulation);
 
-    finite_element_ = serial_dof_handler.get_fe().clone();
-    dof_handler_.distribute_dofs(*finite_element_);
-    locally_owned_dofs_ = dof_handler_.locally_owned_dofs();
-    locally_relevant_dofs_ =
-      dealii::DoFTools::extract_locally_relevant_dofs(dof_handler_);
-    coefficients_->reinit(locally_owned_dofs_, communicator_);
+    storage->finite_element = serial_dof_handler.get_fe().clone();
+    storage->dof_handler.distribute_dofs(*storage->finite_element);
+    storage->locally_owned_dofs = storage->dof_handler.locally_owned_dofs();
+    storage->locally_relevant_dofs =
+      dealii::DoFTools::extract_locally_relevant_dofs(storage->dof_handler);
+    coefficients->reinit(storage->locally_owned_dofs, communicator);
     AssertDimension(serial_coefficients.size(), serial_dof_handler.n_dofs());
-    AssertDimension(dof_handler_.n_dofs(), serial_dof_handler.n_dofs());
+    AssertDimension(storage->dof_handler.n_dofs(), serial_dof_handler.n_dofs());
     std::vector<dealii::types::global_dof_index> serial_indices(
       serial_dof_handler.get_fe().n_dofs_per_cell());
     std::vector<dealii::types::global_dof_index> target_indices(
-      dof_handler_.get_fe().n_dofs_per_cell());
+      storage->dof_handler.get_fe().n_dofs_per_cell());
     auto serial_cell = serial_dof_handler.begin_active();
-    for (const auto &target_cell : dof_handler_.active_cell_iterators())
+    for (const auto &target_cell : storage->dof_handler.active_cell_iterators())
       if (target_cell->is_locally_owned())
         {
           while (serial_cell->id() < target_cell->id())
@@ -118,12 +110,13 @@ namespace ImmersX
           serial_cell->get_dof_indices(serial_indices);
           target_cell->get_dof_indices(target_indices);
           for (unsigned int i = 0; i < target_indices.size(); ++i)
-            if (coefficients_->locally_owned_elements().is_element(
+            if (coefficients->locally_owned_elements().is_element(
                   target_indices[i]))
-              (*coefficients_)[target_indices[i]] =
+              (*coefficients)[target_indices[i]] =
                 serial_coefficients[serial_indices[i]];
         }
-    coefficients_->compress(dealii::VectorOperation::insert);
+    coefficients->compress(dealii::VectorOperation::insert);
+    storage->coefficients = std::move(coefficients);
 
 #else
     (void)vtk_filename;
@@ -139,12 +132,12 @@ namespace ImmersX
     const std::string &name,
     const unsigned int component) const
   {
-    const auto it = std::find_if(catalog_.begin(),
-                                 catalog_.end(),
+    const auto it = std::find_if(storage_->catalog.begin(),
+                                 storage_->catalog.end(),
                                  [&name](const auto &descriptor) {
                                    return descriptor.name == name;
                                  });
-    AssertThrow(it != catalog_.end(),
+    AssertThrow(it != storage_->catalog.end(),
                 dealii::ExcMessage("Unknown imported field '" + name + "'."));
     AssertThrow(component < it->n_components,
                 dealii::ExcMessage("Invalid component for imported field '" +
@@ -152,14 +145,14 @@ namespace ImmersX
 
     const auto           component_offset = it->first_fe_component + component;
     const Representation component_representation(
-      *triangulation_,
-      dof_handler_,
-      locally_owned_dofs_,
-      locally_relevant_dofs_,
-      constraints_,
+      *storage_->triangulation,
+      storage_->dof_handler,
+      storage_->locally_owned_dofs,
+      storage_->locally_relevant_dofs,
+      storage_->constraints,
       dealii::StaticMappingQ1<dim, spacedim>::mapping,
       dealii::FEValuesExtractors::Scalar(component_offset));
-    return FieldView(component_representation, coefficients_, *it, component);
+    return FieldView(storage_, component_representation, *it, component);
   }
 
   /// @cond DOXYGEN_IGNORE_EXPLICIT_INSTANTIATIONS

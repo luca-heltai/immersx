@@ -24,6 +24,7 @@
 #include <immersx/io/vtk_utils.h>
 #include <immersx/physics/elastic_static.h>
 
+#include <array>
 #include <cmath>
 
 #include "test_paths.h"
@@ -94,6 +95,42 @@ namespace
         EXPECT_TRUE(std::isfinite(gradients[index]));
       }
   }
+
+  void
+  check_lambda_sampling(const ImportedFiniteElementFields<3>::FieldView &lambda)
+  {
+    const QGauss<3> quadrature(2);
+    const auto      plan =
+      make_retained_sampling_plan(lambda.representation(),
+                                  quadrature,
+                                  update_values | update_gradients);
+    auto value_operator = plan.linearize(lambda.coefficients());
+    std::array<ImmersXLA::MPI::Vector, 3> gradient_values;
+    ImmersXLA::MPI::Vector                values;
+    value_operator.reinit_range_vector(values, false);
+    value_operator.vmult(values, lambda.coefficients());
+    std::array<decltype(plan.linearize(lambda.coefficients())), 3>
+      gradient_operators = {plan.gradient_linearize(lambda.coefficients(), 0),
+                            plan.gradient_linearize(lambda.coefficients(), 1),
+                            plan.gradient_linearize(lambda.coefficients(), 2)};
+    for (unsigned int component = 0; component < 3; ++component)
+      {
+        gradient_operators[component].reinit_range_vector(
+          gradient_values[component], false);
+        gradient_operators[component].vmult(gradient_values[component],
+                                            lambda.coefficients());
+      }
+
+    for (const auto &point : plan.points())
+      {
+        const auto index = plan.point_index(&point - plan.points().data());
+        EXPECT_NEAR(values[index],
+                    point.point[0] + point.point[1] + point.point[2],
+                    1.e-12);
+        for (unsigned int component = 0; component < 3; ++component)
+          EXPECT_NEAR(gradient_values[component][index], 1., 1.e-12);
+      }
+  }
 } // namespace
 
 TEST(ImportedFiniteElementFields, PointDataScalarAndGradient)
@@ -151,5 +188,54 @@ TEST(ImportedFiniteElementFields, ElasticityConsumer)
   const auto lambda = problem.imported_fields()->field("lambda");
   EXPECT_EQ(lambda.name(), "lambda");
   EXPECT_EQ(&lambda.coefficients(), &fields->coefficients());
+  check_lambda_sampling(lambda);
+}
+
+TEST(ImportedFiniteElementFields, FieldViewSurvivesParentHandle)
+{
+  ElasticStaticParameters<3> parameters;
+  parameters.domain_type        = "generate";
+  parameters.name_of_grid       = "hyper_cube";
+  parameters.arguments_for_grid = "0: 1: false";
+  parameters.initial_refinement = 0;
+  parameters.triangulation_type = "fullydistributed";
+  ElasticStaticProblem<3> problem(parameters);
+  problem.setup();
+
+  const auto filename =
+    TestPaths::data_filename("tests/imported_lambda_3d.vtk");
+  const auto lambda = [&] {
+    auto imported =
+      std::make_shared<ImportedFiniteElementFields<3>>(filename,
+                                                       problem.triangulation());
+    return imported->field("lambda");
+  }();
+
+  check_lambda_sampling(lambda);
+}
+
+TEST(ImportedFiniteElementFields, SharedInstanceViewsUseSharedStorage)
+{
+  ElasticStaticParameters<3> parameters;
+  parameters.domain_type        = "generate";
+  parameters.name_of_grid       = "hyper_cube";
+  parameters.arguments_for_grid = "0: 1: false";
+  parameters.initial_refinement = 0;
+  parameters.triangulation_type = "fullydistributed";
+  ElasticStaticProblem<3> problem(parameters);
+  problem.setup();
+
+  const auto filename =
+    TestPaths::data_filename("tests/imported_lambda_3d.vtk");
+  auto imported =
+    std::make_shared<ImportedFiniteElementFields<3>>(filename,
+                                                     problem.triangulation());
+  const auto first  = imported->field("lambda");
+  const auto second = imported->field("lambda");
+  EXPECT_EQ(&first.coefficients(), &second.coefficients());
+  EXPECT_EQ(&first.representation().dof_handler(),
+            &second.representation().dof_handler());
+  EXPECT_EQ(&first.representation().triangulation(),
+            &second.representation().triangulation());
 }
 #endif

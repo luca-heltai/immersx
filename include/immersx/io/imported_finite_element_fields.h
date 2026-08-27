@@ -46,6 +46,30 @@ namespace ImmersX
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
     using Representation = FiniteElementRepresentation<dim, spacedim>;
 
+  private:
+    struct Storage
+    {
+      Storage(const TriangulationType &tria, const MPI_Comm comm)
+        : triangulation(&tria)
+        , dof_handler(const_cast<TriangulationType &>(tria))
+        , coefficients()
+        , communicator(comm)
+      {
+        constraints.close();
+      }
+
+      const TriangulationType                              *triangulation;
+      DoFHandlerType                                        dof_handler;
+      std::unique_ptr<dealii::FiniteElement<dim, spacedim>> finite_element;
+      dealii::IndexSet                                      locally_owned_dofs;
+      dealii::IndexSet                  locally_relevant_dofs;
+      dealii::AffineConstraints<double> constraints;
+      std::shared_ptr<const VectorType> coefficients;
+      FieldCatalog                      catalog;
+      MPI_Comm                          communicator;
+    };
+
+  public:
     /** A non-owning named scalar component view of one imported field. */
     class FieldView
     {
@@ -61,7 +85,13 @@ namespace ImmersX
       const VectorType &
       coefficients() const
       {
-        return *coefficients_;
+        return *storage_->coefficients;
+      }
+
+      std::shared_ptr<const VectorType>
+      coefficients_handle() const
+      {
+        return storage_->coefficients;
       }
 
       const ReducedFieldDescriptor &
@@ -85,20 +115,20 @@ namespace ImmersX
     private:
       friend class ImportedFiniteElementFields;
 
-      FieldView(const Representation             &representation,
-                std::shared_ptr<const VectorType> coefficients,
-                const ReducedFieldDescriptor     &descriptor,
-                const unsigned int                component)
-        : representation_(representation)
-        , coefficients_(std::move(coefficients))
+      FieldView(std::shared_ptr<const Storage> storage,
+                const Representation          &representation,
+                const ReducedFieldDescriptor  &descriptor,
+                const unsigned int             component)
+        : storage_(std::move(storage))
+        , representation_(representation)
         , descriptor_(descriptor)
         , component_(component)
       {}
 
-      Representation                    representation_;
-      std::shared_ptr<const VectorType> coefficients_;
-      ReducedFieldDescriptor            descriptor_;
-      unsigned int                      component_;
+      std::shared_ptr<const Storage> storage_;
+      Representation                 representation_;
+      ReducedFieldDescriptor         descriptor_;
+      unsigned int                   component_;
     };
 
     /** Import all VTK fields onto an already prepared Problem triangulation. */
@@ -109,43 +139,43 @@ namespace ImmersX
     const TriangulationType &
     triangulation() const
     {
-      return *triangulation_;
+      return *storage_->triangulation;
     }
 
     const DoFHandlerType &
     dof_handler() const
     {
-      return dof_handler_;
+      return storage_->dof_handler;
     }
 
     const dealii::FiniteElement<dim, spacedim> &
     finite_element() const
     {
-      return dof_handler_.get_fe();
+      return storage_->dof_handler.get_fe();
     }
 
     const dealii::IndexSet &
     locally_owned_dofs() const
     {
-      return locally_owned_dofs_;
+      return storage_->locally_owned_dofs;
     }
 
     const dealii::IndexSet &
     locally_relevant_dofs() const
     {
-      return locally_relevant_dofs_;
+      return storage_->locally_relevant_dofs;
     }
 
     const VectorType &
     coefficients() const
     {
-      return *coefficients_;
+      return *storage_->coefficients;
     }
 
     const FieldCatalog &
     catalog() const
     {
-      return catalog_;
+      return storage_->catalog;
     }
 
     /** Return a scalar component view without copying coefficient data. */
@@ -155,20 +185,11 @@ namespace ImmersX
     MPI_Comm
     mpi_communicator() const
     {
-      return communicator_;
+      return storage_->communicator;
     }
 
   private:
-    const TriangulationType                              *triangulation_;
-    DoFHandlerType                                        dof_handler_;
-    std::unique_ptr<dealii::FiniteElement<dim, spacedim>> finite_element_;
-    dealii::IndexSet                                      locally_owned_dofs_;
-    dealii::IndexSet                  locally_relevant_dofs_;
-    dealii::AffineConstraints<double> constraints_;
-    std::shared_ptr<VectorType>       coefficients_;
-    FieldCatalog                      catalog_;
-    MPI_Comm                          communicator_;
-    Representation                    representation_;
+    std::shared_ptr<const Storage> storage_;
   };
 
   /** Import a scalar field using the same generic storage type from a Problem.
