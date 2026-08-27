@@ -104,13 +104,13 @@ namespace
 
     ExpressionData  data;
     const QGauss<2> quadrature(3);
-    const double    beta = 1.5;
-    const auto      expression =
-      make_expression_representation(*data.representation,
-                                     quadrature,
-                                     {value(data.field, "A")},
-                                     "A*A + beta*A",
-                                     {{"beta", beta}});
+    const double    beta       = 1.5;
+    const auto      expression = make_expression_representation(
+      *data.representation,
+      quadrature,
+      {value(state_field(*data.representation, data.field), "A")},
+      "A*A + beta*A",
+      {{"beta", beta}});
     const auto &plan = expression.sampling_plan();
     ASSERT_FALSE(plan.points().empty());
     EXPECT_EQ(plan.update_flags() & update_gradients, update_default);
@@ -187,12 +187,12 @@ namespace
                 local_dot(data.locally_owned, direction, transpose),
                 1.e-8);
 
-    const auto multi =
-      make_expression_representation(*data.representation,
-                                     quadrature,
-                                     {value(data.field, "A"),
-                                      value(data.second_field, "U")},
-                                     "A*A + 2*U");
+    const auto multi = make_expression_representation(
+      *data.representation,
+      quadrature,
+      {value(state_field(*data.representation, data.field), "A"),
+       value(state_field(*data.representation, data.second_field), "U")},
+      "A*A + 2*U");
     ASSERT_EQ(multi.dependencies().size(), 2u);
     EXPECT_EQ(multi.dependencies()[0], data.field);
     EXPECT_EQ(multi.dependencies()[1], data.second_field);
@@ -221,13 +221,13 @@ namespace
       EXPECT_DOUBLE_EQ(multi_action[plan.point_index(q)],
                        2. * second_direction[plan.point_index(q)]);
 
-    const auto gradient_expression =
-      make_expression_representation(*data.representation,
-                                     quadrature,
-                                     {value(data.field, "A"),
-                                      gradient(data.field, "grad_A_0", 0),
-                                      gradient(data.field, "grad_A_1", 1)},
-                                     "A*A + grad_A_0 + 2*grad_A_1");
+    const auto gradient_expression = make_expression_representation(
+      *data.representation,
+      quadrature,
+      {value(state_field(*data.representation, data.field), "A"),
+       gradient(state_field(*data.representation, data.field), "grad_A_0", 0),
+       gradient(state_field(*data.representation, data.field), "grad_A_1", 1)},
+      "A*A + grad_A_0 + 2*grad_A_1");
     const auto &gradient_plan = gradient_expression.sampling_plan();
     EXPECT_EQ(gradient_plan.update_flags() & update_gradients,
               update_gradients);
@@ -328,10 +328,12 @@ namespace
 
     ExpressionData  data;
     const QGauss<2> quadrature(3);
-    const auto      deferred = make_fe_expression(*data.representation,
-                                                  {value(data.field, "A")},
-                                             "factor*A",
-                                                  {{"factor", 2.5}});
+    const auto      deferred =
+      make_fe_expression(*data.representation,
+                         {value(state_field(*data.representation, data.field),
+                                "A")},
+                         "factor*A",
+                         {{"factor", 2.5}});
 
     // The description has no sampling plan until this explicit conversion.
     const auto sampled = sample(deferred, quadrature);
@@ -475,12 +477,14 @@ namespace
     lift.section.n_q_points               = 3;
     lift.section.n_quadrature_repetitions = 1;
 
-    const auto  expression = make_fe_expression(*data.representation,
-                                                {value(data.field, "A")},
-                                               "A*A + 1.25*A");
-    const auto  lifted     = expression.lift(lift);
-    const auto &sampled    = lifted.source_representation();
-    const auto &plan       = sampled.sampling_plan();
+    const auto expression =
+      make_fe_expression(*data.representation,
+                         {value(state_field(*data.representation, data.field),
+                                "A")},
+                         "A*A + 1.25*A");
+    const auto  lifted  = expression.lift(lift);
+    const auto &sampled = lifted.source_representation();
+    const auto &plan    = sampled.sampling_plan();
 
     ImmersXLA::MPI::Vector state;
     state.reinit(data.locally_owned, MPI_COMM_WORLD);

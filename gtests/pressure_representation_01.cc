@@ -118,10 +118,11 @@ namespace
       problem.locally_owned_dofs(),
       problem.locally_relevant_dofs(),
       problem.constraints());
-    const auto pressure = make_fe_expression(source_representation,
-                                             {value(pressure_field, "A")},
-                                             "factor*A",
-                                             {{"factor", factor}});
+    const auto pressure = make_fe_expression(
+      source_representation,
+      {value(state_field(source_representation, pressure_field), "A")},
+      "factor*A",
+      {{"factor", factor}});
 
     // Sampling is deferred until the tensor-product lift supplies its
     // representative quadrature.

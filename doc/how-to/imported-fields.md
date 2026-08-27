@@ -67,3 +67,27 @@ capture the sampling geometry at construction time.
 PointData and CellData continue to use the existing VTK finite-element choice:
 continuous `FE_Q` for PointData and discontinuous `FE_DGQ` for CellData. Field
 metadata remains available through `catalog()`.
+
+## Expressions
+
+Expression bindings distinguish a live state source from frozen coefficients:
+
+```cpp
+const auto source = ImmersX::FiniteElementRepresentation<1, 3>(
+  poisson.triangulation(), poisson.dof_handler(),
+  poisson.locally_owned_dofs(), poisson.locally_relevant_dofs(),
+  poisson.constraints());
+const auto u = ImmersX::state_field(source, solution_field);
+const auto path = ImmersX::frozen_field(path_length);
+
+const auto pressure = ImmersX::make_fe_expression(
+  source,
+  {ImmersX::gradient(u, "grad_u_z", 2),
+   ImmersX::value(path, "path_length")},
+  "alpha * (grad_u_z + path_length)",
+  {{"alpha", 2.0}});
+```
+
+Only `state_field` bindings appear in `dependencies()` and contribute to
+`linearize()`. A frozen binding is evaluated from its shared coefficient
+storage, including gradients, and contributes no Jacobian term.
