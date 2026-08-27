@@ -39,7 +39,7 @@ namespace
     AffineConstraints<double>                       constraints;
     std::unique_ptr<FiniteElementRepresentation<2>> representation;
 
-    SamplingData()
+    explicit SamplingData(const bool inhomogeneous = false)
       : triangulation(MPI_COMM_WORLD)
       , finite_element(2)
       , dof_handler(triangulation)
@@ -50,6 +50,12 @@ namespace
       locally_owned    = dof_handler.locally_owned_dofs();
       locally_relevant = DoFTools::extract_locally_relevant_dofs(dof_handler);
       constraints.reinit(locally_owned, locally_relevant);
+      if (inhomogeneous)
+        {
+          constraints.add_line(0);
+          constraints.add_entry(0, 1, 0.5);
+          constraints.set_inhomogeneity(0, 2.0);
+        }
       constraints.close();
       representation =
         std::make_unique<FiniteElementRepresentation<2>>(triangulation,
@@ -153,5 +159,72 @@ TEST(RetainedSampling,
 
   EXPECT_NEAR(local_dot(plan.locally_owned_points(), values, weights),
               local_dot(data.locally_owned, direction, transpose),
+              1.e-9);
+}
+
+
+TEST(RetainedSampling, InhomogeneousConstraintsSeparateStateAndLinearization)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  SamplingData    data(true);
+  const QGauss<2> quadrature(3);
+  const auto      plan =
+    make_retained_sampling_plan(*data.representation, quadrature);
+
+  ImmersXLA::MPI::Vector state;
+  fill_state(data.locally_owned, state);
+
+  const auto state_sample  = plan.sample(state);
+  const auto operator_view = plan.linearize(state);
+
+  ImmersXLA::MPI::Vector zero;
+  operator_view.reinit_domain_vector(zero, false);
+  zero = 0.;
+  ImmersXLA::MPI::Vector sampled_zero;
+  operator_view.reinit_range_vector(sampled_zero, false);
+  operator_view.vmult(sampled_zero, zero);
+  EXPECT_EQ(sampled_zero.l2_norm(), 0.);
+
+  ImmersXLA::MPI::Vector    homogeneous_state = state;
+  AffineConstraints<double> homogeneous_constraints(data.constraints);
+  homogeneous_constraints.set_inhomogeneity(0, 0.);
+  homogeneous_constraints.distribute(homogeneous_state);
+
+  ImmersXLA::MPI::Vector sampled;
+  operator_view.reinit_range_vector(sampled, false);
+  operator_view.vmult(sampled, state);
+
+  for (std::size_t q = 0; q < plan.points().size(); ++q)
+    {
+      double inhomogeneous_contribution = 0.;
+      for (std::size_t i = 0; i < plan.points()[q].dof_indices.size(); ++i)
+        if (plan.points()[q].dof_indices[i] == 0)
+          inhomogeneous_contribution += 2. * plan.points()[q].basis_values[i];
+      EXPECT_NEAR(state_sample[plan.point_index(q)] -
+                    sampled[plan.point_index(q)],
+                  inhomogeneous_contribution,
+                  1.e-12);
+    }
+
+  for (std::size_t q = 0; q < plan.points().size(); ++q)
+    {
+      double expected = 0.;
+      for (std::size_t i = 0; i < plan.points()[q].dof_indices.size(); ++i)
+        expected += plan.points()[q].basis_values[i] *
+                    homogeneous_state[plan.points()[q].dof_indices[i]];
+      EXPECT_NEAR(sampled[plan.point_index(q)], expected, 1.e-12);
+    }
+
+  ImmersXLA::MPI::Vector weights;
+  weights.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
+  for (const auto index : plan.locally_owned_points())
+    weights[index] = 0.75 + 0.25 * index;
+
+  ImmersXLA::MPI::Vector transpose;
+  operator_view.reinit_domain_vector(transpose, false);
+  operator_view.Tvmult(transpose, weights);
+
+  EXPECT_NEAR(local_dot(plan.locally_owned_points(), sampled, weights),
+              local_dot(data.locally_owned, state, transpose),
               1.e-9);
 }

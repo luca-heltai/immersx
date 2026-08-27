@@ -1264,6 +1264,31 @@ namespace ImmersX
       return communicator_;
     }
 
+    /**
+     * Sample a state, applying the complete affine constraints including their
+     * inhomogeneous values.
+     */
+    QuantityVectorType
+    sample(const StateVectorType &state) const
+    {
+      const auto relevant = make_relevant_source(state,
+                                                 source_owned_,
+                                                 source_relevant_,
+                                                 constraints_,
+                                                 communicator_,
+                                                 false);
+
+      QuantityVectorType result;
+      result.reinit(point_owned_, point_relevant_, communicator_);
+      result = 0.;
+      for (std::size_t q = 0; q < points_.size(); ++q)
+        result[point_indices_[q]] =
+          detail::evaluate_stencil(relevant,
+                                   points_[q].dof_indices,
+                                   points_[q].basis_values);
+      return result;
+    }
+
     Operator
     linearize(const StateVectorType &prototype) const
     {
@@ -1295,8 +1320,12 @@ namespace ImmersX
                       constraints,
                       communicator](QuantityVectorType    &destination,
                                     const StateVectorType &source) {
-        const auto relevant = make_relevant_source(
-          source, source_owned, source_relevant, constraints, communicator);
+        const auto relevant = make_relevant_source(source,
+                                                   source_owned,
+                                                   source_relevant,
+                                                   constraints,
+                                                   communicator,
+                                                   true);
         for (std::size_t q = 0; q < points.size(); ++q)
           destination[point_indices[q]] =
             detail::evaluate_stencil(relevant,
@@ -1310,8 +1339,12 @@ namespace ImmersX
                           constraints,
                           communicator](QuantityVectorType    &destination,
                                         const StateVectorType &source) {
-        const auto relevant = make_relevant_source(
-          source, source_owned, source_relevant, constraints, communicator);
+        const auto relevant = make_relevant_source(source,
+                                                   source_owned,
+                                                   source_relevant,
+                                                   constraints,
+                                                   communicator,
+                                                   true);
         for (std::size_t q = 0; q < points.size(); ++q)
           destination[point_indices[q]] +=
             detail::evaluate_stencil(relevant,
@@ -1361,13 +1394,29 @@ namespace ImmersX
                          const dealii::IndexSet &source_owned,
                          const dealii::IndexSet &source_relevant,
                          const dealii::AffineConstraints<double> *constraints,
-                         const MPI_Comm                           communicator)
+                         const MPI_Comm                           communicator,
+                         const bool                               homogeneous)
     {
       StateVectorType owned;
       owned.reinit(source_owned, communicator);
       owned = source;
       if (constraints != nullptr)
-        constraints->distribute(owned);
+        {
+          if (!homogeneous || !constraints->has_inhomogeneities())
+            constraints->distribute(owned);
+          else
+            {
+              // deal.II's distribute() applies the affine offset.  A
+              // Jacobian perturbation needs the same constraint relation with
+              // all offsets removed, so reuse the deal.II constraint logic on
+              // a local homogeneous copy.
+              dealii::AffineConstraints<double> homogeneous_constraints(
+                *constraints);
+              for (const auto &line : homogeneous_constraints.get_lines())
+                homogeneous_constraints.set_inhomogeneity(line.index, 0.);
+              homogeneous_constraints.distribute(owned);
+            }
+        }
 
       StateVectorType relevant;
       relevant.reinit(source_owned, source_relevant, communicator);
