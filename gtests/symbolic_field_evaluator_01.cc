@@ -38,3 +38,21 @@ TEST(SymbolicFieldEvaluator, ReportsAvailabilityAndEmptyExpressions)
                std::runtime_error);
 #endif
 }
+
+TEST(SymbolicFieldEvaluator, PreservesDuplicateOutputExpressions)
+{
+  SymbolicFieldEvaluator evaluator;
+#ifdef DEAL_II_WITH_SYMENGINE
+  evaluator.initialize({"0.1", "0.1"}, {});
+
+  EXPECT_EQ(evaluator.n_outputs(), 2u);
+  const auto values =
+    evaluator.evaluate(std::vector<double>{1.0, 2.0}, 3.0, {});
+  ASSERT_EQ(values.size(), 2u);
+  EXPECT_DOUBLE_EQ(values[0], 0.1);
+  EXPECT_DOUBLE_EQ(values[1], 0.1);
+#else
+  EXPECT_FALSE(SymbolicFieldEvaluator::available());
+  EXPECT_THROW(evaluator.initialize({"0.1", "0.1"}, {}), std::runtime_error);
+#endif
+}
