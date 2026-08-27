@@ -94,12 +94,6 @@ namespace ImmersX
         return storage_->coefficients;
       }
 
-      std::shared_ptr<const VectorType>
-      coefficients_handle() const
-      {
-        return coefficients_;
-      }
-
       const ReducedFieldDescriptor &
       descriptor() const
       {
