@@ -50,7 +50,7 @@ namespace
       locally_owned    = dof_handler.locally_owned_dofs();
       locally_relevant = DoFTools::extract_locally_relevant_dofs(dof_handler);
       constraints.reinit(locally_owned, locally_relevant);
-      if (inhomogeneous)
+      if (inhomogeneous && locally_owned.is_element(0))
         {
           constraints.add_line(0);
           constraints.add_entry(0, 1, 0.5);
@@ -225,6 +225,45 @@ TEST(RetainedSampling, InhomogeneousConstraintsSeparateStateAndLinearization)
   operator_view.Tvmult(transpose, weights);
 
   EXPECT_NEAR(local_dot(plan.locally_owned_points(), sampled, weights),
+              local_dot(data.locally_owned, state, transpose),
+              1.e-9);
+}
+
+
+TEST(RetainedSampling, MPI_InhomogeneousConstraintsRemainLinear)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  SamplingData    data(true);
+  const QGauss<2> quadrature(3);
+  const auto      plan =
+    make_retained_sampling_plan(*data.representation, quadrature);
+
+  ImmersXLA::MPI::Vector state;
+  fill_state(data.locally_owned, state);
+  const auto operator_view = plan.linearize(state);
+
+  ImmersXLA::MPI::Vector zero;
+  operator_view.reinit_domain_vector(zero, false);
+  zero = 0.;
+  ImmersXLA::MPI::Vector sampled_zero;
+  operator_view.reinit_range_vector(sampled_zero, false);
+  operator_view.vmult(sampled_zero, zero);
+  EXPECT_EQ(sampled_zero.l2_norm(), 0.);
+
+  ImmersXLA::MPI::Vector values;
+  operator_view.reinit_range_vector(values, false);
+  operator_view.vmult(values, state);
+
+  ImmersXLA::MPI::Vector weights;
+  weights.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
+  for (const auto index : plan.locally_owned_points())
+    weights[index] = 0.75 + 0.25 * index;
+
+  ImmersXLA::MPI::Vector transpose;
+  operator_view.reinit_domain_vector(transpose, false);
+  operator_view.Tvmult(transpose, weights);
+
+  EXPECT_NEAR(local_dot(plan.locally_owned_points(), values, weights),
               local_dot(data.locally_owned, state, transpose),
               1.e-9);
 }
