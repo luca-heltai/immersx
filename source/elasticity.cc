@@ -2410,8 +2410,10 @@ namespace ImmersX
         assemble_forcing_terms();
         if (!uses_tensor_product_coupling())
           inclusions.inclusions_rhs.set_time(current_time);
+#ifdef DEAL_II_WITH_VTK
         else
           tensor_product_coupling->set_time(current_time);
+#endif
         assemble_coupling();
 
         for (time_step = 0, current_time = par.initial_time;
@@ -2464,8 +2466,10 @@ namespace ImmersX
         assemble_forcing_terms();
         if (!uses_tensor_product_coupling())
           inclusions.inclusions_rhs.set_time(current_time);
+#ifdef DEAL_II_WITH_VTK
         else
           tensor_product_coupling->set_time(current_time);
+#endif
         assemble_coupling();
 
         par.initial_displacement.set_time(current_time);
@@ -2599,8 +2603,10 @@ namespace ImmersX
                                     inclusions.phase_shift,
                                     current_time);
       }
+#ifdef DEAL_II_WITH_VTK
     else
       tensor_product_coupling->set_time(current_time);
+#endif
     assemble_coupling();
 
     system_rhs.block(0) = 0.0;

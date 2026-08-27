@@ -8,13 +8,18 @@ namespace ImmersX
   bool
   ElasticityProblem<dim, spacedim>::uses_tensor_product_coupling() const
   {
+#ifdef DEAL_II_WITH_VTK
     return par.coupling_type == CouplingType::TensorProduct;
+#else
+    return false;
+#endif
   }
 
   template <int dim, int spacedim>
   types::global_dof_index
   ElasticityProblem<dim, spacedim>::n_multiplier_dofs() const
   {
+#ifdef DEAL_II_WITH_VTK
     if (uses_tensor_product_coupling())
       {
         if (tensor_product_coupling)
@@ -22,8 +27,8 @@ namespace ImmersX
         else
           return static_cast<types::global_dof_index>(0);
       }
-    else
-      return inclusions.n_dofs();
+#endif
+    return inclusions.n_dofs();
   }
 
   template <int dim, int spacedim>
