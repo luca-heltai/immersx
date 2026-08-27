@@ -172,11 +172,11 @@ namespace CoupledPoissonElasticity
       poisson.locally_owned_dofs(),
       poisson.locally_relevant_dofs(),
       poisson.constraints());
-    return ImmersX::make_fe_expression(
-      source,
-      {ImmersX::value(problem.fields().solution, "A")},
-      "factor*A",
-      {{"factor", pressure.factor}});
+    const auto active = ImmersX::state_field(source, problem.fields().solution);
+    return ImmersX::make_fe_expression(source,
+                                       {ImmersX::value(active, "A")},
+                                       "factor*A",
+                                       {{"factor", pressure.factor}});
   }
 
   template <typename Quantity>
