@@ -83,14 +83,17 @@ namespace ImmersX
     const auto quantity = interaction.quantity();
     const auto coupling = interaction.coupling();
 
-    builder.term(interaction.target(), "pressure-load")
-      .residual([quantity, coupling](const auto &context) {
-        return coupling.residual(quantity.evaluate(context));
-      })
-      .state(quantity.source(),
-             OperatorFactory([quantity, coupling](const auto &context) {
-               return coupling.linearize() * quantity.linearize(context);
-             }));
+    auto term = builder.term(interaction.target(), "pressure-load")
+                  .residual([quantity, coupling](const auto &context) {
+                    return coupling.residual(quantity.evaluate(context));
+                  });
+    for (const auto field : quantity.dependencies())
+      term.state(field,
+                 OperatorFactory(
+                   [quantity, coupling, field](const auto &context) {
+                     return coupling.linearize() *
+                            quantity.linearize(context, field);
+                   }));
 
     return {};
   }

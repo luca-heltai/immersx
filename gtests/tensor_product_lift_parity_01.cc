@@ -328,13 +328,13 @@ TEST(TensorProductLiftParity, Mode0SingleLineCell) // NOLINT
   poisson_problem.setup_system();
   poisson_problem.assemble_system();
 
-  ImmersX::StateLayout     layout;
-  ImmersX::FieldDescriptor descriptor;
-  descriptor.name           = "pressure";
-  const auto pressure_field = layout.add_field(descriptor);
-
-  CoupledPoissonElasticity::PressureRepresentation source_representation(
-    pressure_field, poisson_problem, 1.0);
+  const auto source_representation =
+    FiniteElementRepresentation<reduced_dim, spacedim>(
+      poisson_problem.triangulation(),
+      poisson_problem.dof_handler(),
+      poisson_problem.locally_owned_dofs(),
+      poisson_problem.locally_relevant_dofs(),
+      poisson_problem.constraints());
   const auto  lifted        = source_representation.lift(new_lift);
   const auto &lifted_points = lifted.lifted_points();
   const auto &support       = lifted.support();

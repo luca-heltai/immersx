@@ -20,6 +20,7 @@
 #include <deal.II/base/index_set.h>
 #include <deal.II/base/quadrature.h>
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/tensor.h>
 
 #include <deal.II/distributed/tria_base.h>
 
@@ -276,6 +277,12 @@ namespace ImmersX
       return source_;
     }
 
+    std::vector<FieldId>
+    dependencies() const
+    {
+      return {source_.source()};
+    }
+
     const RepresentationDomain &
     domain() const
     {
@@ -329,6 +336,17 @@ namespace ImmersX
       return result;
     }
 
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_.source(),
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
+    }
+
   private:
     FieldComponentView   source_;
     RepresentationDomain domain_;
@@ -363,6 +381,12 @@ namespace ImmersX
     source() const
     {
       return source_;
+    }
+
+    std::vector<FieldId>
+    dependencies() const
+    {
+      return {source_};
     }
 
     /** Return the physical evaluation domain, independent of the source Field.
@@ -419,6 +443,17 @@ namespace ImmersX
       return result;
     }
 
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_,
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
+    }
+
   private:
     FieldId              source_;
     RepresentationDomain domain_;
@@ -451,6 +486,12 @@ namespace ImmersX
     source() const
     {
       return source_.source();
+    }
+
+    std::vector<FieldId>
+    dependencies() const
+    {
+      return source_.dependencies();
     }
 
     const RepresentationDomain &
@@ -515,6 +556,17 @@ namespace ImmersX
       return result;
     }
 
+    Operator
+    linearize(const EvaluationContext<VectorType> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_.source(),
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
+    }
+
   private:
     Representation<VectorType> source_;
     double                     factor_;
@@ -563,6 +615,7 @@ namespace ImmersX
     std::uint64_t stable_id = std::numeric_limits<std::uint64_t>::max();
     std::vector<dealii::types::global_dof_index> dof_indices;
     std::vector<ValueType>                       basis_values;
+    std::vector<dealii::Tensor<1, spacedim>>     basis_gradients;
   };
 
 
@@ -794,11 +847,25 @@ namespace ImmersX
      */
     std::vector<QuadraturePoint>
     locally_owned_quadrature_points(
-      const dealii::Quadrature<dim> &quadrature) const
+      const dealii::Quadrature<dim> &quadrature,
+      const dealii::UpdateFlags requested_flags = dealii::update_values) const
     {
-      dealii::UpdateFlags update_flags = dealii::update_values |
-                                         dealii::update_quadrature_points |
-                                         dealii::update_JxW_values;
+      const unsigned int requested = static_cast<unsigned int>(requested_flags);
+      const unsigned int supported =
+        static_cast<unsigned int>(dealii::update_values) |
+        static_cast<unsigned int>(dealii::update_gradients);
+      AssertThrow((requested & ~supported) == 0,
+                  dealii::ExcMessage(
+                    "Retained FE sampling supports only values and "
+                    "gradients."));
+      // Values, physical points, and physical weights are part of the
+      // retained-point payload. The caller supplies only additional FE data
+      // requirements.
+      dealii::UpdateFlags update_flags =
+        requested_flags | dealii::update_values |
+        dealii::update_quadrature_points | dealii::update_JxW_values;
+      if ((requested_flags & dealii::update_gradients) != 0)
+        update_flags |= dealii::update_gradients;
       if constexpr (dim > 1 && dim < spacedim)
         update_flags |= dealii::update_normal_vectors;
       dealii::FEValues<dim, spacedim> fe_values(mapping_,
@@ -843,6 +910,18 @@ namespace ImmersX
                 else
                   for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
                     point.basis_values[i] = fe_values[extractor_].value(i, q);
+                if constexpr (std::is_same_v<ValueType, double>)
+                  if ((requested_flags & dealii::update_gradients) != 0)
+                    {
+                      point.basis_gradients.resize(n_dofs_per_cell());
+                      if (all_components_)
+                        for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                          point.basis_gradients[i] = fe_values.shape_grad(i, q);
+                      else
+                        for (unsigned int i = 0; i < n_dofs_per_cell(); ++i)
+                          point.basis_gradients[i] =
+                            fe_values[extractor_].gradient(i, q);
+                    }
                 points.emplace_back(std::move(point));
               }
           }
@@ -1190,6 +1269,406 @@ namespace ImmersX
 
 
   /**
+   * A state-independent finite-element sampling plan.
+   *
+   * The plan is a retained collection of FE stencils.  It owns the point
+   * payload copied from a Representation, including the source DoF indices
+   * and basis values, but it never stores a state vector and never searches
+   * for a cell.  Point values are distributed according to the rank that
+   * retained each stencil, which makes the output a regular distributed
+   * vector and keeps the transpose local except for the normal DoF
+   * compression.
+   */
+  template <int spacedim,
+            typename StateVectorType    = ImmersXLA::MPI::Vector,
+            typename QuantityVectorType = ImmersXLA::MPI::Vector>
+  class RetainedSamplingPlan
+  {
+  public:
+    using Point = RepresentationQuadraturePoint<spacedim, double>;
+    using Operator =
+      RepresentationOperator<QuantityVectorType, StateVectorType>;
+
+    RetainedSamplingPlan(
+      std::vector<Point>                       points,
+      const dealii::IndexSet                  &source_owned,
+      const dealii::IndexSet                  &source_relevant,
+      const dealii::AffineConstraints<double> *constraints,
+      const MPI_Comm                           communicator,
+      const dealii::UpdateFlags update_flags = dealii::update_values)
+      : points_(std::move(points))
+      , source_owned_(source_owned)
+      , source_relevant_(source_relevant)
+      , constraints_(constraints)
+      , communicator_(communicator)
+      , update_flags_(update_flags)
+    {
+      const auto [offset, size] =
+        dealii::Utilities::MPI::partial_and_total_sum(points_.size(),
+                                                      communicator_);
+      point_owned_.set_size(size);
+      point_owned_.add_range(offset, offset + points_.size());
+      point_owned_.compress();
+      point_relevant_ = point_owned_;
+      point_indices_.reserve(points_.size());
+      for (std::size_t q = 0; q < points_.size(); ++q)
+        point_indices_.push_back(offset + q);
+    }
+
+    const std::vector<Point> &
+    points() const
+    {
+      return points_;
+    }
+
+    const dealii::IndexSet &
+    locally_owned_points() const
+    {
+      return point_owned_;
+    }
+
+    const dealii::IndexSet &
+    locally_relevant_points() const
+    {
+      return point_relevant_;
+    }
+
+    dealii::types::global_dof_index
+    point_index(const std::size_t local_point) const
+    {
+      AssertIndexRange(local_point, point_indices_.size());
+      return point_indices_[local_point];
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return communicator_;
+    }
+
+    /**
+     * Sample a state, applying the complete affine constraints including their
+     * inhomogeneous values.
+     */
+    QuantityVectorType
+    sample(const StateVectorType &state) const
+    {
+      const auto relevant = make_relevant_source(state,
+                                                 source_owned_,
+                                                 source_relevant_,
+                                                 constraints_,
+                                                 communicator_,
+                                                 false);
+
+      QuantityVectorType result;
+      result.reinit(point_owned_, point_relevant_, communicator_);
+      result = 0.;
+      for (std::size_t q = 0; q < points_.size(); ++q)
+        result[point_indices_[q]] =
+          detail::evaluate_stencil(relevant,
+                                   points_[q].dof_indices,
+                                   points_[q].basis_values);
+      return result;
+    }
+
+    /** FE data requirements retained by this sampling plan. */
+    dealii::UpdateFlags
+    update_flags() const
+    {
+      return update_flags_;
+    }
+
+    const dealii::IndexSet &
+    source_locally_owned() const
+    {
+      return source_owned_;
+    }
+
+    const dealii::IndexSet &
+    source_locally_relevant() const
+    {
+      return source_relevant_;
+    }
+
+    const dealii::AffineConstraints<double> *
+    source_constraints() const
+    {
+      return constraints_;
+    }
+
+    Operator
+    linearize(const StateVectorType &prototype) const
+    {
+      return linearize_impl(prototype, false, 0);
+    }
+
+    /** Return the retained operator for one physical gradient component. */
+    Operator
+    gradient_linearize(const StateVectorType &prototype,
+                       const unsigned int     component) const
+    {
+      AssertThrow(!points_.empty() || component < spacedim,
+                  dealii::ExcMessage("Invalid gradient component."));
+      if (!points_.empty())
+        AssertThrow(points_.front().basis_gradients.size() ==
+                      points_.front().dof_indices.size(),
+                    dealii::ExcMessage(
+                      "This sampling plan was not built with gradients."));
+      return linearize_impl(prototype, true, component);
+    }
+
+  private:
+    Operator
+    linearize_impl(const StateVectorType &prototype,
+                   const bool             gradient,
+                   const unsigned int     component) const
+    {
+      AssertThrow(component < spacedim,
+                  dealii::ExcMessage("Invalid gradient component."));
+      const auto points          = points_;
+      const auto point_indices   = point_indices_;
+      const auto point_owned     = point_owned_;
+      const auto point_relevant  = point_relevant_;
+      const auto source_owned    = source_owned_;
+      const auto source_relevant = source_relevant_;
+      const auto constraints     = constraints_;
+      const auto communicator    = communicator_;
+
+      Operator result;
+      result.reinit_range_vector =
+        [point_owned, point_relevant, communicator](QuantityVectorType &vector,
+                                                    const bool          omit) {
+          vector.reinit(point_owned, point_relevant, communicator);
+          if (!omit)
+            vector = 0.;
+        };
+      result.reinit_domain_vector = [prototype](StateVectorType &vector,
+                                                const bool       omit) {
+        vector.reinit(prototype, omit);
+      };
+      result.vmult = [points,
+                      point_indices,
+                      source_owned,
+                      source_relevant,
+                      constraints,
+                      communicator,
+                      gradient,
+                      component](QuantityVectorType    &destination,
+                                 const StateVectorType &source) {
+        const auto relevant = make_relevant_source(source,
+                                                   source_owned,
+                                                   source_relevant,
+                                                   constraints,
+                                                   communicator,
+                                                   true);
+        for (std::size_t q = 0; q < points.size(); ++q)
+          destination[point_indices[q]] =
+            evaluate_stencil(relevant, points[q], gradient, component);
+      };
+      result.vmult_add = [points,
+                          point_indices,
+                          source_owned,
+                          source_relevant,
+                          constraints,
+                          communicator,
+                          gradient,
+                          component](QuantityVectorType    &destination,
+                                     const StateVectorType &source) {
+        const auto relevant = make_relevant_source(source,
+                                                   source_owned,
+                                                   source_relevant,
+                                                   constraints,
+                                                   communicator,
+                                                   true);
+        for (std::size_t q = 0; q < points.size(); ++q)
+          destination[point_indices[q]] +=
+            evaluate_stencil(relevant, points[q], gradient, component);
+      };
+      result.Tvmult = [points,
+                       point_indices,
+                       source_owned,
+                       source_relevant,
+                       constraints,
+                       communicator,
+                       gradient,
+                       component](StateVectorType          &destination,
+                                  const QuantityVectorType &source) {
+        apply_transpose(points,
+                        point_indices,
+                        source_owned,
+                        source_relevant,
+                        constraints,
+                        communicator,
+                        gradient,
+                        component,
+                        source,
+                        destination,
+                        false);
+      };
+      result.Tvmult_add = [points,
+                           point_indices,
+                           source_owned,
+                           source_relevant,
+                           constraints,
+                           communicator,
+                           gradient,
+                           component](StateVectorType          &destination,
+                                      const QuantityVectorType &source) {
+        apply_transpose(points,
+                        point_indices,
+                        source_owned,
+                        source_relevant,
+                        constraints,
+                        communicator,
+                        gradient,
+                        component,
+                        source,
+                        destination,
+                        true);
+      };
+      return result;
+    }
+
+    template <typename VectorType>
+    static double
+    evaluate_stencil(const VectorType  &source,
+                     const Point       &point,
+                     const bool         gradient,
+                     const unsigned int component)
+    {
+      if (gradient)
+        {
+          double result = 0.;
+          for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
+            result += point.basis_gradients[i][component] *
+                      source[point.dof_indices[i]];
+          return result;
+        }
+      return detail::evaluate_stencil(source,
+                                      point.dof_indices,
+                                      point.basis_values);
+    }
+
+    static StateVectorType
+    make_relevant_source(const StateVectorType  &source,
+                         const dealii::IndexSet &source_owned,
+                         const dealii::IndexSet &source_relevant,
+                         const dealii::AffineConstraints<double> *constraints,
+                         const MPI_Comm                           communicator,
+                         const bool                               homogeneous)
+    {
+      StateVectorType owned;
+      owned.reinit(source_owned, communicator);
+      owned = source;
+      if (constraints != nullptr)
+        {
+          if (!homogeneous || !constraints->has_inhomogeneities())
+            constraints->distribute(owned);
+          else
+            {
+              // deal.II's distribute() applies the affine offset.  A
+              // Jacobian perturbation needs the same constraint relation with
+              // all offsets removed, so reuse the deal.II constraint logic on
+              // a local homogeneous copy.
+              dealii::AffineConstraints<double> homogeneous_constraints(
+                *constraints);
+              for (const auto &line : homogeneous_constraints.get_lines())
+                homogeneous_constraints.set_inhomogeneity(line.index, 0.);
+              homogeneous_constraints.distribute(owned);
+            }
+        }
+
+      StateVectorType relevant;
+      relevant.reinit(source_owned, source_relevant, communicator);
+      relevant = owned;
+      relevant.update_ghost_values();
+      return relevant;
+    }
+
+    static void
+    apply_transpose(
+      const std::vector<Point>                           &points,
+      const std::vector<dealii::types::global_dof_index> &point_indices,
+      const dealii::IndexSet                             &source_owned,
+      const dealii::IndexSet                             &source_relevant,
+      const dealii::AffineConstraints<double>            *constraints,
+      const MPI_Comm                                      communicator,
+      const bool                                          gradient,
+      const unsigned int                                  component,
+      const QuantityVectorType                           &source,
+      StateVectorType                                    &destination,
+      const bool                                          add)
+    {
+      dealii::LinearAlgebra::distributed::Vector<double> contribution;
+      contribution.reinit(source_owned, source_relevant, communicator);
+      contribution = 0.;
+      for (std::size_t q = 0; q < points.size(); ++q)
+        for (std::size_t i = 0; i < points[q].dof_indices.size(); ++i)
+          contribution[points[q].dof_indices[i]] +=
+            (gradient ? points[q].basis_gradients[i][component] :
+                        points[q].basis_values[i]) *
+            source[point_indices[q]];
+      contribution.compress(dealii::VectorOperation::add);
+
+      if (constraints != nullptr)
+        {
+          dealii::LinearAlgebra::distributed::Vector<double> correction;
+          correction.reinit(source_owned, source_relevant, communicator);
+          correction = 0.;
+          for (const auto &line : constraints->get_lines())
+            if (source_owned.is_element(line.index))
+              {
+                const double constrained = contribution[line.index];
+                correction[line.index] -= constrained;
+                for (const auto &[master, coefficient] : line.entries)
+                  correction[master] += coefficient * constrained;
+              }
+          correction.compress(dealii::VectorOperation::add);
+          for (const auto index : source_owned)
+            contribution[index] += correction[index];
+        }
+
+      if (!add)
+        destination = 0.;
+      for (const auto index : source_owned)
+        destination[index] += contribution[index];
+    }
+
+    std::vector<Point>                           points_;
+    dealii::IndexSet                             source_owned_;
+    dealii::IndexSet                             source_relevant_;
+    dealii::IndexSet                             point_owned_;
+    dealii::IndexSet                             point_relevant_;
+    std::vector<dealii::types::global_dof_index> point_indices_;
+    const dealii::AffineConstraints<double>     *constraints_;
+    MPI_Comm                                     communicator_;
+    dealii::UpdateFlags                          update_flags_;
+  };
+
+
+  /** Build a retained value-sampling plan from a finite-element view. */
+  template <int dim, int spacedim, typename ValueType, typename Extractor>
+  auto
+  make_retained_sampling_plan(
+    const FiniteElementRepresentation<dim, spacedim, ValueType, Extractor>
+                                  &representation,
+    const dealii::Quadrature<dim> &quadrature,
+    const dealii::UpdateFlags      update_flags = dealii::update_values)
+    -> RetainedSamplingPlan<spacedim>
+  {
+    static_assert(std::is_same_v<ValueType, double>,
+                  "Retained scalar sampling requires a scalar FE view.");
+    return RetainedSamplingPlan<spacedim>(
+      representation.locally_owned_quadrature_points(quadrature, update_flags),
+      representation.locally_owned_dofs(),
+      representation.locally_relevant_dofs(),
+      &representation.constraints(),
+      representation.mpi_communicator(),
+      update_flags);
+  }
+
+
+  /**
    * A parameterized tensor-product lift of a source Representation.
    *
    * The source view remains the sole owner of the representative mesh, FE,
@@ -1383,7 +1862,7 @@ namespace ImmersX
       return source_.metadata();
     }
 
-    const std::vector<ImmersX::FieldId> &
+    std::vector<ImmersX::FieldId>
     dependencies() const
     {
       return source_.dependencies();
@@ -1553,6 +2032,17 @@ namespace ImmersX
       };
       (void)request;
       return result;
+    }
+
+    Operator
+    linearize(const EvaluationContext<state_type> &context,
+              const FieldId                        field,
+              const EvaluationRequest             &request = {}) const
+    {
+      AssertThrow(field == source_.source(),
+                  dealii::ExcMessage("The requested field is not a "
+                                     "dependency of this representation."));
+      return linearize(context, request);
     }
 
   private:
