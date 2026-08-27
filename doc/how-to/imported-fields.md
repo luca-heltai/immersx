@@ -11,7 +11,7 @@ auto imported = std::make_shared<
     vtk_filename, poisson.triangulation());
 poisson.set_imported_fields(imported);
 
-const auto path_length = imported->field("path_distance");
+const auto path_length = imported->field("path_length");
 ```
 
 `field(name, component)` returns a scalar component view without copying the
@@ -64,8 +64,8 @@ const auto pressure = ImmersX::make_fe_expression(
   source,
   {ImmersX::gradient(u, "grad_u_z", 2),
    ImmersX::value(path, "path_length")},
-  "alpha * grad_u_z + beta * path_length",
-  {{"alpha", 2.0}, {"beta", 1.0}});
+  "alpha * grad_u_z + beta * cos(path_length * omega)",
+  {{"alpha", 2.0}, {"beta", 1.0}, {"omega", 0.5}});
 ```
 
 Only `state_field` bindings appear in `dependencies()` and contribute to
