@@ -15,6 +15,7 @@
 #include <immersx/core/symbolic_expression_kernel.h>
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -31,6 +32,12 @@ namespace ImmersX
   {
     FERepresentation representation;
     FieldId          field;
+
+    FERepresentation
+    current_representation() const
+    {
+      return representation;
+    }
   };
 
   /** A frozen FE source whose coefficients are fixed for the solve. */
@@ -41,6 +48,14 @@ namespace ImmersX
     std::shared_ptr<const ImmersXLA::MPI::Vector> coefficients;
     /** Optional owner for FE storage referenced by the representation. */
     std::shared_ptr<const void> lifetime;
+    /** Optional factory for representations whose storage may be refined. */
+    std::function<FERepresentation()> representation_factory;
+
+    FERepresentation
+    current_representation() const
+    {
+      return representation_factory ? representation_factory() : representation;
+    }
   };
 
   template <typename FERepresentation>
@@ -84,7 +99,7 @@ namespace ImmersX
   {
     AssertThrow(coefficients != nullptr,
                 dealii::ExcMessage("Frozen FE coefficients must not be null."));
-    return {representation, std::move(coefficients), nullptr};
+    return {representation, std::move(coefficients), nullptr, {}};
   }
 
   /** Bind an imported field view, retaining its shared coefficient storage. */
@@ -94,10 +109,13 @@ namespace ImmersX
   {
     using FERepresentation = std::decay_t<decltype(field.representation())>;
     using FieldView        = std::decay_t<ImportedFieldView>;
+    auto owner             = std::make_shared<const FieldView>(field);
     return FrozenField<FERepresentation>{field.representation(),
                                          field.coefficients_handle(),
-                                         std::make_shared<const FieldView>(
-                                           field)};
+                                         owner,
+                                         [owner]() {
+                                           return owner->representation();
+                                         }};
   }
 
   /** Bind a semantic value observable to an FE source and symbol. */
@@ -105,7 +123,8 @@ namespace ImmersX
   auto
   value(Source source, std::string symbol)
   {
-    using FERepresentation = decltype(source.representation);
+    using FERepresentation =
+      std::decay_t<decltype(source.current_representation())>;
     return ValueBinding<FERepresentation>{std::move(source), std::move(symbol)};
   }
 
@@ -114,7 +133,8 @@ namespace ImmersX
   auto
   gradient(Source source, std::string symbol, const unsigned int component)
   {
-    using FERepresentation = decltype(source.representation);
+    using FERepresentation =
+      std::decay_t<decltype(source.current_representation())>;
     return GradientBinding<FERepresentation>{std::move(source),
                                              std::move(symbol),
                                              component};
@@ -175,12 +195,12 @@ namespace ImmersX
     }
 
     template <typename FERepresentation>
-    const FERepresentation &
+    FERepresentation
     source_representation(const FEFieldSource<FERepresentation> &source)
     {
       return std::visit(
-        [](const auto &field) -> const FERepresentation & {
-          return field.representation;
+        [](const auto &field) -> FERepresentation {
+          return field.current_representation();
         },
         source);
     }
@@ -214,13 +234,13 @@ namespace ImmersX
             return false;
           else if constexpr (std::is_same_v<Left, StateField<FERepresentation>>)
             return left_field.field == right_field.field &&
-                   same_representation(left_field.representation,
-                                       right_field.representation);
+                   same_representation(left_field.current_representation(),
+                                       right_field.current_representation());
           else
             return left_field.coefficients.get() ==
                      right_field.coefficients.get() &&
-                   same_representation(left_field.representation,
-                                       right_field.representation);
+                   same_representation(left_field.current_representation(),
+                                       right_field.current_representation());
         },
         left,
         right);

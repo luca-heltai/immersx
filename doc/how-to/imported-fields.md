@@ -64,6 +64,12 @@ DoFHandler, index sets, and constraints. Rebuild any retained sampling plan or
 expression representation after mesh refinement; those objects intentionally
 capture the sampling geometry at construction time.
 
+An imported `frozen_field()` keeps the coefficients frozen while retaining a
+factory for the current finite-element representation. It can therefore be
+created before distributed refinement and used to build a new expression after
+refinement. An already-built expression retains its original sampling plan and
+must be rebuilt after the mesh changes.
+
 PointData and CellData continue to use the existing VTK finite-element choice:
 continuous `FE_Q` for PointData and discontinuous `FE_DGQ` for CellData. Field
 metadata remains available through `catalog()`.

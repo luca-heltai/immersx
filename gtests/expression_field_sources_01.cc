@@ -296,7 +296,7 @@ TEST(ExpressionFieldSources, FrozenImportedFieldSurvivesParentHandle)
     auto imported =
       std::make_shared<ImportedFiniteElementFields<3>>(filename, *mesh);
     const auto frozen = frozen_field(imported->field("lambda"));
-    return make_expression_representation(frozen.representation,
+    return make_expression_representation(frozen.current_representation(),
                                           QGauss<3>(2),
                                           {value(frozen, "lambda")},
                                           "lambda");
@@ -307,6 +307,67 @@ TEST(ExpressionFieldSources, FrozenImportedFieldSurvivesParentHandle)
   const EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
   const auto values = expression.evaluate(context);
   EXPECT_GT(values.locally_owned_elements().n_elements(), 0u);
+#else
+  GTEST_SKIP() << "VTK support is required for imported fields.";
+#endif
+}
+
+TEST(ExpressionFieldSources, FrozenImportedFieldTracksRefinement)
+{
+#ifdef DEAL_II_WITH_VTK
+  const auto filename =
+    std::string(TEST_DATA_DIR) + "/tests/imported_lambda_3d.vtk";
+  parallel::distributed::Triangulation<3> mesh(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(mesh, 0., 1.);
+  auto imported =
+    std::make_shared<ImportedFiniteElementFields<3>>(filename, mesh);
+  const auto frozen = frozen_field(imported->field("lambda"));
+  const auto before_dofs =
+    frozen.current_representation().dof_handler().n_dofs();
+
+  mesh.refine_global(1);
+
+  const auto current = frozen.current_representation();
+  EXPECT_GT(current.dof_handler().n_dofs(), before_dofs);
+  const auto expression = make_expression_representation(
+    current, QGauss<3>(2), {value(frozen, "lambda")}, "lambda");
+  StateLayout                                     layout;
+  StateView<ImmersXLA::MPI::Vector>               state_view(layout, 0.);
+  const EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
+  const auto             values   = expression.evaluate(context);
+  const auto            &plan     = expression.sampling_plan();
+  const auto             sampling = plan.linearize(*frozen.coefficients);
+  ImmersXLA::MPI::Vector sampled;
+  sampling.reinit_range_vector(sampled, false);
+  sampling.vmult(sampled, *frozen.coefficients);
+  for (const auto &point : plan.points())
+    EXPECT_NEAR(sampled[plan.point_index(&point - plan.points().data())],
+                point.point[0] + point.point[1] + point.point[2],
+                1.e-12);
+  auto difference = values;
+  difference -= sampled;
+  EXPECT_LT(difference.l2_norm(), 1.e-12);
+#else
+  GTEST_SKIP() << "VTK support is required for imported fields.";
+#endif
+}
+
+TEST(ExpressionFieldSources, MPI_FrozenImportedFieldTracksRefinement)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+#ifdef DEAL_II_WITH_VTK
+  const auto filename =
+    std::string(TEST_DATA_DIR) + "/tests/imported_lambda_3d.vtk";
+  parallel::distributed::Triangulation<3> mesh(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(mesh, 0., 1.);
+  auto imported =
+    std::make_shared<ImportedFiniteElementFields<3>>(filename, mesh);
+  const auto frozen = frozen_field(imported->field("lambda"));
+  const auto before_dofs =
+    frozen.current_representation().dof_handler().n_dofs();
+  mesh.refine_global(1);
+  EXPECT_GT(frozen.current_representation().dof_handler().n_dofs(),
+            before_dofs);
 #else
   GTEST_SKIP() << "VTK support is required for imported fields.";
 #endif
