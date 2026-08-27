@@ -1,5 +1,7 @@
 #include <deal.II/distributed/tria.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -8,6 +10,8 @@
 #include <deal.II/lac/la_parallel_vector.h>
 
 #include <gtest/gtest.h>
+
+#include <cmath>
 
 #include "test_paths.h"
 
@@ -94,6 +98,70 @@ TEST(ReducedCoupling, MPI_FieldDependentRhsUsesInterpolatedFields)
 {
   ParameterAcceptor::clear();
   check_field_dependent_reduced_rhs();
+}
+
+TEST(ReducedCoupling, MPI_TensorProductDuplicateRhsPopulatesBothComponents)
+{
+  ParameterAcceptor::clear();
+
+  constexpr int reduced_dim  = 1;
+  constexpr int dim          = 2;
+  constexpr int spacedim     = 3;
+  constexpr int n_components = 3;
+
+  parallel::distributed::Triangulation<spacedim> background_tria(
+    MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background_tria, 0.0, 1.0);
+  background_tria.refine_global(2);
+
+  ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
+  par.tensor_product_space_parameters.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+  par.tensor_product_space_parameters.fe_degree                     = 1;
+  par.tensor_product_space_parameters.thickness                     = "0.2";
+  par.tensor_product_space_parameters.section.inclusion_degree      = 1;
+  par.tensor_product_space_parameters.section.refinement_level      = 1;
+  par.tensor_product_space_parameters.section.selected_coefficients = {3, 7};
+  par.coupling_rhs_expressions = {"0.1", "0.1"};
+
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
+    background_tria, par);
+  coupling.initialize();
+
+  LinearAlgebraTrilinos::MPI::Vector reduced_rhs;
+  reduced_rhs.reinit(coupling.get_dof_handler().locally_owned_dofs(),
+                     MPI_COMM_WORLD);
+  coupling.assemble_reduced_rhs(reduced_rhs);
+
+  const auto &dof_handler = coupling.get_dof_handler();
+  const auto &fe          = dof_handler.get_fe();
+  ASSERT_EQ(fe.n_components(), 2u);
+
+  std::vector<IndexSet> component_dofs(fe.n_components());
+  std::vector<double>   component_norms(fe.n_components(), 0.0);
+  for (unsigned int component = 0; component < fe.n_components(); ++component)
+    {
+      std::vector<bool> mask(fe.n_components(), false);
+      mask[component] = true;
+      component_dofs[component] =
+        DoFTools::extract_dofs(dof_handler, ComponentMask(mask));
+
+      double local_squared_norm = 0.0;
+      for (const auto index : component_dofs[component])
+        local_squared_norm += reduced_rhs[index] * reduced_rhs[index];
+      component_norms[component] =
+        std::sqrt(Utilities::MPI::sum(local_squared_norm, MPI_COMM_WORLD));
+    }
+
+  ASSERT_GT(component_norms[0], 0.0);
+  ASSERT_GT(component_norms[1], 0.0);
+  EXPECT_NEAR(component_norms[0], component_norms[1], 1.e-12);
+
+  auto first  = component_dofs[0].begin();
+  auto second = component_dofs[1].begin();
+  for (; first != component_dofs[0].end(); ++first, ++second)
+    EXPECT_NEAR(reduced_rhs[*first], reduced_rhs[*second], 1.e-12);
+  EXPECT_EQ(second, component_dofs[1].end());
 }
 
 TEST(TensorProductSpace, ThicknessExpressionUsesAResolvedBinding)
