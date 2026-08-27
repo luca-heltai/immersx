@@ -20,8 +20,24 @@ frozen coefficients for value or gradient sampling. The target triangulation
 must already describe the same mesh as the VTK file; interpolation or remote
 point evaluation between different meshes is deliberately not implicit.
 
-The imported storage is immutable after construction and can be shared by
-multiple consumers with `std::shared_ptr<const ImportedFiniteElementFields<...>>`.
+The imported storage is immutable from the application’s point of view and can
+be shared by multiple consumers with
+`std::shared_ptr<const ImportedFiniteElementFields<...>>`. On a
+`parallel::distributed::Triangulation`, the imported DoFHandler and
+coefficients are automatically transferred across refinement and coarsening
+through deal.II’s `SolutionTransfer`. Existing `FieldView` objects therefore
+remain valid and observe the current mesh and coefficient vector after the
+operation; the coefficient-vector object itself is retained so shared
+consumers continue to refer to the same storage. The transfer is synchronized
+by RAII-managed triangulation signal connections.
+
+Refinement support is intentionally limited to
+`parallel::distributed::Triangulation`. Fully distributed triangulations do
+not currently implement refinement, and imported fields report this as an
+unsupported operation rather than attempting a partial transfer. A refinement
+callback must also complete before another refinement callback begins; this
+guards against stale or overlapping transfer state.
+
 The object is bound to exactly one `Triangulation`: sharing one imported
 instance requires all consumers to use that same triangulation object. Problems
 with distinct triangulations create distinct imported-field instances, even
@@ -42,6 +58,11 @@ elasticity.set_imported_fields(imported);
 const auto path_length = imported->field("path_length");
 const auto lambda      = imported->field("lambda");
 ```
+
+The view’s `representation()` is reconstructed from the current imported
+DoFHandler, index sets, and constraints. Rebuild any retained sampling plan or
+expression representation after mesh refinement; those objects intentionally
+capture the sampling geometry at construction time.
 
 PointData and CellData continue to use the existing VTK finite-element choice:
 continuous `FE_Q` for PointData and discontinuous `FE_DGQ` for CellData. Field

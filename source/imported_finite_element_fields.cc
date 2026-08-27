@@ -9,6 +9,8 @@
 
 #include <deal.II/base/exceptions.h>
 
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/grid/tria.h>
@@ -24,6 +26,69 @@
 
 namespace ImmersX
 {
+  template <int dim, int spacedim>
+  void
+  ImportedFiniteElementFields<dim, spacedim>::Storage::prepare_for_refinement()
+  {
+    using DistributedTriangulation =
+      dealii::parallel::distributed::Triangulation<dim, spacedim>;
+
+    AssertThrow(dynamic_cast<const DistributedTriangulation *>(triangulation) !=
+                  nullptr,
+                dealii::ExcMessage(
+                  "Imported finite-element fields support refinement only on a "
+                  "parallel::distributed::Triangulation."));
+    AssertThrow(refinement_transfer == nullptr,
+                dealii::ExcMessage(
+                  "Imported finite-element field refinement transfer is "
+                  "already pending."));
+    AssertThrow(finite_element != nullptr && coefficients != nullptr,
+                dealii::ExcMessage(
+                  "Imported finite-element field storage is not initialized "
+                  "for refinement."));
+
+    refinement_input = std::make_shared<VectorType>();
+    refinement_input->reinit(locally_owned_dofs,
+                             locally_relevant_dofs,
+                             communicator);
+    *refinement_input = *coefficients;
+    refinement_input->update_ghost_values();
+
+    refinement_transfer = std::make_shared<SolutionTransferType>(dof_handler);
+    refinement_transfer->prepare_for_coarsening_and_refinement(
+      *refinement_input);
+  }
+
+  template <int dim, int spacedim>
+  void
+  ImportedFiniteElementFields<dim, spacedim>::Storage::complete_refinement()
+  {
+    AssertThrow(refinement_transfer != nullptr,
+                dealii::ExcMessage(
+                  "Imported finite-element field refinement transfer was not "
+                  "prepared."));
+    AssertThrow(finite_element != nullptr && coefficients != nullptr,
+                dealii::ExcMessage(
+                  "Imported finite-element field storage is not initialized "
+                  "for refinement."));
+
+    dof_handler.distribute_dofs(*finite_element);
+    locally_owned_dofs = dof_handler.locally_owned_dofs();
+    locally_relevant_dofs =
+      dealii::DoFTools::extract_locally_relevant_dofs(dof_handler);
+    constraints.clear();
+    constraints.close();
+
+    VectorType transferred;
+    transferred.reinit(locally_owned_dofs, communicator);
+    refinement_transfer->interpolate(transferred);
+    transferred.compress(dealii::VectorOperation::insert);
+    *coefficients = transferred;
+
+    refinement_transfer.reset();
+    refinement_input.reset();
+  }
+
   namespace
   {
     template <int dim, int spacedim>
@@ -143,16 +208,7 @@ namespace ImmersX
                 dealii::ExcMessage("Invalid component for imported field '" +
                                    name + "'."));
 
-    const auto           component_offset = it->first_fe_component + component;
-    const Representation component_representation(
-      *storage_->triangulation,
-      storage_->dof_handler,
-      storage_->locally_owned_dofs,
-      storage_->locally_relevant_dofs,
-      storage_->constraints,
-      dealii::StaticMappingQ1<dim, spacedim>::mapping,
-      dealii::FEValuesExtractors::Scalar(component_offset));
-    return FieldView(storage_, component_representation, *it, component);
+    return FieldView(storage_, *it, component);
   }
 
   /// @cond DOXYGEN_IGNORE_EXPLICIT_INSTANTIATIONS

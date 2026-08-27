@@ -12,12 +12,17 @@
 
 #include <deal.II/base/index_set.h>
 
+#include <deal.II/distributed/tria.h>
 #include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/la_parallel_vector.h>
+
+#include <deal.II/numerics/solution_transfer.h>
+
+#include <boost/signals2/connection.hpp>
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/reduced_field_catalog.h>
@@ -49,6 +54,9 @@ namespace ImmersX
   private:
     struct Storage
     {
+      using SolutionTransferType =
+        dealii::SolutionTransfer<dim, VectorType, spacedim>;
+
       Storage(const TriangulationType &tria, const MPI_Comm comm)
         : triangulation(&tria)
         , dof_handler(const_cast<TriangulationType &>(tria))
@@ -56,17 +64,48 @@ namespace ImmersX
         , communicator(comm)
       {
         constraints.close();
+
+        auto &mutable_tria = const_cast<TriangulationType &>(tria);
+        using DistributedTriangulation =
+          dealii::parallel::distributed::Triangulation<dim, spacedim>;
+        if (auto *distributed =
+              dynamic_cast<DistributedTriangulation *>(&mutable_tria))
+          {
+            pre_refinement_connection =
+              distributed->signals.pre_distributed_refinement.connect(
+                [this]() { prepare_for_refinement(); });
+            post_refinement_connection =
+              distributed->signals.post_distributed_refinement.connect(
+                [this]() { complete_refinement(); });
+          }
       }
+
+      Storage(const Storage &) = delete;
+      Storage &
+      operator=(const Storage &) = delete;
+      Storage(Storage &&)        = delete;
+      Storage &
+      operator=(Storage &&) = delete;
+
+      void
+      prepare_for_refinement();
+
+      void
+      complete_refinement();
 
       const TriangulationType                              *triangulation;
       DoFHandlerType                                        dof_handler;
       std::unique_ptr<dealii::FiniteElement<dim, spacedim>> finite_element;
       dealii::IndexSet                                      locally_owned_dofs;
-      dealii::IndexSet                  locally_relevant_dofs;
-      dealii::AffineConstraints<double> constraints;
-      std::shared_ptr<const VectorType> coefficients;
-      FieldCatalog                      catalog;
-      MPI_Comm                          communicator;
+      dealii::IndexSet                      locally_relevant_dofs;
+      dealii::AffineConstraints<double>     constraints;
+      std::shared_ptr<VectorType>           coefficients;
+      FieldCatalog                          catalog;
+      MPI_Comm                              communicator;
+      std::shared_ptr<VectorType>           refinement_input;
+      std::shared_ptr<SolutionTransferType> refinement_transfer;
+      boost::signals2::scoped_connection    pre_refinement_connection;
+      boost::signals2::scoped_connection    post_refinement_connection;
     };
 
   public:
@@ -76,10 +115,19 @@ namespace ImmersX
     public:
       FieldView() = delete;
 
-      const Representation &
+      Representation
       representation() const
       {
-        return representation_;
+        const auto component_offset =
+          descriptor_.first_fe_component + component_;
+        return Representation(*storage_->triangulation,
+                              storage_->dof_handler,
+                              storage_->locally_owned_dofs,
+                              storage_->locally_relevant_dofs,
+                              storage_->constraints,
+                              dealii::StaticMappingQ1<dim, spacedim>::mapping,
+                              dealii::FEValuesExtractors::Scalar(
+                                component_offset));
       }
 
       const VectorType &
@@ -116,17 +164,14 @@ namespace ImmersX
       friend class ImportedFiniteElementFields;
 
       FieldView(std::shared_ptr<const Storage> storage,
-                const Representation          &representation,
                 const ReducedFieldDescriptor  &descriptor,
                 const unsigned int             component)
         : storage_(std::move(storage))
-        , representation_(representation)
         , descriptor_(descriptor)
         , component_(component)
       {}
 
       std::shared_ptr<const Storage> storage_;
-      Representation                 representation_;
       ReducedFieldDescriptor         descriptor_;
       unsigned int                   component_;
     };

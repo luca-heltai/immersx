@@ -238,4 +238,102 @@ TEST(ImportedFiniteElementFields, SharedInstanceViewsUseSharedStorage)
   EXPECT_EQ(&first.representation().triangulation(),
             &second.representation().triangulation());
 }
+
+namespace
+{
+  void
+  check_distributed_refinement()
+  {
+    ElasticStaticParameters<3> parameters;
+    parameters.domain_type        = "generate";
+    parameters.name_of_grid       = "hyper_cube";
+    parameters.arguments_for_grid = "0: 1: false";
+    parameters.initial_refinement = 0;
+    parameters.triangulation_type = "distributed";
+    ElasticStaticProblem<3> problem(parameters);
+    problem.setup();
+
+    const auto filename =
+      TestPaths::data_filename("tests/imported_lambda_3d.vtk");
+    auto fields =
+      std::make_shared<ImportedFiniteElementFields<3>>(filename,
+                                                       problem.triangulation());
+    const auto  first        = fields->field("lambda");
+    const auto  second       = fields->field("lambda");
+    const auto *coefficients = &first.coefficients();
+    const auto  n_dofs       = fields->dof_handler().n_dofs();
+
+    problem.refine_global();
+
+    EXPECT_GT(fields->dof_handler().n_dofs(), n_dofs);
+    EXPECT_EQ(&first.coefficients(), coefficients);
+    EXPECT_EQ(&second.coefficients(), coefficients);
+    check_lambda_sampling(first);
+    check_lambda_sampling(second);
+  }
+
+  void
+  check_cell_data_refinement()
+  {
+    ElasticStaticParameters<3> parameters;
+    parameters.domain_type        = "generate";
+    parameters.name_of_grid       = "hyper_cube";
+    parameters.arguments_for_grid = "0: 1: false";
+    parameters.initial_refinement = 0;
+    parameters.triangulation_type = "distributed";
+    ElasticStaticProblem<3> problem(parameters);
+    problem.setup();
+
+    const auto filename =
+      TestPaths::data_filename("tests/imported_cell_3d.vtk");
+    auto fields =
+      std::make_shared<ImportedFiniteElementFields<3>>(filename,
+                                                       problem.triangulation());
+    const auto      value = fields->field("cell_value");
+    const QGauss<3> quadrature(2);
+    const auto      before = make_retained_sampling_plan(value.representation(),
+                                                    quadrature,
+                                                    update_values);
+    auto            before_values = before.linearize(value.coefficients());
+    ImmersXLA::MPI::Vector before_vector;
+    before_values.reinit_range_vector(before_vector, false);
+    before_values.vmult(before_vector, value.coefficients());
+    for (const auto index : before.locally_owned_points())
+      EXPECT_DOUBLE_EQ(before_vector[index], 7.);
+
+    problem.refine_global();
+
+    const auto after = make_retained_sampling_plan(value.representation(),
+                                                   quadrature,
+                                                   update_values);
+    auto       after_values = after.linearize(value.coefficients());
+    ImmersXLA::MPI::Vector after_vector;
+    after_values.reinit_range_vector(after_vector, false);
+    after_values.vmult(after_vector, value.coefficients());
+    for (const auto index : after.locally_owned_points())
+      EXPECT_DOUBLE_EQ(after_vector[index], 7.);
+  }
+} // namespace
+
+TEST(ImportedFiniteElementFields, DistributedRefinementTransfersPointData)
+{
+  check_distributed_refinement();
+}
+
+TEST(ImportedFiniteElementFields, MPI_DistributedRefinementTransfersPointData)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  check_distributed_refinement();
+}
+
+TEST(ImportedFiniteElementFields, DistributedRefinementTransfersCellData)
+{
+  check_cell_data_refinement();
+}
+
+TEST(ImportedFiniteElementFields, MPI_DistributedRefinementTransfersCellData)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  check_cell_data_refinement();
+}
 #endif
