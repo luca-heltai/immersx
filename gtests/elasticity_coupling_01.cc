@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <immersx/io/utils.h>
+#include <immersx/physics/elasticity.h>
 #include <immersx/physics/elasticity_problem_parameters.h>
 
 using namespace ImmersX;
@@ -28,3 +30,17 @@ TEST(ElasticityCouplingParameters, ParseCouplingSelector)
   EXPECT_NO_THROW(ParameterAcceptor::parse_all_parameters());
   EXPECT_EQ(par.coupling_type, CouplingType::TensorProduct);
 }
+
+#ifndef DEAL_II_WITH_VTK
+TEST(ElasticityCoupling, TensorProductIsDisabledWithoutVTK)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<2> par;
+  par.coupling_type = CouplingType::TensorProduct;
+
+  ElasticityProblem<2> problem(par);
+
+  EXPECT_FALSE(problem.uses_tensor_product_coupling());
+  EXPECT_EQ(problem.n_multiplier_dofs(), 0u);
+}
+#endif

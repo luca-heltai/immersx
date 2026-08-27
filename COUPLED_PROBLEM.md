@@ -9,7 +9,7 @@ This file collects the operational notes for the coupled elasticity workflow
 2. Start a container with deal.II:
 
 ```bash
-docker run -ti -v ./:/fvm --platform linux/amd64 dealii/dealii:v9.6.0-jammy
+docker run -ti -v ./:/fvm --platform linux/amd64 dealii/dealii:v9.7.1-noble
 ```
 
 3. Inside the container:

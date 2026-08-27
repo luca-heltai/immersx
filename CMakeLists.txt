@@ -70,7 +70,7 @@ if(IMMERSX_PORTABLE)
   endif()
 endif()
 
-find_package(deal.II 9.2 REQUIRED
+find_package(deal.II 9.7.1 REQUIRED
   HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
