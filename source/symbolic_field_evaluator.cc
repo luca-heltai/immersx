@@ -1,7 +1,6 @@
 #include <immersx/core/symbolic_field_evaluator.h>
 
 #include <algorithm>
-#include <cmath>
 #include <set>
 
 #include "symbolic_expression_support.h"
@@ -133,14 +132,9 @@ namespace ImmersX
       {
         impl->symengine_data->optimizer.substitute(
           impl->symengine_data->symbols, values);
-        const auto &result = impl->symengine_data->optimizer.evaluate();
-        for (unsigned int i = 0; i < result.size(); ++i)
-          {
-            if (!std::isfinite(result[i]))
-              throw std::runtime_error("expression " + std::to_string(i) +
-                                       " evaluated to a non-finite value");
-            output_values[i] = result[i];
-          }
+        const auto result =
+          internal::evaluate_symbolic_expressions(*impl->symengine_data);
+        std::copy(result.begin(), result.end(), output_values.begin());
       }
     catch (const std::exception &error)
       {

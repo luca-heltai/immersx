@@ -1,7 +1,6 @@
 #include <immersx/core/symbolic_expression_kernel.h>
 
 #include <algorithm>
-#include <cmath>
 #include <stdexcept>
 
 #include "symbolic_expression_support.h"
@@ -126,11 +125,8 @@ namespace ImmersX
       {
         impl->optimizer_data->optimizer.substitute(
           impl->optimizer_data->symbols, values);
-        const auto &evaluated = impl->optimizer_data->optimizer.evaluate();
-        for (const double value : evaluated)
-          if (!std::isfinite(value))
-            throw std::runtime_error(
-              "symbolic expression evaluated to a non-finite value");
+        const auto evaluated =
+          internal::evaluate_symbolic_expressions(*impl->optimizer_data);
 
         SymbolicExpressionKernel::Evaluation result;
         result.value = evaluated[0];

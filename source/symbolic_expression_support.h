@@ -37,6 +37,9 @@ namespace ImmersX
     std::shared_ptr<SymbolicOptimizerData>
     make_symbolic_optimizer(const std::vector<std::string>    &symbol_names,
                             const std::vector<SD::Expression> &expressions);
+
+    std::vector<double>
+    evaluate_symbolic_expressions(const SymbolicOptimizerData &data);
 #endif
   } // namespace internal
 } // namespace ImmersX
