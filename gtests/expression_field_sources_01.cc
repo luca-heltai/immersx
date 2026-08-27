@@ -10,6 +10,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/quadrature_lib.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_tools.h>
@@ -17,15 +18,56 @@
 #include <deal.II/fe/fe_q.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <gtest/gtest.h>
 #include <immersx/core/expression_representation.h>
+#include <immersx/io/imported_finite_element_fields.h>
+#include <immersx/io/vtk_utils.h>
+
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <string>
+#include <vector>
 
 using namespace dealii;
 using namespace ImmersX;
 
 namespace
 {
+  double
+  owned_dot(const ImmersXLA::MPI::Vector &left,
+            const ImmersXLA::MPI::Vector &right)
+  {
+    double local = 0.;
+    for (const auto index : left.locally_owned_elements())
+      local += left[index] * right[index];
+    return Utilities::MPI::sum(local, left.get_mpi_communicator());
+  }
+
+#ifdef DEAL_II_WITH_VTK
+  std::unique_ptr<parallel::fullydistributed::Triangulation<3>>
+  make_imported_mesh(const std::string &filename)
+  {
+    Triangulation<3>         serial_triangulation;
+    DoFHandler<3>            serial_dof_handler(serial_triangulation);
+    Vector<double>           serial_data;
+    std::vector<std::string> names;
+    VTKUtils::read_vtk(filename, serial_dof_handler, serial_data, names);
+    GridTools::partition_triangulation(
+      Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), serial_triangulation);
+    const auto description = TriangulationDescription::Utilities::
+      create_description_from_triangulation(serial_triangulation,
+                                            MPI_COMM_WORLD);
+    auto mesh = std::make_unique<parallel::fullydistributed::Triangulation<3>>(
+      MPI_COMM_WORLD);
+    mesh->create_triangulation(description);
+    return mesh;
+  }
+#endif
+
   void
   check_active_and_frozen(const unsigned int expected_processes)
   {
@@ -78,6 +120,13 @@ namespace
 
     ASSERT_EQ(expression.dependencies().size(), 1u);
     EXPECT_EQ(expression.dependencies().front(), active_field);
+    ASSERT_EQ(expression.n_sampling_sources(), 2u);
+    EXPECT_EQ(expression.sampling_plan_for_source(0).update_flags() &
+                update_gradients,
+              UpdateFlags());
+    EXPECT_NE(expression.sampling_plan_for_source(1).update_flags() &
+                update_gradients,
+              UpdateFlags());
 
     StateView<ImmersXLA::MPI::Vector> state_view(layout, 0.);
     state_view.bind(active_field, active_values);
@@ -116,6 +165,33 @@ namespace
     for (const auto index : plan.locally_owned_points())
       EXPECT_DOUBLE_EQ(action[index], active_samples[index]);
 
+    ImmersXLA::MPI::Vector direction        = active_values;
+    const double           epsilon          = 1.e-7;
+    const auto             original_value   = expression.evaluate(context);
+    auto                   perturbed_values = active_values;
+    for (const auto index : perturbed_values.locally_owned_elements())
+      perturbed_values[index] += epsilon * direction[index];
+    StateView<ImmersXLA::MPI::Vector> perturbed_state_view(layout, 0.);
+    perturbed_state_view.bind(active_field, perturbed_values);
+    const EvaluationContext<ImmersXLA::MPI::Vector> perturbed_context(
+      0., perturbed_state_view);
+    const auto perturbed_value = expression.evaluate(perturbed_context);
+    for (const auto index : plan.locally_owned_points())
+      EXPECT_NEAR((perturbed_value[index] - original_value[index]) / epsilon,
+                  action[index],
+                  2.e-7 * std::max(1., std::abs(action[index])));
+
+    ImmersXLA::MPI::Vector dual;
+    jacobian.reinit_range_vector(dual, false);
+    for (const auto index : dual.locally_owned_elements())
+      dual[index] = 0.4 + 0.03 * static_cast<double>(index);
+    ImmersXLA::MPI::Vector transpose_action;
+    jacobian.reinit_domain_vector(transpose_action, false);
+    jacobian.Tvmult(transpose_action, dual);
+    EXPECT_NEAR(owned_dot(action, dual),
+                owned_dot(direction, transpose_action),
+                2.e-10 * std::max(1., std::abs(owned_dot(action, dual))));
+
     const auto frozen_expression =
       make_expression_representation(representation,
                                      quadrature,
@@ -128,6 +204,58 @@ namespace
       EXPECT_NEAR(frozen_value[index],
                   frozen_samples[index] + frozen_gradient_samples[index],
                   1.e-14);
+
+    const auto active_gradients =
+      make_expression_representation(representation,
+                                     quadrature,
+                                     {gradient(active, "g0", 0),
+                                      gradient(active, "g1", 1)},
+                                     "g0 + g1");
+    EXPECT_EQ(active_gradients.n_sampling_sources(), 1u);
+
+    const auto frozen_value_and_gradient =
+      make_expression_representation(representation,
+                                     quadrature,
+                                     {value(frozen, "P"),
+                                      gradient(frozen, "g0", 0)},
+                                     "P + g0");
+    EXPECT_EQ(frozen_value_and_gradient.n_sampling_sources(), 1u);
+  }
+
+  void
+  check_three_component_gradients()
+  {
+    parallel::distributed::Triangulation<3> triangulation(MPI_COMM_WORLD);
+    GridGenerator::hyper_cube(triangulation, 0., 1.);
+    triangulation.refine_global(1);
+    FE_Q<3>       finite_element(2);
+    DoFHandler<3> dof_handler(triangulation);
+    dof_handler.distribute_dofs(finite_element);
+    const auto locally_owned = dof_handler.locally_owned_dofs();
+    const auto locally_relevant =
+      DoFTools::extract_locally_relevant_dofs(dof_handler);
+    AffineConstraints<double> constraints(locally_owned, locally_relevant);
+    constraints.close();
+    const FiniteElementRepresentation<3> representation(
+      triangulation, dof_handler, locally_owned, locally_relevant, constraints);
+    StateLayout     layout;
+    FieldDescriptor descriptor;
+    descriptor.name             = "active";
+    descriptor.locally_owned    = locally_owned;
+    descriptor.locally_relevant = locally_relevant;
+    const auto active_field     = layout.add_field(descriptor);
+    const auto active           = state_field(representation, active_field);
+    const auto expression =
+      make_expression_representation(representation,
+                                     QGauss<3>(2),
+                                     {gradient(active, "g0", 0),
+                                      gradient(active, "g1", 1),
+                                      gradient(active, "g2", 2)},
+                                     "g0 + g1 + g2");
+    EXPECT_EQ(expression.n_sampling_sources(), 1u);
+    EXPECT_NE(expression.sampling_plan_for_source(0).update_flags() &
+                update_gradients,
+              UpdateFlags());
   }
 } // namespace
 
@@ -141,4 +269,45 @@ TEST(ExpressionFieldSources, ActiveAndFrozenBindings)
 TEST(ExpressionFieldSources, MPI_ActiveAndFrozenBindings)
 {
   check_active_and_frozen(2);
+}
+
+
+TEST(ExpressionFieldSources, ThreeGradientBindingsShareOnePlan)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  check_three_component_gradients();
+}
+
+
+TEST(ExpressionFieldSources, MPI_ThreeGradientBindingsShareOnePlan)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  check_three_component_gradients();
+}
+
+
+TEST(ExpressionFieldSources, FrozenImportedFieldSurvivesParentHandle)
+{
+#ifdef DEAL_II_WITH_VTK
+  const auto filename =
+    std::string(TEST_DATA_DIR) + "/tests/imported_lambda_3d.vtk";
+  auto mesh       = make_imported_mesh(filename);
+  auto expression = [&] {
+    auto imported =
+      std::make_shared<ImportedFiniteElementFields<3>>(filename, *mesh);
+    const auto frozen = frozen_field(imported->field("lambda"));
+    return make_expression_representation(frozen.representation,
+                                          QGauss<3>(2),
+                                          {value(frozen, "lambda")},
+                                          "lambda");
+  }();
+
+  StateLayout                                     layout;
+  StateView<ImmersXLA::MPI::Vector>               state_view(layout, 0.);
+  const EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
+  const auto values = expression.evaluate(context);
+  EXPECT_GT(values.locally_owned_elements().n_elements(), 0u);
+#else
+  GTEST_SKIP() << "VTK support is required for imported fields.";
+#endif
 }

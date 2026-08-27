@@ -70,7 +70,8 @@ metadata remains available through `catalog()`.
 
 ## Expressions
 
-Expression bindings distinguish a live state source from frozen coefficients:
+Expression bindings distinguish an active state source from frozen
+coefficients, while keeping the same `value()` and `gradient()` API:
 
 ```cpp
 const auto source = ImmersX::FiniteElementRepresentation<1, 3>(
@@ -84,10 +85,13 @@ const auto pressure = ImmersX::make_fe_expression(
   source,
   {ImmersX::gradient(u, "grad_u_z", 2),
    ImmersX::value(path, "path_length")},
-  "alpha * (grad_u_z + path_length)",
-  {{"alpha", 2.0}});
+  "alpha * grad_u_z + beta * path_length",
+  {{"alpha", 2.0}, {"beta", 1.0}});
 ```
 
 Only `state_field` bindings appear in `dependencies()` and contribute to
 `linearize()`. A frozen binding is evaluated from its shared coefficient
-storage, including gradients, and contributes no Jacobian term.
+storage, including gradients, and contributes no Jacobian term. The expression
+installs one retained sampling plan per distinct FE source: repeated value and
+gradient bindings for the same source share a plan, whose `UpdateFlags` are
+the union of that source's requirements.
