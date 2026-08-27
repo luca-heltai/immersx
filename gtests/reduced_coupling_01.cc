@@ -27,11 +27,15 @@
 #include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
+#include <deal.II/lac/sparse_matrix.h>
+#include <deal.II/lac/sparsity_pattern.h>
 
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
+
+#include <set>
 
 #include "test_paths.h"
 
@@ -148,6 +152,99 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
   const double norm = res.l2_norm();
   ASSERT_NEAR(norm, 0.0, 1e-10)
     << "The L2 norm of the difference between the two vectors is: " << norm;
+}
+
+
+TEST(ReducedCoupling, PositiveDimensionalAssemblySeparatesRepresentativeCells)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  ParameterAcceptor::clear();
+
+  static constexpr int reduced_dim  = 1;
+  static constexpr int dim          = 2;
+  static constexpr int spacedim     = 3;
+  static constexpr int n_components = 1;
+
+  parallel::distributed::Triangulation<spacedim> background_tria(
+    MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background_tria, -0.1, 3.1);
+
+  ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
+  par.tensor_product_space_parameters.reduced_grid_name =
+    ImmersX::TestPaths::data_filename("tests/simple_1d_grid.vtk");
+  par.tensor_product_space_parameters.n_q_points               = 2;
+  par.tensor_product_space_parameters.thickness                = "0.2";
+  par.tensor_product_space_parameters.section.inclusion_type   = "hyper_ball";
+  par.tensor_product_space_parameters.section.refinement_level = 1;
+  par.tensor_product_space_parameters.section.inclusion_degree = 0;
+  par.tensor_product_space_parameters.section.selected_coefficients = {0};
+  par.tensor_product_space_parameters.section.quadrature_type       = "gauss";
+  par.tensor_product_space_parameters.section.n_q_points            = 4;
+  par.coupling_rhs_expressions                                      = {"0"};
+
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
+    background_tria, par);
+  coupling.initialize();
+
+  FE_Q<spacedim>       background_fe(1);
+  DoFHandler<spacedim> background_dh(background_tria);
+  background_dh.distribute_dofs(background_fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+
+  DynamicSparsityPattern dsp(background_dh.n_dofs(),
+                             coupling.get_dof_handler().n_dofs());
+  coupling.assemble_coupling_sparsity(dsp, background_dh, constraints);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dsp);
+
+  SparseMatrix<double> coupling_matrix;
+  coupling_matrix.reinit(sparsity);
+  coupling.assemble_coupling_matrix(coupling_matrix,
+                                    background_dh,
+                                    constraints);
+
+  SparseMatrix<double> expected_matrix;
+  expected_matrix.reinit(sparsity);
+  std::set<types::global_cell_index>   representative_cells;
+  std::vector<types::global_dof_index> background_dof_indices(
+    background_fe.n_dofs_per_cell());
+  const auto &immersed_fe = coupling.get_dof_handler().get_fe();
+  std::vector<types::global_dof_index> immersed_dof_indices(
+    immersed_fe.n_dofs_per_cell());
+
+  for (const auto &particle : coupling.get_particles())
+    {
+      const typename DoFHandler<spacedim>::cell_iterator cell(
+        *particle.get_surrounding_cell(), &background_dh);
+      cell->get_dof_indices(background_dof_indices);
+      const auto [immersed_cell_id, immersed_q, section_q] =
+        coupling.particle_id_to_representative_indices(particle.get_id());
+      representative_cells.insert(immersed_cell_id);
+      immersed_dof_indices      = coupling.get_dof_indices(immersed_cell_id);
+      const auto immersed_point = coupling.get_quadrature().point(immersed_q);
+      for (unsigned int i = 0; i < background_fe.n_dofs_per_cell(); ++i)
+        for (unsigned int j = 0; j < immersed_fe.n_dofs_per_cell(); ++j)
+          {
+            const auto background_component =
+              background_fe.system_to_component_index(i).first;
+            const auto immersed_component =
+              immersed_fe.system_to_component_index(j).first;
+            expected_matrix.add(
+              background_dof_indices[i],
+              immersed_dof_indices[j],
+              background_fe.shape_value(i, particle.get_reference_location()) *
+                coupling.get_reference_cross_section().shape_value(
+                  immersed_component, section_q, background_component) *
+                immersed_fe.shape_value(j, immersed_point) *
+                particle.get_properties()[0]);
+          }
+    }
+
+  ASSERT_GT(representative_cells.size(), 1u);
+  for (unsigned int i = 0; i < coupling_matrix.m(); ++i)
+    for (unsigned int j = 0; j < coupling_matrix.n(); ++j)
+      EXPECT_DOUBLE_EQ(coupling_matrix.el(i, j), expected_matrix.el(i, j));
 }
 
 

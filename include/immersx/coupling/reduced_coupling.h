@@ -47,6 +47,7 @@
 #include <immersx/io/utils.h>
 
 #include <fstream>
+#include <map>
 
 namespace ImmersX
 {
@@ -311,12 +312,6 @@ namespace ImmersX
         std::vector<types::global_dof_index> background_dof_indices(
           fe.n_dofs_per_cell());
 
-        FullMatrix<double> local_coupling_matrix(fe.n_dofs_per_cell(),
-                                                 immersed_fe.n_dofs_per_cell());
-
-        FullMatrix<double> local_coupling_matrix_transpose(
-          immersed_fe.n_dofs_per_cell(), fe.n_dofs_per_cell());
-
         auto particle = this->get_particles().begin();
         while (particle != this->get_particles().end())
           {
@@ -327,38 +322,27 @@ namespace ImmersX
 
             const auto pic = this->get_particles().particles_in_cell(cell);
             Assert(pic.begin() == particle, ExcInternalError());
+            std::map<types::global_cell_index, FullMatrix<double>>
+              local_coupling_matrices;
 
-            types::global_cell_index previous_cell_id =
-              numbers::invalid_unsigned_int;
-            types::global_cell_index last_cell_id =
-              numbers::invalid_unsigned_int;
-            local_coupling_matrix = 0;
             for (const auto &p : pic)
               {
                 const auto [immersed_cell_id, immersed_q, section_q] =
                   this->particle_id_to_representative_indices(p.get_id());
 
+                auto [matrix_it, inserted] =
+                  local_coupling_matrices.try_emplace(
+                    immersed_cell_id,
+                    fe.n_dofs_per_cell(),
+                    immersed_fe.n_dofs_per_cell());
+                if (inserted)
+                  matrix_it->second = 0;
+                auto &local_coupling_matrix = matrix_it->second;
+
                 const auto &background_p = p.get_reference_location();
                 const auto  immersed_p =
                   this->get_quadrature().point(immersed_q);
                 const double JxW = p.get_properties()[0];
-                last_cell_id     = immersed_cell_id;
-                if (immersed_cell_id != previous_cell_id &&
-                    previous_cell_id != numbers::invalid_unsigned_int)
-                  {
-                    // Distribute the matrix to the previous dofs
-                    const auto &immersed_dof_indices =
-                      this->get_dof_indices(previous_cell_id);
-                    constraints.distribute_local_to_global(
-                      local_coupling_matrix,
-                      background_dof_indices,
-                      coupling_constraints,
-                      immersed_dof_indices,
-                      coupling_matrix);
-                    local_coupling_matrix = 0;
-                    previous_cell_id      = immersed_cell_id;
-                  }
-
                 for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
                   {
                     const auto comp_i = fe.system_to_component_index(i).first;
@@ -386,13 +370,17 @@ namespace ImmersX
                       }
                   }
               }
-            const auto &immersed_dof_indices =
-              this->get_dof_indices(last_cell_id);
-            constraints.distribute_local_to_global(local_coupling_matrix,
-                                                   background_dof_indices,
-                                                   coupling_constraints,
-                                                   immersed_dof_indices,
-                                                   coupling_matrix);
+            for (const auto &[immersed_cell_id, local_coupling_matrix] :
+                 local_coupling_matrices)
+              {
+                const auto &immersed_dof_indices =
+                  this->get_dof_indices(immersed_cell_id);
+                constraints.distribute_local_to_global(local_coupling_matrix,
+                                                       background_dof_indices,
+                                                       coupling_constraints,
+                                                       immersed_dof_indices,
+                                                       coupling_matrix);
+              }
             particle = pic.end();
           }
       }
