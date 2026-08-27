@@ -481,20 +481,20 @@ TEST(VTKUtils, MPI_TransferVTKDataToParallel)
 
 TEST(VTKUtils, MPI_RejectsMismatchedCellIds)
 {
-  Triangulation<1> serial_tria;
+  Triangulation<2> serial_tria;
   GridGenerator::hyper_cube(serial_tria, 0., 1.);
   serial_tria.refine_global(1);
-  DoFHandler<1> serial_dof_handler(serial_tria);
-  FE_DGQ<1>     serial_fe(0);
+  DoFHandler<2> serial_dof_handler(serial_tria);
+  FE_DGQ<2>     serial_fe(0);
   serial_dof_handler.distribute_dofs(serial_fe);
   Vector<double> serial_values(serial_dof_handler.n_dofs());
 
-  parallel::distributed::Triangulation<1> parallel_tria(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> parallel_tria(MPI_COMM_WORLD);
   GridGenerator::subdivided_hyper_rectangle(parallel_tria,
-                                            {2u},
-                                            Point<1>(0.),
-                                            Point<1>(1.));
-  DoFHandler<1> parallel_dof_handler(parallel_tria);
+                                            {2u, 2u},
+                                            Point<2>(0., 0.),
+                                            Point<2>(1., 1.));
+  DoFHandler<2> parallel_dof_handler(parallel_tria);
   parallel_dof_handler.distribute_dofs(serial_fe);
   LA::distributed::Vector<double> parallel_values;
   parallel_values.reinit(parallel_dof_handler.locally_owned_dofs(),
