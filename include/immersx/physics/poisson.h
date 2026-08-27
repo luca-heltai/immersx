@@ -59,6 +59,7 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/io/imported_finite_element_fields.h>
 
 #include <list>
 #include <memory>
@@ -231,6 +232,15 @@ namespace ImmersX
     const VectorType &
     solution() const;
 
+    using ImportedFields = ImportedFiniteElementFields<dim, spacedim>;
+
+    /** Attach reusable frozen FE fields living on this problem mesh. */
+    void
+    set_imported_fields(std::shared_ptr<const ImportedFields> fields);
+
+    const std::shared_ptr<const ImportedFields> &
+    imported_fields() const;
+
     /**
      * Replace the algebraic state computed by an external solver.
      *
@@ -274,10 +284,11 @@ namespace ImmersX
     dealii::IndexSet                  relevant_dofs;
     dealii::AffineConstraints<double> constraints_storage;
 
-    LA::MPI::SparseMatrix stiffness_matrix;
-    VectorType            solution_storage;
-    VectorType            system_rhs_storage;
-    VectorType            locally_relevant_solution;
+    LA::MPI::SparseMatrix                 stiffness_matrix;
+    VectorType                            solution_storage;
+    VectorType                            system_rhs_storage;
+    VectorType                            locally_relevant_solution;
+    std::shared_ptr<const ImportedFields> imported_fields_storage;
 
     mutable std::vector<std::pair<double, std::string>> cycles_and_solutions;
     unsigned int                                        cycle = 0;

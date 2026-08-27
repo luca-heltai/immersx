@@ -8,6 +8,7 @@ if it is not.
 :maxdepth: 1
 
 running-applications
+imported-fields
 configuration
 boundary-conditions
 reduced-coupling
