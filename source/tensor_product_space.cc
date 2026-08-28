@@ -239,11 +239,6 @@ namespace ImmersX
                                "with VTK support."));
 #endif
       }
-    properties_names.clear();
-    properties_names.reserve(properties_catalog.size());
-    for (const auto &field : properties_catalog)
-      properties_names.push_back(field.name);
-
     const bool legacy_radius_thickness =
       !par.inclusions_file.empty() && par.thickness == "0.01";
     std::string input_file_fields = par.input_file_fields;
@@ -377,7 +372,7 @@ namespace ImmersX
 
     for (unsigned int i = 0; i < block_indices.size(); ++i)
       {
-        const auto &name = properties_names[i];
+        const auto &name = properties_catalog[i].name;
         deallog << "Property name: " << name << ", block index: " << i
                 << ", block size: " << block_indices.block_size(i)
                 << ", block start: " << block_indices.block_start(i)
@@ -387,7 +382,7 @@ namespace ImmersX
     deallog << "Serial properties norm: " << serial_properties.l2_norm()
             << std::endl;
     AssertDimension(block_indices.total_size(), properties_fe.n_components());
-    AssertDimension(block_indices.size(), properties_names.size());
+    AssertDimension(block_indices.size(), properties_catalog.size());
   };
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -771,30 +766,6 @@ namespace ImmersX
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
-  DoFHandler<reduced_dim, spacedim> &
-  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-    get_properties_dh()
-  {
-    return properties_dh;
-  }
-
-  template <int reduced_dim, int dim, int spacedim, int n_components>
-  const std::vector<std::string> &
-  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-    get_properties_names() const
-  {
-    return properties_names;
-  }
-
-  template <int reduced_dim, int dim, int spacedim, int n_components>
-  std::vector<std::string> &
-  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-    get_properties_names()
-  {
-    return properties_names;
-  }
-
-  template <int reduced_dim, int dim, int spacedim, int n_components>
   const FieldCatalog &
   TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     get_properties_catalog() const
@@ -1030,7 +1001,6 @@ namespace ImmersX
   TensorProductSpace<0, dim, spacedim, n_components>::
     make_reduced_grid_and_properties()
   {
-    properties_names.clear();
     properties_catalog.clear();
     properties_bindings.clear();
     entity_properties.clear();
@@ -1172,14 +1142,6 @@ namespace ImmersX
           source_entity_ids[i] = source_offset + i;
       }
 
-    properties_names = point_cloud.property_names;
-    if (properties_names.size() != properties_catalog.size())
-      {
-        properties_names.clear();
-        properties_names.reserve(properties_catalog.size());
-        for (const auto &field : properties_catalog)
-          properties_names.push_back(field.name);
-      }
     const bool legacy_radius_thickness =
       !par.inclusions_file.empty() && par.thickness == "0.01";
     properties_bindings = InputFieldSelector::resolve(
@@ -1643,19 +1605,6 @@ namespace ImmersX
     return std::pow(get_entity_thickness(entity_id), -(dim / 2.0));
   }
 
-  template <int dim, int spacedim, int n_components>
-  const std::vector<std::string> &
-  TensorProductSpace<0, dim, spacedim, n_components>::get_properties_names()
-    const
-  {
-    return properties_names;
-  }
-  template <int dim, int spacedim, int n_components>
-  std::vector<std::string> &
-  TensorProductSpace<0, dim, spacedim, n_components>::get_properties_names()
-  {
-    return properties_names;
-  }
   template <int dim, int spacedim, int n_components>
   const FieldCatalog &
   TensorProductSpace<0, dim, spacedim, n_components>::get_properties_catalog()

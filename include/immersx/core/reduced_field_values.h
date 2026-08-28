@@ -65,23 +65,11 @@ namespace ImmersX
         }
     }
 
-    unsigned int
-    n_bindings() const
-    {
-      return static_cast<unsigned int>(component_slots.size());
-    }
-
-    unsigned int
-    n_quadrature_points_count() const
-    {
-      return n_quadrature_points;
-    }
-
-    /** Fill values[q*n_bindings + binding] for one property cell. */
+    /** Fill values[q*bindings.size() + binding] for one property cell. */
     void
     extract(const CellIterator &cell, std::vector<double> &values)
     {
-      if (values.size() != n_quadrature_points * n_bindings())
+      if (values.size() != n_quadrature_points * component_slots.size())
         throw std::runtime_error("Reduced field value buffer has wrong size.");
       if (component_slots.empty())
         return;

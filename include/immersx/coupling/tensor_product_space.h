@@ -391,18 +391,6 @@ namespace ImmersX
     const DoFHandler<reduced_dim, spacedim> &
     get_properties_dh() const;
 
-    /**
-     * Mutable access to the property DoFHandler.
-     */
-    DoFHandler<reduced_dim, spacedim> &
-    get_properties_dh();
-
-    /**
-     * Return names of reduced-grid property fields.
-     */
-    const std::vector<std::string> &
-    get_properties_names() const;
-
     /** Return stable metadata for imported reduced fields. */
     const FieldCatalog &
     get_properties_catalog() const;
@@ -422,12 +410,6 @@ namespace ImmersX
     /** Set the time used when evaluating the Thickness expression. */
     void
     set_time(const double time);
-
-    /**
-     * Mutable access to property field names.
-     */
-    std::vector<std::string> &
-    get_properties_names();
 
     unsigned int
     n_representative_dofs() const;
@@ -553,11 +535,6 @@ namespace ImmersX
      */
     DoFHandler<reduced_dim, spacedim> properties_dh;
 
-    /**
-     * The names of the properties stored in the input file.
-     */
-    std::vector<std::string> properties_names;
-
     FieldCatalog                   properties_catalog;
     std::vector<InputFieldBinding> properties_bindings;
     std::string                    thickness_expression;
@@ -654,10 +631,6 @@ namespace ImmersX
     unsigned int
     n_representative_dofs_per_entity() const;
 
-    const std::vector<std::string> &
-    get_properties_names() const;
-    std::vector<std::string> &
-    get_properties_names();
     const FieldCatalog &
     get_properties_catalog() const;
     /** Selected imported scalar properties, indexed by entity then binding. */
@@ -712,7 +685,6 @@ namespace ImmersX
     std::vector<unsigned int>              lifted_section_indices;
     std::vector<std::vector<unsigned int>> all_lifted_entity_ids;
     std::vector<std::vector<unsigned int>> all_lifted_section_indices;
-    std::vector<std::string>               properties_names;
     FieldCatalog                           properties_catalog;
     std::vector<InputFieldBinding>         properties_bindings;
     std::vector<std::vector<double>>       entity_properties;

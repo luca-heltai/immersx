@@ -18,6 +18,7 @@
 #include <deal.II/lac/la_parallel_vector.h>
 #include <deal.II/lac/vector.h>
 
+#include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/reduced_field_catalog.h>
 
 #include <memory>
@@ -47,13 +48,22 @@ namespace ImmersX
     }
 
     /** Transfer serial reduced-field values to the distributed DoF vector. */
-    template <int dim, int spacedim, typename ParallelVectorType>
+    template <int dim, int spacedim>
+    void
+    serial_vector_to_distributed_vector(
+      const dealii::DoFHandler<dim, spacedim>            &serial_dh,
+      const dealii::DoFHandler<dim, spacedim>            &parallel_dh,
+      const dealii::Vector<double>                       &serial_vec,
+      dealii::LinearAlgebra::distributed::Vector<double> &parallel_vec);
+
+    /** Transfer serial reduced-field values to the ImmersX MPI vector. */
+    template <int dim, int spacedim>
     void
     serial_vector_to_distributed_vector(
       const dealii::DoFHandler<dim, spacedim> &serial_dh,
       const dealii::DoFHandler<dim, spacedim> &parallel_dh,
       const dealii::Vector<double>            &serial_vec,
-      ParallelVectorType                      &parallel_vec);
+      ImmersXLA::MPI::Vector                  &parallel_vec);
 
     /** Map distributed locally owned vertices back to serial vertex indices. */
     template <int dim, int spacedim>

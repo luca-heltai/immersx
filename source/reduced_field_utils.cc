@@ -59,46 +59,92 @@ namespace ImmersX
         field_fe_ptrs, std::vector<unsigned int>(field_fe_ptrs.size(), 1));
     }
 
-    template <int dim, int spacedim, typename ParallelVectorType>
+    namespace internal
+    {
+      template <int dim, int spacedim, typename ParallelVectorType>
+      void
+      serial_vector_to_distributed_vector(
+        const dealii::DoFHandler<dim, spacedim> &serial_dh,
+        const dealii::DoFHandler<dim, spacedim> &parallel_dh,
+        const dealii::Vector<double>            &serial_vec,
+        ParallelVectorType                      &parallel_vec)
+      {
+        AssertDimension(serial_vec.size(), serial_dh.n_dofs());
+        AssertDimension(parallel_vec.size(), parallel_dh.n_dofs());
+        AssertDimension(parallel_dh.n_dofs(), serial_dh.n_dofs());
+        AssertThrow(serial_dh.get_fe() == parallel_dh.get_fe(),
+                    dealii::ExcMessage(
+                      "The finite element systems of the serial and "
+                      "parallel DoFHandlers must be the same."));
+
+        std::vector<dealii::types::global_dof_index> serial_dof_indices(
+          serial_dh.get_fe().n_dofs_per_cell());
+        std::vector<dealii::types::global_dof_index> parallel_dof_indices(
+          parallel_dh.get_fe().n_dofs_per_cell());
+
+        auto serial_cell   = serial_dh.begin_active();
+        auto parallel_cell = parallel_dh.begin_active();
+        for (; parallel_cell != parallel_dh.end(); ++parallel_cell)
+          if (parallel_cell->is_locally_owned())
+            {
+              while (serial_cell != serial_dh.end() &&
+                     serial_cell->id() < parallel_cell->id())
+                ++serial_cell;
+
+              AssertThrow(
+                serial_cell != serial_dh.end(),
+                dealii::ExcMessage(
+                  "The serial DoFHandler has no active cell with CellId " +
+                  parallel_cell->id().to_string() + "."));
+              AssertThrow(
+                serial_cell->id() == parallel_cell->id(),
+                dealii::ExcMessage(
+                  "Serial and parallel DoFHandlers have different active "
+                  "CellIds: serial " +
+                  serial_cell->id().to_string() + ", parallel " +
+                  parallel_cell->id().to_string() + "."));
+
+              serial_cell->get_dof_indices(serial_dof_indices);
+              parallel_cell->get_dof_indices(parallel_dof_indices);
+              unsigned int serial_index = 0;
+              for (const auto i : parallel_dof_indices)
+                {
+                  if (parallel_vec.in_local_range(i))
+                    parallel_vec[i] =
+                      serial_vec[serial_dof_indices[serial_index]];
+                  ++serial_index;
+                }
+            }
+        parallel_vec.compress(dealii::VectorOperation::insert);
+      }
+    } // namespace internal
+
+    template <int dim, int spacedim>
+    void
+    serial_vector_to_distributed_vector(
+      const dealii::DoFHandler<dim, spacedim>            &serial_dh,
+      const dealii::DoFHandler<dim, spacedim>            &parallel_dh,
+      const dealii::Vector<double>                       &serial_vec,
+      dealii::LinearAlgebra::distributed::Vector<double> &parallel_vec)
+    {
+      internal::serial_vector_to_distributed_vector(serial_dh,
+                                                    parallel_dh,
+                                                    serial_vec,
+                                                    parallel_vec);
+    }
+
+    template <int dim, int spacedim>
     void
     serial_vector_to_distributed_vector(
       const dealii::DoFHandler<dim, spacedim> &serial_dh,
       const dealii::DoFHandler<dim, spacedim> &parallel_dh,
       const dealii::Vector<double>            &serial_vec,
-      ParallelVectorType                      &parallel_vec)
+      ImmersXLA::MPI::Vector                  &parallel_vec)
     {
-      AssertDimension(serial_vec.size(), serial_dh.n_dofs());
-      AssertDimension(parallel_vec.size(), parallel_dh.n_dofs());
-      AssertDimension(parallel_dh.n_dofs(), serial_dh.n_dofs());
-      AssertThrow(serial_dh.get_fe() == parallel_dh.get_fe(),
-                  dealii::ExcMessage(
-                    "The finite element systems of the serial and "
-                    "parallel DoFHandlers must be the same."));
-
-      std::vector<dealii::types::global_dof_index> serial_dof_indices(
-        serial_dh.get_fe().n_dofs_per_cell());
-      std::vector<dealii::types::global_dof_index> parallel_dof_indices(
-        parallel_dh.get_fe().n_dofs_per_cell());
-
-      auto serial_cell   = serial_dh.begin_active();
-      auto parallel_cell = parallel_dh.begin_active();
-      for (; parallel_cell != parallel_dh.end(); ++parallel_cell)
-        if (parallel_cell->is_locally_owned())
-          {
-            while (serial_cell->id() < parallel_cell->id())
-              ++serial_cell;
-            serial_cell->get_dof_indices(serial_dof_indices);
-            parallel_cell->get_dof_indices(parallel_dof_indices);
-            unsigned int serial_index = 0;
-            for (const auto i : parallel_dof_indices)
-              {
-                if (parallel_vec.in_local_range(i))
-                  parallel_vec[i] =
-                    serial_vec[serial_dof_indices[serial_index]];
-                ++serial_index;
-              }
-          }
-      parallel_vec.compress(dealii::VectorOperation::insert);
+      internal::serial_vector_to_distributed_vector(serial_dh,
+                                                    parallel_dh,
+                                                    serial_vec,
+                                                    parallel_vec);
     }
 
     template <int dim, int spacedim>
@@ -117,8 +163,21 @@ namespace ImmersX
       for (; parallel_cell != parallel_tria.end(); ++parallel_cell)
         if (parallel_cell->is_locally_owned())
           {
-            while (serial_cell->id() < parallel_cell->id())
+            while (serial_cell != serial_tria.end() &&
+                   serial_cell->id() < parallel_cell->id())
               ++serial_cell;
+            AssertThrow(
+              serial_cell != serial_tria.end(),
+              dealii::ExcMessage(
+                "The serial triangulation has no active cell with CellId " +
+                parallel_cell->id().to_string() + "."));
+            AssertThrow(
+              serial_cell->id() == parallel_cell->id(),
+              dealii::ExcMessage(
+                "Serial and parallel triangulations have different active "
+                "CellIds: serial " +
+                serial_cell->id().to_string() + ", parallel " +
+                parallel_cell->id().to_string() + "."));
             for (const unsigned int v : serial_cell->vertex_indices())
               {
                 const auto serial_index   = serial_cell->vertex_index(v);
@@ -145,96 +204,72 @@ namespace ImmersX
     field_catalog_to_finite_element<3, 3>(const FieldCatalog &);
 
     template void
-    serial_vector_to_distributed_vector<
-      1,
-      1,
-      dealii::LinearAlgebra::distributed::Vector<double>>(
+    serial_vector_to_distributed_vector<1, 1>(
       const dealii::DoFHandler<1, 1> &,
       const dealii::DoFHandler<1, 1> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<
-      1,
-      2,
-      dealii::LinearAlgebra::distributed::Vector<double>>(
+    serial_vector_to_distributed_vector<1, 2>(
       const dealii::DoFHandler<1, 2> &,
       const dealii::DoFHandler<1, 2> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<
-      1,
-      3,
-      dealii::LinearAlgebra::distributed::Vector<double>>(
+    serial_vector_to_distributed_vector<1, 3>(
       const dealii::DoFHandler<1, 3> &,
       const dealii::DoFHandler<1, 3> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<
-      2,
-      2,
-      dealii::LinearAlgebra::distributed::Vector<double>>(
+    serial_vector_to_distributed_vector<2, 2>(
       const dealii::DoFHandler<2, 2> &,
       const dealii::DoFHandler<2, 2> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<
-      2,
-      3,
-      dealii::LinearAlgebra::distributed::Vector<double>>(
+    serial_vector_to_distributed_vector<2, 3>(
       const dealii::DoFHandler<2, 3> &,
       const dealii::DoFHandler<2, 3> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
     template void
-    serial_vector_to_distributed_vector<
-      3,
-      3,
-      dealii::LinearAlgebra::distributed::Vector<double>>(
+    serial_vector_to_distributed_vector<3, 3>(
       const dealii::DoFHandler<3, 3> &,
       const dealii::DoFHandler<3, 3> &,
       const dealii::Vector<double> &,
       dealii::LinearAlgebra::distributed::Vector<double> &);
 
     template void
-    serial_vector_to_distributed_vector<1, 1, ImmersXLA::MPI::Vector>(
-      const dealii::DoFHandler<1, 1> &,
-      const dealii::DoFHandler<1, 1> &,
-      const dealii::Vector<double> &,
-      ImmersXLA::MPI::Vector &);
+    serial_vector_to_distributed_vector<1, 1>(const dealii::DoFHandler<1, 1> &,
+                                              const dealii::DoFHandler<1, 1> &,
+                                              const dealii::Vector<double> &,
+                                              ImmersXLA::MPI::Vector &);
     template void
-    serial_vector_to_distributed_vector<1, 2, ImmersXLA::MPI::Vector>(
-      const dealii::DoFHandler<1, 2> &,
-      const dealii::DoFHandler<1, 2> &,
-      const dealii::Vector<double> &,
-      ImmersXLA::MPI::Vector &);
+    serial_vector_to_distributed_vector<1, 2>(const dealii::DoFHandler<1, 2> &,
+                                              const dealii::DoFHandler<1, 2> &,
+                                              const dealii::Vector<double> &,
+                                              ImmersXLA::MPI::Vector &);
     template void
-    serial_vector_to_distributed_vector<1, 3, ImmersXLA::MPI::Vector>(
-      const dealii::DoFHandler<1, 3> &,
-      const dealii::DoFHandler<1, 3> &,
-      const dealii::Vector<double> &,
-      ImmersXLA::MPI::Vector &);
+    serial_vector_to_distributed_vector<1, 3>(const dealii::DoFHandler<1, 3> &,
+                                              const dealii::DoFHandler<1, 3> &,
+                                              const dealii::Vector<double> &,
+                                              ImmersXLA::MPI::Vector &);
     template void
-    serial_vector_to_distributed_vector<2, 2, ImmersXLA::MPI::Vector>(
-      const dealii::DoFHandler<2, 2> &,
-      const dealii::DoFHandler<2, 2> &,
-      const dealii::Vector<double> &,
-      ImmersXLA::MPI::Vector &);
+    serial_vector_to_distributed_vector<2, 2>(const dealii::DoFHandler<2, 2> &,
+                                              const dealii::DoFHandler<2, 2> &,
+                                              const dealii::Vector<double> &,
+                                              ImmersXLA::MPI::Vector &);
     template void
-    serial_vector_to_distributed_vector<2, 3, ImmersXLA::MPI::Vector>(
-      const dealii::DoFHandler<2, 3> &,
-      const dealii::DoFHandler<2, 3> &,
-      const dealii::Vector<double> &,
-      ImmersXLA::MPI::Vector &);
+    serial_vector_to_distributed_vector<2, 3>(const dealii::DoFHandler<2, 3> &,
+                                              const dealii::DoFHandler<2, 3> &,
+                                              const dealii::Vector<double> &,
+                                              ImmersXLA::MPI::Vector &);
     template void
-    serial_vector_to_distributed_vector<3, 3, ImmersXLA::MPI::Vector>(
-      const dealii::DoFHandler<3, 3> &,
-      const dealii::DoFHandler<3, 3> &,
-      const dealii::Vector<double> &,
-      ImmersXLA::MPI::Vector &);
+    serial_vector_to_distributed_vector<3, 3>(const dealii::DoFHandler<3, 3> &,
+                                              const dealii::DoFHandler<3, 3> &,
+                                              const dealii::Vector<double> &,
+                                              ImmersXLA::MPI::Vector &);
 
     template std::vector<dealii::types::global_vertex_index>
     distributed_to_serial_vertex_indices<1, 1>(
