@@ -190,6 +190,13 @@ namespace ImmersX
       return composition_.schur_operator(multiplier, state);
     }
 
+    Operator
+    augmented_lagrangian_operator(const GlobalVectorType &state,
+                                  const double            gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_operator(state, gamma);
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const

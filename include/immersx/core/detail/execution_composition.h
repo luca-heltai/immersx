@@ -556,6 +556,113 @@ namespace ImmersX::detail
       return result;
     }
 
+    /** Apply A_gamma = A + gamma B^T W^-1 B on the coupled state. */
+    Operator
+    augmented_lagrangian_operator(const GlobalVectorType &state,
+                                  const double            gamma = 1.e1) const
+    {
+      finalize();
+      validate_state(state);
+      AssertThrow(gamma > 0.,
+                  dealii::ExcMessage(
+                    "The augmented-Lagrangian parameter must be positive."));
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      const unsigned int                 n = field_layout_.n_blocks();
+
+      std::vector<std::vector<LocalOperator>> base(
+        n, std::vector<LocalOperator>(n));
+      for (unsigned int i = 0; i < n; ++i)
+        for (unsigned int j = 0; j < n; ++j)
+          base[i][j] = model_.state_operator(field_layout_.field(i),
+                                             field_layout_.field(j),
+                                             context);
+
+      struct Augmentation
+      {
+        unsigned int               multiplier;
+        std::vector<unsigned int>  participants;
+        std::vector<LocalOperator> to_multiplier;
+        std::vector<LocalOperator> from_multiplier;
+        LocalOperator              inverse_metric;
+      };
+      std::vector<Augmentation> augmentations;
+      augmentations.reserve(model_.saddle_points().size());
+      for (const auto &metadata : model_.saddle_points())
+        {
+          const auto multiplier = field_layout_.block(metadata.multiplier);
+          const auto inverse_metric =
+            local_preconditioner(metadata.multiplier, state);
+          AssertThrow(inverse_metric.has_value(),
+                      dealii::ExcMessage(
+                        "Augmented-Lagrangian composition requires a local "
+                        "inverse for every multiplier metric."));
+
+          Augmentation augmentation{multiplier, {}, {}, {}, *inverse_metric};
+          for (const auto participant : metadata.participants)
+            {
+              augmentation.participants.push_back(
+                field_layout_.block(participant));
+              augmentation.to_multiplier.push_back(model_.state_operator(
+                metadata.multiplier, participant, context));
+              augmentation.from_multiplier.push_back(model_.state_operator(
+                participant, metadata.multiplier, context));
+            }
+          augmentations.push_back(std::move(augmentation));
+        }
+
+      auto apply = [base, augmentations, gamma](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src) {
+        const unsigned int n = base.size();
+        for (unsigned int i = 0; i < n; ++i)
+          {
+            dst.block(i) = 0.;
+            for (unsigned int j = 0; j < n; ++j)
+              base[i][j].vmult_add(dst.block(i), src.block(j));
+          }
+
+        for (const auto &augmentation : augmentations)
+          {
+            FieldVectorType constraint_value;
+            constraint_value.reinit(src.block(augmentation.multiplier));
+            constraint_value = 0.;
+            for (unsigned int i = 0; i < augmentation.participants.size(); ++i)
+              augmentation.to_multiplier[i].vmult_add(
+                constraint_value, src.block(augmentation.participants[i]));
+
+            FieldVectorType weighted_constraint;
+            weighted_constraint.reinit(constraint_value);
+            augmentation.inverse_metric.vmult(weighted_constraint,
+                                              constraint_value);
+            weighted_constraint *= gamma;
+            for (unsigned int i = 0; i < augmentation.participants.size(); ++i)
+              augmentation.from_multiplier[i].vmult_add(
+                dst.block(augmentation.participants[i]), weighted_constraint);
+          }
+      };
+
+      Operator result;
+      result.reinit_range_vector = [state](GlobalVectorType &vector,
+                                           const bool        omit) {
+        vector.reinit(state, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = apply;
+      result.vmult_add            = [apply](GlobalVectorType       &dst,
+                                 const GlobalVectorType &src) {
+        GlobalVectorType contribution;
+        contribution.reinit(dst);
+        contribution = 0.;
+        apply(contribution, src);
+        dst += contribution;
+      };
+      result.Tvmult     = apply;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const
