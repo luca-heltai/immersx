@@ -13,7 +13,7 @@ Field identifiers and a non-owning view of the adapter; it does not duplicate
 Problem state or execution storage. A typical coupled workflow is:
 
 ```{code-block} cpp
-IDAAdapter<FieldVector, GlobalVector> ida(data, MPI_COMM_WORLD, solve);
+IDAAdapter<FieldVector, GlobalVector> ida(data, MPI_COMM_WORLD);
 auto fluid = ida.add(flow_problem, "fluid");
 auto wall  = ida.add(elastic_problem, "wall");
 
@@ -35,12 +35,16 @@ For an affine steady problem, use `LinearAdapter`:
 
 ```{code-block} cpp
 using Adapter = LinearAdapter<LA::MPI::Vector, LA::MPI::BlockVector>;
-Adapter linear(MPI_COMM_WORLD, solve_global_operator);
+Adapter linear(MPI_COMM_WORLD);
 auto bulk = linear.add(bulk_problem, "bulk");
 auto state = linear.make_state();
 linear.solve(state);
 bulk_problem.set_solution(linear.field(state, bulk.fields().solution));
 ```
+
+The standard adapters select their iterative/direct policy internally. An
+expert application may still pass a custom solve callback when it needs full
+control of the linear solve.
 
 For a direct contributor-level workflow, Field identifiers are available from
 the handle's `fields()` view:
