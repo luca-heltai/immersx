@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #ifdef DEAL_II_WITH_SUNDIALS
 #  include <deal.II/sundials/ida.h>
