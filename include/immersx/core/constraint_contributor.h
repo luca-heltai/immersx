@@ -39,6 +39,7 @@ namespace ImmersX
       builder.algebraic_field("lambda",
                               equation.multiplier_locally_owned_dofs(),
                               equation.multiplier_locally_relevant_dofs());
+    builder.saddle_point(multiplier, participants);
 
     for (const auto &entry : equation.contributions_view())
       {

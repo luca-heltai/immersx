@@ -43,6 +43,13 @@ namespace ImmersX
   template <typename VectorType, typename MatrixType>
   class SemidiscreteBuilder;
 
+  /** Semantic description of one multiplier/primal saddle-point relation. */
+  struct SaddlePointMetadata
+  {
+    FieldId              multiplier;
+    std::vector<FieldId> participants;
+  };
+
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
   template <typename VectorType,
             typename MatrixType = ImmersXLA::MPI::SparseMatrix>
@@ -120,6 +127,12 @@ namespace ImmersX
     has_preconditioner(const FieldId field) const
     {
       return preconditioners_.find(field) != preconditioners_.end();
+    }
+
+    const std::vector<SaddlePointMetadata> &
+    saddle_points() const
+    {
+      return saddle_points_;
     }
 
     std::optional<Operator>
@@ -279,6 +292,19 @@ namespace ImmersX
       preconditioners_.emplace(field, std::move(factory));
     }
 
+    void
+    add_saddle_point(SaddlePointMetadata metadata)
+    {
+      AssertThrow(!metadata.participants.empty(),
+                  dealii::ExcMessage(
+                    "A saddle-point relation needs a primal field."));
+      for (const auto &entry : saddle_points_)
+        AssertThrow(entry.multiplier != metadata.multiplier,
+                    dealii::ExcMessage(
+                      "A multiplier FieldId was registered twice."));
+      saddle_points_.push_back(std::move(metadata));
+    }
+
     std::vector<std::pair<FieldId, FieldId>>
     active_operator_blocks() const
     {
@@ -395,6 +421,7 @@ namespace ImmersX
     std::map<BlockKey, std::vector<OperatorEntry>> state_operators_;
     std::map<BlockKey, std::vector<OperatorEntry>> derivative_operators_;
     std::map<FieldId, PreconditionerFactory>       preconditioners_;
+    std::vector<SaddlePointMetadata>               saddle_points_;
   };
 } // namespace ImmersX
 

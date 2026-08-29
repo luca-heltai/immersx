@@ -40,6 +40,7 @@ namespace ImmersX
       builder.algebraic_field("pressure",
                               problem.locally_owned_dofs_by_block()[1],
                               problem.locally_relevant_dofs_by_block()[1]);
+    builder.saddle_point(pressure, {velocity});
 
     const auto mass =
       problem.density() *
