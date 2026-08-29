@@ -107,6 +107,15 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   auto       block_diagonal_action = adapter.make_state();
   block_diagonal.vmult(block_diagonal_action, state);
   EXPECT_GT(block_diagonal_action.l2_norm(), 0.);
+  const auto block_lower = adapter.block_triangular_preconditioner(state);
+  auto       block_lower_action = adapter.make_state();
+  block_lower.vmult(block_lower_action, state);
+  EXPECT_NEAR(adapter.field(block_lower_action, fields.fields().solution)[0],
+              preconditioned[0],
+              1.e-12);
+  EXPECT_NEAR(adapter.field(block_lower_action, fields.fields().solution)[1],
+              preconditioned[1],
+              1.e-12);
 
   EXPECT_TRUE(adapter.can_materialize_matrix(state));
   const auto block_matrix = adapter.block_matrix(state);

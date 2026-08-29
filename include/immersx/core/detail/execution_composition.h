@@ -546,6 +546,88 @@ namespace ImmersX::detail
       return result;
     }
 
+    /** Apply a lower or upper approximate block substitution. */
+    Operator
+    block_triangular_preconditioner(const GlobalVectorType &state,
+                                    const bool              lower = true) const
+    {
+      finalize();
+      validate_state(state);
+
+      const unsigned int         n = field_layout_.n_blocks();
+      std::vector<LocalOperator> diagonal;
+      diagonal.reserve(n);
+      for (unsigned int block = 0; block < n; ++block)
+        {
+          const auto local =
+            local_preconditioner(field_layout_.field(block), state);
+          AssertThrow(local.has_value(),
+                      dealii::ExcMessage(
+                        "Block triangular preconditioning requires a local "
+                        "preconditioner for every semantic field."));
+          diagonal.push_back(*local);
+        }
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType>      context(0., state_view, nullptr);
+      std::vector<std::vector<LocalOperator>> off_diagonal(
+        n, std::vector<LocalOperator>(n));
+      for (unsigned int i = 0; i < n; ++i)
+        for (unsigned int j = 0; j < n; ++j)
+          off_diagonal[i][j] = model_.state_operator(field_layout_.field(i),
+                                                     field_layout_.field(j),
+                                                     context);
+
+      auto apply = [diagonal,
+                    off_diagonal,
+                    lower](GlobalVectorType &dst, const GlobalVectorType &src) {
+        GlobalVectorType rhs;
+        rhs.reinit(src);
+        rhs                  = src;
+        const unsigned int n = diagonal.size();
+        if (lower)
+          for (unsigned int i = 0; i < n; ++i)
+            {
+              auto value = rhs.block(i);
+              value *= -1.;
+              for (unsigned int j = 0; j < i; ++j)
+                off_diagonal[i][j].vmult_add(value, dst.block(j));
+              value *= -1.;
+              diagonal[i].vmult(dst.block(i), value);
+            }
+        else
+          for (int i = static_cast<int>(n) - 1; i >= 0; --i)
+            {
+              auto value = rhs.block(i);
+              value *= -1.;
+              for (unsigned int j = i + 1; j < n; ++j)
+                off_diagonal[i][j].vmult_add(value, dst.block(j));
+              value *= -1.;
+              diagonal[i].vmult(dst.block(i), value);
+            }
+      };
+
+      Operator result;
+      result.reinit_range_vector = [state](GlobalVectorType &vector,
+                                           const bool        omit) {
+        vector.reinit(state, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = apply;
+      result.vmult_add            = [apply](GlobalVectorType       &dst,
+                                 const GlobalVectorType &src) {
+        GlobalVectorType contribution;
+        contribution.reinit(dst);
+        contribution = 0.;
+        apply(contribution, src);
+        dst += contribution;
+      };
+      result.Tvmult     = apply;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
     /** Pack execution blocks into the concatenated field ordering. */
     FieldVectorType
     pack(const GlobalVectorType &global) const
