@@ -857,8 +857,7 @@ namespace ImmersX
                               problem.locally_owned_dofs(),
                               problem.locally_relevant_dofs());
     const auto stiffness =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.stiffness_operator()));
+      builder.matrix_operator(problem.stiffness_operator());
 
     builder.term(displacement, "elastic-static")
       .residual([displacement, &problem](const auto &context) {
