@@ -103,6 +103,10 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   auto       preconditioned = input;
   (*local).vmult(preconditioned, input);
   EXPECT_GT(preconditioned.l2_norm(), 0.);
+  const auto block_diagonal = adapter.block_diagonal_preconditioner(state);
+  auto       block_diagonal_action = adapter.make_state();
+  block_diagonal.vmult(block_diagonal_action, state);
+  EXPECT_GT(block_diagonal_action.l2_norm(), 0.);
 
   EXPECT_TRUE(adapter.can_materialize_matrix(state));
   const auto block_matrix = adapter.block_matrix(state);
