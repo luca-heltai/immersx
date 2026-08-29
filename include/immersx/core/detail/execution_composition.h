@@ -17,8 +17,12 @@
 #include <deal.II/lac/solver_gmres.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 
+#include <algorithm>
+#include <cmath>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -718,14 +722,57 @@ namespace ImmersX::detail
       for (const auto &metadata : model_.saddle_points())
         {
           const auto multiplier = field_layout_.block(metadata.multiplier);
-          const auto inverse_metric =
-            local_preconditioner(metadata.multiplier, state);
-          AssertThrow(inverse_metric.has_value(),
+          const auto metric =
+            model_.multiplier_metric(metadata.multiplier, context);
+          AssertThrow(metric.has_value(),
                       dealii::ExcMessage(
-                        "Augmented-Lagrangian composition requires a local "
-                        "inverse for every multiplier metric."));
+                        "Augmented-Lagrangian composition requires a "
+                        "materialized multiplier metric."));
 
-          Augmentation augmentation{multiplier, {}, {}, {}, *inverse_metric};
+          const auto metric_matrix = metric->matrix();
+          const auto multiplier_partition =
+            layout_.field(metadata.multiplier).locally_owned;
+          auto inverse_metric = std::make_shared<FieldVectorType>();
+          inverse_metric->reinit(state.block(multiplier));
+          for (const auto index : multiplier_partition)
+            {
+              const auto value = metric_matrix->diag_element(index);
+              AssertThrow(std::isfinite(value),
+                          dealii::ExcMessage(
+                            "The multiplier metric has an invalid diagonal "
+                            "entry."));
+              (*inverse_metric)(index) =
+                std::abs(value) > 1.e-14 ? 1. / value : 0.;
+            }
+          inverse_metric->compress(dealii::VectorOperation::insert);
+
+          LocalOperator inverse_metric_operator;
+          inverse_metric_operator.reinit_range_vector =
+            [prototype = state.block(multiplier)](FieldVectorType &vector,
+                                                  const bool       omit) {
+              vector.reinit(prototype, omit);
+            };
+          inverse_metric_operator.reinit_domain_vector =
+            inverse_metric_operator.reinit_range_vector;
+          inverse_metric_operator.vmult =
+            [inverse_metric, multiplier_partition](FieldVectorType       &dst,
+                                                   const FieldVectorType &src) {
+              dst = src;
+              for (const auto index : multiplier_partition)
+                dst(index) = (*inverse_metric)(index)*src(index);
+            };
+          inverse_metric_operator.vmult_add =
+            [inverse_metric, multiplier_partition](FieldVectorType       &dst,
+                                                   const FieldVectorType &src) {
+              for (const auto index : multiplier_partition)
+                dst(index) += (*inverse_metric)(index)*src(index);
+            };
+          inverse_metric_operator.Tvmult = inverse_metric_operator.vmult;
+          inverse_metric_operator.Tvmult_add =
+            inverse_metric_operator.vmult_add;
+
+          Augmentation augmentation{
+            multiplier, {}, {}, {}, inverse_metric_operator};
           for (const auto participant : metadata.participants)
             {
               augmentation.participants.push_back(
@@ -785,6 +832,107 @@ namespace ImmersX::detail
       };
       result.Tvmult     = apply;
       result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+    /**
+     * Materialize the matrix A + gamma B^T diag(W^{-1}) B.
+     *
+     * The multiplier metric is intentionally reduced to its diagonal here:
+     * this is the matrix-based counterpart of the lumped metric used by the
+     * first AL implementation.  Each participant pair is assembled, so
+     * augmentation cross terms are retained when a relation has multiple
+     * primal fields.
+     */
+    BlockMatrixType
+    augmented_lagrangian_matrix(const GlobalVectorType &state,
+                                const double            gamma = 1.e1) const
+    {
+      finalize();
+      validate_state(state);
+      AssertThrow(gamma > 0.,
+                  dealii::ExcMessage(
+                    "The augmented-Lagrangian parameter must be positive."));
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      auto       result     = make_block_matrix(context, 0.);
+      const auto partitions = field_layout_.block_partitions();
+
+      for (const auto &metadata : model_.saddle_points())
+        {
+          const auto metric =
+            model_.multiplier_metric(metadata.multiplier, context);
+          AssertThrow(metric.has_value(),
+                      dealii::ExcMessage(
+                        "Matrix-based augmented-Lagrangian composition "
+                        "requires a materialized multiplier metric."));
+
+          const auto multiplier_block =
+            field_layout_.block(metadata.multiplier);
+          const auto metric_matrix = metric->matrix();
+          const auto multiplier_partition =
+            layout_.field(metadata.multiplier).locally_owned;
+          FieldVectorType inverse_metric;
+          inverse_metric.reinit(state.block(multiplier_block));
+          for (const auto index : multiplier_partition)
+            {
+              const auto value = metric_matrix->diag_element(index);
+              AssertThrow(std::isfinite(value),
+                          dealii::ExcMessage(
+                            "The multiplier metric has an invalid diagonal "
+                            "entry."));
+              inverse_metric(index) =
+                std::abs(value) > 1.e-14 ? 1. / value : 0.;
+            }
+          inverse_metric.compress(dealii::VectorOperation::insert);
+
+          for (std::size_t i = 0; i < metadata.participants.size(); ++i)
+            for (std::size_t j = 0; j < metadata.participants.size(); ++j)
+              {
+                const auto row_field = metadata.participants[i];
+                const auto col_field = metadata.participants[j];
+                const auto from      = materialized_block(row_field,
+                                                     metadata.multiplier,
+                                                     context,
+                                                     0.);
+                const auto to        = materialized_block(metadata.multiplier,
+                                                   col_field,
+                                                   context,
+                                                   0.);
+                AssertThrow(from && to,
+                            dealii::ExcMessage(
+                              "Matrix-based augmented-Lagrangian composition "
+                              "requires materialized coupling blocks."));
+                AssertThrow(from->n() == to->m(),
+                            dealii::ExcDimensionMismatch(from->n(), to->m()));
+                AssertThrow(from->trilinos_matrix().DomainMap().SameAs(
+                              to->trilinos_matrix().RangeMap()),
+                            dealii::ExcMessage(
+                              "Augmented-Lagrangian coupling maps do not "
+                              "share the multiplier partition."));
+                AssertThrow(to->local_range() == inverse_metric.local_range(),
+                            dealii::ExcMessage(
+                              "Augmented-Lagrangian metric and coupling "
+                              "partitions do not match."));
+
+                MatrixType product;
+                from->mmult(product, *to, inverse_metric);
+                const auto row_block = field_layout_.block(row_field);
+                const auto col_block = field_layout_.block(col_field);
+                const auto combined =
+                  add_matrices(result.block(row_block, col_block),
+                               product,
+                               gamma,
+                               partitions[row_block],
+                               partitions[col_block]);
+                result.block(row_block, col_block).reinit(combined);
+                result.block(row_block, col_block).copy_from(combined);
+              }
+        }
+
+      result.collect_sizes();
       return result;
     }
 
@@ -992,6 +1140,44 @@ namespace ImmersX::detail
     }
 
   private:
+    MatrixType
+    add_matrices(const MatrixType       &base,
+                 const MatrixType       &increment,
+                 const double            factor,
+                 const dealii::IndexSet &row_partition,
+                 const dealii::IndexSet &column_partition) const
+    {
+      using size_type = typename MatrixType::size_type;
+      dealii::DynamicSparsityPattern sparsity(row_partition.size(),
+                                              column_partition.size(),
+                                              row_partition);
+      for (const auto row : row_partition)
+        {
+          for (auto entry = base.begin(row); entry != base.end(row); ++entry)
+            sparsity.add(row, entry->column());
+          for (auto entry = increment.begin(row); entry != increment.end(row);
+               ++entry)
+            sparsity.add(row, entry->column());
+        }
+
+      MatrixType result;
+      result.reinit(
+        row_partition, column_partition, sparsity, communicator_, false);
+      for (const auto row : row_partition)
+        {
+          std::map<size_type, double> values;
+          for (auto entry = base.begin(row); entry != base.end(row); ++entry)
+            values[entry->column()] += entry->value();
+          for (auto entry = increment.begin(row); entry != increment.end(row);
+               ++entry)
+            values[entry->column()] += factor * entry->value();
+          for (const auto &[column, value] : values)
+            result.set(row, column, value);
+        }
+      result.compress(dealii::VectorOperation::insert);
+      return result;
+    }
+
     bool
     can_materialize_matrix(const EvaluationContext<FieldVectorType> &context,
                            const double alpha) const

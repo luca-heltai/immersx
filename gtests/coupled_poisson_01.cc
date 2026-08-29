@@ -340,6 +340,19 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   matrix_action -= direct.pack(operator_action);
   EXPECT_LT(matrix_action.l2_norm(), 1.e-10);
 
+  ASSERT_EQ(direct.saddle_points().size(), 1u);
+  ASSERT_TRUE(direct.saddle_points().front().has_multiplier_metric);
+  const auto augmented_matrix =
+    direct.augmented_lagrangian_matrix(sample_state, 2.);
+  auto augmented_matrix_action = direct.make_state();
+  augmented_matrix.vmult(augmented_matrix_action, sample_state);
+  const auto augmented_operator =
+    direct.augmented_lagrangian_operator(sample_state, 2.);
+  auto augmented_operator_action = direct.make_state();
+  augmented_operator.vmult(augmented_operator_action, sample_state);
+  augmented_matrix_action -= augmented_operator_action;
+  EXPECT_LT(augmented_matrix_action.l2_norm(), 1.e-10);
+
   try
     {
       direct.solve(direct_state);

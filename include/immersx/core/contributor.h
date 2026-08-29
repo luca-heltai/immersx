@@ -222,6 +222,20 @@ namespace ImmersX
       model_.add_saddle_point({multiplier, std::move(participants)});
     }
 
+    /** Register a saddle relation and its physical multiplier metric. */
+    void
+    saddle_point(const FieldId                         multiplier,
+                 std::vector<FieldId>                  participants,
+                 const typename Model::MatrixOperator &metric)
+    {
+      model_.add_saddle_point({multiplier, std::move(participants), true});
+      model_.add_multiplier_metric(multiplier,
+                                   typename Model::MatrixOperatorFactory(
+                                     [metric](const auto &) {
+                                       return metric;
+                                     }));
+    }
+
   private:
     StateLayout &layout_;
     Model       &model_;

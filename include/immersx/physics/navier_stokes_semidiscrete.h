@@ -41,8 +41,6 @@ namespace ImmersX
       builder.algebraic_field("pressure",
                               problem.locally_owned_dofs_by_block()[1],
                               problem.locally_relevant_dofs_by_block()[1]);
-    builder.saddle_point(pressure, {velocity});
-
     const auto mass = problem.density() * ImmersX::matrix_operator<VectorType>(
                                             problem.velocity_mass_matrix());
     const auto viscosity = ImmersX::matrix_operator<VectorType>(
@@ -51,6 +49,10 @@ namespace ImmersX
       problem.continuous_operator().block(0, 1));
     const auto divergence = ImmersX::matrix_operator<VectorType>(
       problem.continuous_operator().block(1, 0));
+    const auto pressure_metric =
+      ImmersX::matrix_operator<VectorType>(problem.pressure_metric_matrix());
+
+    builder.saddle_point(pressure, {velocity}, pressure_metric);
 
     builder.preconditioner(
       velocity, [](const auto &linearized_matrix, const auto &prototype) {
