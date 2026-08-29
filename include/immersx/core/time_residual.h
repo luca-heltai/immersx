@@ -111,6 +111,20 @@ namespace ImmersX
       return !derivative_operators_.empty();
     }
 
+    bool
+    has_state_operator(const FieldId row, const FieldId column) const
+    {
+      return state_operators_.find({row.value(), column.value()}) !=
+             state_operators_.end();
+    }
+
+    bool
+    has_derivative_operator(const FieldId row, const FieldId column) const
+    {
+      return derivative_operators_.find({row.value(), column.value()}) !=
+             derivative_operators_.end();
+    }
+
   private:
     template <typename, typename>
     friend class SemidiscreteTerm;

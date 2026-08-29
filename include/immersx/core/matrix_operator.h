@@ -59,6 +59,7 @@ namespace ImmersX
   struct MaterializedOperator
   {
     using Operator    = dealii::LinearOperator<VectorType, VectorType>;
+    using Matrix      = MatrixType;
     using Materialize = std::function<std::unique_ptr<MatrixType>()>;
 
     Operator    view;

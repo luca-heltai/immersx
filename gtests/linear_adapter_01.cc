@@ -27,8 +27,7 @@ namespace ImmersX
   {
     const auto solution = builder.algebraic_field("solution", problem.owned);
     using VectorType    = ImmersXLA::MPI::Vector;
-    const auto matrix   = ImmersX::payload_free(
-      dealii::linear_operator<VectorType, VectorType>(problem.matrix));
+    const auto matrix   = builder.matrix_operator(problem.matrix);
     builder.term(solution, "fake")
       .residual([solution, &problem](const auto &context) {
         const auto &state = context.state(solution);
@@ -88,6 +87,40 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   EXPECT_EQ(state.n_blocks(), 1u);
   adapter.solve(state);
 
+  EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
+  EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
+
+  EXPECT_TRUE(adapter.can_materialize_matrix(state));
+  const auto block_matrix = adapter.block_matrix(state);
+  EXPECT_EQ(block_matrix.n_block_rows(), 1u);
+  const auto monolithic = adapter.monolithic_matrix(state);
+  EXPECT_EQ(monolithic.m(), 2u);
+  auto block_action = adapter.make_state();
+  block_matrix.vmult(block_action, state);
+  auto operator_action = adapter.make_state();
+  adapter.jacobian(state).vmult(operator_action, state);
+  EXPECT_NEAR(adapter.field(block_action, fields.fields().solution)[0],
+              adapter.field(operator_action, fields.fields().solution)[0],
+              1.e-12);
+  EXPECT_NEAR(adapter.field(block_action, fields.fields().solution)[1],
+              adapter.field(operator_action, fields.fields().solution)[1],
+              1.e-12);
+  const auto                      flat = adapter.pack(state);
+  ImmersX::ImmersXLA::MPI::Vector monolithic_action;
+  monolithic_action.reinit(flat);
+  monolithic.vmult(monolithic_action, flat);
+  EXPECT_NEAR(monolithic_action[0],
+              adapter.field(operator_action, fields.fields().solution)[0],
+              1.e-12);
+  EXPECT_NEAR(monolithic_action[1],
+              adapter.field(operator_action, fields.fields().solution)[1],
+              1.e-12);
+  auto unpacked = adapter.make_state();
+  adapter.unpack(flat, unpacked);
+  EXPECT_NEAR(adapter.field(unpacked, fields.fields().solution)[0], 1., 1.e-12);
+  EXPECT_NEAR(adapter.field(unpacked, fields.fields().solution)[1], 2., 1.e-12);
+
+  adapter.solve_direct(state);
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
 

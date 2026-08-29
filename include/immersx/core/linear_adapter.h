@@ -10,6 +10,9 @@
 #ifndef immersx_linear_adapter_h
 #define immersx_linear_adapter_h
 
+#include <deal.II/lac/solver_control.h>
+
+#include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
@@ -30,12 +33,17 @@ namespace ImmersX
   template <typename FieldVectorType, typename GlobalVectorType>
   class LinearAdapter
   {
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+
   public:
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
-    using Operator      = dealii::LinearOperator<GlobalVectorType>;
-    using SolveFunction = std::function<
+    using Operator        = dealii::LinearOperator<GlobalVectorType>;
+    using MatrixType      = typename Composition::MatrixType;
+    using BlockMatrixType = typename Composition::BlockMatrixType;
+    using SolveFunction   = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
     LinearAdapter(const MPI_Comm communicator, SolveFunction solve)
@@ -134,6 +142,62 @@ namespace ImmersX
       return composition_.jacobian(0., state, nullptr, 0.);
     }
 
+    bool
+    can_materialize_matrix(const GlobalVectorType &state) const
+    {
+      return composition_.can_materialize_matrix(state);
+    }
+
+    BlockMatrixType
+    block_matrix(const GlobalVectorType &state) const
+    {
+      return composition_.block_matrix(state);
+    }
+
+    MatrixType
+    monolithic_matrix(const GlobalVectorType &state) const
+    {
+      return composition_.monolithic_matrix(state);
+    }
+
+    FieldVectorType
+    pack(const GlobalVectorType &state) const
+    {
+      return composition_.pack(state);
+    }
+
+    void
+    unpack(const FieldVectorType &flat, GlobalVectorType &state) const
+    {
+      composition_.unpack(flat, state);
+    }
+
+    /** Solve using a freshly materialized matrix and the configured direct
+     * backend. */
+    void
+    solve_direct(GlobalVectorType &state) const
+    {
+      const auto &model = composition_.model();
+      AssertThrow(!model.has_derivative_terms(),
+                  dealii::ExcMessage(
+                    "LinearAdapter cannot solve a model with derivative "
+                    "terms."));
+      auto residual = composition_.make_state();
+      state         = composition_.make_state();
+      composition_.evaluate_residual(0., state, nullptr, residual);
+      residual *= -1.;
+
+      auto                    matrix   = composition_.monolithic_matrix(state);
+      auto                    rhs      = composition_.pack(residual);
+      auto                    result   = composition_.make_state();
+      auto                    solution = composition_.pack(result);
+      dealii::SolverControl   control(0, 1.e-12);
+      ImmersXLA::SolverDirect solver(control);
+      solver.initialize(matrix);
+      solver.solve(solution, rhs);
+      composition_.unpack(solution, state);
+    }
+
     void
     solve(GlobalVectorType &state) const
     {
@@ -150,9 +214,6 @@ namespace ImmersX
     }
 
   private:
-    using Composition =
-      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
-
     Composition   composition_;
     SolveFunction solve_;
     std::size_t   coupling_count_ = 0;
