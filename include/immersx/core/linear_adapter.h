@@ -180,6 +180,13 @@ namespace ImmersX
       return composition_.block_diagonal_preconditioner(state);
     }
 
+    Operator
+    block_triangular_preconditioner(const GlobalVectorType &state,
+                                    const bool              lower = true) const
+    {
+      return composition_.block_triangular_preconditioner(state, lower);
+    }
+
     FieldVectorType
     pack(const GlobalVectorType &state) const
     {
