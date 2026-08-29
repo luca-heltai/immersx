@@ -244,17 +244,7 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   data.output_period     = 0.05;
   data.maximum_order     = 1;
   data.ic_type           = Adapter::AdditionalData::none;
-  Adapter    ida(data,
-              MPI_COMM_WORLD,
-              [](const dealii::LinearOperator<GlobalVector> &operator_view,
-                 const GlobalVector                         &rhs,
-                 GlobalVector                               &dst,
-                 const double                                tolerance) {
-                SolverControl control(5000, std::max(1.e-8, tolerance));
-                SolverFGMRES<GlobalVector> solver(control);
-                dst = 0.;
-                solver.solve(operator_view, dst, rhs, PreconditionIdentity());
-              });
+  Adapter    ida(data, MPI_COMM_WORLD);
   const auto fields = ida.add(problem, "fluid");
 
   auto state                                     = ida.make_state();
@@ -314,6 +304,7 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   ida.field(increment, fields.fields().pressure) = 0.5;
   auto action                                    = ida.make_state();
   ida.solver().setup_jacobian(0., state, state_dot, 2.);
+  EXPECT_TRUE(ida.has_current_preconditioner());
   ida.current_jacobian().vmult(action, increment);
 
   auto expected_velocity_action = ida.field(action, fields.fields().velocity);
