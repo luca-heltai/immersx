@@ -586,6 +586,11 @@ namespace ImmersX::detail
             auto &block  = result.block(i, j);
             if (matrix)
               {
+                AssertThrow(matrix->m() == partitions[i].size() &&
+                              matrix->n() == partitions[j].size(),
+                            dealii::ExcMessage(
+                              "Materialized block dimensions do not match "
+                              "the semantic execution layout."));
                 block.reinit(*matrix);
                 block.copy_from(*matrix);
               }
