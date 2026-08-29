@@ -206,6 +206,15 @@ namespace ImmersX
       return ImmersX::matrix_operator<VectorType, MatrixType>(matrix);
     }
 
+    /** Register a Problem-local approximate inverse factory. */
+    template <typename Factory>
+    void
+    preconditioner(const FieldId field, Factory factory)
+    {
+      model_.add_preconditioner(
+        field, typename Model::PreconditionerFactory(std::move(factory)));
+    }
+
   private:
     StateLayout &layout_;
     Model       &model_;
