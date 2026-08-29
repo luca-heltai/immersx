@@ -11,13 +11,16 @@
 #define immersx_matrix_operator_h
 
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/mpi.h>
 
 #include <deal.II/lac/linear_operator.h>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace ImmersX
 {
@@ -110,14 +113,87 @@ namespace ImmersX
       : std::true_type
     {};
 
+    template <typename MatrixType, typename = void>
+    struct has_distributed_partitions : std::false_type
+    {};
+
+    template <typename MatrixType>
+    struct has_distributed_partitions<
+      MatrixType,
+      std::void_t<
+        decltype(std::declval<const MatrixType &>()
+                   .locally_owned_domain_indices()),
+        decltype(std::declval<const MatrixType &>()
+                   .locally_owned_range_indices()),
+        decltype(std::declval<const MatrixType &>().get_mpi_communicator())>>
+      : std::true_type
+    {};
+
     template <typename MatrixType>
     std::unique_ptr<MatrixType>
     transpose_matrix(std::unique_ptr<MatrixType> matrix)
     {
-      if constexpr (has_in_place_transpose<MatrixType>::value)
+      if constexpr (has_distributed_partitions<MatrixType>::value)
         {
-          matrix->transpose();
-          return matrix;
+          using size_type = typename MatrixType::size_type;
+          using Entry     = std::pair<std::pair<size_type, size_type>, double>;
+
+          // Trilinos' transpose() toggles the apply flag but preserves the
+          // matrix shape.  Materialization instead needs a true matrix with
+          // exchanged row and column spaces.  Route each source entry to the
+          // rank owning its new row before constructing the target sparsity
+          // pattern, so rectangular distributed transposes retain remote
+          // entries as well as local ones.
+          const auto row_partition = matrix->locally_owned_domain_indices();
+          const auto col_partition = matrix->locally_owned_range_indices();
+          const auto communicator  = matrix->get_mpi_communicator();
+
+          dealii::IndexSet columns(matrix->n());
+          for (const auto row : col_partition)
+            for (auto entry = matrix->begin(row); entry != matrix->end(row);
+                 ++entry)
+              columns.add_index(entry->column());
+          columns.compress();
+
+          const auto owners =
+            dealii::Utilities::MPI::compute_index_owner(row_partition,
+                                                        columns,
+                                                        communicator);
+          std::map<size_type, unsigned int> owner_by_column;
+          auto                              column = columns.begin();
+          for (unsigned int i = 0; i < owners.size(); ++i, ++column)
+            owner_by_column.emplace(*column, owners[i]);
+
+          std::map<unsigned int, std::vector<Entry>> to_send;
+          for (const auto row : col_partition)
+            for (auto entry = matrix->begin(row); entry != matrix->end(row);
+                 ++entry)
+              to_send[owner_by_column.at(entry->column())].push_back(
+                {{entry->column(), row}, entry->value()});
+
+          const auto received =
+            dealii::Utilities::MPI::some_to_some(communicator, to_send);
+          dealii::DynamicSparsityPattern sparsity(matrix->n(),
+                                                  matrix->m(),
+                                                  row_partition);
+          std::vector<Entry>             local_entries;
+          for (const auto &[rank, entries] : received)
+            {
+              (void)rank;
+              for (const auto &entry : entries)
+                {
+                  sparsity.add(entry.first.first, entry.first.second);
+                  local_entries.push_back(entry);
+                }
+            }
+
+          auto result = std::make_unique<MatrixType>();
+          result->reinit(
+            row_partition, col_partition, sparsity, communicator, false);
+          for (const auto &entry : local_entries)
+            result->set(entry.first.first, entry.first.second, entry.second);
+          result->compress(dealii::VectorOperation::insert);
+          return result;
         }
       else
         {
