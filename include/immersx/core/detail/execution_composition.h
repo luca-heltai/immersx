@@ -12,6 +12,9 @@
 
 #include <deal.II/base/index_set.h>
 
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
+
+#include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/contributor.h>
 
 #include <memory>
@@ -73,6 +76,33 @@ namespace ImmersX::detail
     {
       validate_complete();
       return block_owned_;
+    }
+
+    std::vector<std::size_t>
+    block_offsets() const
+    {
+      validate_complete();
+      std::vector<std::size_t> result(fields_by_block_.size() + 1, 0);
+      for (unsigned int block_number = 0;
+           block_number < fields_by_block_.size();
+           ++block_number)
+        result[block_number + 1] =
+          result[block_number] + block_sizes_[block_number];
+      return result;
+    }
+
+    dealii::IndexSet
+    monolithic_partition() const
+    {
+      const auto       offsets = block_offsets();
+      dealii::IndexSet result(offsets.back());
+      for (unsigned int block_number = 0;
+           block_number < fields_by_block_.size();
+           ++block_number)
+        for (const auto index : block_owned_[block_number])
+          result.add_index(offsets[block_number] + index);
+      result.compress();
+      return result;
     }
 
     void
@@ -143,9 +173,11 @@ namespace ImmersX::detail
   class ExecutionComposition
   {
   public:
-    using Model    = SemiDiscreteModel<FieldVectorType>;
-    using Builder  = SemidiscreteBuilder<FieldVectorType>;
-    using Operator = dealii::LinearOperator<GlobalVectorType>;
+    using Model           = SemiDiscreteModel<FieldVectorType>;
+    using Builder         = SemidiscreteBuilder<FieldVectorType>;
+    using Operator        = dealii::LinearOperator<GlobalVectorType>;
+    using MatrixType      = typename Model::MatrixOperator::Matrix;
+    using BlockMatrixType = ImmersXLA::MPI::BlockSparseMatrix;
 
     explicit ExecutionComposition(const MPI_Comm communicator)
       : communicator_(communicator)
@@ -335,7 +367,241 @@ namespace ImmersX::detail
       return communicator_;
     }
 
+    bool
+    can_materialize_matrix(const GlobalVectorType &state,
+                           const GlobalVectorType *state_dot = nullptr,
+                           const double            alpha     = 0.) const
+    {
+      finalize();
+      validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context.emplace(0., state_view, nullptr);
+      return can_materialize_matrix(*context, alpha);
+    }
+
+    /** Materialize the current linearization as a true block sparse matrix. */
+    BlockMatrixType
+    block_matrix(const GlobalVectorType &state,
+                 const GlobalVectorType *state_dot = nullptr,
+                 const double            alpha     = 0.) const
+    {
+      finalize();
+      validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context.emplace(0., state_view, nullptr);
+      return make_block_matrix(*context, alpha);
+    }
+
+    /** Convert a block matrix to its concatenated monolithic sparse matrix. */
+    MatrixType
+    monolithic_matrix(const BlockMatrixType &block_matrix) const
+    {
+      finalize();
+      AssertThrow(block_matrix.n_block_rows() == field_layout_.n_blocks() &&
+                    block_matrix.n_block_cols() == field_layout_.n_blocks(),
+                  dealii::ExcMessage(
+                    "Block matrix does not match the execution layout."));
+
+      const auto offsets   = field_layout_.block_offsets();
+      const auto partition = field_layout_.monolithic_partition();
+      dealii::DynamicSparsityPattern sparsity(offsets.back(), offsets.back());
+      const auto block_partitions = field_layout_.block_partitions();
+      for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
+        for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
+          {
+            const auto &block = block_matrix.block(i, j);
+            for (const auto row : block_partitions[i])
+              for (auto entry = block.begin(row); entry != block.end(row);
+                   ++entry)
+                sparsity.add(offsets[i] + row, offsets[j] + entry->column());
+          }
+
+      MatrixType result;
+      result.reinit(partition, partition, sparsity, communicator_, true);
+      for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
+        for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
+          {
+            const auto &block = block_matrix.block(i, j);
+            for (const auto row : block_partitions[i])
+              for (auto entry = block.begin(row); entry != block.end(row);
+                   ++entry)
+                result.set(offsets[i] + row,
+                           offsets[j] + entry->column(),
+                           entry->value());
+          }
+      result.compress(dealii::VectorOperation::insert);
+      return result;
+    }
+
+    MatrixType
+    monolithic_matrix(const GlobalVectorType &state,
+                      const GlobalVectorType *state_dot = nullptr,
+                      const double            alpha     = 0.) const
+    {
+      return monolithic_matrix(block_matrix(state, state_dot, alpha));
+    }
+
+    /** Pack execution blocks into the concatenated field ordering. */
+    FieldVectorType
+    pack(const GlobalVectorType &global) const
+    {
+      validate_state(global);
+      const auto      offsets = field_layout_.block_offsets();
+      FieldVectorType result;
+      result.reinit(field_layout_.monolithic_partition(), communicator_);
+      result                = 0.;
+      const auto partitions = field_layout_.block_partitions();
+      for (unsigned int block = 0; block < partitions.size(); ++block)
+        for (const auto index : partitions[block])
+          result(offsets[block] + index) = global.block(block)(index);
+      return result;
+    }
+
+    /** Unpack a concatenated vector into execution blocks. */
+    void
+    unpack(const FieldVectorType &flat, GlobalVectorType &global) const
+    {
+      finalize();
+      const auto offsets = field_layout_.block_offsets();
+      AssertThrow(flat.size() == offsets.back(),
+                  dealii::ExcMessage(
+                    "Flat vector does not match the execution layout."));
+      reinit(global);
+      const auto partitions = field_layout_.block_partitions();
+      for (unsigned int block = 0; block < partitions.size(); ++block)
+        for (const auto index : partitions[block])
+          global.block(block)(index) = flat(offsets[block] + index);
+    }
+
   private:
+    bool
+    can_materialize_matrix(const EvaluationContext<FieldVectorType> &context,
+                           const double alpha) const
+    {
+      for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
+        for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
+          {
+            const auto row       = field_layout_.field(i);
+            const auto column    = field_layout_.field(j);
+            const bool has_state = model_.has_state_operator(row, column);
+            const bool has_derivative =
+              model_.has_derivative_operator(row, column);
+            if (has_state &&
+                !model_.state_matrix_operator(row, column, context).has_value())
+              return false;
+            if (alpha != 0. && has_derivative &&
+                !model_.derivative_matrix_operator(row, column, context)
+                   .has_value())
+              return false;
+          }
+      return true;
+    }
+
+    std::unique_ptr<MatrixType>
+    materialized_block(const FieldId                             row,
+                       const FieldId                             column,
+                       const EvaluationContext<FieldVectorType> &context,
+                       const double                              alpha) const
+    {
+      const bool has_state      = model_.has_state_operator(row, column);
+      const bool has_derivative = model_.has_derivative_operator(row, column);
+      if (!has_state && (alpha == 0. || !has_derivative))
+        return {};
+
+      std::optional<typename Model::MatrixOperator> state_matrix;
+      std::optional<typename Model::MatrixOperator> derivative_matrix;
+      if (has_state)
+        state_matrix = model_.state_matrix_operator(row, column, context);
+      if (alpha != 0. && has_derivative)
+        derivative_matrix =
+          model_.derivative_matrix_operator(row, column, context);
+      AssertThrow(!has_state || state_matrix.has_value(),
+                  dealii::ExcMessage(
+                    "A state operator is not completely matrix-based."));
+      AssertThrow(alpha == 0. || !has_derivative ||
+                    derivative_matrix.has_value(),
+                  dealii::ExcMessage(
+                    "A derivative operator is not completely matrix-based."));
+
+      std::unique_ptr<MatrixType> result;
+      if (state_matrix.has_value())
+        result = state_matrix->matrix();
+      if (derivative_matrix.has_value())
+        {
+          auto derivative = derivative_matrix->matrix();
+          if (result)
+            result->add(alpha, *derivative);
+          else
+            {
+              *derivative *= alpha;
+              result = std::move(derivative);
+            }
+        }
+      return result;
+    }
+
+    BlockMatrixType
+    make_block_matrix(const EvaluationContext<FieldVectorType> &context,
+                      const double                              alpha) const
+    {
+      AssertThrow(can_materialize_matrix(context, alpha),
+                  dealii::ExcMessage(
+                    "The current execution linearization is not completely "
+                    "matrix-based."));
+
+      const auto         partitions = field_layout_.block_partitions();
+      const unsigned int n          = field_layout_.n_blocks();
+      BlockMatrixType    result;
+      result.reinit(n, n);
+      for (unsigned int i = 0; i < n; ++i)
+        for (unsigned int j = 0; j < n; ++j)
+          {
+            auto  matrix = materialized_block(field_layout_.field(i),
+                                             field_layout_.field(j),
+                                             context,
+                                             alpha);
+            auto &block  = result.block(i, j);
+            if (matrix)
+              {
+                block.reinit(*matrix);
+                block.copy_from(*matrix);
+              }
+            else
+              {
+                dealii::DynamicSparsityPattern empty(partitions[i].size(),
+                                                     partitions[j].size());
+                block.reinit(
+                  partitions[i], partitions[j], empty, communicator_, false);
+              }
+          }
+      result.collect_sizes();
+      return result;
+    }
+
     void
     finalize() const
     {
