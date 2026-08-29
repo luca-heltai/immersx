@@ -203,6 +203,10 @@ TEST(DistributedIDA, MPI_MixedFieldDifferentialComponents) // NOLINT
   increment      = 1.;
   adapter.current_jacobian().vmult(action, increment);
   EXPECT_EQ(adapter.field(action, field.fields())[local_index], 4.);
+
+  adapter.solver().setup_jacobian(0., state, state_dot, 4.);
+  adapter.current_jacobian().vmult(action, increment);
+  EXPECT_EQ(adapter.field(action, field.fields())[local_index], 5.);
 }
 
 #else

@@ -212,6 +212,26 @@ namespace ImmersX
       return *result;
     }
 
+    const std::vector<SaddlePointMetadata> &
+    saddle_points() const
+    {
+      return composition_.saddle_points();
+    }
+
+    LocalOperator
+    schur_operator(const FieldId           multiplier,
+                   const GlobalVectorType &state) const
+    {
+      return composition_.schur_operator(multiplier, state);
+    }
+
+    Operator
+    schur_preconditioner(const FieldId           multiplier,
+                         const GlobalVectorType &state) const
+    {
+      return composition_.schur_preconditioner(multiplier, state);
+    }
+
   private:
     void
     finalize()

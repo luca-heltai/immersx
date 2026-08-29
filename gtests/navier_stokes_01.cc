@@ -264,6 +264,16 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   ida.field(state, fields.fields().pressure)     = -0.1;
   ida.field(state_dot, fields.fields().velocity) = 0.4;
   ida.field(state_dot, fields.fields().pressure) = 0.;
+  ASSERT_EQ(ida.saddle_points().size(), 1u);
+  ASSERT_EQ(ida.saddle_points().front().multiplier, fields.fields().pressure);
+  ASSERT_EQ(ida.saddle_points().front().participants.size(), 1u);
+  EXPECT_EQ(ida.saddle_points().front().participants.front(),
+            fields.fields().velocity);
+  auto pressure_schur  = ida.schur_operator(fields.fields().pressure, state);
+  auto pressure_input  = ida.field(state, fields.fields().pressure);
+  auto pressure_action = pressure_input;
+  pressure_schur.vmult(pressure_action, pressure_input);
+  EXPECT_TRUE(std::isfinite(pressure_action.l2_norm()));
   ida.solver().residual(0., state, state_dot, residual);
 
   auto expected_velocity = ida.field(residual, fields.fields().velocity);
