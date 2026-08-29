@@ -10,6 +10,7 @@
 #ifndef immersx_navier_stokes_semidiscrete_h
 #define immersx_navier_stokes_semidiscrete_h
 
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/physics/navier_stokes.h>
@@ -42,28 +43,34 @@ namespace ImmersX
                               problem.locally_relevant_dofs_by_block()[1]);
     builder.saddle_point(pressure, {velocity});
 
-    const auto mass =
-      problem.density() *
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.velocity_mass_matrix()));
-    const auto viscosity =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.continuous_operator().block(0, 0)));
-    const auto pressure_operator =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.continuous_operator().block(0, 1)));
-    const auto divergence =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.continuous_operator().block(1, 0)));
+    const auto mass = problem.density() * ImmersX::matrix_operator<VectorType>(
+                                            problem.velocity_mass_matrix());
+    const auto viscosity = ImmersX::matrix_operator<VectorType>(
+      problem.continuous_operator().block(0, 0));
+    const auto pressure_operator = ImmersX::matrix_operator<VectorType>(
+      problem.continuous_operator().block(0, 1));
+    const auto divergence = ImmersX::matrix_operator<VectorType>(
+      problem.continuous_operator().block(1, 0));
+
+    builder.preconditioner(
+      velocity, [](const auto &linearized_matrix, const auto &prototype) {
+        return make_amg_preconditioner(linearized_matrix, prototype);
+      });
+    builder.preconditioner(pressure,
+                           [&problem](const auto &, const auto &prototype) {
+                             return make_amg_preconditioner(
+                               problem.pressure_metric_matrix(), prototype);
+                           });
 
     auto stokes = builder.term(velocity, "stokes");
     stokes
       .residual(
         [velocity, pressure, &problem, mass, viscosity, pressure_operator](
           const auto &context) {
-          const auto &v_dot = context.derivative(velocity);
-          auto result = mass * v_dot + viscosity * context.state(velocity) +
-                        pressure_operator * context.state(pressure);
+          const auto &v_dot  = context.derivative(velocity);
+          auto        result = mass.view * v_dot +
+                        viscosity.view * context.state(velocity) +
+                        pressure_operator.view * context.state(pressure);
           typename SemiDiscreteModel<VectorType>::Operation forcing;
           forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
             vector.reinit(v_dot, omit);
@@ -84,25 +91,25 @@ namespace ImmersX
             result - forcing, problem.constraints());
         })
       .state(velocity,
-             semidiscrete_detail::constrained_operator(viscosity,
-                                                       problem.constraints()))
+             semidiscrete_detail::constrained_matrix_operator(
+               viscosity, problem.constraints()))
       .state(pressure,
-             semidiscrete_detail::constrained_operator(pressure_operator,
-                                                       problem.constraints()))
-      .derivative(
-        velocity,
-        semidiscrete_detail::constrained_operator(mass, problem.constraints()));
+             semidiscrete_detail::mixed_constrained_matrix_operator(
+               pressure_operator, problem.constraints(), 0))
+      .derivative(velocity,
+                  semidiscrete_detail::constrained_matrix_operator(
+                    mass, problem.constraints()));
 
     auto incompressibility = builder.term(pressure, "incompressibility");
     incompressibility
       .residual([velocity, &problem, divergence](const auto &context) {
         return semidiscrete_detail::mixed_constrained_operation(
-          divergence * context.state(velocity),
+          divergence.view * context.state(velocity),
           problem.constraints(),
           problem.velocity_block_size());
       })
       .state(velocity,
-             semidiscrete_detail::mixed_constrained_operator(
+             semidiscrete_detail::mixed_constrained_matrix_operator(
                divergence,
                problem.constraints(),
                problem.velocity_block_size()));

@@ -61,6 +61,12 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
   adapter.reinit(state_dot);
   GlobalVector residual;
   adapter.solver().reinit_vector(residual);
+  EXPECT_TRUE(adapter.has_local_preconditioner(fields.fields().displacement));
+  EXPECT_TRUE(adapter.has_local_preconditioner(fields.fields().velocity));
+  EXPECT_TRUE(adapter.can_materialize_matrix(state, state_dot, 1.));
+  const auto materialized = adapter.monolithic_matrix(state, state_dot, 1.);
+  EXPECT_EQ(materialized.m(), state.size());
+  EXPECT_EQ(materialized.n(), state.size());
   adapter.solver().residual(0., state, state_dot, residual);
   EXPECT_TRUE(std::isfinite(residual.l2_norm()));
   adapter.solver().setup_jacobian(0., state, state_dot, 1.);
@@ -103,6 +109,14 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   const auto fields = adapter.add(problem, "fluid");
   EXPECT_TRUE(fields.fields().velocity.is_valid());
   EXPECT_TRUE(fields.fields().pressure.is_valid());
+  EXPECT_TRUE(adapter.has_local_preconditioner(fields.fields().velocity));
+  EXPECT_TRUE(adapter.has_local_preconditioner(fields.fields().pressure));
+  auto state     = adapter.make_state();
+  auto state_dot = adapter.make_state();
+  EXPECT_TRUE(adapter.can_materialize_matrix(state, state_dot, 1.));
+  const auto materialized = adapter.monolithic_matrix(state, state_dot, 1.);
+  EXPECT_EQ(materialized.m(), state.size());
+  EXPECT_EQ(materialized.n(), state.size());
 }
 
 #else

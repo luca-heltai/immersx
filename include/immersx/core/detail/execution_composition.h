@@ -797,12 +797,22 @@ namespace ImmersX::detail
       field_layout_.bind_state(state_view, state);
       EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
       auto matrix = materialized_block(field, field, context, 0.);
-      AssertThrow(matrix != nullptr,
-                  dealii::ExcMessage(
-                    "A local preconditioner requires a materialized diagonal "
-                    "block."));
+      if (matrix)
+        return model_.preconditioner(field,
+                                     *matrix,
+                                     state.block(field_layout_.block(field)));
+
+      // A structurally null diagonal is valid for a mixed saddle system.
+      // Give a registered metric factory an empty, correctly partitioned
+      // matrix; do not manufacture an inverse for an absent block.
+      const auto partition = layout_.field(field).locally_owned;
+      dealii::DynamicSparsityPattern empty(partition.size(),
+                                           partition.size(),
+                                           partition);
+      MatrixType                     empty_matrix;
+      empty_matrix.reinit(partition, partition, empty, communicator_, false);
       return model_.preconditioner(field,
-                                   *matrix,
+                                   empty_matrix,
                                    state.block(field_layout_.block(field)));
     }
 

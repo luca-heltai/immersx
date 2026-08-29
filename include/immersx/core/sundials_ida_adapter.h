@@ -37,10 +37,13 @@ namespace ImmersX
   class IDAAdapter
   {
   public:
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
@@ -167,10 +170,49 @@ namespace ImmersX
       return *current_jacobian_;
     }
 
-  private:
-    using Composition =
-      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+    bool
+    can_materialize_matrix(const GlobalVectorType &state,
+                           const GlobalVectorType &state_dot,
+                           const double            alpha) const
+    {
+      return composition_.can_materialize_matrix(state, &state_dot, alpha);
+    }
 
+    typename Composition::BlockMatrixType
+    block_matrix(const GlobalVectorType &state,
+                 const GlobalVectorType &state_dot,
+                 const double            alpha) const
+    {
+      return composition_.block_matrix(state, &state_dot, alpha);
+    }
+
+    typename Composition::MatrixType
+    monolithic_matrix(const GlobalVectorType &state,
+                      const GlobalVectorType &state_dot,
+                      const double            alpha) const
+    {
+      return composition_.monolithic_matrix(
+        composition_.block_matrix(state, &state_dot, alpha));
+    }
+
+    bool
+    has_local_preconditioner(const FieldId field) const
+    {
+      return composition_.has_local_preconditioner(field);
+    }
+
+    LocalOperator
+    local_preconditioner(const FieldId           field,
+                         const GlobalVectorType &state) const
+    {
+      const auto result = composition_.local_preconditioner(field, state);
+      AssertThrow(result.has_value(),
+                  dealii::ExcMessage("No local preconditioner is registered "
+                                     "for this Field."));
+      return *result;
+    }
+
+  private:
     void
     finalize()
     {

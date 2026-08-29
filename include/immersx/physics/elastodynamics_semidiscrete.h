@@ -10,6 +10,7 @@
 #ifndef immersx_elastodynamics_semidiscrete_h
 #define immersx_elastodynamics_semidiscrete_h
 
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/physics/elastodynamics.h>
@@ -38,37 +39,45 @@ namespace ImmersX
                                  problem.locally_owned_dofs(),
                                  problem.locally_relevant_dofs());
 
-    const auto mass = ImmersX::payload_free(
-      dealii::linear_operator<VectorType, VectorType>(problem.mass_matrix()));
+    const auto mass =
+      ImmersX::matrix_operator<VectorType>(problem.mass_matrix());
     const auto stiffness =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.stiffness_matrix()));
+      ImmersX::matrix_operator<VectorType>(problem.stiffness_matrix());
     const auto damping =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.damping_matrix()));
+      ImmersX::matrix_operator<VectorType>(problem.damping_matrix());
+
+    builder.preconditioner(
+      displacement, [](const auto &linearized_matrix, const auto &prototype) {
+        return make_amg_preconditioner(linearized_matrix, prototype);
+      });
+    builder.preconditioner(
+      velocity, [](const auto &linearized_matrix, const auto &prototype) {
+        return make_amg_preconditioner(linearized_matrix, prototype);
+      });
 
     auto kinematic = builder.term(displacement, "kinematic");
     kinematic
       .residual([displacement, velocity, &problem, mass](const auto &context) {
         return semidiscrete_detail::constrained_operation(
-          mass * context.derivative(displacement) -
-            mass * context.state(velocity),
+          mass.view * context.derivative(displacement) -
+            mass.view * context.state(velocity),
           problem.constraints());
       })
       .state(velocity,
-             semidiscrete_detail::constrained_operator(-1. * mass,
-                                                       problem.constraints()))
-      .derivative(
-        displacement,
-        semidiscrete_detail::constrained_operator(mass, problem.constraints()));
+             semidiscrete_detail::constrained_matrix_operator(
+               -1. * mass, problem.constraints()))
+      .derivative(displacement,
+                  semidiscrete_detail::constrained_matrix_operator(
+                    mass, problem.constraints()));
 
     auto dynamics = builder.term(velocity, "dynamics");
     dynamics
       .residual([velocity, displacement, &problem, mass, stiffness, damping](
                   const auto &context) {
-        const auto &v_dot = context.derivative(velocity);
-        auto result = mass * v_dot + stiffness * context.state(displacement) +
-                      damping * context.state(velocity);
+        const auto &v_dot  = context.derivative(velocity);
+        auto        result = mass.view * v_dot +
+                      stiffness.view * context.state(displacement) +
+                      damping.view * context.state(velocity);
         typename SemiDiscreteModel<VectorType>::Operation forcing;
         forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
           vector.reinit(v_dot, omit);
@@ -86,13 +95,13 @@ namespace ImmersX
           result - forcing, problem.velocity_constraints());
       })
       .state(displacement,
-             semidiscrete_detail::constrained_operator(
+             semidiscrete_detail::constrained_matrix_operator(
                stiffness, problem.velocity_constraints()))
       .state(velocity,
-             semidiscrete_detail::constrained_operator(
+             semidiscrete_detail::constrained_matrix_operator(
                damping, problem.velocity_constraints()))
       .derivative(velocity,
-                  semidiscrete_detail::constrained_operator(
+                  semidiscrete_detail::constrained_matrix_operator(
                     mass, problem.velocity_constraints()));
 
     return {displacement, velocity};
