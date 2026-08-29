@@ -183,6 +183,13 @@ namespace ImmersX
       return composition_.saddle_points();
     }
 
+    LocalOperator
+    schur_operator(const FieldId           multiplier,
+                   const GlobalVectorType &state) const
+    {
+      return composition_.schur_operator(multiplier, state);
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const

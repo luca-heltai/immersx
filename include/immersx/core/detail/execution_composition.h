@@ -481,6 +481,81 @@ namespace ImmersX::detail
       return model_.saddle_points();
     }
 
+    /** Build S ~= sum_i B_i P_i^-1 B_i^T on a semantic multiplier field. */
+    LocalOperator
+    schur_operator(const FieldId           multiplier,
+                   const GlobalVectorType &state) const
+    {
+      finalize();
+      validate_state(state);
+      const auto metadata =
+        std::find_if(model_.saddle_points().begin(),
+                     model_.saddle_points().end(),
+                     [multiplier](const auto &entry) {
+                       return entry.multiplier == multiplier;
+                     });
+      AssertThrow(metadata != model_.saddle_points().end(),
+                  dealii::ExcMessage(
+                    "No saddle-point metadata exists for this multiplier."));
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+
+      struct SchurTerm
+      {
+        LocalOperator coupling;
+        LocalOperator transpose_coupling;
+        LocalOperator inverse;
+      };
+      std::vector<SchurTerm> terms;
+      terms.reserve(metadata->participants.size());
+      for (const auto participant : metadata->participants)
+        {
+          const auto inverse = local_preconditioner(participant, state);
+          AssertThrow(inverse.has_value(),
+                      dealii::ExcMessage(
+                        "Schur construction requires a local inverse for "
+                        "every participant field."));
+          terms.push_back(
+            {model_.state_operator(multiplier, participant, context),
+             model_.state_operator(participant, multiplier, context),
+             *inverse});
+        }
+
+      const auto multiplier_state =
+        state.block(field_layout_.block(multiplier));
+      LocalOperator result;
+      result.reinit_range_vector = [multiplier_state](FieldVectorType &vector,
+                                                      const bool       omit) {
+        vector.reinit(multiplier_state, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult = [terms](FieldVectorType &dst, const FieldVectorType &src) {
+        dst = 0.;
+        for (const auto &term : terms)
+          {
+            FieldVectorType primal_rhs;
+            primal_rhs.reinit(src);
+            term.transpose_coupling.vmult(primal_rhs, src);
+            FieldVectorType primal_solution;
+            primal_solution.reinit(primal_rhs);
+            term.inverse.vmult(primal_solution, primal_rhs);
+            term.coupling.vmult_add(dst, primal_solution);
+          }
+      };
+      result.vmult_add = [result](FieldVectorType       &dst,
+                                  const FieldVectorType &src) mutable {
+        FieldVectorType contribution;
+        result.reinit_range_vector(contribution, false);
+        result.vmult(contribution, src);
+        dst += contribution;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const
