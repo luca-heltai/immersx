@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/linear_adapter.h>
 
 namespace ImmersX
@@ -28,6 +29,10 @@ namespace ImmersX
     const auto solution = builder.algebraic_field("solution", problem.owned);
     using VectorType    = ImmersXLA::MPI::Vector;
     const auto matrix   = builder.matrix_operator(problem.matrix);
+    builder.preconditioner(
+      solution, [](const auto &linearized_matrix, const auto &prototype) {
+        return make_amg_preconditioner(linearized_matrix, prototype);
+      });
     builder.term(solution, "fake")
       .residual([solution, &problem](const auto &context) {
         const auto &state = context.state(solution);
@@ -89,6 +94,15 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
 
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
+
+  EXPECT_TRUE(adapter.has_local_preconditioner(fields.fields().solution));
+  const auto local =
+    adapter.local_preconditioner(fields.fields().solution, state);
+  ASSERT_TRUE(local.has_value());
+  const auto input          = adapter.field(state, fields.fields().solution);
+  auto       preconditioned = input;
+  (*local).vmult(preconditioned, input);
+  EXPECT_GT(preconditioned.l2_norm(), 0.);
 
   EXPECT_TRUE(adapter.can_materialize_matrix(state));
   const auto block_matrix = adapter.block_matrix(state);

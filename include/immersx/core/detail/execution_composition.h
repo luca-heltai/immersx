@@ -176,6 +176,7 @@ namespace ImmersX::detail
     using Model           = SemiDiscreteModel<FieldVectorType>;
     using Builder         = SemidiscreteBuilder<FieldVectorType>;
     using Operator        = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator   = typename Model::Operator;
     using MatrixType      = typename Model::MatrixOperator::Matrix;
     using BlockMatrixType = ImmersXLA::MPI::BlockSparseMatrix;
 
@@ -463,6 +464,35 @@ namespace ImmersX::detail
                       const double            alpha     = 0.) const
     {
       return monolithic_matrix(block_matrix(state, state_dot, alpha));
+    }
+
+    bool
+    has_local_preconditioner(const FieldId field) const
+    {
+      finalize();
+      return model_.has_preconditioner(field);
+    }
+
+    std::optional<LocalOperator>
+    local_preconditioner(const FieldId           field,
+                         const GlobalVectorType &state) const
+    {
+      finalize();
+      validate_state(state);
+      if (!model_.has_preconditioner(field))
+        return std::nullopt;
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      auto matrix = materialized_block(field, field, context, 0.);
+      AssertThrow(matrix != nullptr,
+                  dealii::ExcMessage(
+                    "A local preconditioner requires a materialized diagonal "
+                    "block."));
+      return model_.preconditioner(field,
+                                   *matrix,
+                                   state.block(field_layout_.block(field)));
     }
 
     /** Pack execution blocks into the concatenated field ordering. */

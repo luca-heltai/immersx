@@ -41,6 +41,7 @@ namespace ImmersX
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
     using Operator        = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator   = dealii::LinearOperator<FieldVectorType>;
     using MatrixType      = typename Composition::MatrixType;
     using BlockMatrixType = typename Composition::BlockMatrixType;
     using SolveFunction   = std::function<
@@ -158,6 +159,19 @@ namespace ImmersX
     monolithic_matrix(const GlobalVectorType &state) const
     {
       return composition_.monolithic_matrix(state);
+    }
+
+    bool
+    has_local_preconditioner(const FieldId field) const
+    {
+      return composition_.has_local_preconditioner(field);
+    }
+
+    std::optional<LocalOperator>
+    local_preconditioner(const FieldId           field,
+                         const GlobalVectorType &state) const
+    {
+      return composition_.local_preconditioner(field, state);
     }
 
     FieldVectorType

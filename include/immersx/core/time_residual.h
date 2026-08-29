@@ -40,6 +40,9 @@ namespace ImmersX
   template <typename VectorType, typename MatrixType>
   class SemidiscreteTerm;
 
+  template <typename VectorType, typename MatrixType>
+  class SemidiscreteBuilder;
+
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
   template <typename VectorType,
             typename MatrixType = ImmersXLA::MPI::SparseMatrix>
@@ -54,6 +57,8 @@ namespace ImmersX
     using OperatorFactory = std::function<Operator(const Context &)>;
     using MatrixOperatorFactory =
       std::function<MatrixOperator(const Context &)>;
+    using PreconditionerFactory =
+      std::function<Operator(const MatrixType &, const VectorType &)>;
 
     void
     evaluate_row(const FieldId  row,
@@ -112,6 +117,23 @@ namespace ImmersX
     }
 
     bool
+    has_preconditioner(const FieldId field) const
+    {
+      return preconditioners_.find(field) != preconditioners_.end();
+    }
+
+    std::optional<Operator>
+    preconditioner(const FieldId     field,
+                   const MatrixType &matrix,
+                   const VectorType &prototype) const
+    {
+      const auto it = preconditioners_.find(field);
+      if (it == preconditioners_.end())
+        return std::nullopt;
+      return it->second(matrix, prototype);
+    }
+
+    bool
     has_state_operator(const FieldId row, const FieldId column) const
     {
       return state_operators_.find({row.value(), column.value()}) !=
@@ -128,6 +150,9 @@ namespace ImmersX
   private:
     template <typename, typename>
     friend class SemidiscreteTerm;
+
+    template <typename, typename>
+    friend class SemidiscreteBuilder;
 
     template <typename, typename>
     friend class detail::ExecutionComposition;
@@ -240,6 +265,18 @@ namespace ImmersX
                   dealii::ExcMessage("An operator factory cannot be empty."));
       derivative_operators_[{row.value(), column.value()}].push_back(
         {std::move(term), std::move(factory), {}});
+    }
+
+    void
+    add_preconditioner(const FieldId field, PreconditionerFactory factory)
+    {
+      AssertThrow(factory,
+                  dealii::ExcMessage(
+                    "A preconditioner factory cannot be empty."));
+      AssertThrow(!has_preconditioner(field),
+                  dealii::ExcMessage(
+                    "A local preconditioner was registered twice."));
+      preconditioners_.emplace(field, std::move(factory));
     }
 
     std::vector<std::pair<FieldId, FieldId>>
@@ -357,6 +394,7 @@ namespace ImmersX
     std::map<FieldId, std::vector<ResidualEntry>>  residuals_;
     std::map<BlockKey, std::vector<OperatorEntry>> state_operators_;
     std::map<BlockKey, std::vector<OperatorEntry>> derivative_operators_;
+    std::map<FieldId, PreconditionerFactory>       preconditioners_;
   };
 } // namespace ImmersX
 
