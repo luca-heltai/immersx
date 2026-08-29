@@ -724,52 +724,62 @@ namespace ImmersX::detail
           const auto multiplier = field_layout_.block(metadata.multiplier);
           const auto metric =
             model_.multiplier_metric(metadata.multiplier, context);
-          AssertThrow(metric.has_value(),
-                      dealii::ExcMessage(
-                        "Augmented-Lagrangian composition requires a "
-                        "materialized multiplier metric."));
-
-          const auto metric_matrix = metric->matrix();
-          const auto multiplier_partition =
-            layout_.field(metadata.multiplier).locally_owned;
-          auto inverse_metric = std::make_shared<FieldVectorType>();
-          inverse_metric->reinit(state.block(multiplier));
-          for (const auto index : multiplier_partition)
-            {
-              const auto value = metric_matrix->diag_element(index);
-              AssertThrow(std::isfinite(value),
-                          dealii::ExcMessage(
-                            "The multiplier metric has an invalid diagonal "
-                            "entry."));
-              (*inverse_metric)(index) =
-                std::abs(value) > 1.e-14 ? 1. / value : 0.;
-            }
-          inverse_metric->compress(dealii::VectorOperation::insert);
-
           LocalOperator inverse_metric_operator;
-          inverse_metric_operator.reinit_range_vector =
-            [prototype = state.block(multiplier)](FieldVectorType &vector,
-                                                  const bool       omit) {
-              vector.reinit(prototype, omit);
-            };
-          inverse_metric_operator.reinit_domain_vector =
-            inverse_metric_operator.reinit_range_vector;
-          inverse_metric_operator.vmult =
-            [inverse_metric, multiplier_partition](FieldVectorType       &dst,
-                                                   const FieldVectorType &src) {
-              dst = src;
+          if (metric.has_value())
+            {
+              const auto metric_matrix = metric->matrix();
+              const auto multiplier_partition =
+                layout_.field(metadata.multiplier).locally_owned;
+              auto inverse_metric = std::make_shared<FieldVectorType>();
+              inverse_metric->reinit(state.block(multiplier));
               for (const auto index : multiplier_partition)
-                dst(index) = (*inverse_metric)(index)*src(index);
-            };
-          inverse_metric_operator.vmult_add =
-            [inverse_metric, multiplier_partition](FieldVectorType       &dst,
-                                                   const FieldVectorType &src) {
-              for (const auto index : multiplier_partition)
-                dst(index) += (*inverse_metric)(index)*src(index);
-            };
-          inverse_metric_operator.Tvmult = inverse_metric_operator.vmult;
-          inverse_metric_operator.Tvmult_add =
-            inverse_metric_operator.vmult_add;
+                {
+                  const auto value = metric_matrix->diag_element(index);
+                  AssertThrow(std::isfinite(value),
+                              dealii::ExcMessage(
+                                "The multiplier metric has an invalid "
+                                "diagonal entry."));
+                  (*inverse_metric)(index) =
+                    std::abs(value) > 1.e-14 ? 1. / value : 0.;
+                }
+              inverse_metric->compress(dealii::VectorOperation::insert);
+
+              inverse_metric_operator.reinit_range_vector =
+                [prototype = state.block(multiplier)](FieldVectorType &vector,
+                                                      const bool       omit) {
+                  vector.reinit(prototype, omit);
+                };
+              inverse_metric_operator.reinit_domain_vector =
+                inverse_metric_operator.reinit_range_vector;
+              inverse_metric_operator.vmult =
+                [inverse_metric,
+                 multiplier_partition](FieldVectorType       &dst,
+                                       const FieldVectorType &src) {
+                  dst = src;
+                  for (const auto index : multiplier_partition)
+                    dst(index) = (*inverse_metric)(index)*src(index);
+                };
+              inverse_metric_operator.vmult_add =
+                [inverse_metric,
+                 multiplier_partition](FieldVectorType       &dst,
+                                       const FieldVectorType &src) {
+                  for (const auto index : multiplier_partition)
+                    dst(index) += (*inverse_metric)(index)*src(index);
+                };
+              inverse_metric_operator.Tvmult = inverse_metric_operator.vmult;
+              inverse_metric_operator.Tvmult_add =
+                inverse_metric_operator.vmult_add;
+            }
+          else
+            {
+              const auto inverse =
+                local_preconditioner(metadata.multiplier, state);
+              AssertThrow(inverse.has_value(),
+                          dealii::ExcMessage(
+                            "Augmented-Lagrangian composition requires a "
+                            "multiplier metric or local preconditioner."));
+              inverse_metric_operator = *inverse;
+            }
 
           Augmentation augmentation{
             multiplier, {}, {}, {}, inverse_metric_operator};
