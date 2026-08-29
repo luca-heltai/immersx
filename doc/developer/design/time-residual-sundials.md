@@ -16,8 +16,7 @@ The public IDA composition API is
 
 ```cpp
 IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(data,
-                                                       MPI_COMM_WORLD,
-                                                       linear_solve);
+                                                       MPI_COMM_WORLD);
 auto matrix = ida.add(matrix_problem, "matrix");
 auto fiber  = ida.add(fiber_problem, "fiber");
 auto coupling = ida.add(interaction, "fiber_coupling",
