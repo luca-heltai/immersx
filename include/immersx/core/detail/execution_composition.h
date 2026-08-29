@@ -13,6 +13,8 @@
 #include <deal.II/base/index_set.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
+#include <deal.II/lac/precondition.h>
+#include <deal.II/lac/solver_gmres.h>
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/contributor.h>
@@ -561,6 +563,116 @@ namespace ImmersX::detail
         dst += contribution;
       };
       result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+    /** Build a global block-factorization preconditioner using a Schur solve.
+     */
+    Operator
+    schur_preconditioner(const FieldId           multiplier,
+                         const GlobalVectorType &state) const
+    {
+      finalize();
+      validate_state(state);
+      const auto metadata =
+        std::find_if(model_.saddle_points().begin(),
+                     model_.saddle_points().end(),
+                     [multiplier](const auto &entry) {
+                       return entry.multiplier == multiplier;
+                     });
+      AssertThrow(metadata != model_.saddle_points().end(),
+                  dealii::ExcMessage(
+                    "No saddle-point metadata exists for this multiplier."));
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      struct Participant
+      {
+        unsigned int  block;
+        LocalOperator to_multiplier;
+        LocalOperator from_multiplier;
+        LocalOperator inverse;
+      };
+      std::vector<Participant> participants;
+      participants.reserve(metadata->participants.size());
+      for (const auto field : metadata->participants)
+        {
+          const auto inverse = local_preconditioner(field, state);
+          AssertThrow(inverse.has_value(),
+                      dealii::ExcMessage(
+                        "Schur preconditioning requires local inverses for "
+                        "all participant fields."));
+          participants.push_back(
+            {field_layout_.block(field),
+             model_.state_operator(multiplier, field, context),
+             model_.state_operator(field, multiplier, context),
+             *inverse});
+        }
+
+      const auto schur            = schur_operator(multiplier, state);
+      const auto multiplier_block = field_layout_.block(multiplier);
+      auto       apply =
+        [participants, schur, multiplier_block](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src) {
+          GlobalVectorType rhs;
+          rhs.reinit(src);
+          rhs = src;
+          dst = 0.;
+
+          FieldVectorType schur_rhs;
+          schur_rhs.reinit(rhs.block(multiplier_block));
+          schur_rhs = rhs.block(multiplier_block);
+          schur_rhs *= -1.;
+          for (const auto &participant : participants)
+            {
+              participant.inverse.vmult(dst.block(participant.block),
+                                        rhs.block(participant.block));
+              participant.to_multiplier.vmult_add(schur_rhs,
+                                                  dst.block(participant.block));
+            }
+
+          FieldVectorType multiplier_solution;
+          multiplier_solution.reinit(schur_rhs);
+          multiplier_solution = 0.;
+          dealii::SolverControl                control(1000, 1.e-10);
+          dealii::SolverGMRES<FieldVectorType> solver(control);
+          solver.solve(schur,
+                       multiplier_solution,
+                       schur_rhs,
+                       dealii::PreconditionIdentity());
+          dst.block(multiplier_block) = multiplier_solution;
+
+          for (const auto &participant : participants)
+            {
+              FieldVectorType correction_rhs;
+              correction_rhs.reinit(multiplier_solution);
+              participant.from_multiplier.vmult(correction_rhs,
+                                                multiplier_solution);
+              FieldVectorType correction;
+              correction.reinit(correction_rhs);
+              participant.inverse.vmult(correction, correction_rhs);
+              dst.block(participant.block) -= correction;
+            }
+        };
+
+      Operator result;
+      result.reinit_range_vector = [state](GlobalVectorType &vector,
+                                           const bool        omit) {
+        vector.reinit(state, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = apply;
+      result.vmult_add            = [apply](GlobalVectorType       &dst,
+                                 const GlobalVectorType &src) {
+        GlobalVectorType contribution;
+        contribution.reinit(dst);
+        contribution = 0.;
+        apply(contribution, src);
+        dst += contribution;
+      };
+      result.Tvmult     = apply;
       result.Tvmult_add = result.vmult_add;
       return result;
     }

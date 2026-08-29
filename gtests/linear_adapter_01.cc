@@ -161,7 +161,9 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
 
-  Adapter    default_adapter(MPI_COMM_WORLD);
+  ImmersX::LinearSolverOptions default_options;
+  default_options.preconditioner = "block diagonal";
+  Adapter    default_adapter(MPI_COMM_WORLD, default_options);
   const auto default_fields = default_adapter.add(problem, "default");
   auto       default_state  = default_adapter.make_state();
   default_adapter.solve(default_state);
@@ -173,6 +175,21 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                                     default_fields.fields().solution)[1],
               2.,
               1.e-10);
+
+  ImmersX::LinearSolverOptions direct_options;
+  direct_options.solver = "direct";
+  Adapter    direct_adapter(MPI_COMM_WORLD, direct_options);
+  const auto direct_fields = direct_adapter.add(problem, "direct");
+  auto       direct_state  = direct_adapter.make_state();
+  direct_adapter.solve(direct_state);
+  EXPECT_NEAR(direct_adapter.field(direct_state,
+                                   direct_fields.fields().solution)[0],
+              1.,
+              1.e-12);
+  EXPECT_NEAR(direct_adapter.field(direct_state,
+                                   direct_fields.fields().solution)[1],
+              2.,
+              1.e-12);
 
   ImmersX::ImmersXLA::MPI::BlockVector residual;
   adapter.evaluate_residual(state, residual);
