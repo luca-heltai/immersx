@@ -15,13 +15,16 @@
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/packaged_operation.h>
 
+#include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/field.h>
+#include <immersx/core/matrix_operator.h>
 #include <immersx/core/state.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,19 +37,23 @@ namespace ImmersX
     class ExecutionComposition;
   }
 
-  template <typename VectorType>
+  template <typename VectorType, typename MatrixType>
   class SemidiscreteTerm;
 
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
-  template <typename VectorType>
+  template <typename VectorType,
+            typename MatrixType = ImmersXLA::MPI::SparseMatrix>
   class SemiDiscreteModel
   {
   public:
     using Context         = EvaluationContext<VectorType>;
     using Operation       = dealii::PackagedOperation<VectorType>;
     using Operator        = dealii::LinearOperator<VectorType, VectorType>;
+    using MatrixOperator  = MaterializedOperator<VectorType, MatrixType>;
     using ResidualFactory = std::function<Operation(const Context &)>;
     using OperatorFactory = std::function<Operator(const Context &)>;
+    using MatrixOperatorFactory =
+      std::function<MatrixOperator(const Context &)>;
 
     void
     evaluate_row(const FieldId  row,
@@ -69,12 +76,33 @@ namespace ImmersX
       return combine_operators(state_operators_, row, column, context);
     }
 
+    /** Return a matrix-backed block, if every active term has provenance. */
+    std::optional<MatrixOperator>
+    state_matrix_operator(const FieldId  row,
+                          const FieldId  column,
+                          const Context &context) const
+    {
+      return combine_matrix_operators(state_operators_, row, column, context);
+    }
+
     Operator
     derivative_operator(const FieldId  row,
                         const FieldId  column,
                         const Context &context) const
     {
       return combine_operators(derivative_operators_, row, column, context);
+    }
+
+    /** Return a materializable dF/dydot block, when available. */
+    std::optional<MatrixOperator>
+    derivative_matrix_operator(const FieldId  row,
+                               const FieldId  column,
+                               const Context &context) const
+    {
+      return combine_matrix_operators(derivative_operators_,
+                                      row,
+                                      column,
+                                      context);
     }
 
     bool
@@ -84,7 +112,7 @@ namespace ImmersX
     }
 
   private:
-    template <typename>
+    template <typename, typename>
     friend class SemidiscreteTerm;
 
     template <typename, typename>
@@ -109,6 +137,35 @@ namespace ImmersX
     }
 
     void
+    add_state_operator(const FieldId         row,
+                       const FieldId         column,
+                       std::string           term,
+                       const MatrixOperator &op)
+    {
+      add_state_operator(row,
+                         column,
+                         std::move(term),
+                         MatrixOperatorFactory(
+                           [op](const Context &) { return op; }));
+    }
+
+    void
+    add_state_operator(const FieldId         row,
+                       const FieldId         column,
+                       std::string           term,
+                       MatrixOperatorFactory factory)
+    {
+      AssertThrow(factory,
+                  dealii::ExcMessage(
+                    "A materialized operator factory cannot be empty."));
+      const auto view_factory = [factory](const Context &context) {
+        return factory(context).view;
+      };
+      state_operators_[{row.value(), column.value()}].push_back(
+        {std::move(term), view_factory, std::move(factory)});
+    }
+
+    void
     add_state_operator(const FieldId   row,
                        const FieldId   column,
                        std::string     term,
@@ -117,7 +174,7 @@ namespace ImmersX
       AssertThrow(factory,
                   dealii::ExcMessage("An operator factory cannot be empty."));
       state_operators_[{row.value(), column.value()}].push_back(
-        {std::move(term), std::move(factory)});
+        {std::move(term), std::move(factory), {}});
     }
 
     void
@@ -131,6 +188,35 @@ namespace ImmersX
     }
 
     void
+    add_derivative_operator(const FieldId         row,
+                            const FieldId         column,
+                            std::string           term,
+                            const MatrixOperator &op)
+    {
+      add_derivative_operator(row,
+                              column,
+                              std::move(term),
+                              MatrixOperatorFactory(
+                                [op](const Context &) { return op; }));
+    }
+
+    void
+    add_derivative_operator(const FieldId         row,
+                            const FieldId         column,
+                            std::string           term,
+                            MatrixOperatorFactory factory)
+    {
+      AssertThrow(factory,
+                  dealii::ExcMessage(
+                    "A materialized operator factory cannot be empty."));
+      const auto view_factory = [factory](const Context &context) {
+        return factory(context).view;
+      };
+      derivative_operators_[{row.value(), column.value()}].push_back(
+        {std::move(term), view_factory, std::move(factory)});
+    }
+
+    void
     add_derivative_operator(const FieldId   row,
                             const FieldId   column,
                             std::string     term,
@@ -139,7 +225,7 @@ namespace ImmersX
       AssertThrow(factory,
                   dealii::ExcMessage("An operator factory cannot be empty."));
       derivative_operators_[{row.value(), column.value()}].push_back(
-        {std::move(term), std::move(factory)});
+        {std::move(term), std::move(factory), {}});
     }
 
     std::vector<std::pair<FieldId, FieldId>>
@@ -167,8 +253,9 @@ namespace ImmersX
 
     struct OperatorEntry
     {
-      std::string     term;
-      OperatorFactory factory;
+      std::string           term;
+      OperatorFactory       factory;
+      MatrixOperatorFactory matrix_factory;
     };
 
     using BlockKey = std::pair<std::size_t, std::size_t>;
@@ -196,6 +283,43 @@ namespace ImmersX
       Operator result = operators.front();
       for (std::size_t i = 1; i < operators.size(); ++i)
         result += operators[i];
+      return result;
+    }
+
+    template <typename Registry>
+    std::optional<MatrixOperator>
+    combine_matrix_operators(const Registry &registry,
+                             const FieldId   row,
+                             const FieldId   column,
+                             const Context  &context) const
+    {
+      const auto it = registry.find({row.value(), column.value()});
+      if (it == registry.end())
+        return std::nullopt;
+
+      std::vector<MatrixOperator> operators;
+      for (const auto &entry : it->second)
+        if (context.terms().includes(entry.term, TermTreatment::all))
+          {
+            if (!entry.matrix_factory)
+              return std::nullopt;
+            operators.push_back(entry.matrix_factory(context));
+            if (!operators.back().is_materializable())
+              return std::nullopt;
+          }
+      if (operators.empty())
+        return std::nullopt;
+
+      MatrixOperator result;
+      result.view = operators.front().view;
+      for (std::size_t i = 1; i < operators.size(); ++i)
+        result.view += operators[i].view;
+      result.materialize = [operators]() {
+        auto matrix = operators.front().matrix();
+        for (std::size_t i = 1; i < operators.size(); ++i)
+          matrix->add(1., *operators[i].matrix());
+        return matrix;
+      };
       return result;
     }
 

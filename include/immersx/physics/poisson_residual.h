@@ -40,8 +40,7 @@ namespace ImmersX
       builder.algebraic_field("solution",
                               problem.locally_owned_dofs(),
                               problem.locally_relevant_dofs());
-    const auto matrix = ImmersX::payload_free(
-      dealii::linear_operator<VectorType, VectorType>(problem.system_matrix()));
+    const auto matrix = builder.matrix_operator(problem.system_matrix());
 
     builder.term(solution, "poisson")
       .residual([solution, &problem](const auto &context) {

@@ -8,23 +8,24 @@
 TEST(ContributorCore, PackagedResidualAndSeparateOperators)
 {
   using Vector = dealii::Vector<double>;
-  using Model  = ImmersX::SemiDiscreteModel<Vector>;
+  using Matrix = dealii::FullMatrix<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
 
   ImmersX::StateLayout     layout;
   ImmersX::FieldDescriptor descriptor;
   descriptor.name        = "heat.temperature";
   const auto temperature = layout.add_field(descriptor);
   Model      model;
-  ImmersX::SemidiscreteBuilder<Vector> builder(layout, model);
+  ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
 
   dealii::FullMatrix<double> matrix(2, 2);
   matrix(0, 0) = 2.;
   matrix(1, 1) = 3.;
-  const auto K =
-    ImmersX::payload_free(dealii::linear_operator<Vector, Vector>(matrix));
+  const auto K = builder.matrix_operator(matrix);
   builder.term(temperature, "heat")
     .residual([temperature, K](const auto &ctx) {
-      return K * ctx.derivative(temperature) + K * ctx.state(temperature);
+      return K.view * ctx.derivative(temperature) +
+             K.view * ctx.state(temperature);
     })
     .state(temperature, K)
     .derivative(temperature, K);
@@ -49,6 +50,15 @@ TEST(ContributorCore, PackagedResidualAndSeparateOperators)
   model.state_operator(temperature, temperature, context).vmult(action, state);
   EXPECT_DOUBLE_EQ(action[0], 2.);
   EXPECT_DOUBLE_EQ(action[1], 6.);
+
+  const auto materialized =
+    model.state_matrix_operator(temperature, temperature, context);
+  ASSERT_TRUE(materialized.has_value());
+  const auto materialized_matrix = materialized->matrix();
+  Vector     materialized_action(2);
+  materialized_matrix->vmult(materialized_action, state);
+  EXPECT_DOUBLE_EQ(materialized_action[0], action[0]);
+  EXPECT_DOUBLE_EQ(materialized_action[1], action[1]);
 }
 
 TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
@@ -80,6 +90,46 @@ TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
   EXPECT_DOUBLE_EQ(transpose[0], 11.);
   EXPECT_DOUBLE_EQ(transpose[1], 22.);
   EXPECT_DOUBLE_EQ(forward * dual, source * transpose);
+}
+
+TEST(ContributorCore, MatrixOperatorPreservesCompositions)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::FullMatrix<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
+
+  ImmersX::StateLayout layout;
+  dealii::IndexSet     owned(2);
+  owned.add_range(0, 2);
+  owned.compress();
+  const auto value = layout.add_field({"value", {}, owned, {}, {}});
+  Model      model;
+  ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+
+  Matrix matrix(2, 2);
+  matrix(0, 0)    = 1.;
+  matrix(0, 1)    = 2.;
+  matrix(1, 0)    = 3.;
+  matrix(1, 1)    = 4.;
+  const auto base = builder.matrix_operator(matrix);
+  builder.term(value, "composed")
+    .state(value, base)
+    .state(value, 2. * ImmersX::transpose_operator(base));
+
+  Vector state(2), action(2), materialized_action(2);
+  state[0] = 5.;
+  state[1] = 7.;
+  ImmersX::StateView<Vector> state_view(layout, 0.);
+  state_view.bind(value, state);
+  const ImmersX::EvaluationContext<Vector> context(0., state_view);
+
+  const auto view = model.state_operator(value, value, context);
+  view.vmult(action, state);
+  const auto materialized = model.state_matrix_operator(value, value, context);
+  ASSERT_TRUE(materialized.has_value());
+  materialized->matrix()->vmult(materialized_action, state);
+  EXPECT_DOUBLE_EQ(materialized_action[0], action[0]);
+  EXPECT_DOUBLE_EQ(materialized_action[1], action[1]);
 }
 
 TEST(ContributorCore, TermsAreScopedByContributorPrefix)
