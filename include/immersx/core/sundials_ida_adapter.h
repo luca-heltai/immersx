@@ -12,6 +12,9 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/lac/precondition.h>
+#include <deal.II/lac/solver_gmres.h>
+
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
@@ -47,15 +50,11 @@ namespace ImmersX
 
     IDAAdapter(const AdditionalData &data,
                const MPI_Comm        communicator,
-               LinearSolveFunction   solve)
+               LinearSolveFunction   solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
       , ida_(data, communicator)
-    {
-      AssertThrow(solve_,
-                  dealii::ExcMessage("IDAAdapter requires a linear solve "
-                                     "callback."));
-    }
+    {}
 
     template <typename Problem, typename... Arguments>
     auto
@@ -201,7 +200,17 @@ namespace ImmersX
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
                                        "current Jacobian."));
-        solve_(*current_jacobian_, rhs, dst, tolerance);
+        if (solve_)
+          solve_(*current_jacobian_, rhs, dst, tolerance);
+        else
+          {
+            dealii::SolverControl                 control(1000, tolerance);
+            dealii::SolverGMRES<GlobalVectorType> solver(control);
+            solver.solve(*current_jacobian_,
+                         dst,
+                         rhs,
+                         dealii::PreconditionIdentity());
+          }
       };
       ida_.differential_components = [this]() {
         return composition_.differential_components();

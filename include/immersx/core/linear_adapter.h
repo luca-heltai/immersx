@@ -10,7 +10,9 @@
 #ifndef immersx_linear_adapter_h
 #define immersx_linear_adapter_h
 
+#include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_control.h>
+#include <deal.II/lac/solver_gmres.h>
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
@@ -47,14 +49,10 @@ namespace ImmersX
     using SolveFunction   = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
-    LinearAdapter(const MPI_Comm communicator, SolveFunction solve)
+    LinearAdapter(const MPI_Comm communicator, SolveFunction solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
-    {
-      AssertThrow(solve_,
-                  dealii::ExcMessage(
-                    "LinearAdapter requires a linear solve callback."));
-    }
+    {}
 
     template <typename Problem, typename... Arguments>
     auto
@@ -167,6 +165,12 @@ namespace ImmersX
       return composition_.has_local_preconditioner(field);
     }
 
+    bool
+    has_complete_local_preconditioners() const
+    {
+      return composition_.has_complete_local_preconditioners();
+    }
+
     const std::vector<SaddlePointMetadata> &
     saddle_points() const
     {
@@ -257,7 +261,19 @@ namespace ImmersX
       state         = composition_.make_state();
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
-      solve_(composition_.jacobian(0., state, nullptr, 0.), residual, state);
+      const auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
+      if (solve_)
+        solve_(operator_view, residual, state);
+      else
+        {
+          const auto preconditioner =
+            composition_.has_complete_local_preconditioners() ?
+              composition_.block_diagonal_preconditioner(state) :
+              dealii::identity_operator(operator_view);
+          dealii::SolverControl                 control(1000, 1.e-12);
+          dealii::SolverGMRES<GlobalVectorType> solver(control);
+          solver.solve(operator_view, state, residual, preconditioner);
+        }
     }
 
   private:

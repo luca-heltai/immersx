@@ -473,6 +473,16 @@ namespace ImmersX::detail
       return model_.has_preconditioner(field);
     }
 
+    bool
+    has_complete_local_preconditioners() const
+    {
+      finalize();
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        if (!model_.has_preconditioner(field_layout_.field(block)))
+          return false;
+      return true;
+    }
+
     const std::vector<SaddlePointMetadata> &
     saddle_points() const
     {
