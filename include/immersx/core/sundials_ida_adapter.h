@@ -172,6 +172,12 @@ namespace ImmersX
     }
 
     bool
+    has_current_preconditioner() const
+    {
+      return current_preconditioner_.has_value();
+    }
+
+    bool
     can_materialize_matrix(const GlobalVectorType &state,
                            const GlobalVectorType &state_dot,
                            const double            alpha) const
@@ -269,10 +275,16 @@ namespace ImmersX
           {
             dealii::SolverControl                 control(1000, tolerance);
             dealii::SolverGMRES<GlobalVectorType> solver(control);
-            solver.solve(*current_jacobian_,
-                         dst,
-                         rhs,
-                         dealii::PreconditionIdentity());
+            if (current_preconditioner_.has_value())
+              solver.solve(*current_jacobian_,
+                           dst,
+                           rhs,
+                           *current_preconditioner_);
+            else
+              solver.solve(*current_jacobian_,
+                           dst,
+                           rhs,
+                           dealii::PreconditionIdentity());
           }
       };
       ida_.differential_components = [this]() {
@@ -320,12 +332,17 @@ namespace ImmersX
         operator_view.Tvmult_add(destination, source);
       };
       current_jacobian_ = std::move(stable);
+      current_preconditioner_.reset();
+      if (!solve_ && composition_.has_complete_local_preconditioners())
+        current_preconditioner_ =
+          composition_.block_diagonal_preconditioner(state);
     }
 
     Composition                             composition_;
     LinearSolveFunction                     solve_;
     dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
     std::optional<Operator>                 current_jacobian_;
+    std::optional<Operator>                 current_preconditioner_;
     std::size_t                             coupling_count_ = 0;
     bool                                    connected_      = false;
   };
