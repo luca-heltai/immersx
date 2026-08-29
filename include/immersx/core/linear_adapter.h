@@ -197,6 +197,13 @@ namespace ImmersX
       return composition_.augmented_lagrangian_operator(state, gamma);
     }
 
+    BlockMatrixType
+    augmented_lagrangian_matrix(const GlobalVectorType &state,
+                                const double            gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_matrix(state, gamma);
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const
