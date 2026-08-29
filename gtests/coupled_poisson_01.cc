@@ -220,7 +220,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   initialize_parameters_from_string(R"(
     subsection Adapter Bulk
       set FE degree = 1
-      set Initial refinement = 1
+      set Initial refinement = 2
       set Dirichlet boundary ids = 0
       subsection Grid generation
         set Grid generator = hyper_cube
@@ -323,4 +323,47 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
     std::isfinite(linear.field(state, coupling.fields().multiplier).l2_norm()));
   EXPECT_GT(linear.field(state, embedded.fields().solution).l2_norm(), 1.e-12);
   EXPECT_LT(residual.l2_norm(), 1.e-7);
+
+  ImmersX::LinearSolverOptions direct_options;
+  direct_options.solver = "direct";
+  Adapter    direct(MPI_COMM_WORLD, direct_options);
+  const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");
+  const auto direct_embedded = direct.add(embedded_problem, "embedded-direct");
+  direct.add(interaction,
+             "continuity-direct",
+             direct_bulk.fields().solution,
+             direct_embedded.fields().solution);
+  auto direct_state = direct.make_state();
+  EXPECT_TRUE(direct.can_materialize_matrix(direct_state));
+  const auto direct_matrix = direct.monolithic_matrix(direct_state);
+  EXPECT_EQ(direct_matrix.m(), 31u);
+  EXPECT_EQ(direct_matrix.n(), 31u);
+
+  auto sample_state = direct.make_state();
+  for (unsigned int block = 0; block < sample_state.n_blocks(); ++block)
+    sample_state.block(block) = 1.;
+  const auto             sample = direct.pack(sample_state);
+  ImmersXLA::MPI::Vector matrix_action;
+  matrix_action.reinit(sample);
+  direct_matrix.vmult(matrix_action, sample);
+  auto operator_action = direct.make_state();
+  direct.jacobian(sample_state).vmult(operator_action, sample_state);
+  matrix_action -= direct.pack(operator_action);
+  EXPECT_LT(matrix_action.l2_norm(), 1.e-10);
+
+  try
+    {
+      direct.solve(direct_state);
+    }
+  catch (const std::exception &exception)
+    {
+      FAIL() << exception.what();
+    }
+  catch (...)
+    {
+      FAIL() << "unknown exception from the parallel direct solver";
+    }
+  GlobalVector direct_residual;
+  direct.evaluate_residual(direct_state, direct_residual);
+  EXPECT_LT(direct_residual.l2_norm(), 1.e-7);
 }

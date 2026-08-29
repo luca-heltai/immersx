@@ -12,12 +12,21 @@
 
 #include <deal.II/lac/solver_control.h>
 
+#ifdef DEAL_II_WITH_TRILINOS
+#  include <Amesos2.hpp>
+#  include <Epetra_CrsMatrix.h>
+#  include <Epetra_Export.h>
+#  include <Epetra_Map.h>
+#  include <Epetra_MultiVector.h>
+#endif
+
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -187,14 +196,139 @@ namespace ImmersX
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
 
-      auto                    matrix   = composition_.monolithic_matrix(state);
-      auto                    rhs      = composition_.pack(residual);
-      auto                    result   = composition_.make_state();
-      auto                    solution = composition_.pack(result);
-      dealii::SolverControl   control(0, 1.e-12);
-      ImmersXLA::SolverDirect solver(control);
-      solver.initialize(matrix);
-      solver.solve(solution, rhs);
+      auto matrix   = composition_.monolithic_matrix(state);
+      auto rhs      = composition_.pack(residual);
+      auto result   = composition_.make_state();
+      auto solution = composition_.pack(result);
+      if (dealii::Utilities::MPI::n_mpi_processes(
+            matrix.get_mpi_communicator()) > 1)
+        {
+          AssertThrow(matrix.m() <= static_cast<typename MatrixType::size_type>(
+                                      std::numeric_limits<int>::max()),
+                      dealii::ExcMessage(
+                        "Amesos2 MUMPS requires a 32-bit global matrix "
+                        "index range."));
+
+          const auto      &epetra_matrix = matrix.trilinos_matrix();
+          const auto      &row_map       = epetra_matrix.RowMap();
+          const auto      &column_map    = epetra_matrix.ColMap();
+          std::vector<int> owned_indices;
+          owned_indices.reserve(row_map.NumMyElements());
+          for (int local_row = 0; local_row < row_map.NumMyElements();
+               ++local_row)
+            owned_indices.push_back(static_cast<int>(row_map.GID64(local_row)));
+
+          const Epetra_Map int_map(static_cast<int>(matrix.m()),
+                                   static_cast<int>(owned_indices.size()),
+                                   owned_indices.data(),
+                                   0,
+                                   matrix.trilinos_matrix().Comm());
+          Epetra_CrsMatrix int_matrix(Copy, int_map, 0);
+          for (int local_row = 0; local_row < row_map.NumMyElements();
+               ++local_row)
+            {
+              int     n_entries = 0;
+              double *values    = nullptr;
+              int    *columns   = nullptr;
+              AssertThrow(epetra_matrix.ExtractMyRowView(
+                            local_row, n_entries, values, columns) == 0,
+                          dealii::ExcMessage(
+                            "Unable to inspect the Epetra matrix row."));
+              std::vector<int>    global_columns(n_entries);
+              std::vector<double> global_values(values, values + n_entries);
+              for (int entry = 0; entry < n_entries; ++entry)
+                global_columns[entry] =
+                  static_cast<int>(column_map.GID64(columns[entry]));
+              AssertThrow(
+                int_matrix.InsertGlobalValues(owned_indices[local_row],
+                                              n_entries,
+                                              global_values.data(),
+                                              global_columns.data()) == 0,
+                dealii::ExcMessage(
+                  "Unable to convert the matrix to 32-bit Epetra "
+                  "global indices."));
+            }
+          AssertThrow(int_matrix.FillComplete(int_map, int_map) == 0,
+                      dealii::ExcMessage(
+                        "Unable to complete the 32-bit Epetra matrix for "
+                        "Amesos2 MUMPS."));
+          const Epetra_Map solver_map(static_cast<int>(matrix.m()),
+                                      0,
+                                      matrix.trilinos_matrix().Comm());
+          Epetra_Export    exporter(int_map, solver_map);
+          Epetra_CrsMatrix solver_matrix(Copy, solver_map, 0);
+          AssertThrow(solver_matrix.Export(int_matrix, exporter, Insert) == 0,
+                      dealii::ExcMessage(
+                        "Unable to redistribute the Epetra matrix for "
+                        "Amesos2 MUMPS."));
+          AssertThrow(solver_matrix.FillComplete(solver_map, solver_map) == 0,
+                      dealii::ExcMessage(
+                        "Unable to complete the contiguous Epetra matrix for "
+                        "Amesos2 MUMPS."));
+
+          std::vector<double> global_rhs(matrix.m(), 0.);
+          const auto         &rhs_epetra = rhs.trilinos_vector();
+          const auto         &rhs_map    = rhs_epetra.Map();
+          for (int local = 0; local < rhs_map.NumMyElements(); ++local)
+            global_rhs[static_cast<std::size_t>(rhs_map.GID64(local))] =
+              rhs_epetra[0][local];
+          AssertThrow(
+            MPI_Allreduce(MPI_IN_PLACE,
+                          global_rhs.data(),
+                          static_cast<int>(global_rhs.size()),
+                          MPI_DOUBLE,
+                          MPI_SUM,
+                          matrix.get_mpi_communicator()) == MPI_SUCCESS,
+            dealii::ExcMessage(
+              "Unable to redistribute the direct-solver right-hand side."));
+
+          Epetra_MultiVector int_rhs(solver_map, 1);
+          Epetra_MultiVector int_solution(solver_map, 1);
+          for (int local_row = 0; local_row < solver_map.NumMyElements();
+               ++local_row)
+            {
+              const int row         = solver_map.GID(local_row);
+              int_rhs[0][local_row] = global_rhs[row];
+            }
+          auto int_matrix_rcp =
+            Teuchos::rcp(new Epetra_CrsMatrix(solver_matrix));
+          auto int_rhs_rcp = Teuchos::rcp(new Epetra_MultiVector(int_rhs));
+          auto int_solution_rcp =
+            Teuchos::rcp(new Epetra_MultiVector(int_solution));
+          auto mumps_solver =
+            Amesos2::create<Epetra_CrsMatrix, Epetra_MultiVector>(
+              "MUMPS", int_matrix_rcp, int_solution_rcp, int_rhs_rcp);
+          mumps_solver->symbolicFactorization();
+          mumps_solver->numericFactorization();
+          mumps_solver->solve();
+          std::vector<double> global_solution(matrix.m(), 0.);
+          for (int local_row = 0; local_row < solver_map.NumMyElements();
+               ++local_row)
+            global_solution[solver_map.GID(local_row)] =
+              (*int_solution_rcp)[0][local_row];
+          AssertThrow(MPI_Allreduce(MPI_IN_PLACE,
+                                    global_solution.data(),
+                                    static_cast<int>(global_solution.size()),
+                                    MPI_DOUBLE,
+                                    MPI_SUM,
+                                    matrix.get_mpi_communicator()) ==
+                        MPI_SUCCESS,
+                      dealii::ExcMessage(
+                        "Unable to collect the direct-solver solution."));
+          const auto &solution_epetra = solution.trilinos_vector();
+          const auto &solution_map    = solution_epetra.Map();
+          for (int local = 0; local < solution_map.NumMyElements(); ++local)
+            solution[solution_map.GID64(local)] =
+              global_solution[solution_map.GID64(local)];
+          solution.compress(dealii::VectorOperation::insert);
+        }
+      else
+        {
+          dealii::SolverControl   control(0, 1.e-12);
+          ImmersXLA::SolverDirect solver(control);
+          solver.initialize(matrix);
+          solver.solve(solution, rhs);
+        }
       composition_.unpack(solution, state);
     }
 
