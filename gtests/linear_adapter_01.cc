@@ -33,6 +33,7 @@ namespace ImmersX
       solution, [](const auto &linearized_matrix, const auto &prototype) {
         return make_amg_preconditioner(linearized_matrix, prototype);
       });
+    builder.saddle_point(solution, {solution});
     builder.term(solution, "fake")
       .residual([solution, &problem](const auto &context) {
         const auto &state = context.state(solution);
@@ -116,6 +117,11 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   EXPECT_NEAR(adapter.field(block_lower_action, fields.fields().solution)[1],
               preconditioned[1],
               1.e-12);
+  ASSERT_EQ(adapter.saddle_points().size(), 1u);
+  const auto schur = adapter.schur_operator(fields.fields().solution, state);
+  auto       schur_action = adapter.field(state, fields.fields().solution);
+  schur.vmult(schur_action, input);
+  EXPECT_GT(schur_action.l2_norm(), 0.);
 
   EXPECT_TRUE(adapter.can_materialize_matrix(state));
   const auto block_matrix = adapter.block_matrix(state);
