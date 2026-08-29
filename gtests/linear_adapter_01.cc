@@ -122,6 +122,10 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   auto       schur_action = adapter.field(state, fields.fields().solution);
   schur.vmult(schur_action, input);
   EXPECT_GT(schur_action.l2_norm(), 0.);
+  const auto augmented = adapter.augmented_lagrangian_operator(state, 2.);
+  auto       augmented_action = adapter.make_state();
+  augmented.vmult(augmented_action, state);
+  EXPECT_GT(augmented_action.l2_norm(), 0.);
 
   EXPECT_TRUE(adapter.can_materialize_matrix(state));
   const auto block_matrix = adapter.block_matrix(state);
