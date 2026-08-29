@@ -174,6 +174,12 @@ namespace ImmersX
       return composition_.local_preconditioner(field, state);
     }
 
+    Operator
+    block_diagonal_preconditioner(const GlobalVectorType &state) const
+    {
+      return composition_.block_diagonal_preconditioner(state);
+    }
+
     FieldVectorType
     pack(const GlobalVectorType &state) const
     {

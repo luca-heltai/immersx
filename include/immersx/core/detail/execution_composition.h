@@ -495,6 +495,63 @@ namespace ImmersX::detail
                                    state.block(field_layout_.block(field)));
     }
 
+    /** Assemble registered local inverses into a global block diagonal map. */
+    Operator
+    block_diagonal_preconditioner(const GlobalVectorType &state) const
+    {
+      finalize();
+      validate_state(state);
+
+      std::vector<LocalOperator> diagonal;
+      diagonal.reserve(field_layout_.n_blocks());
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        {
+          const auto field = field_layout_.field(block);
+          const auto local = local_preconditioner(field, state);
+          AssertThrow(local.has_value(),
+                      dealii::ExcMessage(
+                        "Block diagonal preconditioning requires a local "
+                        "preconditioner for every semantic field."));
+          diagonal.push_back(*local);
+        }
+
+      Operator result;
+      result.reinit_range_vector = [state](GlobalVectorType &vector,
+                                           const bool        omit) {
+        vector.reinit(state, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = [diagonal](GlobalVectorType       &dst,
+                                const GlobalVectorType &src) {
+        for (unsigned int block = 0; block < diagonal.size(); ++block)
+          diagonal[block].vmult(dst.block(block), src.block(block));
+      };
+      result.vmult_add = [diagonal](GlobalVectorType       &dst,
+                                    const GlobalVectorType &src) {
+        GlobalVectorType contribution;
+        contribution.reinit(dst);
+        contribution = 0.;
+        for (unsigned int block = 0; block < diagonal.size(); ++block)
+          diagonal[block].vmult(contribution.block(block), src.block(block));
+        dst += contribution;
+      };
+      result.Tvmult = [diagonal](GlobalVectorType       &dst,
+                                 const GlobalVectorType &src) {
+        for (unsigned int block = 0; block < diagonal.size(); ++block)
+          diagonal[block].Tvmult(dst.block(block), src.block(block));
+      };
+      result.Tvmult_add = [diagonal](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+        GlobalVectorType contribution;
+        contribution.reinit(dst);
+        contribution = 0.;
+        for (unsigned int block = 0; block < diagonal.size(); ++block)
+          diagonal[block].Tvmult(contribution.block(block), src.block(block));
+        dst += contribution;
+      };
+      return result;
+    }
+
     /** Pack execution blocks into the concatenated field ordering. */
     FieldVectorType
     pack(const GlobalVectorType &global) const
