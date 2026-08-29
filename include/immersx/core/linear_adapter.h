@@ -176,6 +176,12 @@ namespace ImmersX
       return composition_.has_local_preconditioner(field);
     }
 
+    const std::vector<SaddlePointMetadata> &
+    saddle_points() const
+    {
+      return composition_.saddle_points();
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const

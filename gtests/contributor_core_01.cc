@@ -307,3 +307,24 @@ TEST(ContributorCore, TermsAreScopedByContributorPrefix)
   EXPECT_DOUBLE_EQ(a_residual[0], 0.);
   EXPECT_DOUBLE_EQ(b_residual[0], 2.);
 }
+
+TEST(ContributorCore, RegistersSemanticSaddlePointMetadata)
+{
+  using Vector = dealii::Vector<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector>;
+
+  ImmersX::StateLayout layout;
+  dealii::IndexSet     owned(1);
+  owned.add_index(0);
+  owned.compress();
+  Model                                model;
+  ImmersX::SemidiscreteBuilder<Vector> builder(layout, model);
+  const auto velocity = builder.differential_field("velocity", owned);
+  const auto pressure = builder.algebraic_field("pressure", owned);
+
+  builder.saddle_point(pressure, {velocity});
+  ASSERT_EQ(model.saddle_points().size(), 1u);
+  EXPECT_EQ(model.saddle_points().front().multiplier, pressure);
+  ASSERT_EQ(model.saddle_points().front().participants.size(), 1u);
+  EXPECT_EQ(model.saddle_points().front().participants.front(), velocity);
+}

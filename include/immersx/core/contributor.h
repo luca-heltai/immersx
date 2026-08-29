@@ -215,6 +215,13 @@ namespace ImmersX
         field, typename Model::PreconditionerFactory(std::move(factory)));
     }
 
+    /** Register a semantic multiplier/primal saddle-point relation. */
+    void
+    saddle_point(const FieldId multiplier, std::vector<FieldId> participants)
+    {
+      model_.add_saddle_point({multiplier, std::move(participants)});
+    }
+
   private:
     StateLayout &layout_;
     Model       &model_;
