@@ -515,9 +515,10 @@ namespace ImmersX::detail
 
       struct SchurTerm
       {
-        LocalOperator coupling;
-        LocalOperator transpose_coupling;
-        LocalOperator inverse;
+        LocalOperator   coupling;
+        LocalOperator   transpose_coupling;
+        LocalOperator   inverse;
+        FieldVectorType participant_prototype;
       };
       std::vector<SchurTerm> terms;
       terms.reserve(metadata->participants.size());
@@ -531,7 +532,8 @@ namespace ImmersX::detail
           terms.push_back(
             {model_.state_operator(multiplier, participant, context),
              model_.state_operator(participant, multiplier, context),
-             *inverse});
+             *inverse,
+             state.block(field_layout_.block(participant))});
         }
 
       const auto multiplier_state =
@@ -547,7 +549,7 @@ namespace ImmersX::detail
         for (const auto &term : terms)
           {
             FieldVectorType primal_rhs;
-            primal_rhs.reinit(src);
+            primal_rhs.reinit(term.participant_prototype);
             term.transpose_coupling.vmult(primal_rhs, src);
             FieldVectorType primal_solution;
             primal_solution.reinit(primal_rhs);
@@ -590,10 +592,11 @@ namespace ImmersX::detail
       EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
       struct Participant
       {
-        unsigned int  block;
-        LocalOperator to_multiplier;
-        LocalOperator from_multiplier;
-        LocalOperator inverse;
+        unsigned int    block;
+        LocalOperator   to_multiplier;
+        LocalOperator   from_multiplier;
+        LocalOperator   inverse;
+        FieldVectorType prototype;
       };
       std::vector<Participant> participants;
       participants.reserve(metadata->participants.size());
@@ -608,7 +611,8 @@ namespace ImmersX::detail
             {field_layout_.block(field),
              model_.state_operator(multiplier, field, context),
              model_.state_operator(field, multiplier, context),
-             *inverse});
+             *inverse,
+             state.block(field_layout_.block(field))});
         }
 
       const auto schur            = schur_operator(multiplier, state);
@@ -647,7 +651,7 @@ namespace ImmersX::detail
           for (const auto &participant : participants)
             {
               FieldVectorType correction_rhs;
-              correction_rhs.reinit(multiplier_solution);
+              correction_rhs.reinit(participant.prototype);
               participant.from_multiplier.vmult(correction_rhs,
                                                 multiplier_solution);
               FieldVectorType correction;

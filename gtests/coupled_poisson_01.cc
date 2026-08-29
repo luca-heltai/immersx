@@ -292,18 +292,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
-  Adapter    linear(MPI_COMM_WORLD,
-                 [](const dealii::LinearOperator<GlobalVector> &operator_view,
-                    const GlobalVector                         &rhs,
-                    GlobalVector                               &solution) {
-                   dealii::SolverControl control(500, 1.e-10, false);
-                   dealii::SolverFGMRES<GlobalVector> solver(control);
-                   solution = 0.;
-                   solver.solve(operator_view,
-                                solution,
-                                rhs,
-                                dealii::PreconditionIdentity());
-                 });
+  Adapter    linear(MPI_COMM_WORLD);
   const auto bulk     = linear.add(bulk_problem, "bulk");
   const auto embedded = linear.add(embedded_problem, "embedded");
   const auto coupling = linear.add(interaction,
