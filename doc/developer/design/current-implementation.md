@@ -138,3 +138,13 @@ execution; those are not presented here as current APIs.
 | {doc}`../design/architecture-status` | Implemented, validated, and planned capability status. |
 | {doc}`../../concepts/mathematical-background` | Mathematical motivation and reduced Lagrange-multiplier context. |
 | {doc}`../../tutorials/index` | Runnable learning workflows. |
+
+## Portability and validation
+
+The solver stack is validated with out-of-source Debug and Release builds,
+serial GoogleTests, two-rank MPI GoogleTests, and the relevant deal.II
+regression tests. Direct solves materialize the current execution matrix and
+use the generic Trilinos direct backend; an explicit `mumps` policy is compiled
+only when deal.II provides `SparseDirectMUMPS`. No application code depends on
+Amesos2 or Epetra MUMPS plumbing, so configurations without native MUMPS retain
+the ordinary direct and iterative paths.
