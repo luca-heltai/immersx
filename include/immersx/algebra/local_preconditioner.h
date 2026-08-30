@@ -12,20 +12,38 @@
 
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/vector_memory.h>
 
 #include <immersx/algebra/linear_algebra.h>
-#include <immersx/core/matrix_operator.h>
 
+#include <functional>
 #include <memory>
+#include <type_traits>
+#include <utility>
 
 namespace ImmersX
 {
+  namespace detail
+  {
+    template <typename PreconditionerType, typename VectorType, typename = void>
+    struct has_transpose_apply : std::false_type
+    {};
+
+    template <typename PreconditionerType, typename VectorType>
+    struct has_transpose_apply<
+      PreconditionerType,
+      VectorType,
+      std::void_t<decltype(std::declval<const PreconditionerType &>().Tvmult(
+        std::declval<VectorType &>(),
+        std::declval<const VectorType &>()))>> : std::true_type
+    {};
+  } // namespace detail
+
   /**
    * Build a lifetime-safe LinearOperator around a deal.II preconditioner.
    *
-   * The matrix and preconditioner are kept alive by the returned operator,
-   * which is important for deal.II backends whose preconditioners observe the
-   * matrix passed to initialize().
+   * The preconditioner observes the matrix passed to initialize(). The caller
+   * must keep that concrete matrix alive for as long as this operator is used.
    */
   template <typename VectorType,
             typename MatrixType,
@@ -33,47 +51,53 @@ namespace ImmersX
   dealii::LinearOperator<VectorType>
   make_local_preconditioner(
     const MatrixType                                  &matrix,
-    const VectorType                                  &prototype,
+    const std::function<void(VectorType &, bool)>     &reinit_vector,
     const typename PreconditionerType::AdditionalData &additional_data = {})
   {
-    auto matrix_storage_unique = detail::clone_matrix(matrix);
-    std::shared_ptr<MatrixType> matrix_storage =
-      std::move(matrix_storage_unique);
     auto preconditioner = std::make_shared<PreconditionerType>();
-    preconditioner->initialize(*matrix_storage, additional_data);
+    preconditioner->initialize(matrix, additional_data);
+    auto vector_memory =
+      std::make_shared<dealii::GrowingVectorMemory<VectorType>>();
 
     dealii::LinearOperator<VectorType> result;
-    result.reinit_range_vector = [prototype](VectorType &vector,
-                                             const bool  omit) {
-      vector.reinit(prototype, omit);
-    };
+    result.reinit_range_vector  = reinit_vector;
     result.reinit_domain_vector = result.reinit_range_vector;
-    result.vmult = [matrix_storage, preconditioner](VectorType       &dst,
-                                                    const VectorType &src) {
-      (void)matrix_storage;
+    result.vmult = [preconditioner](VectorType &dst, const VectorType &src) {
       preconditioner->vmult(dst, src);
     };
-    result.vmult_add = [matrix_storage, preconditioner](VectorType       &dst,
+    result.vmult_add = [preconditioner, vector_memory](VectorType       &dst,
+                                                       const VectorType &src) {
+      typename dealii::VectorMemory<VectorType>::Pointer contribution(
+        *vector_memory);
+      contribution->reinit(dst);
+      preconditioner->vmult(*contribution, src);
+      dst += *contribution;
+    };
+    result.Tvmult = [preconditioner](VectorType &dst, const VectorType &src) {
+      if constexpr (detail::has_transpose_apply<PreconditionerType,
+                                                VectorType>::value)
+        preconditioner->Tvmult(dst, src);
+      else
+        AssertThrow(false,
+                    dealii::ExcMessage(
+                      "The local preconditioner has no transpose action."));
+    };
+    result.Tvmult_add = [preconditioner, vector_memory](VectorType       &dst,
                                                         const VectorType &src) {
-      (void)matrix_storage;
-      VectorType contribution;
-      contribution.reinit(dst);
-      preconditioner->vmult(contribution, src);
-      dst += contribution;
+      if constexpr (detail::has_transpose_apply<PreconditionerType,
+                                                VectorType>::value)
+        {
+          typename dealii::VectorMemory<VectorType>::Pointer contribution(
+            *vector_memory);
+          contribution->reinit(dst);
+          preconditioner->Tvmult(*contribution, src);
+          dst += *contribution;
+        }
+      else
+        AssertThrow(false,
+                    dealii::ExcMessage(
+                      "The local preconditioner has no transpose action."));
     };
-    result.Tvmult = [matrix_storage, preconditioner](VectorType       &dst,
-                                                     const VectorType &src) {
-      (void)matrix_storage;
-      preconditioner->vmult(dst, src);
-    };
-    result.Tvmult_add =
-      [matrix_storage, preconditioner](VectorType &dst, const VectorType &src) {
-        (void)matrix_storage;
-        VectorType contribution;
-        contribution.reinit(dst);
-        preconditioner->vmult(contribution, src);
-        dst += contribution;
-      };
     return result;
   }
 
@@ -81,15 +105,15 @@ namespace ImmersX
   template <typename VectorType, typename MatrixType>
   dealii::LinearOperator<VectorType>
   make_amg_preconditioner(
-    const MatrixType &matrix,
-    const VectorType &prototype,
+    const MatrixType                              &matrix,
+    const std::function<void(VectorType &, bool)> &reinit_vector,
     const typename ImmersXLA::MPI::PreconditionAMG::AdditionalData
       &additional_data = {})
   {
     return make_local_preconditioner<VectorType,
                                      MatrixType,
                                      ImmersXLA::MPI::PreconditionAMG>(
-      matrix, prototype, additional_data);
+      matrix, reinit_vector, additional_data);
   }
 } // namespace ImmersX
 

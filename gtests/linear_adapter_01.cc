@@ -30,8 +30,8 @@ namespace ImmersX
     using VectorType    = ImmersXLA::MPI::Vector;
     const auto matrix   = builder.matrix_operator(problem.matrix);
     builder.preconditioner(
-      solution, [](const auto &linearized_matrix, const auto &prototype) {
-        return make_amg_preconditioner(linearized_matrix, prototype);
+      solution, [](const auto &linearized_matrix, const auto &reinit_vector) {
+        return make_amg_preconditioner(linearized_matrix, reinit_vector);
       });
     builder.term(solution, "fake")
       .residual([solution, &problem](const auto &context) {

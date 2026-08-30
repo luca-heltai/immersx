@@ -3,8 +3,39 @@
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
+
+namespace
+{
+  struct NonsymmetricPreconditioner
+  {
+    struct AdditionalData
+    {};
+
+    template <typename MatrixType>
+    void
+    initialize(const MatrixType &, const AdditionalData &)
+    {}
+
+    void
+    vmult(dealii::Vector<double>       &destination,
+          const dealii::Vector<double> &source) const
+    {
+      destination[0] = 2. * source[0];
+      destination[1] = source[1];
+    }
+
+    void
+    Tvmult(dealii::Vector<double>       &destination,
+           const dealii::Vector<double> &source) const
+    {
+      destination[0] = 3. * source[0];
+      destination[1] = source[1];
+    }
+  };
+} // namespace
 
 TEST(ContributorCore, PackagedResidualAndSeparateOperators)
 {
@@ -123,6 +154,30 @@ TEST(ContributorCore, MatrixOperatorDetectsDestroyedSource)
     ".*");
 }
 #endif
+
+TEST(ContributorCore, LocalPreconditionerUsesItsTransposeAction)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::FullMatrix<double>;
+
+  Matrix     matrix(2, 2);
+  Vector     prototype(2);
+  const auto reinit_vector = [prototype](Vector &vector, const bool omit) {
+    vector.reinit(prototype, omit);
+  };
+  const auto preconditioner = ImmersX::
+    make_local_preconditioner<Vector, Matrix, NonsymmetricPreconditioner>(
+      matrix, reinit_vector);
+
+  Vector source(2), action(2), transpose_action(2);
+  source[0] = 5.;
+  source[1] = 7.;
+  preconditioner.vmult(action, source);
+  preconditioner.Tvmult(transpose_action, source);
+  EXPECT_DOUBLE_EQ(action[0], 10.);
+  EXPECT_DOUBLE_EQ(transpose_action[0], 15.);
+  EXPECT_NE(action[0], transpose_action[0]);
+}
 
 TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
 {
