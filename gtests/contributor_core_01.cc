@@ -1,3 +1,4 @@
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/sparsity_pattern.h>
 #include <deal.II/lac/vector.h>
@@ -177,6 +178,71 @@ TEST(ContributorCore, LocalPreconditionerUsesItsTransposeAction)
   EXPECT_DOUBLE_EQ(action[0], 10.);
   EXPECT_DOUBLE_EQ(transpose_action[0], 15.);
   EXPECT_NE(action[0], transpose_action[0]);
+}
+
+TEST(ContributorCore, MPI_LocalPreconditionerUsesBackendMaps) // NOLINT
+{
+  using MatrixType = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using VectorType = ImmersX::ImmersXLA::MPI::Vector;
+
+  const unsigned int n_global = 8;
+  const unsigned int rank =
+    dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const unsigned int n_ranks =
+    dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  ASSERT_EQ(n_ranks, 2u);
+
+  dealii::IndexSet   owned(n_global);
+  const unsigned int first = rank * (n_global / n_ranks);
+  owned.add_range(first, first + n_global / n_ranks);
+  owned.compress();
+
+  dealii::DynamicSparsityPattern sparsity(n_global, n_global, owned);
+  for (const auto index : owned)
+    sparsity.add(index, index);
+  sparsity.compress();
+
+  MatrixType matrix;
+  matrix.reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+  for (const auto index : owned)
+    matrix.set(index, index, 1.);
+  matrix.compress(dealii::VectorOperation::insert);
+
+  const std::function<void(VectorType &, bool)> fallback =
+    [owned](VectorType &vector, const bool omit_zeroing) {
+      vector.reinit(owned, MPI_COMM_WORLD, omit_zeroing);
+    };
+  const auto local = ImmersX::make_amg_preconditioner(matrix, fallback);
+
+  VectorType source;
+  VectorType destination;
+  VectorType expected_source;
+  VectorType expected_destination;
+  local.reinit_domain_vector(source, false);
+  local.reinit_range_vector(destination, false);
+
+  ImmersX::ImmersXLA::MPI::PreconditionAMG expected;
+  expected.initialize(matrix);
+  expected_source.reinit(expected.locally_owned_domain_indices(),
+                         MPI_COMM_WORLD);
+  expected_destination.reinit(expected.locally_owned_range_indices(),
+                              MPI_COMM_WORLD);
+  for (const auto index : source.locally_owned_elements())
+    source[index] = static_cast<double>(index + 1);
+  for (const auto index : expected_source.locally_owned_elements())
+    expected_source[index] = static_cast<double>(index + 1);
+  source.compress(dealii::VectorOperation::insert);
+  expected_source.compress(dealii::VectorOperation::insert);
+  EXPECT_TRUE(source.trilinos_partitioner().SameAs(
+    expected.trilinos_operator().OperatorDomainMap()));
+  EXPECT_TRUE(destination.trilinos_partitioner().SameAs(
+    expected.trilinos_operator().OperatorRangeMap()));
+
+  local.vmult(destination, source);
+  expected.vmult(expected_destination, expected_source);
+  expected_destination -= destination;
+  EXPECT_GT(destination.l2_norm(), 0.);
+  EXPECT_LT(expected_destination.l2_norm(), 1.e-12);
 }
 
 TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
