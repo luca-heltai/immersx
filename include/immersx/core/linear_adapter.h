@@ -10,7 +10,9 @@
 #ifndef immersx_linear_adapter_h
 #define immersx_linear_adapter_h
 
+#include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_control.h>
+#include <deal.II/lac/solver_gmres.h>
 
 #ifdef DEAL_II_WITH_TRILINOS
 #  include <Amesos2.hpp>
@@ -32,6 +34,16 @@
 
 namespace ImmersX
 {
+  /** Solver-neutral policy knobs for the standard LinearAdapter path. */
+  struct LinearSolverOptions
+  {
+    std::string  solver                         = "auto";
+    std::string  preconditioner                 = "auto";
+    unsigned int maximum_iterations             = 1000;
+    double       tolerance                      = 1.e-12;
+    double       augmented_lagrangian_parameter = 1.e1;
+  };
+
   /**
    * Execution adapter for affine steady semantic systems.
    *
@@ -49,21 +61,36 @@ namespace ImmersX
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
-    using Operator            = dealii::LinearOperator<GlobalVectorType>;
-    using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
-    using MatrixType          = typename Composition::MatrixType;
-    using BlockMatrixType     = typename Composition::BlockMatrixType;
-    using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
-    using SolveFunction       = std::function<
+    using Operator        = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator   = dealii::LinearOperator<FieldVectorType>;
+    using MatrixType      = typename Composition::MatrixType;
+    using BlockMatrixType = typename Composition::BlockMatrixType;
+    using SolveFunction   = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
-    LinearAdapter(const MPI_Comm communicator, SolveFunction solve)
+    LinearAdapter(const MPI_Comm communicator, SolveFunction solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
+    {}
+
+    LinearAdapter(const MPI_Comm             communicator,
+                  const LinearSolverOptions &options,
+                  SolveFunction              solve = {})
+      : composition_(communicator)
+      , solve_(std::move(solve))
+      , options_(options)
+    {}
+
+    void
+    set_solver_options(const LinearSolverOptions &options)
     {
-      AssertThrow(solve_,
-                  dealii::ExcMessage(
-                    "LinearAdapter requires a linear solve callback."));
+      options_ = options;
+    }
+
+    const LinearSolverOptions &
+    solver_options() const
+    {
+      return options_;
     }
 
     template <typename Problem, typename... Arguments>
@@ -177,6 +204,12 @@ namespace ImmersX
       return composition_.has_local_preconditioner(field);
     }
 
+    bool
+    has_complete_local_preconditioners() const
+    {
+      return composition_.has_complete_local_preconditioners();
+    }
+
     const std::vector<SaddlePointMetadata> &
     saddle_points() const
     {
@@ -191,6 +224,13 @@ namespace ImmersX
     }
 
     Operator
+    schur_preconditioner(const FieldId           multiplier,
+                         const GlobalVectorType &state) const
+    {
+      return composition_.schur_preconditioner(multiplier, state);
+    }
+
+    Operator
     augmented_lagrangian_operator(const GlobalVectorType &state,
                                   const double            gamma = 1.e1) const
     {
@@ -202,6 +242,13 @@ namespace ImmersX
                                 const double            gamma = 1.e1) const
     {
       return composition_.augmented_lagrangian_matrix(state, gamma);
+    }
+
+    Operator
+    augmented_lagrangian_preconditioner(const GlobalVectorType &state,
+                                        const double gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_preconditioner(state, gamma);
     }
 
     std::optional<LocalOperator>
@@ -390,6 +437,16 @@ namespace ImmersX
     void
     solve(GlobalVectorType &state) const
     {
+      if (options_.solver == "direct")
+        {
+          solve_direct(state);
+          return;
+        }
+      AssertThrow(options_.solver == "auto" || options_.solver == "iterative",
+                  dealii::ExcMessage(
+                    "LinearAdapter solver must be auto, iterative, or "
+                    "direct."));
+
       const auto &model = composition_.model();
       AssertThrow(!model.has_derivative_terms(),
                   dealii::ExcMessage(
@@ -399,13 +456,88 @@ namespace ImmersX
       state         = composition_.make_state();
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
-      solve_(composition_.jacobian(0., state, nullptr, 0.), residual, state);
+      const auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
+      if (solve_)
+        solve_(operator_view, residual, state);
+      else
+        {
+          const auto preconditioner = make_preconditioner(operator_view, state);
+          dealii::SolverControl control(options_.maximum_iterations,
+                                        options_.tolerance);
+          const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
+                     data(30, false, false);
+          const bool flexible =
+            options_.preconditioner == "augmented lagrangian" ||
+            options_.preconditioner == "augmented_lagrangian";
+          if (flexible)
+            {
+              const typename dealii::SolverFGMRES<
+                GlobalVectorType>::AdditionalData    right_data(100);
+              dealii::SolverFGMRES<GlobalVectorType> solver(control,
+                                                            right_data);
+              solver.solve(operator_view, state, residual, preconditioner);
+            }
+          else
+            {
+              dealii::SolverGMRES<GlobalVectorType> solver(control, data);
+              solver.solve(operator_view, state, residual, preconditioner);
+            }
+        }
     }
 
   private:
-    Composition   composition_;
-    SolveFunction solve_;
-    std::size_t   coupling_count_ = 0;
+    Operator
+    make_preconditioner(const Operator         &operator_view,
+                        const GlobalVectorType &state) const
+    {
+      std::string choice = options_.preconditioner;
+      if (choice == "auto")
+        choice = !composition_.saddle_points().empty() ?
+                   "schur" :
+                   (composition_.n_fields() == 1 ? "block diagonal" :
+                                                   "block triangular");
+
+      if (choice == "none")
+        return dealii::identity_operator(operator_view);
+      if (choice == "block diagonal")
+        {
+          AssertThrow(composition_.has_complete_local_preconditioners(),
+                      dealii::ExcMessage(
+                        "Block diagonal preconditioning needs local "
+                        "preconditioners for every field."));
+          return composition_.block_diagonal_preconditioner(state);
+        }
+      if (choice == "block triangular")
+        {
+          AssertThrow(composition_.has_complete_local_preconditioners(),
+                      dealii::ExcMessage(
+                        "Block triangular preconditioning needs local "
+                        "preconditioners for every field."));
+          return composition_.block_triangular_preconditioner(state);
+        }
+      if (choice == "schur")
+        {
+          AssertThrow(composition_.saddle_points().size() == 1u,
+                      dealii::ExcMessage(
+                        "Schur preconditioning currently requires exactly "
+                        "one saddle-point relation."));
+          return composition_.schur_preconditioner(
+            composition_.saddle_points().front().multiplier, state);
+        }
+      if (choice == "augmented lagrangian" || choice == "augmented_lagrangian")
+        return composition_.augmented_lagrangian_preconditioner(
+          state, options_.augmented_lagrangian_parameter);
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "The requested preconditioner policy is not available "
+                    "for LinearAdapter."));
+      return dealii::identity_operator(operator_view);
+    }
+
+    Composition         composition_;
+    SolveFunction       solve_;
+    LinearSolverOptions options_;
+    std::size_t         coupling_count_ = 0;
   };
 } // namespace ImmersX
 

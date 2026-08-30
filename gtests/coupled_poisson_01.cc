@@ -324,6 +324,24 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   EXPECT_GT(linear.field(state, embedded.fields().solution).l2_norm(), 1.e-12);
   EXPECT_LT(residual.l2_norm(), 1.e-7);
 
+  ImmersX::LinearSolverOptions augmented_options;
+  augmented_options.solver                         = "iterative";
+  augmented_options.preconditioner                 = "augmented lagrangian";
+  augmented_options.augmented_lagrangian_parameter = 2.;
+  Adapter    augmented(MPI_COMM_WORLD, augmented_options);
+  const auto augmented_bulk = augmented.add(bulk_problem, "bulk-al");
+  const auto augmented_embedded =
+    augmented.add(embedded_problem, "embedded-al");
+  augmented.add(interaction,
+                "continuity-al",
+                augmented_bulk.fields().solution,
+                augmented_embedded.fields().solution);
+  auto augmented_state = augmented.make_state();
+  augmented.solve(augmented_state);
+  GlobalVector augmented_residual;
+  augmented.evaluate_residual(augmented_state, augmented_residual);
+  EXPECT_LT(augmented_residual.l2_norm(), 1.e-7);
+
   ImmersX::LinearSolverOptions direct_options;
   direct_options.solver = "direct";
   Adapter    direct(MPI_COMM_WORLD, direct_options);

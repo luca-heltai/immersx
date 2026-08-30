@@ -14,12 +14,21 @@
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 
+#ifdef DEAL_II_WITH_TRILINOS
+#  include <Amesos2.hpp>
+#  include <Epetra_CrsMatrix.h>
+#  include <Epetra_Export.h>
+#  include <Epetra_Map.h>
+#  include <Epetra_MultiVector.h>
+#endif
+
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -609,13 +618,8 @@ namespace ImmersX::detail
               inverse_metric->reinit(state.block(multiplier));
               for (const auto index : multiplier_partition)
                 {
-                  const auto value = metric_matrix->diag_element(index);
-                  AssertThrow(std::isfinite(value),
-                              dealii::ExcMessage(
-                                "The multiplier metric has an invalid "
-                                "diagonal entry."));
-                  (*inverse_metric)(index) =
-                    std::abs(value) > 1.e-14 ? 1. / value : 0.;
+                  const auto value         = metric_matrix->diag_element(index);
+                  (*inverse_metric)(index) = inverse_lumped_metric_value(value);
                 }
               inverse_metric->compress(dealii::VectorOperation::insert);
 
@@ -763,13 +767,8 @@ namespace ImmersX::detail
           inverse_metric.reinit(state.block(multiplier_block));
           for (const auto index : multiplier_partition)
             {
-              const auto value = metric_matrix->diag_element(index);
-              AssertThrow(std::isfinite(value),
-                          dealii::ExcMessage(
-                            "The multiplier metric has an invalid diagonal "
-                            "entry."));
-              inverse_metric(index) =
-                std::abs(value) > 1.e-14 ? 1. / value : 0.;
+              const auto value      = metric_matrix->diag_element(index);
+              inverse_metric(index) = inverse_lumped_metric_value(value);
             }
           inverse_metric.compress(dealii::VectorOperation::insert);
 
@@ -818,6 +817,213 @@ namespace ImmersX::detail
         }
 
       result.collect_sizes();
+      return result;
+    }
+
+    /** Apply an augmented-Lagrangian block factorization. */
+    Operator
+    augmented_lagrangian_preconditioner(const GlobalVectorType &state,
+                                        const double gamma = 1.e1) const
+    {
+      finalize();
+      validate_state(state);
+      AssertThrow(gamma > 0.,
+                  dealii::ExcMessage(
+                    "The augmented-Lagrangian parameter must be positive."));
+      AssertThrow(model_.saddle_points().size() == 1u,
+                  dealii::ExcMessage(
+                    "Augmented-Lagrangian preconditioning currently requires "
+                    "exactly one saddle-point relation."));
+
+      const auto &metadata         = model_.saddle_points().front();
+      const auto  multiplier_block = field_layout_.block(metadata.multiplier);
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      const auto augmented = augmented_lagrangian_matrix(state, gamma);
+
+      using size_type = typename MatrixType::size_type;
+      std::vector<size_type>        offsets;
+      std::vector<dealii::IndexSet> partitions;
+      offsets.reserve(metadata.participants.size());
+      partitions.reserve(metadata.participants.size());
+      size_type participant_size = 0;
+      for (const auto field : metadata.participants)
+        {
+          offsets.push_back(participant_size);
+          partitions.push_back(layout_.field(field).locally_owned);
+          participant_size += partitions.back().size();
+        }
+
+      dealii::IndexSet participant_partition(participant_size);
+      for (unsigned int i = 0; i < partitions.size(); ++i)
+        for (const auto index : partitions[i])
+          participant_partition.add_index(offsets[i] + index);
+      participant_partition.compress();
+
+      dealii::DynamicSparsityPattern sparsity(participant_size,
+                                              participant_size,
+                                              participant_partition);
+      for (unsigned int i = 0; i < metadata.participants.size(); ++i)
+        for (unsigned int j = 0; j < metadata.participants.size(); ++j)
+          {
+            const auto row_block =
+              field_layout_.block(metadata.participants[i]);
+            const auto col_block =
+              field_layout_.block(metadata.participants[j]);
+            const auto &block = augmented.block(row_block, col_block);
+            for (const auto row : partitions[i])
+              for (auto entry = block.begin(row); entry != block.end(row);
+                   ++entry)
+                sparsity.add(offsets[i] + row, offsets[j] + entry->column());
+          }
+
+      MatrixType participant_matrix;
+      participant_matrix.reinit(participant_partition,
+                                participant_partition,
+                                sparsity,
+                                communicator_,
+                                false);
+      for (unsigned int i = 0; i < metadata.participants.size(); ++i)
+        for (unsigned int j = 0; j < metadata.participants.size(); ++j)
+          {
+            const auto row_block =
+              field_layout_.block(metadata.participants[i]);
+            const auto col_block =
+              field_layout_.block(metadata.participants[j]);
+            const auto &block = augmented.block(row_block, col_block);
+            for (const auto row : partitions[i])
+              for (auto entry = block.begin(row); entry != block.end(row);
+                   ++entry)
+                participant_matrix.set(offsets[i] + row,
+                                       offsets[j] + entry->column(),
+                                       entry->value());
+          }
+      participant_matrix.compress(dealii::VectorOperation::insert);
+
+      FieldVectorType participant_prototype;
+      participant_prototype.reinit(participant_partition, communicator_);
+      const auto participant_inverse =
+        make_mumps_inverse(participant_matrix, participant_prototype);
+
+      const auto metric =
+        model_.multiplier_metric(metadata.multiplier, context);
+      AssertThrow(metric.has_value(),
+                  dealii::ExcMessage(
+                    "Augmented-Lagrangian preconditioning requires a "
+                    "materialized multiplier metric."));
+      const auto metric_matrix = metric->matrix();
+      const auto multiplier_partition =
+        layout_.field(metadata.multiplier).locally_owned;
+      auto inverse_metric = std::make_shared<FieldVectorType>();
+      inverse_metric->reinit(state.block(multiplier_block));
+      for (const auto index : multiplier_partition)
+        {
+          const auto value         = metric_matrix->diag_element(index);
+          (*inverse_metric)(index) = inverse_lumped_metric_value(value);
+        }
+      inverse_metric->compress(dealii::VectorOperation::insert);
+
+      struct Participant
+      {
+        unsigned int  block;
+        LocalOperator from_multiplier;
+      };
+      std::vector<Participant> participants;
+      participants.reserve(metadata.participants.size());
+      for (const auto field : metadata.participants)
+        participants.push_back(
+          {field_layout_.block(field),
+           model_.state_operator(field, metadata.multiplier, context)});
+
+      std::vector<LocalOperator> diagonal(field_layout_.n_blocks());
+      std::vector<bool> is_participant(field_layout_.n_blocks(), false);
+      for (const auto participant : participants)
+        is_participant[participant.block] = true;
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        if (block != multiplier_block && !is_participant[block])
+          {
+            const auto inverse =
+              local_preconditioner(field_layout_.field(block), state);
+            AssertThrow(inverse.has_value(),
+                        dealii::ExcMessage(
+                          "Augmented-Lagrangian preconditioning requires "
+                          "local inverses for non-participant fields."));
+            diagonal[block] = *inverse;
+          }
+
+      const auto multiplier_prototype = state.block(multiplier_block);
+      Operator   result;
+      result.reinit_range_vector = [state](GlobalVectorType &vector,
+                                           const bool        omit) {
+        vector.reinit(state, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = [diagonal,
+                      participants,
+                      offsets,
+                      partitions,
+                      participant_inverse,
+                      participant_prototype,
+                      inverse_metric,
+                      multiplier_partition,
+                      multiplier_block,
+                      multiplier_prototype,
+                      gamma](GlobalVectorType       &dst,
+                             const GlobalVectorType &src) {
+        dst = 0.;
+        FieldVectorType multiplier;
+        multiplier.reinit(multiplier_prototype);
+        multiplier = src.block(multiplier_block);
+        for (const auto index : multiplier_partition)
+          multiplier(index) *= -gamma * (*inverse_metric)(index);
+        multiplier.compress(dealii::VectorOperation::insert);
+        dst.block(multiplier_block) = multiplier;
+
+        for (unsigned int block = 0; block < diagonal.size(); ++block)
+          if (block != multiplier_block &&
+              std::none_of(participants.begin(),
+                           participants.end(),
+                           [block](const auto &participant) {
+                             return participant.block == block;
+                           }))
+            diagonal[block].vmult(dst.block(block), src.block(block));
+
+        FieldVectorType rhs;
+        rhs.reinit(participant_prototype);
+        rhs = 0.;
+        for (unsigned int i = 0; i < participants.size(); ++i)
+          {
+            FieldVectorType block_rhs;
+            block_rhs.reinit(src.block(participants[i].block));
+            block_rhs = src.block(participants[i].block);
+            participants[i].from_multiplier.vmult_add(block_rhs, multiplier);
+            for (const auto index : partitions[i])
+              rhs(offsets[i] + index) = block_rhs(index);
+          }
+        rhs.compress(dealii::VectorOperation::insert);
+
+        FieldVectorType solution;
+        solution.reinit(participant_prototype);
+        participant_inverse.vmult(solution, rhs);
+        for (unsigned int i = 0; i < participants.size(); ++i)
+          {
+            for (const auto index : partitions[i])
+              dst.block(participants[i].block)(index) =
+                solution(offsets[i] + index);
+            dst.block(participants[i].block)
+              .compress(dealii::VectorOperation::insert);
+          }
+      };
+      result.vmult_add = [apply = result.vmult](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src) {
+        GlobalVectorType contribution;
+        contribution.reinit(dst);
+        apply(contribution, src);
+        dst += contribution;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
       return result;
     }
 
@@ -1039,6 +1245,166 @@ namespace ImmersX::detail
     }
 
   private:
+    /** Return a safe inverse for the lumped multiplier metric. */
+    static double
+    inverse_lumped_metric_value(const double value)
+    {
+      AssertThrow(std::isfinite(value),
+                  dealii::ExcMessage(
+                    "The multiplier metric has an invalid diagonal entry."));
+      // Constrained multiplier rows can have a zero physical mass diagonal.
+      // Use the unit algebraic scale on those rows so the AL factor remains
+      // invertible while retaining the physical metric wherever available.
+      return std::abs(value) > 1.e-14 ? 1. / value : 1.;
+    }
+
+    LocalOperator
+    make_mumps_inverse(const MatrixType      &matrix,
+                       const FieldVectorType &prototype) const
+    {
+#ifdef DEAL_II_WITH_TRILINOS
+      AssertThrow(matrix.m() <= static_cast<typename MatrixType::size_type>(
+                                  std::numeric_limits<int>::max()),
+                  dealii::ExcMessage(
+                    "Amesos2 MUMPS requires a 32-bit global matrix "
+                    "index range."));
+
+      const auto      &epetra_matrix = matrix.trilinos_matrix();
+      const auto      &row_map       = epetra_matrix.RowMap();
+      const auto      &column_map    = epetra_matrix.ColMap();
+      std::vector<int> owned_indices;
+      owned_indices.reserve(row_map.NumMyElements());
+      for (int local_row = 0; local_row < row_map.NumMyElements(); ++local_row)
+        owned_indices.push_back(static_cast<int>(row_map.GID64(local_row)));
+
+      const Epetra_Map int_map(static_cast<int>(matrix.m()),
+                               static_cast<int>(owned_indices.size()),
+                               owned_indices.data(),
+                               0,
+                               epetra_matrix.Comm());
+      auto int_matrix = std::make_shared<Epetra_CrsMatrix>(Copy, int_map, 0);
+      for (int local_row = 0; local_row < row_map.NumMyElements(); ++local_row)
+        {
+          int     n_entries = 0;
+          double *values    = nullptr;
+          int    *columns   = nullptr;
+          AssertThrow(epetra_matrix.ExtractMyRowView(
+                        local_row, n_entries, values, columns) == 0,
+                      dealii::ExcMessage(
+                        "Unable to inspect the Epetra matrix row."));
+          std::vector<int>    global_columns(n_entries);
+          std::vector<double> global_values(values, values + n_entries);
+          for (int entry = 0; entry < n_entries; ++entry)
+            global_columns[entry] =
+              static_cast<int>(column_map.GID64(columns[entry]));
+          AssertThrow(int_matrix->InsertGlobalValues(owned_indices[local_row],
+                                                     n_entries,
+                                                     global_values.data(),
+                                                     global_columns.data()) ==
+                        0,
+                      dealii::ExcMessage(
+                        "Unable to convert the matrix to 32-bit Epetra global "
+                        "indices."));
+        }
+      AssertThrow(int_matrix->FillComplete(int_map, int_map) == 0,
+                  dealii::ExcMessage(
+                    "Unable to complete the Epetra matrix for Amesos2 "
+                    "MUMPS."));
+
+      const Epetra_Map solver_map(static_cast<int>(matrix.m()),
+                                  0,
+                                  epetra_matrix.Comm());
+      Epetra_Export    exporter(int_map, solver_map);
+      auto             solver_matrix =
+        std::make_shared<Epetra_CrsMatrix>(Copy, solver_map, 0);
+      AssertThrow(solver_matrix->Export(*int_matrix, exporter, Insert) == 0,
+                  dealii::ExcMessage(
+                    "Unable to redistribute the Epetra matrix for Amesos2 "
+                    "MUMPS."));
+      AssertThrow(solver_matrix->FillComplete(solver_map, solver_map) == 0,
+                  dealii::ExcMessage(
+                    "Unable to complete the contiguous Epetra matrix for "
+                    "Amesos2 MUMPS."));
+
+      auto rhs      = Teuchos::rcp(new Epetra_MultiVector(solver_map, 1));
+      auto solution = Teuchos::rcp(new Epetra_MultiVector(solver_map, 1));
+      auto solver   = Amesos2::create<Epetra_CrsMatrix, Epetra_MultiVector>(
+        "MUMPS", Teuchos::rcp(solver_matrix.get(), false), solution, rhs);
+      solver->symbolicFactorization();
+      solver->numericFactorization();
+
+      const auto    communicator = matrix.get_mpi_communicator();
+      const int     global_size  = static_cast<int>(matrix.m());
+      LocalOperator result;
+      result.reinit_range_vector = [prototype](FieldVectorType &vector,
+                                               const bool       omit) {
+        vector.reinit(prototype, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = [rhs,
+                      solution,
+                      solver,
+                      solver_map,
+                      communicator,
+                      global_size](FieldVectorType       &dst,
+                                   const FieldVectorType &src) {
+        std::vector<double> global_rhs(global_size, 0.);
+        const auto         &src_epetra = src.trilinos_vector();
+        const auto         &src_map    = src_epetra.Map();
+        for (int local = 0; local < src_map.NumMyElements(); ++local)
+          global_rhs[static_cast<std::size_t>(src_map.GID64(local))] =
+            src_epetra[0][local];
+        AssertThrow(MPI_Allreduce(MPI_IN_PLACE,
+                                  global_rhs.data(),
+                                  global_size,
+                                  MPI_DOUBLE,
+                                  MPI_SUM,
+                                  communicator) == MPI_SUCCESS,
+                    dealii::ExcMessage(
+                      "Unable to collect the MUMPS preconditioner right-hand "
+                                     "side."));
+        for (int local = 0; local < solver_map.NumMyElements(); ++local)
+          (*rhs)[0][local] = global_rhs[solver_map.GID(local)];
+        solver->solve(solution.get(), rhs.get());
+
+        std::vector<double> global_solution(global_size, 0.);
+        for (int local = 0; local < solver_map.NumMyElements(); ++local)
+          global_solution[solver_map.GID(local)] = (*solution)[0][local];
+        AssertThrow(MPI_Allreduce(MPI_IN_PLACE,
+                                  global_solution.data(),
+                                  global_size,
+                                  MPI_DOUBLE,
+                                  MPI_SUM,
+                                  communicator) == MPI_SUCCESS,
+                    dealii::ExcMessage(
+                      "Unable to collect the MUMPS preconditioner solution."));
+        const auto &dst_epetra = dst.trilinos_vector();
+        const auto &dst_map    = dst_epetra.Map();
+        for (int local = 0; local < dst_map.NumMyElements(); ++local)
+          dst[dst_map.GID64(local)] =
+            global_solution[static_cast<std::size_t>(dst_map.GID64(local))];
+        dst.compress(dealii::VectorOperation::insert);
+      };
+      result.vmult_add = [apply = result.vmult](FieldVectorType       &dst,
+                                                const FieldVectorType &src) {
+        FieldVectorType contribution;
+        contribution.reinit(dst);
+        apply(contribution, src);
+        dst += contribution;
+      };
+      result.Tvmult     = result.vmult;
+      result.Tvmult_add = result.vmult_add;
+      return result;
+#else
+      (void)matrix;
+      (void)prototype;
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "The MUMPS preconditioner requires Trilinos."));
+      return {};
+#endif
+    }
+
     MatrixType
     add_matrices(const MatrixType       &base,
                  const MatrixType       &increment,
