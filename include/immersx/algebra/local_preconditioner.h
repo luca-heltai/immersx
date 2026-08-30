@@ -68,6 +68,7 @@ namespace ImmersX
       : std::true_type
     {};
 
+    /** @cond INTERNAL */
     template <typename VectorType, typename PreconditionerType>
     std::function<void(VectorType &, bool)>
     make_range_reinitializer(
@@ -107,6 +108,7 @@ namespace ImmersX
       else
         return fallback;
     }
+    /** @endcond */
   } // namespace detail
 
   /**
