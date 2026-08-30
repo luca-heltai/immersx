@@ -699,18 +699,15 @@ namespace ImmersX
     setup();
     set_initial_conditions();
 #ifdef DEAL_II_WITH_SUNDIALS
-    if (dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1u)
-      {
-        run_with_ida();
-        time_step_number_storage =
-          parameters.number_of_steps > 0 ?
-            parameters.number_of_steps :
-            static_cast<unsigned int>(
-              std::ceil((parameters.final_time - parameters.initial_time) /
-                        parameters.time_step));
-        current_time_storage = parameters.final_time;
-        return;
-      }
+    run_with_ida();
+    time_step_number_storage =
+      parameters.number_of_steps > 0 ?
+        parameters.number_of_steps :
+        static_cast<unsigned int>(
+          std::ceil((parameters.final_time - parameters.initial_time) /
+                    parameters.time_step));
+    current_time_storage = parameters.final_time;
+    return;
 #endif
 
     unsigned int n_steps = parameters.number_of_steps;
