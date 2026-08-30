@@ -424,10 +424,12 @@ namespace ImmersX
       for (std::size_t i = 1; i < operators.size(); ++i)
         result.view += operators[i].view;
       result.materialize = [operators]() {
-        auto matrix = operators.front().matrix();
+        return detail::sum_matrices(operators);
+      };
+      result.materialize_into = [operators](MatrixType &destination) {
+        operators.front().materialize_into_matrix(destination);
         for (std::size_t i = 1; i < operators.size(); ++i)
-          matrix->add(1., *operators[i].matrix());
-        return matrix;
+          destination.add(1., *operators[i].matrix());
       };
       return result;
     }
