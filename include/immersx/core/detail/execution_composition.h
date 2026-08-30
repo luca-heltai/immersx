@@ -1437,52 +1437,82 @@ namespace ImmersX::detail
                                                      field_layout_.field(j),
                                                      context);
 
-      auto apply = [diagonal,
-                    off_diagonal,
-                    lower](GlobalVectorType &dst, const GlobalVectorType &src) {
-        GlobalVectorType rhs;
-        rhs.reinit(src);
-        rhs                  = src;
-        const unsigned int n = diagonal.size();
-        if (lower)
-          for (unsigned int i = 0; i < n; ++i)
-            {
-              auto value = rhs.block(i);
-              value *= -1.;
-              for (unsigned int j = 0; j < i; ++j)
-                off_diagonal[i][j].vmult_add(value, dst.block(j));
-              value *= -1.;
-              diagonal[i].vmult(dst.block(i), value);
-            }
-        else
-          for (int i = static_cast<int>(n) - 1; i >= 0; --i)
-            {
-              auto value = rhs.block(i);
-              value *= -1.;
-              for (unsigned int j = i + 1; j < n; ++j)
-                off_diagonal[i][j].vmult_add(value, dst.block(j));
-              value *= -1.;
-              diagonal[i].vmult(dst.block(i), value);
-            }
-      };
+      auto substitution =
+        [diagonal, off_diagonal, lower](GlobalVectorType       &dst,
+                                        const GlobalVectorType &src,
+                                        const bool              transpose) {
+          const unsigned int n       = diagonal.size();
+          const bool         forward = lower != transpose;
+          if (forward)
+            for (unsigned int i = 0; i < n; ++i)
+              {
+                dst.block(i) = src.block(i);
+                dst.block(i) *= -1.;
+                for (unsigned int j = 0; j < i; ++j)
+                  if (transpose)
+                    off_diagonal[j][i].Tvmult_add(dst.block(i), dst.block(j));
+                  else
+                    off_diagonal[i][j].vmult_add(dst.block(i), dst.block(j));
+                dst.block(i) *= -1.;
+                if (transpose)
+                  diagonal[i].Tvmult(dst.block(i), dst.block(i));
+                else
+                  diagonal[i].vmult(dst.block(i), dst.block(i));
+              }
+          else
+            for (int i = static_cast<int>(n) - 1; i >= 0; --i)
+              {
+                dst.block(i) = src.block(i);
+                dst.block(i) *= -1.;
+                for (unsigned int j = i + 1; j < n; ++j)
+                  if (transpose)
+                    off_diagonal[j][i].Tvmult_add(dst.block(i), dst.block(j));
+                  else
+                    off_diagonal[i][j].vmult_add(dst.block(i), dst.block(j));
+                dst.block(i) *= -1.;
+                if (transpose)
+                  diagonal[i].Tvmult(dst.block(i), dst.block(i));
+                else
+                  diagonal[i].vmult(dst.block(i), dst.block(i));
+              }
+        };
+      auto vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
 
-      Operator result;
-      result.reinit_range_vector = [state](GlobalVectorType &vector,
-                                           const bool        omit) {
-        vector.reinit(state, omit);
-      };
+      Operator   result;
+      const auto partitions   = field_layout_.block_partitions();
+      const auto communicator = communicator_;
+      result.reinit_range_vector =
+        [partitions, communicator](GlobalVectorType &vector, const bool) {
+          vector.reinit(partitions, communicator);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = apply;
-      result.vmult_add            = [apply](GlobalVectorType       &dst,
-                                 const GlobalVectorType &src) {
-        GlobalVectorType contribution;
-        contribution.reinit(dst);
-        contribution = 0.;
-        apply(contribution, src);
-        dst += contribution;
+      result.vmult                = [substitution](GlobalVectorType       &dst,
+                                    const GlobalVectorType &src) {
+        substitution(dst, src, false);
       };
-      result.Tvmult     = apply;
-      result.Tvmult_add = result.vmult_add;
+      result.vmult_add = [substitution,
+                          vector_memory](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        substitution(*contribution, src, false);
+        dst += *contribution;
+      };
+      result.Tvmult = [substitution](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+        substitution(dst, src, true);
+      };
+      result.Tvmult_add = [substitution,
+                           vector_memory](GlobalVectorType       &dst,
+                                          const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        substitution(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 
