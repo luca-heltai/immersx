@@ -311,20 +311,30 @@ TEST(ContributorCore, TermsAreScopedByContributorPrefix)
 TEST(ContributorCore, RegistersSemanticSaddlePointMetadata)
 {
   using Vector = dealii::Vector<double>;
-  using Model  = ImmersX::SemiDiscreteModel<Vector>;
+  using Matrix = dealii::SparseMatrix<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
 
   ImmersX::StateLayout layout;
   dealii::IndexSet     owned(1);
   owned.add_index(0);
   owned.compress();
-  Model                                model;
-  ImmersX::SemidiscreteBuilder<Vector> builder(layout, model);
+  Model                                        model;
+  ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto velocity = builder.differential_field("velocity", owned);
   const auto pressure = builder.algebraic_field("pressure", owned);
+  dealii::SparsityPattern sparsity(1, 1);
+  sparsity.add(0, 0);
+  sparsity.compress();
+  Matrix metric;
+  metric.reinit(sparsity);
+  metric.set(0, 0, 2.);
 
-  builder.saddle_point(pressure, {velocity});
+  builder.saddle_point(pressure, {velocity}, builder.matrix_operator(metric));
   ASSERT_EQ(model.saddle_points().size(), 1u);
   EXPECT_EQ(model.saddle_points().front().multiplier, pressure);
   ASSERT_EQ(model.saddle_points().front().participants.size(), 1u);
   EXPECT_EQ(model.saddle_points().front().participants.front(), velocity);
+  ASSERT_TRUE(model.saddle_points().front().multiplier_metric.has_value());
+  EXPECT_EQ(model.saddle_points().front().multiplier_metric->source_matrix(),
+            &metric);
 }

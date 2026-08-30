@@ -44,11 +44,14 @@ namespace ImmersX
   class SemidiscreteBuilder;
 
   /** Semantic description of one multiplier/primal saddle-point relation. */
+  template <typename VectorType, typename MatrixType>
   struct SaddlePointMetadata
   {
-    FieldId              multiplier;
-    std::vector<FieldId> participants;
-    bool                 has_multiplier_metric = false;
+    using MatrixOperator = MaterializedOperator<VectorType, MatrixType>;
+
+    FieldId                       multiplier;
+    std::vector<FieldId>          participants;
+    std::optional<MatrixOperator> multiplier_metric;
   };
 
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
@@ -65,6 +68,8 @@ namespace ImmersX
     using OperatorFactory = std::function<Operator(const Context &)>;
     using MatrixOperatorFactory =
       std::function<MatrixOperator(const Context &)>;
+    using SaddlePointMetadata =
+      ImmersX::SaddlePointMetadata<VectorType, MatrixType>;
     using VectorReinitializer = std::function<void(VectorType &, bool)>;
     using PreconditionerFactory =
       std::function<Operator(const MatrixType &, const VectorReinitializer &)>;

@@ -188,12 +188,13 @@ namespace ImmersX::detail
   class ExecutionComposition
   {
   public:
-    using Model           = SemiDiscreteModel<FieldVectorType>;
-    using Builder         = SemidiscreteBuilder<FieldVectorType>;
-    using Operator        = dealii::LinearOperator<GlobalVectorType>;
-    using LocalOperator   = typename Model::Operator;
-    using MatrixType      = typename Model::MatrixOperator::Matrix;
-    using BlockMatrixType = ImmersXLA::MPI::BlockSparseMatrix;
+    using Model               = SemiDiscreteModel<FieldVectorType>;
+    using Builder             = SemidiscreteBuilder<FieldVectorType>;
+    using Operator            = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator       = typename Model::Operator;
+    using MatrixType          = typename Model::MatrixOperator::Matrix;
+    using SaddlePointMetadata = typename Model::SaddlePointMetadata;
+    using BlockMatrixType     = ImmersXLA::MPI::BlockSparseMatrix;
 
     explicit ExecutionComposition(const MPI_Comm communicator)
       : communicator_(communicator)

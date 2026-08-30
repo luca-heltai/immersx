@@ -62,11 +62,12 @@ namespace ImmersX
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
-    using Operator        = dealii::LinearOperator<GlobalVectorType>;
-    using LocalOperator   = dealii::LinearOperator<FieldVectorType>;
-    using MatrixType      = typename Composition::MatrixType;
-    using BlockMatrixType = typename Composition::BlockMatrixType;
-    using SolveFunction   = std::function<
+    using Operator            = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
+    using MatrixType          = typename Composition::MatrixType;
+    using BlockMatrixType     = typename Composition::BlockMatrixType;
+    using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
+    using SolveFunction       = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
     LinearAdapter(const MPI_Comm communicator, SolveFunction solve = {})
