@@ -110,9 +110,10 @@ namespace
     value_operator.reinit_range_vector(values, false);
     value_operator.vmult(values, lambda.coefficients());
     std::array<decltype(plan.linearize(lambda.coefficients())), 3>
-      gradient_operators = {plan.gradient_linearize(lambda.coefficients(), 0),
-                            plan.gradient_linearize(lambda.coefficients(), 1),
-                            plan.gradient_linearize(lambda.coefficients(), 2)};
+      gradient_operators = {
+        {plan.gradient_linearize(lambda.coefficients(), 0),
+         plan.gradient_linearize(lambda.coefficients(), 1),
+         plan.gradient_linearize(lambda.coefficients(), 2)}};
     for (unsigned int component = 0; component < 3; ++component)
       {
         gradient_operators[component].reinit_range_vector(

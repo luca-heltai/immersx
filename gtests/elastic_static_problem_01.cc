@@ -632,8 +632,8 @@ TEST(ElasticStaticProblem, MaterialSpecificRHS)
       {
         ASSERT_LT(cell->material_id(), 2U);
         const std::array<double, 2> rhs = cell->material_id() == 0 ?
-                                            std::array<double, 2>{1., 0.} :
-                                            std::array<double, 2>{0., 2.};
+                                            std::array<double, 2>{{1., 0.}} :
+                                            std::array<double, 2>{{0., 2.}};
         fe_values.reinit(cell);
         cell->get_dof_indices(local_dof_indices);
         dealii::Vector<double> cell_rhs(local_dof_indices.size());
