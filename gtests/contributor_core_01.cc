@@ -334,7 +334,11 @@ TEST(ContributorCore, RegistersSemanticSaddlePointMetadata)
   EXPECT_EQ(model.saddle_points().front().multiplier, pressure);
   ASSERT_EQ(model.saddle_points().front().participants.size(), 1u);
   EXPECT_EQ(model.saddle_points().front().participants.front(), velocity);
-  ASSERT_TRUE(model.saddle_points().front().multiplier_metric.has_value());
-  EXPECT_EQ(model.saddle_points().front().multiplier_metric->source_matrix(),
-            &metric);
+  ASSERT_TRUE(
+    model.has_multiplier_metric(model.saddle_points().front().multiplier));
+  ImmersX::StateView<Vector>               state_view(layout, 0.);
+  const ImmersX::EvaluationContext<Vector> context(0., state_view);
+  const auto registered_metric = model.multiplier_metric(pressure, context);
+  ASSERT_TRUE(registered_metric.has_value());
+  EXPECT_EQ(registered_metric->source_matrix(), &metric);
 }

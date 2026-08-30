@@ -43,15 +43,16 @@ namespace ImmersX
   template <typename VectorType, typename MatrixType>
   class SemidiscreteBuilder;
 
-  /** Semantic description of one multiplier/primal saddle-point relation. */
+  /** Semantic description of one multiplier/primal saddle-point relation.
+   * The physical multiplier metric is state-dependent model data and is kept
+   * in the model's metric-factory registry, rather than duplicated here. */
   template <typename VectorType, typename MatrixType>
   struct SaddlePointMetadata
   {
     using MatrixOperator = MaterializedOperator<VectorType, MatrixType>;
 
-    FieldId                       multiplier;
-    std::vector<FieldId>          participants;
-    std::optional<MatrixOperator> multiplier_metric;
+    FieldId              multiplier;
+    std::vector<FieldId> participants;
   };
 
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */

@@ -13,6 +13,9 @@
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/solver_gmres.h>
+#ifdef DEAL_II_WITH_MUMPS
+#  include <deal.II/lac/sparse_direct.h>
+#endif
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
@@ -31,7 +34,8 @@ namespace ImmersX
   {
     automatic,
     iterative,
-    direct
+    direct,
+    mumps
   };
 
   enum class LinearPreconditioner
@@ -96,7 +100,12 @@ namespace ImmersX
     set_solver_options(const LinearSolverOptions &options)
     {
       options_ = options;
-      direct_factorization_.reset();
+      direct_matrix_.reset();
+      direct_solver_.reset();
+      direct_control_.reset();
+#ifdef DEAL_II_WITH_MUMPS
+      mumps_solver_.reset();
+#endif
     }
 
     const LinearSolverOptions &
@@ -105,21 +114,38 @@ namespace ImmersX
       return options_;
     }
 
+    bool
+    has_multiplier_metric(const FieldId multiplier) const
+    {
+      return composition_.model().has_multiplier_metric(multiplier);
+    }
+
     /** Factorize the current linearization for subsequent direct solves. */
     void
     setup_direct(const GlobalVectorType &state) const
     {
       direct_matrix_ = std::make_shared<MatrixType>();
       composition_.monolithic_matrix(state, *direct_matrix_);
-      dealii::SolverControl control(0, options_.tolerance);
-#if defined(DEAL_II_WITH_TRILINOS) && defined(DEAL_II_TRILINOS_WITH_EPETRA)
-      const auto direct_data =
-        ImmersXLA::SolverDirect::AdditionalData(false, "Amesos_Mumps");
-      direct_solver_ =
-        std::make_unique<ImmersXLA::SolverDirect>(control, direct_data);
+      direct_solver_.reset();
+      direct_control_ =
+        std::make_unique<dealii::SolverControl>(0, options_.tolerance);
+#ifdef DEAL_II_WITH_MUMPS
+      if (options_.solver == LinearSolver::mumps)
+        {
+          mumps_solver_ = std::make_unique<dealii::SparseDirectMUMPS>(
+            dealii::SparseDirectMUMPS::AdditionalData(),
+            composition_.communicator());
+          mumps_solver_->initialize(*direct_matrix_);
+          return;
+        }
 #else
-      direct_solver_ = std::make_unique<ImmersXLA::SolverDirect>(control);
+      AssertThrow(options_.solver != LinearSolver::mumps,
+                  dealii::ExcMessage(
+                    "LinearAdapter solver 'mumps' requires deal.II to be "
+                    "configured with MUMPS."));
 #endif
+      direct_solver_ =
+        std::make_unique<ImmersXLA::SolverDirect>(*direct_control_);
       direct_solver_->initialize(*direct_matrix_);
     }
 
@@ -318,8 +344,22 @@ namespace ImmersX
     void
     solve_direct(GlobalVectorType &state) const
     {
-      if (!direct_solver_)
-        setup_direct(state);
+      setup_direct(state);
+      solve_with_current_direct(state);
+    }
+
+    /** Reuse an explicitly prepared direct factorization. */
+    void
+    solve_with_current_direct(GlobalVectorType &state) const
+    {
+      bool has_factorization = static_cast<bool>(direct_solver_);
+#ifdef DEAL_II_WITH_MUMPS
+      has_factorization = has_factorization || static_cast<bool>(mumps_solver_);
+#endif
+      AssertThrow(
+        has_factorization,
+        dealii::ExcMessage(
+          "No direct factorization is available; call setup_direct first."));
 
       const auto &model = composition_.model();
       AssertThrow(!model.has_derivative_terms(),
@@ -334,14 +374,20 @@ namespace ImmersX
       auto rhs      = composition_.pack(residual);
       auto result   = composition_.make_state();
       auto solution = composition_.pack(result);
-      direct_solver_->solve(solution, rhs);
+#ifdef DEAL_II_WITH_MUMPS
+      if (mumps_solver_)
+        mumps_solver_->vmult(solution, rhs);
+      else
+#endif
+        direct_solver_->solve(solution, rhs);
       composition_.unpack(solution, state);
     }
 
     void
     solve(GlobalVectorType &state) const
     {
-      if (options_.solver == LinearSolver::direct)
+      if (options_.solver == LinearSolver::direct ||
+          options_.solver == LinearSolver::mumps)
         {
           solve_direct(state);
           return;
@@ -349,8 +395,8 @@ namespace ImmersX
       AssertThrow(options_.solver == LinearSolver::automatic ||
                     options_.solver == LinearSolver::iterative,
                   dealii::ExcMessage(
-                    "LinearAdapter solver must be auto, iterative, or "
-                    "direct."));
+                    "LinearAdapter solver must be auto, iterative, direct, "
+                    "or mumps."));
 
       const auto &model = composition_.model();
       AssertThrow(!model.has_derivative_terms(),
@@ -372,7 +418,8 @@ namespace ImmersX
           const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
                      data(30, false, false);
           const bool flexible =
-            options_.preconditioner == LinearPreconditioner::augmented_lagrangian ||
+            options_.preconditioner ==
+              LinearPreconditioner::augmented_lagrangian ||
             options_.preconditioner == LinearPreconditioner::block_triangular ||
             options_.preconditioner == LinearPreconditioner::schur ||
             (options_.preconditioner == LinearPreconditioner::automatic &&
@@ -448,8 +495,12 @@ namespace ImmersX
     SolveFunction                                    solve_;
     LinearSolverOptions                              options_;
     mutable std::shared_ptr<MatrixType>              direct_matrix_;
+    mutable std::unique_ptr<dealii::SolverControl>   direct_control_;
     mutable std::unique_ptr<ImmersXLA::SolverDirect> direct_solver_;
-    std::size_t                                      coupling_count_ = 0;
+#ifdef DEAL_II_WITH_MUMPS
+    mutable std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;
+#endif
+    std::size_t coupling_count_ = 0;
   };
 } // namespace ImmersX
 
