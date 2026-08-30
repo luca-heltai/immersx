@@ -14,35 +14,44 @@
 #include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/solver_gmres.h>
 
-#ifdef DEAL_II_WITH_TRILINOS
-#  include <Amesos2.hpp>
-#  include <Epetra_CrsMatrix.h>
-#  include <Epetra_Export.h>
-#  include <Epetra_Map.h>
-#  include <Epetra_MultiVector.h>
-#endif
-
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
 #include <functional>
-#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
 namespace ImmersX
 {
+  enum class LinearSolver
+  {
+    automatic,
+    iterative,
+    direct
+  };
+
+  enum class LinearPreconditioner
+  {
+    automatic,
+    none,
+    block_diagonal,
+    block_triangular,
+    schur,
+    augmented_lagrangian
+  };
+
   /** Solver-neutral policy knobs for the standard LinearAdapter path. */
   struct LinearSolverOptions
   {
-    std::string  solver                         = "auto";
-    std::string  preconditioner                 = "auto";
-    unsigned int maximum_iterations             = 1000;
-    double       tolerance                      = 1.e-12;
-    double       augmented_lagrangian_parameter = 1.e1;
+    LinearSolver         solver             = LinearSolver::automatic;
+    LinearPreconditioner preconditioner     = LinearPreconditioner::automatic;
+    unsigned int         maximum_iterations = 1000;
+    double               tolerance          = 1.e-12;
+    double               augmented_lagrangian_parameter = 1.e1;
   };
 
   /**
@@ -94,6 +103,24 @@ namespace ImmersX
     solver_options() const
     {
       return options_;
+    }
+
+    /** Factorize the current linearization for subsequent direct solves. */
+    void
+    setup_direct(const GlobalVectorType &state) const
+    {
+      direct_matrix_ = std::make_shared<MatrixType>();
+      composition_.monolithic_matrix(state, *direct_matrix_);
+      dealii::SolverControl control(0, options_.tolerance);
+#if defined(DEAL_II_WITH_TRILINOS) && defined(DEAL_II_TRILINOS_WITH_EPETRA)
+      const auto direct_data =
+        ImmersXLA::SolverDirect::AdditionalData(false, "Amesos_Mumps");
+      direct_solver_ =
+        std::make_unique<ImmersXLA::SolverDirect>(control, direct_data);
+#else
+      direct_solver_ = std::make_unique<ImmersXLA::SolverDirect>(control);
+#endif
+      direct_solver_->initialize(*direct_matrix_);
     }
 
     template <typename Problem, typename... Arguments>
@@ -291,6 +318,9 @@ namespace ImmersX
     void
     solve_direct(GlobalVectorType &state) const
     {
+      if (!direct_solver_)
+        setup_direct(state);
+
       const auto &model = composition_.model();
       AssertThrow(!model.has_derivative_terms(),
                   dealii::ExcMessage(
@@ -301,161 +331,23 @@ namespace ImmersX
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
 
-      auto matrix   = composition_.monolithic_matrix(state);
       auto rhs      = composition_.pack(residual);
       auto result   = composition_.make_state();
       auto solution = composition_.pack(result);
-      if (dealii::Utilities::MPI::n_mpi_processes(
-            matrix.get_mpi_communicator()) > 1)
-        {
-          AssertThrow(matrix.m() <= static_cast<typename MatrixType::size_type>(
-                                      std::numeric_limits<int>::max()),
-                      dealii::ExcMessage(
-                        "Amesos2 MUMPS requires a 32-bit global matrix "
-                        "index range."));
-
-          const auto      &epetra_matrix = matrix.trilinos_matrix();
-          const auto      &row_map       = epetra_matrix.RowMap();
-          const auto      &column_map    = epetra_matrix.ColMap();
-          std::vector<int> owned_indices;
-          owned_indices.reserve(row_map.NumMyElements());
-          for (int local_row = 0; local_row < row_map.NumMyElements();
-               ++local_row)
-            owned_indices.push_back(static_cast<int>(row_map.GID64(local_row)));
-
-          const Epetra_Map int_map(static_cast<int>(matrix.m()),
-                                   static_cast<int>(owned_indices.size()),
-                                   owned_indices.data(),
-                                   0,
-                                   matrix.trilinos_matrix().Comm());
-          Epetra_CrsMatrix int_matrix(Copy, int_map, 0);
-          for (int local_row = 0; local_row < row_map.NumMyElements();
-               ++local_row)
-            {
-              int     n_entries = 0;
-              double *values    = nullptr;
-              int    *columns   = nullptr;
-              AssertThrow(epetra_matrix.ExtractMyRowView(
-                            local_row, n_entries, values, columns) == 0,
-                          dealii::ExcMessage(
-                            "Unable to inspect the Epetra matrix row."));
-              std::vector<int>    global_columns(n_entries);
-              std::vector<double> global_values(values, values + n_entries);
-              for (int entry = 0; entry < n_entries; ++entry)
-                global_columns[entry] =
-                  static_cast<int>(column_map.GID64(columns[entry]));
-              AssertThrow(
-                int_matrix.InsertGlobalValues(owned_indices[local_row],
-                                              n_entries,
-                                              global_values.data(),
-                                              global_columns.data()) == 0,
-                dealii::ExcMessage(
-                  "Unable to convert the matrix to 32-bit Epetra "
-                  "global indices."));
-            }
-          AssertThrow(int_matrix.FillComplete(int_map, int_map) == 0,
-                      dealii::ExcMessage(
-                        "Unable to complete the 32-bit Epetra matrix for "
-                        "Amesos2 MUMPS."));
-          const Epetra_Map solver_map(static_cast<int>(matrix.m()),
-                                      0,
-                                      matrix.trilinos_matrix().Comm());
-          Epetra_Export    exporter(int_map, solver_map);
-          Epetra_CrsMatrix solver_matrix(Copy, solver_map, 0);
-          AssertThrow(solver_matrix.Export(int_matrix, exporter, Insert) == 0,
-                      dealii::ExcMessage(
-                        "Unable to redistribute the Epetra matrix for "
-                        "Amesos2 MUMPS."));
-          AssertThrow(solver_matrix.FillComplete(solver_map, solver_map) == 0,
-                      dealii::ExcMessage(
-                        "Unable to complete the contiguous Epetra matrix for "
-                        "Amesos2 MUMPS."));
-
-          std::vector<double> global_rhs(matrix.m(), 0.);
-          const auto         &rhs_epetra = rhs.trilinos_vector();
-          const auto         &rhs_map    = rhs_epetra.Map();
-          for (int local = 0; local < rhs_map.NumMyElements(); ++local)
-            global_rhs[static_cast<std::size_t>(rhs_map.GID64(local))] =
-              rhs_epetra[0][local];
-          AssertThrow(
-            MPI_Allreduce(MPI_IN_PLACE,
-                          global_rhs.data(),
-                          static_cast<int>(global_rhs.size()),
-                          MPI_DOUBLE,
-                          MPI_SUM,
-                          matrix.get_mpi_communicator()) == MPI_SUCCESS,
-            dealii::ExcMessage(
-              "Unable to redistribute the direct-solver right-hand side."));
-
-          Epetra_MultiVector int_rhs(solver_map, 1);
-          Epetra_MultiVector int_solution(solver_map, 1);
-          for (int local_row = 0; local_row < solver_map.NumMyElements();
-               ++local_row)
-            {
-              const int row         = solver_map.GID(local_row);
-              int_rhs[0][local_row] = global_rhs[row];
-            }
-          auto int_matrix_rcp =
-            Teuchos::rcp(new Epetra_CrsMatrix(solver_matrix));
-          auto int_rhs_rcp = Teuchos::rcp(new Epetra_MultiVector(int_rhs));
-          auto int_solution_rcp =
-            Teuchos::rcp(new Epetra_MultiVector(int_solution));
-          auto mumps_solver =
-            Amesos2::create<Epetra_CrsMatrix, Epetra_MultiVector>(
-              "MUMPS", int_matrix_rcp, int_solution_rcp, int_rhs_rcp);
-          mumps_solver->symbolicFactorization();
-          mumps_solver->numericFactorization();
-          mumps_solver->solve();
-          std::vector<double> global_solution(matrix.m(), 0.);
-          for (int local_row = 0; local_row < solver_map.NumMyElements();
-               ++local_row)
-            global_solution[solver_map.GID(local_row)] =
-              (*int_solution_rcp)[0][local_row];
-          AssertThrow(MPI_Allreduce(MPI_IN_PLACE,
-                                    global_solution.data(),
-                                    static_cast<int>(global_solution.size()),
-                                    MPI_DOUBLE,
-                                    MPI_SUM,
-                                    matrix.get_mpi_communicator()) ==
-                        MPI_SUCCESS,
-                      dealii::ExcMessage(
-                        "Unable to collect the direct-solver solution."));
-          const auto &solution_epetra = solution.trilinos_vector();
-          const auto &solution_map    = solution_epetra.Map();
-          for (int local = 0; local < solution_map.NumMyElements(); ++local)
-            solution[solution_map.GID64(local)] =
-              global_solution[solution_map.GID64(local)];
-          solution.compress(dealii::VectorOperation::insert);
-        }
-      else
-        {
-          if (!direct_factorization_ ||
-              !matrices_equal(*direct_factorization_->matrix, matrix))
-            {
-              auto factorization    = std::make_unique<DirectFactorization>();
-              factorization->matrix = detail::clone_matrix(matrix);
-              auto solver = std::make_shared<ImmersXLA::SolverDirect>();
-              solver->initialize(*factorization->matrix);
-              factorization->solve = [solver](const FieldVectorType &source,
-                                              FieldVectorType &destination) {
-                solver->solve(destination, source);
-              };
-              direct_factorization_ = std::move(factorization);
-            }
-          direct_factorization_->solve(rhs, solution);
-        }
+      direct_solver_->solve(solution, rhs);
       composition_.unpack(solution, state);
     }
 
     void
     solve(GlobalVectorType &state) const
     {
-      if (options_.solver == "direct")
+      if (options_.solver == LinearSolver::direct)
         {
           solve_direct(state);
           return;
         }
-      AssertThrow(options_.solver == "auto" || options_.solver == "iterative",
+      AssertThrow(options_.solver == LinearSolver::automatic ||
+                    options_.solver == LinearSolver::iterative,
                   dealii::ExcMessage(
                     "LinearAdapter solver must be auto, iterative, or "
                     "direct."));
@@ -480,11 +372,10 @@ namespace ImmersX
           const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
                      data(30, false, false);
           const bool flexible =
-            options_.preconditioner == "augmented lagrangian" ||
-            options_.preconditioner == "augmented_lagrangian" ||
-            options_.preconditioner == "block triangular" ||
-            options_.preconditioner == "schur" ||
-            (options_.preconditioner == "auto" &&
+            options_.preconditioner == LinearPreconditioner::augmented_lagrangian ||
+            options_.preconditioner == LinearPreconditioner::block_triangular ||
+            options_.preconditioner == LinearPreconditioner::schur ||
+            (options_.preconditioner == LinearPreconditioner::automatic &&
              (composition_.n_fields() > 1 ||
               !composition_.saddle_points().empty()));
           if (flexible)
@@ -504,53 +395,21 @@ namespace ImmersX
     }
 
   private:
-    struct DirectFactorization
-    {
-      std::unique_ptr<MatrixType>                                     matrix;
-      std::function<void(const FieldVectorType &, FieldVectorType &)> solve;
-    };
-
-    static bool
-    matrices_equal(const MatrixType &first, const MatrixType &second)
-    {
-      if (first.m() != second.m() || first.n() != second.n() ||
-          first.locally_owned_range_indices() !=
-            second.locally_owned_range_indices())
-        return false;
-
-      for (const auto row : first.locally_owned_range_indices())
-        {
-          auto first_entry  = first.begin(row);
-          auto second_entry = second.begin(row);
-          while (first_entry != first.end(row) &&
-                 second_entry != second.end(row))
-            {
-              if (first_entry->column() != second_entry->column() ||
-                  first_entry->value() != second_entry->value())
-                return false;
-              ++first_entry;
-              ++second_entry;
-            }
-          if (first_entry != first.end(row) || second_entry != second.end(row))
-            return false;
-        }
-      return true;
-    }
-
     Operator
     make_preconditioner(const Operator         &operator_view,
                         const GlobalVectorType &state) const
     {
-      std::string choice = options_.preconditioner;
-      if (choice == "auto")
+      auto choice = options_.preconditioner;
+      if (choice == LinearPreconditioner::automatic)
         choice = !composition_.saddle_points().empty() ?
-                   "schur" :
-                   (composition_.n_fields() == 1 ? "block diagonal" :
-                                                   "block triangular");
+                   LinearPreconditioner::schur :
+                   (composition_.n_fields() == 1 ?
+                      LinearPreconditioner::block_diagonal :
+                      LinearPreconditioner::block_triangular);
 
-      if (choice == "none")
+      if (choice == LinearPreconditioner::none)
         return dealii::identity_operator(operator_view);
-      if (choice == "block diagonal")
+      if (choice == LinearPreconditioner::block_diagonal)
         {
           AssertThrow(composition_.has_complete_local_preconditioners(),
                       dealii::ExcMessage(
@@ -558,7 +417,7 @@ namespace ImmersX
                         "preconditioners for every field."));
           return composition_.block_diagonal_preconditioner(state);
         }
-      if (choice == "block triangular")
+      if (choice == LinearPreconditioner::block_triangular)
         {
           AssertThrow(composition_.has_complete_local_preconditioners(),
                       dealii::ExcMessage(
@@ -566,7 +425,7 @@ namespace ImmersX
                         "preconditioners for every field."));
           return composition_.block_triangular_preconditioner(state);
         }
-      if (choice == "schur")
+      if (choice == LinearPreconditioner::schur)
         {
           AssertThrow(composition_.saddle_points().size() == 1u,
                       dealii::ExcMessage(
@@ -575,7 +434,7 @@ namespace ImmersX
           return composition_.schur_preconditioner(
             composition_.saddle_points().front().multiplier, state);
         }
-      if (choice == "augmented lagrangian" || choice == "augmented_lagrangian")
+      if (choice == LinearPreconditioner::augmented_lagrangian)
         return composition_.augmented_lagrangian_preconditioner(
           state, options_.augmented_lagrangian_parameter);
       AssertThrow(false,
@@ -585,11 +444,12 @@ namespace ImmersX
       return dealii::identity_operator(operator_view);
     }
 
-    Composition                                  composition_;
-    SolveFunction                                solve_;
-    LinearSolverOptions                          options_;
-    mutable std::unique_ptr<DirectFactorization> direct_factorization_;
-    std::size_t                                  coupling_count_ = 0;
+    Composition                                      composition_;
+    SolveFunction                                    solve_;
+    LinearSolverOptions                              options_;
+    mutable std::shared_ptr<MatrixType>              direct_matrix_;
+    mutable std::unique_ptr<ImmersXLA::SolverDirect> direct_solver_;
+    std::size_t                                      coupling_count_ = 0;
   };
 } // namespace ImmersX
 

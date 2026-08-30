@@ -393,7 +393,8 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
 
   ImmersX::LinearSolverOptions default_options;
-  default_options.preconditioner = "block diagonal";
+  default_options.preconditioner =
+    ImmersX::LinearPreconditioner::block_diagonal;
   Adapter    default_adapter(MPI_COMM_WORLD, default_options);
   const auto default_fields = default_adapter.add(problem, "default");
   auto       default_state  = default_adapter.make_state();
@@ -408,7 +409,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
               1.e-10);
 
   ImmersX::LinearSolverOptions direct_options;
-  direct_options.solver = "direct";
+  direct_options.solver = ImmersX::LinearSolver::direct;
   Adapter    direct_adapter(MPI_COMM_WORLD, direct_options);
   const auto direct_fields = direct_adapter.add(problem, "direct");
   auto       direct_state  = direct_adapter.make_state();
@@ -548,4 +549,36 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
   EXPECT_NEAR(adapter.field(augmented_transpose, fields.fields().primal)[1],
               1877.,
               1.e-12);
+
+  const auto schur_prec =
+    adapter.schur_preconditioner(fields.fields().multiplier, state);
+  auto preconditioned            = adapter.make_state();
+  auto transposed_preconditioned = adapter.make_state();
+  schur_prec.vmult(preconditioned, state);
+  schur_prec.Tvmult(transposed_preconditioned, state);
+
+  const double normal_multiplier = 30. / 462.;
+  EXPECT_NEAR(adapter.field(preconditioned, fields.fields().multiplier)[0],
+              normal_multiplier,
+              1.e-10);
+  EXPECT_NEAR(adapter.field(preconditioned, fields.fields().primal)[0],
+              2. - 14. * normal_multiplier,
+              1.e-10);
+  EXPECT_NEAR(adapter.field(preconditioned, fields.fields().primal)[1],
+              2. - 22. * normal_multiplier,
+              1.e-10);
+
+  const double transpose_multiplier = 201. / 693.;
+  EXPECT_NEAR(adapter.field(transposed_preconditioned,
+                            fields.fields().multiplier)[0],
+              transpose_multiplier,
+              1.e-10);
+  EXPECT_NEAR(adapter.field(transposed_preconditioned,
+                            fields.fields().primal)[0],
+              3. * (1. - transpose_multiplier),
+              1.e-10);
+  EXPECT_NEAR(adapter.field(transposed_preconditioned,
+                            fields.fields().primal)[1],
+              3. * (1. - 2. * transpose_multiplier),
+              1.e-10);
 }

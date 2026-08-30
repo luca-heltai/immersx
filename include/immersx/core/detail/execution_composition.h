@@ -435,8 +435,9 @@ namespace ImmersX::detail
     }
 
     /** Convert a block matrix to its concatenated monolithic sparse matrix. */
-    MatrixType
-    monolithic_matrix(const BlockMatrixType &block_matrix) const
+    void
+    monolithic_matrix(const BlockMatrixType &block_matrix,
+                      MatrixType            &result) const
     {
       finalize();
       AssertThrow(block_matrix.n_block_rows() == field_layout_.n_blocks() &&
@@ -458,7 +459,6 @@ namespace ImmersX::detail
                 sparsity.add(offsets[i] + row, offsets[j] + entry->column());
           }
 
-      MatrixType result;
       result.reinit(partition, partition, sparsity, communicator_, true);
       for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
         for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
@@ -472,6 +472,13 @@ namespace ImmersX::detail
                            entry->value());
           }
       result.compress(dealii::VectorOperation::insert);
+    }
+
+    MatrixType
+    monolithic_matrix(const BlockMatrixType &block_matrix) const
+    {
+      MatrixType result;
+      monolithic_matrix(block_matrix, result);
       return result;
     }
 
@@ -481,6 +488,15 @@ namespace ImmersX::detail
                       const double            alpha     = 0.) const
     {
       return monolithic_matrix(block_matrix(state, state_dot, alpha));
+    }
+
+    void
+    monolithic_matrix(const GlobalVectorType &state,
+                      MatrixType             &result,
+                      const GlobalVectorType *state_dot = nullptr,
+                      const double            alpha     = 0.) const
+    {
+      monolithic_matrix(block_matrix(state, state_dot, alpha), result);
     }
 
     bool
@@ -775,17 +791,30 @@ namespace ImmersX::detail
         vector.reinit(state, omit);
       };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = apply;
-      result.vmult_add            = [apply](GlobalVectorType       &dst,
-                                 const GlobalVectorType &src) {
-        GlobalVectorType contribution;
-        contribution.reinit(dst);
-        contribution = 0.;
-        apply(contribution, src);
-        dst += contribution;
+      result.vmult                = [apply](GlobalVectorType       &dst,
+                             const GlobalVectorType &src) {
+        apply(dst, src, false);
       };
-      result.Tvmult     = apply;
-      result.Tvmult_add = result.vmult_add;
+      result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, false);
+        dst += *contribution;
+      };
+      result.Tvmult = [apply](GlobalVectorType       &dst,
+                              const GlobalVectorType &src) {
+        apply(dst, src, true);
+      };
+      result.Tvmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+                                                 const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 
