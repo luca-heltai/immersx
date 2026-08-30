@@ -12,9 +12,9 @@
 
 #include <deal.II/base/index_set.h>
 
+#include <deal.II/lac/block_linear_operator.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/precondition.h>
-#include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/vector_memory.h>
 
@@ -32,17 +32,6 @@
 
 namespace ImmersX::detail
 {
-  /** Transfer values between distributed vectors with different ownership. */
-  template <typename VectorType>
-  void
-  copy_vector_values(VectorType &destination, const VectorType &source)
-  {
-    dealii::LinearAlgebra::ReadWriteVector<typename VectorType::value_type>
-      transferred(destination.locally_owned_elements());
-    transferred.import_elements(source, dealii::VectorOperation::insert);
-    destination.import_elements(transferred, dealii::VectorOperation::insert);
-  }
-
   /** Internal semantic-field to distributed-block mapping. */
   template <typename FieldVectorType, typename GlobalBlockVectorType>
   class BlockFieldLayout
@@ -547,6 +536,9 @@ namespace ImmersX::detail
       AssertThrow(metadata != model_.saddle_points().end(),
                   dealii::ExcMessage(
                     "No saddle-point metadata exists for this multiplier."));
+      AssertThrow(!metadata->participants.empty(),
+                  dealii::ExcMessage(
+                    "A Schur relation must contain at least one participant."));
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
@@ -562,14 +554,7 @@ namespace ImmersX::detail
         derivative_context.emplace(0., state_view, nullptr);
       const auto &context = *derivative_context;
 
-      struct SchurTerm
-      {
-        LocalOperator   coupling;
-        LocalOperator   transpose_coupling;
-        LocalOperator   inverse;
-        FieldVectorType participant_prototype;
-      };
-      std::vector<SchurTerm> terms;
+      std::vector<LocalOperator> terms;
       terms.reserve(metadata->participants.size());
       for (const auto participant : metadata->participants)
         {
@@ -579,88 +564,16 @@ namespace ImmersX::detail
                       dealii::ExcMessage(
                         "Schur construction requires a local inverse for "
                         "every participant field."));
-          terms.push_back(
-            {model_.state_operator(multiplier, participant, context),
-             model_.state_operator(participant, multiplier, context),
-             *inverse,
-             state.block(field_layout_.block(participant))});
+          const auto to_multiplier =
+            model_.state_operator(multiplier, participant, context);
+          const auto from_multiplier =
+            model_.state_operator(participant, multiplier, context);
+          terms.push_back(to_multiplier * *inverse * from_multiplier);
         }
 
-      const auto multiplier_owned = layout_.field(multiplier).locally_owned;
-      const auto communicator     = communicator_;
-      auto       vector_memory =
-        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
-      LocalOperator result;
-      result.reinit_range_vector =
-        [multiplier_owned, communicator](FieldVectorType &vector, const bool) {
-          vector.reinit(multiplier_owned, communicator);
-        };
-      result.reinit_domain_vector = result.reinit_range_vector;
-      auto apply = [terms, vector_memory](FieldVectorType       &dst,
-                                          const FieldVectorType &src,
-                                          const bool             transpose) {
-        dst = 0.;
-        for (const auto &term : terms)
-          {
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              participant_rhs(*vector_memory);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer inverse_rhs(
-              *vector_memory);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              participant_solution(*vector_memory);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              coupling_solution(*vector_memory);
-            if (!transpose)
-              {
-                term.transpose_coupling.reinit_range_vector(*participant_rhs,
-                                                            false);
-                term.transpose_coupling.vmult(*participant_rhs, src);
-                term.inverse.reinit_domain_vector(*inverse_rhs, false);
-                copy_vector_values(*inverse_rhs, *participant_rhs);
-                term.inverse.reinit_range_vector(*participant_solution, false);
-                term.inverse.vmult(*participant_solution, *inverse_rhs);
-                term.coupling.reinit_domain_vector(*coupling_solution, false);
-                copy_vector_values(*coupling_solution, *participant_solution);
-                term.coupling.vmult_add(dst, *coupling_solution);
-              }
-            else
-              {
-                term.coupling.reinit_domain_vector(*participant_rhs, false);
-                term.coupling.Tvmult(*participant_rhs, src);
-                term.inverse.reinit_range_vector(*inverse_rhs, false);
-                copy_vector_values(*inverse_rhs, *participant_rhs);
-                term.inverse.reinit_domain_vector(*participant_solution, false);
-                term.inverse.Tvmult(*participant_solution, *inverse_rhs);
-                term.transpose_coupling.reinit_range_vector(*coupling_solution,
-                                                            false);
-                copy_vector_values(*coupling_solution, *participant_solution);
-                term.transpose_coupling.Tvmult_add(dst, *coupling_solution);
-              }
-          }
-      };
-      result.vmult = [apply](FieldVectorType &dst, const FieldVectorType &src) {
-        apply(dst, src, false);
-      };
-      result.vmult_add = [apply, vector_memory](FieldVectorType       &dst,
-                                                const FieldVectorType &src) {
-        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
-          *vector_memory);
-        contribution->reinit(dst);
-        apply(*contribution, src, false);
-        dst += *contribution;
-      };
-      result.Tvmult = [apply](FieldVectorType       &dst,
-                              const FieldVectorType &src) {
-        apply(dst, src, true);
-      };
-      result.Tvmult_add = [apply, vector_memory](FieldVectorType       &dst,
-                                                 const FieldVectorType &src) {
-        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
-          *vector_memory);
-        contribution->reinit(dst);
-        apply(*contribution, src, true);
-        dst += *contribution;
-      };
+      LocalOperator result = terms.front();
+      for (std::size_t i = 1; i < terms.size(); ++i)
+        result += terms[i];
       return result;
     }
 
@@ -756,43 +669,9 @@ namespace ImmersX::detail
       const auto multiplier_block = field_layout_.block(multiplier);
       const auto multiplier_preconditioner =
         this->multiplier_preconditioner(multiplier, state, context);
-      auto field_vector_memory =
-        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
-      const auto apply_local_inverse = [](const LocalOperator   &inverse,
-                                          FieldVectorType       &destination,
-                                          const FieldVectorType &source,
-                                          const bool             transpose) {
-        FieldVectorType backend_source;
-        FieldVectorType backend_destination;
-        if (transpose)
-          {
-            inverse.reinit_range_vector(backend_source, false);
-            copy_vector_values(backend_source, source);
-            inverse.reinit_domain_vector(backend_destination, false);
-            inverse.Tvmult(backend_destination, backend_source);
-          }
-        else
-          {
-            inverse.reinit_domain_vector(backend_source, false);
-            copy_vector_values(backend_source, source);
-            inverse.reinit_range_vector(backend_destination, false);
-            inverse.vmult(backend_destination, backend_source);
-          }
-        copy_vector_values(destination, backend_destination);
-      };
-
-      auto transpose_operator = [](const LocalOperator &operator_to_transpose) {
-        LocalOperator result = operator_to_transpose;
-        result.vmult         = operator_to_transpose.Tvmult;
-        result.vmult_add     = operator_to_transpose.Tvmult_add;
-        result.Tvmult        = operator_to_transpose.vmult;
-        result.Tvmult_add    = operator_to_transpose.vmult_add;
-        std::swap(result.reinit_range_vector, result.reinit_domain_vector);
-        return result;
-      };
-      const auto schur_transpose = transpose_operator(schur);
+      const auto schur_transpose = dealii::transpose_operator(schur);
       const auto multiplier_preconditioner_transpose =
-        transpose_operator(multiplier_preconditioner);
+        dealii::transpose_operator(multiplier_preconditioner);
 
       auto solve_multiplier = [schur,
                                schur_transpose,
@@ -816,135 +695,64 @@ namespace ImmersX::detail
       auto apply = [participants,
                     non_participants,
                     multiplier_block,
-                    field_vector_memory,
-                    solve_multiplier,
-                    apply_local_inverse](GlobalVectorType       &dst,
-                                         const GlobalVectorType &src,
-                                         const bool              transpose) {
+                    solve_multiplier](GlobalVectorType       &dst,
+                                      const GlobalVectorType &src,
+                                      const bool              transpose) {
         dst = 0.;
 
         for (const auto &non_participant : non_participants)
-          apply_local_inverse(non_participant.inverse,
-                              dst.block(non_participant.block),
-                              src.block(non_participant.block),
-                              transpose);
+          if (transpose)
+            non_participant.inverse.Tvmult(dst.block(non_participant.block),
+                                           src.block(non_participant.block));
+          else
+            non_participant.inverse.vmult(dst.block(non_participant.block),
+                                          src.block(non_participant.block));
 
-        typename dealii::VectorMemory<FieldVectorType>::Pointer schur_rhs(
-          *field_vector_memory);
-        typename dealii::VectorMemory<FieldVectorType>::Pointer
-          multiplier_solution(*field_vector_memory);
+        FieldVectorType schur_rhs;
+        FieldVectorType multiplier_solution;
         if (transpose)
           {
-            participants.front().from_multiplier.reinit_domain_vector(
-              *schur_rhs, false);
-            copy_vector_values(*schur_rhs, src.block(multiplier_block));
-            *schur_rhs *= -1.;
+            const auto &first = participants.front();
+            first.from_multiplier.reinit_domain_vector(schur_rhs, false);
+            schur_rhs = src.block(multiplier_block);
+            schur_rhs *= -1.;
 
             for (const auto &participant : participants)
-              {
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  participant_rhs(*field_vector_memory);
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  participant_solution(*field_vector_memory);
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  coupling_solution(*field_vector_memory);
-                participant.inverse.reinit_range_vector(*participant_rhs,
-                                                        false);
-                copy_vector_values(*participant_rhs,
-                                   src.block(participant.block));
-                participant.inverse.reinit_domain_vector(*participant_solution,
-                                                         false);
-                participant.inverse.Tvmult(*participant_solution,
-                                           *participant_rhs);
-                participant.from_multiplier.reinit_range_vector(
-                  *coupling_solution, false);
-                copy_vector_values(*coupling_solution, *participant_solution);
-                participant.from_multiplier.Tvmult_add(*schur_rhs,
-                                                       *coupling_solution);
-              }
+              schur_rhs +=
+                dealii::transpose_operator(participant.from_multiplier) *
+                dealii::transpose_operator(participant.inverse) *
+                src.block(participant.block);
           }
         else
           {
-            participants.front().to_multiplier.reinit_range_vector(*schur_rhs,
-                                                                   false);
-            copy_vector_values(*schur_rhs, src.block(multiplier_block));
-            *schur_rhs *= -1.;
+            const auto &first = participants.front();
+            first.to_multiplier.reinit_range_vector(schur_rhs, false);
+            schur_rhs = src.block(multiplier_block);
+            schur_rhs *= -1.;
 
             for (const auto &participant : participants)
-              {
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  participant_rhs(*field_vector_memory);
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  participant_solution(*field_vector_memory);
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  coupling_solution(*field_vector_memory);
-                participant.inverse.reinit_domain_vector(*participant_rhs,
-                                                         false);
-                copy_vector_values(*participant_rhs,
-                                   src.block(participant.block));
-                participant.inverse.reinit_range_vector(*participant_solution,
-                                                        false);
-                participant.inverse.vmult(*participant_solution,
-                                          *participant_rhs);
-                participant.to_multiplier.reinit_domain_vector(
-                  *coupling_solution, false);
-                copy_vector_values(*coupling_solution, *participant_solution);
-                participant.to_multiplier.vmult_add(*schur_rhs,
-                                                    *coupling_solution);
-                copy_vector_values(dst.block(participant.block),
-                                   *participant_solution);
-              }
+              schur_rhs += participant.to_multiplier * participant.inverse *
+                           src.block(participant.block);
           }
 
         participants.front().to_multiplier.reinit_range_vector(
-          *multiplier_solution, false);
-        *multiplier_solution = 0.;
-        solve_multiplier(*multiplier_solution, *schur_rhs, transpose);
-        copy_vector_values(dst.block(multiplier_block), *multiplier_solution);
+          multiplier_solution, false);
+        multiplier_solution = 0.;
+        solve_multiplier(multiplier_solution, schur_rhs, transpose);
+        dst.block(multiplier_block) = multiplier_solution;
 
         for (const auto &participant : participants)
-          {
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              participant_rhs(*field_vector_memory);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              participant_solution(*field_vector_memory);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer inverse_rhs(
-              *field_vector_memory);
-            if (transpose)
-              {
-                participant.to_multiplier.reinit_domain_vector(*participant_rhs,
-                                                               false);
-                participant.to_multiplier.Tvmult(*participant_rhs,
-                                                 *multiplier_solution);
-                *participant_rhs *= -1.;
-                *participant_rhs += src.block(participant.block);
-                participant.inverse.reinit_range_vector(*inverse_rhs, false);
-                copy_vector_values(*inverse_rhs, *participant_rhs);
-                participant.inverse.reinit_domain_vector(*participant_solution,
-                                                         false);
-                participant.inverse.Tvmult(*participant_solution, *inverse_rhs);
-              }
-            else
-              {
-                participant.from_multiplier.reinit_range_vector(
-                  *participant_rhs, false);
-                participant.from_multiplier.vmult(*participant_rhs,
-                                                  *multiplier_solution);
-                participant.inverse.reinit_domain_vector(*inverse_rhs, false);
-                copy_vector_values(*inverse_rhs, *participant_rhs);
-                participant.inverse.reinit_range_vector(*participant_solution,
-                                                        false);
-                participant.inverse.vmult(*participant_solution, *inverse_rhs);
-                *participant_solution *= -1.;
-                participant.from_multiplier.reinit_range_vector(
-                  *participant_rhs, false);
-                copy_vector_values(*participant_rhs, *participant_solution);
-                dst.block(participant.block) += *participant_rhs;
-                continue;
-              }
-            copy_vector_values(dst.block(participant.block),
-                               *participant_solution);
-          }
+          if (transpose)
+            dst.block(participant.block) =
+              dealii::transpose_operator(participant.inverse) *
+              (src.block(participant.block) -
+               dealii::transpose_operator(participant.to_multiplier) *
+                 multiplier_solution);
+          else
+            dst.block(participant.block) =
+              participant.inverse *
+              (src.block(participant.block) -
+               participant.from_multiplier * multiplier_solution);
       };
 
       auto global_vector_memory =
@@ -1106,108 +914,77 @@ namespace ImmersX::detail
           augmentations.push_back(std::move(augmentation));
         }
 
-      auto field_vector_memory =
-        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
-      auto apply = [base,
-                    augmentations,
-                    gamma,
-                    field_vector_memory](GlobalVectorType       &dst,
-                                         const GlobalVectorType &src,
-                                         const bool              transpose) {
-        const unsigned int n = base.size();
-        for (unsigned int i = 0; i < n; ++i)
-          {
-            dst.block(i) = 0.;
-            for (unsigned int j = 0; j < n; ++j)
-              if (transpose)
-                base[j][i].Tvmult_add(dst.block(i), src.block(j));
-              else
-                base[i][j].vmult_add(dst.block(i), src.block(j));
-          }
-
-        for (const auto &augmentation : augmentations)
-          {
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              constraint_value(*field_vector_memory);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              weighted_constraint(*field_vector_memory);
-            if (transpose)
-              {
-                augmentation.from_multiplier[0].reinit_domain_vector(
-                  *constraint_value, false);
-                *constraint_value = 0.;
-                for (unsigned int i = 0; i < augmentation.participants.size();
-                     ++i)
-                  augmentation.from_multiplier[i].Tvmult_add(
-                    *constraint_value, src.block(augmentation.participants[i]));
-                augmentation.inverse_metric.reinit_domain_vector(
-                  *weighted_constraint, false);
-                augmentation.inverse_metric.Tvmult(*weighted_constraint,
-                                                   *constraint_value);
-                weighted_constraint->operator*=(gamma);
-                for (unsigned int i = 0; i < augmentation.participants.size();
-                     ++i)
-                  augmentation.to_multiplier[i].Tvmult_add(
-                    dst.block(augmentation.participants[i]),
-                    *weighted_constraint);
-              }
-            else
-              {
-                augmentation.to_multiplier[0].reinit_range_vector(
-                  *constraint_value, false);
-                *constraint_value = 0.;
-                for (unsigned int i = 0; i < augmentation.participants.size();
-                     ++i)
-                  augmentation.to_multiplier[i].vmult_add(
-                    *constraint_value, src.block(augmentation.participants[i]));
-                augmentation.inverse_metric.reinit_range_vector(
-                  *weighted_constraint, false);
-                augmentation.inverse_metric.vmult(*weighted_constraint,
-                                                  *constraint_value);
-                weighted_constraint->operator*=(gamma);
-                for (unsigned int i = 0; i < augmentation.participants.size();
-                     ++i)
-                  augmentation.from_multiplier[i].vmult_add(
-                    dst.block(augmentation.participants[i]),
-                    *weighted_constraint);
-              }
-          }
-      };
-
-      auto vector_memory =
-        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
-      const auto partitions   = field_layout_.block_partitions();
-      const auto communicator = communicator_;
-      Operator   result;
-      result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
-          vector.reinit(partitions, communicator);
+      using BlockPayload = dealii::internal::BlockLinearOperatorImplementation::
+        EmptyBlockPayload<>;
+      using BlockOperator = dealii::
+        BlockLinearOperator<GlobalVectorType, GlobalVectorType, BlockPayload>;
+      const auto make_block_operator = [](const auto &blocks) {
+        const auto result    = std::make_shared<BlockOperator>(BlockPayload());
+        result->n_block_rows = [blocks]() {
+          return static_cast<unsigned int>(blocks.size());
         };
-      result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [apply](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
-        apply(dst, src, false);
+        result->n_block_cols = result->n_block_rows;
+        result->block = [blocks](const unsigned int i, const unsigned int j) {
+          return blocks[i][j];
+        };
+        dealii::internal::BlockLinearOperatorImplementation::
+          populate_linear_operator_functions(*result);
+        return result;
       };
-      result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
-                                                const GlobalVectorType &src) {
-        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
-          *vector_memory);
-        contribution->reinit(dst);
-        apply(*contribution, src, false);
-        dst += *contribution;
-      };
-      result.Tvmult = [apply](GlobalVectorType       &dst,
-                              const GlobalVectorType &src) {
-        apply(dst, src, true);
-      };
-      result.Tvmult_add = [apply, vector_memory](GlobalVectorType       &dst,
-                                                 const GlobalVectorType &src) {
-        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
-          *vector_memory);
-        contribution->reinit(dst);
-        apply(*contribution, src, true);
-        dst += *contribution;
-      };
+      const auto make_operator_view =
+        [](const std::shared_ptr<BlockOperator> &block_operator) {
+          Operator result;
+          result.reinit_range_vector =
+            [block_operator](GlobalVectorType &vector, const bool omit) {
+              block_operator->reinit_range_vector(vector, omit);
+            };
+          result.reinit_domain_vector =
+            [block_operator](GlobalVectorType &vector, const bool omit) {
+              block_operator->reinit_domain_vector(vector, omit);
+            };
+          result.vmult = [block_operator](GlobalVectorType       &dst,
+                                          const GlobalVectorType &src) {
+            block_operator->vmult(dst, src);
+          };
+          result.vmult_add = [block_operator](GlobalVectorType       &dst,
+                                              const GlobalVectorType &src) {
+            block_operator->vmult_add(dst, src);
+          };
+          result.Tvmult = [block_operator](GlobalVectorType       &dst,
+                                           const GlobalVectorType &src) {
+            block_operator->Tvmult(dst, src);
+          };
+          result.Tvmult_add = [block_operator](GlobalVectorType       &dst,
+                                               const GlobalVectorType &src) {
+            block_operator->Tvmult_add(dst, src);
+          };
+          return result;
+        };
+
+      Operator result = make_operator_view(make_block_operator(base));
+      for (const auto &augmentation : augmentations)
+        {
+          std::vector<std::vector<LocalOperator>> contribution(
+            n, std::vector<LocalOperator>(n));
+          for (unsigned int i = 0; i < n; ++i)
+            for (unsigned int j = 0; j < n; ++j)
+              contribution[i][j] =
+                zero_operator(context.state(field_layout_.field(i)),
+                              context.state(field_layout_.field(j)));
+
+          for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
+            for (std::size_t j = 0; j < augmentation.participants.size(); ++j)
+              contribution[augmentation.participants[i]]
+                          [augmentation.participants[j]] =
+                            gamma * (augmentation.from_multiplier[i] *
+                                     augmentation.inverse_metric *
+                                     augmentation.to_multiplier[j]);
+
+          const Operator contribution_operator =
+            make_operator_view(make_block_operator(contribution));
+          result += contribution_operator;
+        }
+
       return result;
     }
 
@@ -1743,17 +1520,19 @@ namespace ImmersX::detail
       const GlobalVectorType                   &state,
       const EvaluationContext<FieldVectorType> &context) const
     {
-      const auto prototype = state.block(field_layout_.block(multiplier));
+      const auto partition = layout_.field(multiplier).locally_owned;
       const auto metric    = model_.multiplier_metric(multiplier, context);
       if (metric.has_value())
         {
           const auto metric_matrix = metric->matrix();
           if (model_.has_preconditioner(multiplier))
             {
-              const auto reinitializer = [prototype](FieldVectorType &vector,
-                                                     const bool       omit) {
-                vector.reinit(prototype, omit);
-              };
+              const auto reinitializer =
+                [partition,
+                 communicator = communicator_](FieldVectorType &vector,
+                                               const bool       omit) {
+                  vector.reinit(partition, communicator, omit);
+                };
               const auto local = model_.preconditioner(multiplier,
                                                        *metric_matrix,
                                                        reinitializer);
@@ -1762,17 +1541,18 @@ namespace ImmersX::detail
             }
 
           auto inverse_metric = std::make_shared<FieldVectorType>();
-          inverse_metric->reinit(prototype);
-          for (const auto index : prototype.locally_owned_elements())
+          inverse_metric->reinit(partition, communicator_);
+          for (const auto index : partition)
             (*inverse_metric)(index) =
               inverse_lumped_metric_value(metric_matrix->diag_element(index));
           inverse_metric->compress(dealii::VectorOperation::insert);
 
           LocalOperator result;
-          result.reinit_range_vector = [prototype](FieldVectorType &vector,
-                                                   const bool       omit) {
-            vector.reinit(prototype, omit);
-          };
+          result.reinit_range_vector =
+            [partition, communicator = communicator_](FieldVectorType &vector,
+                                                      const bool       omit) {
+              vector.reinit(partition, communicator, omit);
+            };
           result.reinit_domain_vector = result.reinit_range_vector;
           result.vmult = [inverse_metric](FieldVectorType       &dst,
                                           const FieldVectorType &src) {
@@ -1798,8 +1578,9 @@ namespace ImmersX::detail
         return *local;
 
       return dealii::identity_operator<FieldVectorType>(
-        [prototype](FieldVectorType &vector, const bool omit) {
-          vector.reinit(prototype, omit);
+        [partition, communicator = communicator_](FieldVectorType &vector,
+                                                  const bool       omit) {
+          vector.reinit(partition, communicator, omit);
         });
     }
 
@@ -1840,33 +1621,60 @@ namespace ImmersX::detail
           diagonal.push_back(*local);
         }
 
-      Operator   result;
-      const auto partitions   = field_layout_.block_partitions();
-      const auto communicator = communicator_;
-      result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
-          vector.reinit(partitions, communicator);
-        };
-      result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [diagonal](GlobalVectorType       &dst,
-                                const GlobalVectorType &src) {
-        for (unsigned int block = 0; block < diagonal.size(); ++block)
-          diagonal[block].vmult(dst.block(block), src.block(block));
+      using BlockPayload = dealii::internal::BlockLinearOperatorImplementation::
+        EmptyBlockPayload<>;
+      using BlockOperator = dealii::
+        BlockLinearOperator<GlobalVectorType, GlobalVectorType, BlockPayload>;
+
+      std::vector<std::vector<LocalOperator>> blocks(
+        diagonal.size(), std::vector<LocalOperator>(diagonal.size()));
+      for (unsigned int i = 0; i < diagonal.size(); ++i)
+        for (unsigned int j = 0; j < diagonal.size(); ++j)
+          if (i == j)
+            blocks[i][j] = diagonal[i];
+          else
+            {
+              blocks[i][j] = dealii::null_operator(diagonal[i]);
+              blocks[i][j].reinit_domain_vector =
+                diagonal[j].reinit_domain_vector;
+            }
+
+      const auto block_operator =
+        std::make_shared<BlockOperator>(BlockPayload());
+      block_operator->n_block_rows = [blocks]() {
+        return static_cast<unsigned int>(blocks.size());
       };
-      result.vmult_add = [diagonal](GlobalVectorType       &dst,
-                                    const GlobalVectorType &src) {
-        for (unsigned int block = 0; block < diagonal.size(); ++block)
-          diagonal[block].vmult_add(dst.block(block), src.block(block));
+      block_operator->n_block_cols = block_operator->n_block_rows;
+      block_operator->block        = [blocks](const unsigned int i,
+                                       const unsigned int j) {
+        return blocks[i][j];
       };
-      result.Tvmult = [diagonal](GlobalVectorType       &dst,
-                                 const GlobalVectorType &src) {
-        for (unsigned int block = 0; block < diagonal.size(); ++block)
-          diagonal[block].Tvmult(dst.block(block), src.block(block));
+      dealii::internal::BlockLinearOperatorImplementation::
+        populate_linear_operator_functions(*block_operator);
+      Operator result;
+      result.reinit_range_vector = [block_operator](GlobalVectorType &vector,
+                                                    const bool        omit) {
+        block_operator->reinit_range_vector(vector, omit);
       };
-      result.Tvmult_add = [diagonal](GlobalVectorType       &dst,
-                                     const GlobalVectorType &src) {
-        for (unsigned int block = 0; block < diagonal.size(); ++block)
-          diagonal[block].Tvmult_add(dst.block(block), src.block(block));
+      result.reinit_domain_vector = [block_operator](GlobalVectorType &vector,
+                                                     const bool        omit) {
+        block_operator->reinit_domain_vector(vector, omit);
+      };
+      result.vmult = [block_operator](GlobalVectorType       &dst,
+                                      const GlobalVectorType &src) {
+        block_operator->vmult(dst, src);
+      };
+      result.vmult_add = [block_operator](GlobalVectorType       &dst,
+                                          const GlobalVectorType &src) {
+        block_operator->vmult_add(dst, src);
+      };
+      result.Tvmult = [block_operator](GlobalVectorType       &dst,
+                                       const GlobalVectorType &src) {
+        block_operator->Tvmult(dst, src);
+      };
+      result.Tvmult_add = [block_operator](GlobalVectorType       &dst,
+                                           const GlobalVectorType &src) {
+        block_operator->Tvmult_add(dst, src);
       };
       return result;
     }
@@ -1911,101 +1719,137 @@ namespace ImmersX::detail
           diagonal.push_back(*local);
         }
 
-      std::vector<std::vector<LocalOperator>> off_diagonal(
+      std::vector<std::vector<LocalOperator>> matrix_blocks(
         n, std::vector<LocalOperator>(n));
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
-          off_diagonal[i][j] = linearized_operator(field_layout_.field(i),
-                                                   field_layout_.field(j),
-                                                   *context,
-                                                   alpha);
+          matrix_blocks[i][j] = linearized_operator(field_layout_.field(i),
+                                                    field_layout_.field(j),
+                                                    *context,
+                                                    alpha);
 
-      auto field_vector_memory =
-        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
-      auto substitution = [diagonal,
-                           off_diagonal,
-                           lower,
-                           field_vector_memory](GlobalVectorType       &dst,
-                                                const GlobalVectorType &src,
-                                                const bool transpose) {
-        const unsigned int n       = diagonal.size();
-        const bool         forward = lower != transpose;
-        if (forward)
-          for (unsigned int i = 0; i < n; ++i)
-            {
-              typename dealii::VectorMemory<FieldVectorType>::Pointer rhs(
-                *field_vector_memory);
-              diagonal[i].reinit_domain_vector(*rhs, false);
-              *rhs = src.block(i);
-              *rhs *= -1.;
-              for (unsigned int j = 0; j < i; ++j)
-                if (transpose)
-                  off_diagonal[j][i].Tvmult_add(*rhs, dst.block(j));
-                else
-                  off_diagonal[i][j].vmult_add(*rhs, dst.block(j));
-              *rhs *= -1.;
-              if (transpose)
-                diagonal[i].Tvmult(dst.block(i), *rhs);
-              else
-                diagonal[i].vmult(dst.block(i), *rhs);
-            }
-        else
-          for (int i = static_cast<int>(n) - 1; i >= 0; --i)
-            {
-              typename dealii::VectorMemory<FieldVectorType>::Pointer rhs(
-                *field_vector_memory);
-              diagonal[i].reinit_domain_vector(*rhs, false);
-              *rhs = src.block(i);
-              *rhs *= -1.;
-              for (unsigned int j = i + 1; j < n; ++j)
-                if (transpose)
-                  off_diagonal[j][i].Tvmult_add(*rhs, dst.block(j));
-                else
-                  off_diagonal[i][j].vmult_add(*rhs, dst.block(j));
-              *rhs *= -1.;
-              if (transpose)
-                diagonal[i].Tvmult(dst.block(i), *rhs);
-              else
-                diagonal[i].vmult(dst.block(i), *rhs);
-            }
-      };
-      auto vector_memory =
-        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
-
-      Operator   result;
-      const auto partitions   = field_layout_.block_partitions();
-      const auto communicator = communicator_;
-      result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
-          vector.reinit(partitions, communicator);
+      using BlockPayload = dealii::internal::BlockLinearOperatorImplementation::
+        EmptyBlockPayload<>;
+      using BlockOperator = dealii::
+        BlockLinearOperator<GlobalVectorType, GlobalVectorType, BlockPayload>;
+      const auto make_block_operator = [](const auto &blocks) {
+        const auto result    = std::make_shared<BlockOperator>(BlockPayload());
+        result->n_block_rows = [blocks]() {
+          return static_cast<unsigned int>(blocks.size());
         };
-      result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [substitution](GlobalVectorType       &dst,
-                                    const GlobalVectorType &src) {
-        substitution(dst, src, false);
+        result->n_block_cols = result->n_block_rows;
+        result->block = [blocks](const unsigned int i, const unsigned int j) {
+          return blocks[i][j];
+        };
+        dealii::internal::BlockLinearOperatorImplementation::
+          populate_linear_operator_functions(*result);
+        return result;
       };
-      result.vmult_add = [substitution,
-                          vector_memory](GlobalVectorType       &dst,
-                                         const GlobalVectorType &src) {
-        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
-          *vector_memory);
-        contribution->reinit(dst);
-        substitution(*contribution, src, false);
-        dst += *contribution;
+
+      std::vector<std::vector<LocalOperator>> diagonal_blocks(
+        n, std::vector<LocalOperator>(n));
+      for (unsigned int i = 0; i < n; ++i)
+        for (unsigned int j = 0; j < n; ++j)
+          if (i == j)
+            diagonal_blocks[i][j] = diagonal[i];
+          else
+            {
+              diagonal_blocks[i][j] = dealii::null_operator(diagonal[i]);
+              diagonal_blocks[i][j].reinit_domain_vector =
+                diagonal[j].reinit_domain_vector;
+            }
+
+      std::vector<std::vector<LocalOperator>> transpose_blocks(
+        n, std::vector<LocalOperator>(n));
+      std::vector<std::vector<LocalOperator>> transpose_diagonal_blocks(
+        n, std::vector<LocalOperator>(n));
+      for (unsigned int i = 0; i < n; ++i)
+        transpose_diagonal_blocks[i][i] =
+          dealii::transpose_operator(diagonal[i]);
+
+      for (unsigned int i = 0; i < n; ++i)
+        for (unsigned int j = 0; j < n; ++j)
+          {
+            transpose_blocks[i][j] =
+              dealii::transpose_operator(matrix_blocks[j][i]);
+            if (i != j)
+              {
+                transpose_diagonal_blocks[i][j] =
+                  dealii::null_operator(transpose_diagonal_blocks[i][i]);
+                transpose_diagonal_blocks[i][j].reinit_domain_vector =
+                  transpose_diagonal_blocks[j][j].reinit_domain_vector;
+              }
+          }
+
+      const auto matrix           = make_block_operator(matrix_blocks);
+      const auto diagonal_inverse = make_block_operator(diagonal_blocks);
+      const auto transpose_matrix = make_block_operator(transpose_blocks);
+      const auto transpose_diagonal_inverse =
+        make_block_operator(transpose_diagonal_blocks);
+
+      const auto normal =
+        lower ? dealii::block_forward_substitution(*matrix, *diagonal_inverse) :
+                dealii::block_back_substitution(*matrix, *diagonal_inverse);
+      const auto transposed =
+        lower ? dealii::block_back_substitution(*transpose_matrix,
+                                                *transpose_diagonal_inverse) :
+                dealii::block_forward_substitution(*transpose_matrix,
+                                                   *transpose_diagonal_inverse);
+
+      Operator result = normal;
+      result.reinit_range_vector =
+        [normal,
+         matrix,
+         diagonal_inverse,
+         transpose_matrix,
+         transpose_diagonal_inverse](GlobalVectorType &vector,
+                                     const bool        omit) {
+          normal.reinit_range_vector(vector, omit);
+        };
+      result.reinit_domain_vector =
+        [normal,
+         matrix,
+         diagonal_inverse,
+         transpose_matrix,
+         transpose_diagonal_inverse](GlobalVectorType &vector,
+                                     const bool        omit) {
+          normal.reinit_domain_vector(vector, omit);
+        };
+      result.vmult = [normal,
+                      matrix,
+                      diagonal_inverse,
+                      transpose_matrix,
+                      transpose_diagonal_inverse](GlobalVectorType       &dst,
+                                                  const GlobalVectorType &src) {
+        normal.vmult(dst, src);
       };
-      result.Tvmult = [substitution](GlobalVectorType       &dst,
+      result.vmult_add =
+        [normal,
+         matrix,
+         diagonal_inverse,
+         transpose_matrix,
+         transpose_diagonal_inverse](GlobalVectorType       &dst,
                                      const GlobalVectorType &src) {
-        substitution(dst, src, true);
-      };
-      result.Tvmult_add = [substitution,
-                           vector_memory](GlobalVectorType       &dst,
-                                          const GlobalVectorType &src) {
-        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
-          *vector_memory);
-        contribution->reinit(dst);
-        substitution(*contribution, src, true);
-        dst += *contribution;
-      };
+          normal.vmult_add(dst, src);
+        };
+      result.Tvmult =
+        [transposed,
+         matrix,
+         diagonal_inverse,
+         transpose_matrix,
+         transpose_diagonal_inverse](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+          transposed.vmult(dst, src);
+        };
+      result.Tvmult_add =
+        [transposed,
+         matrix,
+         diagonal_inverse,
+         transpose_matrix,
+         transpose_diagonal_inverse](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+          transposed.vmult_add(dst, src);
+        };
       return result;
     }
 
