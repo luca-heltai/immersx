@@ -521,16 +521,17 @@ namespace ImmersX::detail
       return true;
     }
 
-    std::unique_ptr<MatrixType>
+    void
     materialized_block(const FieldId                             row,
                        const FieldId                             column,
                        const EvaluationContext<FieldVectorType> &context,
-                       const double                              alpha) const
+                       const double                              alpha,
+                       MatrixType &destination) const
     {
       const bool has_state      = model_.has_state_operator(row, column);
       const bool has_derivative = model_.has_derivative_operator(row, column);
       if (!has_state && (alpha == 0. || !has_derivative))
-        return {};
+        return;
 
       std::optional<typename Model::MatrixOperator> state_matrix;
       std::optional<typename Model::MatrixOperator> derivative_matrix;
@@ -547,21 +548,19 @@ namespace ImmersX::detail
                   dealii::ExcMessage(
                     "A derivative operator is not completely matrix-based."));
 
-      std::unique_ptr<MatrixType> result;
       if (state_matrix.has_value())
-        result = state_matrix->matrix();
+        state_matrix->materialize_into_matrix(destination);
       if (derivative_matrix.has_value())
         {
           auto derivative = derivative_matrix->matrix();
-          if (result)
-            result->add(alpha, *derivative);
+          if (state_matrix.has_value())
+            destination.add(alpha, *derivative);
           else
             {
               *derivative *= alpha;
-              result = std::move(derivative);
+              detail::copy_matrix(destination, *derivative);
             }
         }
-      return result;
     }
 
     BlockMatrixType
