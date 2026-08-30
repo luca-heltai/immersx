@@ -345,7 +345,6 @@ namespace ImmersX
       else
         {
           auto result = std::make_shared<MatrixType>(matrix->n(), matrix->m());
-          auto result = std::make_shared<MatrixType>(matrix->n(), matrix->m());
           for (typename MatrixType::size_type i = 0; i < matrix->m(); ++i)
             for (typename MatrixType::size_type j = 0; j < matrix->n(); ++j)
               (*result)(j, i) = (*matrix)(i, j);

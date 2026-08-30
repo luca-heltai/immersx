@@ -10,7 +10,6 @@
 #ifndef immersx_navier_stokes_semidiscrete_h
 #define immersx_navier_stokes_semidiscrete_h
 
-#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/physics/navier_stokes.h>

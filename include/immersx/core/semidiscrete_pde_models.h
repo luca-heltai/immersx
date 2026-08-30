@@ -14,6 +14,7 @@
 
 #include <deal.II/lac/affine_constraints.h>
 
+#include <immersx/core/matrix_operator.h>
 #include <immersx/core/time_residual.h>
 
 namespace ImmersX
@@ -91,6 +92,27 @@ namespace ImmersX
           if (constraints.is_constrained(index))
             projected(index) = 0.;
         operator_view.Tvmult_add(destination, projected);
+      };
+      return result;
+    }
+
+    template <typename VectorType, typename MatrixType>
+    MaterializedOperator<VectorType, MatrixType>
+    constrained_matrix_operator(
+      const MaterializedOperator<VectorType, MatrixType> &source,
+      const dealii::AffineConstraints<double>            &constraints)
+    {
+      auto result        = source;
+      result.view        = constrained_operator(source.view, constraints);
+      result.materialize = [source, &constraints]() {
+        auto matrix = source.matrix();
+        for (const auto row : matrix->locally_owned_range_indices())
+          if (constraints.is_constrained(row))
+            for (auto entry = matrix->begin(row); entry != matrix->end(row);
+                 ++entry)
+              matrix->set(row, entry->column(), 0.);
+        matrix->compress(dealii::VectorOperation::insert);
+        return matrix;
       };
       return result;
     }
@@ -173,6 +195,29 @@ namespace ImmersX
               projected(index) = 0.;
           operator_view.Tvmult_add(destination, projected);
         };
+      return result;
+    }
+
+    template <typename VectorType, typename MatrixType>
+    MaterializedOperator<VectorType, MatrixType>
+    mixed_constrained_matrix_operator(
+      const MaterializedOperator<VectorType, MatrixType> &source,
+      const dealii::AffineConstraints<double>            &constraints,
+      const dealii::types::global_dof_index               offset)
+    {
+      auto result = source;
+      result.view =
+        mixed_constrained_operator(source.view, constraints, offset);
+      result.materialize = [source, &constraints, offset]() {
+        auto matrix = source.matrix();
+        for (const auto row : matrix->locally_owned_range_indices())
+          if (constraints.is_constrained(offset + row))
+            for (auto entry = matrix->begin(row); entry != matrix->end(row);
+                 ++entry)
+              matrix->set(row, entry->column(), 0.);
+        matrix->compress(dealii::VectorOperation::insert);
+        return matrix;
+      };
       return result;
     }
 

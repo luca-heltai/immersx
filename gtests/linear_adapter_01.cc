@@ -423,17 +423,26 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
               2.,
               1.e-12);
 
-  // A repeated affine direct solve should reuse its unchanged factorization.
-  auto repeated_direct_state = direct_adapter.make_state();
-  direct_adapter.solve(repeated_direct_state);
-  EXPECT_NEAR(direct_adapter.field(repeated_direct_state,
+  direct_adapter.setup_direct(direct_state);
+  problem.matrix.set(0, 0, 4.);
+  problem.matrix.compress(dealii::VectorOperation::insert);
+  direct_adapter.solve_with_current_direct(direct_state);
+  EXPECT_NEAR(direct_adapter.field(direct_state,
                                    direct_fields.fields().solution)[0],
               1.,
               1.e-12);
-  EXPECT_NEAR(direct_adapter.field(repeated_direct_state,
+  direct_adapter.solve(direct_state);
+  EXPECT_NEAR(direct_adapter.field(direct_state,
+                                   direct_fields.fields().solution)[0],
+              .5,
+              1.e-12);
+  EXPECT_NEAR(direct_adapter.field(direct_state,
                                    direct_fields.fields().solution)[1],
               2.,
               1.e-12);
+
+  problem.matrix.set(0, 0, 2.);
+  problem.matrix.compress(dealii::VectorOperation::insert);
 
   ImmersX::ImmersXLA::MPI::BlockVector residual;
   adapter.evaluate_residual(state, residual);

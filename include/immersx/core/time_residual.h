@@ -143,6 +143,37 @@ namespace ImmersX
       return saddle_points_;
     }
 
+    void
+    add_multiplier_metric(const FieldId         multiplier,
+                          MatrixOperatorFactory factory)
+    {
+      AssertThrow(factory,
+                  dealii::ExcMessage(
+                    "A multiplier metric factory cannot be empty."));
+      AssertThrow(
+        multiplier_metrics_.find(multiplier) == multiplier_metrics_.end(),
+        dealii::ExcMessage("A multiplier metric was registered twice."));
+      multiplier_metrics_.emplace(multiplier, std::move(factory));
+    }
+
+    bool
+    has_multiplier_metric(const FieldId multiplier) const
+    {
+      return multiplier_metrics_.find(multiplier) != multiplier_metrics_.end();
+    }
+
+    std::optional<MatrixOperator>
+    multiplier_metric(const FieldId multiplier, const Context &context) const
+    {
+      const auto it = multiplier_metrics_.find(multiplier);
+      if (it == multiplier_metrics_.end())
+        return std::nullopt;
+      auto metric = it->second(context);
+      if (!metric.is_materializable())
+        return std::nullopt;
+      return metric;
+    }
+
     std::optional<Operator>
     preconditioner(const FieldId              field,
                    const MatrixType          &matrix,
@@ -433,6 +464,7 @@ namespace ImmersX
     std::map<BlockKey, std::vector<OperatorEntry>> state_operators_;
     std::map<BlockKey, std::vector<OperatorEntry>> derivative_operators_;
     std::map<FieldId, PreconditionerFactory>       preconditioners_;
+    std::map<FieldId, MatrixOperatorFactory>       multiplier_metrics_;
     std::vector<SaddlePointMetadata>               saddle_points_;
   };
 } // namespace ImmersX

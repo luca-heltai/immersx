@@ -19,6 +19,7 @@
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -45,6 +46,7 @@ namespace ImmersX
       ComponentRepresentation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
+    using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
@@ -273,13 +275,26 @@ namespace ImmersX
           solve_(*current_jacobian_, rhs, dst, tolerance);
         else
           {
-            dealii::SolverControl                 control(1000, tolerance);
+            dst = 0.;
+            dealii::SolverControl control(5000, std::max(1.e-12, tolerance));
             dealii::SolverGMRES<GlobalVectorType> solver(control);
             if (current_preconditioner_.has_value())
-              solver.solve(*current_jacobian_,
-                           dst,
-                           rhs,
-                           *current_preconditioner_);
+              if (current_solver_is_flexible_)
+                {
+                  typename dealii::SolverFGMRES<
+                    GlobalVectorType>::AdditionalData    flexible_data(100);
+                  dealii::SolverFGMRES<GlobalVectorType> flexible_solver(
+                    control, flexible_data);
+                  flexible_solver.solve(*current_jacobian_,
+                                        dst,
+                                        rhs,
+                                        *current_preconditioner_);
+                }
+              else
+                solver.solve(*current_jacobian_,
+                             dst,
+                             rhs,
+                             *current_preconditioner_);
             else
               solver.solve(*current_jacobian_,
                            dst,
@@ -333,9 +348,69 @@ namespace ImmersX
       };
       current_jacobian_ = std::move(stable);
       current_preconditioner_.reset();
-      if (!solve_ && composition_.has_complete_local_preconditioners())
-        current_preconditioner_ =
-          composition_.block_diagonal_preconditioner(state);
+      current_solver_is_flexible_ = false;
+      if (!solve_)
+        {
+          const auto keep_snapshot = [snapshot](Operator operator_view) {
+            Operator result;
+            result.reinit_range_vector = [operator_view,
+                                          snapshot](GlobalVectorType &vector,
+                                                    const bool        omit) {
+              operator_view.reinit_range_vector(vector, omit);
+            };
+            result.reinit_domain_vector = [operator_view,
+                                           snapshot](GlobalVectorType &vector,
+                                                     const bool        omit) {
+              operator_view.reinit_domain_vector(vector, omit);
+            };
+            result.vmult = [operator_view,
+                            snapshot](GlobalVectorType       &destination,
+                                      const GlobalVectorType &source) {
+              operator_view.vmult(destination, source);
+            };
+            result.vmult_add = [operator_view,
+                                snapshot](GlobalVectorType       &destination,
+                                          const GlobalVectorType &source) {
+              operator_view.vmult_add(destination, source);
+            };
+            result.Tvmult = [operator_view,
+                             snapshot](GlobalVectorType       &destination,
+                                       const GlobalVectorType &source) {
+              operator_view.Tvmult(destination, source);
+            };
+            result.Tvmult_add = [operator_view,
+                                 snapshot](GlobalVectorType       &destination,
+                                           const GlobalVectorType &source) {
+              operator_view.Tvmult_add(destination, source);
+            };
+            return result;
+          };
+          if (!composition_.saddle_points().empty())
+            {
+              const auto &saddle      = composition_.saddle_points().front();
+              current_preconditioner_ = keep_snapshot(
+                composition_.schur_preconditioner(saddle.multiplier,
+                                                  snapshot->state_storage,
+                                                  &snapshot->derivative_storage,
+                                                  alpha));
+              current_solver_is_flexible_ = true;
+            }
+          else if (composition_.has_complete_local_preconditioners())
+            {
+              current_preconditioner_ =
+                keep_snapshot(composition_.n_fields() > 1 ?
+                                composition_.block_triangular_preconditioner(
+                                  snapshot->state_storage,
+                                  true,
+                                  &snapshot->derivative_storage,
+                                  alpha) :
+                                composition_.block_diagonal_preconditioner(
+                                  snapshot->state_storage,
+                                  &snapshot->derivative_storage,
+                                  alpha));
+              current_solver_is_flexible_ = composition_.n_fields() > 1;
+            }
+        }
     }
 
     Composition                             composition_;
@@ -343,8 +418,9 @@ namespace ImmersX
     dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
     std::optional<Operator>                 current_jacobian_;
     std::optional<Operator>                 current_preconditioner_;
-    std::size_t                             coupling_count_ = 0;
-    bool                                    connected_      = false;
+    bool                                    current_solver_is_flexible_ = false;
+    std::size_t                             coupling_count_             = 0;
+    bool                                    connected_                  = false;
   };
 } // namespace ImmersX
 #endif

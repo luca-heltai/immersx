@@ -15,14 +15,7 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_gmres.h>
-
-#ifdef DEAL_II_WITH_TRILINOS
-#  include <Amesos2.hpp>
-#  include <Epetra_CrsMatrix.h>
-#  include <Epetra_Export.h>
-#  include <Epetra_Map.h>
-#  include <Epetra_MultiVector.h>
-#endif
+#include <deal.II/lac/vector_memory.h>
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
@@ -192,8 +185,8 @@ namespace ImmersX::detail
     using Builder             = SemidiscreteBuilder<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LocalOperator       = typename Model::Operator;
-    using MatrixType          = typename Model::MatrixOperator::Matrix;
     using SaddlePointMetadata = typename Model::SaddlePointMetadata;
+    using MatrixType          = typename Model::MatrixOperator::Matrix;
     using BlockMatrixType     = ImmersXLA::MPI::BlockSparseMatrix;
 
     explicit ExecutionComposition(const MPI_Comm communicator)
@@ -505,6 +498,16 @@ namespace ImmersX::detail
       return model_.has_preconditioner(field);
     }
 
+    bool
+    has_complete_local_preconditioners() const
+    {
+      finalize();
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        if (!model_.has_preconditioner(field_layout_.field(block)))
+          return false;
+      return true;
+    }
+
     const std::vector<SaddlePointMetadata> &
     saddle_points() const
     {
@@ -515,7 +518,9 @@ namespace ImmersX::detail
     /** Build S ~= sum_i B_i P_i^-1 B_i^T on a semantic multiplier field. */
     LocalOperator
     schur_operator(const FieldId           multiplier,
-                   const GlobalVectorType &state) const
+                   const GlobalVectorType &state,
+                   const GlobalVectorType *state_dot = nullptr,
+                   const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
@@ -531,19 +536,31 @@ namespace ImmersX::detail
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> derivative_context;
+      if (state_dot != nullptr)
+        {
+          validate_state(*state_dot);
+          field_layout_.bind_state(derivative_view, *state_dot);
+          derivative_context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        derivative_context.emplace(0., state_view, nullptr);
+      const auto &context = *derivative_context;
 
       struct SchurTerm
       {
-        LocalOperator coupling;
-        LocalOperator transpose_coupling;
-        LocalOperator inverse;
+        LocalOperator   coupling;
+        LocalOperator   transpose_coupling;
+        LocalOperator   inverse;
+        FieldVectorType participant_prototype;
       };
       std::vector<SchurTerm> terms;
       terms.reserve(metadata->participants.size());
       for (const auto participant : metadata->participants)
         {
-          const auto inverse = local_preconditioner(participant, state);
+          const auto inverse =
+            local_preconditioner(participant, state, context, alpha);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur construction requires a local inverse for "
@@ -551,39 +568,72 @@ namespace ImmersX::detail
           terms.push_back(
             {model_.state_operator(multiplier, participant, context),
              model_.state_operator(participant, multiplier, context),
-             *inverse});
+             *inverse,
+             state.block(field_layout_.block(participant))});
         }
 
-      const auto multiplier_state =
-        state.block(field_layout_.block(multiplier));
+      const auto multiplier_owned = layout_.field(multiplier).locally_owned;
+      const auto communicator     = communicator_;
+      auto       vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
       LocalOperator result;
-      result.reinit_range_vector = [multiplier_state](FieldVectorType &vector,
-                                                      const bool       omit) {
-        vector.reinit(multiplier_state, omit);
-      };
+      result.reinit_range_vector =
+        [multiplier_owned, communicator](FieldVectorType &vector, const bool) {
+          vector.reinit(multiplier_owned, communicator);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult = [terms](FieldVectorType &dst, const FieldVectorType &src) {
+      auto apply = [terms, vector_memory](FieldVectorType       &dst,
+                                          const FieldVectorType &src,
+                                          const bool             transpose) {
         dst = 0.;
         for (const auto &term : terms)
           {
-            FieldVectorType primal_rhs;
-            primal_rhs.reinit(src);
-            term.transpose_coupling.vmult(primal_rhs, src);
-            FieldVectorType primal_solution;
-            primal_solution.reinit(primal_rhs);
-            term.inverse.vmult(primal_solution, primal_rhs);
-            term.coupling.vmult_add(dst, primal_solution);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_rhs(*vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_solution(*vector_memory);
+            if (!transpose)
+              {
+                term.transpose_coupling.reinit_range_vector(*participant_rhs,
+                                                            false);
+                term.transpose_coupling.vmult(*participant_rhs, src);
+                term.inverse.reinit_range_vector(*participant_solution, false);
+                term.inverse.vmult(*participant_solution, *participant_rhs);
+                term.coupling.vmult_add(dst, *participant_solution);
+              }
+            else
+              {
+                term.coupling.reinit_domain_vector(*participant_rhs, false);
+                term.coupling.Tvmult(*participant_rhs, src);
+                term.inverse.reinit_domain_vector(*participant_solution, false);
+                term.inverse.Tvmult(*participant_solution, *participant_rhs);
+                term.transpose_coupling.Tvmult_add(dst, *participant_solution);
+              }
           }
       };
-      result.vmult_add = [result](FieldVectorType       &dst,
-                                  const FieldVectorType &src) mutable {
-        FieldVectorType contribution;
-        result.reinit_range_vector(contribution, false);
-        result.vmult(contribution, src);
-        dst += contribution;
+      result.vmult = [apply](FieldVectorType &dst, const FieldVectorType &src) {
+        apply(dst, src, false);
       };
-      result.Tvmult     = result.vmult;
-      result.Tvmult_add = result.vmult_add;
+      result.vmult_add = [apply, vector_memory](FieldVectorType       &dst,
+                                                const FieldVectorType &src) {
+        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, false);
+        dst += *contribution;
+      };
+      result.Tvmult = [apply](FieldVectorType       &dst,
+                              const FieldVectorType &src) {
+        apply(dst, src, true);
+      };
+      result.Tvmult_add = [apply, vector_memory](FieldVectorType       &dst,
+                                                 const FieldVectorType &src) {
+        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 
@@ -591,7 +641,11 @@ namespace ImmersX::detail
      */
     Operator
     schur_preconditioner(const FieldId           multiplier,
-                         const GlobalVectorType &state) const
+                         const GlobalVectorType &state,
+                         const GlobalVectorType *state_dot          = nullptr,
+                         const double            alpha              = 0.,
+                         const unsigned int      maximum_iterations = 1000,
+                         const double            tolerance = 1.e-10) const
     {
       finalize();
       validate_state(state);
@@ -604,10 +658,23 @@ namespace ImmersX::detail
       AssertThrow(metadata != model_.saddle_points().end(),
                   dealii::ExcMessage(
                     "No saddle-point metadata exists for this multiplier."));
+      AssertThrow(!metadata->participants.empty(),
+                  dealii::ExcMessage(
+                    "A Schur relation must contain at least one participant."));
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> derivative_context;
+      if (state_dot != nullptr)
+        {
+          validate_state(*state_dot);
+          field_layout_.bind_state(derivative_view, *state_dot);
+          derivative_context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        derivative_context.emplace(0., state_view, nullptr);
+      const auto &context = *derivative_context;
       struct Participant
       {
         unsigned int  block;
@@ -619,78 +686,207 @@ namespace ImmersX::detail
       participants.reserve(metadata->participants.size());
       for (const auto field : metadata->participants)
         {
-          const auto inverse = local_preconditioner(field, state);
+          const auto inverse =
+            local_preconditioner(field, state, context, alpha);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur preconditioning requires local inverses for "
                         "all participant fields."));
           participants.push_back(
             {field_layout_.block(field),
-             model_.state_operator(multiplier, field, context),
-             model_.state_operator(field, multiplier, context),
+             linearized_operator(multiplier, field, context, alpha),
+             linearized_operator(field, multiplier, context, alpha),
              *inverse});
         }
 
-      const auto schur            = schur_operator(multiplier, state);
-      const auto multiplier_block = field_layout_.block(multiplier);
-      auto       apply =
-        [participants, schur, multiplier_block](GlobalVectorType       &dst,
-                                                const GlobalVectorType &src) {
-          GlobalVectorType rhs;
-          rhs.reinit(src);
-          rhs = src;
-          dst = 0.;
-
-          FieldVectorType schur_rhs;
-          schur_rhs.reinit(rhs.block(multiplier_block));
-          schur_rhs = rhs.block(multiplier_block);
-          schur_rhs *= -1.;
-          for (const auto &participant : participants)
-            {
-              participant.inverse.vmult(dst.block(participant.block),
-                                        rhs.block(participant.block));
-              participant.to_multiplier.vmult_add(schur_rhs,
-                                                  dst.block(participant.block));
-            }
-
-          FieldVectorType multiplier_solution;
-          multiplier_solution.reinit(schur_rhs);
-          multiplier_solution = 0.;
-          dealii::SolverControl                control(1000, 1.e-10);
-          dealii::SolverGMRES<FieldVectorType> solver(control);
-          solver.solve(schur,
-                       multiplier_solution,
-                       schur_rhs,
-                       dealii::PreconditionIdentity());
-          dst.block(multiplier_block) = multiplier_solution;
-
-          for (const auto &participant : participants)
-            {
-              FieldVectorType correction_rhs;
-              correction_rhs.reinit(multiplier_solution);
-              participant.from_multiplier.vmult(correction_rhs,
-                                                multiplier_solution);
-              FieldVectorType correction;
-              correction.reinit(correction_rhs);
-              participant.inverse.vmult(correction, correction_rhs);
-              dst.block(participant.block) -= correction;
-            }
-        };
-
-      Operator result;
-      result.reinit_range_vector = [state](GlobalVectorType &vector,
-                                           const bool        omit) {
-        vector.reinit(state, omit);
+      struct NonParticipant
+      {
+        unsigned int  block;
+        LocalOperator inverse;
       };
+      std::vector<NonParticipant> non_participants;
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        {
+          const auto field = field_layout_.field(block);
+          if (field == multiplier ||
+              std::any_of(metadata->participants.begin(),
+                          metadata->participants.end(),
+                          [field](const auto participant) {
+                            return participant == field;
+                          }))
+            continue;
+
+          const auto inverse =
+            local_preconditioner(field, state, context, alpha);
+          AssertThrow(inverse.has_value(),
+                      dealii::ExcMessage(
+                        "Schur preconditioning requires local inverses for "
+                        "all non-participant fields."));
+          non_participants.push_back({block, *inverse});
+        }
+
+      const auto schur = schur_operator(multiplier, state, state_dot, alpha);
+      const auto multiplier_block = field_layout_.block(multiplier);
+      const auto multiplier_preconditioner =
+        this->multiplier_preconditioner(multiplier, state, context);
+      auto field_vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
+
+      auto transpose_operator = [](const LocalOperator &operator_to_transpose) {
+        LocalOperator result = operator_to_transpose;
+        result.vmult         = operator_to_transpose.Tvmult;
+        result.vmult_add     = operator_to_transpose.Tvmult_add;
+        result.Tvmult        = operator_to_transpose.vmult;
+        result.Tvmult_add    = operator_to_transpose.vmult_add;
+        std::swap(result.reinit_range_vector, result.reinit_domain_vector);
+        return result;
+      };
+      const auto schur_transpose = transpose_operator(schur);
+      const auto multiplier_preconditioner_transpose =
+        transpose_operator(multiplier_preconditioner);
+
+      auto solve_multiplier = [schur,
+                               schur_transpose,
+                               multiplier_preconditioner,
+                               multiplier_preconditioner_transpose,
+                               maximum_iterations,
+                               tolerance](FieldVectorType       &solution,
+                                          const FieldVectorType &rhs,
+                                          const bool             transpose) {
+        dealii::SolverControl control(maximum_iterations, tolerance);
+        dealii::SolverGMRES<FieldVectorType> solver(control);
+        if (transpose)
+          solver.solve(schur_transpose,
+                       solution,
+                       rhs,
+                       multiplier_preconditioner_transpose);
+        else
+          solver.solve(schur, solution, rhs, multiplier_preconditioner);
+      };
+
+      auto apply = [participants,
+                    non_participants,
+                    multiplier_block,
+                    field_vector_memory,
+                    solve_multiplier](GlobalVectorType       &dst,
+                                      const GlobalVectorType &src,
+                                      const bool              transpose) {
+        dst = 0.;
+
+        for (const auto &non_participant : non_participants)
+          if (transpose)
+            non_participant.inverse.Tvmult(dst.block(non_participant.block),
+                                           src.block(non_participant.block));
+          else
+            non_participant.inverse.vmult(dst.block(non_participant.block),
+                                          src.block(non_participant.block));
+
+        typename dealii::VectorMemory<FieldVectorType>::Pointer schur_rhs(
+          *field_vector_memory);
+        typename dealii::VectorMemory<FieldVectorType>::Pointer
+          multiplier_solution(*field_vector_memory);
+        if (transpose)
+          {
+            participants.front().from_multiplier.reinit_domain_vector(
+              *schur_rhs, false);
+            *schur_rhs = src.block(multiplier_block);
+            *schur_rhs *= -1.;
+
+            for (const auto &participant : participants)
+              {
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  participant_solution(*field_vector_memory);
+                participant.inverse.reinit_domain_vector(*participant_solution,
+                                                         false);
+                participant.inverse.Tvmult(*participant_solution,
+                                           src.block(participant.block));
+                participant.from_multiplier.Tvmult_add(*schur_rhs,
+                                                       *participant_solution);
+              }
+          }
+        else
+          {
+            participants.front().to_multiplier.reinit_range_vector(*schur_rhs,
+                                                                   false);
+            *schur_rhs = src.block(multiplier_block);
+            *schur_rhs *= -1.;
+
+            for (const auto &participant : participants)
+              {
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  participant_solution(*field_vector_memory);
+                participant.inverse.reinit_range_vector(*participant_solution,
+                                                        false);
+                participant.inverse.vmult(*participant_solution,
+                                          src.block(participant.block));
+                participant.to_multiplier.vmult_add(*schur_rhs,
+                                                    *participant_solution);
+                dst.block(participant.block) = *participant_solution;
+              }
+          }
+
+        participants.front().to_multiplier.reinit_range_vector(
+          *multiplier_solution, false);
+        *multiplier_solution = 0.;
+        solve_multiplier(*multiplier_solution, *schur_rhs, transpose);
+        dst.block(multiplier_block) = *multiplier_solution;
+
+        for (const auto &participant : participants)
+          {
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_rhs(*field_vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_solution(*field_vector_memory);
+            if (transpose)
+              {
+                participant.to_multiplier.reinit_domain_vector(*participant_rhs,
+                                                               false);
+                participant.to_multiplier.Tvmult(*participant_rhs,
+                                                 *multiplier_solution);
+                *participant_rhs *= -1.;
+                *participant_rhs += src.block(participant.block);
+                participant.inverse.reinit_domain_vector(*participant_solution,
+                                                         false);
+                participant.inverse.Tvmult(*participant_solution,
+                                           *participant_rhs);
+              }
+            else
+              {
+                participant.from_multiplier.reinit_range_vector(
+                  *participant_rhs, false);
+                participant.from_multiplier.vmult(*participant_rhs,
+                                                  *multiplier_solution);
+                participant.inverse.reinit_range_vector(*participant_solution,
+                                                        false);
+                participant.inverse.vmult(*participant_solution,
+                                          *participant_rhs);
+                *participant_solution *= -1.;
+                dst.block(participant.block) += *participant_solution;
+                continue;
+              }
+            dst.block(participant.block) = *participant_solution;
+          }
+      };
+
+      auto global_vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      Operator   result;
+      const auto partitions   = field_layout_.block_partitions();
+      const auto communicator = communicator_;
+      result.reinit_range_vector =
+        [partitions, communicator](GlobalVectorType &vector, const bool) {
+          vector.reinit(partitions, communicator);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &dst,
                              const GlobalVectorType &src) {
         apply(dst, src, false);
       };
-      result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+      result.vmult_add = [apply,
+                          global_vector_memory](GlobalVectorType       &dst,
                                                 const GlobalVectorType &src) {
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
-          *vector_memory);
+          *global_vector_memory);
         contribution->reinit(dst);
         apply(*contribution, src, false);
         dst += *contribution;
@@ -699,10 +895,11 @@ namespace ImmersX::detail
                               const GlobalVectorType &src) {
         apply(dst, src, true);
       };
-      result.Tvmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+      result.Tvmult_add = [apply,
+                           global_vector_memory](GlobalVectorType       &dst,
                                                  const GlobalVectorType &src) {
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
-          *vector_memory);
+          *global_vector_memory);
         contribution->reinit(dst);
         apply(*contribution, src, true);
         dst += *contribution;
@@ -713,26 +910,40 @@ namespace ImmersX::detail
     /** Apply A_gamma = A + gamma B^T W^-1 B on the coupled state. */
     Operator
     augmented_lagrangian_operator(const GlobalVectorType &state,
-                                  const double            gamma = 1.e1) const
+                                  const double            gamma     = 1.e1,
+                                  const GlobalVectorType *state_dot = nullptr,
+                                  const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
       AssertThrow(gamma > 0.,
                   dealii::ExcMessage(
                     "The augmented-Lagrangian parameter must be positive."));
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
-      const unsigned int                 n = field_layout_.n_blocks();
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context_storage;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context_storage.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context_storage.emplace(0., state_view, nullptr);
+      const auto        &context = *context_storage;
+      const unsigned int n       = field_layout_.n_blocks();
 
       std::vector<std::vector<LocalOperator>> base(
         n, std::vector<LocalOperator>(n));
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
-          base[i][j] = model_.state_operator(field_layout_.field(i),
-                                             field_layout_.field(j),
-                                             context);
+          base[i][j] = linearized_operator(field_layout_.field(i),
+                                           field_layout_.field(j),
+                                           context,
+                                           alpha);
 
       struct Augmentation
       {
@@ -756,7 +967,7 @@ namespace ImmersX::detail
               const auto multiplier_partition =
                 layout_.field(metadata.multiplier).locally_owned;
               auto inverse_metric = std::make_shared<FieldVectorType>();
-              inverse_metric->reinit(state.block(multiplier));
+              inverse_metric->reinit(multiplier_partition, communicator_);
               for (const auto index : multiplier_partition)
                 {
                   const auto value         = metric_matrix->diag_element(index);
@@ -765,9 +976,10 @@ namespace ImmersX::detail
               inverse_metric->compress(dealii::VectorOperation::insert);
 
               inverse_metric_operator.reinit_range_vector =
-                [prototype = state.block(multiplier)](FieldVectorType &vector,
-                                                      const bool       omit) {
-                  vector.reinit(prototype, omit);
+                [multiplier_partition,
+                 communicator = communicator_](FieldVectorType &vector,
+                                               const bool       omit) {
+                  vector.reinit(multiplier_partition, communicator, omit);
                 };
               inverse_metric_operator.reinit_domain_vector =
                 inverse_metric_operator.reinit_range_vector;
@@ -807,10 +1019,10 @@ namespace ImmersX::detail
             {
               augmentation.participants.push_back(
                 field_layout_.block(participant));
-              augmentation.to_multiplier.push_back(model_.state_operator(
-                metadata.multiplier, participant, context));
-              augmentation.from_multiplier.push_back(model_.state_operator(
-                participant, metadata.multiplier, context));
+              augmentation.to_multiplier.push_back(linearized_operator(
+                metadata.multiplier, participant, context, alpha));
+              augmentation.from_multiplier.push_back(linearized_operator(
+                participant, metadata.multiplier, context, alpha));
             }
           augmentations.push_back(std::move(augmentation));
         }
@@ -931,19 +1143,32 @@ namespace ImmersX::detail
      */
     BlockMatrixType
     augmented_lagrangian_matrix(const GlobalVectorType &state,
-                                const double            gamma = 1.e1) const
+                                const double            gamma     = 1.e1,
+                                const GlobalVectorType *state_dot = nullptr,
+                                const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
       AssertThrow(gamma > 0.,
                   dealii::ExcMessage(
                     "The augmented-Lagrangian parameter must be positive."));
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
-      auto       result     = make_block_matrix(context, 0.);
-      const auto partitions = field_layout_.block_partitions();
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context_storage;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context_storage.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context_storage.emplace(0., state_view, nullptr);
+      const auto &context    = *context_storage;
+      auto        result     = make_block_matrix(context, alpha);
+      const auto  partitions = field_layout_.block_partitions();
 
       for (const auto &metadata : model_.saddle_points())
         {
@@ -976,29 +1201,29 @@ namespace ImmersX::detail
                 const auto from      = materialized_block(row_field,
                                                      metadata.multiplier,
                                                      context,
-                                                     0.);
+                                                     alpha);
                 const auto to        = materialized_block(metadata.multiplier,
                                                    col_field,
                                                    context,
-                                                   0.);
+                                                   alpha);
                 AssertThrow(from && to,
                             dealii::ExcMessage(
                               "Matrix-based augmented-Lagrangian composition "
                               "requires materialized coupling blocks."));
                 AssertThrow(from->n() == to->m(),
                             dealii::ExcDimensionMismatch(from->n(), to->m()));
-                AssertThrow(from->trilinos_matrix().DomainMap().SameAs(
-                              to->trilinos_matrix().RangeMap()),
-                            dealii::ExcMessage(
-                              "Augmented-Lagrangian coupling maps do not "
-                              "share the multiplier partition."));
-                AssertThrow(to->local_range() == inverse_metric.local_range(),
-                            dealii::ExcMessage(
-                              "Augmented-Lagrangian metric and coupling "
-                              "partitions do not match."));
-
                 MatrixType product;
-                from->mmult(product, *to, inverse_metric);
+                const auto column_partition =
+                  layout_.field(col_field).locally_owned;
+                const auto from_normalized =
+                  repartition_matrix(*from,
+                                     layout_.field(row_field).locally_owned,
+                                     multiplier_partition);
+                const auto to_normalized =
+                  repartition_matrix(*to,
+                                     multiplier_partition,
+                                     column_partition);
+                from_normalized.mmult(product, to_normalized, inverse_metric);
                 const auto row_block = field_layout_.block(row_field);
                 const auto col_block = field_layout_.block(col_field);
                 const auto combined =
@@ -1018,11 +1243,16 @@ namespace ImmersX::detail
 
     /** Apply an augmented-Lagrangian block factorization. */
     Operator
-    augmented_lagrangian_preconditioner(const GlobalVectorType &state,
-                                        const double gamma = 1.e1) const
+    augmented_lagrangian_preconditioner(
+      const GlobalVectorType &state,
+      const double            gamma     = 1.e1,
+      const GlobalVectorType *state_dot = nullptr,
+      const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
       AssertThrow(gamma > 0.,
                   dealii::ExcMessage(
                     "The augmented-Lagrangian parameter must be positive."));
@@ -1035,191 +1265,281 @@ namespace ImmersX::detail
       const auto  multiplier_block = field_layout_.block(metadata.multiplier);
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
-      const auto augmented = augmented_lagrangian_matrix(state, gamma);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context_storage;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context_storage.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context_storage.emplace(0., state_view, nullptr);
+      const auto               &context = *context_storage;
+      std::vector<unsigned int> participant_blocks;
+      participant_blocks.reserve(metadata.participants.size());
+      for (const auto field : metadata.participants)
+        participant_blocks.push_back(field_layout_.block(field));
 
-      using size_type = typename MatrixType::size_type;
-      std::vector<size_type>        offsets;
-      std::vector<dealii::IndexSet> partitions;
-      offsets.reserve(metadata.participants.size());
-      partitions.reserve(metadata.participants.size());
-      size_type participant_size = 0;
+      const auto               partitions = field_layout_.block_partitions();
+      std::vector<std::size_t> participant_offsets(participant_blocks.size() +
+                                                     1,
+                                                   0);
+      for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+        participant_offsets[i + 1] =
+          participant_offsets[i] + partitions[participant_blocks[i]].size();
+
+      const auto primal_partition = [&]() {
+        dealii::IndexSet result(participant_offsets.back());
+        for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+          for (const auto index : partitions[participant_blocks[i]])
+            result.add_index(participant_offsets[i] + index);
+        result.compress();
+        return result;
+      }();
+
+      const auto augmented_matrix =
+        augmented_lagrangian_matrix(state, gamma, state_dot, alpha);
+      dealii::DynamicSparsityPattern primal_sparsity(participant_offsets.back(),
+                                                     participant_offsets.back(),
+                                                     primal_partition);
+      for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+        for (std::size_t j = 0; j < participant_blocks.size(); ++j)
+          {
+            const auto &block = augmented_matrix.block(participant_blocks[i],
+                                                       participant_blocks[j]);
+            for (const auto row : partitions[participant_blocks[i]])
+              for (auto entry = block.begin(row); entry != block.end(row);
+                   ++entry)
+                primal_sparsity.add(participant_offsets[i] + row,
+                                    participant_offsets[j] + entry->column());
+          }
+
+      auto primal_matrix = std::make_shared<MatrixType>();
+      primal_matrix->reinit(primal_partition,
+                            primal_partition,
+                            primal_sparsity,
+                            communicator_,
+                            false);
+      for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+        for (std::size_t j = 0; j < participant_blocks.size(); ++j)
+          {
+            const auto &block = augmented_matrix.block(participant_blocks[i],
+                                                       participant_blocks[j]);
+            for (const auto row : partitions[participant_blocks[i]])
+              for (auto entry = block.begin(row); entry != block.end(row);
+                   ++entry)
+                primal_matrix->set(participant_offsets[i] + row,
+                                   participant_offsets[j] + entry->column(),
+                                   entry->value());
+          }
+      primal_matrix->compress(dealii::VectorOperation::insert);
+
+      const auto primal_reinit = [primal_partition,
+                                  communicator =
+                                    communicator_](FieldVectorType &vector,
+                                                   const bool       omit) {
+        vector.reinit(primal_partition, communicator, omit);
+      };
+      auto primal_inverse =
+        make_amg_preconditioner<FieldVectorType, MatrixType>(*primal_matrix,
+                                                             primal_reinit);
+      // PreconditionAMG observes its matrix.  Capture the concrete matrix in
+      // every action so the inverse cannot outlive the assembled superblock.
+      const auto primal_vmult      = primal_inverse.vmult;
+      const auto primal_vmult_add  = primal_inverse.vmult_add;
+      const auto primal_Tvmult     = primal_inverse.Tvmult;
+      const auto primal_Tvmult_add = primal_inverse.Tvmult_add;
+      primal_inverse.vmult         = [primal_matrix,
+                              primal_vmult](FieldVectorType       &dst,
+                                            const FieldVectorType &src) {
+        primal_vmult(dst, src);
+      };
+      primal_inverse.vmult_add =
+        [primal_matrix, primal_vmult_add](FieldVectorType       &dst,
+                                          const FieldVectorType &src) {
+          primal_vmult_add(dst, src);
+        };
+      primal_inverse.Tvmult = [primal_matrix,
+                               primal_Tvmult](FieldVectorType       &dst,
+                                              const FieldVectorType &src) {
+        primal_Tvmult(dst, src);
+      };
+      primal_inverse.Tvmult_add =
+        [primal_matrix, primal_Tvmult_add](FieldVectorType       &dst,
+                                           const FieldVectorType &src) {
+          primal_Tvmult_add(dst, src);
+        };
+
+      const auto multiplier_inverse =
+        multiplier_preconditioner(metadata.multiplier, state, context);
+      std::vector<LocalOperator> from_multiplier;
+      std::vector<LocalOperator> to_multiplier;
+      from_multiplier.reserve(participant_blocks.size());
+      to_multiplier.reserve(participant_blocks.size());
       for (const auto field : metadata.participants)
         {
-          offsets.push_back(participant_size);
-          partitions.push_back(layout_.field(field).locally_owned);
-          participant_size += partitions.back().size();
+          from_multiplier.push_back(
+            linearized_operator(field, metadata.multiplier, context, alpha));
+          to_multiplier.push_back(
+            linearized_operator(metadata.multiplier, field, context, alpha));
         }
 
-      dealii::IndexSet participant_partition(participant_size);
-      for (unsigned int i = 0; i < partitions.size(); ++i)
-        for (const auto index : partitions[i])
-          participant_partition.add_index(offsets[i] + index);
-      participant_partition.compress();
-
-      dealii::DynamicSparsityPattern sparsity(participant_size,
-                                              participant_size,
-                                              participant_partition);
-      for (unsigned int i = 0; i < metadata.participants.size(); ++i)
-        for (unsigned int j = 0; j < metadata.participants.size(); ++j)
-          {
-            const auto row_block =
-              field_layout_.block(metadata.participants[i]);
-            const auto col_block =
-              field_layout_.block(metadata.participants[j]);
-            const auto &block = augmented.block(row_block, col_block);
-            for (const auto row : partitions[i])
-              for (auto entry = block.begin(row); entry != block.end(row);
-                   ++entry)
-                sparsity.add(offsets[i] + row, offsets[j] + entry->column());
-          }
-
-      MatrixType participant_matrix;
-      participant_matrix.reinit(participant_partition,
-                                participant_partition,
-                                sparsity,
-                                communicator_,
-                                false);
-      for (unsigned int i = 0; i < metadata.participants.size(); ++i)
-        for (unsigned int j = 0; j < metadata.participants.size(); ++j)
-          {
-            const auto row_block =
-              field_layout_.block(metadata.participants[i]);
-            const auto col_block =
-              field_layout_.block(metadata.participants[j]);
-            const auto &block = augmented.block(row_block, col_block);
-            for (const auto row : partitions[i])
-              for (auto entry = block.begin(row); entry != block.end(row);
-                   ++entry)
-                participant_matrix.set(offsets[i] + row,
-                                       offsets[j] + entry->column(),
-                                       entry->value());
-          }
-      participant_matrix.compress(dealii::VectorOperation::insert);
-
-      FieldVectorType participant_prototype;
-      participant_prototype.reinit(participant_partition, communicator_);
-      const auto participant_inverse =
-        make_mumps_inverse(participant_matrix, participant_prototype);
-
-      const auto metric =
-        model_.multiplier_metric(metadata.multiplier, context);
-      AssertThrow(metric.has_value(),
-                  dealii::ExcMessage(
-                    "Augmented-Lagrangian preconditioning requires a "
-                    "materialized multiplier metric."));
-      const auto metric_matrix = metric->matrix();
-      const auto multiplier_partition =
-        layout_.field(metadata.multiplier).locally_owned;
-      auto inverse_metric = std::make_shared<FieldVectorType>();
-      inverse_metric->reinit(state.block(multiplier_block));
-      for (const auto index : multiplier_partition)
-        {
-          const auto value         = metric_matrix->diag_element(index);
-          (*inverse_metric)(index) = inverse_lumped_metric_value(value);
-        }
-      inverse_metric->compress(dealii::VectorOperation::insert);
-
-      struct Participant
+      struct NonParticipant
       {
         unsigned int  block;
-        LocalOperator from_multiplier;
+        LocalOperator inverse;
       };
-      std::vector<Participant> participants;
-      participants.reserve(metadata.participants.size());
-      for (const auto field : metadata.participants)
-        participants.push_back(
-          {field_layout_.block(field),
-           model_.state_operator(field, metadata.multiplier, context)});
-
-      std::vector<LocalOperator> diagonal(field_layout_.n_blocks());
-      std::vector<bool> is_participant(field_layout_.n_blocks(), false);
-      for (const auto participant : participants)
-        is_participant[participant.block] = true;
+      std::vector<NonParticipant> non_participants;
       for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
-        if (block != multiplier_block && !is_participant[block])
+        if (block != multiplier_block &&
+            std::find(participant_blocks.begin(),
+                      participant_blocks.end(),
+                      block) == participant_blocks.end())
           {
-            const auto inverse =
-              local_preconditioner(field_layout_.field(block), state);
+            const auto inverse = local_preconditioner(
+              field_layout_.field(block), state, context, alpha);
             AssertThrow(inverse.has_value(),
                         dealii::ExcMessage(
-                          "Augmented-Lagrangian preconditioning requires "
-                          "local inverses for non-participant fields."));
-            diagonal[block] = *inverse;
+                          "Augmented-Lagrangian preconditioning requires a "
+                          "local preconditioner for every nonparticipant "
+                          "field."));
+            non_participants.push_back({block, *inverse});
           }
 
-      const auto multiplier_prototype = state.block(multiplier_block);
-      Operator   result;
-      result.reinit_range_vector = [state](GlobalVectorType &vector,
-                                           const bool        omit) {
-        vector.reinit(state, omit);
-      };
-      result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [diagonal,
-                      participants,
-                      offsets,
-                      partitions,
-                      participant_inverse,
-                      participant_prototype,
-                      inverse_metric,
-                      multiplier_partition,
-                      multiplier_block,
-                      multiplier_prototype,
-                      gamma](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
+      auto field_vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
+      auto vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      auto apply = [participant_blocks,
+                    participant_offsets,
+                    primal_partition,
+                    partitions,
+                    multiplier_block,
+                    multiplier_inverse,
+                    primal_inverse,
+                    from_multiplier,
+                    to_multiplier,
+                    non_participants,
+                    gamma,
+                    communicator = communicator_,
+                    field_vector_memory](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src,
+                                         const bool              transpose) {
         dst = 0.;
-        FieldVectorType multiplier;
-        multiplier.reinit(multiplier_prototype);
-        multiplier = src.block(multiplier_block);
-        for (const auto index : multiplier_partition)
-          multiplier(index) *= -gamma * (*inverse_metric)(index);
-        multiplier.compress(dealii::VectorOperation::insert);
-        dst.block(multiplier_block) = multiplier;
+        for (const auto &non_participant : non_participants)
+          if (transpose)
+            non_participant.inverse.Tvmult(dst.block(non_participant.block),
+                                           src.block(non_participant.block));
+          else
+            non_participant.inverse.vmult(dst.block(non_participant.block),
+                                          src.block(non_participant.block));
 
-        for (unsigned int block = 0; block < diagonal.size(); ++block)
-          if (block != multiplier_block &&
-              std::none_of(participants.begin(),
-                           participants.end(),
-                           [block](const auto &participant) {
-                             return participant.block == block;
-                           }))
-            diagonal[block].vmult(dst.block(block), src.block(block));
-
-        FieldVectorType rhs;
-        rhs.reinit(participant_prototype);
-        rhs = 0.;
-        for (unsigned int i = 0; i < participants.size(); ++i)
+        typename dealii::VectorMemory<FieldVectorType>::Pointer primal_rhs(
+          *field_vector_memory);
+        typename dealii::VectorMemory<FieldVectorType>::Pointer primal_solution(
+          *field_vector_memory);
+        primal_rhs->reinit(primal_partition, communicator);
+        primal_solution->reinit(primal_partition, communicator);
+        *primal_rhs = 0.;
+        if (!transpose)
           {
-            FieldVectorType block_rhs;
-            block_rhs.reinit(src.block(participants[i].block));
-            block_rhs = src.block(participants[i].block);
-            participants[i].from_multiplier.vmult_add(block_rhs, multiplier);
-            for (const auto index : partitions[i])
-              rhs(offsets[i] + index) = block_rhs(index);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer lambda(
+              *field_vector_memory);
+            multiplier_inverse.reinit_range_vector(*lambda, false);
+            multiplier_inverse.vmult(*lambda, src.block(multiplier_block));
+            *lambda *= -gamma;
+            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+              for (const auto index : partitions[participant_blocks[i]])
+                (*primal_rhs)(participant_offsets[i] + index) =
+                  src.block(participant_blocks[i])(index);
+            primal_rhs->compress(dealii::VectorOperation::insert);
+            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+              {
+                typename dealii::VectorMemory<FieldVectorType>::Pointer value(
+                  *field_vector_memory);
+                from_multiplier[i].reinit_range_vector(*value, false);
+                from_multiplier[i].vmult(*value, *lambda);
+                for (const auto index : partitions[participant_blocks[i]])
+                  (*primal_rhs)(participant_offsets[i] + index) +=
+                    (*value)(index);
+              }
+            primal_rhs->compress(dealii::VectorOperation::add);
+            primal_inverse.vmult(*primal_solution, *primal_rhs);
+            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+              for (const auto index : partitions[participant_blocks[i]])
+                dst.block(participant_blocks[i])(index) =
+                  (*primal_solution)(participant_offsets[i] + index);
+            dst.block(multiplier_block) = *lambda;
           }
-        rhs.compress(dealii::VectorOperation::insert);
-
-        FieldVectorType solution;
-        solution.reinit(participant_prototype);
-        participant_inverse.vmult(solution, rhs);
-        for (unsigned int i = 0; i < participants.size(); ++i)
+        else
           {
-            for (const auto index : partitions[i])
-              dst.block(participants[i].block)(index) =
-                solution(offsets[i] + index);
-            dst.block(participants[i].block)
-              .compress(dealii::VectorOperation::insert);
+            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+              for (const auto index : partitions[participant_blocks[i]])
+                (*primal_rhs)(participant_offsets[i] + index) =
+                  src.block(participant_blocks[i])(index);
+            primal_rhs->compress(dealii::VectorOperation::insert);
+            primal_inverse.Tvmult(*primal_solution, *primal_rhs);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              multiplier_rhs(*field_vector_memory);
+            multiplier_inverse.reinit_domain_vector(*multiplier_rhs, false);
+            *multiplier_rhs = src.block(multiplier_block);
+            multiplier_rhs->compress(dealii::VectorOperation::insert);
+            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+              {
+                typename dealii::VectorMemory<FieldVectorType>::Pointer value(
+                  *field_vector_memory);
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  participant_solution(*field_vector_memory);
+                to_multiplier[i].reinit_domain_vector(*participant_solution,
+                                                      false);
+                for (const auto index : partitions[participant_blocks[i]])
+                  (*participant_solution)(index) =
+                    (*primal_solution)(participant_offsets[i] + index);
+                to_multiplier[i].reinit_range_vector(*value, false);
+                to_multiplier[i].vmult(*value, *participant_solution);
+                for (const auto index : partitions[participant_blocks[i]])
+                  dst.block(participant_blocks[i])(index) =
+                    (*primal_solution)(participant_offsets[i] + index);
+                multiplier_rhs->add(1., *value);
+              }
+            multiplier_rhs->compress(dealii::VectorOperation::add);
+            multiplier_inverse.Tvmult(dst.block(multiplier_block),
+                                      *multiplier_rhs);
+            dst.block(multiplier_block) *= -gamma;
           }
       };
-      result.vmult_add = [apply = result.vmult](GlobalVectorType       &dst,
+
+      const auto communicator = communicator_;
+      Operator   result;
+      result.reinit_range_vector =
+        [partitions, communicator](GlobalVectorType &vector, const bool) {
+          vector.reinit(partitions, communicator);
+        };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult                = [apply](GlobalVectorType       &dst,
+                             const GlobalVectorType &src) {
+        apply(dst, src, false);
+      };
+      result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
                                                 const GlobalVectorType &src) {
-        GlobalVectorType contribution;
-        contribution.reinit(dst);
-        apply(contribution, src);
-        dst += contribution;
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, false);
+        dst += *contribution;
       };
-      result.Tvmult     = result.vmult;
-      result.Tvmult_add = result.vmult_add;
+      result.Tvmult = [apply](GlobalVectorType       &dst,
+                              const GlobalVectorType &src) {
+        apply(dst, src, true);
+      };
+      result.Tvmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+                                                 const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 
@@ -1235,29 +1555,205 @@ namespace ImmersX::detail
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
       EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
-      auto matrix = materialized_block(field, field, context, 0.);
-      AssertThrow(matrix != nullptr,
-                  dealii::ExcMessage(
-                    "A local preconditioner requires a materialized diagonal "
-                    "block."));
-      return model_.preconditioner(field,
-                                   *matrix,
-                                   state.block(field_layout_.block(field)));
+      return local_preconditioner(field, state, context, 0.);
+    }
+
+    std::optional<LocalOperator>
+    local_preconditioner(const FieldId                             field,
+                         const GlobalVectorType                   &state,
+                         const EvaluationContext<FieldVectorType> &context,
+                         const double                              alpha) const
+    {
+      finalize();
+      validate_state(state);
+      if (!model_.has_preconditioner(field))
+        return std::nullopt;
+
+      std::shared_ptr<MatrixType> matrix;
+      if (model_.has_state_operator(field, field) ||
+          (alpha != 0. && model_.has_derivative_operator(field, field)))
+        {
+          matrix = materialized_block(field, field, context, alpha);
+        }
+      if (matrix)
+        {
+          const auto owned        = layout_.field(field).locally_owned;
+          const auto communicator = communicator_;
+          const auto reinit_vector =
+            [owned, communicator](FieldVectorType &vector, const bool) {
+              vector.reinit(owned, communicator);
+            };
+          const auto local =
+            model_.preconditioner(field, *matrix, reinit_vector);
+          if (local.has_value())
+            {
+              auto       result     = *local;
+              const auto vmult      = result.vmult;
+              const auto vmult_add  = result.vmult_add;
+              const auto Tvmult     = result.Tvmult;
+              const auto Tvmult_add = result.Tvmult_add;
+              result.vmult = [matrix, vmult](FieldVectorType       &dst,
+                                             const FieldVectorType &src) {
+                vmult(dst, src);
+              };
+              result.vmult_add = [matrix,
+                                  vmult_add](FieldVectorType       &dst,
+                                             const FieldVectorType &src) {
+                vmult_add(dst, src);
+              };
+              result.Tvmult = [matrix, Tvmult](FieldVectorType       &dst,
+                                               const FieldVectorType &src) {
+                Tvmult(dst, src);
+              };
+              result.Tvmult_add = [matrix,
+                                   Tvmult_add](FieldVectorType       &dst,
+                                               const FieldVectorType &src) {
+                Tvmult_add(dst, src);
+              };
+              return result;
+            }
+        }
+
+      // A structurally null diagonal is valid for a mixed saddle system.
+      // Give a registered metric factory an empty, correctly partitioned
+      // matrix; do not manufacture an inverse for an absent block.
+      const auto partition = layout_.field(field).locally_owned;
+      dealii::DynamicSparsityPattern empty(partition.size(),
+                                           partition.size(),
+                                           partition);
+      auto empty_matrix = std::make_shared<MatrixType>();
+      empty_matrix->reinit(partition, partition, empty, communicator_, false);
+      const auto local =
+        model_.preconditioner(field,
+                              *empty_matrix,
+                              [partition, communicator = communicator_](
+                                FieldVectorType &vector, const bool) {
+                                vector.reinit(partition, communicator);
+                              });
+      if (!local.has_value())
+        return std::nullopt;
+      auto       result     = *local;
+      const auto vmult      = result.vmult;
+      const auto vmult_add  = result.vmult_add;
+      const auto Tvmult     = result.Tvmult;
+      const auto Tvmult_add = result.Tvmult_add;
+      result.vmult          = [empty_matrix, vmult](FieldVectorType       &dst,
+                                           const FieldVectorType &src) {
+        vmult(dst, src);
+      };
+      result.vmult_add = [empty_matrix, vmult_add](FieldVectorType       &dst,
+                                                   const FieldVectorType &src) {
+        vmult_add(dst, src);
+      };
+      result.Tvmult = [empty_matrix, Tvmult](FieldVectorType       &dst,
+                                             const FieldVectorType &src) {
+        Tvmult(dst, src);
+      };
+      result.Tvmult_add = [empty_matrix,
+                           Tvmult_add](FieldVectorType       &dst,
+                                       const FieldVectorType &src) {
+        Tvmult_add(dst, src);
+      };
+      return result;
+    }
+
+    /** Build the metric preconditioner used by a multiplier Schur solve. */
+    LocalOperator
+    multiplier_preconditioner(
+      const FieldId                             multiplier,
+      const GlobalVectorType                   &state,
+      const EvaluationContext<FieldVectorType> &context) const
+    {
+      const auto prototype = state.block(field_layout_.block(multiplier));
+      const auto metric    = model_.multiplier_metric(multiplier, context);
+      if (metric.has_value())
+        {
+          const auto metric_matrix = metric->matrix();
+          if (model_.has_preconditioner(multiplier))
+            {
+              const auto reinitializer = [prototype](FieldVectorType &vector,
+                                                     const bool       omit) {
+                vector.reinit(prototype, omit);
+              };
+              const auto local = model_.preconditioner(multiplier,
+                                                       *metric_matrix,
+                                                       reinitializer);
+              if (local.has_value())
+                return *local;
+            }
+
+          auto inverse_metric = std::make_shared<FieldVectorType>();
+          inverse_metric->reinit(prototype);
+          for (const auto index : prototype.locally_owned_elements())
+            (*inverse_metric)(index) =
+              inverse_lumped_metric_value(metric_matrix->diag_element(index));
+          inverse_metric->compress(dealii::VectorOperation::insert);
+
+          LocalOperator result;
+          result.reinit_range_vector = [prototype](FieldVectorType &vector,
+                                                   const bool       omit) {
+            vector.reinit(prototype, omit);
+          };
+          result.reinit_domain_vector = result.reinit_range_vector;
+          result.vmult = [inverse_metric](FieldVectorType       &dst,
+                                          const FieldVectorType &src) {
+            dst = src;
+            for (const auto index : dst.locally_owned_elements())
+              dst(index) *= (*inverse_metric)(index);
+            dst.compress(dealii::VectorOperation::insert);
+          };
+          result.vmult_add = [result](FieldVectorType       &dst,
+                                      const FieldVectorType &src) mutable {
+            FieldVectorType contribution;
+            result.reinit_range_vector(contribution, false);
+            result.vmult(contribution, src);
+            dst += contribution;
+          };
+          result.Tvmult     = result.vmult;
+          result.Tvmult_add = result.vmult_add;
+          return result;
+        }
+
+      if (const auto local = local_preconditioner(multiplier, state);
+          local.has_value())
+        return *local;
+
+      return dealii::identity_operator<FieldVectorType>(
+        [prototype](FieldVectorType &vector, const bool omit) {
+          vector.reinit(prototype, omit);
+        });
     }
 
     /** Assemble registered local inverses into a global block diagonal map. */
     Operator
-    block_diagonal_preconditioner(const GlobalVectorType &state) const
+    block_diagonal_preconditioner(const GlobalVectorType &state,
+                                  const GlobalVectorType *state_dot = nullptr,
+                                  const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context.emplace(0., state_view, nullptr);
 
       std::vector<LocalOperator> diagonal;
       diagonal.reserve(field_layout_.n_blocks());
       for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
         {
           const auto field = field_layout_.field(block);
-          const auto local = local_preconditioner(field, state);
+          const auto local =
+            local_preconditioner(field, state, *context, alpha);
           AssertThrow(local.has_value(),
                       dealii::ExcMessage(
                         "Block diagonal preconditioning requires a local "
@@ -1299,18 +1795,36 @@ namespace ImmersX::detail
     /** Apply a lower or upper approximate block substitution. */
     Operator
     block_triangular_preconditioner(const GlobalVectorType &state,
-                                    const bool              lower = true) const
+                                    const bool              lower     = true,
+                                    const GlobalVectorType *state_dot = nullptr,
+                                    const double            alpha = 0.) const
     {
       finalize();
       validate_state(state);
+      if (state_dot != nullptr)
+        validate_state(*state_dot);
+
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> context;
+      if (state_dot != nullptr)
+        {
+          field_layout_.bind_state(derivative_view, *state_dot);
+          context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        context.emplace(0., state_view, nullptr);
 
       const unsigned int         n = field_layout_.n_blocks();
       std::vector<LocalOperator> diagonal;
       diagonal.reserve(n);
       for (unsigned int block = 0; block < n; ++block)
         {
-          const auto local =
-            local_preconditioner(field_layout_.field(block), state);
+          const auto local = local_preconditioner(field_layout_.field(block),
+                                                  state,
+                                                  *context,
+                                                  alpha);
           AssertThrow(local.has_value(),
                       dealii::ExcMessage(
                         "Block triangular preconditioning requires a local "
@@ -1318,56 +1832,64 @@ namespace ImmersX::detail
           diagonal.push_back(*local);
         }
 
-      StateView<FieldVectorType> state_view(layout_, 0.);
-      field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType>      context(0., state_view, nullptr);
       std::vector<std::vector<LocalOperator>> off_diagonal(
         n, std::vector<LocalOperator>(n));
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
-          off_diagonal[i][j] = model_.state_operator(field_layout_.field(i),
-                                                     field_layout_.field(j),
-                                                     context);
+          off_diagonal[i][j] = linearized_operator(field_layout_.field(i),
+                                                   field_layout_.field(j),
+                                                   *context,
+                                                   alpha);
 
-      auto substitution =
-        [diagonal, off_diagonal, lower](GlobalVectorType       &dst,
-                                        const GlobalVectorType &src,
-                                        const bool              transpose) {
-          const unsigned int n       = diagonal.size();
-          const bool         forward = lower != transpose;
-          if (forward)
-            for (unsigned int i = 0; i < n; ++i)
-              {
-                dst.block(i) = src.block(i);
-                dst.block(i) *= -1.;
-                for (unsigned int j = 0; j < i; ++j)
-                  if (transpose)
-                    off_diagonal[j][i].Tvmult_add(dst.block(i), dst.block(j));
-                  else
-                    off_diagonal[i][j].vmult_add(dst.block(i), dst.block(j));
-                dst.block(i) *= -1.;
+      auto field_vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
+      auto substitution = [diagonal,
+                           off_diagonal,
+                           lower,
+                           field_vector_memory](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src,
+                                                const bool transpose) {
+        const unsigned int n       = diagonal.size();
+        const bool         forward = lower != transpose;
+        if (forward)
+          for (unsigned int i = 0; i < n; ++i)
+            {
+              typename dealii::VectorMemory<FieldVectorType>::Pointer rhs(
+                *field_vector_memory);
+              diagonal[i].reinit_domain_vector(*rhs, false);
+              *rhs = src.block(i);
+              *rhs *= -1.;
+              for (unsigned int j = 0; j < i; ++j)
                 if (transpose)
-                  diagonal[i].Tvmult(dst.block(i), dst.block(i));
+                  off_diagonal[j][i].Tvmult_add(*rhs, dst.block(j));
                 else
-                  diagonal[i].vmult(dst.block(i), dst.block(i));
-              }
-          else
-            for (int i = static_cast<int>(n) - 1; i >= 0; --i)
-              {
-                dst.block(i) = src.block(i);
-                dst.block(i) *= -1.;
-                for (unsigned int j = i + 1; j < n; ++j)
-                  if (transpose)
-                    off_diagonal[j][i].Tvmult_add(dst.block(i), dst.block(j));
-                  else
-                    off_diagonal[i][j].vmult_add(dst.block(i), dst.block(j));
-                dst.block(i) *= -1.;
+                  off_diagonal[i][j].vmult_add(*rhs, dst.block(j));
+              *rhs *= -1.;
+              if (transpose)
+                diagonal[i].Tvmult(dst.block(i), *rhs);
+              else
+                diagonal[i].vmult(dst.block(i), *rhs);
+            }
+        else
+          for (int i = static_cast<int>(n) - 1; i >= 0; --i)
+            {
+              typename dealii::VectorMemory<FieldVectorType>::Pointer rhs(
+                *field_vector_memory);
+              diagonal[i].reinit_domain_vector(*rhs, false);
+              *rhs = src.block(i);
+              *rhs *= -1.;
+              for (unsigned int j = i + 1; j < n; ++j)
                 if (transpose)
-                  diagonal[i].Tvmult(dst.block(i), dst.block(i));
+                  off_diagonal[j][i].Tvmult_add(*rhs, dst.block(j));
                 else
-                  diagonal[i].vmult(dst.block(i), dst.block(i));
-              }
-        };
+                  off_diagonal[i][j].vmult_add(*rhs, dst.block(j));
+              *rhs *= -1.;
+              if (transpose)
+                diagonal[i].Tvmult(dst.block(i), *rhs);
+              else
+                diagonal[i].vmult(dst.block(i), *rhs);
+            }
+      };
       auto vector_memory =
         std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
 
@@ -1441,6 +1963,28 @@ namespace ImmersX::detail
     }
 
   private:
+    LocalOperator
+    linearized_operator(const FieldId                             row,
+                        const FieldId                             column,
+                        const EvaluationContext<FieldVectorType> &context,
+                        const double                              alpha) const
+    {
+      const bool has_state      = model_.has_state_operator(row, column);
+      const bool has_derivative = model_.has_derivative_operator(row, column);
+      LocalOperator result;
+      if (has_state)
+        result = model_.state_operator(row, column, context);
+      if (alpha != 0. && has_derivative)
+        {
+          const auto derivative =
+            model_.derivative_operator(row, column, context);
+          result = has_state ? result + alpha * derivative : alpha * derivative;
+        }
+      if (!has_state && (alpha == 0. || !has_derivative))
+        result = model_.state_operator(row, column, context);
+      return result;
+    }
+
     /** Return a safe inverse for the lumped multiplier metric. */
     static double
     inverse_lumped_metric_value(const double value)
@@ -1454,151 +1998,26 @@ namespace ImmersX::detail
       return std::abs(value) > 1.e-14 ? 1. / value : 1.;
     }
 
-    LocalOperator
-    make_mumps_inverse(const MatrixType      &matrix,
-                       const FieldVectorType &prototype) const
+    MatrixType
+    repartition_matrix(const MatrixType       &source,
+                       const dealii::IndexSet &row_partition,
+                       const dealii::IndexSet &column_partition) const
     {
-#ifdef DEAL_II_WITH_TRILINOS
-      AssertThrow(matrix.m() <= static_cast<typename MatrixType::size_type>(
-                                  std::numeric_limits<int>::max()),
-                  dealii::ExcMessage(
-                    "Amesos2 MUMPS requires a 32-bit global matrix "
-                    "index range."));
+      dealii::DynamicSparsityPattern sparsity(row_partition.size(),
+                                              column_partition.size(),
+                                              row_partition);
+      for (const auto row : row_partition)
+        for (auto entry = source.begin(row); entry != source.end(row); ++entry)
+          sparsity.add(row, entry->column());
 
-      const auto      &epetra_matrix = matrix.trilinos_matrix();
-      const auto      &row_map       = epetra_matrix.RowMap();
-      const auto      &column_map    = epetra_matrix.ColMap();
-      std::vector<int> owned_indices;
-      owned_indices.reserve(row_map.NumMyElements());
-      for (int local_row = 0; local_row < row_map.NumMyElements(); ++local_row)
-        owned_indices.push_back(static_cast<int>(row_map.GID64(local_row)));
-
-      const Epetra_Map int_map(static_cast<int>(matrix.m()),
-                               static_cast<int>(owned_indices.size()),
-                               owned_indices.data(),
-                               0,
-                               epetra_matrix.Comm());
-      auto int_matrix = std::make_shared<Epetra_CrsMatrix>(Copy, int_map, 0);
-      for (int local_row = 0; local_row < row_map.NumMyElements(); ++local_row)
-        {
-          int     n_entries = 0;
-          double *values    = nullptr;
-          int    *columns   = nullptr;
-          AssertThrow(epetra_matrix.ExtractMyRowView(
-                        local_row, n_entries, values, columns) == 0,
-                      dealii::ExcMessage(
-                        "Unable to inspect the Epetra matrix row."));
-          std::vector<int>    global_columns(n_entries);
-          std::vector<double> global_values(values, values + n_entries);
-          for (int entry = 0; entry < n_entries; ++entry)
-            global_columns[entry] =
-              static_cast<int>(column_map.GID64(columns[entry]));
-          AssertThrow(int_matrix->InsertGlobalValues(owned_indices[local_row],
-                                                     n_entries,
-                                                     global_values.data(),
-                                                     global_columns.data()) ==
-                        0,
-                      dealii::ExcMessage(
-                        "Unable to convert the matrix to 32-bit Epetra global "
-                        "indices."));
-        }
-      AssertThrow(int_matrix->FillComplete(int_map, int_map) == 0,
-                  dealii::ExcMessage(
-                    "Unable to complete the Epetra matrix for Amesos2 "
-                    "MUMPS."));
-
-      const Epetra_Map solver_map(static_cast<int>(matrix.m()),
-                                  0,
-                                  epetra_matrix.Comm());
-      Epetra_Export    exporter(int_map, solver_map);
-      auto             solver_matrix =
-        std::make_shared<Epetra_CrsMatrix>(Copy, solver_map, 0);
-      AssertThrow(solver_matrix->Export(*int_matrix, exporter, Insert) == 0,
-                  dealii::ExcMessage(
-                    "Unable to redistribute the Epetra matrix for Amesos2 "
-                    "MUMPS."));
-      AssertThrow(solver_matrix->FillComplete(solver_map, solver_map) == 0,
-                  dealii::ExcMessage(
-                    "Unable to complete the contiguous Epetra matrix for "
-                    "Amesos2 MUMPS."));
-
-      auto rhs      = Teuchos::rcp(new Epetra_MultiVector(solver_map, 1));
-      auto solution = Teuchos::rcp(new Epetra_MultiVector(solver_map, 1));
-      auto solver   = Amesos2::create<Epetra_CrsMatrix, Epetra_MultiVector>(
-        "MUMPS", Teuchos::rcp(solver_matrix.get(), false), solution, rhs);
-      solver->symbolicFactorization();
-      solver->numericFactorization();
-
-      const auto    communicator = matrix.get_mpi_communicator();
-      const int     global_size  = static_cast<int>(matrix.m());
-      LocalOperator result;
-      result.reinit_range_vector = [prototype](FieldVectorType &vector,
-                                               const bool       omit) {
-        vector.reinit(prototype, omit);
-      };
-      result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [rhs,
-                      solution,
-                      solver,
-                      solver_map,
-                      communicator,
-                      global_size](FieldVectorType       &dst,
-                                   const FieldVectorType &src) {
-        std::vector<double> global_rhs(global_size, 0.);
-        const auto         &src_epetra = src.trilinos_vector();
-        const auto         &src_map    = src_epetra.Map();
-        for (int local = 0; local < src_map.NumMyElements(); ++local)
-          global_rhs[static_cast<std::size_t>(src_map.GID64(local))] =
-            src_epetra[0][local];
-        AssertThrow(MPI_Allreduce(MPI_IN_PLACE,
-                                  global_rhs.data(),
-                                  global_size,
-                                  MPI_DOUBLE,
-                                  MPI_SUM,
-                                  communicator) == MPI_SUCCESS,
-                    dealii::ExcMessage(
-                      "Unable to collect the MUMPS preconditioner right-hand "
-                                     "side."));
-        for (int local = 0; local < solver_map.NumMyElements(); ++local)
-          (*rhs)[0][local] = global_rhs[solver_map.GID(local)];
-        solver->solve(solution.get(), rhs.get());
-
-        std::vector<double> global_solution(global_size, 0.);
-        for (int local = 0; local < solver_map.NumMyElements(); ++local)
-          global_solution[solver_map.GID(local)] = (*solution)[0][local];
-        AssertThrow(MPI_Allreduce(MPI_IN_PLACE,
-                                  global_solution.data(),
-                                  global_size,
-                                  MPI_DOUBLE,
-                                  MPI_SUM,
-                                  communicator) == MPI_SUCCESS,
-                    dealii::ExcMessage(
-                      "Unable to collect the MUMPS preconditioner solution."));
-        const auto &dst_epetra = dst.trilinos_vector();
-        const auto &dst_map    = dst_epetra.Map();
-        for (int local = 0; local < dst_map.NumMyElements(); ++local)
-          dst[dst_map.GID64(local)] =
-            global_solution[static_cast<std::size_t>(dst_map.GID64(local))];
-        dst.compress(dealii::VectorOperation::insert);
-      };
-      result.vmult_add = [apply = result.vmult](FieldVectorType       &dst,
-                                                const FieldVectorType &src) {
-        FieldVectorType contribution;
-        contribution.reinit(dst);
-        apply(contribution, src);
-        dst += contribution;
-      };
-      result.Tvmult     = result.vmult;
-      result.Tvmult_add = result.vmult_add;
+      MatrixType result;
+      result.reinit(
+        row_partition, column_partition, sparsity, communicator_, false);
+      for (const auto row : row_partition)
+        for (auto entry = source.begin(row); entry != source.end(row); ++entry)
+          result.set(row, entry->column(), entry->value());
+      result.compress(dealii::VectorOperation::insert);
       return result;
-#else
-      (void)matrix;
-      (void)prototype;
-      AssertThrow(false,
-                  dealii::ExcMessage(
-                    "The MUMPS preconditioner requires Trilinos."));
-      return {};
-#endif
     }
 
     MatrixType
@@ -1662,17 +2081,16 @@ namespace ImmersX::detail
       return true;
     }
 
-    void
+    std::shared_ptr<MatrixType>
     materialized_block(const FieldId                             row,
                        const FieldId                             column,
                        const EvaluationContext<FieldVectorType> &context,
-                       const double                              alpha,
-                       MatrixType &destination) const
+                       const double                              alpha) const
     {
       const bool has_state      = model_.has_state_operator(row, column);
       const bool has_derivative = model_.has_derivative_operator(row, column);
       if (!has_state && (alpha == 0. || !has_derivative))
-        return;
+        return {};
 
       std::optional<typename Model::MatrixOperator> state_matrix;
       std::optional<typename Model::MatrixOperator> derivative_matrix;
@@ -1689,19 +2107,21 @@ namespace ImmersX::detail
                   dealii::ExcMessage(
                     "A derivative operator is not completely matrix-based."));
 
+      std::shared_ptr<MatrixType> result;
       if (state_matrix.has_value())
-        state_matrix->materialize_into_matrix(destination);
+        result = state_matrix->matrix();
       if (derivative_matrix.has_value())
         {
           auto derivative = derivative_matrix->matrix();
-          if (state_matrix.has_value())
-            destination.add(alpha, *derivative);
+          if (result)
+            result->add(alpha, *derivative);
           else
             {
               *derivative *= alpha;
-              detail::copy_matrix(destination, *derivative);
+              result = std::move(derivative);
             }
         }
+      return result;
     }
 
     BlockMatrixType

@@ -36,10 +36,11 @@ saddle-point Schur, and matrix-based augmented-Lagrangian actions are available
 for explicit selection. The augmented-Lagrangian path assembles the primal
 superblock and uses the configured multiplier metric, including a positive
 algebraic fallback for constrained rows whose lumped physical diagonal is zero.
-The direct policy uses deal.II's serial direct solver and, for a multi-rank
-Trilinos execution, the Amesos2 MUMPS backend after redistributing the
-assembled matrix to a contiguous Epetra map. These are backend choices of the
-execution adapter, not requirements imposed on Problems or Interactions.
+The direct policy uses the generic Trilinos direct solver for ordinary direct
+solves. When deal.II is configured with native MUMPS support, the explicit
+`mumps` policy selects `SparseDirectMUMPS`; this optional backend is isolated in
+the execution adapter. These are backend choices of the execution adapter, not
+requirements imposed on Problems or Interactions.
 
 ```{mermaid}
 flowchart LR

@@ -507,14 +507,208 @@ namespace ImmersX
   }
 
 
+#ifdef DEAL_II_WITH_SUNDIALS
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::setup_ida()
+  {
+    using Adapter = IDAAdapterType;
+
+    typename Adapter::AdditionalData data;
+    data.initial_time      = parameters.initial_time;
+    data.final_time        = parameters.final_time;
+    data.initial_step_size = std::min(parameters.time_step, 1.e-5);
+    data.output_period =
+      parameters.output_frequency > 0 ?
+        parameters.output_frequency * parameters.time_step :
+        std::max(parameters.time_step,
+                 parameters.final_time - parameters.initial_time);
+    data.maximum_order                 = 1;
+    data.maximum_non_linear_iterations = 50;
+    data.absolute_tolerance = std::max(1.e-4, parameters.block_tolerance);
+    data.relative_tolerance = std::max(1.e-4, parameters.block_tolerance);
+    data.ic_type            = Adapter::AdditionalData::use_y_diff;
+    data.reset_type         = Adapter::AdditionalData::none;
+
+    ida_storage = std::make_unique<Adapter>(data, MPI_COMM_WORLD);
+    const auto matrix_fields =
+      ida_storage->add(matrix_problem_storage, "matrix");
+    const auto fiber_fields = ida_storage->add(fiber_problem_storage, "fiber");
+    const auto coupling_fields =
+      ida_storage->add(*interaction_storage,
+                       "fiber_coupling",
+                       matrix_fields.fields().velocity,
+                       fiber_fields.fields().velocity);
+
+    matrix_fields_storage   = matrix_fields.fields();
+    fiber_fields_storage    = fiber_fields.fields();
+    coupling_fields_storage = coupling_fields.fields();
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::update_from_ida_state(
+    const GlobalVectorType &state,
+    const GlobalVectorType &state_dot,
+    const double            time,
+    const unsigned int      step)
+  {
+    matrix_problem_storage.accept_state(
+      ida_storage->field(state, matrix_fields_storage.displacement),
+      ida_storage->field(state, matrix_fields_storage.velocity),
+      time,
+      step);
+    fiber_problem_storage.accept_state(
+      ida_storage->field(state, fiber_fields_storage.displacement),
+      ida_storage->field(state, fiber_fields_storage.velocity),
+      time,
+      step);
+    multiplier_storage =
+      ida_storage->field(state, coupling_fields_storage.multiplier);
+
+    auto residual = ida_storage->make_state();
+    ida_storage->solver().residual(time, state, state_dot, residual);
+    residuals_storage.matrix_velocity =
+      ida_storage->field(residual, matrix_fields_storage.velocity).l2_norm();
+    residuals_storage.fiber_velocity =
+      ida_storage->field(residual, fiber_fields_storage.velocity).l2_norm();
+
+    const std::vector<const VectorType *> velocities{
+      &matrix_problem_storage.velocity(), &fiber_problem_storage.velocity()};
+    VectorType velocity_constraint;
+    interaction_storage->constraint_equation().residual(velocities,
+                                                        velocity_constraint);
+    residuals_storage.velocity_constraint = velocity_constraint.l2_norm();
+
+    const std::vector<const VectorType *> displacements{
+      &matrix_problem_storage.displacement(),
+      &fiber_problem_storage.displacement()};
+    VectorType displacement_constraint;
+    interaction_storage->constraint_equation().residual(
+      displacements, displacement_constraint);
+    residuals_storage.displacement_compatibility =
+      displacement_constraint.l2_norm();
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::initialize_ida_derivative(
+    GlobalVectorType &state_dot)
+  {
+    MatrixType matrix_mass;
+    matrix_mass.copy_from(matrix_problem_storage.mass_matrix());
+    impose_homogeneous_constraints(
+      matrix_mass, matrix_problem_storage.velocity_constraints());
+
+    MatrixType fiber_mass;
+    fiber_mass.copy_from(fiber_problem_storage.mass_matrix());
+    impose_homogeneous_constraints(
+      fiber_mass, fiber_problem_storage.velocity_constraints());
+
+    schur_solver = std::make_unique<SchurSolver>(
+      matrix_mass,
+      fiber_mass,
+      interaction_storage->coupling_matrix(),
+      interaction_storage->pairing_matrix(),
+      matrix_problem_storage.locally_owned_dofs(),
+      fiber_problem_storage.locally_owned_dofs(),
+      interaction_storage->multiplier_locally_owned_dofs(),
+      MPI_COMM_WORLD,
+      parameters.schur_max_steps,
+      parameters.schur_tolerance,
+      parameters.block_tolerance);
+
+    VectorType matrix_rhs;
+    VectorType fiber_rhs;
+    matrix_problem_storage.body_force_at_time(parameters.initial_time,
+                                              matrix_rhs);
+    fiber_problem_storage.body_force_at_time(parameters.initial_time,
+                                             fiber_rhs);
+    impose_homogeneous_constraints(
+      matrix_rhs, matrix_problem_storage.velocity_constraints());
+    impose_homogeneous_constraints(
+      fiber_rhs, fiber_problem_storage.velocity_constraints());
+
+    VectorType matrix_acceleration;
+    VectorType fiber_acceleration;
+    VectorType multiplier;
+    schur_solver->solve(matrix_acceleration,
+                        fiber_acceleration,
+                        multiplier,
+                        matrix_rhs,
+                        fiber_rhs);
+    ida_storage->field(state_dot, matrix_fields_storage.velocity) =
+      matrix_acceleration;
+    ida_storage->field(state_dot, fiber_fields_storage.velocity) =
+      fiber_acceleration;
+    ida_storage->field(state_dot, coupling_fields_storage.multiplier) = 0.;
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::run_with_ida()
+  {
+    setup_ida();
+
+    auto state     = ida_storage->make_state();
+    auto state_dot = ida_storage->make_state();
+    ida_storage->field(state, matrix_fields_storage.displacement) =
+      matrix_problem_storage.displacement();
+    ida_storage->field(state, matrix_fields_storage.velocity) =
+      matrix_problem_storage.velocity();
+    ida_storage->field(state, fiber_fields_storage.displacement) =
+      fiber_problem_storage.displacement();
+    ida_storage->field(state, fiber_fields_storage.velocity) =
+      fiber_problem_storage.velocity();
+    ida_storage->field(state, coupling_fields_storage.multiplier) = 0.;
+
+    ida_storage->field(state_dot, matrix_fields_storage.displacement) =
+      matrix_problem_storage.velocity();
+    ida_storage->field(state_dot, matrix_fields_storage.velocity) = 0.;
+    ida_storage->field(state_dot, fiber_fields_storage.displacement) =
+      fiber_problem_storage.velocity();
+    ida_storage->field(state_dot, fiber_fields_storage.velocity)      = 0.;
+    ida_storage->field(state_dot, coupling_fields_storage.multiplier) = 0.;
+    initialize_ida_derivative(state_dot);
+
+    if (parameters.output_frequency > 0)
+      output_results();
+
+    ida_storage->solve(state, state_dot);
+    const auto n_steps = parameters.number_of_steps > 0 ?
+                           parameters.number_of_steps :
+                           static_cast<unsigned int>(std::ceil(
+                             (parameters.final_time - parameters.initial_time) /
+                             parameters.time_step));
+    update_from_ida_state(state, state_dot, parameters.final_time, n_steps);
+    matrix_only_displacement_storage = matrix_problem_storage.displacement();
+
+    if (parameters.output_frequency > 0)
+      output_results();
+  }
+#endif
+
+
   template <int dim>
   void
   FiberReinforcedElastodynamics<dim>::run()
   {
     setup();
     set_initial_conditions();
-    if (parameters.output_frequency > 0)
-      output_results();
+#ifdef DEAL_II_WITH_SUNDIALS
+    run_with_ida();
+    time_step_number_storage =
+      parameters.number_of_steps > 0 ?
+        parameters.number_of_steps :
+        static_cast<unsigned int>(
+          std::ceil((parameters.final_time - parameters.initial_time) /
+                    parameters.time_step));
+    current_time_storage = parameters.final_time;
+    return;
+#endif
 
     unsigned int n_steps = parameters.number_of_steps;
     if (n_steps == 0 && parameters.final_time > parameters.initial_time)
@@ -522,6 +716,8 @@ namespace ImmersX
         std::ceil((parameters.final_time - parameters.initial_time) /
                   parameters.time_step));
 
+    if (parameters.output_frequency > 0)
+      output_results();
     for (unsigned int step = 0; step < n_steps; ++step)
       {
         advance_one_timestep();

@@ -18,10 +18,8 @@
 
 #include <deal.II/lac/vector.h>
 
-#include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
-#include <immersx/physics/poisson_residual.h>
 
 #include <cmath>
 #include <filesystem>
@@ -605,19 +603,7 @@ namespace ImmersX
           output_results();
 
         assemble_system();
-
-        using GlobalVector = LA::MPI::BlockVector;
-        using Adapter      = LinearAdapter<VectorType, GlobalVector>;
-        LinearSolverOptions options;
-        options.solver             = "iterative";
-        options.preconditioner     = "block diagonal";
-        options.maximum_iterations = par.solver_control.max_steps();
-        options.tolerance          = par.solver_control.tolerance();
-        Adapter    adapter(mpi_communicator, options);
-        const auto fields = adapter.add(*this, "poisson");
-        auto       state  = adapter.make_state();
-        adapter.solve(state);
-        set_solution(adapter.field(state, fields.fields().solution));
+        solve();
         output_results();
 
         par.convergence_table.error_from_exact(dh,
