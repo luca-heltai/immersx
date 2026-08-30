@@ -533,10 +533,7 @@ namespace ImmersX
     SolverCG<VectorType> cg_stiffness(par.inner_control);
 #ifdef MATRIX_FREE_PATH
 
-    using Payload =
-      dealii::internal::LinearOperatorImplementation::EmptyPayload;
-    LinearOperator<VectorType, VectorType, Payload> A;
-    A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
+    auto A = linear_operator<VectorType>(stiffness_matrix);
 
     MGTransferMatrixFree<spacedim, float> mg_transfer(mg_constrained_dofs);
     mg_transfer.build(dh);
@@ -596,10 +593,7 @@ namespace ImmersX
     auto invA = A;
     invA      = inverse_operator(A, cg_stiffness, preconditioner);
 #else
-    using Payload =
-      TrilinosWrappers::internal::LinearOperatorImplementation::TrilinosPayload;
-
-    auto A = linear_operator<VectorType, VectorType, Payload>(stiffness_matrix);
+    auto A = TrilinosWrappers::linear_operator<VectorType>(stiffness_matrix);
 
     LA::MPI::PreconditionAMG prec_A;
     {
@@ -609,8 +603,9 @@ namespace ImmersX
 #  endif
       prec_A.initialize(stiffness_matrix, data);
     }
-    const auto amgA = linear_operator<VectorType, VectorType>(A, prec_A);
-    auto       invA = inverse_operator(A, cg_stiffness, amgA);
+    const auto amgA =
+      TrilinosWrappers::linear_operator<VectorType, VectorType>(A, prec_A);
+    auto invA = inverse_operator(A, cg_stiffness, amgA);
 #endif
 
 
@@ -628,8 +623,7 @@ namespace ImmersX
     else
       {
 #ifdef MATRIX_FREE_PATH
-        auto Bt =
-          linear_operator<VectorType, VectorType, Payload>(*coupling_operator);
+        auto Bt = linear_operator<VectorType, VectorType>(*coupling_operator);
         Bt.reinit_range_vector = [this](VectorType &vec, const bool) {
           vec.reinit(owned_dofs[0], relevant_dofs[0], mpi_communicator);
         };
@@ -637,14 +631,14 @@ namespace ImmersX
           vec.reinit(owned_dofs[1], relevant_dofs[1], mpi_communicator);
         };
 
-        const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+        const auto B = transpose_operator(Bt);
 #else
         const auto Bt =
-          linear_operator<VectorType, VectorType, Payload>(coupling_matrix);
-        const auto B = transpose_operator<VectorType, VectorType, Payload>(Bt);
+          TrilinosWrappers::linear_operator<VectorType>(coupling_matrix);
+        const auto B = transpose_operator(Bt);
 #endif
         const auto C =
-          linear_operator<VectorType, VectorType, Payload>(inclusion_matrix);
+          TrilinosWrappers::linear_operator<VectorType>(inclusion_matrix);
 
 
         if (par.estimate_condition_number)
@@ -694,7 +688,7 @@ namespace ImmersX
         // Schur complement preconditioner
         auto                 invS = S;
         SolverCG<VectorType> cg_schur(par.outer_control);
-        invS = inverse_operator<Payload, SolverCG<VectorType>>(S, cg_schur);
+        invS = inverse_operator(S, cg_schur);
 
         pcout << "   f norm: " << f.l2_norm() << ", g norm: " << g.l2_norm()
               << std::endl;

@@ -117,8 +117,9 @@ implementation details of the preconditioner factory; they are not part of
 execution composition.
 
 Algebraic composition uses deal.II's `LinearOperator`,
-`BlockLinearOperator`, `PackagedOperation`, and operator algebra. For example,
-a participant contribution to a multiplier Schur operator is composed as
+`PackagedOperation`, and operator algebra; fixed-size block layouts continue to
+use `BlockLinearOperator` where appropriate. For example, a participant
+contribution to a multiplier Schur operator is composed as
 `to_multiplier * inverse * from_multiplier`, and its transpose is supplied by
 `dealii::transpose_operator`. This keeps the implementation aligned with the
 mathematical expression and lets deal.II manage intermediate vectors.
@@ -169,4 +170,10 @@ The two-rank
 `CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` path preserves
 the canonical Field vector spaces through matrix materialization and local
 preconditioner construction. `CoupledPoisson.MPI_RepresentationDrivenSchurSolve`
-remains green.
+remains green. A fresh out-of-source Debug build also passes the 199-test
+serial non-application suite, all three application smoke tests
+(`AppExecutables.Elasticity`, `AppExecutables.ReducedPoisson`, and
+`AppExecutables.TutorialFiberReinforcedElastodynamics`), the full 85-test
+two-rank MPI suite, and all five configured CTest tests.
+The earlier failures observed from an incremental build were not reproducible
+from fresh builds and were classified as stale build/test contamination.
