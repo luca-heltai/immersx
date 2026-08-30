@@ -468,7 +468,12 @@ namespace ImmersX
                      data(30, false, false);
           const bool flexible =
             options_.preconditioner == "augmented lagrangian" ||
-            options_.preconditioner == "augmented_lagrangian";
+            options_.preconditioner == "augmented_lagrangian" ||
+            options_.preconditioner == "block triangular" ||
+            options_.preconditioner == "schur" ||
+            (options_.preconditioner == "auto" &&
+             (composition_.n_fields() > 1 ||
+              !composition_.saddle_points().empty()));
           if (flexible)
             {
               const typename dealii::SolverFGMRES<
