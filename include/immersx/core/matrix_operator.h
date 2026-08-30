@@ -243,7 +243,30 @@ namespace ImmersX
     std::shared_ptr<MatrixType>
     clone_matrix(const MatrixType &matrix)
     {
-      if constexpr (has_sparse_reinit<MatrixType>::value)
+      if constexpr (has_distributed_partitions<MatrixType>::value)
+        {
+          const auto row_partition    = matrix.locally_owned_range_indices();
+          const auto column_partition = matrix.locally_owned_domain_indices();
+          const auto communicator     = matrix.get_mpi_communicator();
+          dealii::DynamicSparsityPattern sparsity(matrix.m(),
+                                                  matrix.n(),
+                                                  row_partition);
+          for (const auto row : row_partition)
+            for (auto entry = matrix.begin(row); entry != matrix.end(row);
+                 ++entry)
+              sparsity.add(row, entry->column());
+
+          auto result = std::make_shared<MatrixType>();
+          result->reinit(
+            row_partition, column_partition, sparsity, communicator, false);
+          for (const auto row : row_partition)
+            for (auto entry = matrix.begin(row); entry != matrix.end(row);
+                 ++entry)
+              result->set(row, entry->column(), entry->value());
+          result->compress(dealii::VectorOperation::insert);
+          return result;
+        }
+      else if constexpr (has_sparse_reinit<MatrixType>::value)
         {
           auto sparsity = make_sparsity(matrix);
           auto result   = make_matrix_with_sparsity<MatrixType>(sparsity);

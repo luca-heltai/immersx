@@ -149,11 +149,17 @@ only when deal.II provides `SparseDirectMUMPS`. No application code depends on
 Amesos2 or Epetra MUMPS plumbing, so configurations without native MUMPS retain
 the ordinary direct and iterative paths.
 
-Known MPI validation failure: the two-rank
-`CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` test aborts in
-deal.II's Trilinos preconditioner map compatibility assertion while applying
-the Schur preconditioner. The reported condition is that the destination
-vector partitioner is not the same as the preconditioner's operator range
-map. `CoupledPoisson.MPI_RepresentationDrivenSchurSolve` passes. This is
-also published deliberately for follow-up; it is a distributed vector/map
-lifetime or construction issue, not a MUMPS failure.
+Known validation failure: on the current macOS/deal.II installation, the
+serial `AppExecutables.TutorialFiberReinforcedElastodynamics` test aborts in
+`fiber_reinforced_elastodynamics_debug` with `SIGABRT` and a malloc
+“pointer being freed was not allocated” diagnostic, after initializing the two
+distributed problems and before the IDA solve. The focused fiber residual and
+IDA tests pass. This failure is published deliberately for follow-up and is
+not evidence about the unavailable native MUMPS path.
+
+The two-rank
+`CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` path preserves
+distributed Trilinos maps when materializing matrix-backed operators and uses
+the initialized preconditioner's range/domain maps for local inverse vectors.
+The Schur preconditioner therefore applies through the backend-compatible
+spaces; `CoupledPoisson.MPI_RepresentationDrivenSchurSolve` remains green.

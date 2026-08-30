@@ -14,6 +14,7 @@
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/vector_memory.h>
 
@@ -31,6 +32,17 @@
 
 namespace ImmersX::detail
 {
+  /** Transfer values between distributed vectors with different ownership. */
+  template <typename VectorType>
+  void
+  copy_vector_values(VectorType &destination, const VectorType &source)
+  {
+    dealii::LinearAlgebra::ReadWriteVector<typename VectorType::value_type>
+      transferred(destination.locally_owned_elements());
+    transferred.import_elements(source, dealii::VectorOperation::insert);
+    destination.import_elements(transferred, dealii::VectorOperation::insert);
+  }
+
   /** Internal semantic-field to distributed-block mapping. */
   template <typename FieldVectorType, typename GlobalBlockVectorType>
   class BlockFieldLayout
@@ -437,10 +449,12 @@ namespace ImmersX::detail
                   dealii::ExcMessage(
                     "Block matrix does not match the execution layout."));
 
-      const auto offsets   = field_layout_.block_offsets();
-      const auto partition = field_layout_.monolithic_partition();
-      dealii::DynamicSparsityPattern sparsity(offsets.back(), offsets.back());
+      const auto offsets          = field_layout_.block_offsets();
+      const auto partition        = field_layout_.monolithic_partition();
       const auto block_partitions = field_layout_.block_partitions();
+      dealii::DynamicSparsityPattern sparsity(offsets.back(),
+                                              offsets.back(),
+                                              partition);
       for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
         for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
           {
@@ -451,7 +465,7 @@ namespace ImmersX::detail
                 sparsity.add(offsets[i] + row, offsets[j] + entry->column());
           }
 
-      result.reinit(partition, partition, sparsity, communicator_, true);
+      result.reinit(partition, partition, sparsity, communicator_, false);
       for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
         for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
           {
@@ -590,24 +604,37 @@ namespace ImmersX::detail
           {
             typename dealii::VectorMemory<FieldVectorType>::Pointer
               participant_rhs(*vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer inverse_rhs(
+              *vector_memory);
             typename dealii::VectorMemory<FieldVectorType>::Pointer
               participant_solution(*vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              coupling_solution(*vector_memory);
             if (!transpose)
               {
                 term.transpose_coupling.reinit_range_vector(*participant_rhs,
                                                             false);
                 term.transpose_coupling.vmult(*participant_rhs, src);
+                term.inverse.reinit_domain_vector(*inverse_rhs, false);
+                copy_vector_values(*inverse_rhs, *participant_rhs);
                 term.inverse.reinit_range_vector(*participant_solution, false);
-                term.inverse.vmult(*participant_solution, *participant_rhs);
-                term.coupling.vmult_add(dst, *participant_solution);
+                term.inverse.vmult(*participant_solution, *inverse_rhs);
+                term.coupling.reinit_domain_vector(*coupling_solution, false);
+                copy_vector_values(*coupling_solution, *participant_solution);
+                term.coupling.vmult_add(dst, *coupling_solution);
               }
             else
               {
                 term.coupling.reinit_domain_vector(*participant_rhs, false);
                 term.coupling.Tvmult(*participant_rhs, src);
+                term.inverse.reinit_range_vector(*inverse_rhs, false);
+                copy_vector_values(*inverse_rhs, *participant_rhs);
                 term.inverse.reinit_domain_vector(*participant_solution, false);
-                term.inverse.Tvmult(*participant_solution, *participant_rhs);
-                term.transpose_coupling.Tvmult_add(dst, *participant_solution);
+                term.inverse.Tvmult(*participant_solution, *inverse_rhs);
+                term.transpose_coupling.reinit_range_vector(*coupling_solution,
+                                                            false);
+                copy_vector_values(*coupling_solution, *participant_solution);
+                term.transpose_coupling.Tvmult_add(dst, *coupling_solution);
               }
           }
       };
@@ -731,6 +758,28 @@ namespace ImmersX::detail
         this->multiplier_preconditioner(multiplier, state, context);
       auto field_vector_memory =
         std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
+      const auto apply_local_inverse = [](const LocalOperator   &inverse,
+                                          FieldVectorType       &destination,
+                                          const FieldVectorType &source,
+                                          const bool             transpose) {
+        FieldVectorType backend_source;
+        FieldVectorType backend_destination;
+        if (transpose)
+          {
+            inverse.reinit_range_vector(backend_source, false);
+            copy_vector_values(backend_source, source);
+            inverse.reinit_domain_vector(backend_destination, false);
+            inverse.Tvmult(backend_destination, backend_source);
+          }
+        else
+          {
+            inverse.reinit_domain_vector(backend_source, false);
+            copy_vector_values(backend_source, source);
+            inverse.reinit_range_vector(backend_destination, false);
+            inverse.vmult(backend_destination, backend_source);
+          }
+        copy_vector_values(destination, backend_destination);
+      };
 
       auto transpose_operator = [](const LocalOperator &operator_to_transpose) {
         LocalOperator result = operator_to_transpose;
@@ -768,18 +817,17 @@ namespace ImmersX::detail
                     non_participants,
                     multiplier_block,
                     field_vector_memory,
-                    solve_multiplier](GlobalVectorType       &dst,
-                                      const GlobalVectorType &src,
-                                      const bool              transpose) {
+                    solve_multiplier,
+                    apply_local_inverse](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src,
+                                         const bool              transpose) {
         dst = 0.;
 
         for (const auto &non_participant : non_participants)
-          if (transpose)
-            non_participant.inverse.Tvmult(dst.block(non_participant.block),
-                                           src.block(non_participant.block));
-          else
-            non_participant.inverse.vmult(dst.block(non_participant.block),
-                                          src.block(non_participant.block));
+          apply_local_inverse(non_participant.inverse,
+                              dst.block(non_participant.block),
+                              src.block(non_participant.block),
+                              transpose);
 
         typename dealii::VectorMemory<FieldVectorType>::Pointer schur_rhs(
           *field_vector_memory);
@@ -789,39 +837,62 @@ namespace ImmersX::detail
           {
             participants.front().from_multiplier.reinit_domain_vector(
               *schur_rhs, false);
-            *schur_rhs = src.block(multiplier_block);
+            copy_vector_values(*schur_rhs, src.block(multiplier_block));
             *schur_rhs *= -1.;
 
             for (const auto &participant : participants)
               {
                 typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  participant_rhs(*field_vector_memory);
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
                   participant_solution(*field_vector_memory);
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  coupling_solution(*field_vector_memory);
+                participant.inverse.reinit_range_vector(*participant_rhs,
+                                                        false);
+                copy_vector_values(*participant_rhs,
+                                   src.block(participant.block));
                 participant.inverse.reinit_domain_vector(*participant_solution,
                                                          false);
                 participant.inverse.Tvmult(*participant_solution,
-                                           src.block(participant.block));
+                                           *participant_rhs);
+                participant.from_multiplier.reinit_range_vector(
+                  *coupling_solution, false);
+                copy_vector_values(*coupling_solution, *participant_solution);
                 participant.from_multiplier.Tvmult_add(*schur_rhs,
-                                                       *participant_solution);
+                                                       *coupling_solution);
               }
           }
         else
           {
             participants.front().to_multiplier.reinit_range_vector(*schur_rhs,
                                                                    false);
-            *schur_rhs = src.block(multiplier_block);
+            copy_vector_values(*schur_rhs, src.block(multiplier_block));
             *schur_rhs *= -1.;
 
             for (const auto &participant : participants)
               {
                 typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  participant_rhs(*field_vector_memory);
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
                   participant_solution(*field_vector_memory);
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  coupling_solution(*field_vector_memory);
+                participant.inverse.reinit_domain_vector(*participant_rhs,
+                                                         false);
+                copy_vector_values(*participant_rhs,
+                                   src.block(participant.block));
                 participant.inverse.reinit_range_vector(*participant_solution,
                                                         false);
                 participant.inverse.vmult(*participant_solution,
-                                          src.block(participant.block));
+                                          *participant_rhs);
+                participant.to_multiplier.reinit_domain_vector(
+                  *coupling_solution, false);
+                copy_vector_values(*coupling_solution, *participant_solution);
                 participant.to_multiplier.vmult_add(*schur_rhs,
-                                                    *participant_solution);
-                dst.block(participant.block) = *participant_solution;
+                                                    *coupling_solution);
+                copy_vector_values(dst.block(participant.block),
+                                   *participant_solution);
               }
           }
 
@@ -829,7 +900,7 @@ namespace ImmersX::detail
           *multiplier_solution, false);
         *multiplier_solution = 0.;
         solve_multiplier(*multiplier_solution, *schur_rhs, transpose);
-        dst.block(multiplier_block) = *multiplier_solution;
+        copy_vector_values(dst.block(multiplier_block), *multiplier_solution);
 
         for (const auto &participant : participants)
           {
@@ -837,6 +908,8 @@ namespace ImmersX::detail
               participant_rhs(*field_vector_memory);
             typename dealii::VectorMemory<FieldVectorType>::Pointer
               participant_solution(*field_vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer inverse_rhs(
+              *field_vector_memory);
             if (transpose)
               {
                 participant.to_multiplier.reinit_domain_vector(*participant_rhs,
@@ -845,10 +918,11 @@ namespace ImmersX::detail
                                                  *multiplier_solution);
                 *participant_rhs *= -1.;
                 *participant_rhs += src.block(participant.block);
+                participant.inverse.reinit_range_vector(*inverse_rhs, false);
+                copy_vector_values(*inverse_rhs, *participant_rhs);
                 participant.inverse.reinit_domain_vector(*participant_solution,
                                                          false);
-                participant.inverse.Tvmult(*participant_solution,
-                                           *participant_rhs);
+                participant.inverse.Tvmult(*participant_solution, *inverse_rhs);
               }
             else
               {
@@ -856,15 +930,20 @@ namespace ImmersX::detail
                   *participant_rhs, false);
                 participant.from_multiplier.vmult(*participant_rhs,
                                                   *multiplier_solution);
+                participant.inverse.reinit_domain_vector(*inverse_rhs, false);
+                copy_vector_values(*inverse_rhs, *participant_rhs);
                 participant.inverse.reinit_range_vector(*participant_solution,
                                                         false);
-                participant.inverse.vmult(*participant_solution,
-                                          *participant_rhs);
+                participant.inverse.vmult(*participant_solution, *inverse_rhs);
                 *participant_solution *= -1.;
-                dst.block(participant.block) += *participant_solution;
+                participant.from_multiplier.reinit_range_vector(
+                  *participant_rhs, false);
+                copy_vector_values(*participant_rhs, *participant_solution);
+                dst.block(participant.block) += *participant_rhs;
                 continue;
               }
-            dst.block(participant.block) = *participant_solution;
+            copy_vector_values(dst.block(participant.block),
+                               *participant_solution);
           }
       };
 
