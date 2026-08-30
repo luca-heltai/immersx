@@ -148,3 +148,11 @@ use the generic Trilinos direct backend; an explicit `mumps` policy is compiled
 only when deal.II provides `SparseDirectMUMPS`. No application code depends on
 Amesos2 or Epetra MUMPS plumbing, so configurations without native MUMPS retain
 the ordinary direct and iterative paths.
+
+Known validation failure: on the current macOS/deal.II installation, the
+serial `AppExecutables.TutorialFiberReinforcedElastodynamics` test aborts in
+`fiber_reinforced_elastodynamics_debug` with `SIGABRT` and a malloc
+“pointer being freed was not allocated” diagnostic, after initializing the two
+distributed problems and before the IDA solve. The focused fiber residual and
+IDA tests pass. This failure is published deliberately for follow-up and is
+not evidence about the unavailable native MUMPS path.
