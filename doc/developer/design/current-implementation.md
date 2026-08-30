@@ -36,6 +36,9 @@ saddle-point Schur, and matrix-based augmented-Lagrangian actions are available
 for explicit selection. The augmented-Lagrangian path assembles the primal
 superblock and uses the configured multiplier metric, including a positive
 algebraic fallback for constrained rows whose lumped physical diagonal is zero.
+The Schur path uses the multiplier metric, or a registered metric-based local
+preconditioner, for its inner solve and falls back to identity only when no
+metric is available.
 The direct policy uses deal.II's serial direct solver and, for a multi-rank
 Trilinos execution, the Amesos2 MUMPS backend after redistributing the
 assembled matrix to a contiguous Epetra map. These are backend choices of the

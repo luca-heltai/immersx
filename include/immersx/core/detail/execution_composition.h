@@ -630,49 +630,53 @@ namespace ImmersX::detail
 
       const auto schur            = schur_operator(multiplier, state);
       const auto multiplier_block = field_layout_.block(multiplier);
-      auto       apply =
-        [participants, schur, multiplier_block](GlobalVectorType       &dst,
-                                                const GlobalVectorType &src) {
-          GlobalVectorType rhs;
-          rhs.reinit(src);
-          rhs = src;
-          dst = 0.;
+      const auto multiplier_preconditioner =
+        this->multiplier_preconditioner(multiplier, state, context);
+      auto apply = [participants,
+                    schur,
+                    multiplier_block,
+                    multiplier_preconditioner](GlobalVectorType       &dst,
+                                               const GlobalVectorType &src) {
+        GlobalVectorType rhs;
+        rhs.reinit(src);
+        rhs = src;
+        dst = 0.;
 
-          FieldVectorType schur_rhs;
-          schur_rhs.reinit(rhs.block(multiplier_block));
-          schur_rhs = rhs.block(multiplier_block);
-          schur_rhs *= -1.;
-          for (const auto &participant : participants)
-            {
-              participant.inverse.vmult(dst.block(participant.block),
-                                        rhs.block(participant.block));
-              participant.to_multiplier.vmult_add(schur_rhs,
-                                                  dst.block(participant.block));
-            }
+        FieldVectorType schur_rhs;
+        schur_rhs.reinit(rhs.block(multiplier_block));
+        schur_rhs = rhs.block(multiplier_block);
+        schur_rhs *= -1.;
+        for (const auto &participant : participants)
+          {
+            participant.inverse.vmult(dst.block(participant.block),
+                                      rhs.block(participant.block));
+            participant.to_multiplier.vmult_add(schur_rhs,
+                                                dst.block(participant.block));
+          }
 
-          FieldVectorType multiplier_solution;
-          multiplier_solution.reinit(schur_rhs);
-          multiplier_solution = 0.;
-          dealii::SolverControl                control(1000, 1.e-10);
-          dealii::SolverGMRES<FieldVectorType> solver(control);
-          solver.solve(schur,
-                       multiplier_solution,
-                       schur_rhs,
-                       dealii::PreconditionIdentity());
-          dst.block(multiplier_block) = multiplier_solution;
+        FieldVectorType multiplier_solution;
+        multiplier_solution.reinit(schur_rhs);
+        multiplier_solution = 0.;
+        dealii::SolverControl                control(1000, 1.e-10);
+        dealii::SolverGMRES<FieldVectorType> solver(control);
+        solver.solve(schur,
+                     multiplier_solution,
+                     schur_rhs,
+                     multiplier_preconditioner);
+        dst.block(multiplier_block) = multiplier_solution;
 
-          for (const auto &participant : participants)
-            {
-              FieldVectorType correction_rhs;
-              correction_rhs.reinit(participant.prototype);
-              participant.from_multiplier.vmult(correction_rhs,
-                                                multiplier_solution);
-              FieldVectorType correction;
-              correction.reinit(correction_rhs);
-              participant.inverse.vmult(correction, correction_rhs);
-              dst.block(participant.block) -= correction;
-            }
-        };
+        for (const auto &participant : participants)
+          {
+            FieldVectorType correction_rhs;
+            correction_rhs.reinit(participant.prototype);
+            participant.from_multiplier.vmult(correction_rhs,
+                                              multiplier_solution);
+            FieldVectorType correction;
+            correction.reinit(correction_rhs);
+            participant.inverse.vmult(correction, correction_rhs);
+            dst.block(participant.block) -= correction;
+          }
+      };
 
       Operator result;
       result.reinit_range_vector = [state](GlobalVectorType &vector,
@@ -1182,6 +1186,68 @@ namespace ImmersX::detail
       return model_.preconditioner(field,
                                    empty_matrix,
                                    state.block(field_layout_.block(field)));
+    }
+
+    /** Build the metric preconditioner used by a multiplier Schur solve. */
+    LocalOperator
+    multiplier_preconditioner(
+      const FieldId                             multiplier,
+      const GlobalVectorType                   &state,
+      const EvaluationContext<FieldVectorType> &context) const
+    {
+      const auto prototype = state.block(field_layout_.block(multiplier));
+      const auto metric    = model_.multiplier_metric(multiplier, context);
+      if (metric.has_value())
+        {
+          const auto metric_matrix = metric->matrix();
+          if (model_.has_preconditioner(multiplier))
+            {
+              const auto local =
+                model_.preconditioner(multiplier, *metric_matrix, prototype);
+              if (local.has_value())
+                return *local;
+            }
+
+          auto inverse_metric = std::make_shared<FieldVectorType>();
+          inverse_metric->reinit(prototype);
+          for (const auto index : prototype.locally_owned_elements())
+            (*inverse_metric)(index) =
+              inverse_lumped_metric_value(metric_matrix->diag_element(index));
+          inverse_metric->compress(dealii::VectorOperation::insert);
+
+          LocalOperator result;
+          result.reinit_range_vector = [prototype](FieldVectorType &vector,
+                                                   const bool       omit) {
+            vector.reinit(prototype, omit);
+          };
+          result.reinit_domain_vector = result.reinit_range_vector;
+          result.vmult = [inverse_metric](FieldVectorType       &dst,
+                                          const FieldVectorType &src) {
+            dst = src;
+            for (const auto index : dst.locally_owned_elements())
+              dst(index) *= (*inverse_metric)(index);
+            dst.compress(dealii::VectorOperation::insert);
+          };
+          result.vmult_add = [result](FieldVectorType       &dst,
+                                      const FieldVectorType &src) mutable {
+            FieldVectorType contribution;
+            result.reinit_range_vector(contribution, false);
+            result.vmult(contribution, src);
+            dst += contribution;
+          };
+          result.Tvmult     = result.vmult;
+          result.Tvmult_add = result.vmult_add;
+          return result;
+        }
+
+      if (const auto local = local_preconditioner(multiplier, state);
+          local.has_value())
+        return *local;
+
+      return dealii::identity_operator<FieldVectorType>(
+        [prototype](FieldVectorType &vector, const bool omit) {
+          vector.reinit(prototype, omit);
+        });
     }
 
     /** Assemble registered local inverses into a global block diagonal map. */
