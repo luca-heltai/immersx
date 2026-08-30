@@ -894,53 +894,108 @@ namespace ImmersX::detail
           augmentations.push_back(std::move(augmentation));
         }
 
-      auto apply = [base, augmentations, gamma](GlobalVectorType       &dst,
-                                                const GlobalVectorType &src) {
+      auto field_vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
+      auto apply = [base,
+                    augmentations,
+                    gamma,
+                    field_vector_memory](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src,
+                                         const bool              transpose) {
         const unsigned int n = base.size();
         for (unsigned int i = 0; i < n; ++i)
           {
             dst.block(i) = 0.;
             for (unsigned int j = 0; j < n; ++j)
-              base[i][j].vmult_add(dst.block(i), src.block(j));
+              if (transpose)
+                base[j][i].Tvmult_add(dst.block(i), src.block(j));
+              else
+                base[i][j].vmult_add(dst.block(i), src.block(j));
           }
 
         for (const auto &augmentation : augmentations)
           {
-            FieldVectorType constraint_value;
-            constraint_value.reinit(src.block(augmentation.multiplier));
-            constraint_value = 0.;
-            for (unsigned int i = 0; i < augmentation.participants.size(); ++i)
-              augmentation.to_multiplier[i].vmult_add(
-                constraint_value, src.block(augmentation.participants[i]));
-
-            FieldVectorType weighted_constraint;
-            weighted_constraint.reinit(constraint_value);
-            augmentation.inverse_metric.vmult(weighted_constraint,
-                                              constraint_value);
-            weighted_constraint *= gamma;
-            for (unsigned int i = 0; i < augmentation.participants.size(); ++i)
-              augmentation.from_multiplier[i].vmult_add(
-                dst.block(augmentation.participants[i]), weighted_constraint);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              constraint_value(*field_vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              weighted_constraint(*field_vector_memory);
+            if (transpose)
+              {
+                augmentation.from_multiplier[0].reinit_domain_vector(
+                  *constraint_value, false);
+                *constraint_value = 0.;
+                for (unsigned int i = 0; i < augmentation.participants.size();
+                     ++i)
+                  augmentation.from_multiplier[i].Tvmult_add(
+                    *constraint_value, src.block(augmentation.participants[i]));
+                augmentation.inverse_metric.reinit_domain_vector(
+                  *weighted_constraint, false);
+                augmentation.inverse_metric.Tvmult(*weighted_constraint,
+                                                   *constraint_value);
+                weighted_constraint->operator*=(gamma);
+                for (unsigned int i = 0; i < augmentation.participants.size();
+                     ++i)
+                  augmentation.to_multiplier[i].Tvmult_add(
+                    dst.block(augmentation.participants[i]),
+                    *weighted_constraint);
+              }
+            else
+              {
+                augmentation.to_multiplier[0].reinit_range_vector(
+                  *constraint_value, false);
+                *constraint_value = 0.;
+                for (unsigned int i = 0; i < augmentation.participants.size();
+                     ++i)
+                  augmentation.to_multiplier[i].vmult_add(
+                    *constraint_value, src.block(augmentation.participants[i]));
+                augmentation.inverse_metric.reinit_range_vector(
+                  *weighted_constraint, false);
+                augmentation.inverse_metric.vmult(*weighted_constraint,
+                                                  *constraint_value);
+                weighted_constraint->operator*=(gamma);
+                for (unsigned int i = 0; i < augmentation.participants.size();
+                     ++i)
+                  augmentation.from_multiplier[i].vmult_add(
+                    dst.block(augmentation.participants[i]),
+                    *weighted_constraint);
+              }
           }
       };
 
-      Operator result;
-      result.reinit_range_vector = [state](GlobalVectorType &vector,
-                                           const bool        omit) {
-        vector.reinit(state, omit);
-      };
+      auto vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      const auto partitions   = field_layout_.block_partitions();
+      const auto communicator = communicator_;
+      Operator   result;
+      result.reinit_range_vector =
+        [partitions, communicator](GlobalVectorType &vector, const bool) {
+          vector.reinit(partitions, communicator);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = apply;
-      result.vmult_add            = [apply](GlobalVectorType       &dst,
-                                 const GlobalVectorType &src) {
-        GlobalVectorType contribution;
-        contribution.reinit(dst);
-        contribution = 0.;
-        apply(contribution, src);
-        dst += contribution;
+      result.vmult                = [apply](GlobalVectorType       &dst,
+                             const GlobalVectorType &src) {
+        apply(dst, src, false);
       };
-      result.Tvmult     = apply;
-      result.Tvmult_add = result.vmult_add;
+      result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, false);
+        dst += *contribution;
+      };
+      result.Tvmult = [apply](GlobalVectorType       &dst,
+                              const GlobalVectorType &src) {
+        apply(dst, src, true);
+      };
+      result.Tvmult_add = [apply, vector_memory](GlobalVectorType       &dst,
+                                                 const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 

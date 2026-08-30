@@ -40,6 +40,7 @@ namespace ImmersX
     dealii::IndexSet             multiplier_owned;
     ImmersXLA::MPI::SparseMatrix primal_diagonal;
     ImmersXLA::MPI::SparseMatrix auxiliary_diagonal;
+    ImmersXLA::MPI::SparseMatrix multiplier_diagonal;
   };
 
   struct SchurFields
@@ -239,12 +240,15 @@ namespace ImmersX
     };
     builder.preconditioner(primal, inverse(2., 3.));
     builder.preconditioner(auxiliary, inverse(2., 3.));
+    builder.preconditioner(multiplier, inverse(5., 7.));
 
     builder.saddle_point(multiplier, {primal, auxiliary});
     builder.term(primal, "diagonal")
       .state(primal, builder.matrix_operator(problem.primal_diagonal));
     builder.term(auxiliary, "diagonal")
       .state(auxiliary, builder.matrix_operator(problem.auxiliary_diagonal));
+    builder.term(multiplier, "diagonal")
+      .state(multiplier, builder.matrix_operator(problem.multiplier_diagonal));
     builder.term(multiplier, "primal")
       .state(primal,
              make_rectangular_operator(problem.multiplier_owned,
@@ -501,13 +505,19 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
   initialize_scalar_matrix(problem.auxiliary_diagonal,
                            problem.auxiliary_owned,
                            1.);
+  initialize_scalar_matrix(problem.multiplier_diagonal,
+                           problem.multiplier_owned,
+                           1.);
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
   Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
-  const auto fields = adapter.add(problem, "schur");
-  const auto state  = adapter.make_state();
-  const auto schur  = adapter.schur_operator(fields.fields().multiplier, state);
+  const auto fields                            = adapter.add(problem, "schur");
+  auto       state                             = adapter.make_state();
+  adapter.field(state, fields.fields().primal) = 1.;
+  adapter.field(state, fields.fields().auxiliary)  = 1.;
+  adapter.field(state, fields.fields().multiplier) = 0.;
+  const auto schur = adapter.schur_operator(fields.fields().multiplier, state);
 
   ImmersX::ImmersXLA::MPI::Vector input;
   input.reinit(problem.multiplier_owned, MPI_COMM_WORLD);
@@ -519,4 +529,23 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
 
   EXPECT_NEAR(normal[0], 462., 1.e-12);
   EXPECT_NEAR(transpose[0], 693., 1.e-12);
+
+  const auto augmented = adapter.augmented_lagrangian_operator(state, 2.);
+  auto       augmented_normal    = adapter.make_state();
+  auto       augmented_transpose = adapter.make_state();
+  augmented.vmult(augmented_normal, state);
+  augmented.Tvmult(augmented_transpose, state);
+
+  EXPECT_NEAR(adapter.field(augmented_normal, fields.fields().primal)[0],
+              1051.,
+              1.e-12);
+  EXPECT_NEAR(adapter.field(augmented_normal, fields.fields().primal)[1],
+              1651.,
+              1.e-12);
+  EXPECT_NEAR(adapter.field(augmented_transpose, fields.fields().primal)[0],
+              939.,
+              1.e-12);
+  EXPECT_NEAR(adapter.field(augmented_transpose, fields.fields().primal)[1],
+              1877.,
+              1.e-12);
 }
