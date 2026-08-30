@@ -19,6 +19,7 @@
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -273,13 +274,26 @@ namespace ImmersX
           solve_(*current_jacobian_, rhs, dst, tolerance);
         else
           {
-            dealii::SolverControl                 control(1000, tolerance);
+            dst = 0.;
+            dealii::SolverControl control(5000, std::max(1.e-12, tolerance));
             dealii::SolverGMRES<GlobalVectorType> solver(control);
             if (current_preconditioner_.has_value())
-              solver.solve(*current_jacobian_,
-                           dst,
-                           rhs,
-                           *current_preconditioner_);
+              if (current_solver_is_flexible_)
+                {
+                  typename dealii::SolverFGMRES<
+                    GlobalVectorType>::AdditionalData    flexible_data(100);
+                  dealii::SolverFGMRES<GlobalVectorType> flexible_solver(
+                    control, flexible_data);
+                  flexible_solver.solve(*current_jacobian_,
+                                        dst,
+                                        rhs,
+                                        *current_preconditioner_);
+                }
+              else
+                solver.solve(*current_jacobian_,
+                             dst,
+                             rhs,
+                             *current_preconditioner_);
             else
               solver.solve(*current_jacobian_,
                            dst,
@@ -333,9 +347,25 @@ namespace ImmersX
       };
       current_jacobian_ = std::move(stable);
       current_preconditioner_.reset();
-      if (!solve_ && composition_.has_complete_local_preconditioners())
-        current_preconditioner_ =
-          composition_.block_diagonal_preconditioner(state);
+      current_solver_is_flexible_ = false;
+      if (!solve_)
+        {
+          if (!composition_.saddle_points().empty())
+            {
+              const auto &saddle      = composition_.saddle_points().front();
+              current_preconditioner_ = composition_.schur_preconditioner(
+                saddle.multiplier, state, &state_dot, alpha);
+              current_solver_is_flexible_ = true;
+            }
+          else if (composition_.has_complete_local_preconditioners())
+            {
+              current_preconditioner_ =
+                composition_.n_fields() > 1 ?
+                  composition_.block_triangular_preconditioner(state) :
+                  composition_.block_diagonal_preconditioner(state);
+              current_solver_is_flexible_ = composition_.n_fields() > 1;
+            }
+        }
     }
 
     Composition                             composition_;
@@ -343,8 +373,9 @@ namespace ImmersX
     dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
     std::optional<Operator>                 current_jacobian_;
     std::optional<Operator>                 current_preconditioner_;
-    std::size_t                             coupling_count_ = 0;
-    bool                                    connected_      = false;
+    bool                                    current_solver_is_flexible_ = false;
+    std::size_t                             coupling_count_             = 0;
+    bool                                    connected_                  = false;
   };
 } // namespace ImmersX
 #endif

@@ -30,14 +30,29 @@ namespace ImmersX
   {
     using VectorType = typename ElastodynamicsSolver<dim, spacedim>::VectorType;
 
+    const auto free_components =
+      [](const dealii::IndexSet                  &owned,
+         const dealii::AffineConstraints<double> &constraints) {
+        dealii::IndexSet result(owned.size());
+        for (const auto index : owned)
+          if (!constraints.is_constrained(index))
+            result.add_index(index);
+        result.compress();
+        return result;
+      };
+
     const auto displacement =
-      builder.differential_field("displacement",
-                                 problem.locally_owned_dofs(),
-                                 problem.locally_relevant_dofs());
+      builder.field("displacement",
+                    problem.locally_owned_dofs(),
+                    problem.locally_relevant_dofs(),
+                    free_components(problem.locally_owned_dofs(),
+                                    problem.constraints()));
     const auto velocity =
-      builder.differential_field("velocity",
-                                 problem.locally_owned_dofs(),
-                                 problem.locally_relevant_dofs());
+      builder.field("velocity",
+                    problem.locally_owned_dofs(),
+                    problem.locally_relevant_dofs(),
+                    free_components(problem.locally_owned_dofs(),
+                                    problem.velocity_constraints()));
 
     const auto mass =
       ImmersX::matrix_operator<VectorType>(problem.mass_matrix());

@@ -508,7 +508,9 @@ namespace ImmersX::detail
     /** Build S ~= sum_i B_i P_i^-1 B_i^T on a semantic multiplier field. */
     LocalOperator
     schur_operator(const FieldId           multiplier,
-                   const GlobalVectorType &state) const
+                   const GlobalVectorType &state,
+                   const GlobalVectorType *state_dot = nullptr,
+                   const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
@@ -524,7 +526,17 @@ namespace ImmersX::detail
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> derivative_context;
+      if (state_dot != nullptr)
+        {
+          validate_state(*state_dot);
+          field_layout_.bind_state(derivative_view, *state_dot);
+          derivative_context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        derivative_context.emplace(0., state_view, nullptr);
+      const auto &context = *derivative_context;
 
       struct SchurTerm
       {
@@ -537,7 +549,8 @@ namespace ImmersX::detail
       terms.reserve(metadata->participants.size());
       for (const auto participant : metadata->participants)
         {
-          const auto inverse = local_preconditioner(participant, state);
+          const auto inverse =
+            local_preconditioner(participant, state, context, alpha);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur construction requires a local inverse for "
@@ -586,7 +599,9 @@ namespace ImmersX::detail
      */
     Operator
     schur_preconditioner(const FieldId           multiplier,
-                         const GlobalVectorType &state) const
+                         const GlobalVectorType &state,
+                         const GlobalVectorType *state_dot = nullptr,
+                         const double            alpha     = 0.) const
     {
       finalize();
       validate_state(state);
@@ -602,7 +617,17 @@ namespace ImmersX::detail
 
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
-      EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      std::optional<EvaluationContext<FieldVectorType>> derivative_context;
+      if (state_dot != nullptr)
+        {
+          validate_state(*state_dot);
+          field_layout_.bind_state(derivative_view, *state_dot);
+          derivative_context.emplace(0., state_view, &derivative_view);
+        }
+      else
+        derivative_context.emplace(0., state_view, nullptr);
+      const auto &context = *derivative_context;
       struct Participant
       {
         unsigned int    block;
@@ -615,7 +640,8 @@ namespace ImmersX::detail
       participants.reserve(metadata->participants.size());
       for (const auto field : metadata->participants)
         {
-          const auto inverse = local_preconditioner(field, state);
+          const auto inverse =
+            local_preconditioner(field, state, context, alpha);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur preconditioning requires local inverses for "
@@ -628,11 +654,38 @@ namespace ImmersX::detail
              state.block(field_layout_.block(field))});
         }
 
-      const auto schur            = schur_operator(multiplier, state);
+      struct NonParticipant
+      {
+        unsigned int  block;
+        LocalOperator inverse;
+      };
+      std::vector<NonParticipant> non_participants;
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        {
+          const auto field = field_layout_.field(block);
+          if (field == multiplier ||
+              std::any_of(metadata->participants.begin(),
+                          metadata->participants.end(),
+                          [field](const auto participant) {
+                            return participant == field;
+                          }))
+            continue;
+
+          const auto inverse =
+            local_preconditioner(field, state, context, alpha);
+          AssertThrow(inverse.has_value(),
+                      dealii::ExcMessage(
+                        "Schur preconditioning requires local inverses for "
+                        "all non-participant fields."));
+          non_participants.push_back({block, *inverse});
+        }
+
+      const auto schur = schur_operator(multiplier, state, state_dot, alpha);
       const auto multiplier_block = field_layout_.block(multiplier);
       const auto multiplier_preconditioner =
         this->multiplier_preconditioner(multiplier, state, context);
       auto apply = [participants,
+                    non_participants,
                     schur,
                     multiplier_block,
                     multiplier_preconditioner](GlobalVectorType       &dst,
@@ -641,6 +694,10 @@ namespace ImmersX::detail
         rhs.reinit(src);
         rhs = src;
         dst = 0.;
+
+        for (const auto &non_participant : non_participants)
+          non_participant.inverse.vmult(dst.block(non_participant.block),
+                                        rhs.block(non_participant.block));
 
         FieldVectorType schur_rhs;
         schur_rhs.reinit(rhs.block(multiplier_block));
@@ -1168,11 +1225,28 @@ namespace ImmersX::detail
       StateView<FieldVectorType> state_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
       EvaluationContext<FieldVectorType> context(0., state_view, nullptr);
-      auto matrix = materialized_block(field, field, context, 0.);
+      return local_preconditioner(field, state, context, 0.);
+    }
+
+    std::optional<LocalOperator>
+    local_preconditioner(const FieldId                             field,
+                         const GlobalVectorType                   &state,
+                         const EvaluationContext<FieldVectorType> &context,
+                         const double                              alpha) const
+    {
+      finalize();
+      validate_state(state);
+      if (!model_.has_preconditioner(field))
+        return std::nullopt;
+
+      auto matrix = materialized_block(field, field, context, alpha);
       if (matrix)
-        return model_.preconditioner(field,
-                                     *matrix,
-                                     state.block(field_layout_.block(field)));
+        {
+          make_preconditioner_matrix_solve_ready(*matrix, field);
+          return model_.preconditioner(field,
+                                       *matrix,
+                                       state.block(field_layout_.block(field)));
+        }
 
       // A structurally null diagonal is valid for a mixed saddle system.
       // Give a registered metric factory an empty, correctly partitioned
@@ -1186,6 +1260,35 @@ namespace ImmersX::detail
       return model_.preconditioner(field,
                                    empty_matrix,
                                    state.block(field_layout_.block(field)));
+    }
+
+    /** Make constrained rows invertible in a problem-local preconditioner. */
+    void
+    make_preconditioner_matrix_solve_ready(MatrixType   &matrix,
+                                           const FieldId field) const
+    {
+      const auto &descriptor = layout_.field(field);
+      if (descriptor.differential_components.n_elements() ==
+          descriptor.locally_owned.n_elements())
+        return;
+
+      for (const auto row : matrix.locally_owned_range_indices())
+        {
+          std::vector<dealii::types::global_dof_index> constrained_columns;
+          for (auto entry = matrix.begin(row); entry != matrix.end(row);
+               ++entry)
+            if (!descriptor.differential_components.is_element(entry->column()))
+              constrained_columns.push_back(entry->column());
+          for (const auto column : constrained_columns)
+            matrix.set(row, column, 0.);
+        }
+      matrix.compress(dealii::VectorOperation::insert);
+
+      for (const auto index : descriptor.locally_owned)
+        if (!descriptor.differential_components.is_element(index) &&
+            matrix.locally_owned_range_indices().is_element(index))
+          matrix.clear_row(index, 1.);
+      matrix.compress(dealii::VectorOperation::insert);
     }
 
     /** Build the metric preconditioner used by a multiplier Schur solve. */
