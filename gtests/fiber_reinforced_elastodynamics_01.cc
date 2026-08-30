@@ -183,6 +183,26 @@ TEST(FiberReinforcedElastodynamics, CoupledResidualAndExcessResponse)
 }
 
 #ifdef DEAL_II_WITH_SUNDIALS
+TEST(FiberReinforcedElastodynamics, Serial_IDAInitialDerivativeLifetime)
+{
+  if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) != 1)
+    GTEST_SKIP() << "Serial lifetime regression – skipped on multi-rank";
+
+  ParameterAcceptor::clear();
+  FiberReinforcedElastodynamicsParameters<2> parameters;
+  configure_problem(parameters, true);
+  FiberReinforcedElastodynamics<2> driver(parameters);
+
+  // run() exercises setup(), initial conditions, setup_ida(), and the initial
+  // derivative calculation, then continues into IDA after that scope ends.
+  driver.run();
+
+  EXPECT_EQ(driver.time_step_number(), 2u);
+  EXPECT_TRUE(driver.matrix_problem().state_is_finite());
+  EXPECT_TRUE(driver.fiber_problem().state_is_finite());
+  EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
+}
+
 TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
 {
   ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);

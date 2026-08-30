@@ -607,7 +607,10 @@ namespace ImmersX
     impose_homogeneous_constraints(
       fiber_mass, fiber_problem_storage.velocity_constraints());
 
-    schur_solver = std::make_unique<SchurSolver>(
+    // The initial-derivative solver observes these local mass matrices, so it
+    // must not outlive this function.  The persistent Schur solver is reserved
+    // for the backward-Euler path, where it observes member matrices.
+    SchurSolver initial_solver(
       matrix_mass,
       fiber_mass,
       interaction_storage->coupling_matrix(),
@@ -634,11 +637,11 @@ namespace ImmersX
     VectorType matrix_acceleration;
     VectorType fiber_acceleration;
     VectorType multiplier;
-    schur_solver->solve(matrix_acceleration,
-                        fiber_acceleration,
-                        multiplier,
-                        matrix_rhs,
-                        fiber_rhs);
+    initial_solver.solve(matrix_acceleration,
+                         fiber_acceleration,
+                         multiplier,
+                         matrix_rhs,
+                         fiber_rhs);
     ida_storage->field(state_dot, matrix_fields_storage.velocity) =
       matrix_acceleration;
     ida_storage->field(state_dot, fiber_fields_storage.velocity) =
