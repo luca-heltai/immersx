@@ -515,11 +515,13 @@ namespace ImmersX::detail
           diagonal.push_back(*local);
         }
 
-      Operator result;
-      result.reinit_range_vector = [state](GlobalVectorType &vector,
-                                           const bool        omit) {
-        vector.reinit(state, omit);
-      };
+      Operator   result;
+      const auto partitions   = field_layout_.block_partitions();
+      const auto communicator = communicator_;
+      result.reinit_range_vector =
+        [partitions, communicator](GlobalVectorType &vector, const bool) {
+          vector.reinit(partitions, communicator);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [diagonal](GlobalVectorType       &dst,
                                 const GlobalVectorType &src) {
@@ -528,12 +530,8 @@ namespace ImmersX::detail
       };
       result.vmult_add = [diagonal](GlobalVectorType       &dst,
                                     const GlobalVectorType &src) {
-        GlobalVectorType contribution;
-        contribution.reinit(dst);
-        contribution = 0.;
         for (unsigned int block = 0; block < diagonal.size(); ++block)
-          diagonal[block].vmult(contribution.block(block), src.block(block));
-        dst += contribution;
+          diagonal[block].vmult_add(dst.block(block), src.block(block));
       };
       result.Tvmult = [diagonal](GlobalVectorType       &dst,
                                  const GlobalVectorType &src) {
@@ -542,12 +540,8 @@ namespace ImmersX::detail
       };
       result.Tvmult_add = [diagonal](GlobalVectorType       &dst,
                                      const GlobalVectorType &src) {
-        GlobalVectorType contribution;
-        contribution.reinit(dst);
-        contribution = 0.;
         for (unsigned int block = 0; block < diagonal.size(); ++block)
-          diagonal[block].Tvmult(contribution.block(block), src.block(block));
-        dst += contribution;
+          diagonal[block].Tvmult_add(dst.block(block), src.block(block));
       };
       return result;
     }
