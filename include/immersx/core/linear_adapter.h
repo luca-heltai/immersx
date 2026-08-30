@@ -29,6 +29,7 @@
 
 #include <functional>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -85,6 +86,7 @@ namespace ImmersX
     set_solver_options(const LinearSolverOptions &options)
     {
       options_ = options;
+      direct_factorization_.reset();
     }
 
     const LinearSolverOptions &
@@ -426,10 +428,20 @@ namespace ImmersX
         }
       else
         {
-          dealii::SolverControl   control(0, 1.e-12);
-          ImmersXLA::SolverDirect solver(control);
-          solver.initialize(matrix);
-          solver.solve(solution, rhs);
+          if (!direct_factorization_ ||
+              !matrices_equal(*direct_factorization_->matrix, matrix))
+            {
+              auto factorization    = std::make_unique<DirectFactorization>();
+              factorization->matrix = detail::clone_matrix(matrix);
+              auto solver = std::make_shared<ImmersXLA::SolverDirect>();
+              solver->initialize(*factorization->matrix);
+              factorization->solve = [solver](const FieldVectorType &source,
+                                              FieldVectorType &destination) {
+                solver->solve(destination, source);
+              };
+              direct_factorization_ = std::move(factorization);
+            }
+          direct_factorization_->solve(rhs, solution);
         }
       composition_.unpack(solution, state);
     }
@@ -491,6 +503,39 @@ namespace ImmersX
     }
 
   private:
+    struct DirectFactorization
+    {
+      std::unique_ptr<MatrixType>                                     matrix;
+      std::function<void(const FieldVectorType &, FieldVectorType &)> solve;
+    };
+
+    static bool
+    matrices_equal(const MatrixType &first, const MatrixType &second)
+    {
+      if (first.m() != second.m() || first.n() != second.n() ||
+          first.locally_owned_range_indices() !=
+            second.locally_owned_range_indices())
+        return false;
+
+      for (const auto row : first.locally_owned_range_indices())
+        {
+          auto first_entry  = first.begin(row);
+          auto second_entry = second.begin(row);
+          while (first_entry != first.end(row) &&
+                 second_entry != second.end(row))
+            {
+              if (first_entry->column() != second_entry->column() ||
+                  first_entry->value() != second_entry->value())
+                return false;
+              ++first_entry;
+              ++second_entry;
+            }
+          if (first_entry != first.end(row) || second_entry != second.end(row))
+            return false;
+        }
+      return true;
+    }
+
     Operator
     make_preconditioner(const Operator         &operator_view,
                         const GlobalVectorType &state) const
@@ -539,10 +584,11 @@ namespace ImmersX
       return dealii::identity_operator(operator_view);
     }
 
-    Composition         composition_;
-    SolveFunction       solve_;
-    LinearSolverOptions options_;
-    std::size_t         coupling_count_ = 0;
+    Composition                                  composition_;
+    SolveFunction                                solve_;
+    LinearSolverOptions                          options_;
+    mutable std::unique_ptr<DirectFactorization> direct_factorization_;
+    std::size_t                                  coupling_count_ = 0;
   };
 } // namespace ImmersX
 

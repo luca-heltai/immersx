@@ -41,8 +41,10 @@ preconditioner, for its inner solve and falls back to identity only when no
 metric is available.
 The direct policy uses deal.II's serial direct solver and, for a multi-rank
 Trilinos execution, the Amesos2 MUMPS backend after redistributing the
-assembled matrix to a contiguous Epetra map. These are backend choices of the
-execution adapter, not requirements imposed on Problems or Interactions.
+assembled matrix to a contiguous Epetra map. Repeated serial direct solves
+reuse the factorization when the materialized matrix is unchanged; a changed
+matrix invalidates that cache. These are backend choices of the execution
+adapter, not requirements imposed on Problems or Interactions.
 
 ```{mermaid}
 flowchart LR
