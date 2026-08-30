@@ -27,6 +27,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
@@ -859,12 +860,15 @@ namespace ImmersX
                               problem.locally_relevant_dofs());
     const auto stiffness =
       builder.matrix_operator(problem.stiffness_operator());
-    builder.preconditioner(displacement,
-                           [](const auto &linearized_matrix,
-                              const auto &reinit_vector) {
-                             return make_amg_preconditioner(linearized_matrix,
-                                                            reinit_vector);
-                           });
+    builder.preconditioner(
+      displacement,
+      [&problem](const auto &linearized_matrix, const auto &reinit_vector) {
+        typename ImmersXLA::MPI::PreconditionAMG::AdditionalData data;
+        data.constant_modes_values =
+          DoFTools::extract_rigid_body_modes(MappingQ1<spacedim>(),
+                                             problem.dof_handler());
+        return make_amg_preconditioner(linearized_matrix, reinit_vector, data);
+      });
 
     builder.term(displacement, "elastic-static")
       .residual([displacement, &problem](const auto &context) {

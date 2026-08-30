@@ -155,6 +155,115 @@ TEST(ContributorCore, MatrixOperatorDetectsDestroyedSource)
 }
 #endif
 
+#ifndef NDEBUG
+TEST(ContributorCore, MatrixOperatorViewDetectsDestroyedSource)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+
+  dealii::SparsityPattern sparsity(1, 1);
+  sparsity.add(0, 0);
+  sparsity.compress();
+
+  EXPECT_DEATH(
+    {
+      auto *matrix = new Matrix;
+      matrix->reinit(sparsity);
+      const auto operator_view = ImmersX::matrix_operator<Vector>(*matrix);
+      delete matrix;
+      Vector source(1);
+      Vector destination(1);
+      source[0] = 1.;
+      operator_view.view.vmult(destination, source);
+    },
+    ".*");
+}
+#endif
+
+TEST(ContributorCore, ConstrainedMatrixProvenanceIsConsistent)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+
+  dealii::SparsityPattern sparsity(2, 2);
+  for (unsigned int i = 0; i < 2; ++i)
+    for (unsigned int j = 0; j < 2; ++j)
+      sparsity.add(i, j);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
+  matrix(0, 0) = 1.;
+  matrix(0, 1) = 2.;
+  matrix(1, 0) = 3.;
+  matrix(1, 1) = 4.;
+
+  dealii::AffineConstraints<double> constraints;
+  constraints.add_line(1);
+  constraints.close();
+  const auto source = ImmersX::matrix_operator<Vector>(matrix);
+  const auto constrained =
+    ImmersX::semidiscrete_detail::constrained_matrix_operator(source,
+                                                              constraints);
+
+  Vector input(2), view_action(2), matrix_action(2), into_action(2);
+  input[0] = 5.;
+  input[1] = 7.;
+  constrained.view.vmult(view_action, input);
+  constrained.matrix()->vmult(matrix_action, input);
+  Matrix destination;
+  constrained.materialize_into_matrix(destination);
+  destination.vmult(into_action, input);
+  EXPECT_EQ(view_action, matrix_action);
+  EXPECT_EQ(view_action, into_action);
+  EXPECT_EQ(constrained.source_matrix(), nullptr);
+
+  Vector dual(2), view_transpose(2), matrix_transpose(2);
+  dual[0] = 11.;
+  dual[1] = 13.;
+  constrained.view.Tvmult(view_transpose, dual);
+  constrained.matrix()->Tvmult(matrix_transpose, dual);
+  EXPECT_EQ(view_transpose, matrix_transpose);
+}
+
+TEST(ContributorCore, MixedConstrainedMatrixProvenanceIsConsistent)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+
+  dealii::SparsityPattern sparsity(2, 2);
+  for (unsigned int i = 0; i < 2; ++i)
+    for (unsigned int j = 0; j < 2; ++j)
+      sparsity.add(i, j);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
+  matrix(0, 0) = 2.;
+  matrix(0, 1) = 1.;
+  matrix(1, 0) = 4.;
+  matrix(1, 1) = 3.;
+
+  dealii::AffineConstraints<double> constraints;
+  constraints.add_line(3);
+  constraints.close();
+  const auto source = ImmersX::matrix_operator<Vector>(matrix);
+  const auto constrained =
+    ImmersX::semidiscrete_detail::mixed_constrained_matrix_operator(source,
+                                                                    constraints,
+                                                                    2);
+
+  Vector input(2), view_action(2), matrix_action(2), into_action(2);
+  input[0] = 5.;
+  input[1] = 7.;
+  constrained.view.vmult(view_action, input);
+  constrained.matrix()->vmult(matrix_action, input);
+  Matrix destination;
+  constrained.materialize_into_matrix(destination);
+  destination.vmult(into_action, input);
+  EXPECT_EQ(view_action, matrix_action);
+  EXPECT_EQ(view_action, into_action);
+  EXPECT_EQ(constrained.source_matrix(), nullptr);
+}
+
 TEST(ContributorCore, LocalPreconditionerUsesItsTransposeAction)
 {
   using Vector = dealii::Vector<double>;

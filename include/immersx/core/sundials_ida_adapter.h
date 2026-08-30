@@ -351,19 +351,63 @@ namespace ImmersX
       current_solver_is_flexible_ = false;
       if (!solve_)
         {
+          const auto keep_snapshot = [snapshot](Operator operator_view) {
+            Operator result;
+            result.reinit_range_vector = [operator_view,
+                                          snapshot](GlobalVectorType &vector,
+                                                    const bool        omit) {
+              operator_view.reinit_range_vector(vector, omit);
+            };
+            result.reinit_domain_vector = [operator_view,
+                                           snapshot](GlobalVectorType &vector,
+                                                     const bool        omit) {
+              operator_view.reinit_domain_vector(vector, omit);
+            };
+            result.vmult = [operator_view,
+                            snapshot](GlobalVectorType       &destination,
+                                      const GlobalVectorType &source) {
+              operator_view.vmult(destination, source);
+            };
+            result.vmult_add = [operator_view,
+                                snapshot](GlobalVectorType       &destination,
+                                          const GlobalVectorType &source) {
+              operator_view.vmult_add(destination, source);
+            };
+            result.Tvmult = [operator_view,
+                             snapshot](GlobalVectorType       &destination,
+                                       const GlobalVectorType &source) {
+              operator_view.Tvmult(destination, source);
+            };
+            result.Tvmult_add = [operator_view,
+                                 snapshot](GlobalVectorType       &destination,
+                                           const GlobalVectorType &source) {
+              operator_view.Tvmult_add(destination, source);
+            };
+            return result;
+          };
           if (!composition_.saddle_points().empty())
             {
               const auto &saddle      = composition_.saddle_points().front();
-              current_preconditioner_ = composition_.schur_preconditioner(
-                saddle.multiplier, state, &state_dot, alpha);
+              current_preconditioner_ = keep_snapshot(
+                composition_.schur_preconditioner(saddle.multiplier,
+                                                  snapshot->state_storage,
+                                                  &snapshot->derivative_storage,
+                                                  alpha));
               current_solver_is_flexible_ = true;
             }
           else if (composition_.has_complete_local_preconditioners())
             {
               current_preconditioner_ =
-                composition_.n_fields() > 1 ?
-                  composition_.block_triangular_preconditioner(state) :
-                  composition_.block_diagonal_preconditioner(state);
+                keep_snapshot(composition_.n_fields() > 1 ?
+                                composition_.block_triangular_preconditioner(
+                                  snapshot->state_storage,
+                                  true,
+                                  &snapshot->derivative_storage,
+                                  alpha) :
+                                composition_.block_diagonal_preconditioner(
+                                  snapshot->state_storage,
+                                  &snapshot->derivative_storage,
+                                  alpha));
               current_solver_is_flexible_ = composition_.n_fields() > 1;
             }
         }

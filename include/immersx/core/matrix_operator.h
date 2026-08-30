@@ -74,8 +74,7 @@ namespace ImmersX
     Materialize     materialize;
     MaterializeInto materialize_into;
     MatrixObserver  observed_matrix;
-    bool            observes_matrix = false;
-    bool            direct_matrix   = false;
+    bool            direct_matrix = false;
 
     bool
     is_materializable() const
@@ -236,6 +235,45 @@ namespace ImmersX
           static_assert(has_reinit_dimensions<MatrixType>::value,
                         "MatrixType has no supported direct copy operation.");
         }
+    }
+
+    template <typename VectorType, typename MatrixType>
+    dealii::LinearOperator<VectorType, VectorType>
+    observed_linear_operator(
+      const dealii::ObserverPointer<const MatrixType> &source)
+    {
+      dealii::LinearOperator<VectorType, VectorType> result;
+      result.reinit_range_vector = [source](VectorType &destination,
+                                            const bool  omit) {
+        dealii::linear_operator<VectorType, VectorType>(*source)
+          .reinit_range_vector(destination, omit);
+      };
+      result.reinit_domain_vector = [source](VectorType &destination,
+                                             const bool  omit) {
+        dealii::linear_operator<VectorType, VectorType>(*source)
+          .reinit_domain_vector(destination, omit);
+      };
+      result.vmult = [source](VectorType       &destination,
+                              const VectorType &source_vector) {
+        dealii::linear_operator<VectorType, VectorType>(*source).vmult(
+          destination, source_vector);
+      };
+      result.vmult_add = [source](VectorType       &destination,
+                                  const VectorType &source_vector) {
+        dealii::linear_operator<VectorType, VectorType>(*source).vmult_add(
+          destination, source_vector);
+      };
+      result.Tvmult = [source](VectorType       &destination,
+                               const VectorType &source_vector) {
+        dealii::linear_operator<VectorType, VectorType>(*source).Tvmult(
+          destination, source_vector);
+      };
+      result.Tvmult_add = [source](VectorType       &destination,
+                                   const VectorType &source_vector) {
+        dealii::linear_operator<VectorType, VectorType>(*source).Tvmult_add(
+          destination, source_vector);
+      };
+      return result;
     }
 
     /** Clone a matrix using its backend-native copy operation. */
@@ -450,12 +488,11 @@ namespace ImmersX
       "explicit lifetime-owning materializer for non-observable matrices.");
 
     MaterializedOperator<VectorType, MatrixType> result;
-    result.view =
-      payload_free(dealii::linear_operator<VectorType, VectorType>(matrix));
     result.observed_matrix = &matrix;
-    result.observes_matrix = true;
-    result.direct_matrix   = true;
-    result.materialize     = [source = result.observed_matrix]() {
+    result.view =
+      detail::observed_linear_operator<VectorType>(result.observed_matrix);
+    result.direct_matrix = true;
+    result.materialize   = [source = result.observed_matrix]() {
       return detail::clone_matrix(*source);
     };
     result.materialize_into = [source =

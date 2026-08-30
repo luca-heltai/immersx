@@ -17,11 +17,50 @@
 #include <immersx/core/matrix_operator.h>
 #include <immersx/core/time_residual.h>
 
+#include <type_traits>
+#include <utility>
+
 namespace ImmersX
 {
   /** Small matrix and constraint helpers shared by physics contributors. */
   namespace semidiscrete_detail
   {
+    template <typename MatrixType, typename = void>
+    struct has_local_row_partition : std::false_type
+    {};
+
+    template <typename MatrixType>
+    struct has_local_row_partition<
+      MatrixType,
+      std::void_t<decltype(std::declval<const MatrixType &>()
+                             .locally_owned_range_indices())>> : std::true_type
+    {};
+
+    template <typename MatrixType>
+    void
+    zero_constrained_rows(MatrixType                              &matrix,
+                          const dealii::AffineConstraints<double> &constraints,
+                          const dealii::types::global_dof_index    offset = 0)
+    {
+      if constexpr (has_local_row_partition<MatrixType>::value)
+        {
+          for (const auto row : matrix.locally_owned_range_indices())
+            if (constraints.is_constrained(offset + row))
+              for (auto entry = matrix.begin(row); entry != matrix.end(row);
+                   ++entry)
+                matrix.set(row, entry->column(), 0.);
+        }
+      else
+        {
+          for (typename MatrixType::size_type row = 0; row < matrix.m(); ++row)
+            if (constraints.is_constrained(offset + row))
+              for (auto entry = matrix.begin(row); entry != matrix.end(row);
+                   ++entry)
+                matrix.set(row, entry->column(), 0.);
+        }
+      matrix.compress(dealii::VectorOperation::insert);
+    }
+
     template <typename VectorType>
     dealii::PackagedOperation<VectorType>
     constrained_operation(dealii::PackagedOperation<VectorType>    operation,
@@ -106,14 +145,15 @@ namespace ImmersX
       result.view        = constrained_operator(source.view, constraints);
       result.materialize = [source, &constraints]() {
         auto matrix = source.matrix();
-        for (const auto row : matrix->locally_owned_range_indices())
-          if (constraints.is_constrained(row))
-            for (auto entry = matrix->begin(row); entry != matrix->end(row);
-                 ++entry)
-              matrix->set(row, entry->column(), 0.);
-        matrix->compress(dealii::VectorOperation::insert);
+        zero_constrained_rows(*matrix, constraints);
         return matrix;
       };
+      result.materialize_into = [source,
+                                 &constraints](MatrixType &destination) {
+        source.materialize_into_matrix(destination);
+        zero_constrained_rows(destination, constraints);
+      };
+      result.direct_matrix = false;
       return result;
     }
 
@@ -210,14 +250,15 @@ namespace ImmersX
         mixed_constrained_operator(source.view, constraints, offset);
       result.materialize = [source, &constraints, offset]() {
         auto matrix = source.matrix();
-        for (const auto row : matrix->locally_owned_range_indices())
-          if (constraints.is_constrained(offset + row))
-            for (auto entry = matrix->begin(row); entry != matrix->end(row);
-                 ++entry)
-              matrix->set(row, entry->column(), 0.);
-        matrix->compress(dealii::VectorOperation::insert);
+        zero_constrained_rows(*matrix, constraints, offset);
         return matrix;
       };
+      result.materialize_into =
+        [source, &constraints, offset](MatrixType &destination) {
+          source.materialize_into_matrix(destination);
+          zero_constrained_rows(destination, constraints, offset);
+        };
+      result.direct_matrix = false;
       return result;
     }
 
