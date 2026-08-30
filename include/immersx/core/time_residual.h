@@ -65,8 +65,9 @@ namespace ImmersX
     using OperatorFactory = std::function<Operator(const Context &)>;
     using MatrixOperatorFactory =
       std::function<MatrixOperator(const Context &)>;
+    using VectorReinitializer = std::function<void(VectorType &, bool)>;
     using PreconditionerFactory =
-      std::function<Operator(const MatrixType &, const VectorType &)>;
+      std::function<Operator(const MatrixType &, const VectorReinitializer &)>;
 
     void
     evaluate_row(const FieldId  row,
@@ -168,14 +169,14 @@ namespace ImmersX
     }
 
     std::optional<Operator>
-    preconditioner(const FieldId     field,
-                   const MatrixType &matrix,
-                   const VectorType &prototype) const
+    preconditioner(const FieldId              field,
+                   const MatrixType          &matrix,
+                   const VectorReinitializer &reinitializer) const
     {
       const auto it = preconditioners_.find(field);
       if (it == preconditioners_.end())
         return std::nullopt;
-      return it->second(matrix, prototype);
+      return it->second(matrix, reinitializer);
     }
 
     bool
@@ -418,6 +419,8 @@ namespace ImmersX
           }
       if (operators.empty())
         return std::nullopt;
+      if (operators.size() == 1)
+        return operators.front();
 
       MatrixOperator result;
       result.view = operators.front().view;

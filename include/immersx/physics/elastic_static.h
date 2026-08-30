@@ -859,10 +859,12 @@ namespace ImmersX
                               problem.locally_relevant_dofs());
     const auto stiffness =
       builder.matrix_operator(problem.stiffness_operator());
-    builder.preconditioner(
-      displacement, [](const auto &linearized_matrix, const auto &prototype) {
-        return make_amg_preconditioner(linearized_matrix, prototype);
-      });
+    builder.preconditioner(displacement,
+                           [](const auto &linearized_matrix,
+                              const auto &reinit_vector) {
+                             return make_amg_preconditioner(linearized_matrix,
+                                                            reinit_vector);
+                           });
 
     builder.term(displacement, "elastic-static")
       .residual([displacement, &problem](const auto &context) {

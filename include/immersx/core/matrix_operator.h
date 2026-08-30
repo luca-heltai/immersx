@@ -75,6 +75,7 @@ namespace ImmersX
     MaterializeInto materialize_into;
     MatrixObserver  observed_matrix;
     bool            observes_matrix = false;
+    bool            direct_matrix   = false;
 
     bool
     is_materializable() const
@@ -105,7 +106,7 @@ namespace ImmersX
     const MatrixType *
     source_matrix() const
     {
-      return observes_matrix ? observed_matrix.get() : nullptr;
+      return direct_matrix ? observed_matrix.get() : nullptr;
     }
   };
 
@@ -409,6 +410,7 @@ namespace ImmersX
       payload_free(dealii::linear_operator<VectorType, VectorType>(matrix));
     result.observed_matrix = &matrix;
     result.observes_matrix = true;
+    result.direct_matrix   = true;
     result.materialize     = [source = result.observed_matrix]() {
       return detail::clone_matrix(*source);
     };
@@ -425,8 +427,9 @@ namespace ImmersX
   operator*(const double                                        factor,
             const MaterializedOperator<VectorType, MatrixType> &source)
   {
-    auto result = source;
-    result.view = factor * source.view;
+    auto result          = source;
+    result.direct_matrix = false;
+    result.view          = factor * source.view;
     if (source.is_materializable())
       result.materialize = [factor, source]() {
         auto matrix = source.matrix();
@@ -454,8 +457,9 @@ namespace ImmersX
   MaterializedOperator<VectorType, MatrixType>
   transpose_operator(const MaterializedOperator<VectorType, MatrixType> &source)
   {
-    auto result = source;
-    result.view = dealii::transpose_operator(source.view);
+    auto result          = source;
+    result.direct_matrix = false;
+    result.view          = dealii::transpose_operator(source.view);
     if (source.is_materializable())
       result.materialize = [source]() {
         return detail::transpose_matrix(source.matrix());
