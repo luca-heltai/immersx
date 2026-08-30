@@ -28,6 +28,19 @@ adapter through `ProblemHandle`; `FieldId` is semantic identity, not a global
 matrix block number. The public composition API is exercised by the distributed
 IDA tests, including mixed fields and multiplier Interactions.
 
+For affine systems, `LinearAdapter` can materialize the assembled block
+operator or expose its deal.II `LinearOperator` view. Its default policy uses
+iterative GMRES for single-field systems and FGMRES for coupled systems, with
+Problem-registered local preconditioners. Block-diagonal, block-triangular,
+saddle-point Schur, and matrix-based augmented-Lagrangian actions are available
+for explicit selection. The augmented-Lagrangian path assembles the primal
+superblock and uses the configured multiplier metric, including a positive
+algebraic fallback for constrained rows whose lumped physical diagonal is zero.
+The direct policy uses deal.II's serial direct solver and, for a multi-rank
+Trilinos execution, the Amesos2 MUMPS backend after redistributing the
+assembled matrix to a contiguous Epetra map. These are backend choices of the
+execution adapter, not requirements imposed on Problems or Interactions.
+
 ```{mermaid}
 flowchart LR
   P["Problem"] --> F["FieldId / FieldDescriptor"]
