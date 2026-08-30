@@ -1,4 +1,5 @@
 #include <deal.II/lac/full_matrix.h>
+#include <deal.II/lac/sparsity_pattern.h>
 #include <deal.II/lac/vector.h>
 
 #include <gtest/gtest.h>
@@ -8,7 +9,7 @@
 TEST(ContributorCore, PackagedResidualAndSeparateOperators)
 {
   using Vector = dealii::Vector<double>;
-  using Matrix = dealii::FullMatrix<double>;
+  using Matrix = dealii::SparseMatrix<double>;
   using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
 
   ImmersX::StateLayout     layout;
@@ -18,7 +19,12 @@ TEST(ContributorCore, PackagedResidualAndSeparateOperators)
   Model      model;
   ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
 
-  dealii::FullMatrix<double> matrix(2, 2);
+  dealii::SparsityPattern sparsity(2, 2);
+  sparsity.add(0, 0);
+  sparsity.add(1, 1);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
   matrix(0, 0) = 2.;
   matrix(1, 1) = 3.;
   const auto K = builder.matrix_operator(matrix);
@@ -61,6 +67,63 @@ TEST(ContributorCore, PackagedResidualAndSeparateOperators)
   EXPECT_DOUBLE_EQ(materialized_action[1], action[1]);
 }
 
+TEST(ContributorCore, MatrixOperatorObservesAndMaterializesLazily)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+
+  dealii::SparsityPattern sparsity(2, 2);
+  sparsity.add(0, 0);
+  sparsity.add(1, 1);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
+  matrix.set(0, 0, 2.);
+  matrix.set(1, 1, 3.);
+
+  const auto operator_view = ImmersX::matrix_operator<Vector>(matrix);
+  matrix.set(0, 0, 5.);
+  matrix.set(1, 1, 7.);
+
+  Vector state(2), action(2), materialized_action(2), direct(2);
+  state[0] = 11.;
+  state[1] = 13.;
+  operator_view.view.vmult(action, state);
+  matrix.vmult(direct, state);
+  EXPECT_EQ(action, direct);
+
+  const auto materialized = operator_view.matrix();
+  materialized->vmult(materialized_action, state);
+  EXPECT_EQ(materialized_action, direct);
+
+  Matrix destination;
+  operator_view.materialize_into_matrix(destination);
+  destination.vmult(materialized_action, state);
+  EXPECT_EQ(materialized_action, direct);
+}
+
+#ifndef NDEBUG
+TEST(ContributorCore, MatrixOperatorDetectsDestroyedSource)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+
+  dealii::SparsityPattern sparsity(1, 1);
+  sparsity.add(0, 0);
+  sparsity.compress();
+
+  EXPECT_DEATH(
+    {
+      auto *matrix = new Matrix;
+      matrix->reinit(sparsity);
+      const auto operator_view = ImmersX::matrix_operator<Vector>(*matrix);
+      delete matrix;
+      (void)operator_view.matrix();
+    },
+    ".*");
+}
+#endif
+
 TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
 {
   using Vector = dealii::Vector<double>;
@@ -95,7 +158,7 @@ TEST(ContributorCore, ConstrainedOperatorHasMatchingTranspose)
 TEST(ContributorCore, MatrixOperatorPreservesCompositions)
 {
   using Vector = dealii::Vector<double>;
-  using Matrix = dealii::FullMatrix<double>;
+  using Matrix = dealii::SparseMatrix<double>;
   using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
 
   ImmersX::StateLayout layout;
@@ -106,7 +169,13 @@ TEST(ContributorCore, MatrixOperatorPreservesCompositions)
   Model      model;
   ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
 
-  Matrix matrix(2, 2);
+  dealii::SparsityPattern sparsity(2, 2);
+  for (unsigned int i = 0; i < 2; ++i)
+    for (unsigned int j = 0; j < 2; ++j)
+      sparsity.add(i, j);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
   matrix(0, 0)    = 1.;
   matrix(0, 1)    = 2.;
   matrix(1, 0)    = 3.;
