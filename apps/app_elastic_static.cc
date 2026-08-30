@@ -9,15 +9,10 @@
 
 #include <deal.II/base/mpi.h>
 
-#include <deal.II/lac/precondition.h>
-#include <deal.II/lac/solver_control.h>
-#include <deal.II/lac/solver_gmres.h>
-
 #include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastic_static.h>
 
-#include <algorithm>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -34,16 +29,7 @@ namespace
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
 
-    Adapter adapter(
-      MPI_COMM_WORLD,
-      [](const auto &operator_view, const auto &rhs, auto &solution) {
-        using Vector = std::decay_t<decltype(solution)>;
-        dealii::SolverControl        control(1000,
-                                      1.e-12 * std::max(1., rhs.l2_norm()));
-        dealii::SolverGMRES<Vector>  solver(control);
-        dealii::PreconditionIdentity preconditioner;
-        solver.solve(operator_view, solution, rhs, preconditioner);
-      });
+    Adapter adapter(MPI_COMM_WORLD);
 
     const auto fields = adapter.add(problem, "elastic-static");
     auto       state  = adapter.make_state();

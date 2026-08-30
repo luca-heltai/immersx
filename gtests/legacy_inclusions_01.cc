@@ -108,11 +108,11 @@ TEST(LegacyInclusions, Segment3DReconstructsCellsAndProperties)
         cell->get_dof_indices(dof_indices);
         const auto                 &values  = space.get_properties();
         const auto                  record  = cell->global_active_cell_index();
-        const std::array<double, 3> radii   = {0.25, 0.5, 0.75};
-        const std::array<double, 3> vessels = {0., 0., 1.};
-        const std::array<double, 3> coefficient_0 = {1., 4., 7.};
-        const std::array<double, 3> coefficient_1 = {2., 5., 8.};
-        const std::array<double, 3> coefficient_2 = {3., 6., 9.};
+        const std::array<double, 3> radii   = {{0.25, 0.5, 0.75}};
+        const std::array<double, 3> vessels = {{0., 0., 1.}};
+        const std::array<double, 3> coefficient_0 = {{1., 4., 7.}};
+        const std::array<double, 3> coefficient_1 = {{2., 5., 8.}};
+        const std::array<double, 3> coefficient_2 = {{3., 6., 9.}};
         EXPECT_DOUBLE_EQ(values[dof_indices[0]], radii[record]);
         EXPECT_DOUBLE_EQ(values[dof_indices[1]], vessels[record]);
         EXPECT_DOUBLE_EQ(values[dof_indices[2]], coefficient_0[record]);

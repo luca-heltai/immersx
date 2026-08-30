@@ -17,6 +17,7 @@
 #ifndef immersx_poisson_residual_h
 #define immersx_poisson_residual_h
 
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/physics/poisson.h>
 
@@ -40,8 +41,11 @@ namespace ImmersX
       builder.algebraic_field("solution",
                               problem.locally_owned_dofs(),
                               problem.locally_relevant_dofs());
-    const auto matrix = ImmersX::payload_free(
-      dealii::linear_operator<VectorType, VectorType>(problem.system_matrix()));
+    const auto matrix = builder.matrix_operator(problem.system_matrix());
+    builder.preconditioner(
+      solution, [](const auto &linearized_matrix, const auto &reinit_vector) {
+        return make_amg_preconditioner(linearized_matrix, reinit_vector);
+      });
 
     builder.term(solution, "poisson")
       .residual([solution, &problem](const auto &context) {

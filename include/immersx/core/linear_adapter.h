@@ -10,16 +10,54 @@
 #ifndef immersx_linear_adapter_h
 #define immersx_linear_adapter_h
 
+#include <deal.II/lac/precondition.h>
+#include <deal.II/lac/solver_control.h>
+#include <deal.II/lac/solver_gmres.h>
+#ifdef DEAL_II_WITH_MUMPS
+#  include <deal.II/lac/sparse_direct.h>
+#endif
+
+#include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
 #include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
 namespace ImmersX
 {
+  enum class LinearSolver
+  {
+    automatic,
+    iterative,
+    direct,
+    mumps
+  };
+
+  enum class LinearPreconditioner
+  {
+    automatic,
+    none,
+    block_diagonal,
+    block_triangular,
+    schur,
+    augmented_lagrangian
+  };
+
+  /** Solver-neutral policy knobs for the standard LinearAdapter path. */
+  struct LinearSolverOptions
+  {
+    LinearSolver         solver             = LinearSolver::automatic;
+    LinearPreconditioner preconditioner     = LinearPreconditioner::automatic;
+    unsigned int         maximum_iterations = 1000;
+    double               tolerance          = 1.e-12;
+    double               augmented_lagrangian_parameter = 1.e1;
+  };
+
   /**
    * Execution adapter for affine steady semantic systems.
    *
@@ -30,21 +68,85 @@ namespace ImmersX
   template <typename FieldVectorType, typename GlobalVectorType>
   class LinearAdapter
   {
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+
   public:
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
-    using Operator      = dealii::LinearOperator<GlobalVectorType>;
-    using SolveFunction = std::function<
+    using Operator            = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
+    using MatrixType          = typename Composition::MatrixType;
+    using BlockMatrixType     = typename Composition::BlockMatrixType;
+    using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
+    using SolveFunction       = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
-    LinearAdapter(const MPI_Comm communicator, SolveFunction solve)
+    LinearAdapter(const MPI_Comm communicator, SolveFunction solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
+    {}
+
+    LinearAdapter(const MPI_Comm             communicator,
+                  const LinearSolverOptions &options,
+                  SolveFunction              solve = {})
+      : composition_(communicator)
+      , solve_(std::move(solve))
+      , options_(options)
+    {}
+
+    void
+    set_solver_options(const LinearSolverOptions &options)
     {
-      AssertThrow(solve_,
+      options_ = options;
+      direct_matrix_.reset();
+      direct_solver_.reset();
+      direct_control_.reset();
+#ifdef DEAL_II_WITH_MUMPS
+      mumps_solver_.reset();
+#endif
+    }
+
+    const LinearSolverOptions &
+    solver_options() const
+    {
+      return options_;
+    }
+
+    bool
+    has_multiplier_metric(const FieldId multiplier) const
+    {
+      return composition_.model().has_multiplier_metric(multiplier);
+    }
+
+    /** Factorize the current linearization for subsequent direct solves. */
+    void
+    setup_direct(const GlobalVectorType &state) const
+    {
+      direct_matrix_ = std::make_shared<MatrixType>();
+      composition_.monolithic_matrix(state, *direct_matrix_);
+      direct_solver_.reset();
+      direct_control_ =
+        std::make_unique<dealii::SolverControl>(0, options_.tolerance);
+#ifdef DEAL_II_WITH_MUMPS
+      if (options_.solver == LinearSolver::mumps)
+        {
+          mumps_solver_ = std::make_unique<dealii::SparseDirectMUMPS>(
+            dealii::SparseDirectMUMPS::AdditionalData(),
+            composition_.communicator());
+          mumps_solver_->initialize(*direct_matrix_);
+          return;
+        }
+#else
+      AssertThrow(options_.solver != LinearSolver::mumps,
                   dealii::ExcMessage(
-                    "LinearAdapter requires a linear solve callback."));
+                    "LinearAdapter solver 'mumps' requires deal.II to be "
+                    "configured with MUMPS."));
+#endif
+      direct_solver_ =
+        std::make_unique<ImmersXLA::SolverDirect>(*direct_control_);
+      direct_solver_->initialize(*direct_matrix_);
     }
 
     template <typename Problem, typename... Arguments>
@@ -134,9 +236,131 @@ namespace ImmersX
       return composition_.jacobian(0., state, nullptr, 0.);
     }
 
-    void
-    solve(GlobalVectorType &state) const
+    bool
+    can_materialize_matrix(const GlobalVectorType &state) const
     {
+      return composition_.can_materialize_matrix(state);
+    }
+
+    BlockMatrixType
+    block_matrix(const GlobalVectorType &state) const
+    {
+      return composition_.block_matrix(state);
+    }
+
+    MatrixType
+    monolithic_matrix(const GlobalVectorType &state) const
+    {
+      return composition_.monolithic_matrix(state);
+    }
+
+    bool
+    has_local_preconditioner(const FieldId field) const
+    {
+      return composition_.has_local_preconditioner(field);
+    }
+
+    bool
+    has_complete_local_preconditioners() const
+    {
+      return composition_.has_complete_local_preconditioners();
+    }
+
+    const std::vector<SaddlePointMetadata> &
+    saddle_points() const
+    {
+      return composition_.saddle_points();
+    }
+
+    LocalOperator
+    schur_operator(const FieldId           multiplier,
+                   const GlobalVectorType &state) const
+    {
+      return composition_.schur_operator(multiplier, state);
+    }
+
+    Operator
+    schur_preconditioner(const FieldId           multiplier,
+                         const GlobalVectorType &state) const
+    {
+      return composition_.schur_preconditioner(multiplier, state);
+    }
+
+    Operator
+    augmented_lagrangian_operator(const GlobalVectorType &state,
+                                  const double            gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_operator(state, gamma);
+    }
+
+    BlockMatrixType
+    augmented_lagrangian_matrix(const GlobalVectorType &state,
+                                const double            gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_matrix(state, gamma);
+    }
+
+    Operator
+    augmented_lagrangian_preconditioner(const GlobalVectorType &state,
+                                        const double gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_preconditioner(state, gamma);
+    }
+
+    std::optional<LocalOperator>
+    local_preconditioner(const FieldId           field,
+                         const GlobalVectorType &state) const
+    {
+      return composition_.local_preconditioner(field, state);
+    }
+
+    Operator
+    block_diagonal_preconditioner(const GlobalVectorType &state) const
+    {
+      return composition_.block_diagonal_preconditioner(state);
+    }
+
+    Operator
+    block_triangular_preconditioner(const GlobalVectorType &state,
+                                    const bool              lower = true) const
+    {
+      return composition_.block_triangular_preconditioner(state, lower);
+    }
+
+    FieldVectorType
+    pack(const GlobalVectorType &state) const
+    {
+      return composition_.pack(state);
+    }
+
+    void
+    unpack(const FieldVectorType &flat, GlobalVectorType &state) const
+    {
+      composition_.unpack(flat, state);
+    }
+
+    /** Solve using a freshly materialized matrix and the configured direct
+     * backend. */
+    void
+    solve_direct(GlobalVectorType &state) const
+    {
+      setup_direct(state);
+      solve_with_current_direct(state);
+    }
+
+    /** Reuse an explicitly prepared direct factorization. */
+    void
+    solve_with_current_direct(GlobalVectorType &state) const
+    {
+      bool has_factorization = static_cast<bool>(direct_solver_);
+#ifdef DEAL_II_WITH_MUMPS
+      has_factorization = has_factorization || static_cast<bool>(mumps_solver_);
+#endif
+      AssertThrow(
+        has_factorization,
+        dealii::ExcMessage(
+          "No direct factorization is available; call setup_direct first."));
+
       const auto &model = composition_.model();
       AssertThrow(!model.has_derivative_terms(),
                   dealii::ExcMessage(
@@ -146,16 +370,137 @@ namespace ImmersX
       state         = composition_.make_state();
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
-      solve_(composition_.jacobian(0., state, nullptr, 0.), residual, state);
+
+      auto rhs      = composition_.pack(residual);
+      auto result   = composition_.make_state();
+      auto solution = composition_.pack(result);
+#ifdef DEAL_II_WITH_MUMPS
+      if (mumps_solver_)
+        mumps_solver_->vmult(solution, rhs);
+      else
+#endif
+        direct_solver_->solve(solution, rhs);
+      composition_.unpack(solution, state);
+    }
+
+    void
+    solve(GlobalVectorType &state) const
+    {
+      if (options_.solver == LinearSolver::direct ||
+          options_.solver == LinearSolver::mumps)
+        {
+          solve_direct(state);
+          return;
+        }
+      AssertThrow(options_.solver == LinearSolver::automatic ||
+                    options_.solver == LinearSolver::iterative,
+                  dealii::ExcMessage(
+                    "LinearAdapter solver must be auto, iterative, direct, "
+                    "or mumps."));
+
+      const auto &model = composition_.model();
+      AssertThrow(!model.has_derivative_terms(),
+                  dealii::ExcMessage(
+                    "LinearAdapter cannot solve a model with derivative "
+                    "terms."));
+      auto residual = composition_.make_state();
+      state         = composition_.make_state();
+      composition_.evaluate_residual(0., state, nullptr, residual);
+      residual *= -1.;
+      const auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
+      if (solve_)
+        solve_(operator_view, residual, state);
+      else
+        {
+          const auto preconditioner = make_preconditioner(operator_view, state);
+          dealii::SolverControl control(options_.maximum_iterations,
+                                        options_.tolerance);
+          const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
+                     data(30, false, false);
+          const bool flexible =
+            options_.preconditioner ==
+              LinearPreconditioner::augmented_lagrangian ||
+            options_.preconditioner == LinearPreconditioner::block_triangular ||
+            options_.preconditioner == LinearPreconditioner::schur ||
+            (options_.preconditioner == LinearPreconditioner::automatic &&
+             (composition_.n_fields() > 1 ||
+              !composition_.saddle_points().empty()));
+          if (flexible)
+            {
+              const typename dealii::SolverFGMRES<
+                GlobalVectorType>::AdditionalData    right_data(100);
+              dealii::SolverFGMRES<GlobalVectorType> solver(control,
+                                                            right_data);
+              solver.solve(operator_view, state, residual, preconditioner);
+            }
+          else
+            {
+              dealii::SolverGMRES<GlobalVectorType> solver(control, data);
+              solver.solve(operator_view, state, residual, preconditioner);
+            }
+        }
     }
 
   private:
-    using Composition =
-      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+    Operator
+    make_preconditioner(const Operator         &operator_view,
+                        const GlobalVectorType &state) const
+    {
+      auto choice = options_.preconditioner;
+      if (choice == LinearPreconditioner::automatic)
+        choice = !composition_.saddle_points().empty() ?
+                   LinearPreconditioner::schur :
+                   (composition_.n_fields() == 1 ?
+                      LinearPreconditioner::block_diagonal :
+                      LinearPreconditioner::block_triangular);
 
-    Composition   composition_;
-    SolveFunction solve_;
-    std::size_t   coupling_count_ = 0;
+      if (choice == LinearPreconditioner::none)
+        return dealii::identity_operator(operator_view);
+      if (choice == LinearPreconditioner::block_diagonal)
+        {
+          AssertThrow(composition_.has_complete_local_preconditioners(),
+                      dealii::ExcMessage(
+                        "Block diagonal preconditioning needs local "
+                        "preconditioners for every field."));
+          return composition_.block_diagonal_preconditioner(state);
+        }
+      if (choice == LinearPreconditioner::block_triangular)
+        {
+          AssertThrow(composition_.has_complete_local_preconditioners(),
+                      dealii::ExcMessage(
+                        "Block triangular preconditioning needs local "
+                        "preconditioners for every field."));
+          return composition_.block_triangular_preconditioner(state);
+        }
+      if (choice == LinearPreconditioner::schur)
+        {
+          AssertThrow(composition_.saddle_points().size() == 1u,
+                      dealii::ExcMessage(
+                        "Schur preconditioning currently requires exactly "
+                        "one saddle-point relation."));
+          return composition_.schur_preconditioner(
+            composition_.saddle_points().front().multiplier, state);
+        }
+      if (choice == LinearPreconditioner::augmented_lagrangian)
+        return composition_.augmented_lagrangian_preconditioner(
+          state, options_.augmented_lagrangian_parameter);
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "The requested preconditioner policy is not available "
+                    "for LinearAdapter."));
+      return dealii::identity_operator(operator_view);
+    }
+
+    Composition                                      composition_;
+    SolveFunction                                    solve_;
+    LinearSolverOptions                              options_;
+    mutable std::shared_ptr<MatrixType>              direct_matrix_;
+    mutable std::unique_ptr<dealii::SolverControl>   direct_control_;
+    mutable std::unique_ptr<ImmersXLA::SolverDirect> direct_solver_;
+#ifdef DEAL_II_WITH_MUMPS
+    mutable std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;
+#endif
+    std::size_t coupling_count_ = 0;
   };
 } // namespace ImmersX
 

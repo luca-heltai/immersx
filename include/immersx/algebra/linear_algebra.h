@@ -23,6 +23,7 @@ namespace ImmersX
 #  define IMMERSX_USE_PETSC_LA
 #elif defined(DEAL_II_WITH_TRILINOS)
     using namespace dealii::LinearAlgebraTrilinos;
+    using SolverDirect = dealii::TrilinosWrappers::SolverDirect;
 #else
 #  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
 #endif

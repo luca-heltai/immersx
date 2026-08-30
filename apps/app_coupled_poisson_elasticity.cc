@@ -10,15 +10,11 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
-#include <deal.II/lac/solver_control.h>
-#include <deal.II/lac/solver_gmres.h>
-
 #include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/poisson.h>
 
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -59,15 +55,7 @@ main(int argc, char *argv[])
       using GlobalVector = ImmersXLA::MPI::BlockVector;
       using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
 
-      Adapter adapter(
-        MPI_COMM_WORLD,
-        [](const auto &operator_view, const auto &rhs, auto &solution) {
-          dealii::SolverControl control(500, 1.e-12 * rhs.l2_norm(), false);
-          using GlobalVector = std::decay_t<decltype(solution)>;
-          dealii::SolverGMRES<GlobalVector> solver(control);
-          dealii::PreconditionIdentity      preconditioner;
-          solver.solve(operator_view, solution, rhs, preconditioner);
-        });
+      Adapter adapter(MPI_COMM_WORLD);
 
       const auto poisson = adapter.add(poisson_problem);
       const auto elastic = adapter.add(elasticity_problem);

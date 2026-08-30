@@ -28,6 +28,20 @@ adapter through `ProblemHandle`; `FieldId` is semantic identity, not a global
 matrix block number. The public composition API is exercised by the distributed
 IDA tests, including mixed fields and multiplier Interactions.
 
+For affine systems, `LinearAdapter` can materialize the assembled block
+operator or expose its deal.II `LinearOperator` view. Its default policy uses
+iterative GMRES for single-field systems and FGMRES for coupled systems, with
+Problem-registered local preconditioners. Block-diagonal, block-triangular,
+saddle-point Schur, and matrix-based augmented-Lagrangian actions are available
+for explicit selection. The augmented-Lagrangian path assembles the primal
+superblock and uses the configured multiplier metric, including a positive
+algebraic fallback for constrained rows whose lumped physical diagonal is zero.
+The direct policy uses the generic Trilinos direct solver for ordinary direct
+solves. When deal.II is configured with native MUMPS support, the explicit
+`mumps` policy selects `SparseDirectMUMPS`; this optional backend is isolated in
+the execution adapter. These are backend choices of the execution adapter, not
+requirements imposed on Problems or Interactions.
+
 ```{mermaid}
 flowchart LR
   P["Problem"] --> F["FieldId / FieldDescriptor"]
@@ -124,3 +138,30 @@ execution; those are not presented here as current APIs.
 | {doc}`../design/architecture-status` | Implemented, validated, and planned capability status. |
 | {doc}`../../concepts/mathematical-background` | Mathematical motivation and reduced Lagrange-multiplier context. |
 | {doc}`../../tutorials/index` | Runnable learning workflows. |
+
+## Portability and validation
+
+The solver stack is validated with out-of-source Debug and Release builds,
+serial GoogleTests, two-rank MPI GoogleTests, and the relevant deal.II
+regression tests. Direct solves materialize the current execution matrix and
+use the generic Trilinos direct backend; an explicit `mumps` policy is compiled
+only when deal.II provides `SparseDirectMUMPS`. No application code depends on
+Amesos2 or Epetra MUMPS plumbing, so configurations without native MUMPS retain
+the ordinary direct and iterative paths.
+
+Known validation failure: on the current macOS/deal.II installation, the
+serial `AppExecutables.TutorialFiberReinforcedElastodynamics` test aborts in
+`fiber_reinforced_elastodynamics_debug` with `SIGABRT` and a malloc
+“pointer being freed was not allocated” diagnostic, after initializing the two
+distributed problems and before the IDA solve. The focused fiber residual and
+IDA tests pass. This failure is published deliberately for follow-up and is
+not evidence about the unavailable native MUMPS path.
+
+Known MPI validation failure: the two-rank
+`CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` test aborts in
+deal.II's Trilinos preconditioner map compatibility assertion while applying
+the Schur preconditioner. The reported condition is that the destination
+vector partitioner is not the same as the preconditioner's operator range
+map. `CoupledPoisson.MPI_RepresentationDrivenSchurSolve` passes. This is
+also published deliberately for follow-up; it is a distributed vector/map
+lifetime or construction issue, not a MUMPS failure.

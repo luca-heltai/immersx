@@ -44,6 +44,17 @@ The configured input writes results below
 `poisson_debug` instead. The same canonical input is exercised by
 `AppExecutables.TutorialPoisson`.
 
+The application executes the assembled affine system through `LinearAdapter`
+using the standard iterative solver and a block-diagonal local preconditioner.
+The adapter keeps the semantic field and execution storage separate, so the
+same Problem can also be composed with other Problems in a coupled adapter.
+
+For a distributed run, launch the executable explicitly with MPI:
+
+```bash
+mpirun -np 2 ./build/poisson build/tutorials/poisson/poisson_2d.prm
+```
+
 ## What to try next
 
 Change `FE degree`, `Initial refinement`, or the right-hand-side expression and

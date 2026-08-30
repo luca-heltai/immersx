@@ -41,6 +41,7 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/io/imported_finite_element_fields.h>
 #include <immersx/io/utils.h>
@@ -857,8 +858,13 @@ namespace ImmersX
                               problem.locally_owned_dofs(),
                               problem.locally_relevant_dofs());
     const auto stiffness =
-      ImmersX::payload_free(dealii::linear_operator<VectorType, VectorType>(
-        problem.stiffness_operator()));
+      builder.matrix_operator(problem.stiffness_operator());
+    builder.preconditioner(displacement,
+                           [](const auto &linearized_matrix,
+                              const auto &reinit_vector) {
+                             return make_amg_preconditioner(linearized_matrix,
+                                                            reinit_vector);
+                           });
 
     builder.term(displacement, "elastic-static")
       .residual([displacement, &problem](const auto &context) {

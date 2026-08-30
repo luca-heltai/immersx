@@ -10,8 +10,6 @@
 #ifndef immersx_contributor_h
 #define immersx_contributor_h
 
-#include <deal.II/lac/linear_operator.h>
-
 #include <immersx/core/field.h>
 #include <immersx/core/time_residual.h>
 
@@ -21,35 +19,6 @@
 
 namespace ImmersX
 {
-  /**
-   * Erase a backend-specific LinearOperator payload at an execution boundary.
-   * This is needed when a global operator combines blocks with different
-   * backend payload types.
-   */
-  template <typename Range, typename Domain, typename Payload>
-  dealii::LinearOperator<Range, Domain>
-  payload_free(const dealii::LinearOperator<Range, Domain, Payload> &op)
-  {
-    dealii::LinearOperator<Range, Domain> result;
-    result.vmult = [op](Range &dst, const Domain &src) { op.vmult(dst, src); };
-    result.vmult_add = [op](Range &dst, const Domain &src) {
-      op.vmult_add(dst, src);
-    };
-    result.Tvmult = [op](Domain &dst, const Range &src) {
-      op.Tvmult(dst, src);
-    };
-    result.Tvmult_add = [op](Domain &dst, const Range &src) {
-      op.Tvmult_add(dst, src);
-    };
-    result.reinit_range_vector = [op](Range &dst, const bool omit) {
-      op.reinit_range_vector(dst, omit);
-    };
-    result.reinit_domain_vector = [op](Domain &dst, const bool omit) {
-      op.reinit_domain_vector(dst, omit);
-    };
-    return result;
-  }
-
   /** Fallback customization point for callable contributors. */
   template <typename Builder, typename Callable, typename... Arguments>
   auto
@@ -62,14 +31,17 @@ namespace ImmersX
   }
 
   /** Direct handle for one semantically coherent residual term. */
-  template <typename VectorType>
+  template <typename VectorType,
+            typename MatrixType = ImmersXLA::MPI::SparseMatrix>
   class SemidiscreteTerm
   {
   public:
-    using Model           = SemiDiscreteModel<VectorType>;
-    using Operator        = typename Model::Operator;
-    using ResidualFactory = typename Model::ResidualFactory;
-    using OperatorFactory = typename Model::OperatorFactory;
+    using Model                 = SemiDiscreteModel<VectorType, MatrixType>;
+    using Operator              = typename Model::Operator;
+    using MatrixOperator        = typename Model::MatrixOperator;
+    using MatrixOperatorFactory = typename Model::MatrixOperatorFactory;
+    using ResidualFactory       = typename Model::ResidualFactory;
+    using OperatorFactory       = typename Model::OperatorFactory;
 
     SemidiscreteTerm(Model &model, const FieldId row, std::string name)
       : model_(&model)
@@ -100,6 +72,20 @@ namespace ImmersX
     }
 
     SemidiscreteTerm &
+    state(const FieldId column, const MatrixOperator &op)
+    {
+      model_->add_state_operator(row_, column, name_, op);
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    state(const FieldId column, MatrixOperatorFactory factory)
+    {
+      model_->add_state_operator(row_, column, name_, std::move(factory));
+      return *this;
+    }
+
+    SemidiscreteTerm &
     derivative(const FieldId column, const Operator &op)
     {
       model_->add_derivative_operator(row_, column, name_, op);
@@ -108,6 +94,20 @@ namespace ImmersX
 
     SemidiscreteTerm &
     derivative(const FieldId column, OperatorFactory factory)
+    {
+      model_->add_derivative_operator(row_, column, name_, std::move(factory));
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    derivative(const FieldId column, const MatrixOperator &op)
+    {
+      model_->add_derivative_operator(row_, column, name_, op);
+      return *this;
+    }
+
+    SemidiscreteTerm &
+    derivative(const FieldId column, MatrixOperatorFactory factory)
     {
       model_->add_derivative_operator(row_, column, name_, std::move(factory));
       return *this;
@@ -132,12 +132,13 @@ namespace ImmersX
   };
 
   /** Minimal solver-neutral semantic authoring API. */
-  template <typename VectorType>
+  template <typename VectorType,
+            typename MatrixType = ImmersXLA::MPI::SparseMatrix>
   class SemidiscreteBuilder
   {
   public:
-    using Model = SemiDiscreteModel<VectorType>;
-    using Term  = SemidiscreteTerm<VectorType>;
+    using Model = SemiDiscreteModel<VectorType, MatrixType>;
+    using Term  = SemidiscreteTerm<VectorType, MatrixType>;
 
     SemidiscreteBuilder(StateLayout &layout,
                         Model       &model,
@@ -196,6 +197,43 @@ namespace ImmersX
       const auto qualified_name =
         prefix_.empty() ? local_name : prefix_ + "." + local_name;
       return Term(model_, row, qualified_name);
+    }
+
+    /** Create a provenance-preserving operator from an assembled matrix. */
+    typename Model::MatrixOperator
+    matrix_operator(const MatrixType &matrix) const
+    {
+      return ImmersX::matrix_operator<VectorType, MatrixType>(matrix);
+    }
+
+    /** Register a Problem-local approximate inverse factory. */
+    template <typename Factory>
+    void
+    preconditioner(const FieldId field, Factory factory)
+    {
+      model_.add_preconditioner(
+        field, typename Model::PreconditionerFactory(std::move(factory)));
+    }
+
+    /** Register a semantic multiplier/primal saddle-point relation. */
+    void
+    saddle_point(const FieldId multiplier, std::vector<FieldId> participants)
+    {
+      model_.add_saddle_point({multiplier, std::move(participants)});
+    }
+
+    /** Register a saddle-point relation with its physical multiplier metric. */
+    void
+    saddle_point(const FieldId                         multiplier,
+                 std::vector<FieldId>                  participants,
+                 const typename Model::MatrixOperator &metric)
+    {
+      model_.add_saddle_point({multiplier, participants});
+      model_.add_multiplier_metric(multiplier,
+                                   typename Model::MatrixOperatorFactory(
+                                     [metric](const auto &) {
+                                       return metric;
+                                     }));
     }
 
   private:

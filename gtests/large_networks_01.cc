@@ -78,7 +78,9 @@ TEST(LargeNetworks, TerminalNodes)
   for (const auto &cell : tria.active_cell_iterators())
     for (const auto f : cell->face_indices())
       if (cell->face(f)->at_boundary())
-        EXPECT_EQ(cell->face(f)->boundary_id(), expected_boundary_id);
+        {
+          EXPECT_EQ(cell->face(f)->boundary_id(), expected_boundary_id);
+        }
 
   const unsigned int n_terminal_nodes        = boundary_points.size();
   const unsigned int n_distinct_boundary_ids = boundary_ids.size();

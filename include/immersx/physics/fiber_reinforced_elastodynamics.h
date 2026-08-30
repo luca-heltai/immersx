@@ -16,8 +16,10 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
 #include <immersx/core/representation.h>
+#include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/coupling/particle_coupling.h>
 #include <immersx/physics/elastodynamics.h>
+#include <immersx/physics/elastodynamics_semidiscrete.h>
 
 #include <memory>
 #include <string>
@@ -68,8 +70,9 @@ namespace ImmersX
    * Both Problems are `ElastodynamicsSolver<dim, dim>` objects on independent
    * full-dimensional meshes.  The fiber mesh is geometrically embedded in the
    * matrix mesh, but it is not a reduced `<1,3>` representation.  The driver
-   * owns the coupled time loop and solves velocity continuity at the algebraic
-   * level with `LagrangeMultiplierSchurSolver`.
+   * owns the coupled time loop.  With SUNDIALS enabled, the serial execution
+   * path uses the public IDA execution adapter; distributed execution retains
+   * the explicit Schur-complement backward-Euler path.
    */
   template <int dim>
   class FiberReinforcedElastodynamics
@@ -86,6 +89,10 @@ namespace ImmersX
       LagrangeMultiplierSchurSolver<MatrixType,
                                     VectorType,
                                     ImmersXLA::MPI::PreconditionJacobi>;
+#ifdef DEAL_II_WITH_SUNDIALS
+    using GlobalVectorType = ImmersXLA::MPI::BlockVector;
+    using IDAAdapterType   = IDAAdapter<VectorType, GlobalVectorType>;
+#endif
 
     explicit FiberReinforcedElastodynamics(const Parameters &parameters);
 
@@ -171,6 +178,23 @@ namespace ImmersX
     void
     output_results() const;
 
+#ifdef DEAL_II_WITH_SUNDIALS
+    void
+    run_with_ida();
+
+    void
+    setup_ida();
+
+    void
+    update_from_ida_state(const GlobalVectorType &state,
+                          const GlobalVectorType &state_dot,
+                          const double            time,
+                          const unsigned int      step);
+
+    void
+    initialize_ida_derivative(GlobalVectorType &state_dot);
+#endif
+
     const Parameters &parameters;
     Problem           matrix_problem_storage;
     Problem           fiber_problem_storage;
@@ -179,6 +203,13 @@ namespace ImmersX
     std::unique_ptr<Representation> fiber_velocity_representation;
     std::unique_ptr<Interaction>    interaction_storage;
     std::unique_ptr<SchurSolver>    schur_solver;
+#ifdef DEAL_II_WITH_SUNDIALS
+    std::unique_ptr<IDAAdapterType> ida_storage;
+
+    ElastodynamicsFields matrix_fields_storage;
+    ElastodynamicsFields fiber_fields_storage;
+    ConstraintFields     coupling_fields_storage;
+#endif
 
     MatrixType matrix_effective_matrix;
     MatrixType fiber_effective_matrix;

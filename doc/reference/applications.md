@@ -6,7 +6,7 @@ dispatches a template instantiation.
 
 | Executable | Entry point and main problem | Supported dimensions | Model / dependencies | Canonical example and status |
 | --- | --- | --- | --- | --- |
-| `poisson` | `apps/app_poisson.cc`; `PoissonSolver` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | Standalone scalar Poisson; MPI | `tutorials/poisson/poisson_2d.prm.in`; introductory production path |
+| `poisson` | `apps/app_poisson.cc`; `PoissonSolver` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | `LinearAdapter` with iterative/block-diagonal policy; MPI | `tutorials/poisson/poisson_2d.prm.in`; introductory production path |
 | `elastic_static` | `apps/app_elastic_static.cc`; `ElasticStaticProblem` | `2/2`, `3/3` | `LinearAdapter`; MPI | `tutorials/elastic_static/elastic_static.prm.in`; production static path |
 | `elastodynamics` | `apps/app_elastodynamics.cc`; `ElastodynamicsSolver` | `2/2`, `3/3` | Standalone backward-Euler time loop; MPI | `tutorials/elastodynamics/strong_dirichlet.prm.in`; tutorial path |
 | `reduced_poisson` | `apps/app_reduced_poisson.cc`; `ReducedPoisson` | 2D and 3D bulk cases with reduced dimension `0` or `1` and configured cross-section dimensions | Requires deal.II VTK support; MPI | `tutorials/reduced_poisson/single_cylinder_3d.prm.in`; specialized reduced path |

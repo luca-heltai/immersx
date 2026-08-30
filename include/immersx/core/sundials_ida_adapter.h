@@ -12,15 +12,20 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/lac/precondition.h>
+#include <deal.II/lac/solver_gmres.h>
+
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #ifdef DEAL_II_WITH_SUNDIALS
 #  include <deal.II/sundials/ida.h>
@@ -34,10 +39,14 @@ namespace ImmersX
   class IDAAdapter
   {
   public:
+    using Composition =
+      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
+    using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
+    using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
@@ -47,15 +56,11 @@ namespace ImmersX
 
     IDAAdapter(const AdditionalData &data,
                const MPI_Comm        communicator,
-               LinearSolveFunction   solve)
+               LinearSolveFunction   solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
       , ida_(data, communicator)
-    {
-      AssertThrow(solve_,
-                  dealii::ExcMessage("IDAAdapter requires a linear solve "
-                                     "callback."));
-    }
+    {}
 
     template <typename Problem, typename... Arguments>
     auto
@@ -168,10 +173,75 @@ namespace ImmersX
       return *current_jacobian_;
     }
 
-  private:
-    using Composition =
-      detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
+    bool
+    has_current_preconditioner() const
+    {
+      return current_preconditioner_.has_value();
+    }
 
+    bool
+    can_materialize_matrix(const GlobalVectorType &state,
+                           const GlobalVectorType &state_dot,
+                           const double            alpha) const
+    {
+      return composition_.can_materialize_matrix(state, &state_dot, alpha);
+    }
+
+    typename Composition::BlockMatrixType
+    block_matrix(const GlobalVectorType &state,
+                 const GlobalVectorType &state_dot,
+                 const double            alpha) const
+    {
+      return composition_.block_matrix(state, &state_dot, alpha);
+    }
+
+    typename Composition::MatrixType
+    monolithic_matrix(const GlobalVectorType &state,
+                      const GlobalVectorType &state_dot,
+                      const double            alpha) const
+    {
+      return composition_.monolithic_matrix(
+        composition_.block_matrix(state, &state_dot, alpha));
+    }
+
+    bool
+    has_local_preconditioner(const FieldId field) const
+    {
+      return composition_.has_local_preconditioner(field);
+    }
+
+    LocalOperator
+    local_preconditioner(const FieldId           field,
+                         const GlobalVectorType &state) const
+    {
+      const auto result = composition_.local_preconditioner(field, state);
+      AssertThrow(result.has_value(),
+                  dealii::ExcMessage("No local preconditioner is registered "
+                                     "for this Field."));
+      return *result;
+    }
+
+    const std::vector<SaddlePointMetadata> &
+    saddle_points() const
+    {
+      return composition_.saddle_points();
+    }
+
+    LocalOperator
+    schur_operator(const FieldId           multiplier,
+                   const GlobalVectorType &state) const
+    {
+      return composition_.schur_operator(multiplier, state);
+    }
+
+    Operator
+    schur_preconditioner(const FieldId           multiplier,
+                         const GlobalVectorType &state) const
+    {
+      return composition_.schur_preconditioner(multiplier, state);
+    }
+
+  private:
     void
     finalize()
     {
@@ -201,7 +271,36 @@ namespace ImmersX
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
                                        "current Jacobian."));
-        solve_(*current_jacobian_, rhs, dst, tolerance);
+        if (solve_)
+          solve_(*current_jacobian_, rhs, dst, tolerance);
+        else
+          {
+            dst = 0.;
+            dealii::SolverControl control(5000, std::max(1.e-12, tolerance));
+            dealii::SolverGMRES<GlobalVectorType> solver(control);
+            if (current_preconditioner_.has_value())
+              if (current_solver_is_flexible_)
+                {
+                  typename dealii::SolverFGMRES<
+                    GlobalVectorType>::AdditionalData    flexible_data(100);
+                  dealii::SolverFGMRES<GlobalVectorType> flexible_solver(
+                    control, flexible_data);
+                  flexible_solver.solve(*current_jacobian_,
+                                        dst,
+                                        rhs,
+                                        *current_preconditioner_);
+                }
+              else
+                solver.solve(*current_jacobian_,
+                             dst,
+                             rhs,
+                             *current_preconditioner_);
+            else
+              solver.solve(*current_jacobian_,
+                           dst,
+                           rhs,
+                           dealii::PreconditionIdentity());
+          }
       };
       ida_.differential_components = [this]() {
         return composition_.differential_components();
@@ -248,14 +347,80 @@ namespace ImmersX
         operator_view.Tvmult_add(destination, source);
       };
       current_jacobian_ = std::move(stable);
+      current_preconditioner_.reset();
+      current_solver_is_flexible_ = false;
+      if (!solve_)
+        {
+          const auto keep_snapshot = [snapshot](Operator operator_view) {
+            Operator result;
+            result.reinit_range_vector = [operator_view,
+                                          snapshot](GlobalVectorType &vector,
+                                                    const bool        omit) {
+              operator_view.reinit_range_vector(vector, omit);
+            };
+            result.reinit_domain_vector = [operator_view,
+                                           snapshot](GlobalVectorType &vector,
+                                                     const bool        omit) {
+              operator_view.reinit_domain_vector(vector, omit);
+            };
+            result.vmult = [operator_view,
+                            snapshot](GlobalVectorType       &destination,
+                                      const GlobalVectorType &source) {
+              operator_view.vmult(destination, source);
+            };
+            result.vmult_add = [operator_view,
+                                snapshot](GlobalVectorType       &destination,
+                                          const GlobalVectorType &source) {
+              operator_view.vmult_add(destination, source);
+            };
+            result.Tvmult = [operator_view,
+                             snapshot](GlobalVectorType       &destination,
+                                       const GlobalVectorType &source) {
+              operator_view.Tvmult(destination, source);
+            };
+            result.Tvmult_add = [operator_view,
+                                 snapshot](GlobalVectorType       &destination,
+                                           const GlobalVectorType &source) {
+              operator_view.Tvmult_add(destination, source);
+            };
+            return result;
+          };
+          if (!composition_.saddle_points().empty())
+            {
+              const auto &saddle      = composition_.saddle_points().front();
+              current_preconditioner_ = keep_snapshot(
+                composition_.schur_preconditioner(saddle.multiplier,
+                                                  snapshot->state_storage,
+                                                  &snapshot->derivative_storage,
+                                                  alpha));
+              current_solver_is_flexible_ = true;
+            }
+          else if (composition_.has_complete_local_preconditioners())
+            {
+              current_preconditioner_ =
+                keep_snapshot(composition_.n_fields() > 1 ?
+                                composition_.block_triangular_preconditioner(
+                                  snapshot->state_storage,
+                                  true,
+                                  &snapshot->derivative_storage,
+                                  alpha) :
+                                composition_.block_diagonal_preconditioner(
+                                  snapshot->state_storage,
+                                  &snapshot->derivative_storage,
+                                  alpha));
+              current_solver_is_flexible_ = composition_.n_fields() > 1;
+            }
+        }
     }
 
     Composition                             composition_;
     LinearSolveFunction                     solve_;
     dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
     std::optional<Operator>                 current_jacobian_;
-    std::size_t                             coupling_count_ = 0;
-    bool                                    connected_      = false;
+    std::optional<Operator>                 current_preconditioner_;
+    bool                                    current_solver_is_flexible_ = false;
+    std::size_t                             coupling_count_             = 0;
+    bool                                    connected_                  = false;
   };
 } // namespace ImmersX
 #endif
