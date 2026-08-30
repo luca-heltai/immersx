@@ -18,6 +18,20 @@ namespace ImmersX
   {
     ImmersX::FieldId solution;
   };
+
+  struct TriangularProblem
+  {
+    ImmersXLA::MPI::SparseMatrix diagonal_u;
+    ImmersXLA::MPI::SparseMatrix diagonal_v;
+    ImmersXLA::MPI::SparseMatrix lower;
+    dealii::IndexSet             owned;
+  };
+
+  struct TriangularFields
+  {
+    ImmersX::FieldId u;
+    ImmersX::FieldId v;
+  };
 } // namespace ImmersX
 
 namespace ImmersX
@@ -57,6 +71,67 @@ namespace ImmersX
     return {solution};
   }
 } // namespace ImmersX
+
+namespace ImmersX
+{
+  template <typename Builder>
+  TriangularFields
+  contribute(Builder &builder, const TriangularProblem &problem)
+  {
+    using VectorType      = ImmersXLA::MPI::Vector;
+    const auto u          = builder.algebraic_field("u", problem.owned);
+    const auto v          = builder.algebraic_field("v", problem.owned);
+    const auto diagonal_u = builder.matrix_operator(problem.diagonal_u);
+    const auto diagonal_v = builder.matrix_operator(problem.diagonal_v);
+    const auto lower      = builder.matrix_operator(problem.lower);
+
+    const auto inverse = [](const double factor) {
+      return [factor](const auto &, const auto &reinit_vector) {
+        dealii::LinearOperator<VectorType> result;
+        result.reinit_range_vector  = reinit_vector;
+        result.reinit_domain_vector = reinit_vector;
+        result.vmult                = [factor](VectorType       &destination,
+                                const VectorType &source) {
+          destination = source;
+          destination *= factor;
+        };
+        result.vmult_add = [factor](VectorType       &destination,
+                                    const VectorType &source) {
+          VectorType contribution;
+          contribution.reinit(destination);
+          contribution = source;
+          contribution *= factor;
+          destination += contribution;
+        };
+        result.Tvmult     = result.vmult;
+        result.Tvmult_add = result.vmult_add;
+        return result;
+      };
+    };
+    builder.preconditioner(u, inverse(0.5));
+    builder.preconditioner(v, inverse(1. / 3.));
+
+    builder.term(u, "diagonal").state(u, diagonal_u);
+    builder.term(v, "diagonal").state(v, diagonal_v);
+    builder.term(v, "lower").state(u, lower);
+    return {u, v};
+  }
+} // namespace ImmersX
+
+namespace
+{
+  void
+  initialize_scalar_matrix(ImmersX::ImmersXLA::MPI::SparseMatrix &matrix,
+                           const dealii::IndexSet                &owned,
+                           const double                           value)
+  {
+    dealii::DynamicSparsityPattern sparsity(1, 1);
+    sparsity.add(0, 0);
+    matrix.reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+    matrix.set(0, 0, value);
+    matrix.compress(dealii::VectorOperation::insert);
+  }
+} // namespace
 
 TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
 {
@@ -154,4 +229,37 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   ImmersX::ImmersXLA::MPI::BlockVector residual;
   adapter.evaluate_residual(state, residual);
   EXPECT_NEAR(residual.l2_norm(), 0., 1.e-12);
+}
+
+TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
+{
+  ImmersX::TriangularProblem problem;
+  problem.owned = dealii::IndexSet(1);
+  problem.owned.add_index(0);
+  problem.owned.compress();
+  initialize_scalar_matrix(problem.diagonal_u, problem.owned, 2.);
+  initialize_scalar_matrix(problem.diagonal_v, problem.owned, 3.);
+  initialize_scalar_matrix(problem.lower, problem.owned, 4.);
+
+  using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
+                                         ImmersX::ImmersXLA::MPI::BlockVector>;
+  Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
+  const auto fields = adapter.add(problem, "triangular");
+  auto       state  = adapter.make_state();
+  adapter.field(state, fields.fields().v)[0] = 9.;
+  adapter.field(state, fields.fields().u)[0] = 6.;
+
+  const auto preconditioner =
+    adapter.block_triangular_preconditioner(state, true);
+  auto forward   = adapter.make_state();
+  auto transpose = adapter.make_state();
+  preconditioner.vmult(forward, state);
+  preconditioner.Tvmult(transpose, state);
+
+  EXPECT_NEAR(adapter.field(forward, fields.fields().u)[0], 3., 1.e-12);
+  EXPECT_NEAR(adapter.field(forward, fields.fields().v)[0], -1., 1.e-12);
+  EXPECT_NEAR(adapter.field(transpose, fields.fields().u)[0], -3., 1.e-12);
+  EXPECT_NEAR(adapter.field(transpose, fields.fields().v)[0], 3., 1.e-12);
+  EXPECT_NE(adapter.field(forward, fields.fields().u)[0],
+            adapter.field(transpose, fields.fields().u)[0]);
 }
