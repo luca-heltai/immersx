@@ -156,3 +156,12 @@ serial `AppExecutables.TutorialFiberReinforcedElastodynamics` test aborts in
 distributed problems and before the IDA solve. The focused fiber residual and
 IDA tests pass. This failure is published deliberately for follow-up and is
 not evidence about the unavailable native MUMPS path.
+
+Known MPI validation failure: the two-rank
+`CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` test aborts in
+deal.II's Trilinos preconditioner map compatibility assertion while applying
+the Schur preconditioner. The reported condition is that the destination
+vector partitioner is not the same as the preconditioner's operator range
+map. `CoupledPoisson.MPI_RepresentationDrivenSchurSolve` passes. This is
+also published deliberately for follow-up; it is a distributed vector/map
+lifetime or construction issue, not a MUMPS failure.
