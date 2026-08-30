@@ -244,6 +244,13 @@ namespace ImmersX
       return composition_.augmented_lagrangian_matrix(state, gamma);
     }
 
+    Operator
+    augmented_lagrangian_preconditioner(const GlobalVectorType &state,
+                                        const double gamma = 1.e1) const
+    {
+      return composition_.augmented_lagrangian_preconditioner(state, gamma);
+    }
+
     std::optional<LocalOperator>
     local_preconditioner(const FieldId           field,
                          const GlobalVectorType &state) const
@@ -457,8 +464,24 @@ namespace ImmersX
           const auto preconditioner = make_preconditioner(operator_view, state);
           dealii::SolverControl control(options_.maximum_iterations,
                                         options_.tolerance);
-          dealii::SolverGMRES<GlobalVectorType> solver(control);
-          solver.solve(operator_view, state, residual, preconditioner);
+          const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
+                     data(30, false, false);
+          const bool flexible =
+            options_.preconditioner == "augmented lagrangian" ||
+            options_.preconditioner == "augmented_lagrangian";
+          if (flexible)
+            {
+              const typename dealii::SolverFGMRES<
+                GlobalVectorType>::AdditionalData    right_data(100);
+              dealii::SolverFGMRES<GlobalVectorType> solver(control,
+                                                            right_data);
+              solver.solve(operator_view, state, residual, preconditioner);
+            }
+          else
+            {
+              dealii::SolverGMRES<GlobalVectorType> solver(control, data);
+              solver.solve(operator_view, state, residual, preconditioner);
+            }
         }
     }
 
@@ -501,6 +524,9 @@ namespace ImmersX
           return composition_.schur_preconditioner(
             composition_.saddle_points().front().multiplier, state);
         }
+      if (choice == "augmented lagrangian" || choice == "augmented_lagrangian")
+        return composition_.augmented_lagrangian_preconditioner(
+          state, options_.augmented_lagrangian_parameter);
       AssertThrow(false,
                   dealii::ExcMessage(
                     "The requested preconditioner policy is not available "
