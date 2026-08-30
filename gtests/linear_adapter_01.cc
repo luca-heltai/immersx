@@ -32,6 +32,22 @@ namespace ImmersX
     ImmersX::FieldId u;
     ImmersX::FieldId v;
   };
+
+  struct SchurProblem
+  {
+    dealii::IndexSet             primal_owned;
+    dealii::IndexSet             auxiliary_owned;
+    dealii::IndexSet             multiplier_owned;
+    ImmersXLA::MPI::SparseMatrix primal_diagonal;
+    ImmersXLA::MPI::SparseMatrix auxiliary_diagonal;
+  };
+
+  struct SchurFields
+  {
+    ImmersX::FieldId primal;
+    ImmersX::FieldId auxiliary;
+    ImmersX::FieldId multiplier;
+  };
 } // namespace ImmersX
 
 namespace ImmersX
@@ -121,15 +137,151 @@ namespace ImmersX
 
 namespace
 {
+  using VectorType = ImmersX::ImmersXLA::MPI::Vector;
+  using Operator   = dealii::LinearOperator<VectorType>;
+
+  Operator
+  make_rectangular_operator(const dealii::IndexSet    &range,
+                            const dealii::IndexSet    &domain,
+                            const std::vector<double> &values)
+  {
+    const auto range_size  = range.size();
+    const auto domain_size = domain.size();
+    AssertThrow(values.size() == range_size * domain_size,
+                dealii::ExcMessage("Rectangular operator has wrong size."));
+
+    Operator result;
+    result.reinit_range_vector = [range](VectorType &vector, const bool) {
+      vector.reinit(range, MPI_COMM_WORLD);
+    };
+    result.reinit_domain_vector = [domain](VectorType &vector, const bool) {
+      vector.reinit(domain, MPI_COMM_WORLD);
+    };
+    result.vmult = [range_size, domain_size, values](VectorType       &dst,
+                                                     const VectorType &src) {
+      dst = 0.;
+      for (std::size_t row = 0; row < range_size; ++row)
+        for (std::size_t column = 0; column < domain_size; ++column)
+          dst[row] += values[row * domain_size + column] * src[column];
+    };
+    result.vmult_add = [range_size,
+                        domain_size,
+                        values](VectorType &dst, const VectorType &src) {
+      for (std::size_t row = 0; row < range_size; ++row)
+        for (std::size_t column = 0; column < domain_size; ++column)
+          dst[row] += values[row * domain_size + column] * src[column];
+    };
+    result.Tvmult = [range_size, domain_size, values](VectorType       &dst,
+                                                      const VectorType &src) {
+      dst = 0.;
+      for (std::size_t row = 0; row < range_size; ++row)
+        for (std::size_t column = 0; column < domain_size; ++column)
+          dst[column] += values[row * domain_size + column] * src[row];
+    };
+    result.Tvmult_add = [range_size,
+                         domain_size,
+                         values](VectorType &dst, const VectorType &src) {
+      for (std::size_t row = 0; row < range_size; ++row)
+        for (std::size_t column = 0; column < domain_size; ++column)
+          dst[column] += values[row * domain_size + column] * src[row];
+    };
+    return result;
+  }
+} // namespace
+
+namespace ImmersX
+{
+  template <typename Builder>
+  SchurFields
+  contribute(Builder &builder, const SchurProblem &problem)
+  {
+    const auto primal = builder.algebraic_field("primal", problem.primal_owned);
+    const auto auxiliary =
+      builder.algebraic_field("auxiliary", problem.auxiliary_owned);
+    const auto multiplier =
+      builder.algebraic_field("multiplier", problem.multiplier_owned);
+
+    using LocalOperator = dealii::LinearOperator<ImmersXLA::MPI::Vector>;
+    const auto inverse  = [](const double vmult_factor,
+                            const double Tvmult_factor) {
+      return [vmult_factor, Tvmult_factor](const auto &, const auto &reinit) {
+        LocalOperator result;
+        result.reinit_range_vector  = reinit;
+        result.reinit_domain_vector = reinit;
+        result.vmult = [vmult_factor](ImmersXLA::MPI::Vector       &dst,
+                                      const ImmersXLA::MPI::Vector &src) {
+          dst = src;
+          dst *= vmult_factor;
+        };
+        result.vmult_add = [vmult_factor](ImmersXLA::MPI::Vector       &dst,
+                                          const ImmersXLA::MPI::Vector &src) {
+          ImmersXLA::MPI::Vector contribution;
+          contribution.reinit(dst);
+          contribution = src;
+          contribution *= vmult_factor;
+          dst += contribution;
+        };
+        result.Tvmult = [Tvmult_factor](ImmersXLA::MPI::Vector       &dst,
+                                        const ImmersXLA::MPI::Vector &src) {
+          dst = src;
+          dst *= Tvmult_factor;
+        };
+        result.Tvmult_add = [Tvmult_factor](ImmersXLA::MPI::Vector       &dst,
+                                            const ImmersXLA::MPI::Vector &src) {
+          ImmersXLA::MPI::Vector contribution;
+          contribution.reinit(dst);
+          contribution = src;
+          contribution *= Tvmult_factor;
+          dst += contribution;
+        };
+        return result;
+      };
+    };
+    builder.preconditioner(primal, inverse(2., 3.));
+    builder.preconditioner(auxiliary, inverse(2., 3.));
+
+    builder.saddle_point(multiplier, {primal, auxiliary});
+    builder.term(primal, "diagonal")
+      .state(primal, builder.matrix_operator(problem.primal_diagonal));
+    builder.term(auxiliary, "diagonal")
+      .state(auxiliary, builder.matrix_operator(problem.auxiliary_diagonal));
+    builder.term(multiplier, "primal")
+      .state(primal,
+             make_rectangular_operator(problem.multiplier_owned,
+                                       problem.primal_owned,
+                                       {1., 2.}));
+    builder.term(primal, "multiplier")
+      .state(multiplier,
+             make_rectangular_operator(problem.primal_owned,
+                                       problem.multiplier_owned,
+                                       {7., 11.}));
+    builder.term(multiplier, "auxiliary")
+      .state(auxiliary,
+             make_rectangular_operator(problem.multiplier_owned,
+                                       problem.auxiliary_owned,
+                                       {3., 4., 5.}));
+    builder.term(auxiliary, "multiplier")
+      .state(multiplier,
+             make_rectangular_operator(problem.auxiliary_owned,
+                                       problem.multiplier_owned,
+                                       {13., 17., 19.}));
+    return {primal, auxiliary, multiplier};
+  }
+} // namespace ImmersX
+
+namespace
+{
   void
   initialize_scalar_matrix(ImmersX::ImmersXLA::MPI::SparseMatrix &matrix,
                            const dealii::IndexSet                &owned,
                            const double                           value)
   {
-    dealii::DynamicSparsityPattern sparsity(1, 1);
-    sparsity.add(0, 0);
+    dealii::DynamicSparsityPattern sparsity(owned.size(), owned.size());
+    for (const auto index : owned)
+      sparsity.add(index, index);
     matrix.reinit(owned, owned, sparsity, MPI_COMM_WORLD);
-    matrix.set(0, 0, value);
+    for (const auto index : owned)
+      matrix.set(index, index, value);
     matrix.compress(dealii::VectorOperation::insert);
   }
 } // namespace
@@ -331,4 +483,40 @@ TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
   EXPECT_NEAR(adapter.field(transpose, fields.fields().v)[0], 3., 1.e-12);
   EXPECT_NE(adapter.field(forward, fields.fields().u)[0],
             adapter.field(transpose, fields.fields().u)[0]);
+}
+
+TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
+{
+  ImmersX::SchurProblem problem;
+  problem.primal_owned = dealii::IndexSet(2);
+  problem.primal_owned.add_range(0, 2);
+  problem.primal_owned.compress();
+  problem.auxiliary_owned = dealii::IndexSet(3);
+  problem.auxiliary_owned.add_range(0, 3);
+  problem.auxiliary_owned.compress();
+  problem.multiplier_owned = dealii::IndexSet(1);
+  problem.multiplier_owned.add_index(0);
+  problem.multiplier_owned.compress();
+  initialize_scalar_matrix(problem.primal_diagonal, problem.primal_owned, 1.);
+  initialize_scalar_matrix(problem.auxiliary_diagonal,
+                           problem.auxiliary_owned,
+                           1.);
+
+  using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
+                                         ImmersX::ImmersXLA::MPI::BlockVector>;
+  Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
+  const auto fields = adapter.add(problem, "schur");
+  const auto state  = adapter.make_state();
+  const auto schur  = adapter.schur_operator(fields.fields().multiplier, state);
+
+  ImmersX::ImmersXLA::MPI::Vector input;
+  input.reinit(problem.multiplier_owned, MPI_COMM_WORLD);
+  input       = 1.;
+  auto normal = input;
+  schur.vmult(normal, input);
+  auto transpose = input;
+  schur.Tvmult(transpose, input);
+
+  EXPECT_NEAR(normal[0], 462., 1.e-12);
+  EXPECT_NEAR(transpose[0], 693., 1.e-12);
 }

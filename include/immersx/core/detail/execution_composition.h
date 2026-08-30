@@ -15,6 +15,7 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_gmres.h>
+#include <deal.II/lac/vector_memory.h>
 
 #ifdef DEAL_II_WITH_TRILINOS
 #  include <Amesos2.hpp>
@@ -563,36 +564,68 @@ namespace ImmersX::detail
              state.block(field_layout_.block(participant))});
         }
 
-      const auto multiplier_state =
-        state.block(field_layout_.block(multiplier));
+      const auto multiplier_owned = layout_.field(multiplier).locally_owned;
+      const auto communicator     = communicator_;
+      auto       vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
       LocalOperator result;
-      result.reinit_range_vector = [multiplier_state](FieldVectorType &vector,
-                                                      const bool       omit) {
-        vector.reinit(multiplier_state, omit);
-      };
+      result.reinit_range_vector =
+        [multiplier_owned, communicator](FieldVectorType &vector, const bool) {
+          vector.reinit(multiplier_owned, communicator);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult = [terms](FieldVectorType &dst, const FieldVectorType &src) {
+      auto apply = [terms, vector_memory](FieldVectorType       &dst,
+                                          const FieldVectorType &src,
+                                          const bool             transpose) {
         dst = 0.;
         for (const auto &term : terms)
           {
-            FieldVectorType primal_rhs;
-            primal_rhs.reinit(term.participant_prototype);
-            term.transpose_coupling.vmult(primal_rhs, src);
-            FieldVectorType primal_solution;
-            primal_solution.reinit(primal_rhs);
-            term.inverse.vmult(primal_solution, primal_rhs);
-            term.coupling.vmult_add(dst, primal_solution);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_rhs(*vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_solution(*vector_memory);
+            if (!transpose)
+              {
+                term.transpose_coupling.reinit_range_vector(*participant_rhs,
+                                                            false);
+                term.transpose_coupling.vmult(*participant_rhs, src);
+                term.inverse.reinit_range_vector(*participant_solution, false);
+                term.inverse.vmult(*participant_solution, *participant_rhs);
+                term.coupling.vmult_add(dst, *participant_solution);
+              }
+            else
+              {
+                term.coupling.reinit_domain_vector(*participant_rhs, false);
+                term.coupling.Tvmult(*participant_rhs, src);
+                term.inverse.reinit_domain_vector(*participant_solution, false);
+                term.inverse.Tvmult(*participant_solution, *participant_rhs);
+                term.transpose_coupling.Tvmult_add(dst, *participant_solution);
+              }
           }
       };
-      result.vmult_add = [result](FieldVectorType       &dst,
-                                  const FieldVectorType &src) mutable {
-        FieldVectorType contribution;
-        result.reinit_range_vector(contribution, false);
-        result.vmult(contribution, src);
-        dst += contribution;
+      result.vmult = [apply](FieldVectorType &dst, const FieldVectorType &src) {
+        apply(dst, src, false);
       };
-      result.Tvmult     = result.vmult;
-      result.Tvmult_add = result.vmult_add;
+      result.vmult_add = [apply, vector_memory](FieldVectorType       &dst,
+                                                const FieldVectorType &src) {
+        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, false);
+        dst += *contribution;
+      };
+      result.Tvmult = [apply](FieldVectorType       &dst,
+                              const FieldVectorType &src) {
+        apply(dst, src, true);
+      };
+      result.Tvmult_add = [apply, vector_memory](FieldVectorType       &dst,
+                                                 const FieldVectorType &src) {
+        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 
