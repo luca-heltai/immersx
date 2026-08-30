@@ -609,8 +609,8 @@ namespace ImmersX
         using GlobalVector = LA::MPI::BlockVector;
         using Adapter      = LinearAdapter<VectorType, GlobalVector>;
         LinearSolverOptions options;
-        options.solver             = "iterative";
-        options.preconditioner     = "block diagonal";
+        options.solver             = LinearSolver::iterative;
+        options.preconditioner     = LinearPreconditioner::block_diagonal;
         options.maximum_iterations = par.solver_control.max_steps();
         options.tolerance          = par.solver_control.tolerance();
         Adapter    adapter(mpi_communicator, options);

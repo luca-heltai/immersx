@@ -335,6 +335,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   auto       preconditioned = input;
   (*local).vmult(preconditioned, input);
   EXPECT_GT(preconditioned.l2_norm(), 0.);
+  EXPECT_NE(preconditioned[0], input[0]);
   const auto block_diagonal = adapter.block_diagonal_preconditioner(state);
   auto       block_diagonal_action = adapter.make_state();
   block_diagonal.vmult(block_diagonal_action, state);
@@ -439,13 +440,14 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   adapter.evaluate_residual(state, residual);
   EXPECT_NEAR(residual.l2_norm(), 0., 1.e-12);
 
-  // Changing the assembled matrix must invalidate the cached factorization.
+  // A new assembled matrix starts a new explicit direct-solver lifecycle.
   problem.matrix.set(0, 0, 1.);
   problem.matrix.set(1, 1, 2.);
   problem.matrix.compress(dealii::VectorOperation::insert);
   problem.rhs[0]            = 1.;
   problem.rhs[1]            = 6.;
   auto changed_direct_state = direct_adapter.make_state();
+  direct_adapter.setup_direct(changed_direct_state);
   direct_adapter.solve(changed_direct_state);
   EXPECT_NEAR(direct_adapter.field(changed_direct_state,
                                    direct_fields.fields().solution)[0],

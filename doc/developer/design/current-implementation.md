@@ -39,12 +39,26 @@ algebraic fallback for constrained rows whose lumped physical diagonal is zero.
 The Schur path uses the multiplier metric, or a registered metric-based local
 preconditioner, for its inner solve and falls back to identity only when no
 metric is available.
-The direct policy uses deal.II's serial direct solver and, for a multi-rank
-Trilinos execution, the Amesos2 MUMPS backend after redistributing the
-assembled matrix to a contiguous Epetra map. Repeated serial direct solves
-reuse the factorization when the materialized matrix is unchanged; a changed
-matrix invalidates that cache. These are backend choices of the execution
-adapter, not requirements imposed on Problems or Interactions.
+The `direct` policy uses deal.II's generic direct backend for the active
+matrix type. The explicit `mumps` policy uses
+`dealii::SparseDirectMUMPS` when ImmersX is built with `DEAL_II_WITH_MUMPS`;
+otherwise it reports a clear configuration error. The solver owns the
+materialized matrix for the lifetime of its factorization, while Problems and
+Interactions continue to own their native matrices. These are backend choices
+of the execution adapter, not requirements imposed on Problems or
+Interactions.
+
+The `differential_components` field metadata describes which residual
+components depend on `ydot` in `F(t,y,ydot)=0`. It is passed to IDA and is
+independent of essential/Dirichlet constraints; algebraic components are not
+automatically converted into identity rows in local preconditioner matrices.
+
+The Schur operator uses participant-local inverse approximations and retains
+distinct participant and multiplier vector spaces. Its transpose and the
+transpose of the Schur preconditioner apply the actual constituent transpose
+actions. The augmented-Lagrangian matrix-free path uses
+`A + gamma B^T W^{-1} B`; its scalable preconditioner does not require a
+direct factorization or MUMPS.
 
 ```{mermaid}
 flowchart LR

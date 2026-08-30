@@ -314,8 +314,9 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   EXPECT_LT(residual.l2_norm(), 1.e-7);
 
   ImmersX::LinearSolverOptions augmented_options;
-  augmented_options.solver                         = "iterative";
-  augmented_options.preconditioner                 = "augmented lagrangian";
+  augmented_options.solver = ImmersX::LinearSolver::iterative;
+  augmented_options.preconditioner =
+    ImmersX::LinearPreconditioner::augmented_lagrangian;
   augmented_options.augmented_lagrangian_parameter = 2.;
   Adapter    augmented(MPI_COMM_WORLD, augmented_options);
   const auto augmented_bulk = augmented.add(bulk_problem, "bulk-al");
@@ -332,7 +333,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   EXPECT_LT(augmented_residual.l2_norm(), 1.e-7);
 
   ImmersX::LinearSolverOptions direct_options;
-  direct_options.solver = "direct";
+  direct_options.solver = ImmersX::LinearSolver::direct;
   Adapter    direct(MPI_COMM_WORLD, direct_options);
   const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");
   const auto direct_embedded = direct.add(embedded_problem, "embedded-direct");
@@ -359,7 +360,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   EXPECT_LT(matrix_action.l2_norm(), 1.e-10);
 
   ASSERT_EQ(direct.saddle_points().size(), 1u);
-  ASSERT_TRUE(direct.saddle_points().front().has_multiplier_metric);
+  ASSERT_TRUE(direct.saddle_points().front().multiplier_metric.has_value());
   const auto augmented_matrix =
     direct.augmented_lagrangian_matrix(sample_state, 2.);
   auto augmented_matrix_action = direct.make_state();

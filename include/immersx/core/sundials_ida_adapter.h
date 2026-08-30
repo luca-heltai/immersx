@@ -46,6 +46,7 @@ namespace ImmersX
       ComponentRepresentation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
+    using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
     using LinearSolveFunction = std::function<void(const Operator &,
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
