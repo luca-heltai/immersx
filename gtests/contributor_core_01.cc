@@ -180,7 +180,7 @@ TEST(ContributorCore, LocalPreconditionerUsesItsTransposeAction)
   EXPECT_NE(action[0], transpose_action[0]);
 }
 
-TEST(ContributorCore, MPI_LocalPreconditionerUsesBackendMaps) // NOLINT
+TEST(ContributorCore, MPI_LocalPreconditionerUsesCanonicalFieldSpace) // NOLINT
 {
   using MatrixType = ImmersX::ImmersXLA::MPI::SparseMatrix;
   using VectorType = ImmersX::ImmersXLA::MPI::Vector;
@@ -220,23 +220,19 @@ TEST(ContributorCore, MPI_LocalPreconditionerUsesBackendMaps) // NOLINT
   VectorType expected_destination;
   local.reinit_domain_vector(source, false);
   local.reinit_range_vector(destination, false);
+  expected_source.reinit(owned, MPI_COMM_WORLD);
+  expected_destination.reinit(owned, MPI_COMM_WORLD);
 
   ImmersX::ImmersXLA::MPI::PreconditionAMG expected;
   expected.initialize(matrix);
-  expected_source.reinit(expected.locally_owned_domain_indices(),
-                         MPI_COMM_WORLD);
-  expected_destination.reinit(expected.locally_owned_range_indices(),
-                              MPI_COMM_WORLD);
+  EXPECT_EQ(source.locally_owned_elements(), owned);
+  EXPECT_EQ(destination.locally_owned_elements(), owned);
   for (const auto index : source.locally_owned_elements())
     source[index] = static_cast<double>(index + 1);
   for (const auto index : expected_source.locally_owned_elements())
     expected_source[index] = static_cast<double>(index + 1);
   source.compress(dealii::VectorOperation::insert);
   expected_source.compress(dealii::VectorOperation::insert);
-  EXPECT_TRUE(source.trilinos_partitioner().SameAs(
-    expected.trilinos_operator().OperatorDomainMap()));
-  EXPECT_TRUE(destination.trilinos_partitioner().SameAs(
-    expected.trilinos_operator().OperatorRangeMap()));
 
   local.vmult(destination, source);
   expected.vmult(expected_destination, expected_source);

@@ -107,6 +107,23 @@ These boundaries apply to the semantic path and are also the direction for
 incremental integration of the established reduced path. There is no separate
 user-visible `CoupledSystem` object in the current composition API.
 
+## Linear algebra composition rules
+
+Within the semantic execution path, a local preconditioner is an approximate
+inverse represented only by a `dealii::LinearOperator`. Its public domain and
+range are the canonical vector space of the Field it preconditions. AMG,
+multigrid, direct solvers, auxiliary vectors, and backend maps are private
+implementation details of the preconditioner factory; they are not part of
+execution composition.
+
+Algebraic composition uses deal.II's `LinearOperator`,
+`PackagedOperation`, and operator algebra; fixed-size block layouts continue to
+use `BlockLinearOperator` where appropriate. For example, a participant
+contribution to a multiplier Schur operator is composed as
+`to_multiplier * inverse * from_multiplier`, and its transpose is supplied by
+`dealii::transpose_operator`. This keeps the implementation aligned with the
+mathematical expression and lets deal.II manage intermediate vectors.
+
 ## API entry points
 
 The generated API reference provides class-level details for the current
@@ -149,17 +166,14 @@ only when deal.II provides `SparseDirectMUMPS`. No application code depends on
 Amesos2 or Epetra MUMPS plumbing, so configurations without native MUMPS retain
 the ordinary direct and iterative paths.
 
-Known validation failure: on the current macOS/deal.II installation, the
-serial `AppExecutables.TutorialFiberReinforcedElastodynamics` test aborts in
-`fiber_reinforced_elastodynamics_debug` with `SIGABRT` and a malloc
-“pointer being freed was not allocated” diagnostic, after initializing the two
-distributed problems and before the IDA solve. The focused fiber residual and
-IDA tests pass. This failure is published deliberately for follow-up and is
-not evidence about the unavailable native MUMPS path.
-
 The two-rank
 `CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` path preserves
-distributed Trilinos maps when materializing matrix-backed operators and uses
-the initialized preconditioner's range/domain maps for local inverse vectors.
-The Schur preconditioner therefore applies through the backend-compatible
-spaces; `CoupledPoisson.MPI_RepresentationDrivenSchurSolve` remains green.
+the canonical Field vector spaces through matrix materialization and local
+preconditioner construction. `CoupledPoisson.MPI_RepresentationDrivenSchurSolve`
+remains green. A fresh out-of-source Debug build also passes the 199-test
+serial non-application suite, all three application smoke tests
+(`AppExecutables.Elasticity`, `AppExecutables.ReducedPoisson`, and
+`AppExecutables.TutorialFiberReinforcedElastodynamics`), the full 85-test
+two-rank MPI suite, and all five configured CTest tests.
+The earlier failures observed from an incremental build were not reproducible
+from fresh builds and were classified as stale build/test contamination.
