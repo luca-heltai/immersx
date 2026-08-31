@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 
 #include "test_paths.h"
 
@@ -27,6 +29,25 @@ using namespace dealii;
 
 namespace
 {
+  bool
+  output_contains(const std::filesystem::path &directory,
+                  const std::string           &stem,
+                  const std::string           &text)
+  {
+    for (const auto &entry : std::filesystem::directory_iterator(directory))
+      if (entry.path().filename().string().find(stem) != std::string::npos &&
+          (entry.path().extension() == ".vtu" ||
+           entry.path().extension() == ".pvtu"))
+        {
+          std::ifstream input(entry.path());
+          std::string   contents((std::istreambuf_iterator<char>(input)),
+                               std::istreambuf_iterator<char>());
+          if (contents.find(text) != std::string::npos)
+            return true;
+        }
+    return false;
+  }
+
   void
   configure_problem(FiberReinforcedElastodynamicsParameters<2> &parameters,
                     const bool                                  forcing,
@@ -214,7 +235,7 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   FiberReinforcedElastodynamics<2> driver(parameters);
   driver.setup();
   driver.set_initial_conditions();
-  const auto &interaction = driver.interaction();
+  auto &interaction = driver.interaction();
 
   using Adapter = IDAAdapter<FieldVector, GlobalVector>;
   Adapter::AdditionalData data;
@@ -450,6 +471,27 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   ida.solver().residual(data.final_time, state, state_dot, residual);
   EXPECT_LT(residual.l2_norm(), 1.e-5);
   EXPECT_LT(ida.field(residual, coupling.fields().multiplier).l2_norm(), 1.e-5);
+
+  interaction.set_multiplier(ida.field(state, coupling.fields().multiplier));
+  for (const auto index : interaction.multiplier_locally_owned_dofs())
+    EXPECT_NEAR(interaction.multiplier()(index),
+                ida.field(state, coupling.fields().multiplier)(index),
+                1.e-11);
+  const auto multiplier_output =
+    TestPaths::output_directory("fiber-vector-multiplier");
+  interaction.output_results(multiplier_output, "vector_multiplier", 1);
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      EXPECT_TRUE(std::filesystem::exists(
+        std::filesystem::path(multiplier_output) / "vector_multiplier.pvd"));
+      EXPECT_TRUE(output_contains(multiplier_output,
+                                  "vector_multiplier_1",
+                                  "lagrange_multiplier"));
+      EXPECT_TRUE(output_contains(multiplier_output,
+                                  "vector_multiplier_1",
+                                  "NumberOfComponents=\"3\""));
+    }
 }
 #endif
 

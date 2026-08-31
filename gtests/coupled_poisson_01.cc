@@ -32,10 +32,34 @@ using namespace ImmersX;
 #include <immersx/physics/poisson.h>
 #include <immersx/physics/poisson_residual.h>
 
+#include <fstream>
+
 #include "test_paths.h"
 
 
 using namespace dealii;
+
+namespace
+{
+  bool
+  output_contains(const std::filesystem::path &directory,
+                  const std::string           &stem,
+                  const std::string           &text)
+  {
+    for (const auto &entry : std::filesystem::directory_iterator(directory))
+      if (entry.path().filename().string().find(stem) != std::string::npos &&
+          (entry.path().extension() == ".vtu" ||
+           entry.path().extension() == ".pvtu"))
+        {
+          std::ifstream input(entry.path());
+          std::string   contents((std::istreambuf_iterator<char>(input)),
+                               std::istreambuf_iterator<char>());
+          if (contents.find(text) != std::string::npos)
+            return true;
+        }
+    return false;
+  }
+} // namespace
 
 
 TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
@@ -306,6 +330,24 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   const auto &embedded_state = linear.field(state, embedded.fields().solution);
   bulk_problem.set_solution(bulk_state);
   embedded_problem.set_solution(embedded_state);
+
+  interaction.set_multiplier(linear.field(state, coupling.fields().multiplier));
+  for (const auto index : interaction.multiplier_locally_owned_dofs())
+    EXPECT_NEAR(interaction.multiplier()(index),
+                linear.field(state, coupling.fields().multiplier)(index),
+                1.e-12);
+  const auto multiplier_output =
+    ImmersX::TestPaths::output_directory("linear-adapter-multiplier");
+  interaction.output_results(multiplier_output, "scalar_multiplier", 0);
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      EXPECT_TRUE(std::filesystem::exists(
+        std::filesystem::path(multiplier_output) / "scalar_multiplier.pvd"));
+      EXPECT_TRUE(output_contains(multiplier_output,
+                                  "scalar_multiplier_0",
+                                  "lagrange_multiplier"));
+    }
 
   ImmersXLA::MPI::Vector bulk_difference;
   bulk_difference.reinit(bulk_problem.solution());
