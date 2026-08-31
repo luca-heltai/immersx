@@ -366,7 +366,15 @@ TEST(ElasticStaticProblem, LinearAdapterSolve)
 
   auto state = adapter.make_state();
   adapter.solve(state);
-  problem.set_solution(adapter.field(state, fields.fields().displacement));
+  const auto &adapter_solution =
+    adapter.field(state, fields.fields().displacement);
+  problem.set_solution(adapter_solution);
+
+  FieldVector accepted_difference;
+  accepted_difference.reinit(problem.solution());
+  accepted_difference = problem.solution();
+  accepted_difference -= adapter_solution;
+  EXPECT_LT(accepted_difference.l2_norm(), 1.e-12);
 
   EXPECT_TRUE(std::isfinite(problem.solution().l2_norm()));
   EXPECT_GT(problem.solution().l2_norm(), 0.);

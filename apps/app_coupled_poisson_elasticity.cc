@@ -67,6 +67,13 @@ main(int argc, char *argv[])
       auto state = adapter.make_state();
       adapter.solve(state);
 
+      poisson_problem.set_solution(
+        adapter.field(state, poisson.fields().solution));
+      elasticity_problem.set_solution(
+        adapter.field(state, elastic.fields().displacement));
+      poisson_problem.output_results();
+      elasticity_problem.output_results(0);
+
       auto residual = adapter.make_state();
       adapter.evaluate_residual(state, residual);
 
