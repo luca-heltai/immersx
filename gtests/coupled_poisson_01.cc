@@ -302,6 +302,23 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   auto       state    = linear.make_state();
   linear.solve(state);
 
+  const auto &bulk_state     = linear.field(state, bulk.fields().solution);
+  const auto &embedded_state = linear.field(state, embedded.fields().solution);
+  bulk_problem.set_solution(bulk_state);
+  embedded_problem.set_solution(embedded_state);
+
+  ImmersXLA::MPI::Vector bulk_difference;
+  bulk_difference.reinit(bulk_problem.solution());
+  bulk_difference = bulk_problem.solution();
+  bulk_difference -= bulk_state;
+  EXPECT_LT(bulk_difference.l2_norm(), 1.e-12);
+
+  ImmersXLA::MPI::Vector embedded_difference;
+  embedded_difference.reinit(embedded_problem.solution());
+  embedded_difference = embedded_problem.solution();
+  embedded_difference -= embedded_state;
+  EXPECT_LT(embedded_difference.l2_norm(), 1.e-12);
+
   GlobalVector residual;
   linear.evaluate_residual(state, residual);
   EXPECT_TRUE(

@@ -211,6 +211,46 @@ TEST(AppExecutables, CoupledPoissonElasticity)
   EXPECT_LT(residual, 1.e-9);
   EXPECT_LT(pressure_error, 1.e-14);
   EXPECT_LT(traction_error, 1.e-9);
+
+  const auto output_directory = ImmersX::TestPaths::output_path(
+    "tutorial-output/coupled-poisson-elasticity");
+  ASSERT_TRUE(std::filesystem::exists(output_directory));
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "solution.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "coupled_elasticity.pvd"));
+
+  bool has_poisson_output    = false;
+  bool has_elasticity_output = false;
+  bool has_poisson_field     = false;
+  bool has_elasticity_field  = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    {
+      if (entry.path().extension() != ".vtu" &&
+          entry.path().extension() != ".pvtu")
+        continue;
+
+      const auto filename          = entry.path().filename().string();
+      const bool is_poisson_output = filename.rfind("solution_", 0) == 0;
+      const bool is_elasticity_output =
+        filename.rfind("coupled_elasticity_", 0) == 0;
+      has_poisson_output |= is_poisson_output;
+      has_elasticity_output |= is_elasticity_output;
+
+      std::ifstream     output(entry.path());
+      const std::string contents((std::istreambuf_iterator<char>(output)),
+                                 std::istreambuf_iterator<char>());
+      has_poisson_field |=
+        is_poisson_output &&
+        contents.find("Name=\"solution\"") != std::string::npos;
+      has_elasticity_field |=
+        is_elasticity_output &&
+        contents.find("Name=\"displacement\"") != std::string::npos;
+    }
+  EXPECT_TRUE(has_poisson_output);
+  EXPECT_TRUE(has_elasticity_output);
+  EXPECT_TRUE(has_poisson_field);
+  EXPECT_TRUE(has_elasticity_field);
 }
 
 TEST(AppExecutables, ElasticStatic)

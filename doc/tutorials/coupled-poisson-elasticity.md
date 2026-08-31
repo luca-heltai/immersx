@@ -38,7 +38,21 @@ adapter.couple(pressure, elastic, traction);
 
 auto state = adapter.make_state();
 adapter.solve(state);
+
+poisson_problem.set_solution(
+  adapter.field(state, poisson.fields().solution));
+elasticity_problem.set_solution(
+  adapter.field(state, elastic.fields().displacement));
+
+poisson_problem.output_results();
+elasticity_problem.output_results(0);
 ```
+
+The adapter owns the coupled solver state, but each Problem owns its accepted
+physical state and native output. The explicit handoff above is therefore the
+acceptance/output boundary. The Poisson and elasticity parameter sections may
+use different output directories, or the same directory with distinct
+`Output name` values; the application does not assemble filenames itself.
 
 The application descriptor implementations hide the geometry map, value
 transfer, finite-element point evaluation, and weak-form operator. They are

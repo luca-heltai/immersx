@@ -40,6 +40,30 @@ auto bulk = linear.add(bulk_problem, "bulk");
 auto state = linear.make_state();
 linear.solve(state);
 bulk_problem.set_solution(linear.field(state, bulk.fields().solution));
+bulk_problem.output_results();
+```
+
+The execution adapter owns the coupled solver state, while each Problem owns
+its accepted physical state and native output. After a successful solve,
+applications transfer each physical Field back to its owning Problem before
+calling that Problem's output method. Auxiliary Interaction-owned Fields, such
+as Lagrange multipliers, are not implicitly attached to either Problem's
+physical output.
+
+For example, a composed Poisson/elasticity solve keeps the two physical output
+paths explicit:
+
+```{code-block} cpp
+auto state = adapter.make_state();
+adapter.solve(state);
+
+poisson_problem.set_solution(
+  adapter.field(state, poisson.fields().solution));
+elasticity_problem.set_solution(
+  adapter.field(state, elastic.fields().displacement));
+
+poisson_problem.output_results();
+elasticity_problem.output_results(0);
 ```
 
 The standard adapters select their iterative/direct policy internally. An
