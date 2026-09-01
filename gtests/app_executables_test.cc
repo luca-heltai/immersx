@@ -402,4 +402,48 @@ TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
   run_app_with_parameter(
     "fiber_reinforced_elastodynamics",
     "tutorials/fiber_reinforced_elastodynamics/parameters.prm");
+
+  const auto output_directory = ImmersX::TestPaths::output_path(
+    "tutorial-output/fiber-reinforced-elastodynamics");
+  const auto matrix_directory      = output_directory / "matrix";
+  const auto fiber_directory       = output_directory / "fiber";
+  const auto interaction_directory = output_directory / "interaction";
+  EXPECT_TRUE(std::filesystem::exists(matrix_directory / "matrix.pvd"));
+  EXPECT_TRUE(std::filesystem::exists(fiber_directory / "fiber.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(interaction_directory / "velocity_multiplier.pvd"));
+
+  bool has_matrix_state = false;
+  bool has_fiber_state  = false;
+  bool has_multiplier   = false;
+  for (const auto &entry :
+       std::filesystem::recursive_directory_iterator(output_directory))
+    {
+      if (entry.path().extension() != ".vtu" &&
+          entry.path().extension() != ".pvtu")
+        continue;
+
+      std::ifstream     output(entry.path());
+      const std::string contents((std::istreambuf_iterator<char>(output)),
+                                 std::istreambuf_iterator<char>());
+      const auto        filename = entry.path().filename().string();
+      if (entry.path().parent_path() == matrix_directory &&
+          filename.rfind("matrix_", 0) == 0)
+        has_matrix_state |=
+          contents.find("Name=\"displacement\"") != std::string::npos &&
+          contents.find("Name=\"velocity\"") != std::string::npos;
+      else if (entry.path().parent_path() == fiber_directory &&
+               filename.rfind("fiber_", 0) == 0)
+        has_fiber_state |=
+          contents.find("Name=\"displacement\"") != std::string::npos &&
+          contents.find("Name=\"velocity\"") != std::string::npos;
+      else if (entry.path().parent_path() == interaction_directory &&
+               filename.rfind("velocity_multiplier_", 0) == 0)
+        has_multiplier |=
+          contents.find("Name=\"lagrange_multiplier\"") != std::string::npos;
+    }
+
+  EXPECT_TRUE(has_matrix_state);
+  EXPECT_TRUE(has_fiber_state);
+  EXPECT_TRUE(has_multiplier);
 }
