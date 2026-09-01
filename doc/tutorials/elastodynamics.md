@@ -1,8 +1,10 @@
 # Elastodynamics
 
 This tutorial adds time dependence to the static elasticity problem. It
-introduces displacement and velocity as state fields and advances them with a
-backward-Euler step.
+introduces displacement and velocity as state fields and advances them with
+the public `IDAAdapter` execution path. IDA solves the canonical residual
+`F(t, y, ydot) = 0`; the application accepts the resulting state before native
+output is written.
 
 The executable is `elastodynamics`, from `apps/app_elastodynamics.cc`. The
 canonical 2D input is `tutorials/elastodynamics/strong_dirichlet.prm.in`:
@@ -28,8 +30,13 @@ Output is written below `build/test_output/tutorial-output/elastodynamics-strong
 The same input is exercised by `AppExecutables.TutorialElastodynamics`.
 
 The physical model exposes separate mass, stiffness, and damping operators.
-The standalone application owns its time loop; solver-neutral residual and
-execution-adapter concepts are described in [Architecture concepts](../concepts/architecture).
+The application registers the Problem directly with `IDAAdapter`, marks both
+displacement and velocity as differential Fields, and installs an accepted
+output callback. `initial_acceleration()` supplies a physically consistent
+initial derivative; `accept_state()` updates the Problem only after IDA has
+accepted or interpolated a state. Solver-neutral residual and
+execution-adapter concepts are described in
+[Architecture concepts](../concepts/architecture).
 The larger convergence cases remain in `tutorials/elastodynamics/` and are
 listed in the [verification reference](../reference/verification).
 

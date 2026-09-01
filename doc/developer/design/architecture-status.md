@@ -630,9 +630,9 @@ conceptual API from being mistaken for a merged one.
 
 | Status | Meaning in this specification |
 | --- | --- |
-| **Merged on `master`** | Current Poisson, elasticity, standalone Navier--Stokes, semantic Field/state/residual core, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
+| **Merged on `master`** | Current Poisson, elasticity, Navier--Stokes, elastodynamics, semantic Field/state/residual core, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
 | **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity Representation dependencies, short two-rank IDA solves, and the five-field fiber semantic residual/Jacobian against backward Euler + Schur. |
-| **Roadmap** | Navier--Stokes ARKode/IMEX convection, five-field IDA integration, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
+| **Roadmap** | Navier--Stokes ARKode/IMEX convection, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
 
 Existing `Poisson`, `Elasticity`, `ReducedPoisson`, and production coupling
 classes can be adapted incrementally. The intended migration is an adapter
