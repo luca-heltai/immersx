@@ -13,6 +13,7 @@ example:
 - `tutorials/elastodynamics/`
 - `tutorials/navier_stokes/`
 - `tutorials/coupled_poisson_elasticity/`
+- `tutorials/coupled_poisson/`
 - `tutorials/fiber_reinforced_elastodynamics/`
 
 Inputs ending in `.prm.in` are configured by CMake into the build tree. They

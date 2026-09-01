@@ -286,6 +286,50 @@ TEST(AppExecutables, TutorialPoisson)
   run_app_with_parameter("poisson", "tutorials/poisson/poisson_2d.prm");
 }
 
+TEST(AppExecutables, CoupledPoisson)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+
+  run_app_with_parameter("coupled_poisson",
+                         "tutorials/coupled_poisson/coupled_poisson.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/coupled-poisson");
+  ASSERT_TRUE(std::filesystem::exists(output_directory));
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "bulk_solution.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "embedded_solution.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "coupled_multiplier.pvd"));
+
+  bool has_bulk       = false;
+  bool has_embedded   = false;
+  bool has_multiplier = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_bulk |= contents.find("Name=\"solution\"") != std::string::npos &&
+                    entry.path().filename().string().find("bulk_solution") !=
+                      std::string::npos;
+        has_embedded |=
+          contents.find("Name=\"solution\"") != std::string::npos &&
+          entry.path().filename().string().find("embedded_solution") !=
+            std::string::npos;
+        has_multiplier |=
+          contents.find("Name=\"lagrange_multiplier\"") != std::string::npos;
+      }
+
+  EXPECT_TRUE(has_bulk);
+  EXPECT_TRUE(has_embedded);
+  EXPECT_TRUE(has_multiplier);
+}
+
 TEST(AppExecutables, TutorialElastodynamics)
 {
   if (!is_single_rank())
