@@ -483,12 +483,21 @@ namespace ImmersX
   void
   PoissonSolver<dim, spacedim>::output_results() const
   {
+    output_results(cycle);
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  PoissonSolver<dim, spacedim>::output_results(
+    const unsigned int output_cycle) const
+  {
     TimerOutput::Scope t(computing_timer, "Output results");
     ensure_output_directory(par.output_directory);
 
     // Keep one record per cycle, matching the existing application output
     // convention when output before solving is enabled.
-    if (cycles_and_solutions.size() == cycle)
+    if (cycles_and_solutions.size() == output_cycle)
       {
         DataOut<dim, spacedim> data_out;
         data_out.attach_dof_handler(dh);
@@ -501,10 +510,11 @@ namespace ImmersX
         data_out.build_patches();
 
         const std::string filename =
-          par.output_name + "_" + std::to_string(cycle) + ".vtu";
+          par.output_name + "_" + std::to_string(output_cycle) + ".vtu";
         data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                        mpi_communicator);
-        cycles_and_solutions.push_back({static_cast<double>(cycle), filename});
+        cycles_and_solutions.push_back(
+          {static_cast<double>(output_cycle), filename});
 
         if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
           {

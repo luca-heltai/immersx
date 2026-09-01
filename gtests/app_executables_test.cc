@@ -284,6 +284,22 @@ TEST(AppExecutables, TutorialPoisson)
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_parameter("poisson", "tutorials/poisson/poisson_2d.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/poisson-2d");
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "poisson_2d.pvd"));
+  bool has_solution = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_solution |= contents.find("Name=\"solution\"") != std::string::npos;
+      }
+  EXPECT_TRUE(has_solution);
 }
 
 TEST(AppExecutables, CoupledPoisson)
