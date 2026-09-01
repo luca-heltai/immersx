@@ -319,8 +319,9 @@ namespace ImmersX
       ida_.differential_components = [this]() {
         return composition_.differential_components();
       };
-      ida_.output_step = output_;
-      connected_       = true;
+      if (output_)
+        ida_.output_step = output_;
+      connected_ = true;
     }
 
     void
