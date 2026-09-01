@@ -205,6 +205,13 @@ namespace ImmersX
     void
     run();
 
+    /** Accept semantic velocity and pressure fields from an external solver. */
+    void
+    accept_state(const VectorType &velocity,
+                 const VectorType &pressure,
+                 double            time,
+                 unsigned int      step_number);
+
     dealii::types::global_dof_index
     n_dofs() const;
 

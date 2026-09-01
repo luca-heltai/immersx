@@ -172,6 +172,26 @@ TEST(AppExecutables, NavierStokes)
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_parameter("navier_stokes",
                          "tutorials/navier_stokes/transient_2d.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/navier-stokes-2d");
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "transient_stokes.pvd"));
+  bool has_velocity = false;
+  bool has_pressure = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_velocity |= contents.find("Name=\"velocity\"") != std::string::npos;
+        has_pressure |= contents.find("Name=\"pressure\"") != std::string::npos;
+      }
+  EXPECT_TRUE(has_velocity);
+  EXPECT_TRUE(has_pressure);
 }
 
 TEST(AppExecutables, CoupledPoissonElasticity)
@@ -352,6 +372,27 @@ TEST(AppExecutables, TutorialElastodynamics)
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_parameter("elastodynamics",
                          "tutorials/elastodynamics/strong_dirichlet.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/elastodynamics-strong");
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "strong_dirichlet_cycle_0.pvd"));
+  bool has_displacement = false;
+  bool has_velocity     = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_displacement |=
+          contents.find("Name=\"displacement\"") != std::string::npos;
+        has_velocity |= contents.find("Name=\"velocity\"") != std::string::npos;
+      }
+  EXPECT_TRUE(has_displacement);
+  EXPECT_TRUE(has_velocity);
 }
 
 TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)

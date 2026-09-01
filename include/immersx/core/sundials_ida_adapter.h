@@ -51,6 +51,10 @@ namespace ImmersX
                                                    const GlobalVectorType &,
                                                    GlobalVectorType &,
                                                    double)>;
+    using OutputFunction      = std::function<void(const double,
+                                              const GlobalVectorType &,
+                                              const GlobalVectorType &,
+                                              const unsigned int)>;
     using AdditionalData =
       typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
 
@@ -110,6 +114,16 @@ namespace ImmersX
     {
       finalize();
       return ida_.solve_dae(state, state_dot);
+    }
+
+    /** Register native output for IDA's accepted/interpolated output states. */
+    void
+    set_output_step(OutputFunction output)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "IDAAdapter output must be configured before solve."));
+      output_ = std::move(output);
     }
 
     GlobalVectorType
@@ -305,7 +319,8 @@ namespace ImmersX
       ida_.differential_components = [this]() {
         return composition_.differential_components();
       };
-      connected_ = true;
+      ida_.output_step = output_;
+      connected_       = true;
     }
 
     void
@@ -418,6 +433,7 @@ namespace ImmersX
     dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
     std::optional<Operator>                 current_jacobian_;
     std::optional<Operator>                 current_preconditioner_;
+    OutputFunction                          output_;
     bool                                    current_solver_is_flexible_ = false;
     std::size_t                             coupling_count_             = 0;
     bool                                    connected_                  = false;

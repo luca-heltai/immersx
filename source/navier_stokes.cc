@@ -794,6 +794,33 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
+  NavierStokesSolver<dim, spacedim>::accept_state(
+    const VectorType  &velocity,
+    const VectorType  &pressure,
+    const double       time,
+    const unsigned int step_number)
+  {
+    AssertThrow(velocity.size() == dofs_per_block[0],
+                ExcDimensionMismatch(velocity.size(), dofs_per_block[0]));
+    AssertThrow(pressure.size() == dofs_per_block[1],
+                ExcDimensionMismatch(pressure.size(), dofs_per_block[1]));
+    AssertThrow(std::isfinite(time),
+                ExcMessage("An accepted Navier-Stokes time must be finite."));
+
+    current_time_storage    = time;
+    timestep_number_storage = step_number;
+    par.set_time(current_time_storage);
+    update_constraints();
+    solution_storage.block(0) = velocity;
+    solution_storage.block(1) = pressure;
+    constraints_storage.distribute(solution_storage);
+    previous_solution_storage = solution_storage;
+    update_locally_relevant_solution();
+  }
+
+
+  template <int dim, int spacedim>
+  void
   NavierStokesSolver<dim, spacedim>::run()
   {
     ensure_output_directory(par.output_directory);
