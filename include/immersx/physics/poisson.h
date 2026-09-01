@@ -182,6 +182,10 @@ namespace ImmersX
     void
     output_results() const;
 
+    /** Write output for an explicitly selected refinement cycle. */
+    void
+    output_results(unsigned int output_cycle) const;
+
     void
     refine_grid();
 

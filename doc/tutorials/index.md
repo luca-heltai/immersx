@@ -12,9 +12,11 @@ is exercised by the application smoke tests.
 3. [Elastodynamics](elastodynamics) — time-dependent displacement and velocity
    fields.
 4. [Reduced Poisson](reduced-poisson) — a lower-dimensional coupling geometry.
-5. [Coupled Poisson–elasticity](coupled-poisson-elasticity) — observe, lift,
+5. [Coupled Poisson](coupled-poisson) — two scalar Problems and a multiplier
+   Interaction.
+6. [Coupled Poisson–elasticity](coupled-poisson-elasticity) — observe, lift,
    couple, and solve.
-6. [Fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics) — an
+7. [Fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics) — an
    advanced full-order distributed coupling workflow.
 
 [Navier–Stokes](navier-stokes) is an independent fluid tutorial. The
@@ -27,6 +29,7 @@ poisson
 elasticity
 elastodynamics
 reduced-poisson
+coupled-poisson
 coupled-poisson-elasticity
 fiber-reinforced-elastodynamics
 navier-stokes

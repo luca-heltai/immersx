@@ -57,7 +57,7 @@ the existing `ParticleCoupling` search. Vector basis values are evaluated by
 component, so an x basis function cannot couple to a y basis function.
 
 The application driver, rather than either Problem’s standalone time loop,
-owns backward Euler. Eliminating displacement gives
+owns the five-field IDA solve. Eliminating displacement gives
 
 ```{math}
 A_m v_m^{n+1}+C\lambda^{n+1}=r_m,
@@ -89,17 +89,15 @@ accept their solved displacement and velocity states and write their native
 mesh output. The vector Interaction accepts the multiplier state and writes
 `velocity_multiplier` on the second (fiber) representation mesh; it is not
 written through either Problem or through the execution adapter. In the IDA
-path, this handoff occurs only for the initial state and final accepted state,
-never from residual or Jacobian trial evaluations.
+path, the handoff occurs for the initial state, configured accepted output
+states, and final accepted state, never from residual or Jacobian trial
+evaluations.
 
-## Semantic five-field validation
+## Semantic five-field execution
 
-The application driver remains the production backward-Euler + Schur path and
-continues to orchestrate the two Problems, Representations, Interaction,
-accepted-state handoffs, and time loop. Each Problem and the Interaction retain
-their own accepted state and native output. A separate MPI acceptance test
-composes those existing objects through the public `IDAAdapter` with one
-private semantic execution layout containing
+The application composes the two Problems, Representations, and Interaction
+directly through the public `IDAAdapter` with one private semantic execution
+layout containing
 
 ```text
 matrix.displacement       differential
@@ -112,11 +110,12 @@ fiber_coupling.lambda      algebraic
 The two Elastodynamics contributors use caller-selected prefixes and distinct
 `HistoryGroupId`s. The vector Interaction registers the algebraic multiplier
 field and adds `C lambda`, `-Q^T lambda`, and `C^T v_matrix - Q v_fiber` to
-the appropriate rows. Backward differences from an accepted coupled step are
-then supplied through external state views; all five residual rows and all
-five Jacobian rows are compared with the native `M`, `K`, `D`, `C`, and `Q`
-actions. This validates physical composition without introducing a new fiber
-IDA driver. Five-field IDA integration remains a later execution-adapter step.
+the appropriate rows. Each Problem and the Interaction retain their own
+accepted state and native output. The application’s accepted-state callback
+hands displacement and velocity back to both Problems and the multiplier back
+to the Interaction before output is written. Focused tests compare all five
+residual rows and all five Jacobian rows with the native `M`, `K`, `D`, `C`,
+and `Q` actions.
 
 ## Scope and future path
 

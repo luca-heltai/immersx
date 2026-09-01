@@ -40,7 +40,8 @@ namespace ImmersX
     ParticleCouplingParameters<dim> coupling_parameters;
 
     std::string  output_directory = "./output/fiber_reinforced_elastodynamics";
-    unsigned int output_frequency = 1;
+    std::string  multiplier_output_name = "velocity_multiplier";
+    unsigned int output_frequency       = 1;
 
     double       initial_time    = 0.;
     double       final_time      = 0.1;

@@ -172,6 +172,26 @@ TEST(AppExecutables, NavierStokes)
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_parameter("navier_stokes",
                          "tutorials/navier_stokes/transient_2d.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/navier-stokes-2d");
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "transient_stokes.pvd"));
+  bool has_velocity = false;
+  bool has_pressure = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_velocity |= contents.find("Name=\"velocity\"") != std::string::npos;
+        has_pressure |= contents.find("Name=\"pressure\"") != std::string::npos;
+      }
+  EXPECT_TRUE(has_velocity);
+  EXPECT_TRUE(has_pressure);
 }
 
 TEST(AppExecutables, CoupledPoissonElasticity)
@@ -284,6 +304,66 @@ TEST(AppExecutables, TutorialPoisson)
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_parameter("poisson", "tutorials/poisson/poisson_2d.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/poisson-2d");
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "poisson_2d.pvd"));
+  bool has_solution = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_solution |= contents.find("Name=\"solution\"") != std::string::npos;
+      }
+  EXPECT_TRUE(has_solution);
+}
+
+TEST(AppExecutables, CoupledPoisson)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
+
+  run_app_with_parameter("coupled_poisson",
+                         "tutorials/coupled_poisson/coupled_poisson.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/coupled-poisson");
+  ASSERT_TRUE(std::filesystem::exists(output_directory));
+  EXPECT_TRUE(std::filesystem::exists(output_directory / "bulk_solution.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "embedded_solution.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "coupled_multiplier.pvd"));
+
+  bool has_bulk       = false;
+  bool has_embedded   = false;
+  bool has_multiplier = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_bulk |= contents.find("Name=\"solution\"") != std::string::npos &&
+                    entry.path().filename().string().find("bulk_solution") !=
+                      std::string::npos;
+        has_embedded |=
+          contents.find("Name=\"solution\"") != std::string::npos &&
+          entry.path().filename().string().find("embedded_solution") !=
+            std::string::npos;
+        has_multiplier |=
+          contents.find("Name=\"lagrange_multiplier\"") != std::string::npos;
+      }
+
+  EXPECT_TRUE(has_bulk);
+  EXPECT_TRUE(has_embedded);
+  EXPECT_TRUE(has_multiplier);
 }
 
 TEST(AppExecutables, TutorialElastodynamics)
@@ -292,6 +372,27 @@ TEST(AppExecutables, TutorialElastodynamics)
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
   run_app_with_parameter("elastodynamics",
                          "tutorials/elastodynamics/strong_dirichlet.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("tutorial-output/elastodynamics-strong");
+  EXPECT_TRUE(
+    std::filesystem::exists(output_directory / "strong_dirichlet_cycle_0.pvd"));
+  bool has_displacement = false;
+  bool has_velocity     = false;
+  for (const auto &entry :
+       std::filesystem::directory_iterator(output_directory))
+    if (entry.path().extension() == ".vtu" ||
+        entry.path().extension() == ".pvtu")
+      {
+        std::ifstream     output(entry.path());
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        has_displacement |=
+          contents.find("Name=\"displacement\"") != std::string::npos;
+        has_velocity |= contents.find("Name=\"velocity\"") != std::string::npos;
+      }
+  EXPECT_TRUE(has_displacement);
+  EXPECT_TRUE(has_velocity);
 }
 
 TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
@@ -301,4 +402,48 @@ TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
   run_app_with_parameter(
     "fiber_reinforced_elastodynamics",
     "tutorials/fiber_reinforced_elastodynamics/parameters.prm");
+
+  const auto output_directory = ImmersX::TestPaths::output_path(
+    "tutorial-output/fiber-reinforced-elastodynamics");
+  const auto matrix_directory      = output_directory / "matrix";
+  const auto fiber_directory       = output_directory / "fiber";
+  const auto interaction_directory = output_directory / "interaction";
+  EXPECT_TRUE(std::filesystem::exists(matrix_directory / "matrix.pvd"));
+  EXPECT_TRUE(std::filesystem::exists(fiber_directory / "fiber.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::exists(interaction_directory / "velocity_multiplier.pvd"));
+
+  bool has_matrix_state = false;
+  bool has_fiber_state  = false;
+  bool has_multiplier   = false;
+  for (const auto &entry :
+       std::filesystem::recursive_directory_iterator(output_directory))
+    {
+      if (entry.path().extension() != ".vtu" &&
+          entry.path().extension() != ".pvtu")
+        continue;
+
+      std::ifstream     output(entry.path());
+      const std::string contents((std::istreambuf_iterator<char>(output)),
+                                 std::istreambuf_iterator<char>());
+      const auto        filename = entry.path().filename().string();
+      if (entry.path().parent_path() == matrix_directory &&
+          filename.rfind("matrix_", 0) == 0)
+        has_matrix_state |=
+          contents.find("Name=\"displacement\"") != std::string::npos &&
+          contents.find("Name=\"velocity\"") != std::string::npos;
+      else if (entry.path().parent_path() == fiber_directory &&
+               filename.rfind("fiber_", 0) == 0)
+        has_fiber_state |=
+          contents.find("Name=\"displacement\"") != std::string::npos &&
+          contents.find("Name=\"velocity\"") != std::string::npos;
+      else if (entry.path().parent_path() == interaction_directory &&
+               filename.rfind("velocity_multiplier_", 0) == 0)
+        has_multiplier |=
+          contents.find("Name=\"lagrange_multiplier\"") != std::string::npos;
+    }
+
+  EXPECT_TRUE(has_matrix_state);
+  EXPECT_TRUE(has_fiber_state);
+  EXPECT_TRUE(has_multiplier);
 }

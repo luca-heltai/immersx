@@ -119,6 +119,7 @@ namespace ImmersX
                           "Fiber Coupling/Particle search/")
   {
     add_parameter("Output directory", output_directory);
+    add_parameter("Multiplier output name", multiplier_output_name);
     add_parameter("Output frequency", output_frequency);
 
     enter_subsection("Time integration");
@@ -479,7 +480,7 @@ namespace ImmersX
     fiber_problem_storage.output_results();
     interaction_storage->output_results(parameters.output_directory +
                                           "/interaction",
-                                        "velocity_multiplier",
+                                        parameters.multiplier_output_name,
                                         time_step_number_storage);
   }
 

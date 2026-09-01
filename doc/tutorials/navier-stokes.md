@@ -1,9 +1,9 @@
 # Navier–Stokes
 
-This tutorial introduces the standalone `NavierStokesSolver` application. It
-is the full-dimensional fluid Problem intended to become the fluid component
-of a future FSI workflow. It is deliberately independent of elasticity,
-immersed coupling, and the semantic residual architecture.
+This tutorial introduces the full-dimensional `NavierStokesSolver` Problem
+through the public `IDAAdapter` application path. It is ready to be composed
+with other Problems at the execution-adapter boundary while remaining
+independent of elasticity and immersed coupling in this example.
 
 The runnable example is:
 
@@ -86,18 +86,21 @@ this tutorial.
 
 ## Solver lifecycle
 
-`NavierStokesSolver::run()` follows the same application-oriented structure as
-`PoissonSolver`:
+The application owns setup and registers the Problem directly with
+`IDAAdapter`:
 
 1. `make_grid()` creates the distributed triangulation;
 2. `setup_fe()` builds the mixed velocity-pressure finite element;
 3. `setup_system()` creates the native block matrix, mass matrix, vectors, and
    constraints;
-4. `advance_one_timestep()` updates the parsed-function time, refreshes
-   time-dependent velocity constraints, assembles, solves, and accepts one
-   state;
-5. `output_results()` writes velocity, pressure, and subdomain data at the
-   configured frequency.
+4. IDA evaluates the semantic residual and Jacobian using velocity as a
+   differential Field and pressure as an algebraic Field;
+5. an accepted-state callback calls `accept_state()` and then
+   `output_results()` at the configured frequency.
+
+The solver still exposes its standalone backward-Euler methods for focused
+physics and regression tests, but the published application does not hide its
+execution policy behind `run()`.
 
 The linear solve uses FGMRES on the indefinite block system. The velocity
 block and pressure mass approximation have separate AMG preconditioners.
@@ -191,6 +194,6 @@ The application is implemented in:
 - `gtests/navier_stokes_step80_mms_01.cc` — manufactured-solution convergence;
 - `tutorials/navier_stokes/transient_2d.prm.in` — the runnable tutorial input.
 
-This Problem is intentionally shaped like `PoissonSolver` so it can later be
-adapted to ImmersX's semantic Field, Representation, and residual interfaces.
-Those future adapters are outside the scope of this tutorial.
+The Problem exposes semantic velocity and pressure Fields with distinct
+differential/algebraic metadata, so it can participate in larger compositions
+without moving IDA-specific policy into the physics class.

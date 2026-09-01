@@ -1,0 +1,69 @@
+set dimension               = 2
+set space dimension         = 2
+set reduced dimension       = 1
+set cross section dimension = 2
+
+subsection Coupled Poisson
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/coupled-poisson
+  set Multiplier output name = coupled_multiplier
+end
+
+subsection Poisson
+  set FE degree              = 1
+  set Initial refinement     = 2
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/coupled-poisson
+  set Output name            = bulk_solution
+  set Dirichlet boundary ids = 0
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+  subsection Right hand side
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Control
+      set Max steps  = 500
+      set Reduction  = 1.e-12
+      set Tolerance  = 1.e-12
+      set Log result = false
+    end
+  end
+end
+
+subsection Embedded Poisson
+  set FE degree              = 1
+  set Initial refinement     = 1
+  set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/coupled-poisson
+  set Output name            = embedded_solution
+  set Dirichlet boundary ids = 0,1
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+  subsection Right hand side
+    set Function expression = 1
+    set Variable names      = x,y,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Control
+      set Max steps  = 500
+      set Reduction  = 1.e-12
+      set Tolerance  = 1.e-12
+      set Log result = false
+    end
+  end
+end
+
+subsection Particle coupling
+  set RTree extraction level = 1
+end

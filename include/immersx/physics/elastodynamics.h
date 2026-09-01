@@ -184,6 +184,10 @@ namespace ImmersX
     void
     set_initial_conditions();
 
+    /** Compute the physically consistent initial acceleration. */
+    void
+    initial_acceleration(VectorType &acceleration) const;
+
     /** Advance one backward-Euler step using the configured time step. */
     void
     advance_one_timestep();

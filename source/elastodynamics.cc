@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <vector>
 
 
 namespace ImmersX
@@ -678,6 +679,55 @@ namespace ImmersX
     velocity_constraints_storage.distribute(velocity_storage);
     update_locally_relevant_state();
     assemble_body_force(current_time_storage);
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::initial_acceleration(
+    VectorType &acceleration) const
+  {
+    VectorType rhs;
+    VectorType work;
+    body_force_at_time(current_time_storage, rhs);
+    work.reinit(rhs);
+    stiffness_matrix_storage.vmult(work, displacement_storage);
+    rhs -= work;
+    damping_matrix_storage.vmult(work, velocity_storage);
+    rhs -= work;
+
+    for (const auto index : velocity_storage.locally_owned_elements())
+      if (velocity_constraints_storage.is_constrained(index))
+        rhs(index) = 0.;
+
+    MatrixType constrained_mass;
+    constrained_mass.copy_from(mass_matrix_storage);
+    for (const auto row : constrained_mass.locally_owned_range_indices())
+      {
+        std::vector<types::global_dof_index> constrained_columns;
+        for (auto entry = constrained_mass.begin(row);
+             entry != constrained_mass.end(row);
+             ++entry)
+          if (velocity_constraints_storage.is_constrained(entry->column()))
+            constrained_columns.push_back(entry->column());
+        for (const auto column : constrained_columns)
+          constrained_mass.set(row, column, 0.);
+      }
+    constrained_mass.compress(VectorOperation::insert);
+    for (const auto &line : velocity_constraints_storage.get_lines())
+      if (constrained_mass.in_local_range(line.index))
+        constrained_mass.clear_row(line.index, 1.);
+    constrained_mass.compress(VectorOperation::insert);
+
+    acceleration.reinit(owned_dofs, mpi_communicator);
+    acceleration = 0.;
+    SolverControl               control(par.solver_control.max_steps(),
+                          par.solver_control.tolerance());
+    LA::MPI::PreconditionJacobi preconditioner;
+    preconditioner.initialize(constrained_mass);
+    SolverGMRES<VectorType> solver(control);
+    solver.solve(constrained_mass, acceleration, rhs, preconditioner);
+    velocity_constraints_storage.distribute(acceleration);
   }
 
 
