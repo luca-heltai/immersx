@@ -24,6 +24,8 @@
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/sparsity_tools.h>
 
+#include <deal.II/numerics/data_out.h>
+
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/constraint_contributor.h>
 #include <immersx/core/constraint_equation.h>
@@ -32,6 +34,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <type_traits>
 #include <vector>
@@ -236,6 +240,66 @@ namespace ImmersX
     second_representation() const
     {
       return second;
+    }
+
+    /** Accept the multiplier state associated with an accepted solve. */
+    void
+    set_multiplier(const VectorType &new_multiplier)
+    {
+      AssertDimension(new_multiplier.size(), second.dof_handler().n_dofs());
+      multiplier_storage.reinit(second.locally_owned_dofs(),
+                                second.locally_relevant_dofs(),
+                                second.mpi_communicator());
+      multiplier_storage = new_multiplier;
+      multiplier_storage.update_ghost_values();
+      multiplier_initialized = true;
+    }
+
+    /** Return the accepted multiplier state, including locally relevant DoFs.
+     */
+    const VectorType &
+    multiplier() const
+    {
+      AssertThrow(multiplier_initialized,
+                  dealii::ExcMessage("No multiplier state has been accepted."));
+      return multiplier_storage;
+    }
+
+    /** Write the accepted multiplier on its own representation mesh. */
+    void
+    output_results(const std::string &output_directory,
+                   const std::string &output_name = "lagrange_multiplier",
+                   const unsigned int cycle       = 0) const
+    {
+      AssertThrow(multiplier_initialized,
+                  dealii::ExcMessage("No multiplier state has been accepted."));
+      std::filesystem::create_directories(output_directory);
+
+      using DataOutType =
+        dealii::DataOut<SecondRepresentation::representative_dimension,
+                        SecondRepresentation::ambient_dimension>;
+      DataOutType data_out;
+      data_out.attach_dof_handler(second.dof_handler());
+      data_out.add_data_vector(multiplier_storage, "lagrange_multiplier");
+
+      dealii::Vector<float> subdomain(second.triangulation().n_active_cells());
+      for (unsigned int i = 0; i < subdomain.size(); ++i)
+        subdomain(i) = second.triangulation().locally_owned_subdomain();
+      data_out.add_data_vector(subdomain, "subdomain");
+      data_out.build_patches(second.mapping());
+
+      const std::string filename =
+        output_name + "_" + std::to_string(cycle) + ".vtu";
+      data_out.write_vtu_in_parallel(output_directory + "/" + filename,
+                                     second.mpi_communicator());
+      output_records.emplace_back(static_cast<double>(cycle), filename);
+
+      if (dealii::Utilities::MPI::this_mpi_process(second.mpi_communicator()) ==
+          0)
+        {
+          std::ofstream pvd(output_directory + "/" + output_name + ".pvd");
+          dealii::DataOutBase::write_pvd_record(pvd, output_records);
+        }
     }
 
     /** Metadata for adapter-level dependency discovery. */
@@ -475,8 +539,11 @@ namespace ImmersX
                            quadrature;
     std::vector<PointType> second_quadrature_points;
 
-    MatrixType coupling_matrix_storage;
-    MatrixType multiplier_mass_matrix_storage;
+    MatrixType         coupling_matrix_storage;
+    MatrixType         multiplier_mass_matrix_storage;
+    mutable VectorType multiplier_storage;
+    bool               multiplier_initialized = false;
+    mutable std::vector<std::pair<double, std::string>> output_records;
   };
 
   template <typename Builder,

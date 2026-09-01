@@ -129,6 +129,9 @@ namespace ImmersX
     const Interaction &
     interaction() const;
 
+    Interaction &
+    interaction();
+
     const VectorType &
     multiplier() const;
 

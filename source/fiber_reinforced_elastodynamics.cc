@@ -16,8 +16,6 @@
 #include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/solver_gmres.h>
 
-#include <deal.II/numerics/data_out.h>
-
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
 
 #include <algorithm>
@@ -242,6 +240,7 @@ namespace ImmersX
 
     matrix_problem_storage.set_initial_conditions();
     fiber_problem_storage.set_initial_conditions();
+    interaction_storage->set_multiplier(multiplier_storage);
     current_time_storage     = parameters.initial_time;
     time_step_number_storage = 0;
 
@@ -416,6 +415,7 @@ namespace ImmersX
                                        next_fiber_velocity,
                                        next_time,
                                        next_step);
+    interaction_storage->set_multiplier(multiplier_storage);
     current_time_storage     = next_time;
     time_step_number_storage = next_step;
     update_diagnostics(matrix_rhs, fiber_rhs);
@@ -477,33 +477,10 @@ namespace ImmersX
   {
     matrix_problem_storage.output_results();
     fiber_problem_storage.output_results();
-
-    ensure_directory(parameters.output_directory + "/fiber");
-    dealii::DataOut<dim, dim> data_out;
-    data_out.attach_dof_handler(fiber_problem_storage.dof_handler());
-
-    VectorType relevant_multiplier;
-    relevant_multiplier.reinit(
-      interaction_storage->multiplier_locally_owned_dofs(),
-      interaction_storage->multiplier_locally_relevant_dofs(),
-      MPI_COMM_WORLD);
-    relevant_multiplier = multiplier_storage;
-    relevant_multiplier.update_ghost_values();
-
-    const std::vector<std::string> names(dim, "lambda");
-    const std::vector<DataComponentInterpretation::DataComponentInterpretation>
-      interpretation(dim,
-                     DataComponentInterpretation::component_is_part_of_vector);
-    data_out.add_data_vector(relevant_multiplier,
-                             names,
-                             DataOut<dim, dim>::type_dof_data,
-                             interpretation);
-    data_out.build_patches();
-    data_out.write_vtu_in_parallel(parameters.output_directory +
-                                     "/fiber/lambda_" +
-                                     std::to_string(time_step_number_storage) +
-                                     ".vtu",
-                                   MPI_COMM_WORLD);
+    interaction_storage->output_results(parameters.output_directory +
+                                          "/interaction",
+                                        "velocity_multiplier",
+                                        time_step_number_storage);
   }
 
 
@@ -566,6 +543,7 @@ namespace ImmersX
       step);
     multiplier_storage =
       ida_storage->field(state, coupling_fields_storage.multiplier);
+    interaction_storage->set_multiplier(multiplier_storage);
 
     auto residual = ida_storage->make_state();
     ida_storage->solver().residual(time, state, state_dot, residual);
@@ -742,11 +720,20 @@ namespace ImmersX
 
 
   template <int dim>
+  typename FiberReinforcedElastodynamics<dim>::Interaction &
+  FiberReinforcedElastodynamics<dim>::interaction()
+  {
+    AssertThrow(interaction_storage != nullptr, ExcNotInitialized());
+    return *interaction_storage;
+  }
+
+
+  template <int dim>
   const typename FiberReinforcedElastodynamics<dim>::VectorType &
   FiberReinforcedElastodynamics<dim>::multiplier() const
   {
     AssertThrow(interaction_storage != nullptr, ExcNotInitialized());
-    return multiplier_storage;
+    return interaction_storage->multiplier();
   }
 
 

@@ -46,9 +46,9 @@ bulk_problem.output_results();
 The execution adapter owns the coupled solver state, while each Problem owns
 its accepted physical state and native output. After a successful solve,
 applications transfer each physical Field back to its owning Problem before
-calling that Problem's output method. Auxiliary Interaction-owned Fields, such
-as Lagrange multipliers, are not implicitly attached to either Problem's
-physical output.
+calling that Problem's output method. An Interaction owns any auxiliary Fields
+it introduces, such as Lagrange multipliers, and provides their native output;
+the execution adapter does not own visualization.
 
 For example, a composed Poisson/elasticity solve keeps the two physical output
 paths explicit:
@@ -65,6 +65,27 @@ elasticity_problem.set_solution(
 poisson_problem.output_results();
 elasticity_problem.output_results(0);
 ```
+
+For a Lagrange-multiplier Interaction, the accepted-state handoff is explicit
+and uses the semantic multiplier Field returned by the Interaction contributor:
+
+```{code-block} cpp
+auto state = adapter.make_state();
+adapter.solve(state);
+
+poisson_problem.set_solution(
+  adapter.field(state, poisson.fields().solution));
+interaction.set_multiplier(
+  adapter.field(state, continuity.fields().multiplier));
+
+poisson_problem.output_results();
+interaction.output_results(output_directory, "multiplier", 0);
+```
+
+The scalar and vector Lagrange-multiplier Interactions place this auxiliary
+field on the second representation's finite-element space. Problems output
+Problem-owned fields; Interactions output Interaction-owned fields. No
+execution block number is part of this handoff.
 
 The standard adapters select their iterative/direct policy internally. An
 expert application may still pass a custom solve callback when it needs full

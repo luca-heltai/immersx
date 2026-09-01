@@ -84,13 +84,22 @@ the representation/interaction seam so a future moving FSI relation can
 invalidate assembled transfer data explicitly. Nonzero moving Dirichlet data
 and adaptive refinement during the coupled run are not implemented here.
 
+Output ownership follows the semantic composition boundary. The two Problems
+accept their solved displacement and velocity states and write their native
+mesh output. The vector Interaction accepts the multiplier state and writes
+`velocity_multiplier` on the second (fiber) representation mesh; it is not
+written through either Problem or through the execution adapter. In the IDA
+path, this handoff occurs only for the initial state and final accepted state,
+never from residual or Jacobian trial evaluations.
+
 ## Semantic five-field validation
 
 The application driver remains the production backward-Euler + Schur path and
-continues to own the two Problems, Representations, Interaction, accepted
-state, output, and time loop. A separate MPI acceptance test composes those
-existing objects through the public `IDAAdapter` with one private semantic
-execution layout containing
+continues to orchestrate the two Problems, Representations, Interaction,
+accepted-state handoffs, and time loop. Each Problem and the Interaction retain
+their own accepted state and native output. A separate MPI acceptance test
+composes those existing objects through the public `IDAAdapter` with one
+private semantic execution layout containing
 
 ```text
 matrix.displacement       differential
