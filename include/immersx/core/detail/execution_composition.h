@@ -87,6 +87,18 @@ namespace ImmersX::detail
       return block_owned_;
     }
 
+    template <typename StateAccessorType>
+    std::vector<dealii::IndexSet>
+    block_partitions(const StateAccessorType &state, const double time) const
+    {
+      validate_complete();
+      std::vector<dealii::IndexSet> result;
+      result.reserve(fields_by_block_.size());
+      for (const auto field : fields_by_block_)
+        result.push_back(state.field(field, time).locally_owned_elements());
+      return result;
+    }
+
     std::vector<std::size_t>
     block_offsets() const
     {
@@ -146,6 +158,48 @@ namespace ImmersX::detail
                                     .differential_components)
             result.add_index(offset + index);
           offset += block_sizes_[block_number];
+        }
+      result.compress();
+      return result;
+    }
+
+    dealii::IndexSet
+    differential_components(const GlobalBlockVectorType &state) const
+    {
+      validate_complete();
+      std::size_t total_size = 0;
+      for (unsigned int block_number = 0;
+           block_number < fields_by_block_.size();
+           ++block_number)
+        total_size += state.block(block_number).locally_owned_elements().size();
+
+      dealii::IndexSet result(total_size);
+      std::size_t      offset = 0;
+      for (unsigned int block_number = 0;
+           block_number < fields_by_block_.size();
+           ++block_number)
+        {
+          const auto field = fields_by_block_[block_number];
+          const auto owned = state.block(block_number).locally_owned_elements();
+          const auto &descriptor = layout_.field(field);
+
+          if (descriptor.differential_components.n_elements() != 0)
+            {
+              if (descriptor.differential_components.n_elements() ==
+                  descriptor.locally_owned.size())
+                for (const auto index : owned)
+                  result.add_index(offset + index);
+              else if (owned.size() == descriptor.locally_owned.size())
+                for (const auto index : descriptor.differential_components)
+                  result.add_index(offset + index);
+              else
+                AssertThrow(
+                  false,
+                  dealii::ExcMessage(
+                    "An adaptive state changed the size of a mixed field "
+                    "without updating its differential mask."));
+            }
+          offset += owned.size();
         }
       result.compress();
       return result;
@@ -271,7 +325,12 @@ namespace ImmersX::detail
           context = &*derivative_context;
         }
 
-      residual.reinit(field_layout_.block_partitions(), communicator_);
+      // The execution layout fixes the number and ordering of semantic
+      // fields, but an adaptive Problem may replace the vector behind a field
+      // during a solver restart. Keep the residual storage conforming to the
+      // candidate state rather than to the partitions captured before mesh
+      // adaptation.
+      residual.reinit(state);
       residual = 0.;
       for (std::size_t i = 0; i < layout_.n_fields(); ++i)
         model_.evaluate_row(FieldId(i),
@@ -352,6 +411,12 @@ namespace ImmersX::detail
     {
       finalize();
       return field_layout_.differential_components();
+    }
+
+    dealii::IndexSet
+    differential_components(const GlobalVectorType &state) const
+    {
+      return field_layout_.differential_components(state);
     }
 
     unsigned int
@@ -2039,9 +2104,12 @@ namespace ImmersX::detail
               alpha * model_.derivative_operator(row, column, context);
         }
 
-      Operator result;
-      result.reinit_range_vector = [this](GlobalVectorType &vector, bool) {
-        vector.reinit(field_layout_.block_partitions(), communicator_);
+      Operator   result;
+      const auto partitions =
+        field_layout_.block_partitions(context.state(), context.time());
+      result.reinit_range_vector = [this, partitions](GlobalVectorType &vector,
+                                                      bool) {
+        vector.reinit(partitions, communicator_);
       };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult = [blocks](GlobalVectorType       &destination,

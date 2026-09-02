@@ -214,6 +214,15 @@ TEST(MetricFlowX, MPI_IDAVerticalSmoke) // NOLINT
   auto state     = adapter.make_state();
   auto state_dot = adapter.make_state();
   initialize_adapter_state(problem, adapter, fields, state, state_dot);
+  adapter.set_compute_consistent_initial_conditions(
+    [&problem, &adapter, fields](const double  time,
+                                 GlobalVector &state,
+                                 GlobalVector &state_dot) {
+      problem.initialize_state_derivative(adapter.field(state_dot,
+                                                        fields.fields().state),
+                                          time);
+      (void)state;
+    });
 
   EXPECT_GT(adapter.solve(state, state_dot), 0u);
 }
