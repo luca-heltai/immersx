@@ -79,8 +79,19 @@ DEAL_II_INITIALIZE_CACHED_VARIABLES()
 set(IMMERSX_WITH_METRIC_FLOW_X OFF)
 find_package(MetricFlowX CONFIG QUIET)
 if(MetricFlowX_FOUND AND TARGET MetricFlowX::metric_flow_x)
-  set(IMMERSX_WITH_METRIC_FLOW_X ON)
-  message(STATUS "MetricFlowX support enabled")
+  get_target_property(_metric_flow_x_imported_configs
+    MetricFlowX::metric_flow_x IMPORTED_CONFIGURATIONS)
+  string(TOUPPER "${CMAKE_BUILD_TYPE}" _metric_flow_x_build_type)
+  if(NOT _metric_flow_x_imported_configs OR
+     NOT _metric_flow_x_build_type OR
+     _metric_flow_x_build_type IN_LIST _metric_flow_x_imported_configs)
+    set(IMMERSX_WITH_METRIC_FLOW_X ON)
+    message(STATUS "MetricFlowX support enabled")
+  else()
+    message(STATUS
+      "MetricFlowX support disabled (package has no "
+      "${CMAKE_BUILD_TYPE} configuration)")
+  endif()
 elseif(MetricFlowX_FOUND)
   message(WARNING
     "MetricFlowX was found, but MetricFlowX::metric_flow_x is unavailable; "
