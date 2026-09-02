@@ -1,9 +1,12 @@
+#include <deal.II/base/parameter_acceptor.h>
+
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/linear_adapter.h>
+#include <immersx/io/utils.h>
 
 namespace ImmersX
 {
@@ -464,6 +467,36 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                                    direct_fields.fields().solution)[1],
               3.,
               1.e-12);
+}
+
+TEST(LinearAdapter, ParameterAcceptorControlsSolverOptions)
+{
+  dealii::ParameterAcceptor::clear();
+
+  using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
+                                         ImmersX::ImmersXLA::MPI::BlockVector>;
+  Adapter adapter(MPI_COMM_WORLD,
+                  ImmersX::LinearSolverOptions{},
+                  Adapter::SolveFunction{},
+                  "Linear adapter parameters");
+
+  ImmersX::initialize_parameters_from_string(R"(
+    subsection Linear adapter parameters
+      set Solver = direct
+      set Preconditioner = augmented_lagrangian
+      set Maximum iterations = 37
+      set Tolerance = 1.e-9
+      set Augmented Lagrangian parameter = 4.5
+    end
+  )");
+
+  const auto &options = adapter.solver_options();
+  EXPECT_EQ(options.solver, ImmersX::LinearSolver::direct);
+  EXPECT_EQ(options.preconditioner,
+            ImmersX::LinearPreconditioner::augmented_lagrangian);
+  EXPECT_EQ(options.maximum_iterations, 37u);
+  EXPECT_DOUBLE_EQ(options.tolerance, 1.e-9);
+  EXPECT_DOUBLE_EQ(options.augmented_lagrangian_parameter, 4.5);
 }
 
 TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)

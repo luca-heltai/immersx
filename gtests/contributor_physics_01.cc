@@ -105,6 +105,61 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   EXPECT_TRUE(fields.fields().pressure.is_valid());
 }
 
+TEST(ContributorPhysics, IDAAdapterUsesAdditionalDataParameters)
+{
+  dealii::ParameterAcceptor::clear();
+
+  using FieldVector  = ImmersX::ImmersXLA::MPI::Vector;
+  using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
+  using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+
+  Adapter adapter(Adapter::AdditionalData{},
+                  MPI_COMM_WORLD,
+                  Adapter::LinearSolveFunction{},
+                  "IDA adapter parameters");
+
+  ImmersX::initialize_parameters_from_string(R"(
+    subsection IDA adapter parameters
+      set Initial time = 0.25
+      set Final time = 2.5
+      set Time interval between each output = 0.125
+      subsection Running parameters
+        set Initial step size = 0.01
+        set Minimum step size = 1.e-8
+        set Maximum order of BDF = 2
+        set Maximum number of nonlinear iterations = 17
+      end
+      subsection Error control
+        set Absolute error tolerance = 1.e-7
+        set Relative error tolerance = 2.e-6
+        set Ignore algebraic terms for error computations = false
+      end
+      subsection Initial condition correction parameters
+        set Correction type at initial time = use_y_dot
+        set Correction type after restart = none
+        set Maximum number of nonlinear iterations = 13
+        set Factor to use when converting from the integrator tolerance to the linear solver tolerance = 3.5
+      end
+    end
+  )");
+
+  const auto &data = adapter.additional_data();
+  EXPECT_DOUBLE_EQ(data.initial_time, 0.25);
+  EXPECT_DOUBLE_EQ(data.final_time, 2.5);
+  EXPECT_DOUBLE_EQ(data.output_period, 0.125);
+  EXPECT_DOUBLE_EQ(data.initial_step_size, 0.01);
+  EXPECT_DOUBLE_EQ(data.minimum_step_size, 1.e-8);
+  EXPECT_EQ(data.maximum_order, 2u);
+  EXPECT_EQ(data.maximum_non_linear_iterations, 17u);
+  EXPECT_DOUBLE_EQ(data.absolute_tolerance, 1.e-7);
+  EXPECT_DOUBLE_EQ(data.relative_tolerance, 2.e-6);
+  EXPECT_FALSE(data.ignore_algebraic_terms_for_errors);
+  EXPECT_EQ(data.ic_type, Adapter::AdditionalData::use_y_dot);
+  EXPECT_EQ(data.reset_type, Adapter::AdditionalData::none);
+  EXPECT_EQ(data.maximum_non_linear_iterations_ic, 13u);
+  EXPECT_DOUBLE_EQ(data.ls_norm_factor, 3.5);
+}
+
 #else
 
 TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
