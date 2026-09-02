@@ -74,6 +74,42 @@ find_package(deal.II 9.7.1 REQUIRED
   HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
+# MetricFlowX is an optional public dependency.  Treat a package that reports
+# itself as found but does not provide its public target as unusable.
+set(IMMERSX_WITH_METRIC_FLOW_X OFF)
+find_package(MetricFlowX CONFIG QUIET)
+if(MetricFlowX_FOUND AND TARGET MetricFlowX::metric_flow_x)
+  get_target_property(_metric_flow_x_imported_configs
+    MetricFlowX::metric_flow_x IMPORTED_CONFIGURATIONS)
+  string(TOUPPER "${CMAKE_BUILD_TYPE}" _metric_flow_x_build_type)
+  if(NOT _metric_flow_x_imported_configs OR
+     NOT _metric_flow_x_build_type OR
+     _metric_flow_x_build_type IN_LIST _metric_flow_x_imported_configs)
+    set(IMMERSX_WITH_METRIC_FLOW_X ON)
+    message(STATUS "MetricFlowX support enabled")
+  else()
+    message(STATUS
+      "MetricFlowX support disabled (package has no "
+      "${CMAKE_BUILD_TYPE} configuration)")
+  endif()
+elseif(MetricFlowX_FOUND)
+  message(WARNING
+    "MetricFlowX was found, but MetricFlowX::metric_flow_x is unavailable; "
+    "disabling MetricFlowX support")
+else()
+  message(STATUS "MetricFlowX support disabled (package not found)")
+endif()
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include/immersx")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/include/immersx/config.h"
+  @ONLY)
+
+if(NOT IMMERSX_WITH_METRIC_FLOW_X)
+  list(FILTER _main_files EXCLUDE REGEX "app_metric_flow_x\\.cc$")
+endif()
+
 IF(${ENABLE_COUPLED_PROBLEMS})
   MESSAGE("-- Looking for 1dsolver library")
   SET(CMAKE_FIND_LIBRARY_PREFIXES "lib")
@@ -199,6 +235,7 @@ FOREACH(_build_type ${_d2_build_types})
       TARGET_INCLUDE_DIRECTORIES(${_lib}
         PUBLIC
           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
       #ADD_LIBRARY( STATIC )
       # Keep the source path private: exporting it would make the installed
@@ -215,6 +252,12 @@ FOREACH(_build_type ${_d2_build_types})
       )
       
       DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
+      IF(IMMERSX_WITH_METRIC_FLOW_X)
+        # DEAL_II_SETUP_TARGET uses the legacy plain signature, so keep this
+        # target's link declarations consistent with it.  Plain
+        # target_link_libraries entries remain transitive for exported targets.
+        TARGET_LINK_LIBRARIES(${_lib} MetricFlowX::metric_flow_x)
+      ENDIF()
       IF(OpenMP_CXX_FOUND)
         IF(DEFINED _OPENMP_CXX_TARGET)
           TARGET_LINK_LIBRARIES(${_lib} ${_OPENMP_CXX_TARGET})
@@ -332,6 +375,8 @@ IF(IMMERSX_APPLICATION_TARGETS)
 ENDIF()
 
 INSTALL(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/immersx/
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/immersx)
+INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/immersx/config.h
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/immersx)
 INSTALL(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/data/
   DESTINATION ${CMAKE_INSTALL_DATADIR}/immersx/data)
