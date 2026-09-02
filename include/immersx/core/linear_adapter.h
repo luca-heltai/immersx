@@ -10,6 +10,11 @@
 #ifndef immersx_linear_adapter_h
 #define immersx_linear_adapter_h
 
+#include <deal.II/base/conditional_ostream.h>
+#include <deal.II/base/mpi.h>
+#include <deal.II/base/parameter_acceptor.h>
+#include <deal.II/base/patterns.h>
+
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/solver_gmres.h>
@@ -23,6 +28,7 @@
 #include <immersx/core/representation.h>
 
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -48,15 +54,32 @@ namespace ImmersX
     augmented_lagrangian
   };
 
-  /** Solver-neutral policy knobs for the standard LinearAdapter path. */
-  struct LinearSolverOptions
+  /** Parameter object for the standard LinearAdapter path. */
+  struct LinearAdapterParameters : public dealii::ParameterAcceptor
   {
+    LinearAdapterParameters(const std::string &section_name = "Linear adapter")
+      : dealii::ParameterAcceptor(section_name)
+    {}
+
+    void
+    declare_parameters(dealii::ParameterHandler &prm) override
+    {
+      prm.add_parameter("Solver", solver);
+      prm.add_parameter("Preconditioner", preconditioner);
+      prm.add_parameter("Maximum iterations", maximum_iterations);
+      prm.add_parameter("Tolerance", tolerance);
+      prm.add_parameter("Augmented Lagrangian parameter",
+                        augmented_lagrangian_parameter);
+    }
+
     LinearSolver         solver             = LinearSolver::automatic;
     LinearPreconditioner preconditioner     = LinearPreconditioner::automatic;
     unsigned int         maximum_iterations = 1000;
     double               tolerance          = 1.e-12;
     double               augmented_lagrangian_parameter = 1.e1;
   };
+
+  using LinearSolverParameters = LinearAdapterParameters;
 
   /**
    * Execution adapter for affine steady semantic systems.
@@ -72,6 +95,7 @@ namespace ImmersX
       detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
 
   public:
+    using Parameters         = LinearAdapterParameters;
     using RepresentationType = Representation<FieldVectorType>;
     using ComponentRepresentationType =
       ComponentRepresentation<FieldVectorType>;
@@ -83,35 +107,20 @@ namespace ImmersX
     using SolveFunction       = std::function<
       void(const Operator &, const GlobalVectorType &, GlobalVectorType &)>;
 
-    LinearAdapter(const MPI_Comm communicator, SolveFunction solve = {})
+    LinearAdapter(const LinearAdapterParameters &parameters,
+                  const MPI_Comm                 communicator,
+                  SolveFunction                  solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
+      , parameters_(parameters)
+      , pcout(std::cout,
+              dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
     {}
 
-    LinearAdapter(const MPI_Comm             communicator,
-                  const LinearSolverOptions &options,
-                  SolveFunction              solve = {})
-      : composition_(communicator)
-      , solve_(std::move(solve))
-      , options_(options)
-    {}
-
-    void
-    set_solver_options(const LinearSolverOptions &options)
-    {
-      options_ = options;
-      direct_matrix_.reset();
-      direct_solver_.reset();
-      direct_control_.reset();
-#ifdef DEAL_II_WITH_MUMPS
-      mumps_solver_.reset();
-#endif
-    }
-
-    const LinearSolverOptions &
+    const LinearAdapterParameters &
     solver_options() const
     {
-      return options_;
+      return parameters_;
     }
 
     bool
@@ -124,22 +133,26 @@ namespace ImmersX
     void
     setup_direct(const GlobalVectorType &state) const
     {
+      pcout << "LinearAdapter: materializing and factorizing the linear "
+               "system."
+            << std::endl;
       direct_matrix_ = std::make_shared<MatrixType>();
       composition_.monolithic_matrix(state, *direct_matrix_);
       direct_solver_.reset();
       direct_control_ =
-        std::make_unique<dealii::SolverControl>(0, options_.tolerance);
+        std::make_unique<dealii::SolverControl>(0, parameters_.tolerance);
 #ifdef DEAL_II_WITH_MUMPS
-      if (options_.solver == LinearSolver::mumps)
+      if (parameters_.solver == LinearSolver::mumps)
         {
           mumps_solver_ = std::make_unique<dealii::SparseDirectMUMPS>(
             dealii::SparseDirectMUMPS::AdditionalData(),
             composition_.communicator());
           mumps_solver_->initialize(*direct_matrix_);
+          pcout << "LinearAdapter: MUMPS factorization ready." << std::endl;
           return;
         }
 #else
-      AssertThrow(options_.solver != LinearSolver::mumps,
+      AssertThrow(parameters_.solver != LinearSolver::mumps,
                   dealii::ExcMessage(
                     "LinearAdapter solver 'mumps' requires deal.II to be "
                     "configured with MUMPS."));
@@ -147,6 +160,7 @@ namespace ImmersX
       direct_solver_ =
         std::make_unique<ImmersXLA::SolverDirect>(*direct_control_);
       direct_solver_->initialize(*direct_matrix_);
+      pcout << "LinearAdapter: direct factorization ready." << std::endl;
     }
 
     template <typename Problem, typename... Arguments>
@@ -156,6 +170,11 @@ namespace ImmersX
         const Arguments &...arguments)
     {
       auto fields = composition_.add(problem, prefix, arguments...);
+      pcout << "LinearAdapter: registered contributor";
+      if (!prefix.empty())
+        pcout << " '" << prefix << "'";
+      pcout << "; " << composition_.n_fields()
+            << " semantic field(s) available." << std::endl;
       return ProblemHandle<LinearAdapter, decltype(fields)>(*this,
                                                             std::move(fields));
     }
@@ -381,19 +400,25 @@ namespace ImmersX
 #endif
         direct_solver_->solve(solution, rhs);
       composition_.unpack(solution, state);
+      pcout << "LinearAdapter: direct solve finished." << std::endl;
     }
 
     void
     solve(GlobalVectorType &state) const
     {
-      if (options_.solver == LinearSolver::direct ||
-          options_.solver == LinearSolver::mumps)
+      pcout << "LinearAdapter: starting solve with " << composition_.n_fields()
+            << " semantic field(s), solver="
+            << magic_enum::enum_name(parameters_.solver) << ", preconditioner="
+            << magic_enum::enum_name(parameters_.preconditioner) << "."
+            << std::endl;
+      if (parameters_.solver == LinearSolver::direct ||
+          parameters_.solver == LinearSolver::mumps)
         {
           solve_direct(state);
           return;
         }
-      AssertThrow(options_.solver == LinearSolver::automatic ||
-                    options_.solver == LinearSolver::iterative,
+      AssertThrow(parameters_.solver == LinearSolver::automatic ||
+                    parameters_.solver == LinearSolver::iterative,
                   dealii::ExcMessage(
                     "LinearAdapter solver must be auto, iterative, direct, "
                     "or mumps."));
@@ -409,20 +434,27 @@ namespace ImmersX
       residual *= -1.;
       const auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
       if (solve_)
-        solve_(operator_view, residual, state);
+        {
+          pcout << "LinearAdapter: invoking the configured linear solver."
+                << std::endl;
+          solve_(operator_view, residual, state);
+          pcout << "LinearAdapter: configured linear solver finished."
+                << std::endl;
+        }
       else
         {
           const auto preconditioner = make_preconditioner(operator_view, state);
-          dealii::SolverControl control(options_.maximum_iterations,
-                                        options_.tolerance);
+          dealii::SolverControl control(parameters_.maximum_iterations,
+                                        parameters_.tolerance);
           const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
                      data(30, false, false);
           const bool flexible =
-            options_.preconditioner ==
+            parameters_.preconditioner ==
               LinearPreconditioner::augmented_lagrangian ||
-            options_.preconditioner == LinearPreconditioner::block_triangular ||
-            options_.preconditioner == LinearPreconditioner::schur ||
-            (options_.preconditioner == LinearPreconditioner::automatic &&
+            parameters_.preconditioner ==
+              LinearPreconditioner::block_triangular ||
+            parameters_.preconditioner == LinearPreconditioner::schur ||
+            (parameters_.preconditioner == LinearPreconditioner::automatic &&
              (composition_.n_fields() > 1 ||
               !composition_.saddle_points().empty()));
           if (flexible)
@@ -432,13 +464,20 @@ namespace ImmersX
               dealii::SolverFGMRES<GlobalVectorType> solver(control,
                                                             right_data);
               solver.solve(operator_view, state, residual, preconditioner);
+              pcout << "LinearAdapter: FGMRES converged in "
+                    << control.last_step() << " iteration(s), residual "
+                    << control.last_value() << "." << std::endl;
             }
           else
             {
               dealii::SolverGMRES<GlobalVectorType> solver(control, data);
               solver.solve(operator_view, state, residual, preconditioner);
+              pcout << "LinearAdapter: GMRES converged in "
+                    << control.last_step() << " iteration(s), residual "
+                    << control.last_value() << "." << std::endl;
             }
         }
+      pcout << "LinearAdapter: solve finished." << std::endl;
     }
 
   private:
@@ -446,13 +485,16 @@ namespace ImmersX
     make_preconditioner(const Operator         &operator_view,
                         const GlobalVectorType &state) const
     {
-      auto choice = options_.preconditioner;
+      auto choice = parameters_.preconditioner;
       if (choice == LinearPreconditioner::automatic)
         choice = !composition_.saddle_points().empty() ?
                    LinearPreconditioner::schur :
                    (composition_.n_fields() == 1 ?
                       LinearPreconditioner::block_diagonal :
                       LinearPreconditioner::block_triangular);
+
+      pcout << "LinearAdapter: selected " << magic_enum::enum_name(choice)
+            << " preconditioner." << std::endl;
 
       if (choice == LinearPreconditioner::none)
         return dealii::identity_operator(operator_view);
@@ -483,7 +525,7 @@ namespace ImmersX
         }
       if (choice == LinearPreconditioner::augmented_lagrangian)
         return composition_.augmented_lagrangian_preconditioner(
-          state, options_.augmented_lagrangian_parameter);
+          state, parameters_.augmented_lagrangian_parameter);
       AssertThrow(false,
                   dealii::ExcMessage(
                     "The requested preconditioner policy is not available "
@@ -493,7 +535,8 @@ namespace ImmersX
 
     Composition                                      composition_;
     SolveFunction                                    solve_;
-    LinearSolverOptions                              options_;
+    const LinearAdapterParameters                   &parameters_;
+    mutable dealii::ConditionalOStream               pcout;
     mutable std::shared_ptr<MatrixType>              direct_matrix_;
     mutable std::unique_ptr<dealii::SolverControl>   direct_control_;
     mutable std::unique_ptr<ImmersXLA::SolverDirect> direct_solver_;

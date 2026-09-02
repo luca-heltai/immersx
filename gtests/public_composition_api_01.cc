@@ -139,7 +139,9 @@ TEST(PublicComposition, AddObserveLiftAndCouple)
   owned.add_range(0, 2);
   owned.compress();
 
-  Adapter adapter(MPI_COMM_WORLD,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
                   [](const auto &, const auto &, auto &solution) {
                     solution = 0.;
                   });

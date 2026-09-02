@@ -42,11 +42,13 @@ TEST(RepresentationLoadInteraction, PressureMapsToForceWithoutField)
   owned.add_range(0, 2);
   owned.compress();
 
-  Adapter    adapter(MPI_COMM_WORLD,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
                   [](const auto &, const auto &, auto &solution) {
                     solution = 0.;
                   });
-  const auto fields = adapter.add(owned, "state");
+  const auto                      fields = adapter.add(owned, "state");
 
   ImmersX::ImmersXLA::MPI::SparseMatrix matrix;
   dealii::DynamicSparsityPattern        sparsity(2, 2);

@@ -237,14 +237,15 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   using FieldVector  = LA::MPI::Vector;
   using GlobalVector = LA::MPI::BlockVector;
   using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::AdditionalData data;
-  data.initial_time      = 0.;
-  data.final_time        = 0.05;
-  data.initial_step_size = 0.025;
-  data.output_period     = 0.05;
-  data.maximum_order     = 1;
-  data.ic_type           = Adapter::AdditionalData::none;
-  Adapter    ida(data, MPI_COMM_WORLD);
+  Adapter::Parameters adapter_parameters;
+  auto               &data = adapter_parameters.data;
+  data.initial_time        = 0.;
+  data.final_time          = 0.05;
+  data.initial_step_size   = 0.025;
+  data.output_period       = 0.05;
+  data.maximum_order       = 1;
+  data.ic_type             = Adapter::AdditionalData::none;
+  Adapter    ida(adapter_parameters, MPI_COMM_WORLD);
   const auto fields = ida.add(problem, "fluid");
 
   auto state                                     = ida.make_state();

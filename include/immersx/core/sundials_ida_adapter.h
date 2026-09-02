@@ -12,6 +12,10 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/conditional_ostream.h>
+#include <deal.II/base/mpi.h>
+#include <deal.II/base/parameter_acceptor.h>
+
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_gmres.h>
 
@@ -21,6 +25,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,6 +39,29 @@
 #ifdef DEAL_II_WITH_SUNDIALS
 namespace ImmersX
 {
+  /** Parameter object for an IDAAdapter. */
+  template <typename GlobalVectorType>
+  struct IDAParameters : public dealii::ParameterAcceptor
+  {
+    using AdditionalData =
+      typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
+
+    IDAParameters(const std::string &section_name = "IDA adapter")
+      : dealii::ParameterAcceptor(section_name)
+    {}
+
+    void
+    declare_parameters(dealii::ParameterHandler &prm) override
+    {
+      data.add_parameters(prm);
+    }
+
+    AdditionalData data;
+  };
+
+  template <typename GlobalVectorType>
+  using IDAAdapterParameters = IDAParameters<GlobalVectorType>;
+
   /** Public transient DAE adapter backed by the private composition engine. */
   template <typename FieldVectorType, typename GlobalVectorType>
   class IDAAdapter
@@ -57,14 +85,23 @@ namespace ImmersX
                                               const unsigned int)>;
     using AdditionalData =
       typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
+    using Parameters = IDAParameters<GlobalVectorType>;
 
-    IDAAdapter(const AdditionalData &data,
-               const MPI_Comm        communicator,
-               LinearSolveFunction   solve = {})
+    IDAAdapter(const IDAParameters<GlobalVectorType> &parameters,
+               const MPI_Comm                         communicator,
+               LinearSolveFunction                    solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
-      , ida_(data, communicator)
+      , parameters_(parameters)
+      , pcout(std::cout,
+              dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
     {}
+
+    const AdditionalData &
+    additional_data() const
+    {
+      return parameters_.data;
+    }
 
     template <typename Problem, typename... Arguments>
     auto
@@ -77,6 +114,11 @@ namespace ImmersX
                     "IDAAdapter contributors must be added before reinit or "
                     "solve."));
       auto fields = composition_.add(problem, prefix, arguments...);
+      pcout << "IDAAdapter: registered contributor";
+      if (!prefix.empty())
+        pcout << " '" << prefix << "'";
+      pcout << "; " << composition_.n_fields()
+            << " semantic field(s) available." << std::endl;
       return ProblemHandle<IDAAdapter, decltype(fields)>(*this,
                                                          std::move(fields));
     }
@@ -100,20 +142,27 @@ namespace ImmersX
     reinit(GlobalVectorType &vector)
     {
       composition_.reinit(vector);
+      pcout << "IDAAdapter: execution vector initialized with "
+            << composition_.n_fields() << " semantic field(s)." << std::endl;
     }
 
     dealii::SUNDIALS::IDA<GlobalVectorType> &
     solver()
     {
       finalize();
-      return ida_;
+      return *ida_;
     }
 
     unsigned int
     solve(GlobalVectorType &state, GlobalVectorType &state_dot)
     {
       finalize();
-      return ida_.solve_dae(state, state_dot);
+      pcout << "IDAAdapter: starting DAE solve with " << composition_.n_fields()
+            << " semantic field(s)." << std::endl;
+      const auto n_steps = ida_->solve_dae(state, state_dot);
+      pcout << "IDAAdapter: DAE solve finished after " << n_steps
+            << " accepted step(s)." << std::endl;
+      return n_steps;
     }
 
     /** Register native output for IDA's accepted/interpolated output states. */
@@ -124,6 +173,8 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "IDAAdapter output must be configured before solve."));
       output_ = std::move(output);
+      pcout << "IDAAdapter: accepted-state output callback configured."
+            << std::endl;
     }
 
     GlobalVectorType
@@ -264,29 +315,37 @@ namespace ImmersX
 
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
-      ida_.reinit_vector = [this](GlobalVectorType &vector) {
+      ida_ = std::make_unique<dealii::SUNDIALS::IDA<GlobalVectorType>>(
+        parameters_.data, composition_.communicator());
+      ida_->reinit_vector = [this](GlobalVectorType &vector) {
         composition_.reinit(vector);
       };
-      ida_.residual = [this](const double            time,
-                             const GlobalVectorType &state,
-                             const GlobalVectorType &state_dot,
-                             GlobalVectorType       &residual) {
+      ida_->residual = [this](const double            time,
+                              const GlobalVectorType &state,
+                              const GlobalVectorType &state_dot,
+                              GlobalVectorType       &residual) {
         composition_.evaluate_residual(time, state, &state_dot, residual);
       };
-      ida_.setup_jacobian = [this](const double            time,
-                                   const GlobalVectorType &state,
-                                   const GlobalVectorType &state_dot,
-                                   const double            alpha) {
+      ida_->setup_jacobian = [this](const double            time,
+                                    const GlobalVectorType &state,
+                                    const GlobalVectorType &state_dot,
+                                    const double            alpha) {
         prepare_jacobian(time, state, state_dot, alpha);
       };
-      ida_.solve_with_jacobian = [this](const GlobalVectorType &rhs,
-                                        GlobalVectorType       &dst,
-                                        const double            tolerance) {
+      ida_->solve_with_jacobian = [this](const GlobalVectorType &rhs,
+                                         GlobalVectorType       &dst,
+                                         const double            tolerance) {
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
                                        "current Jacobian."));
         if (solve_)
-          solve_(*current_jacobian_, rhs, dst, tolerance);
+          {
+            pcout << "IDAAdapter: invoking the configured linear solver."
+                  << std::endl;
+            solve_(*current_jacobian_, rhs, dst, tolerance);
+            pcout << "IDAAdapter: configured linear solver finished."
+                  << std::endl;
+          }
         else
           {
             dst = 0.;
@@ -303,24 +362,49 @@ namespace ImmersX
                                         dst,
                                         rhs,
                                         *current_preconditioner_);
+                  pcout << "IDAAdapter: FGMRES converged in "
+                        << control.last_step() << " iteration(s), residual "
+                        << control.last_value() << "." << std::endl;
                 }
               else
+                {
+                  solver.solve(*current_jacobian_,
+                               dst,
+                               rhs,
+                               *current_preconditioner_);
+                  pcout << "IDAAdapter: GMRES converged in "
+                        << control.last_step() << " iteration(s), residual "
+                        << control.last_value() << "." << std::endl;
+                }
+            else
+              {
                 solver.solve(*current_jacobian_,
                              dst,
                              rhs,
-                             *current_preconditioner_);
-            else
-              solver.solve(*current_jacobian_,
-                           dst,
-                           rhs,
-                           dealii::PreconditionIdentity());
+                             dealii::PreconditionIdentity());
+                pcout << "IDAAdapter: GMRES converged in "
+                      << control.last_step() << " iteration(s), residual "
+                      << control.last_value() << "." << std::endl;
+              }
           }
       };
-      ida_.differential_components = [this]() {
+      ida_->differential_components = [this]() {
         return composition_.differential_components();
       };
       if (output_)
-        ida_.output_step = output_;
+        {
+          ida_->output_step =
+            [this, output = output_](const double            time,
+                                     const GlobalVectorType &state,
+                                     const GlobalVectorType &state_dot,
+                                     const unsigned int      step) {
+              pcout << "IDAAdapter: accepted output step " << step
+                    << " at time " << time << "." << std::endl;
+              output(time, state, state_dot, step);
+            };
+        }
+      pcout << "IDAAdapter: finalized with " << composition_.n_fields()
+            << " semantic field(s)." << std::endl;
       connected_ = true;
     }
 
@@ -429,15 +513,17 @@ namespace ImmersX
         }
     }
 
-    Composition                             composition_;
-    LinearSolveFunction                     solve_;
-    dealii::SUNDIALS::IDA<GlobalVectorType> ida_;
-    std::optional<Operator>                 current_jacobian_;
-    std::optional<Operator>                 current_preconditioner_;
-    OutputFunction                          output_;
-    bool                                    current_solver_is_flexible_ = false;
-    std::size_t                             coupling_count_             = 0;
-    bool                                    connected_                  = false;
+    Composition                                              composition_;
+    LinearSolveFunction                                      solve_;
+    const IDAParameters<GlobalVectorType>                   &parameters_;
+    std::unique_ptr<dealii::SUNDIALS::IDA<GlobalVectorType>> ida_;
+    mutable dealii::ConditionalOStream                       pcout;
+    std::optional<Operator>                                  current_jacobian_;
+    std::optional<Operator> current_preconditioner_;
+    OutputFunction          output_;
+    bool                    current_solver_is_flexible_ = false;
+    std::size_t             coupling_count_             = 0;
+    bool                    connected_                  = false;
   };
 } // namespace ImmersX
 #endif

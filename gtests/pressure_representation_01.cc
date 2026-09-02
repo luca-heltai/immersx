@@ -268,7 +268,9 @@ check_path_pressure_with_elasticity(const unsigned int expected_processes)
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
-  Adapter adapter(
+  LinearSolverParameters adapter_parameters;
+  Adapter                adapter(
+    adapter_parameters,
     MPI_COMM_WORLD,
     [](const auto &operator_view, const auto &rhs, auto &solution) {
       dealii::SolverControl control(500, 1.e-12 * rhs.l2_norm(), false);

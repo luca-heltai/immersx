@@ -1,9 +1,12 @@
+#include <deal.II/base/parameter_acceptor.h>
+
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/linear_adapter.h>
+#include <immersx/io/utils.h>
 
 namespace ImmersX
 {
@@ -308,7 +311,9 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   problem.rhs[1] = 8.;
   using Adapter  = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter    adapter(MPI_COMM_WORLD,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
                   [](const auto &operator_view,
                      const auto &rhs,
                      auto       &solution) {
@@ -317,7 +322,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                     solution.block(0)[0] /= 2.;
                     solution.block(0)[1] /= 4.;
                   });
-  const auto fields   = adapter.add(problem, "fake");
+  const auto                      fields = adapter.add(problem, "fake");
   const auto observed = fields.observe(fields.fields().solution);
   auto       state    = adapter.make_state();
   EXPECT_EQ(observed.source(), fields.fields().solution);
@@ -392,10 +397,10 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
 
-  ImmersX::LinearSolverOptions default_options;
+  ImmersX::LinearSolverParameters default_options;
   default_options.preconditioner =
     ImmersX::LinearPreconditioner::block_diagonal;
-  Adapter    default_adapter(MPI_COMM_WORLD, default_options);
+  Adapter    default_adapter(default_options, MPI_COMM_WORLD);
   const auto default_fields = default_adapter.add(problem, "default");
   auto       default_state  = default_adapter.make_state();
   default_adapter.solve(default_state);
@@ -408,9 +413,9 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
               2.,
               1.e-10);
 
-  ImmersX::LinearSolverOptions direct_options;
+  ImmersX::LinearSolverParameters direct_options;
   direct_options.solver = ImmersX::LinearSolver::direct;
-  Adapter    direct_adapter(MPI_COMM_WORLD, direct_options);
+  Adapter    direct_adapter(direct_options, MPI_COMM_WORLD);
   const auto direct_fields = direct_adapter.add(problem, "direct");
   auto       direct_state  = direct_adapter.make_state();
   direct_adapter.solve(direct_state);
@@ -466,6 +471,35 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
               1.e-12);
 }
 
+TEST(LinearAdapter, ParameterAcceptorControlsSolverOptions)
+{
+  dealii::ParameterAcceptor::clear();
+
+  using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
+                                         ImmersX::ImmersXLA::MPI::BlockVector>;
+  ImmersX::LinearSolverParameters adapter_parameters(
+    "Linear adapter parameters");
+  Adapter adapter(adapter_parameters, MPI_COMM_WORLD, Adapter::SolveFunction{});
+
+  ImmersX::initialize_parameters_from_string(R"(
+    subsection Linear adapter parameters
+      set Solver = direct
+      set Preconditioner = augmented_lagrangian
+      set Maximum iterations = 37
+      set Tolerance = 1.e-9
+      set Augmented Lagrangian parameter = 4.5
+    end
+  )");
+
+  const auto &options = adapter.solver_options();
+  EXPECT_EQ(options.solver, ImmersX::LinearSolver::direct);
+  EXPECT_EQ(options.preconditioner,
+            ImmersX::LinearPreconditioner::augmented_lagrangian);
+  EXPECT_EQ(options.maximum_iterations, 37u);
+  EXPECT_DOUBLE_EQ(options.tolerance, 1.e-9);
+  EXPECT_DOUBLE_EQ(options.augmented_lagrangian_parameter, 4.5);
+}
+
 TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
 {
   ImmersX::TriangularProblem problem;
@@ -478,9 +512,12 @@ TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
-  const auto fields = adapter.add(problem, "triangular");
-  auto       state  = adapter.make_state();
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
+                  [](const auto &, const auto &, auto &) {});
+  const auto                      fields = adapter.add(problem, "triangular");
+  auto                            state  = adapter.make_state();
   adapter.field(state, fields.fields().v)[0] = 9.;
   adapter.field(state, fields.fields().u)[0] = 6.;
 
@@ -521,9 +558,12 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
-  const auto fields                            = adapter.add(problem, "schur");
-  auto       state                             = adapter.make_state();
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
+                  [](const auto &, const auto &, auto &) {});
+  const auto                      fields       = adapter.add(problem, "schur");
+  auto                            state        = adapter.make_state();
   adapter.field(state, fields.fields().primal) = 1.;
   adapter.field(state, fields.fields().auxiliary)  = 1.;
   adapter.field(state, fields.fields().multiplier) = 0.;

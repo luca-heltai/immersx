@@ -21,15 +21,16 @@ namespace
 {
   template <int dim>
   void
-  solve_one_cycle(ImmersX::ElasticStaticProblem<dim> &problem,
-                  const unsigned int                  cycle)
+  solve_one_cycle(ImmersX::ElasticStaticProblem<dim>    &problem,
+                  const unsigned int                     cycle,
+                  const ImmersX::LinearSolverParameters &adapter_parameters)
   {
     using namespace ImmersX;
     using FieldVector  = ImmersXLA::MPI::Vector;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
 
-    Adapter adapter(MPI_COMM_WORLD);
+    Adapter adapter(adapter_parameters, MPI_COMM_WORLD);
 
     const auto fields = adapter.add(problem, "elastic-static");
     auto       state  = adapter.make_state();
@@ -58,6 +59,7 @@ namespace
     using Problem = ElasticStaticProblem<dim>;
 
     ElasticStaticParameters<dim> parameters;
+    LinearSolverParameters       adapter_parameters;
     initialize_parameters(parameter_file);
     AssertThrow(parameters.triangulation_type != "fullydistributed" ||
                   parameters.n_refinement_cycles <= 1,
@@ -72,7 +74,7 @@ namespace
     for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
          ++cycle)
       {
-        solve_one_cycle(problem, cycle);
+        solve_one_cycle(problem, cycle, adapter_parameters);
         problem.compute_error(parameters.convergence_table);
         problem.output_results(cycle);
 
