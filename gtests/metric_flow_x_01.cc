@@ -36,10 +36,10 @@ namespace
     problem.setup();
   }
 
-  Adapter::AdditionalData
-  adapter_data()
+  void
+  adapter_data(Adapter::Parameters &parameters)
   {
-    Adapter::AdditionalData data;
+    auto &data                         = parameters.data;
     data.initial_time                  = 0.;
     data.final_time                    = 1.e-4;
     data.initial_step_size             = 1.e-5;
@@ -49,7 +49,6 @@ namespace
     data.relative_tolerance            = 1.e-5;
     data.ic_type                       = Adapter::AdditionalData::use_y_diff;
     data.reset_type                    = Adapter::AdditionalData::none;
-    return data;
   }
 
   template <typename Fields>
@@ -104,7 +103,9 @@ TEST(MetricFlowX, MPI_RegistersOneMixedStateField) // NOLINT
   Problem problem(MPI_COMM_WORLD);
   initialize_problem(problem);
 
-  Adapter    adapter(adapter_data(), MPI_COMM_WORLD);
+  Adapter::Parameters adapter_parameters;
+  adapter_data(adapter_parameters);
+  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
 
@@ -126,7 +127,9 @@ TEST(MetricFlowX, MPI_ResidualMatchesNativeAndPreservesAdditivity) // NOLINT
   Problem problem(MPI_COMM_WORLD);
   initialize_problem(problem);
 
-  Adapter    adapter(adapter_data(), MPI_COMM_WORLD);
+  Adapter::Parameters adapter_parameters;
+  adapter_data(adapter_parameters);
+  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
   add_synthetic_residual(adapter, fields.fields().state);
@@ -155,7 +158,9 @@ TEST(MetricFlowX, MPI_JacobianActionsMatchNativeMatrices) // NOLINT
   Problem problem(MPI_COMM_WORLD);
   initialize_problem(problem);
 
-  Adapter    adapter(adapter_data(), MPI_COMM_WORLD);
+  Adapter::Parameters adapter_parameters;
+  adapter_data(adapter_parameters);
+  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
   auto state     = adapter.make_state();
@@ -201,7 +206,9 @@ TEST(MetricFlowX, MPI_IDAVerticalSmoke) // NOLINT
   Problem problem(MPI_COMM_WORLD);
   initialize_problem(problem);
 
-  Adapter    adapter(adapter_data(), MPI_COMM_WORLD);
+  Adapter::Parameters adapter_parameters;
+  adapter_data(adapter_parameters);
+  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
   auto state     = adapter.make_state();
