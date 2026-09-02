@@ -34,7 +34,8 @@ namespace
     problem.initialize_params(parameter_file);
     problem.setup();
 
-    Adapter::AdditionalData data;
+    Adapter::Parameters adapter_parameters;
+    auto               &data           = adapter_parameters.data;
     data.initial_time                  = 0.;
     data.final_time                    = 1.e-4;
     data.initial_step_size             = 1.e-5;
@@ -45,7 +46,7 @@ namespace
     data.ic_type                       = Adapter::AdditionalData::use_y_diff;
     data.reset_type                    = Adapter::AdditionalData::none;
 
-    Adapter    adapter(data, MPI_COMM_WORLD);
+    Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
     const auto fields =
       adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
 
