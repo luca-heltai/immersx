@@ -39,11 +39,12 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
   using FieldVector  = ImmersX::ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::AdditionalData data;
-  data.initial_time = 0.;
-  data.final_time   = 0.01;
-  data.ic_type      = Adapter::AdditionalData::none;
-  Adapter    adapter(data,
+  Adapter::Parameters adapter_parameters;
+  auto               &data = adapter_parameters.data;
+  data.initial_time        = 0.;
+  data.final_time          = 0.01;
+  data.ic_type             = Adapter::AdditionalData::none;
+  Adapter    adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const dealii::LinearOperator<GlobalVector> &,
                      const GlobalVector &,
@@ -91,10 +92,11 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   using FieldVector  = ImmersX::ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::AdditionalData data;
-  data.initial_time = 0.;
-  data.final_time   = 0.01;
-  Adapter    adapter(data,
+  Adapter::Parameters adapter_parameters;
+  auto               &data = adapter_parameters.data;
+  data.initial_time        = 0.;
+  data.final_time          = 0.01;
+  Adapter    adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const dealii::LinearOperator<GlobalVector> &,
                      const GlobalVector &,
@@ -113,10 +115,10 @@ TEST(ContributorPhysics, IDAAdapterUsesAdditionalDataParameters)
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
-  Adapter adapter(Adapter::AdditionalData{},
+  Adapter::Parameters adapter_parameters("IDA adapter parameters");
+  Adapter             adapter(adapter_parameters,
                   MPI_COMM_WORLD,
-                  Adapter::LinearSolveFunction{},
-                  "IDA adapter parameters");
+                  Adapter::LinearSolveFunction{});
 
   ImmersX::initialize_parameters_from_string(R"(
     subsection IDA adapter parameters

@@ -316,14 +316,15 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
-  Adapter    linear(MPI_COMM_WORLD);
-  const auto bulk     = linear.add(bulk_problem, "bulk");
-  const auto embedded = linear.add(embedded_problem, "embedded");
-  const auto coupling = linear.add(interaction,
+  ImmersX::LinearSolverOptions linear_parameters;
+  Adapter                      linear(linear_parameters, MPI_COMM_WORLD);
+  const auto                   bulk = linear.add(bulk_problem, "bulk");
+  const auto embedded               = linear.add(embedded_problem, "embedded");
+  const auto coupling               = linear.add(interaction,
                                    "continuity",
                                    bulk.fields().solution,
                                    embedded.fields().solution);
-  auto       state    = linear.make_state();
+  auto       state                  = linear.make_state();
   linear.solve(state);
 
   const auto &bulk_state     = linear.field(state, bulk.fields().solution);
@@ -377,7 +378,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   augmented_options.preconditioner =
     ImmersX::LinearPreconditioner::augmented_lagrangian;
   augmented_options.augmented_lagrangian_parameter = 2.;
-  Adapter    augmented(MPI_COMM_WORLD, augmented_options);
+  Adapter    augmented(augmented_options, MPI_COMM_WORLD);
   const auto augmented_bulk = augmented.add(bulk_problem, "bulk-al");
   const auto augmented_embedded =
     augmented.add(embedded_problem, "embedded-al");
@@ -393,7 +394,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
 
   ImmersX::LinearSolverOptions direct_options;
   direct_options.solver = ImmersX::LinearSolver::direct;
-  Adapter    direct(MPI_COMM_WORLD, direct_options);
+  Adapter    direct(direct_options, MPI_COMM_WORLD);
   const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");
   const auto direct_embedded = direct.add(embedded_problem, "embedded-direct");
   direct.add(interaction,

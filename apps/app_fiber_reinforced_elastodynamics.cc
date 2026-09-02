@@ -39,7 +39,6 @@ namespace
       VectorLagrangeMultiplierInteraction<Representation, Representation>;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = IDAAdapter<VectorType, GlobalVector>;
-
     Problem matrix_problem(parameters.matrix_parameters);
     Problem fiber_problem(parameters.fiber_parameters);
     matrix_problem.make_grid();
@@ -68,21 +67,7 @@ namespace
                             parameters.coupling_parameters);
     interaction.assemble();
 
-    typename Adapter::AdditionalData data;
-    data.initial_time                  = parameters.initial_time;
-    data.final_time                    = parameters.final_time;
-    data.initial_step_size             = std::min(parameters.time_step, 1.e-5);
-    data.output_period                 = parameters.output_frequency > 0 ?
-                                           parameters.output_frequency * parameters.time_step :
-                                           parameters.final_time - parameters.initial_time;
-    data.maximum_order                 = 1;
-    data.maximum_non_linear_iterations = 50;
-    data.absolute_tolerance = std::max(1.e-4, parameters.block_tolerance);
-    data.relative_tolerance = std::max(1.e-4, parameters.block_tolerance);
-    data.ic_type            = Adapter::AdditionalData::use_y_diff;
-    data.reset_type         = Adapter::AdditionalData::none;
-
-    Adapter    adapter(data, MPI_COMM_WORLD);
+    Adapter    adapter(parameters.ida_parameters, MPI_COMM_WORLD);
     const auto matrix   = adapter.add(matrix_problem, "matrix");
     const auto fiber    = adapter.add(fiber_problem, "fiber");
     const auto coupling = adapter.add(interaction,

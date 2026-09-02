@@ -28,21 +28,12 @@ namespace
   run_elastodynamics(const std::string &parameter_file)
   {
     ElastodynamicsParameters<dim> parameters;
-    initialize_parameters(parameter_file);
-
-    ElastodynamicsSolver<dim> problem(parameters);
-    problem.make_grid();
-    problem.setup_fe();
-    problem.setup_system();
-    problem.assemble_operators();
-    problem.set_initial_conditions();
-
 #ifdef DEAL_II_WITH_SUNDIALS
     using FieldVector  = typename ElastodynamicsSolver<dim>::VectorType;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
-
-    typename Adapter::AdditionalData data;
+    typename Adapter::Parameters adapter_parameters;
+    auto                        &data  = adapter_parameters.data;
     data.initial_time                  = parameters.initial_time;
     data.final_time                    = parameters.final_time;
     data.initial_step_size             = std::min(parameters.time_step, 1.e-5);
@@ -57,8 +48,18 @@ namespace
       std::max(1.e-4, parameters.solver_control.tolerance());
     data.ic_type    = Adapter::AdditionalData::none;
     data.reset_type = Adapter::AdditionalData::none;
+#endif
+    initialize_parameters(parameter_file);
 
-    Adapter    adapter(data, MPI_COMM_WORLD);
+    ElastodynamicsSolver<dim> problem(parameters);
+    problem.make_grid();
+    problem.setup_fe();
+    problem.setup_system();
+    problem.assemble_operators();
+    problem.set_initial_conditions();
+
+#ifdef DEAL_II_WITH_SUNDIALS
+    Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
     const auto fields = adapter.add(problem, "elastodynamics");
     adapter.set_output_step(
       [&problem, &adapter, fields, &parameters](const double        time,

@@ -38,6 +38,7 @@ main(int argc, char *argv[])
       ElasticStaticParameters<3, 3>          elasticity_parameters;
       CoupledPoissonElasticity::PressureLift pressure_lift("/Pressure lift/");
       CoupledPoissonElasticity::Traction     traction("/Pressure traction/");
+      LinearSolverOptions                    adapter_parameters;
       const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
       initialize_parameters(prm_file);
 
@@ -55,7 +56,7 @@ main(int argc, char *argv[])
       using GlobalVector = ImmersXLA::MPI::BlockVector;
       using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
 
-      Adapter adapter(MPI_COMM_WORLD);
+      Adapter adapter(adapter_parameters, MPI_COMM_WORLD);
 
       const auto poisson = adapter.add(poisson_problem);
       const auto elastic = adapter.add(elasticity_problem);

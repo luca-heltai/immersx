@@ -117,6 +117,9 @@ namespace ImmersX
                        "Fiber Elastodynamics/")
     , coupling_parameters(normalize_subsection(subsection) +
                           "Fiber Coupling/Particle search/")
+#ifdef DEAL_II_WITH_SUNDIALS
+    , ida_parameters(normalize_subsection(subsection) + "IDA adapter/")
+#endif
   {
     add_parameter("Output directory", output_directory);
     add_parameter("Multiplier output name", multiplier_output_name);
@@ -144,6 +147,24 @@ namespace ImmersX
                     Patterns::Double(0));
     }
     leave_subsection();
+
+#ifdef DEAL_II_WITH_SUNDIALS
+    auto &ida_data                         = ida_parameters.data;
+    ida_data.initial_time                  = initial_time;
+    ida_data.final_time                    = final_time;
+    ida_data.initial_step_size             = std::min(time_step, 1.e-5);
+    ida_data.output_period                 = output_frequency > 0 ?
+                                               output_frequency * time_step :
+                                               std::max(time_step, final_time - initial_time);
+    ida_data.maximum_order                 = 1;
+    ida_data.maximum_non_linear_iterations = 50;
+    ida_data.absolute_tolerance            = std::max(1.e-4, block_tolerance);
+    ida_data.relative_tolerance            = std::max(1.e-4, block_tolerance);
+    ida_data.ic_type =
+      IDAParameters<ImmersXLA::MPI::BlockVector>::AdditionalData::use_y_diff;
+    ida_data.reset_type =
+      IDAParameters<ImmersXLA::MPI::BlockVector>::AdditionalData::none;
+#endif
 
     parse_parameters_call_back.connect([this]() {
       ensure_directory(output_directory);
@@ -492,23 +513,8 @@ namespace ImmersX
   {
     using Adapter = IDAAdapterType;
 
-    typename Adapter::AdditionalData data;
-    data.initial_time      = parameters.initial_time;
-    data.final_time        = parameters.final_time;
-    data.initial_step_size = std::min(parameters.time_step, 1.e-5);
-    data.output_period =
-      parameters.output_frequency > 0 ?
-        parameters.output_frequency * parameters.time_step :
-        std::max(parameters.time_step,
-                 parameters.final_time - parameters.initial_time);
-    data.maximum_order                 = 1;
-    data.maximum_non_linear_iterations = 50;
-    data.absolute_tolerance = std::max(1.e-4, parameters.block_tolerance);
-    data.relative_tolerance = std::max(1.e-4, parameters.block_tolerance);
-    data.ic_type            = Adapter::AdditionalData::use_y_diff;
-    data.reset_type         = Adapter::AdditionalData::none;
-
-    ida_storage = std::make_unique<Adapter>(data, MPI_COMM_WORLD);
+    ida_storage =
+      std::make_unique<Adapter>(parameters.ida_parameters, MPI_COMM_WORLD);
     const auto matrix_fields =
       ida_storage->add(matrix_problem_storage, "matrix");
     const auto fiber_fields = ida_storage->add(fiber_problem_storage, "fiber");

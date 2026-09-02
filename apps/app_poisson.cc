@@ -33,6 +33,12 @@ namespace
   run_poisson(const std::string &parameter_file)
   {
     PoissonParameters<dim, spacedim> parameters;
+    LinearSolverOptions              adapter_parameters;
+    adapter_parameters.solver         = LinearSolver::iterative;
+    adapter_parameters.preconditioner = LinearPreconditioner::block_diagonal;
+    adapter_parameters.maximum_iterations =
+      parameters.solver_control.max_steps();
+    adapter_parameters.tolerance = parameters.solver_control.tolerance();
     initialize_parameters(parameter_file);
 
     PoissonSolver<dim, spacedim> problem(parameters);
@@ -52,12 +58,7 @@ namespace
         using GlobalVector = ImmersXLA::MPI::BlockVector;
         using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
 
-        LinearSolverOptions options;
-        options.solver             = LinearSolver::iterative;
-        options.preconditioner     = LinearPreconditioner::block_diagonal;
-        options.maximum_iterations = parameters.solver_control.max_steps();
-        options.tolerance          = parameters.solver_control.tolerance();
-        Adapter    adapter(MPI_COMM_WORLD, options);
+        Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
         const auto fields = adapter.add(problem, "poisson");
         auto       state  = adapter.make_state();
         adapter.solve(state);

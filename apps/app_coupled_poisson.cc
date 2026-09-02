@@ -48,6 +48,7 @@ namespace
     PoissonParameters<2>                bulk_parameters;
     PoissonParameters<1, 2>       embedded_parameters("/Embedded Poisson/");
     ParticleCouplingParameters<2> search_parameters("/Particle coupling/");
+    LinearSolverOptions           adapter_parameters;
     initialize_parameters(parameter_file);
 
     bulk_parameters.output_directory = application_parameters.output_directory;
@@ -90,7 +91,7 @@ namespace
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
 
-    Adapter    adapter(MPI_COMM_WORLD);
+    Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
     const auto bulk     = adapter.add(bulk_problem, "bulk");
     const auto embedded = adapter.add(embedded_problem, "embedded");
     const auto coupling = adapter.add(interaction,

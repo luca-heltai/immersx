@@ -247,10 +247,11 @@ TEST(Elastodynamics, IDAResidualAndJacobianOracle)
   using FieldVector  = ElastodynamicsSolver<2>::VectorType;
   using GlobalVector = LA::MPI::BlockVector;
   using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::AdditionalData data;
-  data.initial_time = 0.;
-  data.final_time   = 0.01;
-  Adapter    ida(data,
+  Adapter::Parameters adapter_parameters;
+  auto               &data = adapter_parameters.data;
+  data.initial_time        = 0.;
+  data.final_time          = 0.01;
+  Adapter    ida(adapter_parameters,
               MPI_COMM_WORLD,
               [](const dealii::LinearOperator<GlobalVector> &,
                  const GlobalVector &,

@@ -238,7 +238,8 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   auto &interaction = driver.interaction();
 
   using Adapter = IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::AdditionalData data;
+  Adapter::Parameters adapter_parameters;
+  auto               &data           = adapter_parameters.data;
   data.initial_time                  = 0.;
   data.final_time                    = 0.001;
   data.initial_step_size             = 0.0005;
@@ -249,7 +250,7 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   data.maximum_non_linear_iterations = 20;
   data.ic_type                       = Adapter::AdditionalData::none;
   data.reset_type                    = Adapter::AdditionalData::none;
-  Adapter    ida(data, MPI_COMM_WORLD, solve_global_operator);
+  Adapter    ida(adapter_parameters, MPI_COMM_WORLD, solve_global_operator);
   const auto matrix   = ida.add(driver.matrix_problem(), "matrix");
   const auto fiber    = ida.add(driver.fiber_problem(), "fiber");
   const auto coupling = ida.add(driver.interaction(),

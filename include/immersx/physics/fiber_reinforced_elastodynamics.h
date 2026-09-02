@@ -48,6 +48,10 @@ namespace ImmersX
     double       time_step       = 1.e-2;
     unsigned int number_of_steps = 0;
 
+#ifdef DEAL_II_WITH_SUNDIALS
+    IDAParameters<ImmersXLA::MPI::BlockVector> ida_parameters;
+#endif
+
     unsigned int schur_max_steps                 = 200;
     double       schur_tolerance                 = 1.e-10;
     double       block_tolerance                 = 1.e-12;

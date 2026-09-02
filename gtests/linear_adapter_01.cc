@@ -311,7 +311,9 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   problem.rhs[1] = 8.;
   using Adapter  = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter    adapter(MPI_COMM_WORLD,
+  ImmersX::LinearSolverOptions adapter_parameters;
+  Adapter                      adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
                   [](const auto &operator_view,
                      const auto &rhs,
                      auto       &solution) {
@@ -320,7 +322,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                     solution.block(0)[0] /= 2.;
                     solution.block(0)[1] /= 4.;
                   });
-  const auto fields   = adapter.add(problem, "fake");
+  const auto                   fields = adapter.add(problem, "fake");
   const auto observed = fields.observe(fields.fields().solution);
   auto       state    = adapter.make_state();
   EXPECT_EQ(observed.source(), fields.fields().solution);
@@ -398,7 +400,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   ImmersX::LinearSolverOptions default_options;
   default_options.preconditioner =
     ImmersX::LinearPreconditioner::block_diagonal;
-  Adapter    default_adapter(MPI_COMM_WORLD, default_options);
+  Adapter    default_adapter(default_options, MPI_COMM_WORLD);
   const auto default_fields = default_adapter.add(problem, "default");
   auto       default_state  = default_adapter.make_state();
   default_adapter.solve(default_state);
@@ -413,7 +415,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
 
   ImmersX::LinearSolverOptions direct_options;
   direct_options.solver = ImmersX::LinearSolver::direct;
-  Adapter    direct_adapter(MPI_COMM_WORLD, direct_options);
+  Adapter    direct_adapter(direct_options, MPI_COMM_WORLD);
   const auto direct_fields = direct_adapter.add(problem, "direct");
   auto       direct_state  = direct_adapter.make_state();
   direct_adapter.solve(direct_state);
@@ -475,10 +477,8 @@ TEST(LinearAdapter, ParameterAcceptorControlsSolverOptions)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter adapter(MPI_COMM_WORLD,
-                  ImmersX::LinearSolverOptions{},
-                  Adapter::SolveFunction{},
-                  "Linear adapter parameters");
+  ImmersX::LinearSolverOptions adapter_parameters("Linear adapter parameters");
+  Adapter adapter(adapter_parameters, MPI_COMM_WORLD, Adapter::SolveFunction{});
 
   ImmersX::initialize_parameters_from_string(R"(
     subsection Linear adapter parameters
@@ -511,9 +511,12 @@ TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
-  const auto fields = adapter.add(problem, "triangular");
-  auto       state  = adapter.make_state();
+  ImmersX::LinearSolverOptions adapter_parameters;
+  Adapter                      adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
+                  [](const auto &, const auto &, auto &) {});
+  const auto                   fields = adapter.add(problem, "triangular");
+  auto                         state  = adapter.make_state();
   adapter.field(state, fields.fields().v)[0] = 9.;
   adapter.field(state, fields.fields().u)[0] = 6.;
 
@@ -554,9 +557,12 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  Adapter    adapter(MPI_COMM_WORLD, [](const auto &, const auto &, auto &) {});
-  const auto fields                            = adapter.add(problem, "schur");
-  auto       state                             = adapter.make_state();
+  ImmersX::LinearSolverOptions adapter_parameters;
+  Adapter                      adapter(adapter_parameters,
+                  MPI_COMM_WORLD,
+                  [](const auto &, const auto &, auto &) {});
+  const auto                   fields          = adapter.add(problem, "schur");
+  auto                         state           = adapter.make_state();
   adapter.field(state, fields.fields().primal) = 1.;
   adapter.field(state, fields.fields().auxiliary)  = 1.;
   adapter.field(state, fields.fields().multiplier) = 0.;

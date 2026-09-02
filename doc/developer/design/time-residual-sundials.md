@@ -15,7 +15,8 @@ Elastodynamics and unsteady-Stokes contributors.
 The public IDA composition API is
 
 ```cpp
-IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(data,
+IDAParameters<LA::MPI::BlockVector> ida_parameters;
+IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(ida_parameters,
                                                        MPI_COMM_WORLD);
 auto matrix = ida.add(matrix_problem, "matrix");
 auto fiber  = ida.add(fiber_problem, "fiber");

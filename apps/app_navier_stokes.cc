@@ -28,6 +28,25 @@ namespace
   run_navier_stokes(const std::string &parameter_file)
   {
     NavierStokesParameters<dim> parameters;
+#ifdef DEAL_II_WITH_SUNDIALS
+    using FieldVector  = typename NavierStokesSolver<dim>::VectorType;
+    using GlobalVector = ImmersXLA::MPI::BlockVector;
+    using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
+    typename Adapter::Parameters adapter_parameters;
+    auto                        &data  = adapter_parameters.data;
+    data.initial_time                  = parameters.initial_time;
+    data.final_time                    = parameters.final_time;
+    data.initial_step_size             = std::min(parameters.time_step, 1.e-5);
+    data.output_period                 = parameters.output_frequency > 0 ?
+                                           parameters.output_frequency * parameters.time_step :
+                                           parameters.final_time - parameters.initial_time;
+    data.maximum_order                 = 1;
+    data.maximum_non_linear_iterations = 50;
+    data.absolute_tolerance            = 1.e-4;
+    data.relative_tolerance            = 1.e-4;
+    data.ic_type                       = Adapter::AdditionalData::use_y_diff;
+    data.reset_type                    = Adapter::AdditionalData::none;
+#endif
     initialize_parameters(parameter_file);
 
     NavierStokesSolver<dim> problem(parameters);
@@ -37,25 +56,7 @@ namespace
     problem.assemble_system();
 
 #ifdef DEAL_II_WITH_SUNDIALS
-    using FieldVector  = typename NavierStokesSolver<dim>::VectorType;
-    using GlobalVector = ImmersXLA::MPI::BlockVector;
-    using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
-
-    typename Adapter::AdditionalData data;
-    data.initial_time                  = parameters.initial_time;
-    data.final_time                    = parameters.final_time;
-    data.initial_step_size             = std::min(problem.time_step(), 1.e-5);
-    data.output_period                 = parameters.output_frequency > 0 ?
-                                           parameters.output_frequency * problem.time_step() :
-                                           parameters.final_time - parameters.initial_time;
-    data.maximum_order                 = 1;
-    data.maximum_non_linear_iterations = 50;
-    data.absolute_tolerance            = 1.e-4;
-    data.relative_tolerance            = 1.e-4;
-    data.ic_type                       = Adapter::AdditionalData::use_y_diff;
-    data.reset_type                    = Adapter::AdditionalData::none;
-
-    Adapter    adapter(data, MPI_COMM_WORLD);
+    Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
     const auto fields = adapter.add(problem, "navier-stokes");
     adapter.set_output_step(
       [&problem, &adapter, fields, &parameters](const double        time,

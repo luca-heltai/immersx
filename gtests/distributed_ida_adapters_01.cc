@@ -25,10 +25,11 @@ TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
 
-  Adapter::AdditionalData data;
-  data.initial_time = 0.;
-  data.final_time   = 0.01;
-  Adapter adapter(data,
+  Adapter::Parameters adapter_parameters;
+  auto               &data = adapter_parameters.data;
+  data.initial_time        = 0.;
+  data.final_time          = 0.01;
+  Adapter adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const dealii::LinearOperator<GlobalVector> &,
                      const GlobalVector &,
@@ -93,8 +94,8 @@ TEST(DistributedIDA, MPI_MixedFieldDifferentialComponents) // NOLINT
 
   ASSERT_EQ(dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
 
-  Adapter::AdditionalData data;
-  Adapter                 adapter(data,
+  Adapter::Parameters adapter_parameters;
+  Adapter             adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const dealii::LinearOperator<GlobalVector> &,
                      const GlobalVector &,

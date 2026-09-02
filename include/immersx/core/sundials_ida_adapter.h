@@ -39,9 +39,32 @@
 #ifdef DEAL_II_WITH_SUNDIALS
 namespace ImmersX
 {
+  /** Parameter object for an IDAAdapter. */
+  template <typename GlobalVectorType>
+  struct IDAParameters : public dealii::ParameterAcceptor
+  {
+    using AdditionalData =
+      typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
+
+    IDAParameters(const std::string &section_name = "IDA adapter")
+      : dealii::ParameterAcceptor(section_name)
+    {}
+
+    void
+    declare_parameters(dealii::ParameterHandler &prm) override
+    {
+      data.add_parameters(prm);
+    }
+
+    AdditionalData data;
+  };
+
+  template <typename GlobalVectorType>
+  using IDAAdapterParameters = IDAParameters<GlobalVectorType>;
+
   /** Public transient DAE adapter backed by the private composition engine. */
   template <typename FieldVectorType, typename GlobalVectorType>
-  class IDAAdapter : public dealii::ParameterAcceptor
+  class IDAAdapter
   {
   public:
     using Composition =
@@ -62,29 +85,22 @@ namespace ImmersX
                                               const unsigned int)>;
     using AdditionalData =
       typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
+    using Parameters = IDAParameters<GlobalVectorType>;
 
-    IDAAdapter(const AdditionalData &data,
-               const MPI_Comm        communicator,
-               LinearSolveFunction   solve        = {},
-               const std::string    &section_name = "IDA adapter")
-      : dealii::ParameterAcceptor(section_name)
-      , composition_(communicator)
+    IDAAdapter(const IDAParameters<GlobalVectorType> &parameters,
+               const MPI_Comm                         communicator,
+               LinearSolveFunction                    solve = {})
+      : composition_(communicator)
       , solve_(std::move(solve))
-      , data_(data)
+      , parameters_(parameters)
       , pcout(std::cout,
               dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
     {}
 
-    void
-    declare_parameters(dealii::ParameterHandler &prm) override
-    {
-      data_.add_parameters(prm);
-    }
-
     const AdditionalData &
     additional_data() const
     {
-      return data_;
+      return parameters_.data;
     }
 
     template <typename Problem, typename... Arguments>
@@ -300,7 +316,7 @@ namespace ImmersX
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       ida_ = std::make_unique<dealii::SUNDIALS::IDA<GlobalVectorType>>(
-        data_, composition_.communicator());
+        parameters_.data, composition_.communicator());
       ida_->reinit_vector = [this](GlobalVectorType &vector) {
         composition_.reinit(vector);
       };
@@ -499,7 +515,7 @@ namespace ImmersX
 
     Composition                                              composition_;
     LinearSolveFunction                                      solve_;
-    AdditionalData                                           data_;
+    const IDAParameters<GlobalVectorType>                   &parameters_;
     std::unique_ptr<dealii::SUNDIALS::IDA<GlobalVectorType>> ida_;
     mutable dealii::ConditionalOStream                       pcout;
     std::optional<Operator>                                  current_jacobian_;
