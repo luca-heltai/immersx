@@ -146,8 +146,8 @@ The top-level `Navier-Stokes` subsection contains:
 - `Grid generation`: generator, arguments, and distributed triangulation;
 - `Physical properties`: `Density`, `Viscosity`, and the explicit-convection
   toggle;
-- `Time stepping`: initial/final time and either a fixed or number-of-steps
-  policy;
+- `Time parameters`: initial/final time and either a fixed or number-of-steps
+  policy, together with the output cadence;
 - `Right hand side`, `Dirichlet boundary conditions`, and `Initial condition`:
   parsed vector functions with `dim + 1` components, where the last component
   is pressure and is ignored for velocity data;

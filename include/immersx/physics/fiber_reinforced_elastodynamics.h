@@ -16,7 +16,10 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
 #include <immersx/core/representation.h>
-#include <immersx/core/sundials_ida_adapter.h>
+#include <immersx/core/time_parameters.h>
+#ifdef DEAL_II_WITH_SUNDIALS
+#  include <immersx/core/sundials_ida_adapter.h>
+#endif
 #include <immersx/coupling/particle_coupling.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
@@ -35,22 +38,14 @@ namespace ImmersX
     explicit FiberReinforcedElastodynamicsParameters(
       const std::string &subsection = "/Fiber Reinforced Elastodynamics/");
 
+    TimeParameters time_parameters;
+
     ElastodynamicsParameters<dim>   matrix_parameters;
     ElastodynamicsParameters<dim>   fiber_parameters;
     ParticleCouplingParameters<dim> coupling_parameters;
 
-    std::string  output_directory = "./output/fiber_reinforced_elastodynamics";
-    std::string  multiplier_output_name = "velocity_multiplier";
-    unsigned int output_frequency       = 1;
-
-    double       initial_time    = 0.;
-    double       final_time      = 0.1;
-    double       time_step       = 1.e-2;
-    unsigned int number_of_steps = 0;
-
-#ifdef DEAL_II_WITH_SUNDIALS
-    IDAParameters<ImmersXLA::MPI::BlockVector> ida_parameters;
-#endif
+    std::string output_directory = "./output/fiber_reinforced_elastodynamics";
+    std::string multiplier_output_name = "velocity_multiplier";
 
     unsigned int schur_max_steps                 = 200;
     double       schur_tolerance                 = 1.e-10;

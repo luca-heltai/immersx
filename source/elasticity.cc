@@ -361,7 +361,8 @@ namespace ImmersX
     const LA::MPI::Vector     &displacement_predictor,
     AffineConstraints<double> &acceleration_constraints) const
   {
-    AssertThrow(par.beta != 0.0 && par.dt != 0.0,
+    AssertThrow(par.time_parameters.newmark_beta != 0.0 &&
+                  par.time_parameters.time_step != 0.0,
                 ExcMessage("Newmark acceleration constraints require nonzero "
                            "beta and time step."));
 
@@ -375,7 +376,9 @@ namespace ImmersX
     acceleration_constraints.clear();
     acceleration_constraints.reinit(owned_dofs[0], relevant_dofs[0]);
 
-    const double newmark_factor = par.beta * par.dt * par.dt;
+    const double newmark_factor = par.time_parameters.newmark_beta *
+                                  par.time_parameters.time_step *
+                                  par.time_parameters.time_step;
     for (const auto &line : constraints.get_lines())
       {
         acceleration_constraints.add_line(line.index);
@@ -803,9 +806,12 @@ namespace ImmersX
             {
               cell_newmark.equ(mp.rho,
                                cell_value,
-                               par.beta * par.dt * par.dt,
+                               par.time_parameters.newmark_beta *
+                                 par.time_parameters.time_step *
+                                 par.time_parameters.time_step,
                                cell_stiffness,
-                               par.gamma * par.dt,
+                               par.time_parameters.newmark_gamma *
+                                 par.time_parameters.time_step,
                                cell_damping);
 
               constraints.distribute_local_to_global(cell_newmark,
@@ -889,7 +895,7 @@ namespace ImmersX
   void
   ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
   {
-    assemble_forcing_terms(current_time + par.dt);
+    assemble_forcing_terms(current_time + par.time_parameters.time_step);
   }
 
 
@@ -1240,7 +1246,8 @@ namespace ImmersX
                               inclusion_fe_values[j] *
                               inclusions.get_inclusion_data(inclusion_id, j);
 
-                            if (par.initial_time != par.final_time)
+                            if (par.time_parameters.initial_time !=
+                                par.time_parameters.final_time)
                               {
                                 temp *= inclusions.inclusions_rhs.value(
                                   real_q, inclusions.get_component(j));
@@ -1641,14 +1648,18 @@ namespace ImmersX
 
     SolverCG<LA::MPI::Vector> cg_stiffness(par.displacement_solver_control);
 
-    const double beta  = par.beta;
-    const double gamma = par.gamma;
+    const double beta  = par.time_parameters.newmark_beta;
+    const double gamma = par.time_parameters.newmark_gamma;
 
     // predictor step
-    u_pred = u + par.dt * v + (par.dt * par.dt / 2) * (1 - 2 * beta) * a;
-    v_pred = v + par.dt * (1 - gamma) * a;
+    u_pred =
+      u + par.time_parameters.time_step * v +
+      (par.time_parameters.time_step * par.time_parameters.time_step / 2) *
+        (1 - 2 * beta) * a;
+    v_pred = v + par.time_parameters.time_step * (1 - gamma) * a;
 
-    par.set_boundary_condition_times(current_time + par.dt);
+    par.set_boundary_condition_times(current_time +
+                                     par.time_parameters.time_step);
     setup_constraints();
     AffineConstraints<double> acceleration_constraints;
     make_newmark_acceleration_constraints(u_pred, acceleration_constraints);
@@ -1708,8 +1719,9 @@ namespace ImmersX
     acceleration_constraints.distribute(a);
 
     // corrector step
-    u = u_pred + par.dt * par.dt * beta * a;
-    v = v_pred + par.dt * gamma * a;
+    u = u_pred + par.time_parameters.time_step * par.time_parameters.time_step *
+                   beta * a;
+    v = v_pred + par.time_parameters.time_step * gamma * a;
 
     pcout << "   Inner displacement iterations for u = "
           << par.displacement_solver_control.last_step() << std::endl;
@@ -2337,7 +2349,7 @@ namespace ImmersX
     make_grid();
     setup_fe();
 
-    current_time = par.initial_time;
+    current_time = par.time_parameters.initial_time;
 
     if (!uses_tensor_product_coupling())
       {
@@ -2349,7 +2361,6 @@ namespace ImmersX
       {
         setup_dofs();
         time_step = 0;
-        par.dt    = par.dt;
         if (par.output_results_before_solving)
           output_results();
         assemble_elasticity_system();
@@ -2399,11 +2410,11 @@ namespace ImmersX
         inclusions.setup_inclusions_particles(*tria);
       }
 
-    current_time = par.initial_time;
+    current_time = par.time_parameters.initial_time;
     setup_dofs();
     for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
       {
-        current_time = par.initial_time;
+        current_time = par.time_parameters.initial_time;
         setup_dofs();
         assemble_elasticity_system();
         time_step = 0;
@@ -2416,9 +2427,9 @@ namespace ImmersX
 #endif
         assemble_coupling();
 
-        for (time_step = 0, current_time = par.initial_time;
-             current_time < par.final_time;
-             current_time += par.dt, ++time_step)
+        for (time_step = 0, current_time = par.time_parameters.initial_time;
+             current_time < par.time_parameters.final_time;
+             current_time += par.time_parameters.time_step, ++time_step)
           {
             compute_system_rhs();
             solve_quasistatic();
@@ -2432,8 +2443,8 @@ namespace ImmersX
         if (cycle != par.n_refinement_cycles - 1)
           {
             refine_and_transfer();
-            if (par.refine_time_step)
-              par.dt *= 0.5;
+            if (par.time_parameters.refine_time_step)
+              par.time_parameters.time_step *= 0.5;
           }
       }
   }
@@ -2456,11 +2467,11 @@ namespace ImmersX
         inclusions.setup_inclusions_particles(*tria);
       }
 
-    current_time = par.initial_time;
+    current_time = par.time_parameters.initial_time;
     setup_dofs();
     for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
       {
-        current_time = par.initial_time;
+        current_time = par.time_parameters.initial_time;
         assemble_elasticity_system();
         time_step = 0;
         assemble_forcing_terms();
@@ -2541,9 +2552,9 @@ namespace ImmersX
 
         locally_relevant_solution = solution;
 
-        for (time_step = 0, current_time = par.initial_time;
-             current_time < par.final_time;
-             current_time += par.dt, ++time_step)
+        for (time_step = 0, current_time = par.time_parameters.initial_time;
+             current_time < par.time_parameters.final_time;
+             current_time += par.time_parameters.time_step, ++time_step)
           {
             output_results();
             const bool openfilefirsttime = (cycle == 0 && time_step == 0);
@@ -2562,8 +2573,8 @@ namespace ImmersX
         if (cycle != par.n_refinement_cycles - 1)
           {
             refine_and_transfer();
-            if (par.refine_time_step)
-              par.dt *= 0.5;
+            if (par.time_parameters.refine_time_step)
+              par.time_parameters.time_step *= 0.5;
           }
         if (pcout.is_active())
           par.convergence_table.output_table(pcout.get_stream());
@@ -2575,7 +2586,7 @@ namespace ImmersX
   void
   ElasticityProblem<dim, spacedim>::compute_system_rhs()
   {
-    compute_system_rhs(current_time + par.dt);
+    compute_system_rhs(current_time + par.time_parameters.time_step);
   }
 
 

@@ -55,14 +55,14 @@ namespace
   {
     parameters.output_directory = TestPaths::output_directory(
       forcing ? "fiber-reinforced-forced" : "fiber-reinforced-zero");
-    parameters.output_frequency = 0;
+    parameters.time_parameters.output_frequency = 0;
 
     initialize_parameters_from_string(
       std::string(R"(
         set dimension       = 2
         set space dimension = 2
         subsection Fiber Reinforced Elastodynamics
-          subsection Time integration
+          subsection Time parameters
             set Final time   = 0.02
             set Time step    = 0.01
             set Number of time steps = 2
@@ -153,6 +153,33 @@ namespace
   using FieldVector  = LA::MPI::Vector;
   using GlobalVector = LA::MPI::BlockVector;
 
+  TEST(TimeParameters, FiberTutorialDerivesIDAConfiguration)
+  {
+    ParameterAcceptor::clear();
+    FiberReinforcedElastodynamicsParameters<2> parameters;
+
+    const auto parameter_file = TestPaths::parameter_path(
+      "tutorials/fiber_reinforced_elastodynamics/parameters.prm");
+    ASSERT_TRUE(std::filesystem::is_regular_file(parameter_file));
+    ASSERT_NO_THROW(initialize_parameters(parameter_file));
+
+    EXPECT_DOUBLE_EQ(parameters.time_parameters.initial_time, 0.0);
+    EXPECT_DOUBLE_EQ(parameters.time_parameters.final_time, 0.05);
+    EXPECT_DOUBLE_EQ(parameters.time_parameters.time_step, 0.01);
+    EXPECT_EQ(parameters.time_parameters.number_of_steps, 5u);
+
+    const auto data = parameters.time_parameters.ida_parameters<GlobalVector>();
+    EXPECT_DOUBLE_EQ(data.initial_time, 0.0);
+    EXPECT_DOUBLE_EQ(data.final_time, 0.05);
+    EXPECT_DOUBLE_EQ(data.output_period, 0.01);
+
+    using Adapter = IDAAdapter<FieldVector, GlobalVector>;
+    Adapter adapter(parameters.time_parameters, MPI_COMM_WORLD);
+    EXPECT_DOUBLE_EQ(adapter.additional_data().initial_time, 0.0);
+    EXPECT_DOUBLE_EQ(adapter.additional_data().final_time, 0.05);
+    EXPECT_DOUBLE_EQ(adapter.additional_data().output_period, 0.01);
+  }
+
   void
   solve_global_operator(
     const dealii::LinearOperator<GlobalVector> &operator_view,
@@ -230,27 +257,28 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   ParameterAcceptor::clear();
   FiberReinforcedElastodynamicsParameters<2> parameters;
   configure_problem(parameters, true, true);
-  parameters.final_time      = 0.001;
-  parameters.number_of_steps = 1;
+  parameters.time_parameters.final_time      = 0.001;
+  parameters.time_parameters.number_of_steps = 1;
   FiberReinforcedElastodynamics<2> driver(parameters);
   driver.setup();
   driver.set_initial_conditions();
   auto &interaction = driver.interaction();
 
   using Adapter = IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::Parameters adapter_parameters;
-  auto               &data           = adapter_parameters.data;
-  data.initial_time                  = 0.;
-  data.final_time                    = 0.001;
-  data.initial_step_size             = 0.0005;
-  data.output_period                 = 0.001;
-  data.absolute_tolerance            = 1.e-7;
-  data.relative_tolerance            = 1.e-7;
-  data.maximum_order                 = 1;
-  data.maximum_non_linear_iterations = 20;
-  data.ic_type                       = Adapter::AdditionalData::none;
-  data.reset_type                    = Adapter::AdditionalData::none;
-  Adapter    ida(adapter_parameters, MPI_COMM_WORLD, solve_global_operator);
+  TimeParameters time_parameters;
+  auto          &data                             = time_parameters;
+  data.initial_time                               = 0.;
+  data.final_time                                 = 0.001;
+  data.initial_step_size                          = 0.0005;
+  time_parameters.time_step                       = 0.001;
+  time_parameters.output_frequency                = 1;
+  data.absolute_tolerance                         = 1.e-7;
+  data.relative_tolerance                         = 1.e-7;
+  data.maximum_order                              = 1;
+  data.maximum_non_linear_iterations              = 20;
+  time_parameters.correction_type_at_initial_time = "none";
+  time_parameters.correction_type_after_restart   = "none";
+  Adapter    ida(time_parameters, MPI_COMM_WORLD, solve_global_operator);
   const auto matrix   = ida.add(driver.matrix_problem(), "matrix");
   const auto fiber    = ida.add(driver.fiber_problem(), "fiber");
   const auto coupling = ida.add(driver.interaction(),
@@ -516,7 +544,7 @@ TEST(FiberReinforcedElastodynamics, ThreeDimensionalSmoke)
   FiberReinforcedElastodynamicsParameters<3> parameters;
   parameters.output_directory =
     TestPaths::output_directory("fiber-reinforced-3d");
-  parameters.output_frequency                     = 0;
+  parameters.time_parameters.output_frequency     = 0;
   parameters.matrix_parameters.initial_refinement = 0;
   parameters.matrix_parameters.dirichlet_ids      = {0, 1, 2, 3, 4, 5};
   parameters.fiber_parameters.initial_refinement  = 0;
@@ -526,7 +554,8 @@ TEST(FiberReinforcedElastodynamics, ThreeDimensionalSmoke)
     set dimension       = 3
     set space dimension = 3
     subsection Fiber Reinforced Elastodynamics
-      subsection Time integration
+      subsection Time parameters
+        set Final time         = 0.01
         set Time step          = 0.01
         set Number of time steps = 1
       end

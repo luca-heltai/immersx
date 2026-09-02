@@ -4,7 +4,6 @@ set space dimension = 2
 subsection Navier-Stokes
   set Output directory       = @TEST_OUTPUT_DIR@/tutorial-output/navier-stokes-2d
   set Output name            = transient_stokes
-  set Output frequency       = 2
   set Initial refinement     = 2
   set Dirichlet boundary ids = 0
 
@@ -25,12 +24,13 @@ subsection Navier-Stokes
     set Include convective term = true
   end
 
-  subsection Time stepping
+  subsection Time parameters
     set Policy               = number_of_steps
     set Initial time         = 0
     set Final time           = 0.1
     set Time step            = 0.01
     set Number of time steps = 10
+    set Output frequency     = 2
   end
 
   subsection Right hand side

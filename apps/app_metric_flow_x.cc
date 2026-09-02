@@ -30,33 +30,23 @@ namespace
     using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
     using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
+    ImmersX::TimeParameters time_parameters(
+      "/MetricFlowSystem<1, 3>/Time parameters/");
     Problem problem(MPI_COMM_WORLD);
     problem.initialize_params(parameter_file);
     problem.setup();
 
-    Adapter::Parameters adapter_parameters;
-    auto               &data           = adapter_parameters.data;
-    data.initial_time                  = 0.;
-    data.final_time                    = 1.e-4;
-    data.initial_step_size             = 1.e-5;
-    data.maximum_order                 = 1;
-    data.maximum_non_linear_iterations = 10;
-    data.absolute_tolerance            = 1.e-6;
-    data.relative_tolerance            = 1.e-5;
-    data.ic_type                       = Adapter::AdditionalData::use_y_diff;
-    data.reset_type                    = Adapter::AdditionalData::none;
-
-    Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
+    Adapter    adapter(time_parameters, MPI_COMM_WORLD);
     const auto fields =
       adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
 
     auto state     = adapter.make_state();
     auto state_dot = adapter.make_state();
     problem.initialize_state(adapter.field(state, fields.fields().state),
-                             data.initial_time);
+                             time_parameters.initial_time);
     problem.initialize_state_derivative(adapter.field(state_dot,
                                                       fields.fields().state),
-                                        data.initial_time);
+                                        time_parameters.initial_time);
 
     adapter.set_compute_consistent_initial_conditions(
       [&problem, &adapter, fields](const double  time,

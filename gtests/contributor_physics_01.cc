@@ -22,11 +22,11 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
   ImmersX::ElastodynamicsParameters<2> parameters;
   parameters.output_directory =
     ImmersX::TestPaths::output_directory("contributor-physics");
-  parameters.output_frequency   = 0;
-  parameters.initial_refinement = 0;
-  parameters.number_of_steps    = 1;
-  parameters.time_step          = 0.01;
-  parameters.final_time         = 0.01;
+  parameters.time_parameters.output_frequency = 0;
+  parameters.initial_refinement               = 0;
+  parameters.time_parameters.number_of_steps  = 1;
+  parameters.time_parameters.time_step        = 0.01;
+  parameters.time_parameters.final_time       = 0.01;
   ImmersX::initialize_parameters();
   dealii::ParameterAcceptor::parse_all_parameters();
 
@@ -39,12 +39,8 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
   using FieldVector  = ImmersX::ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::Parameters adapter_parameters;
-  auto               &data = adapter_parameters.data;
-  data.initial_time        = 0.;
-  data.final_time          = 0.01;
-  data.ic_type             = Adapter::AdditionalData::none;
-  Adapter    adapter(adapter_parameters,
+  parameters.time_parameters.correction_type_at_initial_time = "none";
+  Adapter    adapter(parameters.time_parameters,
                   MPI_COMM_WORLD,
                   [](const dealii::LinearOperator<GlobalVector> &,
                      const GlobalVector &,
@@ -77,9 +73,9 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   ImmersX::NavierStokesParameters<2> parameters;
   parameters.output_directory =
     ImmersX::TestPaths::output_directory("contributor-stokes");
-  parameters.output_frequency        = 0;
-  parameters.initial_refinement      = 0;
-  parameters.include_convective_term = false;
+  parameters.time_parameters.output_frequency = 0;
+  parameters.initial_refinement               = 0;
+  parameters.include_convective_term          = false;
   ImmersX::initialize_parameters();
   dealii::ParameterAcceptor::parse_all_parameters();
 
@@ -92,11 +88,10 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   using FieldVector  = ImmersX::ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::Parameters adapter_parameters;
-  auto               &data = adapter_parameters.data;
-  data.initial_time        = 0.;
-  data.final_time          = 0.01;
-  Adapter    adapter(adapter_parameters,
+  ImmersX::TimeParameters time_parameters;
+  time_parameters.initial_time = 0.;
+  time_parameters.final_time   = 0.01;
+  Adapter    adapter(time_parameters,
                   MPI_COMM_WORLD,
                   [](const dealii::LinearOperator<GlobalVector> &,
                      const GlobalVector &,
@@ -107,7 +102,7 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   EXPECT_TRUE(fields.fields().pressure.is_valid());
 }
 
-TEST(ContributorPhysics, IDAAdapterUsesAdditionalDataParameters)
+TEST(ContributorPhysics, TimeParametersDerivesIDAConfiguration)
 {
   dealii::ParameterAcceptor::clear();
 
@@ -115,16 +110,18 @@ TEST(ContributorPhysics, IDAAdapterUsesAdditionalDataParameters)
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
-  Adapter::Parameters adapter_parameters("IDA adapter parameters");
-  Adapter             adapter(adapter_parameters,
+  ImmersX::TimeParameters time_parameters("/Test/Time parameters/");
+  Adapter                 adapter(time_parameters,
                   MPI_COMM_WORLD,
                   Adapter::LinearSolveFunction{});
 
   ImmersX::initialize_parameters_from_string(R"(
-    subsection IDA adapter parameters
+    subsection Test
+      subsection Time parameters
       set Initial time = 0.25
       set Final time = 2.5
-      set Time interval between each output = 0.125
+      set Time step = 0.125
+      set Output frequency = 1
       subsection Running parameters
         set Initial step size = 0.01
         set Minimum step size = 1.e-8
@@ -141,6 +138,7 @@ TEST(ContributorPhysics, IDAAdapterUsesAdditionalDataParameters)
         set Correction type after restart = none
         set Maximum number of nonlinear iterations = 13
         set Factor to use when converting from the integrator tolerance to the linear solver tolerance = 3.5
+      end
       end
     end
   )");

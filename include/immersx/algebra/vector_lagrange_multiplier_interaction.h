@@ -256,9 +256,11 @@ namespace ImmersX
 
     /** Write the accepted vector multiplier on its own representation mesh. */
     void
-    output_results(const std::string &output_directory,
-                   const std::string &output_name = "vector_multiplier",
-                   const unsigned int cycle       = 0) const
+    output_results(
+      const std::string &output_directory,
+      const std::string &output_name = "vector_multiplier",
+      const unsigned int cycle       = 0,
+      const double       time = std::numeric_limits<double>::quiet_NaN()) const
     {
       AssertThrow(multiplier_initialized,
                   dealii::ExcMessage("No multiplier state has been accepted."));
@@ -290,7 +292,8 @@ namespace ImmersX
         output_name + "_" + std::to_string(cycle) + ".vtu";
       data_out.write_vtu_in_parallel(output_directory + "/" + filename,
                                      second.mpi_communicator());
-      output_records.emplace_back(static_cast<double>(cycle), filename);
+      output_records.emplace_back(
+        std::isfinite(time) ? time : static_cast<double>(cycle), filename);
 
       if (dealii::Utilities::MPI::this_mpi_process(second.mpi_communicator()) ==
           0)

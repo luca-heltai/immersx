@@ -51,6 +51,7 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/time_parameters.h>
 
 #include <list>
 #include <memory>
@@ -90,9 +91,9 @@ namespace ImmersX
     explicit NavierStokesParameters(
       const std::string &subsection = "/Navier-Stokes/");
 
-    std::string  output_directory = ".";
-    std::string  output_name      = "navier_stokes";
-    unsigned int output_frequency = 1;
+    std::string    output_directory = ".";
+    std::string    output_name      = "navier_stokes";
+    TimeParameters time_parameters;
 
     unsigned int                          velocity_degree    = 2;
     unsigned int                          pressure_degree    = 1;
@@ -106,12 +107,6 @@ namespace ImmersX
     double density                 = 1.0;
     double viscosity               = 1.0;
     bool   include_convective_term = true;
-
-    std::string  time_step_policy     = "number_of_steps";
-    double       initial_time         = 0.0;
-    double       final_time           = 0.1;
-    double       time_step            = 0.01;
-    unsigned int number_of_time_steps = 10;
 
     /** Optional exact field expression used by external error postprocessing.
      */

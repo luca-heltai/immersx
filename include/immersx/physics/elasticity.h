@@ -249,10 +249,10 @@ namespace ImmersX
    * `ElasticityProblemParameters::penalty_term`
    * - "wave" amplitude \f$a_w\f$ =
    * `ElasticityProblemParameters::wave_ampltiude`
-   * - time step \f$\Delta t\f$ = `ElasticityProblemParameters::dt`
+   * - time step \f$\Delta t\f$ =
+   * `ElasticityProblemParameters::time_parameters.time_step`
    * - Newmark parameters \f$\beta_N\f$ and \f$\gamma_N\f$ =
-   *   `ElasticityProblemParameters::beta` and
-   * `ElasticityProblemParameters::gamma`
+   *   `TimeParameters::newmark_beta` and `TimeParameters::newmark_gamma`
    *
    * A single length scale \f$h\f$ used in the penalty term is computed as
    * `GridTools::minimal_cell_diameter(tria)` in `assemble_elasticity_system()`.
@@ -391,7 +391,8 @@ namespace ImmersX
    *
    * @section elasticity_time Time integration (Newmark predictor/corrector)
    *
-   * If `ElasticityProblemParameters::initial_time != final_time`, the solver
+   * If `ElasticityProblemParameters::time_parameters.initial_time !=
+   * ElasticityProblemParameters::time_parameters.final_time`, the solver
    * uses Newmark time integration for the (semi-discrete) second-order system
    * \f[
    *   C\,\ddot u + D\,\dot u + A\,u = \big(f + f_f\big)\,\sin(t),

@@ -6,10 +6,14 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "test_paths.h"
 
@@ -106,6 +110,62 @@ static bool
 is_single_rank()
 {
   return dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1;
+}
+
+static std::vector<std::pair<double, std::string>>
+read_pvd_records(const std::filesystem::path &pvd_file)
+{
+  std::ifstream input(pvd_file);
+  EXPECT_TRUE(input.good()) << "Could not open PVD file '" << pvd_file << "'.";
+
+  std::vector<std::pair<double, std::string>> records;
+  std::string                                 line;
+  while (std::getline(input, line))
+    {
+      const auto time_key = line.find("timestep=\"");
+      const auto file_key = line.find("file=\"");
+      if (time_key == std::string::npos || file_key == std::string::npos)
+        continue;
+
+      const auto time_start = time_key + std::string("timestep=\"").size();
+      const auto time_end   = line.find('"', time_start);
+      const auto file_start = file_key + std::string("file=\"").size();
+      const auto file_end   = line.find('"', file_start);
+      if (time_end == std::string::npos || file_end == std::string::npos)
+        {
+          ADD_FAILURE() << "Malformed PVD record in '" << pvd_file << "'.";
+          continue;
+        }
+      records.emplace_back(std::stod(
+                             line.substr(time_start, time_end - time_start)),
+                           line.substr(file_start, file_end - file_start));
+    }
+  return records;
+}
+
+static void
+check_transient_series(const std::filesystem::path &directory,
+                       const std::string           &name)
+{
+  const auto records = read_pvd_records(directory / (name + ".pvd"));
+  ASSERT_EQ(records.size(), 6u);
+
+  std::set<std::string> referenced_files;
+  for (unsigned int frame = 0; frame < records.size(); ++frame)
+    {
+      const auto expected_file = name + "_" + std::to_string(frame) + ".vtu";
+      EXPECT_NEAR(records[frame].first, 0.01 * frame, 1.e-12);
+      EXPECT_LE(records[frame].first, 0.05 + 1.e-12);
+      EXPECT_EQ(records[frame].second, expected_file);
+      EXPECT_TRUE(referenced_files.insert(records[frame].second).second);
+      EXPECT_TRUE(std::filesystem::is_regular_file(directory / expected_file));
+    }
+
+  unsigned int vtu_count = 0;
+  for (const auto &entry : std::filesystem::directory_iterator(directory))
+    if (entry.path().extension() == ".vtu")
+      ++vtu_count;
+  EXPECT_EQ(vtu_count, 6u);
 }
 
 // Run one deliberately small canonical parameter file. The full parameter
@@ -412,6 +472,10 @@ TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
   EXPECT_TRUE(std::filesystem::exists(fiber_directory / "fiber.pvd"));
   EXPECT_TRUE(
     std::filesystem::exists(interaction_directory / "velocity_multiplier.pvd"));
+
+  check_transient_series(matrix_directory, "matrix");
+  check_transient_series(fiber_directory, "fiber");
+  check_transient_series(interaction_directory, "velocity_multiplier");
 
   bool has_matrix_state = false;
   bool has_fiber_state  = false;

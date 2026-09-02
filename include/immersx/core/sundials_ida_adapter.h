@@ -14,7 +14,6 @@
 
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/mpi.h>
-#include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_gmres.h>
@@ -22,6 +21,7 @@
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/representation.h>
+#include <immersx/core/time_parameters.h>
 
 #include <algorithm>
 #include <functional>
@@ -39,29 +39,6 @@
 #ifdef DEAL_II_WITH_SUNDIALS
 namespace ImmersX
 {
-  /** Parameter object for an IDAAdapter. */
-  template <typename GlobalVectorType>
-  struct IDAParameters : public dealii::ParameterAcceptor
-  {
-    using AdditionalData =
-      typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
-
-    IDAParameters(const std::string &section_name = "IDA adapter")
-      : dealii::ParameterAcceptor(section_name)
-    {}
-
-    void
-    declare_parameters(dealii::ParameterHandler &prm) override
-    {
-      data.add_parameters(prm);
-    }
-
-    AdditionalData data;
-  };
-
-  template <typename GlobalVectorType>
-  using IDAAdapterParameters = IDAParameters<GlobalVectorType>;
-
   /** Public transient DAE adapter backed by the private composition engine. */
   template <typename FieldVectorType, typename GlobalVectorType>
   class IDAAdapter
@@ -89,14 +66,12 @@ namespace ImmersX
       std::function<bool(const double, GlobalVectorType &, GlobalVectorType &)>;
     using AdditionalData =
       typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
-    using Parameters = IDAParameters<GlobalVectorType>;
-
-    IDAAdapter(const IDAParameters<GlobalVectorType> &parameters,
-               const MPI_Comm                         communicator,
-               LinearSolveFunction                    solve = {})
+    IDAAdapter(const TimeParameters &time_parameters,
+               const MPI_Comm        communicator,
+               LinearSolveFunction   solve = {})
       : composition_(communicator)
       , solve_(std::move(solve))
-      , parameters_(parameters)
+      , time_parameters_(time_parameters)
       , pcout(std::cout,
               dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
     {}
@@ -104,7 +79,10 @@ namespace ImmersX
     const AdditionalData &
     additional_data() const
     {
-      return parameters_.data;
+      if (!additional_data_.has_value())
+        additional_data_ =
+          time_parameters_.template ida_parameters<GlobalVectorType>();
+      return *additional_data_;
     }
 
     template <typename Problem, typename... Arguments>
@@ -162,12 +140,12 @@ namespace ImmersX
     {
       current_state_ = &state;
       if (compute_consistent_initial_conditions_ &&
-          parameters_.data.ic_type == AdditionalData::use_y_diff)
+          additional_data().ic_type == AdditionalData::use_y_diff)
         {
           pcout << "IDAAdapter: computing consistent initial conditions "
                    "with the application callback."
                 << std::endl;
-          compute_consistent_initial_conditions_(parameters_.data.initial_time,
+          compute_consistent_initial_conditions_(additional_data().initial_time,
                                                  state,
                                                  state_dot);
         }
@@ -365,7 +343,7 @@ namespace ImmersX
 
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
-      auto ida_data = parameters_.data;
+      auto ida_data = additional_data();
       if (compute_consistent_initial_conditions_)
         {
           if (ida_data.ic_type == AdditionalData::use_y_diff)
@@ -460,7 +438,7 @@ namespace ImmersX
 
         const bool restart = solver_should_restart_(time, state, state_dot);
         if (restart && compute_consistent_initial_conditions_ &&
-            parameters_.data.reset_type == AdditionalData::use_y_diff)
+            additional_data().reset_type == AdditionalData::use_y_diff)
           {
             pcout << "IDAAdapter: computing consistent initial conditions "
                      "after restart with the application callback."
@@ -593,7 +571,8 @@ namespace ImmersX
 
     Composition                                              composition_;
     LinearSolveFunction                                      solve_;
-    const IDAParameters<GlobalVectorType>                   &parameters_;
+    const TimeParameters                                    &time_parameters_;
+    mutable std::optional<AdditionalData>                    additional_data_;
     std::unique_ptr<dealii::SUNDIALS::IDA<GlobalVectorType>> ida_;
     mutable dealii::ConditionalOStream                       pcout;
     std::optional<Operator>                                  current_jacobian_;

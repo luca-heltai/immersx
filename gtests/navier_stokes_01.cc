@@ -33,7 +33,6 @@ namespace
 {
   const std::string two_dimensional_parameters = R"(
     subsection Navier-Stokes
-      set Output frequency   = 0
       set Initial refinement  = 1
       set Dirichlet boundary ids = 0
       subsection Finite element spaces
@@ -49,11 +48,12 @@ namespace
         set Viscosity               = 1
         set Include convective term = false
       end
-      subsection Time stepping
+      subsection Time parameters
         set Policy             = number_of_steps
         set Initial time       = 0
         set Final time         = 0.05
         set Number of time steps = 1
+        set Output frequency     = 0
       end
       subsection Right hand side
         set Function expression = 1; 0; 0
@@ -84,7 +84,6 @@ namespace
 
   const std::string convective_parameters = R"(
     subsection Navier-Stokes
-      set Output frequency   = 0
       set Initial refinement = 1
       set Dirichlet boundary ids = 0
       subsection Finite element spaces
@@ -100,11 +99,12 @@ namespace
         set Viscosity               = 1
         set Include convective term = true
       end
-      subsection Time stepping
+      subsection Time parameters
         set Policy               = number_of_steps
         set Initial time         = 0
         set Final time           = 0.05
         set Number of time steps = 1
+        set Output frequency     = 0
       end
       subsection Right hand side
         set Function expression = 0; 0; 0
@@ -163,8 +163,8 @@ TEST(NavierStokes, ParameterParsing)
   EXPECT_EQ(parameters.velocity_degree, 2u);
   EXPECT_EQ(parameters.pressure_degree, 1u);
   EXPECT_FALSE(parameters.include_convective_term);
-  EXPECT_EQ(parameters.number_of_time_steps, 1u);
-  EXPECT_DOUBLE_EQ(parameters.final_time, 0.05);
+  EXPECT_EQ(parameters.time_parameters.number_of_steps, 1u);
+  EXPECT_DOUBLE_EQ(parameters.time_parameters.final_time, 0.05);
 }
 
 
@@ -237,15 +237,15 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   using FieldVector  = LA::MPI::Vector;
   using GlobalVector = LA::MPI::BlockVector;
   using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
-  Adapter::Parameters adapter_parameters;
-  auto               &data = adapter_parameters.data;
-  data.initial_time        = 0.;
-  data.final_time          = 0.05;
-  data.initial_step_size   = 0.025;
-  data.output_period       = 0.05;
-  data.maximum_order       = 1;
-  data.ic_type             = Adapter::AdditionalData::none;
-  Adapter    ida(adapter_parameters, MPI_COMM_WORLD);
+  TimeParameters time_parameters;
+  time_parameters.initial_time                    = 0.;
+  time_parameters.final_time                      = 0.05;
+  time_parameters.initial_step_size               = 0.025;
+  time_parameters.time_step                       = 0.05;
+  time_parameters.output_frequency                = 1;
+  time_parameters.maximum_order                   = 1;
+  time_parameters.correction_type_at_initial_time = "none";
+  Adapter    ida(time_parameters, MPI_COMM_WORLD);
   const auto fields = ida.add(problem, "fluid");
 
   auto state                                     = ida.make_state();
@@ -340,7 +340,7 @@ TEST(NavierStokes, MPI_IDAResidualJacobianAndSolve)
   auto state_for_solve     = ida.make_state();
   auto state_dot_for_solve = ida.make_state();
   EXPECT_GT(ida.solve(state_for_solve, state_dot_for_solve), 0u);
-  ida.solver().residual(data.final_time,
+  ida.solver().residual(time_parameters.final_time,
                         state_for_solve,
                         state_dot_for_solve,
                         residual);
@@ -408,12 +408,12 @@ TEST(NavierStokes, MPI_ThreeDimensionalSmoke)
   NavierStokesParameters<3> parameters;
   initialize_parameters_from_string(R"(
     subsection Navier-Stokes
-      set Output frequency   = 0
       set Initial refinement = 0
       set Dirichlet boundary ids = 0
-      subsection Time stepping
+      subsection Time parameters
         set Final time           = 0.02
         set Number of time steps = 1
+        set Output frequency     = 0
       end
       subsection Right hand side
         set Function expression = 1; 0; 0; 0

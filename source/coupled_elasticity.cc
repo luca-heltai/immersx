@@ -102,7 +102,8 @@ namespace ImmersX
                               // // data is always prescribed in relative
                               // coordinates
                               this->inclusions.get_radius(inclusion_id) * ds;
-                            if (this->par.initial_time != this->par.final_time)
+                            if (this->par.time_parameters.initial_time !=
+                                this->par.time_parameters.final_time)
                               temp *= this->inclusions.inclusions_rhs.value(
                                 real_q, this->inclusions.get_component(j));
                             local_rhs(j) += temp;
@@ -223,7 +224,8 @@ namespace ImmersX
         std::cout << "no output" << std::endl;
         return;
       }
-    if (this->par.initial_time != this->par.final_time)
+    if (this->par.time_parameters.initial_time !=
+        this->par.time_parameters.final_time)
       {
         this->pcout
           << "output_pressure file for time dependent simulation not implemented in MPI"
