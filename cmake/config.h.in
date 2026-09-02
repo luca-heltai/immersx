@@ -1,0 +1,12 @@
+// ---------------------------------------------------------------------
+//
+// Generated configuration header for ImmersX.
+//
+// ---------------------------------------------------------------------
+
+#ifndef IMMERSX_CONFIG_H
+#define IMMERSX_CONFIG_H
+
+#cmakedefine IMMERSX_WITH_METRIC_FLOW_X 1
+
+#endif // IMMERSX_CONFIG_H

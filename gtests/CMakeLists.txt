@@ -15,6 +15,7 @@
 set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
+list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
 
 include(GoogleTest)
 
@@ -59,6 +60,9 @@ set(_public_headers
     immersx/physics/navier_stokes.h
     immersx/physics/navier_stokes_semidiscrete.h
     immersx/physics/poisson_residual.h)
+if(IMMERSX_WITH_METRIC_FLOW_X)
+  list(APPEND _public_headers immersx/physics/metric_flow_x.h)
+endif()
 
 set(_public_header_targets)
 string(TOUPPER "${CMAKE_BUILD_TYPE}" _public_build_type)
@@ -76,7 +80,13 @@ foreach(_public_header ${_public_headers})
     ${_public_header_target}
     "${CMAKE_CURRENT_BINARY_DIR}/public_header_${_public_header_id}.cpp")
   target_include_directories(${_public_header_target}
-                             PRIVATE ${CMAKE_SOURCE_DIR}/include)
+                             PRIVATE ${CMAKE_SOURCE_DIR}/include
+                                     ${CMAKE_BINARY_DIR}/include)
+  if(IMMERSX_WITH_METRIC_FLOW_X AND
+     _public_header STREQUAL "immersx/physics/metric_flow_x.h")
+    target_link_libraries(${_public_header_target}
+                          MetricFlowX::metric_flow_x)
+  endif()
   DEAL_II_SETUP_TARGET(${_public_header_target} ${_public_build_type})
   list(APPEND _public_header_targets ${_public_header_target})
 endforeach()
@@ -127,3 +137,43 @@ FOREACH(_build_type ${_d2_build_types})
     # gtest_discover_tests(${_exe})
   ENDIF()
 ENDFOREACH()
+
+if(IMMERSX_WITH_METRIC_FLOW_X)
+  foreach(_build_type ${_d2_build_types})
+    if(CMAKE_BUILD_TYPE MATCHES "${_build_type}" AND
+       DEAL_II_BUILD_TYPE MATCHES "${_build_type}")
+      string(TOUPPER "${_build_type}" _BUILD_TYPE)
+      set(_metric_flow_x_test_target
+          "metric_flow_x_tests${${_build_type}_postfix}")
+      add_executable(
+        ${_metric_flow_x_test_target}
+        metric_flow_x_01.cc
+        gtest_main.cc)
+      target_include_directories(
+        ${_metric_flow_x_test_target}
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_SOURCE_DIR}/include
+                ${CMAKE_BINARY_DIR}/include)
+      target_compile_definitions(
+        ${_metric_flow_x_test_target}
+        PRIVATE SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
+                IMMERSX_SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
+                IMMERSX_BINARY_DIR="${IMMERSX_BINARY_DIR}"
+                TEST_DATA_DIR="${TEST_DATA_DIR}"
+                TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}")
+      target_link_libraries(
+        ${_metric_flow_x_test_target}
+        ${TEST_LIBRARIES_${_BUILD_TYPE}}
+        ${GTEST_MAIN_LIBRARY}
+        ${GTEST_LIBRARIES})
+      target_include_directories(${_metric_flow_x_test_target}
+                                 PRIVATE ${GTEST_INCLUDE_DIRS})
+      DEAL_II_SETUP_TARGET(${_metric_flow_x_test_target} ${_BUILD_TYPE})
+      list(APPEND IMMERSX_TEST_TARGETS ${_metric_flow_x_test_target})
+      if(IMMERSX_INSTALL_TESTS)
+        install(TARGETS ${_metric_flow_x_test_target}
+                RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/immersx/tests)
+      endif()
+    endif()
+  endforeach()
+endif()
