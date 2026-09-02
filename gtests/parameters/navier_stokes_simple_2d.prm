@@ -3,9 +3,9 @@ set space dimension = 2
 
 subsection Navier-Stokes
   set Output directory    = navier_stokes_app_output
-  set Output name         = app_solution
+  set Output name         = navier_stokes
   set Output frequency    = 0
-  set Initial refinement  = 0
+  set Initial refinement  = 5
   set Dirichlet boundary ids = 0
 
   subsection Finite element spaces
@@ -15,7 +15,7 @@ subsection Navier-Stokes
 
   subsection Grid generation
     set Grid generator           = hyper_cube
-    set Grid generator arguments = -1: 1: false
+    set Grid generator arguments = 0: 1: true
   end
 
   subsection Physical properties
@@ -27,22 +27,22 @@ subsection Navier-Stokes
   subsection Time stepping
     set Policy               = number_of_steps
     set Initial time         = 0
-    set Final time           = 0.01
-    set Number of time steps = 1
+    set Final time           = 1
+    set Number of time steps = 100
   end
 
   subsection Right hand side
-    set Function expression = 1; 0; 0
+    set Function expression = 0; 0; 0
     set Variable names      = x,y,t
   end
 
   subsection Dirichlet boundary conditions
-    set Function expression = 0; 0; 0
+    set Function expression = y>0.99  ? 1 : 0; 0; 0
     set Variable names      = x,y,t
   end
 
   subsection Initial condition
-    set Function expression = 0; 0; 0
+    set Function expression = y>0.99  ? 1 : 0; 0; 0
     set Variable names      = x,y,t
   end
 

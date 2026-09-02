@@ -316,15 +316,15 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
-  ImmersX::LinearSolverOptions linear_parameters;
-  Adapter                      linear(linear_parameters, MPI_COMM_WORLD);
-  const auto                   bulk = linear.add(bulk_problem, "bulk");
-  const auto embedded               = linear.add(embedded_problem, "embedded");
-  const auto coupling               = linear.add(interaction,
+  ImmersX::LinearSolverParameters linear_parameters;
+  Adapter                         linear(linear_parameters, MPI_COMM_WORLD);
+  const auto                      bulk = linear.add(bulk_problem, "bulk");
+  const auto embedded = linear.add(embedded_problem, "embedded");
+  const auto coupling = linear.add(interaction,
                                    "continuity",
                                    bulk.fields().solution,
                                    embedded.fields().solution);
-  auto       state                  = linear.make_state();
+  auto       state    = linear.make_state();
   linear.solve(state);
 
   const auto &bulk_state     = linear.field(state, bulk.fields().solution);
@@ -373,7 +373,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   EXPECT_GT(linear.field(state, embedded.fields().solution).l2_norm(), 1.e-12);
   EXPECT_LT(residual.l2_norm(), 1.e-7);
 
-  ImmersX::LinearSolverOptions augmented_options;
+  ImmersX::LinearSolverParameters augmented_options;
   augmented_options.solver = ImmersX::LinearSolver::iterative;
   augmented_options.preconditioner =
     ImmersX::LinearPreconditioner::augmented_lagrangian;
@@ -392,7 +392,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   augmented.evaluate_residual(augmented_state, augmented_residual);
   EXPECT_LT(augmented_residual.l2_norm(), 1.e-7);
 
-  ImmersX::LinearSolverOptions direct_options;
+  ImmersX::LinearSolverParameters direct_options;
   direct_options.solver = ImmersX::LinearSolver::direct;
   Adapter    direct(direct_options, MPI_COMM_WORLD);
   const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");

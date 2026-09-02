@@ -353,8 +353,8 @@ TEST(ElasticStaticProblem, LinearAdapterSolve)
   problem.set_forcing(
     dealii::Functions::ConstantFunction<3>(std::vector<double>{0., 0., 1.}));
 
-  ImmersX::LinearSolverOptions adapter_parameters;
-  Adapter                      adapter(adapter_parameters,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const auto &operator_view,
                      const auto &rhs,
@@ -364,7 +364,7 @@ TEST(ElasticStaticProblem, LinearAdapterSolve)
                     dealii::PreconditionIdentity   preconditioner;
                     solver.solve(operator_view, solution, rhs, preconditioner);
                   });
-  const auto                   fields = adapter.add(problem, "elasticity");
+  const auto                      fields = adapter.add(problem, "elasticity");
 
   auto state = adapter.make_state();
   adapter.solve(state);
@@ -682,8 +682,8 @@ TEST(ElasticStaticProblem, IndependentResidualOracle)
   problem.set_forcing(
     dealii::Functions::ConstantFunction<2>(std::vector<double>{0., 1.}));
 
-  ImmersX::LinearSolverOptions adapter_parameters;
-  Adapter                      adapter(adapter_parameters,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const auto &operator_view,
                      const auto &rhs,

@@ -311,8 +311,8 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   problem.rhs[1] = 8.;
   using Adapter  = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  ImmersX::LinearSolverOptions adapter_parameters;
-  Adapter                      adapter(adapter_parameters,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const auto &operator_view,
                      const auto &rhs,
@@ -322,7 +322,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
                     solution.block(0)[0] /= 2.;
                     solution.block(0)[1] /= 4.;
                   });
-  const auto                   fields = adapter.add(problem, "fake");
+  const auto                      fields = adapter.add(problem, "fake");
   const auto observed = fields.observe(fields.fields().solution);
   auto       state    = adapter.make_state();
   EXPECT_EQ(observed.source(), fields.fields().solution);
@@ -397,7 +397,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[0], 1., 1.e-12);
   EXPECT_NEAR(adapter.field(state, fields.fields().solution)[1], 2., 1.e-12);
 
-  ImmersX::LinearSolverOptions default_options;
+  ImmersX::LinearSolverParameters default_options;
   default_options.preconditioner =
     ImmersX::LinearPreconditioner::block_diagonal;
   Adapter    default_adapter(default_options, MPI_COMM_WORLD);
@@ -413,7 +413,7 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
               2.,
               1.e-10);
 
-  ImmersX::LinearSolverOptions direct_options;
+  ImmersX::LinearSolverParameters direct_options;
   direct_options.solver = ImmersX::LinearSolver::direct;
   Adapter    direct_adapter(direct_options, MPI_COMM_WORLD);
   const auto direct_fields = direct_adapter.add(problem, "direct");
@@ -477,7 +477,8 @@ TEST(LinearAdapter, ParameterAcceptorControlsSolverOptions)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  ImmersX::LinearSolverOptions adapter_parameters("Linear adapter parameters");
+  ImmersX::LinearSolverParameters adapter_parameters(
+    "Linear adapter parameters");
   Adapter adapter(adapter_parameters, MPI_COMM_WORLD, Adapter::SolveFunction{});
 
   ImmersX::initialize_parameters_from_string(R"(
@@ -511,12 +512,12 @@ TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  ImmersX::LinearSolverOptions adapter_parameters;
-  Adapter                      adapter(adapter_parameters,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const auto &, const auto &, auto &) {});
-  const auto                   fields = adapter.add(problem, "triangular");
-  auto                         state  = adapter.make_state();
+  const auto                      fields = adapter.add(problem, "triangular");
+  auto                            state  = adapter.make_state();
   adapter.field(state, fields.fields().v)[0] = 9.;
   adapter.field(state, fields.fields().u)[0] = 6.;
 
@@ -557,12 +558,12 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
 
   using Adapter = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
                                          ImmersX::ImmersXLA::MPI::BlockVector>;
-  ImmersX::LinearSolverOptions adapter_parameters;
-  Adapter                      adapter(adapter_parameters,
+  ImmersX::LinearSolverParameters adapter_parameters;
+  Adapter                         adapter(adapter_parameters,
                   MPI_COMM_WORLD,
                   [](const auto &, const auto &, auto &) {});
-  const auto                   fields          = adapter.add(problem, "schur");
-  auto                         state           = adapter.make_state();
+  const auto                      fields       = adapter.add(problem, "schur");
+  auto                            state        = adapter.make_state();
   adapter.field(state, fields.fields().primal) = 1.;
   adapter.field(state, fields.fields().auxiliary)  = 1.;
   adapter.field(state, fields.fields().multiplier) = 0.;

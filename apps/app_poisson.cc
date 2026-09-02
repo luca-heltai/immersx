@@ -33,7 +33,7 @@ namespace
   run_poisson(const std::string &parameter_file)
   {
     PoissonParameters<dim, spacedim> parameters;
-    LinearSolverOptions              adapter_parameters;
+    LinearSolverParameters           adapter_parameters;
     adapter_parameters.solver         = LinearSolver::iterative;
     adapter_parameters.preconditioner = LinearPreconditioner::block_diagonal;
     adapter_parameters.maximum_iterations =

@@ -79,7 +79,7 @@ namespace ImmersX
     double               augmented_lagrangian_parameter = 1.e1;
   };
 
-  using LinearSolverOptions = LinearAdapterParameters;
+  using LinearSolverParameters = LinearAdapterParameters;
 
   /**
    * Execution adapter for affine steady semantic systems.

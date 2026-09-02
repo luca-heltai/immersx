@@ -21,9 +21,9 @@ namespace
 {
   template <int dim>
   void
-  solve_one_cycle(ImmersX::ElasticStaticProblem<dim> &problem,
-                  const unsigned int                  cycle,
-                  const ImmersX::LinearSolverOptions &adapter_parameters)
+  solve_one_cycle(ImmersX::ElasticStaticProblem<dim>    &problem,
+                  const unsigned int                     cycle,
+                  const ImmersX::LinearSolverParameters &adapter_parameters)
   {
     using namespace ImmersX;
     using FieldVector  = ImmersXLA::MPI::Vector;
@@ -59,7 +59,7 @@ namespace
     using Problem = ElasticStaticProblem<dim>;
 
     ElasticStaticParameters<dim> parameters;
-    LinearSolverOptions          adapter_parameters;
+    LinearSolverParameters       adapter_parameters;
     initialize_parameters(parameter_file);
     AssertThrow(parameters.triangulation_type != "fullydistributed" ||
                   parameters.n_refinement_cycles <= 1,

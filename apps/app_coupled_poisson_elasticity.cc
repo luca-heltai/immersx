@@ -38,7 +38,7 @@ main(int argc, char *argv[])
       ElasticStaticParameters<3, 3>          elasticity_parameters;
       CoupledPoissonElasticity::PressureLift pressure_lift("/Pressure lift/");
       CoupledPoissonElasticity::Traction     traction("/Pressure traction/");
-      LinearSolverOptions                    adapter_parameters;
+      LinearSolverParameters                 adapter_parameters;
       const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
       initialize_parameters(prm_file);
 

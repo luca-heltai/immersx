@@ -48,7 +48,7 @@ namespace
     PoissonParameters<2>                bulk_parameters;
     PoissonParameters<1, 2>       embedded_parameters("/Embedded Poisson/");
     ParticleCouplingParameters<2> search_parameters("/Particle coupling/");
-    LinearSolverOptions           adapter_parameters;
+    LinearSolverParameters        adapter_parameters;
     initialize_parameters(parameter_file);
 
     bulk_parameters.output_directory = application_parameters.output_directory;
