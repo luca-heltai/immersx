@@ -25,6 +25,7 @@
 
 #include <deal.II/lac/solver_control.h>
 
+#include <immersx/core/time_parameters.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
 
@@ -281,17 +282,8 @@ namespace ImmersX
      */
     mutable ParsedConvergenceTable convergence_table;
 
-    /**
-     * Time-integration parameters.
-     */
-    /// @{
-    double         initial_time     = 0.0;   ///< Initial physical time.
-    double         final_time       = 0.0;   ///< Final physical time.
-    mutable double dt               = 5e-3;  ///< Time-step size.
-    bool           refine_time_step = false; ///< Enable adaptive time step.
-    double         beta             = 0.25;  ///< Newmark beta.
-    double         gamma            = 0.5;   ///< Newmark gamma.
-    /// @}
+    /** Canonical time-integration parameters for this Problem. */
+    TimeParameters time_parameters;
   };
 
 } // namespace ImmersX

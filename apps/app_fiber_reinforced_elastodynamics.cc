@@ -67,7 +67,7 @@ namespace
                             parameters.coupling_parameters);
     interaction.assemble();
 
-    Adapter    adapter(parameters.ida_parameters, MPI_COMM_WORLD);
+    Adapter    adapter(parameters.time_parameters, MPI_COMM_WORLD);
     const auto matrix   = adapter.add(matrix_problem, "matrix");
     const auto fiber    = adapter.add(fiber_problem, "fiber");
     const auto coupling = adapter.add(interaction,
@@ -78,13 +78,14 @@ namespace
     const auto output = [&parameters,
                          &matrix_problem,
                          &fiber_problem,
-                         &interaction](const unsigned int step) {
-      (void)step;
+                         &interaction](const double       time,
+                                       const unsigned int step) {
       matrix_problem.output_results();
       fiber_problem.output_results();
       interaction.output_results(parameters.output_directory + "/interaction",
                                  parameters.multiplier_output_name,
-                                 step);
+                                 step,
+                                 time);
     };
     adapter.set_output_step([&adapter,
                              &matrix_problem,
@@ -110,8 +111,12 @@ namespace
                                  step);
       interaction.set_multiplier(
         adapter.field(state, coupling.fields().multiplier));
-      if (parameters.output_frequency > 0)
-        output(step);
+      if ((parameters.time_parameters.output_frequency == 0 &&
+           (step == 0 || time >= parameters.time_parameters.final_time)) ||
+          (parameters.time_parameters.output_frequency > 0 &&
+           (step % parameters.time_parameters.output_frequency == 0 ||
+            time >= parameters.time_parameters.final_time)))
+        output(time, step);
       (void)state_dot;
     });
 
@@ -134,28 +139,7 @@ namespace
 
     interaction.set_multiplier(
       adapter.field(state, coupling.fields().multiplier));
-    output(0);
     adapter.solve(state, state_dot);
-
-    const unsigned int n_steps =
-      parameters.number_of_steps > 0 ?
-        parameters.number_of_steps :
-        static_cast<unsigned int>(
-          std::ceil((parameters.final_time - parameters.initial_time) /
-                    parameters.time_step));
-    matrix_problem.accept_state(adapter.field(state,
-                                              matrix.fields().displacement),
-                                adapter.field(state, matrix.fields().velocity),
-                                parameters.final_time,
-                                n_steps);
-    fiber_problem.accept_state(adapter.field(state,
-                                             fiber.fields().displacement),
-                               adapter.field(state, fiber.fields().velocity),
-                               parameters.final_time,
-                               n_steps);
-    interaction.set_multiplier(
-      adapter.field(state, coupling.fields().multiplier));
-    output(n_steps);
 #else
     FiberReinforcedElastodynamics<dim> driver(parameters);
     driver.run();

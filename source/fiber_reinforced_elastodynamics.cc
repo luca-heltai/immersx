@@ -111,29 +111,18 @@ namespace ImmersX
   FiberReinforcedElastodynamicsParameters<
     dim>::FiberReinforcedElastodynamicsParameters(const std::string &subsection)
     : ParameterAcceptor(normalize_subsection(subsection))
+    , time_parameters(normalize_subsection(subsection) + "Time parameters/")
     , matrix_parameters(normalize_subsection(subsection) +
-                        "Matrix Elastodynamics/")
+                          "Matrix Elastodynamics/",
+                        &time_parameters)
     , fiber_parameters(normalize_subsection(subsection) +
-                       "Fiber Elastodynamics/")
+                         "Fiber Elastodynamics/",
+                       &time_parameters)
     , coupling_parameters(normalize_subsection(subsection) +
                           "Fiber Coupling/Particle search/")
-#ifdef DEAL_II_WITH_SUNDIALS
-    , ida_parameters(normalize_subsection(subsection) + "IDA adapter/")
-#endif
   {
     add_parameter("Output directory", output_directory);
     add_parameter("Multiplier output name", multiplier_output_name);
-    add_parameter("Output frequency", output_frequency);
-
-    enter_subsection("Time integration");
-    {
-      add_parameter("Initial time", initial_time);
-      add_parameter("Final time", final_time);
-      add_parameter("Time step", time_step, "", prm, Patterns::Double(0));
-      add_parameter("Number of time steps", number_of_steps);
-    }
-    leave_subsection();
-
     enter_subsection("Coupling solver");
     {
       add_parameter("Maximum steps", schur_max_steps);
@@ -148,48 +137,11 @@ namespace ImmersX
     }
     leave_subsection();
 
-#ifdef DEAL_II_WITH_SUNDIALS
-    auto &ida_data                         = ida_parameters.data;
-    ida_data.initial_time                  = initial_time;
-    ida_data.final_time                    = final_time;
-    ida_data.initial_step_size             = std::min(time_step, 1.e-5);
-    ida_data.output_period                 = output_frequency > 0 ?
-                                               output_frequency * time_step :
-                                               std::max(time_step, final_time - initial_time);
-    ida_data.maximum_order                 = 1;
-    ida_data.maximum_non_linear_iterations = 50;
-    ida_data.absolute_tolerance            = std::max(1.e-4, block_tolerance);
-    ida_data.relative_tolerance            = std::max(1.e-4, block_tolerance);
-    ida_data.ic_type =
-      IDAParameters<ImmersXLA::MPI::BlockVector>::AdditionalData::use_y_diff;
-    ida_data.reset_type =
-      IDAParameters<ImmersXLA::MPI::BlockVector>::AdditionalData::none;
-#endif
-
     parse_parameters_call_back.connect([this]() {
       ensure_directory(output_directory);
-      AssertThrow(final_time >= initial_time,
-                  ExcMessage("The coupled final time must not precede the "
-                             "initial time."));
-      if (final_time > initial_time || number_of_steps > 0)
-        AssertThrow(time_step > 0.,
-                    ExcMessage("The coupled time step must be positive."));
-      // The two physical Problems retain their own parameter objects for
-      // material, mesh, and function data. Their time controls are synchronized
-      // here so the coupled driver remains the sole owner of the time policy.
-      matrix_parameters.initial_time     = initial_time;
-      matrix_parameters.final_time       = final_time;
-      matrix_parameters.time_step        = time_step;
-      matrix_parameters.number_of_steps  = number_of_steps;
-      matrix_parameters.output_frequency = 0;
       matrix_parameters.output_directory = output_directory + "/matrix";
       matrix_parameters.output_name      = "matrix";
 
-      fiber_parameters.initial_time     = initial_time;
-      fiber_parameters.final_time       = final_time;
-      fiber_parameters.time_step        = time_step;
-      fiber_parameters.number_of_steps  = number_of_steps;
-      fiber_parameters.output_frequency = 0;
       fiber_parameters.output_directory = output_directory + "/fiber";
       fiber_parameters.output_name      = "fiber";
     });
@@ -202,7 +154,7 @@ namespace ImmersX
     : parameters(parameters)
     , matrix_problem_storage(parameters.matrix_parameters)
     , fiber_problem_storage(parameters.fiber_parameters)
-    , current_time_storage(parameters.initial_time)
+    , current_time_storage(parameters.time_parameters.initial_time)
   {}
 
 
@@ -263,7 +215,7 @@ namespace ImmersX
     matrix_problem_storage.set_initial_conditions();
     fiber_problem_storage.set_initial_conditions();
     interaction_storage->set_multiplier(multiplier_storage);
-    current_time_storage     = parameters.initial_time;
+    current_time_storage     = parameters.time_parameters.initial_time;
     time_step_number_storage = 0;
 
     matrix_only_displacement_storage = matrix_problem_storage.displacement();
@@ -354,12 +306,14 @@ namespace ImmersX
     AssertThrow(setup_complete && initial_conditions_set,
                 ExcMessage("setup() and set_initial_conditions() must "
                            "precede a coupled step."));
-    const double remaining = parameters.final_time - current_time_storage;
-    AssertThrow(parameters.number_of_steps > 0 || remaining > 0.,
+    const double remaining =
+      parameters.time_parameters.final_time - current_time_storage;
+    AssertThrow(parameters.time_parameters.number_of_steps > 0 ||
+                  remaining > 0.,
                 ExcMessage("The coupled run has no remaining time."));
 
-    double dt = parameters.time_step;
-    if (parameters.number_of_steps == 0)
+    double dt = parameters.time_parameters.time_step;
+    if (parameters.time_parameters.number_of_steps == 0)
       dt = std::min(dt, remaining);
     AssertThrow(dt > 0., ExcMessage("The coupled time step must be positive."));
 
@@ -502,7 +456,8 @@ namespace ImmersX
     interaction_storage->output_results(parameters.output_directory +
                                           "/interaction",
                                         parameters.multiplier_output_name,
-                                        time_step_number_storage);
+                                        time_step_number_storage,
+                                        current_time_storage);
   }
 
 
@@ -514,7 +469,7 @@ namespace ImmersX
     using Adapter = IDAAdapterType;
 
     ida_storage =
-      std::make_unique<Adapter>(parameters.ida_parameters, MPI_COMM_WORLD);
+      std::make_unique<Adapter>(parameters.time_parameters, MPI_COMM_WORLD);
     const auto matrix_fields =
       ida_storage->add(matrix_problem_storage, "matrix");
     const auto fiber_fields = ida_storage->add(fiber_problem_storage, "fiber");
@@ -527,6 +482,19 @@ namespace ImmersX
     matrix_fields_storage   = matrix_fields.fields();
     fiber_fields_storage    = fiber_fields.fields();
     coupling_fields_storage = coupling_fields.fields();
+
+    ida_storage->set_output_step([this](const double            time,
+                                        const GlobalVectorType &state,
+                                        const GlobalVectorType &state_dot,
+                                        const unsigned int      step) {
+      update_from_ida_state(state, state_dot, time, step);
+      if ((parameters.time_parameters.output_frequency == 0 &&
+           (step == 0 || time >= parameters.time_parameters.final_time)) ||
+          (parameters.time_parameters.output_frequency > 0 &&
+           (step % parameters.time_parameters.output_frequency == 0 ||
+            time >= parameters.time_parameters.final_time)))
+        output_results();
+    });
   }
 
 
@@ -538,6 +506,9 @@ namespace ImmersX
     const double            time,
     const unsigned int      step)
   {
+    current_time_storage     = time;
+    time_step_number_storage = step;
+
     matrix_problem_storage.accept_state(
       ida_storage->field(state, matrix_fields_storage.displacement),
       ida_storage->field(state, matrix_fields_storage.velocity),
@@ -610,10 +581,10 @@ namespace ImmersX
 
     VectorType matrix_rhs;
     VectorType fiber_rhs;
-    matrix_problem_storage.body_force_at_time(parameters.initial_time,
-                                              matrix_rhs);
-    fiber_problem_storage.body_force_at_time(parameters.initial_time,
-                                             fiber_rhs);
+    matrix_problem_storage.body_force_at_time(
+      parameters.time_parameters.initial_time, matrix_rhs);
+    fiber_problem_storage.body_force_at_time(
+      parameters.time_parameters.initial_time, fiber_rhs);
     impose_homogeneous_constraints(
       matrix_rhs, matrix_problem_storage.velocity_constraints());
     impose_homogeneous_constraints(
@@ -662,20 +633,8 @@ namespace ImmersX
     ida_storage->field(state_dot, coupling_fields_storage.multiplier) = 0.;
     initialize_ida_derivative(state_dot);
 
-    if (parameters.output_frequency > 0)
-      output_results();
-
     ida_storage->solve(state, state_dot);
-    const auto n_steps = parameters.number_of_steps > 0 ?
-                           parameters.number_of_steps :
-                           static_cast<unsigned int>(std::ceil(
-                             (parameters.final_time - parameters.initial_time) /
-                             parameters.time_step));
-    update_from_ida_state(state, state_dot, parameters.final_time, n_steps);
     matrix_only_displacement_storage = matrix_problem_storage.displacement();
-
-    if (parameters.output_frequency > 0)
-      output_results();
   }
 #endif
 
@@ -688,29 +647,26 @@ namespace ImmersX
     set_initial_conditions();
 #ifdef DEAL_II_WITH_SUNDIALS
     run_with_ida();
-    time_step_number_storage =
-      parameters.number_of_steps > 0 ?
-        parameters.number_of_steps :
-        static_cast<unsigned int>(
-          std::ceil((parameters.final_time - parameters.initial_time) /
-                    parameters.time_step));
-    current_time_storage = parameters.final_time;
     return;
 #endif
 
-    unsigned int n_steps = parameters.number_of_steps;
-    if (n_steps == 0 && parameters.final_time > parameters.initial_time)
+    unsigned int n_steps = parameters.time_parameters.number_of_steps;
+    if (n_steps == 0 && parameters.time_parameters.final_time >
+                          parameters.time_parameters.initial_time)
       n_steps = static_cast<unsigned int>(
-        std::ceil((parameters.final_time - parameters.initial_time) /
-                  parameters.time_step));
+        std::ceil((parameters.time_parameters.final_time -
+                   parameters.time_parameters.initial_time) /
+                  parameters.time_parameters.time_step));
 
-    if (parameters.output_frequency > 0)
+    if (parameters.time_parameters.output_frequency > 0)
       output_results();
     for (unsigned int step = 0; step < n_steps; ++step)
       {
         advance_one_timestep();
-        if (parameters.output_frequency > 0 &&
-            (time_step_number_storage % parameters.output_frequency == 0 ||
+        if (parameters.time_parameters.output_frequency > 0 &&
+            (time_step_number_storage %
+                 parameters.time_parameters.output_frequency ==
+               0 ||
              step + 1 == n_steps))
           output_results();
       }

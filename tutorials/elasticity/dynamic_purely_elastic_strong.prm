@@ -54,7 +54,7 @@ subsection Immersed Problem
     set Number of refinement cycles = 4
     set Strategy                    = global
   end
-  subsection Time dependency
+  subsection Time parameters
     set Final time       = .25
     set Initial time     = 0.0
     set Refine time step = true

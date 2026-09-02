@@ -8,7 +8,6 @@ subsection Elastodynamics
   set FE degree                  = 1
   set Output directory            = ./output/elastodynamics_convergence/kelvin_voigt
   set Output name                 = kelvin_voigt
-  set Output frequency            = 0
   set Initial refinement          = 1
   set Number of refinement cycles = 5
   set Dirichlet boundary ids      = 0,1,2,3
@@ -27,11 +26,12 @@ subsection Elastodynamics
     set Damping bulk  = 0.0
   end
 
-  subsection Time integration
+  subsection Time parameters
     set Initial time         = 0.0
     set Final time           = 0.01
     set Time step            = 0.01
     set Number of time steps = 1
+    set Output frequency     = 0
   end
 
   subsection Functions

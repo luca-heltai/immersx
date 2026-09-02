@@ -8,7 +8,6 @@ set space dimension = 2
 subsection Navier-Stokes
   set Output directory      = /private/tmp/immersx_navier_stokes_step80_mms
   set Output name           = step80_mms
-  set Output frequency     = 0
   set Initial refinement    = 2
   set Dirichlet boundary ids = 0
 
@@ -29,12 +28,13 @@ subsection Navier-Stokes
     set Include convective term = true
   end
 
-  subsection Time stepping
+  subsection Time parameters
     set Policy               = fixed
     set Initial time         = 0
     set Final time           = 1e6
     set Time step            = 1e6
     set Number of time steps = 1
+    set Output frequency     = 0
   end
 
   set Analytical solution expression = sin(pi*x)*cos(pi*y); -cos(pi*x)*sin(pi*y); sin(pi*x)*sin(pi*y)

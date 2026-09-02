@@ -13,8 +13,8 @@ Field identifiers and a non-owning view of the adapter; it does not duplicate
 Problem state or execution storage. A typical coupled workflow is:
 
 ```{code-block} cpp
-IDAParameters<GlobalVector> ida_parameters;
-IDAAdapter<FieldVector, GlobalVector> ida(ida_parameters, MPI_COMM_WORLD);
+TimeParameters time_parameters;
+IDAAdapter<FieldVector, GlobalVector> ida(time_parameters, MPI_COMM_WORLD);
 auto fluid = ida.add(flow_problem, "fluid");
 auto wall  = ida.add(elastic_problem, "wall");
 

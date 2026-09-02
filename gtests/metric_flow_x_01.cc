@@ -29,26 +29,11 @@ namespace
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
   void
-  initialize_problem(Problem &problem)
+  initialize_problem(Problem &problem, ImmersX::TimeParameters &time_parameters)
   {
     problem.initialize_params(ImmersX::TestPaths::parameter_path(
       "gtests/parameters/metric_flow_x.prm"));
     problem.setup();
-  }
-
-  void
-  adapter_data(Adapter::Parameters &parameters)
-  {
-    auto &data                         = parameters.data;
-    data.initial_time                  = 0.;
-    data.final_time                    = 1.e-4;
-    data.initial_step_size             = 1.e-5;
-    data.maximum_order                 = 1;
-    data.maximum_non_linear_iterations = 10;
-    data.absolute_tolerance            = 1.e-6;
-    data.relative_tolerance            = 1.e-5;
-    data.ic_type                       = Adapter::AdditionalData::use_y_diff;
-    data.reset_type                    = Adapter::AdditionalData::none;
   }
 
   template <typename Fields>
@@ -100,12 +85,12 @@ TEST(MetricFlowX, FeatureMacroIsEnabled)
 TEST(MetricFlowX, MPI_RegistersOneMixedStateField) // NOLINT
 {
   dealii::ParameterAcceptor::clear();
+  ImmersX::TimeParameters time_parameters(
+    "/MetricFlowSystem<1, 3>/Time parameters/");
   Problem problem(MPI_COMM_WORLD);
-  initialize_problem(problem);
+  initialize_problem(problem, time_parameters);
 
-  Adapter::Parameters adapter_parameters;
-  adapter_data(adapter_parameters);
-  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
+  Adapter    adapter(time_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
 
@@ -124,12 +109,12 @@ TEST(MetricFlowX, MPI_RegistersOneMixedStateField) // NOLINT
 TEST(MetricFlowX, MPI_ResidualMatchesNativeAndPreservesAdditivity) // NOLINT
 {
   dealii::ParameterAcceptor::clear();
+  ImmersX::TimeParameters time_parameters(
+    "/MetricFlowSystem<1, 3>/Time parameters/");
   Problem problem(MPI_COMM_WORLD);
-  initialize_problem(problem);
+  initialize_problem(problem, time_parameters);
 
-  Adapter::Parameters adapter_parameters;
-  adapter_data(adapter_parameters);
-  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
+  Adapter    adapter(time_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
   add_synthetic_residual(adapter, fields.fields().state);
@@ -155,12 +140,12 @@ TEST(MetricFlowX, MPI_ResidualMatchesNativeAndPreservesAdditivity) // NOLINT
 TEST(MetricFlowX, MPI_JacobianActionsMatchNativeMatrices) // NOLINT
 {
   dealii::ParameterAcceptor::clear();
+  ImmersX::TimeParameters time_parameters(
+    "/MetricFlowSystem<1, 3>/Time parameters/");
   Problem problem(MPI_COMM_WORLD);
-  initialize_problem(problem);
+  initialize_problem(problem, time_parameters);
 
-  Adapter::Parameters adapter_parameters;
-  adapter_data(adapter_parameters);
-  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
+  Adapter    adapter(time_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
   auto state     = adapter.make_state();
@@ -203,12 +188,12 @@ TEST(MetricFlowX, MPI_JacobianActionsMatchNativeMatrices) // NOLINT
 TEST(MetricFlowX, MPI_IDAVerticalSmoke) // NOLINT
 {
   dealii::ParameterAcceptor::clear();
+  ImmersX::TimeParameters time_parameters(
+    "/MetricFlowSystem<1, 3>/Time parameters/");
   Problem problem(MPI_COMM_WORLD);
-  initialize_problem(problem);
+  initialize_problem(problem, time_parameters);
 
-  Adapter::Parameters adapter_parameters;
-  adapter_data(adapter_parameters);
-  Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
+  Adapter    adapter(time_parameters, MPI_COMM_WORLD);
   const auto fields =
     adapter.add(ImmersX::metric_flow_x(problem), "blood-flow");
   auto state     = adapter.make_state();

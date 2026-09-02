@@ -105,7 +105,7 @@ subsection Immersed Problem
     set Refinement fraction         = 0.3
     set Strategy                    = fixed_fraction
   end
-  subsection Time dependency
+  subsection Time parameters
     set Final time       = 5
     set Initial time     = 0
     set Newmark beta     = 0.25

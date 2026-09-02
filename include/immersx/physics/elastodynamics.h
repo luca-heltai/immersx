@@ -49,6 +49,7 @@
 #include <deal.II/numerics/data_out.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/time_parameters.h>
 
 #include <list>
 #include <memory>
@@ -77,16 +78,19 @@ namespace ImmersX
    */
   class ElastodynamicsParameters : public dealii::ParameterAcceptor
   {
+  private:
+    std::unique_ptr<TimeParameters> owned_time_parameters;
+
   public:
     /** Construct the parameters below a configurable subsection. */
     explicit ElastodynamicsParameters(
-      const std::string &subsection = "/Elastodynamics/");
+      const std::string &subsection             = "/Elastodynamics/",
+      TimeParameters    *shared_time_parameters = nullptr);
 
     std::string  output_directory    = ".";
     std::string  output_name         = "elastodynamics";
     unsigned int fe_degree           = 1;
     unsigned int initial_refinement  = 2;
-    unsigned int output_frequency    = 1;
     unsigned int n_refinement_cycles = 1;
 
     std::set<dealii::types::boundary_id> dirichlet_ids{0};
@@ -100,10 +104,8 @@ namespace ImmersX
     double damping_shear = 0.0;
     double damping_bulk  = 0.0;
 
-    double       initial_time    = 0.0;
-    double       final_time      = 0.1;
-    double       time_step       = 1.e-2;
-    unsigned int number_of_steps = 0;
+    /** Canonical time-integration parameters used by this Problem. */
+    TimeParameters &time_parameters;
 
     /** Body force, displacement boundary data, and velocity boundary data. */
     mutable dealii::ParameterAcceptorProxy<

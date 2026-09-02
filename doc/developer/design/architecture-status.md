@@ -204,6 +204,17 @@ not know which adapter is calling them.
 The solver used by an adapter owns no physics: it consumes residuals, Jacobian
 actions, states, and optional preconditioning data supplied by the model.
 
+### Time-parameter ownership
+
+`TimeParameters` is the single parameter owner for transient applications and
+execution policy. Problems refer to the same object, while an adapter derives
+its solver-specific configuration from it after parsing. For example,
+`IDAAdapter` builds deal.II's `AdditionalData` from `TimeParameters` when the
+IDA solver is finalized; IDA configuration is not registered or parsed as a
+second parameter object. This leaves room for future adapters to derive their
+own configurations without moving time-parameter ownership out of the common
+object.
+
 ## C. The semi-discrete model: $F(t,y,\dot y)=0$
 
 The common denominator is a semi-discrete residual, not a collection of

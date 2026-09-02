@@ -82,8 +82,18 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   ElastodynamicsParameters<dim, spacedim>::ElastodynamicsParameters(
-    const std::string &subsection)
+    const std::string &subsection,
+    TimeParameters    *shared_time_parameters)
     : ParameterAcceptor(normalize_elastodynamics_subsection(subsection))
+    , owned_time_parameters(
+        shared_time_parameters == nullptr ?
+          std::make_unique<TimeParameters>(
+            normalize_elastodynamics_subsection(subsection) +
+            "Time parameters/") :
+          nullptr)
+    , time_parameters(shared_time_parameters != nullptr ?
+                        *shared_time_parameters :
+                        *owned_time_parameters)
     , body_force(normalize_elastodynamics_subsection(subsection) +
                    "Functions/Body force",
                  spacedim)
@@ -109,7 +119,6 @@ namespace ImmersX
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
-    add_parameter("Output frequency", output_frequency);
     add_parameter("Initial refinement", initial_refinement);
     add_parameter("Number of refinement cycles", n_refinement_cycles);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
@@ -136,15 +145,6 @@ namespace ImmersX
         "Damping shear", damping_shear, "", this->prm, Patterns::Double(0));
       add_parameter(
         "Damping bulk", damping_bulk, "", this->prm, Patterns::Double(0));
-    }
-    leave_subsection();
-
-    enter_subsection("Time integration");
-    {
-      add_parameter("Initial time", initial_time);
-      add_parameter("Final time", final_time);
-      add_parameter("Time step", time_step, "", this->prm, Patterns::Double(0));
-      add_parameter("Number of time steps", number_of_steps);
     }
     leave_subsection();
 
@@ -181,12 +181,6 @@ namespace ImmersX
                   ExcMessage("Lame lambda must be non-negative."));
       AssertThrow(damping_shear >= 0. && damping_bulk >= 0.,
                   ExcMessage("Damping coefficients must be non-negative."));
-      AssertThrow(final_time >= initial_time,
-                  ExcMessage("Final time must not precede initial time."));
-      if (final_time > initial_time || number_of_steps > 0)
-        AssertThrow(time_step > 0.,
-                    ExcMessage("Time step must be positive for a transient "
-                               "run."));
     });
   }
 
@@ -209,7 +203,7 @@ namespace ImmersX
         },
         triangulation_storage))
     , dh()
-    , current_time_storage(par.initial_time)
+    , current_time_storage(par.time_parameters.initial_time)
   {}
 
 
@@ -420,7 +414,7 @@ namespace ImmersX
         combined_relevant_dofs.add_index(n_spatial_dofs + index);
       }
 
-    update_constraints(par.initial_time);
+    update_constraints(par.time_parameters.initial_time);
 
     DynamicSparsityPattern spatial_dsp(relevant_dofs);
     DoFTools::make_sparsity_pattern(dh,
@@ -664,7 +658,7 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::set_initial_conditions()
   {
     TimerOutput::Scope t(computing_timer, "Set initial conditions");
-    current_time_storage     = par.initial_time;
+    current_time_storage     = par.time_parameters.initial_time;
     time_step_number_storage = 0;
     current_time_step        = 0.;
     update_constraints(current_time_storage);
@@ -900,10 +894,10 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::advance_one_timestep()
   {
-    AssertThrow(par.time_step > 0.,
+    AssertThrow(par.time_parameters.time_step > 0.,
                 ExcMessage("Cannot advance with a non-positive time step."));
 
-    advance_one_timestep(par.time_step);
+    advance_one_timestep(par.time_parameters.time_step);
   }
 
 
@@ -1008,22 +1002,26 @@ namespace ImmersX
     assemble_operators();
     set_initial_conditions();
 
-    if (par.output_frequency > 0)
+    if (par.time_parameters.output_frequency > 0)
       output_results();
 
-    unsigned int n_steps = par.number_of_steps;
-    if (n_steps == 0 && par.final_time > par.initial_time)
-      n_steps = static_cast<unsigned int>(
-        std::ceil((par.final_time - par.initial_time) / par.time_step));
+    unsigned int n_steps = par.time_parameters.number_of_steps;
+    if (n_steps == 0 &&
+        par.time_parameters.final_time > par.time_parameters.initial_time)
+      n_steps = static_cast<unsigned int>(std::ceil(
+        (par.time_parameters.final_time - par.time_parameters.initial_time) /
+        par.time_parameters.time_step));
 
     for (unsigned int step = 0; step < n_steps; ++step)
       {
-        double dt = par.time_step;
-        if (par.number_of_steps == 0)
-          dt = std::min(dt, par.final_time - current_time_storage);
+        double dt = par.time_parameters.time_step;
+        if (par.time_parameters.number_of_steps == 0)
+          dt =
+            std::min(dt, par.time_parameters.final_time - current_time_storage);
         advance_one_timestep(dt);
-        if (par.output_frequency > 0 &&
-            (time_step_number_storage % par.output_frequency == 0 ||
+        if (par.time_parameters.output_frequency > 0 &&
+            (time_step_number_storage % par.time_parameters.output_frequency ==
+               0 ||
              step + 1 == n_steps))
           output_results();
       }

@@ -40,6 +40,7 @@ set(_public_headers
     immersx/core/state.h
     immersx/core/state_history.h
     immersx/core/sundials_ida_adapter.h
+    immersx/core/time_parameters.h
     immersx/core/linear_adapter.h
     immersx/core/matrix_operator.h
     immersx/core/problem_handle.h

@@ -4,7 +4,6 @@ set space dimension = 2
 subsection Navier-Stokes
   set Output directory    = navier_stokes_app_output
   set Output name         = navier_stokes
-  set Output frequency    = 0
   set Initial refinement  = 5
   set Dirichlet boundary ids = 0
 
@@ -24,11 +23,12 @@ subsection Navier-Stokes
     set Include convective term = false
   end
 
-  subsection Time stepping
+  subsection Time parameters
     set Policy               = number_of_steps
     set Initial time         = 0
     set Final time           = 1
     set Number of time steps = 100
+    set Output frequency    = 0
   end
 
   subsection Right hand side

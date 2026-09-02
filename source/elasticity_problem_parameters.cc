@@ -42,7 +42,13 @@ namespace ImmersX
     , augmented_lagrange_solver_control("/Solvers/Augmented Lagrange")
     , schur_complement_solver_control("/Solvers/Schur complement")
     , convergence_table(std::vector<std::string>(spacedim, "u"))
+    , time_parameters("/Immersed Problem/Time parameters/")
   {
+    // Preserve the historical elasticity default while keeping the canonical
+    // storage in TimeParameters.
+    time_parameters.time_step  = 5.e-3;
+    time_parameters.final_time = 0.;
+
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
@@ -103,17 +109,6 @@ namespace ImmersX
     enter_subsection("Material properties");
     add_parameter("Material tags by material id", material_tags_by_material_id);
     leave_subsection();
-    enter_subsection("Time dependency");
-    {
-      add_parameter("Initial time", initial_time);
-      add_parameter("Final time", final_time);
-      add_parameter("Time step", dt);
-      add_parameter("Refine time step", refine_time_step);
-      add_parameter("Newmark beta", beta);
-      add_parameter("Newmark gamma", gamma);
-    }
-    leave_subsection();
-
     this->prm.enter_subsection("Error");
     convergence_table.add_parameters(this->prm);
     this->prm.leave_subsection();
@@ -376,7 +371,7 @@ namespace ImmersX
 
     // --- Infer TimeMode
     // -------------------------------------------------------
-    if (initial_time == final_time)
+    if (time_parameters.initial_time == time_parameters.final_time)
       {
         time_mode = TimeMode::Static;
       }

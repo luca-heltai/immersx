@@ -88,7 +88,7 @@ subsection Immersed Problem
       set Tolerance     = 1.e-10
     end
   end
-  subsection Time dependency
+  subsection Time parameters
     set Final time   = 0
     set Initial time = 0
     set Time step    = 0.2

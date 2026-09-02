@@ -4,13 +4,12 @@ set space dimension = 2
 
 subsection Fiber Reinforced Elastodynamics
   set Output directory  = @TEST_OUTPUT_DIR@/tutorial-output/fiber-reinforced-elastodynamics
-  set Output frequency  = 1
-
-  subsection Time integration
+  subsection Time parameters
     set Initial time       = 0.0
     set Final time         = 0.05
     set Time step          = 0.01
     set Number of time steps = 5
+    set Output frequency   = 1
   end
 
   subsection Coupling solver

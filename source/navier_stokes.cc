@@ -80,6 +80,8 @@ namespace ImmersX
   NavierStokesParameters<dim, spacedim>::NavierStokesParameters(
     const std::string &subsection)
     : ParameterAcceptor(normalize_navier_stokes_subsection(subsection))
+    , time_parameters(normalize_navier_stokes_subsection(subsection) +
+                      "Time parameters/")
     , convergence_table(navier_stokes_error_component_names<dim>(),
                         navier_stokes_error_norms<dim>())
     , rhs(normalize_navier_stokes_subsection(subsection) + "Right hand side",
@@ -93,9 +95,12 @@ namespace ImmersX
     , solver_control(normalize_navier_stokes_subsection(subsection) +
                      "Solver/Control")
   {
+    // Preserve the historical Navier--Stokes default while keeping the
+    // canonical storage in TimeParameters.
+    time_parameters.number_of_steps = 10;
+
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
-    add_parameter("Output frequency", output_frequency);
 
     enter_subsection("Finite element spaces");
     {
@@ -136,21 +141,6 @@ namespace ImmersX
         include_convective_term,
         "Evaluate rho (u^n . grad) u^n explicitly on the right-hand side. "
         "Set false for unsteady Stokes.");
-    }
-    leave_subsection();
-
-    enter_subsection("Time stepping");
-    {
-      add_parameter("Policy",
-                    time_step_policy,
-                    "Use number_of_steps to divide the time interval, or "
-                    "fixed to use the configured time step",
-                    this->prm,
-                    Patterns::Selection("number_of_steps|fixed"));
-      add_parameter("Initial time", initial_time);
-      add_parameter("Final time", final_time);
-      add_parameter("Time step", time_step);
-      add_parameter("Number of time steps", number_of_time_steps);
     }
     leave_subsection();
 
@@ -227,7 +217,7 @@ namespace ImmersX
     , dh()
     , velocity(0)
     , pressure(dim)
-    , current_time_storage(par.initial_time)
+    , current_time_storage(par.time_parameters.initial_time)
   {}
 
 
@@ -356,27 +346,30 @@ namespace ImmersX
   void
   NavierStokesSolver<dim, spacedim>::initialize_time_control()
   {
-    current_time_storage    = par.initial_time;
+    current_time_storage    = par.time_parameters.initial_time;
     timestep_number_storage = 0;
 
-    AssertThrow(par.final_time > par.initial_time,
+    AssertThrow(par.time_parameters.final_time >
+                  par.time_parameters.initial_time,
                 ExcMessage("Final time must be larger than initial time."));
 
-    if (par.time_step_policy == "number_of_steps")
+    if (par.time_parameters.time_step_policy == "number_of_steps")
       {
-        AssertThrow(par.number_of_time_steps > 0,
+        AssertThrow(par.time_parameters.number_of_steps > 0,
                     ExcMessage("Number of time steps must be positive."));
-        n_time_steps_storage = par.number_of_time_steps;
+        n_time_steps_storage = par.time_parameters.number_of_steps;
         time_step_storage =
-          (par.final_time - par.initial_time) / n_time_steps_storage;
+          (par.time_parameters.final_time - par.time_parameters.initial_time) /
+          n_time_steps_storage;
       }
     else
       {
-        AssertThrow(par.time_step > 0.,
+        AssertThrow(par.time_parameters.time_step > 0.,
                     ExcMessage("The fixed time step must be positive."));
-        n_time_steps_storage = static_cast<unsigned int>(
-          std::ceil((par.final_time - par.initial_time) / par.time_step));
-        time_step_storage = par.time_step;
+        n_time_steps_storage = static_cast<unsigned int>(std::ceil(
+          (par.time_parameters.final_time - par.time_parameters.initial_time) /
+          par.time_parameters.time_step));
+        time_step_storage    = par.time_parameters.time_step;
       }
   }
 
@@ -732,10 +725,11 @@ namespace ImmersX
                   "The configured final time has already been reached."));
 
     const double next_time =
-      std::min(par.final_time,
-               current_time_storage + (par.time_step_policy == "fixed" ?
-                                         par.time_step :
-                                         time_step_storage));
+      std::min(par.time_parameters.final_time,
+               current_time_storage +
+                 (par.time_parameters.time_step_policy == "fixed" ?
+                    par.time_parameters.time_step :
+                    time_step_storage));
     time_step_storage    = next_time - current_time_storage;
     current_time_storage = next_time;
     par.set_time(current_time_storage);
@@ -835,14 +829,15 @@ namespace ImmersX
     setup_fe();
     setup_system();
 
-    if (par.output_frequency > 0)
+    if (par.time_parameters.output_frequency > 0)
       output_results();
 
     while (timestep_number_storage < n_time_steps_storage)
       {
         advance_one_timestep();
-        if (par.output_frequency > 0 &&
-            (timestep_number_storage % par.output_frequency == 0 ||
+        if (par.time_parameters.output_frequency > 0 &&
+            (timestep_number_storage % par.time_parameters.output_frequency ==
+               0 ||
              timestep_number_storage == n_time_steps_storage))
           output_results();
       }
