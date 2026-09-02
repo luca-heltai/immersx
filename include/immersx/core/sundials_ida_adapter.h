@@ -83,6 +83,10 @@ namespace ImmersX
                                               const GlobalVectorType &,
                                               const GlobalVectorType &,
                                               const unsigned int)>;
+    using ConsistentInitialConditionsFunction =
+      std::function<void(const double, GlobalVectorType &, GlobalVectorType &)>;
+    using RestartFunction =
+      std::function<bool(const double, GlobalVectorType &, GlobalVectorType &)>;
     using AdditionalData =
       typename dealii::SUNDIALS::IDA<GlobalVectorType>::AdditionalData;
     using Parameters = IDAParameters<GlobalVectorType>;
@@ -156,6 +160,17 @@ namespace ImmersX
     unsigned int
     solve(GlobalVectorType &state, GlobalVectorType &state_dot)
     {
+      current_state_ = &state;
+      if (compute_consistent_initial_conditions_ &&
+          parameters_.data.ic_type == AdditionalData::use_y_diff)
+        {
+          pcout << "IDAAdapter: computing consistent initial conditions "
+                   "with the application callback."
+                << std::endl;
+          compute_consistent_initial_conditions_(parameters_.data.initial_time,
+                                                 state,
+                                                 state_dot);
+        }
       finalize();
       pcout << "IDAAdapter: starting DAE solve with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
@@ -175,6 +190,41 @@ namespace ImmersX
       output_ = std::move(output);
       pcout << "IDAAdapter: accepted-state output callback configured."
             << std::endl;
+    }
+
+    /**
+     * Set an application-provided consistent initial-condition callback.
+     *
+     * The callback is used when the corresponding IDA initial-condition
+     * correction type is `use_y_diff`. It may modify both the state and its
+     * derivative, including algebraic components of the state.
+     */
+    void
+    set_compute_consistent_initial_conditions(
+      ConsistentInitialConditionsFunction callback)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "IDAAdapter initial conditions must be configured "
+                    "before solve."));
+      compute_consistent_initial_conditions_ = std::move(callback);
+    }
+
+    /**
+     * Set the application callback that requests an IDA restart.
+     *
+     * When the callback returns true and `reset_type` is `use_y_diff`, the
+     * consistent initial-condition callback, if present, is called before IDA
+     * is reset. If no consistent callback is present, IDA retains its native
+     * `IDACalcIC` fallback.
+     */
+    void
+    set_solver_should_restart(RestartFunction callback)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "IDAAdapter restart must be configured before solve."));
+      solver_should_restart_ = std::move(callback);
     }
 
     GlobalVectorType
@@ -315,8 +365,16 @@ namespace ImmersX
 
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
+      auto ida_data = parameters_.data;
+      if (compute_consistent_initial_conditions_)
+        {
+          if (ida_data.ic_type == AdditionalData::use_y_diff)
+            ida_data.ic_type = AdditionalData::none;
+          if (ida_data.reset_type == AdditionalData::use_y_diff)
+            ida_data.reset_type = AdditionalData::none;
+        }
       ida_ = std::make_unique<dealii::SUNDIALS::IDA<GlobalVectorType>>(
-        parameters_.data, composition_.communicator());
+        ida_data, composition_.communicator());
       ida_->reinit_vector = [this](GlobalVectorType &vector) {
         composition_.reinit(vector);
       };
@@ -389,7 +447,27 @@ namespace ImmersX
           }
       };
       ida_->differential_components = [this]() {
-        return composition_.differential_components();
+        return current_state_ != nullptr ?
+                 composition_.differential_components(*current_state_) :
+                 composition_.differential_components();
+      };
+      ida_->solver_should_restart = [this](const double      time,
+                                           GlobalVectorType &state,
+                                           GlobalVectorType &state_dot) {
+        current_state_ = &state;
+        if (!solver_should_restart_)
+          return false;
+
+        const bool restart = solver_should_restart_(time, state, state_dot);
+        if (restart && compute_consistent_initial_conditions_ &&
+            parameters_.data.reset_type == AdditionalData::use_y_diff)
+          {
+            pcout << "IDAAdapter: computing consistent initial conditions "
+                     "after restart with the application callback."
+                  << std::endl;
+            compute_consistent_initial_conditions_(time, state, state_dot);
+          }
+        return restart;
       };
       if (output_)
         {
@@ -519,11 +597,14 @@ namespace ImmersX
     std::unique_ptr<dealii::SUNDIALS::IDA<GlobalVectorType>> ida_;
     mutable dealii::ConditionalOStream                       pcout;
     std::optional<Operator>                                  current_jacobian_;
-    std::optional<Operator> current_preconditioner_;
-    OutputFunction          output_;
-    bool                    current_solver_is_flexible_ = false;
-    std::size_t             coupling_count_             = 0;
-    bool                    connected_                  = false;
+    std::optional<Operator>             current_preconditioner_;
+    OutputFunction                      output_;
+    ConsistentInitialConditionsFunction compute_consistent_initial_conditions_;
+    RestartFunction                     solver_should_restart_;
+    GlobalVectorType                   *current_state_              = nullptr;
+    bool                                current_solver_is_flexible_ = false;
+    std::size_t                         coupling_count_             = 0;
+    bool                                connected_                  = false;
   };
 } // namespace ImmersX
 #endif

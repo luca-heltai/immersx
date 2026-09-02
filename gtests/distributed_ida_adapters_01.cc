@@ -13,11 +13,269 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/sundials_ida_adapter.h>
 
+#include <cmath>
+#include <stdexcept>
 #include <string>
 
 using namespace ImmersX;
 
 #ifdef DEAL_II_WITH_SUNDIALS
+
+namespace
+{
+  using FieldVector  = ImmersXLA::MPI::Vector;
+  using GlobalVector = ImmersXLA::MPI::BlockVector;
+  using Adapter      = IDAAdapter<FieldVector, GlobalVector>;
+
+  template <typename AdapterType>
+  auto
+  add_identity_field(AdapterType       &adapter,
+                     const unsigned int size,
+                     bool              *initial_output = nullptr,
+                     bool              *early_residual = nullptr)
+  {
+    return adapter.add(
+      [=](auto &builder) {
+        using Model = typename std::decay_t<decltype(builder)>::Model;
+
+        dealii::IndexSet owned(size);
+        owned.add_range(0, size);
+        owned.compress();
+        const auto field = builder.differential_field("value", owned);
+
+        typename Model::OperatorFactory identity_factory =
+          [field](const auto &context) {
+            const auto              &reference = context.state(field);
+            typename Model::Operator result;
+            result.reinit_range_vector = [reference](FieldVector &vector,
+                                                     bool) {
+              vector.reinit(reference);
+            };
+            result.reinit_domain_vector = result.reinit_range_vector;
+            result.vmult                = [](FieldVector       &destination,
+                              const FieldVector &source) {
+              destination = source;
+            };
+            result.vmult_add = [](FieldVector       &destination,
+                                  const FieldVector &source) {
+              destination += source;
+            };
+            result.Tvmult     = result.vmult;
+            result.Tvmult_add = result.vmult_add;
+            return result;
+          };
+
+        builder.term(field, "identity")
+          .residual(
+            [field, initial_output, early_residual](const auto &context) {
+              const auto &state     = context.state(field);
+              const auto &state_dot = context.derivative(field);
+              if (early_residual != nullptr && initial_output != nullptr &&
+                  *initial_output == false)
+                *early_residual = true;
+
+              typename Model::Operation result;
+              result.reinit_vector = [state](FieldVector &vector, bool) {
+                vector.reinit(state);
+              };
+              result.apply = [state, state_dot](FieldVector &vector) {
+                vector = state_dot;
+                vector += state;
+              };
+              result.apply_add = [state, state_dot](FieldVector &vector) {
+                FieldVector contribution;
+                contribution.reinit(state);
+                contribution = state_dot;
+                contribution += state;
+                vector += contribution;
+              };
+              return result;
+            })
+          .state(field, identity_factory)
+          .derivative(field, identity_factory);
+        return field;
+      },
+      "identity");
+  }
+} // namespace
+
+TEST(DistributedIDA, ApplicationConsistentInitialConditions) // NOLINT
+{
+  Adapter::Parameters parameters;
+  parameters.data.initial_time      = 0.;
+  parameters.data.final_time        = 0.01;
+  parameters.data.initial_step_size = 0.01;
+  parameters.data.output_period     = 0.01;
+  parameters.data.maximum_order     = 1;
+  parameters.data.ic_type           = Adapter::AdditionalData::use_y_diff;
+  parameters.data.reset_type        = Adapter::AdditionalData::none;
+  parameters.data.ignore_algebraic_terms_for_errors = false;
+
+  Adapter      adapter(parameters, MPI_COMM_SELF);
+  bool         initial_output     = false;
+  bool         early_residual     = false;
+  unsigned int callback_count     = 0;
+  double       initial_state_norm = 0.;
+  double       initial_dot_norm   = 0.;
+  const auto   field =
+    add_identity_field(adapter, 2, &initial_output, &early_residual);
+  auto state = adapter.make_state();
+  auto dot   = adapter.make_state();
+
+  adapter.set_compute_consistent_initial_conditions(
+    [&](const double time, GlobalVector &y, GlobalVector &y_dot) {
+      EXPECT_DOUBLE_EQ(time, 0.);
+      ++callback_count;
+      adapter.field(y, field.fields())     = 2.;
+      adapter.field(y_dot, field.fields()) = -2.;
+    });
+  adapter.set_output_step([&](const double,
+                              const GlobalVector &y,
+                              const GlobalVector &y_dot,
+                              const unsigned int  step) {
+    if (step == 0)
+      {
+        initial_output     = true;
+        initial_state_norm = adapter.field(y, field.fields()).l2_norm();
+        initial_dot_norm   = adapter.field(y_dot, field.fields()).l2_norm();
+      }
+  });
+
+  EXPECT_GT(adapter.solve(state, dot), 0u);
+  EXPECT_EQ(callback_count, 1u);
+  EXPECT_TRUE(initial_output);
+  EXPECT_FALSE(early_residual);
+  EXPECT_DOUBLE_EQ(initial_state_norm, std::sqrt(8.));
+  EXPECT_DOUBLE_EQ(initial_dot_norm, std::sqrt(8.));
+}
+
+TEST(DistributedIDA, IDACalcICFallbackRemainsAvailable) // NOLINT
+{
+  Adapter::Parameters parameters;
+  parameters.data.initial_time      = 0.;
+  parameters.data.final_time        = 0.01;
+  parameters.data.initial_step_size = 0.01;
+  parameters.data.output_period     = 0.01;
+  parameters.data.maximum_order     = 1;
+  parameters.data.ic_type           = Adapter::AdditionalData::use_y_diff;
+  parameters.data.reset_type        = Adapter::AdditionalData::none;
+  parameters.data.ignore_algebraic_terms_for_errors = false;
+
+  Adapter    adapter(parameters, MPI_COMM_SELF);
+  const auto field                     = add_identity_field(adapter, 2);
+  auto       state                     = adapter.make_state();
+  auto       dot                       = adapter.make_state();
+  adapter.field(state, field.fields()) = 1.;
+  double initial_dot_norm              = 0.;
+  adapter.set_output_step([&](const double,
+                              const GlobalVector &,
+                              const GlobalVector &y_dot,
+                              const unsigned int  step) {
+    if (step == 0)
+      initial_dot_norm = adapter.field(y_dot, field.fields()).l2_norm();
+  });
+
+  EXPECT_GT(adapter.solve(state, dot), 0u);
+  EXPECT_NEAR(initial_dot_norm, std::sqrt(2.), 1.e-8);
+}
+
+TEST(DistributedIDA,
+     ApplicationConsistentInitialConditionFailurePropagates) // NOLINT
+{
+  Adapter::Parameters parameters;
+  parameters.data.final_time = 0.01;
+  parameters.data.ic_type    = Adapter::AdditionalData::use_y_diff;
+
+  Adapter adapter(parameters, MPI_COMM_SELF);
+  auto    field = add_identity_field(adapter, 2);
+  auto    state = adapter.make_state();
+  auto    dot   = adapter.make_state();
+  (void)field;
+  adapter.set_compute_consistent_initial_conditions(
+    [](const double, GlobalVector &, GlobalVector &) {
+      throw std::runtime_error("consistent initial condition failure");
+    });
+
+  EXPECT_THROW(adapter.solve(state, dot), std::runtime_error);
+}
+
+TEST(DistributedIDA, NoneLeavesInitialConditionsUntouched) // NOLINT
+{
+  Adapter::Parameters parameters;
+  parameters.data.initial_time      = 0.;
+  parameters.data.final_time        = 0.01;
+  parameters.data.initial_step_size = 0.01;
+  parameters.data.output_period     = 0.01;
+  parameters.data.maximum_order     = 1;
+  parameters.data.ic_type           = Adapter::AdditionalData::none;
+  parameters.data.reset_type        = Adapter::AdditionalData::none;
+  parameters.data.ignore_algebraic_terms_for_errors = false;
+
+  Adapter    adapter(parameters, MPI_COMM_SELF);
+  const auto field                     = add_identity_field(adapter, 2);
+  auto       state                     = adapter.make_state();
+  auto       dot                       = adapter.make_state();
+  adapter.field(state, field.fields()) = 1.;
+  bool   initial_output                = false;
+  double initial_dot_norm              = 0.;
+  adapter.set_output_step([&](const double,
+                              const GlobalVector &,
+                              const GlobalVector &y_dot,
+                              const unsigned int  step) {
+    if (step == 0)
+      {
+        initial_output   = true;
+        initial_dot_norm = adapter.field(y_dot, field.fields()).l2_norm();
+      }
+  });
+
+  EXPECT_GT(adapter.solve(state, dot), 0u);
+  EXPECT_TRUE(initial_output);
+  EXPECT_DOUBLE_EQ(initial_dot_norm, 0.);
+}
+
+TEST(DistributedIDA, RestartCallbackPrecedesResetAndCanResizeState) // NOLINT
+{
+  Adapter::Parameters parameters;
+  parameters.data.initial_time      = 0.;
+  parameters.data.final_time        = 0.02;
+  parameters.data.initial_step_size = 0.01;
+  parameters.data.output_period     = 0.01;
+  parameters.data.maximum_order     = 1;
+  parameters.data.ic_type           = Adapter::AdditionalData::use_y_diff;
+  parameters.data.reset_type        = Adapter::AdditionalData::use_y_diff;
+  parameters.data.ignore_algebraic_terms_for_errors = false;
+
+  Adapter      adapter(parameters, MPI_COMM_SELF);
+  const auto   field            = add_identity_field(adapter, 2);
+  auto         state            = adapter.make_state();
+  auto         dot              = adapter.make_state();
+  unsigned int restart_count    = 0;
+  unsigned int consistent_count = 0;
+  adapter.set_compute_consistent_initial_conditions(
+    [&](const double, GlobalVector &y, GlobalVector &y_dot) {
+      ++consistent_count;
+      adapter.field(y, field.fields())     = 3.;
+      adapter.field(y_dot, field.fields()) = -3.;
+    });
+  adapter.set_solver_should_restart(
+    [&](const double, GlobalVector &y, GlobalVector &y_dot) {
+      if (restart_count++ != 0)
+        return false;
+      dealii::IndexSet owned(3);
+      owned.add_range(0, 3);
+      owned.compress();
+      y.reinit(std::vector<dealii::IndexSet>{owned}, MPI_COMM_SELF);
+      y_dot.reinit(std::vector<dealii::IndexSet>{owned}, MPI_COMM_SELF);
+      return true;
+    });
+
+  EXPECT_GT(adapter.solve(state, dot), 0u);
+  EXPECT_GE(restart_count, 2u);
+  EXPECT_EQ(consistent_count, 2u);
+  EXPECT_EQ(state.block(0).size(), 3u);
+  EXPECT_EQ(dot.block(0).size(), 3u);
+}
 
 TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT
 {

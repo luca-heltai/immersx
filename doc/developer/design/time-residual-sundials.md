@@ -141,3 +141,75 @@ The mixed-field DAE test uses one four-component semantic field with only its
 first two components marked differential. It checks the mask received by IDA,
 the residual `F = y + ydot`, and the corresponding `dF/dy + alpha*dF/dydot`
 Jacobian action.
+
+## Application-provided consistent initial conditions
+
+`IDAAdapter` supports an optional
+`set_compute_consistent_initial_conditions()` callback with the signature
+
+```cpp
+void(const double time, GlobalVector &state, GlobalVector &state_dot)
+```
+
+When `ic_type` is `use_y_diff`, the adapter calls this function before the
+initial `IDAInit()` and uses the resulting pair directly. The callback may
+modify both vectors: in particular, it may reconstruct algebraic components
+of `state` as well as differential components of `state_dot`. An exception
+from the callback is propagated to the application; it is not converted into
+an `IDACalcIC` fallback.
+
+If the callback is absent, the existing deal.II/SUNDIALS `IDACalcIC` path is
+unchanged. `ic_type = none` continues to perform no correction, and
+`use_y_dot` continues to use IDA's existing correction. The same callback is
+used after a restart when `reset_type = use_y_diff`. Configure the restart
+request through `set_solver_should_restart()` so the adapter can invoke the
+consistent-pair callback between mesh adaptation and IDA's reset. The
+following is a schematic workflow; the `Problem` methods shown are
+application-owned transfer and assembly routines:
+
+```cpp
+IDAParameters<GlobalVector> parameters;
+parameters.data.ic_type    = Adapter::AdditionalData::use_y_diff;
+parameters.data.reset_type = Adapter::AdditionalData::use_y_diff;
+
+Adapter ida(parameters, MPI_COMM_WORLD);
+auto fields = ida.add(problem, "fluid");
+
+ida.set_compute_consistent_initial_conditions(
+  [&problem, &ida, fields](const double time,
+                           GlobalVector &state,
+                           GlobalVector &state_dot) {
+    // Transfer/refine-aware application code. For example, solve
+    // M(y,t) * y_dot = f(y,t), then impose the algebraic constraints.
+    problem.compute_consistent_initial_conditions(
+      time,
+      ida.field(state, fields.fields().velocity),
+      ida.field(state, fields.fields().pressure),
+      ida.field(state_dot, fields.fields().velocity),
+      ida.field(state_dot, fields.fields().pressure));
+  });
+ida.set_solver_should_restart(
+  [&problem](const double time,
+            GlobalVector &state,
+            GlobalVector &state_dot) {
+    if (!problem.adapt_mesh(time))
+      return false;
+    problem.transfer_state(state, state_dot);
+    return true;
+  });
+
+ida.solve(state, state_dot);
+```
+
+The application remains responsible for updating Problem-owned matrices,
+constraints, and vector partitions during the transfer. The execution adapter
+keeps semantic field ordering stable while the state vectors supplied to the
+restart may be replaced by the adapted vectors. Navier--Stokes can use its
+velocity mass matrix, spatial operators, constraints, and block solvers to
+construct the initial derivative; MetricFlowX follows the same pattern when
+its finite-element space is transferred after refinement.
+
+The default deal.II restart path retains the previous accepted IDA step size
+as the tentative new step. After a large mesh change this may be a poor choice
+for robustness or efficiency, so selecting a fresh initial step after
+adaptation is a follow-up issue rather than part of this callback change.

@@ -57,6 +57,15 @@ namespace
                                                       fields.fields().state),
                                         data.initial_time);
 
+    adapter.set_compute_consistent_initial_conditions(
+      [&problem, &adapter, fields](const double  time,
+                                   GlobalVector &state,
+                                   GlobalVector &state_dot) {
+        problem.initialize_state_derivative(
+          adapter.field(state_dot, fields.fields().state), time);
+        (void)state;
+      });
+
     adapter.solve(state, state_dot);
   }
 } // namespace
