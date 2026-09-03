@@ -603,6 +603,8 @@ namespace ImmersX
     dealii::Point<spacedim>     point;
     dealii::Point<spacedim>     representative_point;
     dealii::Tensor<1, spacedim> tangent;
+    /** Outward normal for codimension-one represented supports, when known. */
+    dealii::Tensor<1, spacedim> normal;
     double                      weight = 0.;
     /** Stable source entity identity, when the source has geometric cells. */
     dealii::types::global_cell_index source_entity_id =

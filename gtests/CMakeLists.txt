@@ -62,7 +62,10 @@ set(_public_headers
     immersx/physics/navier_stokes_semidiscrete.h
     immersx/physics/poisson_residual.h)
 if(IMMERSX_WITH_METRIC_FLOW_X)
-  list(APPEND _public_headers immersx/physics/metric_flow_x.h)
+  list(APPEND _public_headers
+       immersx/physics/metric_flow_x.h
+       immersx/physics/metric_flow_x_vessel_wall_representation.h
+       immersx/algebra/vessel_wall_interaction.h)
 endif()
 
 set(_public_header_targets)
@@ -84,7 +87,10 @@ foreach(_public_header ${_public_headers})
                              PRIVATE ${CMAKE_SOURCE_DIR}/include
                                      ${CMAKE_BINARY_DIR}/include)
   if(IMMERSX_WITH_METRIC_FLOW_X AND
-     _public_header STREQUAL "immersx/physics/metric_flow_x.h")
+     (_public_header STREQUAL "immersx/physics/metric_flow_x.h" OR
+      _public_header STREQUAL
+        "immersx/physics/metric_flow_x_vessel_wall_representation.h" OR
+      _public_header STREQUAL "immersx/algebra/vessel_wall_interaction.h"))
     target_link_libraries(${_public_header_target}
                           MetricFlowX::metric_flow_x)
   endif()
