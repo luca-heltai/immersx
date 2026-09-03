@@ -19,6 +19,7 @@
 #include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
 
 #include <cmath>
+#include <map>
 #include <memory>
 
 #include "test_paths.h"
@@ -202,6 +203,124 @@ TEST(MetricFlowXVesselWallRepresentation, MPI_CompactMultiplierSpace)
       for (const auto index : point.multiplier_dof_indices)
         EXPECT_TRUE(relevant.is_element(index));
     }
+}
+
+TEST(MetricFlowXVesselWallRepresentation, MPI_ExternalPressureInterpolation)
+{
+  Fixture fixture;
+  State   multiplier;
+  multiplier.reinit(fixture.representation->multiplier_locally_owned_dofs(),
+                    fixture.representation->multiplier_locally_relevant_dofs(),
+                    MPI_COMM_WORLD);
+  multiplier = 0.;
+
+  std::map<dealii::types::global_dof_index, dealii::types::global_dof_index>
+    area_to_multiplier;
+  for (const auto &point : fixture.representation->points())
+    for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
+      area_to_multiplier.emplace(point.dof_indices[i],
+                                 point.multiplier_dof_indices[i]);
+
+  const unsigned int n_dofs =
+    fixture.problem->finite_element().n_dofs_per_cell();
+  std::vector<dealii::types::global_dof_index> local_dofs(n_dofs);
+  for (const auto &cell :
+       fixture.problem->dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        cell->get_dof_indices(local_dofs);
+        for (unsigned int i = 0; i < n_dofs; ++i)
+          if (fixture.problem->finite_element()
+                .system_to_component_index(i)
+                .first == 0)
+            {
+              const auto full   = local_dofs[i];
+              const auto map_it = area_to_multiplier.find(full);
+              if (map_it != area_to_multiplier.end() &&
+                  multiplier.locally_owned_elements().is_element(
+                    map_it->second))
+                {
+                  const double value =
+                    fixture.problem->finite_element().shape_value_component(
+                      i, dealii::Point<1>(1.), 0.);
+                  multiplier[map_it->second] = value;
+                }
+            }
+      }
+  multiplier.compress(dealii::VectorOperation::insert);
+
+  const auto provider =
+    fixture.representation->make_external_pressure_provider(multiplier);
+  ASSERT_GT(dealii::Utilities::MPI::max(fixture.representation->points().size(),
+                                        MPI_COMM_WORLD),
+            0u);
+  double local_min = std::numeric_limits<double>::max();
+  double local_max = -std::numeric_limits<double>::max();
+  for (const auto &point : fixture.representation->points())
+    {
+      const MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint
+             evaluation{0., point.point, 0u, point.cell_id};
+      double expected = 0.;
+      for (unsigned int i = 0; i < point.multiplier_dof_indices.size(); ++i)
+        expected += point.area_basis_values[i] *
+                    multiplier[point.multiplier_dof_indices[i]];
+      EXPECT_NEAR(provider(evaluation), expected, 1.e-12);
+      local_min = std::min(local_min, expected);
+      local_max = std::max(local_max, expected);
+    }
+  EXPECT_GT(dealii::Utilities::MPI::max(local_max, MPI_COMM_WORLD) -
+              dealii::Utilities::MPI::min(local_min, MPI_COMM_WORLD),
+            1.e-8);
+}
+
+TEST(MetricFlowXVesselWallRepresentation, AreaPressureNormalization)
+{
+  Fixture     fixture;
+  const auto &points = fixture.representation->points();
+  ASSERT_FALSE(points.empty());
+
+  dealii::FEValues<1, 3> fe_values(
+    dealii::StaticMappingQ1<1, 3>::mapping,
+    fixture.problem->finite_element(),
+    fixture.representation->support().representative_quadrature(),
+    dealii::update_JxW_values);
+  for (const auto &cell :
+       fixture.problem->dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        fe_values.reinit(cell);
+        for (const auto q : fe_values.quadrature_point_indices())
+          {
+            double section_measure = 0.;
+            for (const auto &point : points)
+              if (point.cell_id == cell->id() &&
+                  point.representative_qpoint == q)
+                {
+                  const double radius =
+                    std::sqrt(point.a0 / dealii::numbers::PI);
+                  section_measure += point.weight;
+                  EXPECT_NEAR(radius * 2. * dealii::numbers::PI *
+                                fixture.representation->radius_derivative(
+                                  point.a0),
+                              1.,
+                              2.e-14);
+                }
+            const double normalized_measure =
+              section_measure / fe_values.JxW(q);
+            EXPECT_NEAR(normalized_measure,
+                        fixture.representation->support()
+                          .reference_cross_section()
+                          .measure(
+                            std::sqrt(points.front().a0 / dealii::numbers::PI)),
+                        2.e-10);
+            EXPECT_NEAR(
+              normalized_measure *
+                fixture.representation->radius_derivative(points.front().a0),
+              section_measure / fe_values.JxW(q) /
+                (2. * std::sqrt(dealii::numbers::PI * points.front().a0)),
+              2.e-14);
+          }
+      }
 }
 
 #else

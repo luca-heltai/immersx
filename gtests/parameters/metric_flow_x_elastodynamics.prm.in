@@ -3,6 +3,25 @@ set space dimension = 3
 set reduced dimension = 1
 set cross section dimension = 2
 
+subsection Time parameters
+  set Initial time       = 0.0
+  set Final time         = 0.0
+  set Time step          = 1e-6
+  set Number of time steps = 1
+  set Output frequency   = 1
+  set Policy             = number_of_steps
+  subsection Error control
+    set Absolute error tolerance = 1e-6
+    set Relative error tolerance = 1e-5
+  end
+  subsection Running parameters
+    set Initial step size                = 1e-7
+    set Maximum number of nonlinear iterations = 10
+    set Maximum order of BDF             = 1
+    set Minimum step size                = 1e-10
+  end
+end
+
 subsection Elastodynamics
   set FE degree                 = 1
   set Initial refinement        = 1
@@ -20,12 +39,6 @@ subsection Elastodynamics
     set Lame mu     = 1.0
     set Lame lambda = 1.0
   end
-  subsection Time parameters
-    set Initial time       = 0.0
-    set Final time         = 1e-6
-    set Time step          = 1e-6
-    set Number of time steps = 1
-  end
 end
 
 subsection Metric Flow Parameters
@@ -37,7 +50,7 @@ subsection Metric Flow Parameters
 end
 
 subsection Functions
-  set Inflow function = 1.e-7
+  set Inflow function = 0.0
 end
 
 subsection MetricFlowSystem<1, 3>
@@ -53,22 +66,6 @@ subsection MetricFlowSystem<1, 3>
   set Numerical flux type                   = HLL
   set Outlet boundary condition type        = RCR
   set Vtk file path for mesh input          = @TEST_DATA_DIR@/metric_flow_x/single_vessel.vtk
-  subsection Time parameters
-    set Final time                          = 1e-6
-    set Initial time                       = 0
-    set Time step                           = 1e-6
-    set Output frequency                   = 1
-    subsection Error control
-      set Absolute error tolerance         = 1e-6
-      set Relative error tolerance         = 1e-5
-    end
-    subsection Running parameters
-      set Initial step size                = 1e-7
-      set Maximum number of nonlinear iterations = 10
-      set Maximum order of BDF             = 1
-      set Minimum step size                = 1e-10
-    end
-  end
 end
 
 subsection MetricFlowX vessel wall lift

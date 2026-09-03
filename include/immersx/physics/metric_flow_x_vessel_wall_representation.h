@@ -32,6 +32,7 @@
 #  include <cstdint>
 #  include <limits>
 #  include <map>
+#  include <memory>
 #  include <string>
 #  include <utility>
 #  include <vector>
@@ -79,9 +80,12 @@ namespace ImmersX
     struct WallPoint : QuadraturePoint
     {
       double                                       a0 = 0.;
+      dealii::CellId                               cell_id;
       std::vector<double>                          area_basis_values;
       std::vector<dealii::types::global_dof_index> multiplier_dof_indices;
     };
+
+    using ExternalPressureProvider = typename Problem::ExternalPressureProvider;
 
     MetricFlowXAreaRadialDisplacementRepresentation(
       const Problem            &problem,
@@ -183,6 +187,29 @@ namespace ImmersX
     mode_coefficients(const double delta_radius) const
     {
       return {delta_radius, delta_radius};
+    }
+
+    /** Return the current multiplier as a native MetricFlowX pressure field.
+     *
+     * The returned provider owns a relevant ghosted copy of the supplied
+     * candidate vector.  It evaluates the scalar FE field on the incident
+     * centerline cell identified by `PressureEvaluationPoint::cell_id`; no
+     * global point search or global vector gather is performed.
+     */
+    ExternalPressureProvider
+    make_external_pressure_provider(const StateType &multiplier) const
+    {
+      auto values = std::make_shared<StateType>();
+      values->reinit(multiplier_owned_,
+                     multiplier_relevant_,
+                     mpi_communicator());
+      *values = multiplier;
+      values->update_ghost_values();
+
+      return [this, values](
+               const typename Problem::PressureEvaluationPoint &evaluation) {
+        return evaluate_multiplier(*values, evaluation);
+      };
     }
 
     const TriangulationType &
@@ -418,6 +445,13 @@ namespace ImmersX
     }
 
   private:
+    struct CellData
+    {
+      dealii::Point<3>                                   first_vertex;
+      dealii::Point<3>                                   last_vertex;
+      std::vector<std::pair<unsigned int, unsigned int>> area_basis;
+    };
+
     static dealii::Tensor<1, 3>
     rotate_reference_vector(const dealii::Tensor<1, 3> &reference,
                             const dealii::Tensor<1, 3> &tangent)
@@ -524,6 +558,36 @@ namespace ImmersX
       return result;
     }
 
+    double
+    evaluate_multiplier(
+      const StateType                                 &multiplier,
+      const typename Problem::PressureEvaluationPoint &evaluation) const
+    {
+      const auto cell = cell_data_.find(evaluation.cell_id);
+      AssertThrow(cell != cell_data_.end(),
+                  dealii::ExcMessage(
+                    "MetricFlowX pressure evaluation has no incident cell "
+                    "metadata."));
+
+      const auto tangent = cell->second.last_vertex - cell->second.first_vertex;
+      const double tangent_squared = tangent * tangent;
+      AssertThrow(tangent_squared > 0.,
+                  dealii::ExcMessage("A centerline cell has zero length."));
+      const auto   displacement = evaluation.point - cell->second.first_vertex;
+      const double coordinate =
+        std::clamp((displacement * tangent) / tangent_squared, 0., 1.);
+      const dealii::Point<1> reference_point(coordinate);
+
+      double value = 0.;
+      for (const auto &[local_dof, multiplier_dof] : cell->second.area_basis)
+        value +=
+          problem_.finite_element().shape_value_component(local_dof,
+                                                          reference_point,
+                                                          0) *
+          multiplier[multiplier_dof];
+      return value;
+    }
+
     void
     build_points()
     {
@@ -542,10 +606,22 @@ namespace ImmersX
       std::vector<dealii::types::global_dof_index> local_dofs(n_dofs);
 
       for (const auto &cell : problem_.dof_handler().active_cell_iterators())
-        if (cell->is_locally_owned())
+        if (!cell->is_artificial())
           {
-            fe_values.reinit(cell);
             cell->get_dof_indices(local_dofs);
+            std::vector<std::pair<unsigned int, unsigned int>> area_basis;
+            for (unsigned int i = 0; i < n_dofs; ++i)
+              if (area_.components().is_element(local_dofs[i]))
+                area_basis.emplace_back(i,
+                                        area_to_multiplier_.at(local_dofs[i]));
+            cell_data_.emplace(cell->id(),
+                               CellData{cell->vertex(0),
+                                        cell->vertex(1),
+                                        std::move(area_basis)});
+
+            if (!cell->is_locally_owned())
+              continue;
+            fe_values.reinit(cell);
             const double a0 =
               problem_.vessel_properties(cell->material_id()).a0;
             AssertThrow(std::isfinite(a0) && a0 > 0.,
@@ -571,6 +647,7 @@ namespace ImmersX
                     point.point                = lifted.point;
                     point.representative_point = lifted.representative_point;
                     point.weight               = lifted.weight;
+                    point.cell_id              = cell->id();
                     point.source_entity_id = cell->global_active_cell_index();
                     point.representative_qpoint = q;
                     point.section_qpoint        = section_q;
@@ -640,11 +717,12 @@ namespace ImmersX
     dealii::IndexSet                             multiplier_relevant_;
     std::vector<dealii::types::global_dof_index> area_dof_numbers_;
     std::map<dealii::types::global_dof_index, dealii::types::global_dof_index>
-                                   area_to_multiplier_;
-    std::vector<WallPoint>         points_;
-    unsigned int                   n_area_dofs_per_cell_ = 0;
-    mutable RepresentationMetadata metadata_;
-    mutable std::uint64_t          geometry_version_ = 0;
+                                       area_to_multiplier_;
+    std::map<dealii::CellId, CellData> cell_data_;
+    std::vector<WallPoint>             points_;
+    unsigned int                       n_area_dofs_per_cell_ = 0;
+    mutable RepresentationMetadata     metadata_;
+    mutable std::uint64_t              geometry_version_ = 0;
   };
 } // namespace ImmersX
 

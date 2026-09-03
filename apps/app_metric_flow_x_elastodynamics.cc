@@ -65,10 +65,10 @@ namespace
     dealii::ParameterAcceptor::clear();
     FlowProblem flow_problem(MPI_COMM_WORLD);
     ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
-    ImmersX::TimeParameters flow_time(
-      "/MetricFlowSystem<1, 3>/Time parameters/");
+    ImmersX::TimeParameters flow_time;
     ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
-    ImmersX::ElastodynamicsParameters<3> solid_parameters;
+    ImmersX::ElastodynamicsParameters<3> solid_parameters("/Elastodynamics/",
+                                                          &flow_time);
     ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
     WallRepresentation::Lift wall_lift("/MetricFlowX vessel wall lift/");
     wall_lift.section.inclusion_degree      = 1;
@@ -121,6 +121,7 @@ namespace
     const auto output = [&solid_problem,
                          &solid_parameters,
                          &flow_problem,
+                         &coupling_fields,
                          &interaction,
                          &adapter,
                          flow_fields,
@@ -129,9 +130,12 @@ namespace
                                                 const double        time) {
       make_output_directories(flow_output_directory,
                               solid_parameters.output_directory);
-      auto &flow_state = adapter.field(state, flow_fields.fields().state);
-      auto  pressure   = flow_problem.make_state();
-      flow_problem.compute_pressure(flow_state, pressure);
+      auto       &flow_state = adapter.field(state, flow_fields.fields().state);
+      auto        pressure   = flow_problem.make_state();
+      const auto &lambda =
+        adapter.field(state, coupling_fields.fields().multiplier);
+      const auto provider = interaction.make_external_pressure_provider(lambda);
+      flow_problem.compute_pressure(flow_state, pressure, time, provider);
       flow_problem.output_results(flow_state, pressure, step);
       solid_problem.output_results();
       interaction.output_results(solid_parameters.output_directory +
