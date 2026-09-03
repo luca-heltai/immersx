@@ -55,11 +55,10 @@ namespace
       dealii::ParameterAcceptor::clear();
       flow_problem = std::make_unique<FlowProblem>(MPI_COMM_WORLD);
       ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
-      flow_time = std::make_unique<ImmersX::TimeParameters>(
-        "/MetricFlowSystem<1, 3>/Time parameters/");
+      flow_time = std::make_unique<ImmersX::TimeParameters>();
       ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
-      solid_parameters =
-        std::make_unique<ImmersX::ElastodynamicsParameters<3>>();
+      solid_parameters = std::make_unique<ImmersX::ElastodynamicsParameters<3>>(
+        "/Elastodynamics/", flow_time.get());
       ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
       wall_lift = std::make_unique<WallRepresentation::Lift>(
         "/MetricFlowX vessel wall lift/");
@@ -145,7 +144,7 @@ namespace
   };
 } // namespace
 
-TEST(MetricFlowXVesselWallInteraction, MPI_OneWayResidualTriangularity)
+TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
 {
   Fixture fixture;
   auto    state     = fixture.adapter->make_state();
@@ -168,7 +167,64 @@ TEST(MetricFlowXVesselWallInteraction, MPI_OneWayResidualTriangularity)
                            fixture.flow_fields->fields().state);
   flow_difference -=
     fixture.adapter->field(residual_zero, fixture.flow_fields->fields().state);
-  EXPECT_NEAR(flow_difference.l2_norm(), 0., 1.e-12);
+  const auto lambda =
+    fixture.adapter->field(lambda_state, fixture.coupling_fields.multiplier);
+  auto expected_flow_difference = fixture.flow_problem->make_state();
+  expected_flow_difference      = 0.;
+  const auto provider =
+    fixture.interaction->make_external_pressure_provider(lambda);
+  fixture.flow_problem->add_external_pressure_residual(
+    0.,
+    fixture.adapter->field(state, fixture.flow_fields->fields().state),
+    provider,
+    expected_flow_difference);
+  flow_difference -= expected_flow_difference;
+  EXPECT_NEAR(dealii::Utilities::MPI::max(flow_difference.l2_norm(),
+                                          MPI_COMM_WORLD),
+              0.,
+              1.e-12);
+  EXPECT_GT(dealii::Utilities::MPI::max(expected_flow_difference.l2_norm(),
+                                        MPI_COMM_WORLD),
+            0.);
+
+  const double epsilon      = 1.e-7;
+  auto         lambda_plus  = state;
+  auto         lambda_minus = state;
+  fixture.adapter->field(lambda_plus, fixture.coupling_fields.multiplier) =
+    epsilon;
+  fixture.adapter->field(lambda_minus, fixture.coupling_fields.multiplier) =
+    -epsilon;
+  auto residual_plus  = fixture.adapter->make_state();
+  auto residual_minus = fixture.adapter->make_state();
+  fixture.adapter->solver().residual(0., lambda_plus, state_dot, residual_plus);
+  fixture.adapter->solver().residual(0.,
+                                     lambda_minus,
+                                     state_dot,
+                                     residual_minus);
+  auto finite_difference =
+    fixture.adapter->field(residual_plus, fixture.flow_fields->fields().state);
+  finite_difference -=
+    fixture.adapter->field(residual_minus, fixture.flow_fields->fields().state);
+  finite_difference *= 1. / (2. * epsilon);
+  finite_difference -= expected_flow_difference;
+  EXPECT_NEAR(dealii::Utilities::MPI::max(finite_difference.l2_norm(),
+                                          MPI_COMM_WORLD),
+              0.,
+              1.e-10);
+
+  auto direction = fixture.adapter->make_state();
+  fixture.adapter->field(direction, fixture.coupling_fields.multiplier) = 1.;
+  fixture.adapter->solver().setup_jacobian(0., state, state_dot, 0.);
+  auto jacobian_action = fixture.adapter->make_state();
+  fixture.adapter->current_jacobian().vmult(jacobian_action, direction);
+  auto jacobian_flow =
+    fixture.adapter->field(jacobian_action,
+                           fixture.flow_fields->fields().state);
+  jacobian_flow -= expected_flow_difference;
+  EXPECT_NEAR(dealii::Utilities::MPI::max(jacobian_flow.l2_norm(),
+                                          MPI_COMM_WORLD),
+              0.,
+              1.e-10);
 
   auto displacement_difference =
     fixture.adapter->field(residual_lambda,
@@ -230,7 +286,7 @@ TEST(MetricFlowXVesselWallInteraction, MPI_OneWayResidualTriangularity)
                                         MPI_COMM_WORLD),
             0.);
 
-  EXPECT_FALSE(Interaction::flow_pressure_feedback_is_implemented);
+  EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
 
 #else

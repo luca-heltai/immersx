@@ -42,28 +42,24 @@
 namespace ImmersX
 {
   /**
-   * One-way MetricFlowX vessel-wall constraint.
+   * MetricFlowX vessel-wall interaction.
    *
    * With `B` the scalar-multiplier/vector-displacement pairing and `P(A)` the
    * nonlinear Area-to-wall pairing, the current residual rows are
    *
    *   F_solid + B lambda = 0,
    *   B^T displacement - P(A) = 0,
-   *   F_flow(A, U, ...) = 0.
+   *   F_flow(A, U, ...) + F_DeltaP(lambda) = 0.
    *
-   * The multiplier `lambda` is intended to represent the pressure difference
-   * Delta p.  The sign convention is fixed by the equations above: positive
-   * lambda contributes `+B lambda` to the Elastodynamics dynamics residual and
-   * positive radial displacement gives a positive constraint value.  Thus the
-   * physical traction associated with a positive lambda is the negative of the
-   * residual reaction under the usual `internal force - applied force` form.
+   * The multiplier `lambda` is the pressure difference
    *
-   * Deliberately absent is the future flow-row term
-   * `F_DeltaP(lambda)`.  No lambda term is added to the MetricFlowX state row
-   * until BloodFlowSystem exposes the required external/transmural pressure
-   * forcing capability.  This class therefore does not guess whether that API
-   * should consume quadrature pressures, coefficients, a residual operation,
-   * or a source vector.
+   *   lambda = p_external - p_internal,tube.
+   *
+   * Consequently positive lambda produces an inward wall traction through
+   * `+B lambda`, while the MetricFlowX external-pressure convention receives
+   * `p_external_pressure = -lambda`.  This is the action/reaction sign implied
+   * by the outward wall normal and the residual convention
+   * `internal force - applied force`.
    */
   template <typename SolidRepresentation,
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
@@ -210,6 +206,19 @@ namespace ImmersX
       return wall_;
     }
 
+    using ExternalPressureProvider =
+      typename WallRepresentation::ExternalPressureProvider;
+
+    ExternalPressureProvider
+    make_external_pressure_provider(const VectorType &multiplier) const
+    {
+      const auto lambda_provider =
+        wall_.make_external_pressure_provider(multiplier);
+      return [lambda_provider](const auto &evaluation) {
+        return -lambda_provider(evaluation);
+      };
+    }
+
     const dealii::IndexSet &
     multiplier_locally_owned_dofs() const
     {
@@ -258,15 +267,20 @@ namespace ImmersX
       for (const auto index : wall_.area_dof_numbers())
         centerline_relevant.add_index(index);
       centerline_relevant.compress();
+      VectorType centerline_owned_values;
+      centerline_owned_values.reinit(centerline_owned,
+                                     wall_.mpi_communicator());
+      centerline_owned_values = 0.;
+      for (const auto index : multiplier_storage.locally_owned_elements())
+        centerline_owned_values[wall_.area_dof_numbers()[index]] =
+          multiplier_storage[index];
+      centerline_owned_values.compress(dealii::VectorOperation::insert);
       VectorType centerline_multiplier;
       centerline_multiplier.reinit(centerline_owned,
                                    centerline_relevant,
                                    wall_.mpi_communicator());
-      centerline_multiplier = 0.;
-      for (const auto index : multiplier_storage.locally_owned_elements())
-        centerline_multiplier[wall_.area_dof_numbers()[index]] =
-          multiplier_storage[index];
-      centerline_multiplier.compress(dealii::VectorOperation::insert);
+      centerline_multiplier = centerline_owned_values;
+      centerline_multiplier.update_ghost_values();
       dealii::DataOut<1, 3> data_out;
       data_out.attach_dof_handler(wall_.dof_handler());
       data_out.add_data_vector(centerline_multiplier, output_name);
@@ -285,11 +299,7 @@ namespace ImmersX
         }
     }
 
-    /**
-     * Explicit status for the intentionally absent two-way pressure term.
-     * This is a physical capability flag, not a guessed MetricFlowX API.
-     */
-    static constexpr bool flow_pressure_feedback_is_implemented = false;
+    static constexpr bool flow_pressure_feedback_is_implemented = true;
 
   private:
     template <typename ParticleType>
@@ -447,6 +457,84 @@ namespace ImmersX
     }
 
   public:
+    dealii::PackagedOperation<VectorType>
+    flow_pressure_residual(const EvaluationContext<VectorType> &context,
+                           const FieldId                        flow_state,
+                           const FieldId multiplier) const
+    {
+      const auto *interaction = this;
+      const auto *flow        = &context.state(flow_state);
+      const auto  provider =
+        make_external_pressure_provider(context.state(multiplier));
+      const double                          time = context.time();
+      dealii::PackagedOperation<VectorType> result;
+      result.reinit_vector = [this](VectorType &vector, const bool omit) {
+        wall_.problem().reinit_state(vector);
+        if (!omit)
+          vector = 0.;
+      };
+      result.apply = [interaction, flow, provider, time](VectorType &value) {
+        value = 0.;
+        interaction->wall_.problem().add_external_pressure_residual(time,
+                                                                    *flow,
+                                                                    provider,
+                                                                    value);
+      };
+      result.apply_add =
+        [interaction, flow, provider, time](VectorType &value) {
+          VectorType contribution;
+          interaction->wall_.problem().reinit_state(contribution);
+          interaction->wall_.problem().add_external_pressure_residual(
+            time, *flow, provider, contribution);
+          value += contribution;
+        };
+      return result;
+    }
+
+    dealii::LinearOperator<VectorType, VectorType>
+    flow_pressure_jacobian(const EvaluationContext<VectorType> &context,
+                           const FieldId                        flow_state,
+                           const FieldId multiplier) const
+    {
+      (void)multiplier;
+      const auto *interaction  = this;
+      const auto  flow         = context.state(flow_state);
+      const auto  time         = context.time();
+      const auto  owned        = multiplier_locally_owned_dofs();
+      const auto  relevant     = multiplier_locally_relevant_dofs();
+      const auto  communicator = wall_.mpi_communicator();
+      dealii::LinearOperator<VectorType, VectorType> result;
+      result.reinit_range_vector =
+        [problem = &wall_.problem()](VectorType &vector, const bool omit) {
+          problem->reinit_state(vector);
+          if (!omit)
+            vector = 0.;
+        };
+      result.reinit_domain_vector =
+        [owned, relevant, communicator](VectorType &vector, const bool omit) {
+          vector.reinit(owned, relevant, communicator);
+          if (!omit)
+            vector = 0.;
+        };
+      result.vmult = [interaction, flow, time](VectorType       &destination,
+                                               const VectorType &direction) {
+        destination = 0.;
+        const auto provider =
+          interaction->make_external_pressure_provider(direction);
+        interaction->wall_.problem().add_external_pressure_residual(
+          time, flow, provider, destination);
+      };
+      result.vmult_add =
+        [interaction, flow, time](VectorType       &destination,
+                                  const VectorType &direction) {
+          const auto provider =
+            interaction->make_external_pressure_provider(direction);
+          interaction->wall_.problem().add_external_pressure_residual(
+            time, flow, provider, destination);
+        };
+      return result;
+    }
+
     dealii::PackagedOperation<VectorType>
     constraint_residual(const EvaluationContext<VectorType> &context,
                         const FieldId solid_displacement) const
@@ -666,11 +754,19 @@ namespace ImmersX
                  return -1. * interaction.area_constraint_jacobian(context);
                }));
 
-    // There is intentionally no term on `flow_state`.  This is the explicit
-    // future hook for F_DeltaP(lambda): once BloodFlowSystem exposes an
-    // external/transmural-pressure forcing capability, add that physical term
-    // and its Jacobian here without guessing its eventual API today.
-    (void)flow_state;
+    builder.term(flow_state, "vessel-wall-pressure-feedback")
+      .residual([&interaction, flow_state, multiplier](const auto &context) {
+        return interaction.flow_pressure_residual(context,
+                                                  flow_state,
+                                                  multiplier);
+      })
+      .state(multiplier,
+             typename Builder::Model::OperatorFactory(
+               [&interaction, flow_state, multiplier](const auto &context) {
+                 return interaction.flow_pressure_jacobian(context,
+                                                           flow_state,
+                                                           multiplier);
+               }));
     return {multiplier};
   }
 } // namespace ImmersX

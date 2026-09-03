@@ -52,6 +52,43 @@ calling that Problem's output method. An Interaction owns any auxiliary Fields
 it introduces, such as Lagrange multipliers, and provides their native output;
 the execution adapter does not own visualization.
 
+### MetricFlowX vessel-wall feedback
+
+`VesselWallInteraction` couples a `MetricFlowXAreaRadialDisplacementRepresentation`
+to elastodynamics in both directions. Its multiplier is the pressure jump
+
+$$
+\lambda = p_{\mathrm{external}} - p_{\mathrm{internal,tube}}.
+$$
+
+The solid receives the existing `+B lambda` traction term. MetricFlowX receives
+the corresponding external pressure `-lambda`, evaluated on the incident
+centerline cell, through its native additive pressure operation. The interaction
+also registers the multiplier-to-flow Jacobian action, so the execution adapter
+assembles the full two-way block structure without exposing global block
+numbers to the application.
+
+The application workflow remains ordinary Problem/Interaction composition:
+
+```{code-block} cpp
+auto flow = adapter.add(ImmersX::metric_flow_x(flow_problem), "blood-flow");
+auto wall = adapter.add(solid_problem, "elastodynamics");
+VesselWallInteraction interaction(solid_representation,
+                                  wall_representation,
+                                  search_parameters);
+interaction.assemble();
+auto coupling = adapter.add(interaction,
+                            "vessel-wall",
+                            wall.fields().displacement,
+                            wall.fields().velocity,
+                            flow.fields().state);
+```
+
+For output, pass the candidate multiplier to the interaction's pressure
+provider when requesting MetricFlowX pressure output. Accepted multipliers are
+copied to the interaction with `set_multiplier()` at the adapter's accepted
+step callback; residual evaluations do not update accepted physical history.
+
 For example, a composed Poisson/elasticity solve keeps the two physical output
 paths explicit:
 
