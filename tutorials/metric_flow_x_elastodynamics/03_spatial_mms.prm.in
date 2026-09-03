@@ -1,0 +1,11 @@
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/01_wall_kinematics.prm
+
+subsection MetricFlowSystem<1, 3>
+  set Output filename = spatial_mms
+  set Number of global refinement = 1
+end
+
+subsection Elastodynamics
+  set Output name = spatial_mms
+  set Initial refinement = 2
+end

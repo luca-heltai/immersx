@@ -56,9 +56,9 @@ namespace
 
       lift = std::make_unique<Lift>("/Vessel wall test lift/");
       lift->section.inclusion_degree      = 1;
-      lift->section.refinement_level      = 1;
+      lift->section.refinement_level      = 5;
       lift->section.selected_coefficients = {3u, 7u};
-      lift->section.n_q_points            = 8;
+      lift->section.n_q_points            = 32;
       lift->representative_n_q_points     = 2;
       representation = std::make_unique<Representation>(*problem, *area, *lift);
     }
@@ -313,6 +313,15 @@ TEST(MetricFlowXVesselWallRepresentation, AreaPressureNormalization)
                           .measure(
                             std::sqrt(points.front().a0 / dealii::numbers::PI)),
                         2.e-10);
+            // The TensorProduct quadrature integrates the circular
+            // cross-section measure 2*pi*R.  Multiplying it by dR/dA must
+            // produce one: this is the pressure-work normalization, not an
+            // empirical circumference correction.
+            EXPECT_NEAR(normalized_measure *
+                          fixture.representation->radius_derivative(
+                            points.front().a0),
+                        1.,
+                        5.e-4);
             EXPECT_NEAR(
               normalized_measure *
                 fixture.representation->radius_derivative(points.front().a0),

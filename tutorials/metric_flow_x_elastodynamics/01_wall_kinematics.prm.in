@@ -1,0 +1,66 @@
+set dimension       = 3
+set space dimension = 3
+set reduced dimension = 1
+set cross section dimension = 2
+
+subsection Time parameters
+  set Initial time = 0.0
+  set Final time = 0.0
+  set Time step = 1e-6
+  set Number of time steps = 1
+  set Output frequency = 0
+end
+
+subsection Elastodynamics
+  set FE degree = 1
+  set Initial refinement = 1
+  set Number of refinement cycles = 1
+  set Dirichlet boundary ids = 0
+  set Output directory = @TEST_OUTPUT_DIR@/tutorial-output/metric-flow-x-elastodynamics-01
+  subsection Grid generation
+    set Grid generator = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+end
+
+subsection Metric Flow Parameters
+  set Density (rho) = 1060.0
+  set Reflection coefficient at outflow boundary (Rt) = 0.0
+  set Tube law exponent (m) = 0.5
+  set Viscosity coefficient (mu) = 0.0
+  set Profile constant for friction term (xi) = 0.0
+end
+
+subsection Functions
+  set Inflow function = 0.0
+end
+
+subsection MetricFlowSystem<1, 3>
+  set Finite element degree = 1
+  set Number of global refinement = 0
+  set Number of refinement cycles = 1
+  set Output filename = wall_kinematics
+  set Output directory = @TEST_OUTPUT_DIR@/tutorial-output/metric-flow-x-elastodynamics-01
+  set Use direct solver = true
+  set Verbosity (console depth) = 0
+  set Numerical flux type = HLL
+  set Outlet boundary condition type = RCR
+  set Vtk file path for mesh input = @TEST_DATA_DIR@/metric_flow_x/single_vessel.vtk
+end
+
+subsection MetricFlowX vessel wall lift
+  set Thickness = 0.01
+  set Constant thickness = 0.01
+  subsection Cross section
+    set Refinement level = 1
+    set Inclusion type = hyper_ball
+    set Maximum inclusion degree = 1
+    set Selected indices = 3, 7
+    set Quadrature type = gauss
+    set Number of points = 8
+  end
+  subsection Representative quadrature
+    set Type = gauss
+    set Number of points = 2
+  end
+end

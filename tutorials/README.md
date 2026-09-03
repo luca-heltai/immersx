@@ -15,6 +15,7 @@ example:
 - `tutorials/coupled_poisson_elasticity/`
 - `tutorials/coupled_poisson/`
 - `tutorials/fiber_reinforced_elastodynamics/`
+- `tutorials/metric_flow_x_elastodynamics/`
 
 Inputs ending in `.prm.in` are configured by CMake into the build tree. They
 may use `@TEST_DATA_DIR@` and `@TEST_OUTPUT_DIR@` so tests and documentation

@@ -20,6 +20,7 @@
 #include <immersx/physics/metric_flow_x.h>
 #include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
 
+#include <cmath>
 #include <optional>
 #include <utility>
 
@@ -144,6 +145,7 @@ namespace
   };
 } // namespace
 
+#  ifndef IMMERSX_MMS_GATE_ONLY
 TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
 {
   Fixture fixture;
@@ -286,6 +288,20 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
                                         MPI_COMM_WORLD),
             0.);
 
+  EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
+}
+#  endif
+
+TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
+{
+  Fixture fixture;
+  auto    state     = fixture.adapter->make_state();
+  auto    state_dot = fixture.adapter->make_state();
+  fixture.initialize(state, state_dot);
+  auto residual = fixture.adapter->make_state();
+  fixture.adapter->solver().residual(0., state, state_dot, residual);
+
+  EXPECT_TRUE(std::isfinite(residual.l2_norm()));
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
 

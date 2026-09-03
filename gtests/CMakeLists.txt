@@ -16,6 +16,7 @@ set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
 list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
+list(FILTER _test_files EXCLUDE REGEX "mms_convergence_main\\.cc$")
 
 include(GoogleTest)
 
@@ -180,6 +181,51 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       if(IMMERSX_INSTALL_TESTS)
         install(TARGETS ${_metric_flow_x_test_target}
                 RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/immersx/tests)
+      endif()
+    endif()
+  endforeach()
+
+  # Keep the one-vessel MMS algebra and two-way residual composition as a
+  # small, independently runnable vertical gate. The aggregate gtests
+  # executable filters MPI tests by process count; this target lets CTest
+  # invoke the gate directly.
+  foreach(_build_type ${_d2_build_types})
+    if(CMAKE_BUILD_TYPE MATCHES "${_build_type}" AND
+       DEAL_II_BUILD_TYPE MATCHES "${_build_type}")
+      string(TOUPPER "${_build_type}" _BUILD_TYPE)
+      set(_mms_gate_target
+          "metric_flow_x_elastodynamics_mms_convergence${${_build_type}_postfix}")
+      add_executable(${_mms_gate_target}
+                     metric_flow_x_vessel_wall_interaction_01.cc
+                     metric_flow_x_elastodynamics_mms_01.cc
+                     mms_convergence_main.cc)
+      target_include_directories(
+        ${_mms_gate_target}
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_SOURCE_DIR}/include
+                ${CMAKE_BINARY_DIR}/include)
+      target_compile_definitions(
+        ${_mms_gate_target}
+        PRIVATE SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
+                IMMERSX_SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
+                IMMERSX_BINARY_DIR="${IMMERSX_BINARY_DIR}"
+                TEST_DATA_DIR="${TEST_DATA_DIR}"
+                TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}"
+                IMMERSX_MMS_GATE_ONLY)
+      target_link_libraries(
+        ${_mms_gate_target}
+        ${TEST_LIBRARIES_${_BUILD_TYPE}}
+        ${GTEST_LIBRARIES})
+      target_include_directories(${_mms_gate_target}
+                                 PRIVATE ${GTEST_INCLUDE_DIRS})
+      DEAL_II_SETUP_TARGET(${_mms_gate_target} ${_BUILD_TYPE})
+      find_program(_immersx_mpiexec NAMES mpirun mpiexec)
+      if(_immersx_mpiexec)
+        add_test(
+          NAME metric_flow_x_elastodynamics_mms_convergence
+          COMMAND ${_immersx_mpiexec} -np 2
+                  $<TARGET_FILE:${_mms_gate_target}>
+                  --gtest_filter=OneVesselMMS.*:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke)
       endif()
     endif()
   endforeach()
