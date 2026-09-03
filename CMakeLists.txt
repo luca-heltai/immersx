@@ -106,8 +106,9 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/include/immersx/config.h"
   @ONLY)
 
-if(NOT IMMERSX_WITH_METRIC_FLOW_X)
-  list(FILTER _main_files EXCLUDE REGEX "app_metric_flow_x\\.cc$")
+if(NOT IMMERSX_WITH_METRIC_FLOW_X OR NOT DEAL_II_WITH_SUNDIALS)
+  list(FILTER _main_files EXCLUDE REGEX
+       "app_metric_flow_x(_elastodynamics)?\\.cc$")
 endif()
 
 IF(${ENABLE_COUPLED_PROBLEMS})
