@@ -15,7 +15,9 @@
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/physics/metric_flow_x.h>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "test_paths.h"
 
@@ -210,6 +212,24 @@ TEST(MetricFlowX, MPI_IDAVerticalSmoke) // NOLINT
     });
 
   EXPECT_GT(adapter.solve(state, state_dot), 0u);
+}
+
+TEST(MetricFlowX, MPI_NativeStateInitializesPositiveArea) // NOLINT
+{
+  dealii::ParameterAcceptor::clear();
+  ImmersX::TimeParameters time_parameters(
+    "/MetricFlowSystem<1, 3>/Time parameters/");
+  Problem problem(MPI_COMM_WORLD);
+  initialize_problem(problem);
+
+  auto state = problem.make_state();
+  problem.compute_initial_solution(state, 0.);
+
+  double minimum_area = std::numeric_limits<double>::max();
+  for (const auto index : problem.component_dofs(Problem::Component::area))
+    if (state.locally_owned_elements().is_element(index))
+      minimum_area = std::min(minimum_area, static_cast<double>(state[index]));
+  EXPECT_GT(dealii::Utilities::MPI::min(minimum_area, MPI_COMM_WORLD), 0.);
 }
 
 #else

@@ -22,6 +22,9 @@ is exercised by the application smoke tests.
 [Navier–Stokes](navier-stokes) is an independent fluid tutorial. The
 application reference lists other specialized and legacy executables.
 
+The progressive [one-vessel two-way verification tutorials](metric-flow-x-elastodynamics-01-kinematics)
+cover wall kinematics, static sign and units, spatial MMS, and transient MMS.
+
 ```{toctree}
 :maxdepth: 1
 
@@ -33,4 +36,8 @@ coupled-poisson
 coupled-poisson-elasticity
 fiber-reinforced-elastodynamics
 navier-stokes
+metric-flow-x-elastodynamics-01-kinematics
+metric-flow-x-elastodynamics-02-static-equilibrium
+metric-flow-x-elastodynamics-03-spatial-mms
+metric-flow-x-elastodynamics-04-transient-mms
 ```

@@ -351,9 +351,9 @@ namespace ImmersX
                     "The requested field is not a vessel-wall dependency."));
 
       const auto          reference    = context.state(source());
-      const auto          relevant     = area_relevant_;
-      const auto          owned        = area_owned_;
-      const auto          communicator = mpi_communicator();
+      const auto          relevant     = problem_.locally_relevant_dofs();
+      const auto          owned        = problem_.locally_owned_dofs();
+      const auto          communicator = problem_.mpi_communicator();
       std::vector<double> derivative(points_.size());
       const auto          current = relevant_state(reference);
       for (std::size_t q = 0; q < points_.size(); ++q)
