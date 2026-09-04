@@ -236,11 +236,14 @@ namespace
 {
   template <int dim, int spacedim>
   void
-  check_ida_case(const bool nonzero_force = false)
+  check_ida_case(const bool         nonzero_force = false,
+                 const unsigned int refinement    = 0)
   {
     dealii::ParameterAcceptor::clear();
     ImmersX::ElastodynamicsParameters<dim, spacedim> parameters;
-    configure_parameters(parameters, nonzero_force ? 2 : 0, nonzero_force);
+    configure_parameters(parameters,
+                         nonzero_force ? 2 : refinement,
+                         nonzero_force);
     ImmersX::ElastodynamicsSolver<dim, spacedim> problem(parameters);
     initialize_problem(problem, nonzero_force);
 
@@ -348,7 +351,9 @@ TEST(ElastodynamicsExecution, IDA_NonzeroEmbeddedLine)
 
 TEST(ElastodynamicsExecution, MPI_IDA_EmbeddedLine)
 {
-  check_ida_case<1, 3>();
+  // At least one interval per MPI rank is required by the fully distributed
+  // 1D triangulation before DoF boundary interpolation is valid.
+  check_ida_case<1, 3>(false, 2);
 }
 #else
 TEST(ElastodynamicsExecution, IDA_DimensionsUnavailable)
