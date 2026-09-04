@@ -19,31 +19,25 @@
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/lagrange_multiplier_constraint_solver.h>
 #include <immersx/core/constraint.h>
 #include <immersx/core/fe_space.h>
 #include <immersx/core/linear_adapter.h>
+#include <immersx/io/utils.h>
 #include <immersx/physics/poisson_residual.h>
 
 #include <cmath>
 #include <vector>
 
 using namespace ImmersX;
-#include <immersx/algebra/lagrange_multiplier_interaction.h>
-#include <immersx/core/representation.h>
-#include <immersx/io/utils.h>
-#include <immersx/physics/poisson.h>
-
-
 using namespace dealii;
 
 
-TEST(PrescribedPoisson, ReducedPoissonReplacement) // NOLINT
+
+TEST(PrescribedPoisson, MPI_UnifiedConstraintReplacement) // NOLINT
 {
   ParameterAcceptor::clear();
 
-  PoissonParameters<2>          bulk_parameters("/Bulk Poisson/");
-  ParticleCouplingParameters<2> search_parameters;
+  PoissonParameters<2> bulk_parameters("/Bulk Poisson/");
 
   initialize_parameters_from_string(R"(
     subsection Bulk Poisson
@@ -103,75 +97,50 @@ TEST(PrescribedPoisson, ReducedPoissonReplacement) // NOLINT
   line_constraints.reinit(line_owned, line_relevant);
   line_constraints.close();
 
-  IdentityRepresentation<2, 2> bulk_representation(
-    bulk_problem.triangulation(),
-    bulk_problem.dof_handler(),
-    bulk_problem.locally_owned_dofs(),
-    bulk_problem.locally_relevant_dofs(),
-    bulk_problem.constraints());
-  IdentityRepresentation<1, 2> line_representation(
-    line_tria, line_dh, line_owned, line_relevant, line_constraints);
+  using FieldVector  = ImmersXLA::MPI::Vector;
+  using GlobalVector = ImmersXLA::MPI::BlockVector;
+  using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
+  LinearSolverParameters adapter_parameters;
+  Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
+  const auto             bulk      = adapter.add(bulk_problem, "bulk");
+  const auto             bulk_view = fe_space(bulk_problem.dof_handler(),
+                                  StaticMappingQ1<2>::mapping,
+                                  bulk_problem.constraints(),
+                                  bulk_problem.locally_relevant_dofs());
+  const auto             line_view = fe_space(line_dh,
+                                  StaticMappingQ1<1, 2>::mapping,
+                                  line_constraints,
+                                  line_relevant);
+  const auto             bulk_field =
+    bulk_view.field(bulk.fields().solution, "bulk_solution");
+  const auto  lambda = line_view.field("lambda");
+  FieldVector prescribed(line_owned, MPI_COMM_WORLD);
+  prescribed = 1.;
+  prescribed.compress(VectorOperation::insert);
+  const auto coupling =
+    adapter.add(make_constraint(weak_term(value(bulk_field), lambda),
+                                prescribed),
+                "prescribed");
 
-  LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
-                                IdentityRepresentation<1, 2>>
-    interaction(bulk_representation, line_representation, search_parameters);
-  interaction.assemble();
-
-  ImmersXLA::MPI::Vector prescribed_coefficients;
-  prescribed_coefficients.reinit(line_owned, MPI_COMM_WORLD);
-  prescribed_coefficients = 1.;
-  PrescribedFieldDatum<IdentityRepresentation<1, 2>> datum(
-    line_representation, prescribed_coefficients);
-
-  const auto constraint_equation =
-    interaction.prescribed_constraint_equation(datum);
-  const auto &constraint_rhs = constraint_equation.rhs();
-  ASSERT_EQ(constraint_equation.contributions_view().size(), 1u);
-  ASSERT_TRUE(constraint_equation.has_multiplier_metric());
-  ASSERT_GT(interaction.coupling_matrix().frobenius_norm(), 1.e-12);
-  ASSERT_GT(interaction.multiplier_mass_matrix().frobenius_norm(), 1.e-12);
-  ASSERT_GT(constraint_rhs.l2_norm(), 1.e-12);
-
-  using MatrixType = ImmersXLA::MPI::SparseMatrix;
-  using VectorType = ImmersXLA::MPI::Vector;
-  using AMGType    = ImmersXLA::MPI::PreconditionAMG;
-  using Solver =
-    LagrangeMultiplierConstraintSolver<MatrixType, VectorType, AMGType>;
-
-  Solver constrained_solver(bulk_problem.system_matrix(),
-                            interaction.coupling_matrix(),
-                            bulk_problem.locally_owned_dofs(),
-                            interaction.multiplier_locally_owned_dofs(),
-                            MPI_COMM_WORLD);
-
-  VectorType bulk_solution;
-  VectorType multiplier;
-  constrained_solver.solve(bulk_solution,
-                           multiplier,
-                           bulk_problem.system_rhs(),
-                           constraint_rhs);
-  bulk_problem.set_solution(bulk_solution);
-
-  VectorType bulk_residual;
-  VectorType constraint_residual;
-  bulk_residual.reinit(bulk_problem.locally_owned_dofs(), MPI_COMM_WORLD);
-  constraint_residual.reinit(interaction.multiplier_locally_owned_dofs(),
-                             MPI_COMM_WORLD);
-  bulk_problem.system_matrix().vmult(bulk_residual, bulk_problem.solution());
-  interaction.coupling_matrix().vmult_add(bulk_residual, multiplier);
-  bulk_residual -= bulk_problem.system_rhs();
-  const std::vector<const VectorType *> states{&bulk_problem.solution()};
-  constraint_equation.residual(states, constraint_residual);
+  auto state = adapter.make_state();
+  adapter.solve(state);
+  GlobalVector residual;
+  adapter.evaluate_residual(state, residual);
+  const auto &bulk_residual = adapter.field(residual, bulk.fields().solution);
+  const auto &constraint_residual =
+    adapter.field(residual, coupling.fields().multiplier);
 
   EXPECT_TRUE(bulk_problem.solution_is_finite());
-  EXPECT_TRUE(std::isfinite(multiplier.l2_norm()));
-  EXPECT_GT(bulk_problem.solution_l2_norm(), 1.e-12);
+  EXPECT_TRUE(std::isfinite(
+    adapter.field(state, coupling.fields().multiplier).l2_norm()));
+  EXPECT_GT(adapter.field(state, bulk.fields().solution).l2_norm(), 1.e-12);
   EXPECT_LT(bulk_residual.l2_norm(), 1.e-8);
   EXPECT_LT(constraint_residual.l2_norm(), 1.e-8);
 }
 
 
-TEST(PrescribedPoisson, UnifiedConstraintWithIndependentMultiplier) // NOLINT
+TEST(PrescribedPoisson,
+     MPI_UnifiedConstraintWithIndependentMultiplier) // NOLINT
 {
   ParameterAcceptor::clear();
 

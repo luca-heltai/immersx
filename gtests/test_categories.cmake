@@ -58,6 +58,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ImportedFiniteElementFields
     LargeNetworks
     LegacyInclusions
+    LegacyLagrangeMultiplier
     LinearAdapter
     TimeParameters
     DeferredPressureExpression
@@ -138,6 +139,7 @@ set(_immersx_expected_test_suites
     InputFieldSelector
     LargeNetworks
     LegacyInclusions
+    LegacyLagrangeMultiplier
     LinearAdapter
     MaterialParameters
     BoundaryConditionParameters
