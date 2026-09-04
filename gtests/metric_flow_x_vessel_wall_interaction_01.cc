@@ -20,6 +20,7 @@
 #include <immersx/physics/metric_flow_x.h>
 #include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <utility>
@@ -145,7 +146,6 @@ namespace
   };
 } // namespace
 
-#  ifndef IMMERSX_MMS_GATE_ONLY
 TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
 {
   Fixture fixture;
@@ -290,7 +290,6 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
 
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
-#  endif
 
 TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
 {
@@ -303,6 +302,112 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
 
   EXPECT_TRUE(std::isfinite(residual.l2_norm()));
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
+}
+
+TEST(MetricFlowXVesselWallInteraction, MPI_FullCoupledJacobianFiniteDifference)
+{
+  Fixture fixture;
+  auto    state     = fixture.adapter->make_state();
+  auto    state_dot = fixture.adapter->make_state();
+  fixture.initialize(state, state_dot);
+
+  auto direction     = fixture.adapter->make_state();
+  auto dot_direction = fixture.adapter->make_state();
+  direction          = 0.;
+  dot_direction      = 0.;
+
+  auto fill_direction = [](auto &vector, const double value) {
+    for (const auto index : vector.locally_owned_elements())
+      vector[index] = value;
+    vector.compress(dealii::VectorOperation::insert);
+    vector.update_ghost_values();
+  };
+
+  fill_direction(fixture.adapter->field(direction,
+                                        fixture.flow_fields->fields().state),
+                 0.2);
+  fill_direction(fixture.adapter->field(
+                   direction, fixture.solid_fields->fields().displacement),
+                 0.3);
+  fill_direction(
+    fixture.adapter->field(direction, fixture.solid_fields->fields().velocity),
+    0.4);
+  fill_direction(fixture.adapter->field(direction,
+                                        fixture.coupling_fields.multiplier),
+                 0.5);
+
+  const double alpha   = 0.37;
+  const double epsilon = 1.e-7;
+  dot_direction        = direction;
+  dot_direction *= alpha;
+  auto state_plus  = state;
+  auto state_minus = state;
+  auto dot_plus    = state_dot;
+  auto dot_minus   = state_dot;
+  state_plus.add(epsilon, direction);
+  state_minus.add(-epsilon, direction);
+  dot_plus.add(epsilon, dot_direction);
+  dot_minus.add(-epsilon, dot_direction);
+  const auto refresh_ghosts = [&fixture](GlobalVector &value) {
+    fixture.adapter->field(value, fixture.flow_fields->fields().state)
+      .update_ghost_values();
+    fixture.adapter->field(value, fixture.solid_fields->fields().displacement)
+      .update_ghost_values();
+    fixture.adapter->field(value, fixture.solid_fields->fields().velocity)
+      .update_ghost_values();
+    fixture.adapter->field(value, fixture.coupling_fields.multiplier)
+      .update_ghost_values();
+  };
+  refresh_ghosts(state_plus);
+  refresh_ghosts(state_minus);
+  refresh_ghosts(dot_plus);
+  refresh_ghosts(dot_minus);
+
+  auto residual_plus  = fixture.adapter->make_state();
+  auto residual_minus = fixture.adapter->make_state();
+  fixture.adapter->solver().residual(0.13, state_plus, dot_plus, residual_plus);
+  fixture.adapter->solver().residual(0.13,
+                                     state_minus,
+                                     dot_minus,
+                                     residual_minus);
+  residual_plus -= residual_minus;
+  residual_plus *= 1. / (2. * epsilon);
+
+  fixture.adapter->solver().setup_jacobian(0.13, state, state_dot, alpha);
+  auto jacobian_action = fixture.adapter->make_state();
+  fixture.adapter->current_jacobian().vmult(jacobian_action, direction);
+  jacobian_action -= residual_plus;
+
+  const auto check_block =
+    [](const auto &error_block, const auto &reference_block, const char *name) {
+      const double error =
+        dealii::Utilities::MPI::max(error_block.l2_norm(), MPI_COMM_WORLD);
+      const double reference =
+        dealii::Utilities::MPI::max(reference_block.l2_norm(), MPI_COMM_WORLD);
+      const double relative_error = error / std::max(1., reference);
+      EXPECT_LT(relative_error, 1.e-6) << name << " Jacobian error = " << error
+                                       << ", reference = " << reference;
+    };
+  check_block(fixture.adapter->field(jacobian_action,
+                                     fixture.flow_fields->fields().state),
+              fixture.adapter->field(residual_plus,
+                                     fixture.flow_fields->fields().state),
+              "flow");
+  check_block(
+    fixture.adapter->field(jacobian_action,
+                           fixture.solid_fields->fields().displacement),
+    fixture.adapter->field(residual_plus,
+                           fixture.solid_fields->fields().displacement),
+    "solid displacement");
+  check_block(fixture.adapter->field(jacobian_action,
+                                     fixture.solid_fields->fields().velocity),
+              fixture.adapter->field(residual_plus,
+                                     fixture.solid_fields->fields().velocity),
+              "solid velocity");
+  check_block(
+    fixture.adapter->field(jacobian_action, fixture.coupling_fields.multiplier),
+    fixture.adapter->field(residual_plus, fixture.coupling_fields.multiplier),
+    "constraint");
 }
 
 #else

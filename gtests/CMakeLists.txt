@@ -211,8 +211,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                 IMMERSX_SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
                 IMMERSX_BINARY_DIR="${IMMERSX_BINARY_DIR}"
                 TEST_DATA_DIR="${TEST_DATA_DIR}"
-                TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}"
-                IMMERSX_MMS_GATE_ONLY)
+                TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}")
       target_link_libraries(
         ${_mms_gate_target}
         ${TEST_LIBRARIES_${_BUILD_TYPE}}
@@ -226,7 +225,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           NAME metric_flow_x_elastodynamics_mms_convergence
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
-                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke)
+                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallInteraction.MPI_FullCoupledJacobianFiniteDifference)
       endif()
     endif()
   endforeach()
