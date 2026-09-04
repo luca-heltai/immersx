@@ -66,7 +66,6 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     TensorProductSpace
     TensorProductCoupling
     ReducedCoupling0D
-    VectorLagrangeMultiplierInteraction
     RepresentationContract
     RepresentationLoadInteraction
     WeakTermNonmatching)
@@ -177,7 +176,6 @@ set(_immersx_expected_test_suites
     ReducedCoupling0D
     ReducedPoisson
     ReducedPoisson0D
-    VectorLagrangeMultiplierInteraction
     VectorRepresentation
     FieldCatalog
     VTKUtils
