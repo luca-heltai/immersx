@@ -97,7 +97,7 @@ trial evaluations.
 
 ## Semantic five-field execution
 
-The application composes the two Problems, Representations, and Interaction
+The application composes the two Problems and one unified `Constraint`
 directly through the public `IDAAdapter` with one private semantic execution
 layout containing
 
@@ -110,14 +110,14 @@ fiber_coupling.lambda      algebraic
 ```
 
 The two Elastodynamics contributors use caller-selected prefixes and distinct
-`HistoryGroupId`s. The vector Interaction registers the algebraic multiplier
-field and adds `C lambda`, `-Q^T lambda`, and `C^T v_matrix - Q v_fiber` to
-the appropriate rows. Each Problem and the Interaction retain their own
-accepted state and native output. The application’s accepted-state callback
-hands displacement and velocity back to both Problems and the multiplier back
-to the Interaction before output is written. Focused tests compare all five
-residual rows and all five Jacobian rows with the native `M`, `K`, `D`, `C`,
-and `Q` actions.
+`HistoryGroupId`s. The unified constraint owns an algebraic multiplier Field
+on its independent finite-element space and adds the signed `weak_term`
+contributions `C lambda`, `-Q^T lambda`, and `C^T v_matrix - Q v_fiber` to
+the appropriate rows. Each Problem retains its own accepted state and native
+output. The application’s accepted-state callback hands displacement and
+velocity back to both Problems before output is written. Focused tests compare
+all five residual rows and all five Jacobian rows with the native `M`, `K`,
+`D`, `C`, and `Q` actions.
 
 ## Scope and future path
 

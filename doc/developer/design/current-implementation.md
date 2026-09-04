@@ -150,8 +150,8 @@ implementation:
 - {doc}`../../api/class_immers_x_1_1_imported_finite_element_fields`
 - {doc}`../../api/class_immers_x_1_1_representation`
 - {doc}`../../api/class_immers_x_1_1_linear_adapter`
-- {doc}`../../api/class_immers_x_1_1_lagrange_multiplier_interaction`
-- {doc}`../../api/class_immers_x_1_1_constraint_equation`
+- {doc}`../../api/class_immers_x_1_1_constraint`
+- {doc}`../../api/class_immers_x_1_1_weak_term`
 
 For runnable examples, see {doc}`../../developer/design/semidiscrete-contributors`,
 {doc}`../../developer/design/time-residual-sundials`, and
