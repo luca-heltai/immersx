@@ -68,7 +68,6 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     TensorProductCoupling
     ReducedCoupling0D
     RepresentationContract
-    RepresentationLoadInteraction
     WeakTermNonmatching)
 
 set(IMMERSX_VALIDATION_TEST_SUITES
@@ -167,7 +166,6 @@ set(_immersx_expected_test_suites
     RepresentationContract
     Representation
     MixedField
-    RepresentationLoadInteraction
     RetainedSampling
     StateHistory
     SymbolicExpressionKernel
