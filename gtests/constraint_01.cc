@@ -184,6 +184,65 @@ TEST(Constraint, FrozenScalarRightHandSide)
   check_constraint<true, double>(FEValuesExtractors::Scalar(0));
 }
 
+
+TEST(Constraint, SingleTerm)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+
+  FE_Q<2>       source_fe(1);
+  FE_Q<2>       multiplier_fe(2);
+  DoFHandler<2> source_dh(tria);
+  DoFHandler<2> multiplier_dh(tria);
+  source_dh.distribute_dofs(source_fe);
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  AffineConstraints<double> source_constraints;
+  AffineConstraints<double> multiplier_constraints;
+  source_constraints.close();
+  multiplier_constraints.close();
+
+  const auto source_view =
+    fe_space(source_dh, StaticMappingQ1<2>::mapping, source_constraints);
+  const auto  multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints);
+  StateLayout layout;
+  const auto  source = source_view.field(layout, "source");
+  const auto  lambda = multiplier_view.field("lambda");
+
+  using Vector = Vector<double>;
+  using Matrix = SparseMatrix<double>;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto                          fields =
+    make_constraint(weak_term(value(source), lambda)).add(builder);
+
+  ASSERT_TRUE(fields.multiplier.is_valid());
+  ASSERT_EQ(model.saddle_points().size(), 1u);
+  ASSERT_EQ(model.saddle_points().front().participants.size(), 1u);
+
+  Vector source_state(source_dh.n_dofs());
+  Vector lambda_state(multiplier_dh.n_dofs());
+  source_state = 1.;
+  lambda_state = 0.25;
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  const auto pairing =
+    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  ASSERT_TRUE(pairing.has_value());
+  Vector expected(lambda_state.size());
+  pairing->view.vmult(expected, source_state);
+  Vector residual(lambda_state.size());
+  model.evaluate_row(fields.multiplier, context, residual);
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
+}
+
 TEST(Constraint, NonmatchingGeometryUsesCachedBackend)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);

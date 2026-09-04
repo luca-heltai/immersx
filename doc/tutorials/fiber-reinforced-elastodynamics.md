@@ -39,9 +39,10 @@ effective block remains positive definite for the existing Schur solver.
 
 ## Coupling and time stepping
 
-The matrix and fiber velocity representations are typed
-`VectorFiniteElementRepresentation`s. `VectorLagrangeMultiplierInteraction`
-uses the fiber vector FE space as the multiplier space and assembles
+The matrix and fiber velocity spaces are exposed as typed `Field`s. The
+multiplier is another vector `Field` on its own FE space, constructed with the
+ordinary `fe_space(...)` view API. The unified `Constraint` construction
+assembles
 
 ```{math}
 C_{ij}=\int_{\Omega_f}
@@ -53,8 +54,10 @@ Q_{jk}=\int_{\Omega_f}
 
 Here $Q$ is an interaction pairing matrix, not the fiber’s physical mass
 matrix. Fiber quadrature points are located in the distributed matrix mesh by
-the existing `ParticleCoupling` search. Vector basis values are evaluated by
-component, so an x basis function cannot couple to a y basis function.
+the cached nonmatching weak-term backend. Vector basis values are evaluated by
+component, so an x basis function cannot couple to a y basis function. The
+application constructs the relation from `weak_term(value(...), lambda)`
+terms; the search and matrix storage remain private to that implementation.
 
 The application driver, rather than either Problem’s standalone time loop,
 owns the five-field IDA solve. Eliminating displacement gives
@@ -86,12 +89,11 @@ and adaptive refinement during the coupled run are not implemented here.
 
 Output ownership follows the semantic composition boundary. The two Problems
 accept their solved displacement and velocity states and write their native
-mesh output. The vector Interaction accepts the multiplier state and writes
-`velocity_multiplier` on the second (fiber) representation mesh; it is not
-written through either Problem or through the execution adapter. In the IDA
-path, the handoff occurs for the initial state, configured accepted output
-states, and final accepted state, never from residual or Jacobian trial
-evaluations.
+mesh output. The application writes `velocity_multiplier` with the
+multiplier’s own DoFHandler and finite element; it is not attached to an
+endpoint Problem’s DoFHandler merely because the geometry is related. In the
+IDA path, output uses accepted state handoffs, never residual or Jacobian
+trial evaluations.
 
 ## Semantic five-field execution
 

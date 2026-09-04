@@ -344,9 +344,11 @@ Possible families include:
 - source or conservative exchange;
 - circuit, interface-state, and co-simulation ports.
 
-`LagrangeMultiplierInteraction` is a concrete scalar continuity interaction,
-not the definition of Interaction. Some Interactions introduce no multiplier
-and no auxiliary Field.
+The old `LagrangeMultiplierInteraction` is a legacy concrete scalar continuity
+implementation retained only by the explicit solver path. The current
+composition API represents scalar and vector multiplier constraints with one
+`Constraint` over `weak_term`s. Some Interactions introduce no multiplier and
+no auxiliary Field.
 
 An Interaction may introduce first-class auxiliary unknowns such as Lagrange
 multipliers, contact variables, interface states, or circuit variables. Those
