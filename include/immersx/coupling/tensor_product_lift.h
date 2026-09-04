@@ -230,8 +230,13 @@ namespace ImmersX
     /** Quadrature slot within the source representative entity. */
     unsigned int source_representative_qpoint =
       dealii::numbers::invalid_unsigned_int;
-    unsigned int                                 section_qpoint = 0;
-    std::vector<unsigned int>                    selected_modes;
+    unsigned int              section_qpoint = 0;
+    std::vector<unsigned int> selected_modes;
+    /**
+     * Selected mode values. Scalar modes remain scalar; vector mode values
+     * with n_components == spacedim are expressed in the physical frame
+     * associated with the representative tangent.
+     */
     std::vector<double>                          mode_values;
     std::vector<double>                          tensor_product_basis_values;
     std::vector<dealii::types::global_dof_index> source_dof_indices;
