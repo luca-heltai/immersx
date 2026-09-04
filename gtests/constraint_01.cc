@@ -9,6 +9,8 @@
 
 #include <deal.II/base/quadrature_lib.h>
 
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_q1.h>
@@ -180,4 +182,95 @@ TEST(Constraint, IndependentVectorMultiplierSpace)
 TEST(Constraint, FrozenScalarRightHandSide)
 {
   check_constraint<true, double>(FEValuesExtractors::Scalar(0));
+}
+
+TEST(Constraint, NonmatchingGeometryUsesCachedBackend)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+
+  parallel::distributed::Triangulation<2> source_tria(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> second_source_tria(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> multiplier_tria(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(source_tria);
+  GridGenerator::hyper_cube(second_source_tria);
+  GridGenerator::hyper_cube(multiplier_tria);
+  source_tria.refine_global(1);
+  second_source_tria.refine_global(1);
+  multiplier_tria.refine_global(2);
+
+  FE_Q<2>       source_fe(1);
+  FE_Q<2>       multiplier_fe(1);
+  DoFHandler<2> source_dh(source_tria);
+  DoFHandler<2> second_source_dh(second_source_tria);
+  DoFHandler<2> multiplier_dh(multiplier_tria);
+  source_dh.distribute_dofs(source_fe);
+  second_source_dh.distribute_dofs(source_fe);
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  AffineConstraints<double> source_constraints;
+  AffineConstraints<double> second_source_constraints;
+  AffineConstraints<double> multiplier_constraints;
+  source_constraints.close();
+  second_source_constraints.close();
+  multiplier_constraints.close();
+
+  const auto source_view =
+    fe_space(source_dh, StaticMappingQ1<2>::mapping, source_constraints);
+  const auto  second_source_view = fe_space(second_source_dh,
+                                           StaticMappingQ1<2>::mapping,
+                                           second_source_constraints);
+  const auto  multiplier_view    = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints);
+  StateLayout layout;
+  const auto  source        = source_view.field(layout, "source");
+  const auto  second_source = second_source_view.field(layout, "second_source");
+  const auto  lambda        = multiplier_view.field("lambda");
+
+  using Vector = ImmersXLA::MPI::Vector;
+  using Matrix = ImmersXLA::MPI::SparseMatrix;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto                          c1 = weak_term(value(source), lambda);
+  const auto c2 = weak_term(value(second_source), lambda);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto preparations = detail::weak_term_nonmatching_preparations.load();
+#endif
+  const auto fields = make_constraint(c1 - c2).add(builder);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 2);
+#endif
+
+  Vector source_state;
+  Vector second_source_state;
+  Vector lambda_state;
+  source_state.reinit(source.locally_owned_dofs(), MPI_COMM_WORLD);
+  second_source_state.reinit(second_source.locally_owned_dofs(),
+                             MPI_COMM_WORLD);
+  lambda_state.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+  source_state        = 1.;
+  second_source_state = 2.;
+  lambda_state        = 0.25;
+  source_state.compress(VectorOperation::insert);
+  second_source_state.compress(VectorOperation::insert);
+  lambda_state.compress(VectorOperation::insert);
+
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(second_source.field_id(), second_source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<Vector> context(0., state_view);
+  Vector                          residual;
+  residual.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+  model.evaluate_row(fields.multiplier, context, residual);
+  Vector repeated_residual;
+  repeated_residual.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+  model.evaluate_row(fields.multiplier, context, repeated_residual);
+  repeated_residual -= residual;
+  EXPECT_LT(repeated_residual.l2_norm(), 1.e-12);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 2);
+#endif
 }
