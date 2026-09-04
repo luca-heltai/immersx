@@ -8,6 +8,7 @@
 #include <immersx/coupling/tensor_product_space.h>
 #include <immersx/io/utils.h>
 
+#include <algorithm>
 #include <fstream>
 #include <regex>
 #include <stdexcept>
@@ -106,8 +107,10 @@ background_tria.get_mpi_communicator()
           }
       }
 
+    const unsigned int n_mode_values =
+      this->get_reference_cross_section().n_selected_basis() * n_components;
     ParticleCoupling<spacedim>::initialize_particle_handler(
-      *this->background_tria, mapping);
+      *this->background_tria, mapping, 1 + n_mode_values);
 
     if constexpr (reduced_dim == 0)
       {
@@ -124,9 +127,25 @@ background_tria.get_mpi_communicator()
     // Initialize lifted particles only after representative ownership has been
     // established. Their quadrature weights remain particle properties; the 0D
     // representative handler stores no artificial point weight.
-    const auto &qpoints = this->get_locally_owned_qpoints();
-    const auto &weights = this->get_locally_owned_weights();
-    auto        q_index = this->insert_points(qpoints, weights);
+    const auto &qpoints     = this->get_locally_owned_qpoints();
+    const auto &weights     = this->get_locally_owned_weights();
+    const auto &mode_values = this->get_locally_owned_mode_values();
+    AssertDimension(mode_values.size(), qpoints.size());
+    AssertThrow(std::all_of(mode_values.begin(),
+                            mode_values.end(),
+                            [n_mode_values](const auto &values) {
+                              return values.size() == n_mode_values;
+                            }),
+                ExcMessage("Tensor-product mode values have an invalid size."));
+    std::vector<std::vector<double>> particle_properties(qpoints.size());
+    for (unsigned int q = 0; q < qpoints.size(); ++q)
+      {
+        particle_properties[q].push_back(weights[q][0]);
+        particle_properties[q].insert(particle_properties[q].end(),
+                                      mode_values[q].begin(),
+                                      mode_values[q].end());
+      }
+    auto q_index = this->insert_points(qpoints, particle_properties);
     // ParticleHandler assigns ids globally by source-rank prefix when ids
     // are omitted. Build the explicit id-to-entity map from that documented
     // assignment before any assembly uses particle ids.

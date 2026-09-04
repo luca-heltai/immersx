@@ -431,6 +431,16 @@ namespace ImmersX
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
+  const std::vector<std::vector<double>> &
+  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+    get_locally_owned_mode_values() const
+  {
+    AssertThrow(all_mode_values.size() == all_qpoints.size(),
+                ExcMessage("Tensor-product mode values are not initialized."));
+    return all_mode_values;
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
   const std::vector<Point<spacedim>> &
   TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     get_locally_owned_reduced_qpoints() const
@@ -644,12 +654,20 @@ namespace ImmersX
   TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     compute_points_and_weights()
   {
+    all_qpoints.clear();
+    all_weights.clear();
+    all_mode_values.clear();
+    reduced_qpoints.clear();
+    reduced_weights.clear();
     all_qpoints.reserve(triangulation.n_active_cells() *
                         quadrature_formula.size() *
                         reference_cross_section.n_quadrature_points());
     all_weights.reserve(triangulation.n_active_cells() *
                         quadrature_formula.size() *
                         reference_cross_section.n_quadrature_points());
+    all_mode_values.reserve(triangulation.n_active_cells() *
+                            quadrature_formula.size() *
+                            reference_cross_section.n_quadrature_points());
 
     reduced_qpoints.reserve(triangulation.n_active_cells() *
                             quadrature_formula.size());
@@ -716,7 +734,6 @@ namespace ImmersX
                 detail::transform_representative_point<dim, spacedim>(
                   reference_cross_section,
                   par.section.selected_coefficients,
-                  n_components,
                   qpoint,
                   new_vertical,
                   fev.JxW(q),
@@ -728,6 +745,7 @@ namespace ImmersX
                   all_qpoints.push_back(point.point);
                   all_weights.emplace_back(
                     std::vector<double>(1, point.weight));
+                  all_mode_values.push_back(point.mode_values);
                 }
             }
         }
@@ -898,6 +916,7 @@ namespace ImmersX
     particle_id_to_representative.clear();
     all_qpoints.clear();
     all_weights.clear();
+    all_mode_values.clear();
     reduced_qpoints.clear();
     reduced_weights.clear();
     section_measure.clear();
@@ -1399,19 +1418,22 @@ namespace ImmersX
       reduced_weights.push_back({1.0});
       section_measure.push_back({reference_cross_section.measure(thickness)});
       const auto transformed =
-        TensorProductLiftSupport<0, dim, spacedim, n_components>::
-          transform_section(reference_cross_section,
-                            position,
-                            orientation,
-                            thickness);
-      for (const auto q : transformed.get_points())
-        all_qpoints.push_back(q);
-      unsigned int section_q = 0;
-      for (const auto weight : transformed.get_weights())
+        detail::transform_representative_point<dim, spacedim>(
+          reference_cross_section,
+          par.section.selected_coefficients,
+          position,
+          orientation,
+          1.,
+          thickness,
+          0,
+          {});
+      for (const auto &point : transformed)
         {
-          all_weights.push_back({weight});
+          all_qpoints.push_back(point.point);
+          all_weights.push_back({point.weight});
+          all_mode_values.push_back(point.mode_values);
           lifted_entity_ids.push_back(entity_id);
-          lifted_section_indices.push_back(section_q++);
+          lifted_section_indices.push_back(point.section_qpoint);
         }
     };
 
@@ -1464,6 +1486,16 @@ namespace ImmersX
     get_locally_owned_weights() const
   {
     return all_weights;
+  }
+
+  template <int dim, int spacedim, int n_components>
+  const std::vector<std::vector<double>> &
+  TensorProductSpace<0, dim, spacedim, n_components>::
+    get_locally_owned_mode_values() const
+  {
+    AssertThrow(all_mode_values.size() == all_qpoints.size(),
+                ExcMessage("Tensor-product mode values are not initialized."));
+    return all_mode_values;
   }
 
   template <int dim, int spacedim, int n_components>

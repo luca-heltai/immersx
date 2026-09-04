@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 
+#include <array>
 #include <cmath>
 #include <set>
 #include <string>
@@ -40,7 +41,8 @@ namespace
   void
   set_tensor_product_defaults(ElasticityProblemParameters<dim, spacedim> &par,
                               const std::string              &output_name,
-                              const std::vector<std::string> &rhs)
+                              const std::vector<std::string> &rhs,
+                              const std::string &grid_name = "one_cylinder.vtk")
   {
 #  ifdef DEBUG
     par.output_directory =
@@ -73,7 +75,7 @@ namespace
     auto &tensor_product_parameters = par.tensor_product_coupling_parameters;
     tensor_product_parameters.tensor_product_space_parameters
       .reduced_grid_name =
-      ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+      ImmersX::TestPaths::data_filename("tests/" + grid_name);
     tensor_product_parameters.tensor_product_space_parameters.fe_degree  = 1;
     tensor_product_parameters.tensor_product_space_parameters.n_q_points = 2;
     tensor_product_parameters.tensor_product_space_parameters.thickness =
@@ -101,14 +103,24 @@ namespace
   }
 
   template <int dim, int spacedim>
-  void
+  std::array<double, 2>
   run_tensor_product_case(ElasticityProblemParameters<dim, spacedim> &par)
   {
     ElasticityProblem<dim, spacedim> problem(par);
     initialize_parameters();
     ParameterAcceptor::parse_all_parameters();
-    ASSERT_NO_THROW(problem.run());
+    try
+      {
+        problem.run();
+      }
+    catch (const std::exception &exception)
+      {
+        ADD_FAILURE() << exception.what();
+        return {};
+      }
     assert_tensor_product_solution(problem);
+    return {problem.solution.block(0).l2_norm(),
+            problem.solution.block(1).l2_norm()};
   }
 } // namespace
 
@@ -165,9 +177,10 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
   ElasticityProblemParameters<3> par_x;
   set_tensor_product_defaults(par_x,
                               "tensor_product_rotation_x",
-                              {"1", "0", "0"});
+                              {"0", "0", "1"},
+                              "one_cylinder_x.vtk");
   par_x.triangulation_type = current_triangulation_type(*this);
-  run_tensor_product_case(par_x);
+  const auto x_norms       = run_tensor_product_case(par_x);
 
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> par_z;
@@ -175,7 +188,10 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
                               "tensor_product_rotation_z",
                               {"0", "0", "1"});
   par_z.triangulation_type = current_triangulation_type(*this);
-  run_tensor_product_case(par_z);
+  const auto z_norms       = run_tensor_product_case(par_z);
+
+  EXPECT_NEAR(x_norms[0], z_norms[0], 1.e-8);
+  EXPECT_NEAR(x_norms[1], z_norms[1], 1.e-8);
 }
 
 TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,

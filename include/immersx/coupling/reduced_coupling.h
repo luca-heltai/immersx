@@ -289,9 +289,8 @@ namespace ImmersX
                     const auto basis_j = j;
                     local(i, j) =
                       fe.shape_value(i, particle.get_reference_location()) *
-                      this->get_reference_cross_section().shape_value(basis_j,
-                                                                      section_q,
-                                                                      comp_i) *
+                      particle
+                        .get_properties()[1 + basis_j * n_components + comp_i] *
                       particle.get_properties()[0];
                   }
               }
@@ -358,8 +357,8 @@ namespace ImmersX
                               immersed_fe.system_to_component_index(j).first;
 
                             const auto phi_comp_j_comp_i =
-                              this->get_reference_cross_section().shape_value(
-                                comp_j, section_q, comp_i);
+                              p.get_properties()[1 + comp_j * n_components +
+                                                 comp_i];
 
                             const auto w_j_comp_j =
                               immersed_fe.shape_value(j, immersed_p);
