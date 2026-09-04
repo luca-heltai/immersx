@@ -433,3 +433,93 @@ TEST(Constraint, MPI_NonmatchingDistributedReaction)
   reaction -= expected_reaction;
   EXPECT_LT(reaction.l2_norm(), 1.e-12);
 }
+
+
+TEST(Constraint, MPI_MixedDimensionalReverseNonmatching)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+
+  parallel::distributed::Triangulation<2>         bulk_tria(MPI_COMM_WORLD);
+  Triangulation<1, 2>                             serial_line;
+  parallel::fullydistributed::Triangulation<1, 2> line_tria(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bulk_tria);
+  bulk_tria.refine_global(2);
+
+  std::vector<Point<2>> line_vertices{Point<2>(0.15, 0.5), Point<2>(0.85, 0.5)};
+  std::vector<CellData<1>> line_cells(1);
+  line_cells[0].vertices[0] = 0;
+  line_cells[0].vertices[1] = 1;
+  serial_line.create_triangulation(line_vertices, line_cells, SubCellData());
+  serial_line.refine_global(2);
+  line_tria.copy_triangulation(serial_line);
+
+  FE_Q<2>          bulk_fe(1);
+  FE_Q<1, 2>       line_fe(1);
+  DoFHandler<2>    bulk_dh(bulk_tria);
+  DoFHandler<1, 2> line_dh(line_tria);
+  bulk_dh.distribute_dofs(bulk_fe);
+  line_dh.distribute_dofs(line_fe);
+
+  const auto bulk_owned    = bulk_dh.locally_owned_dofs();
+  const auto bulk_relevant = DoFTools::extract_locally_relevant_dofs(bulk_dh);
+  const auto line_owned    = line_dh.locally_owned_dofs();
+  const auto line_relevant = DoFTools::extract_locally_relevant_dofs(line_dh);
+  AffineConstraints<double> bulk_constraints;
+  AffineConstraints<double> line_constraints;
+  bulk_constraints.reinit(bulk_owned, bulk_relevant);
+  line_constraints.reinit(line_owned, line_relevant);
+  bulk_constraints.close();
+  line_constraints.close();
+
+  const auto  bulk_view = fe_space(bulk_dh,
+                                  StaticMappingQ1<2>::mapping,
+                                  bulk_constraints,
+                                  bulk_relevant);
+  const auto  line_view = fe_space(line_dh,
+                                  StaticMappingQ1<1, 2>::mapping,
+                                  line_constraints,
+                                  line_relevant);
+  StateLayout layout;
+  const auto  source = bulk_view.field(layout, "source");
+  const auto  lambda = line_view.field("lambda");
+
+  using Vector = ImmersXLA::MPI::Vector;
+  using Matrix = ImmersXLA::MPI::SparseMatrix;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto                          fields =
+    make_constraint(weak_term(value(source), lambda)).add(builder);
+
+  Vector source_state(bulk_owned, MPI_COMM_WORLD);
+  Vector lambda_state(line_owned, MPI_COMM_WORLD);
+  source_state = 1.;
+  lambda_state = 0.25;
+  source_state.compress(VectorOperation::insert);
+  lambda_state.compress(VectorOperation::insert);
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  Vector residual;
+  residual.reinit(line_owned, MPI_COMM_WORLD);
+  model.evaluate_row(fields.multiplier, context, residual);
+  const auto pairing =
+    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  ASSERT_TRUE(pairing.has_value());
+  Vector expected;
+  expected.reinit(line_owned, MPI_COMM_WORLD);
+  pairing->view.vmult(expected, source_state);
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
+
+  Vector reaction;
+  reaction.reinit(bulk_owned, MPI_COMM_WORLD);
+  model.evaluate_row(source.field_id(), context, reaction);
+  Vector expected_reaction;
+  expected_reaction.reinit(bulk_owned, MPI_COMM_WORLD);
+  pairing->view.Tvmult(expected_reaction, lambda_state);
+  reaction -= expected_reaction;
+  EXPECT_LT(reaction.l2_norm(), 1.e-12);
+}

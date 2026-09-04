@@ -41,11 +41,12 @@ namespace ImmersX
    * does not expose point search, quadrature, evaluation contexts, caches, or
    * coefficient storage.
    */
-  template <typename ValueType>
+  template <typename ValueType, typename SourceFieldType = void>
   class Observable
   {
   public:
-    using value_type = ValueType;
+    using value_type        = ValueType;
+    using source_field_type = SourceFieldType;
 
     Observable(std::vector<FieldId>      dependencies,
                const unsigned int        dimension,
@@ -150,15 +151,17 @@ namespace ImmersX
   };
 
   template <typename FieldType>
-  Observable<typename std::decay_t<FieldType>::value_type>
+  Observable<typename std::decay_t<FieldType>::value_type,
+             std::decay_t<FieldType>>
   value(const FieldType &field)
   {
     using Field = std::decay_t<FieldType>;
-    return Observable<typename Field::value_type>({field.field_id()},
-                                                  Field::dimension(),
-                                                  Field::spacedimension(),
-                                                  ObservableOperation::value,
-                                                  field);
+    return Observable<typename Field::value_type, Field>(
+      {field.field_id()},
+      Field::dimension(),
+      Field::spacedimension(),
+      ObservableOperation::value,
+      field);
   }
 
   template <typename FieldType>
@@ -170,11 +173,11 @@ namespace ImmersX
       std::conditional_t<std::is_same_v<typename Field::value_type, double>,
                          dealii::Tensor<1, Field::spacedimension()>,
                          dealii::Tensor<2, Field::spacedimension()>>;
-    return Observable<GradientValue>({field.field_id()},
-                                     Field::dimension(),
-                                     Field::spacedimension(),
-                                     ObservableOperation::gradient,
-                                     field);
+    return Observable<GradientValue, Field>({field.field_id()},
+                                            Field::dimension(),
+                                            Field::spacedimension(),
+                                            ObservableOperation::gradient,
+                                            field);
   }
 } // namespace ImmersX
 

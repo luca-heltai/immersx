@@ -91,14 +91,21 @@ TEST(FESpace, ValueAndGradientExposeTypedDependencies)
   const auto displacement_grad  = ImmersX::gradient(displacement);
   const auto pressure_grad      = ImmersX::gradient(pressure);
 
-  static_assert(std::is_same_v<std::decay_t<decltype(displacement_value)>,
-                               ImmersX::Observable<Tensor<1, 2>>>);
-  static_assert(std::is_same_v<std::decay_t<decltype(pressure_value)>,
-                               ImmersX::Observable<double>>);
-  static_assert(std::is_same_v<std::decay_t<decltype(displacement_grad)>,
-                               ImmersX::Observable<Tensor<2, 2>>>);
-  static_assert(std::is_same_v<std::decay_t<decltype(pressure_grad)>,
-                               ImmersX::Observable<Tensor<1, 2>>>);
+  static_assert(
+    std::is_same_v<
+      std::decay_t<decltype(displacement_value)>,
+      ImmersX::Observable<Tensor<1, 2>, std::decay_t<decltype(displacement)>>>);
+  static_assert(std::is_same_v<
+                std::decay_t<decltype(pressure_value)>,
+                ImmersX::Observable<double, std::decay_t<decltype(pressure)>>>);
+  static_assert(
+    std::is_same_v<
+      std::decay_t<decltype(displacement_grad)>,
+      ImmersX::Observable<Tensor<2, 2>, std::decay_t<decltype(displacement)>>>);
+  static_assert(
+    std::is_same_v<
+      std::decay_t<decltype(pressure_grad)>,
+      ImmersX::Observable<Tensor<1, 2>, std::decay_t<decltype(pressure)>>>);
 
   EXPECT_EQ(displacement_value.dependencies(),
             std::vector<ImmersX::FieldId>{displacement.field_id()});
