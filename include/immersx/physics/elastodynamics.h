@@ -141,9 +141,9 @@ namespace ImmersX
   /**
    * Standalone first-order-in-time linear elastodynamics solver.
    *
-   * The supported problems are full-dimensional volumetric elasticity in two
-   * and three dimensions (`dim == spacedim`). The spatial finite-element space
-   * is one vector-valued `FESystem<dim>(FE_Q<dim>, spacedim)`, represented by
+   * The spatial domain may be embedded in a higher-dimensional ambient space,
+   * with `1 <= dim <= spacedim <= 3`. The spatial finite-element space is one
+   * vector-valued `FESystem<dim>(FE_Q<dim>, spacedim)`, represented by
    * one DoFHandler. Displacement and velocity are separate algebraic vectors on
    * that same space. The solver exposes separate mass, stiffness, and optional
    * damping operators and advances the state with a standalone backward-Euler
@@ -154,9 +154,8 @@ namespace ImmersX
    */
   class ElastodynamicsSolver : public dealii::EnableObserverPointer
   {
-    static_assert(dim == spacedim && (dim == 2 || dim == 3),
-                  "ElastodynamicsSolver supports only 2D and 3D volumetric "
-                  "problems with dim == spacedim.");
+    static_assert(dim >= 1 && dim <= spacedim && spacedim <= 3,
+                  "ElastodynamicsSolver requires 1 <= dim <= spacedim <= 3.");
 
   public:
     using VectorType = LA::MPI::Vector;
