@@ -452,38 +452,6 @@ namespace ImmersX
       std::vector<std::pair<unsigned int, unsigned int>> area_basis;
     };
 
-    static dealii::Tensor<1, 3>
-    rotate_reference_vector(const dealii::Tensor<1, 3> &reference,
-                            const dealii::Tensor<1, 3> &tangent)
-    {
-      const auto tangent_norm = tangent.norm();
-      AssertThrow(tangent_norm > 0.,
-                  dealii::ExcMessage("A vessel centerline tangent is zero."));
-
-      dealii::Tensor<1, 3> vertical;
-      vertical[2]             = 1.;
-      const auto unit_tangent = tangent / tangent_norm;
-      auto       axis   = dealii::cross_product_3d(vertical, unit_tangent);
-      const auto sine   = axis.norm();
-      const auto cosine = vertical * unit_tangent;
-
-      if (sine < 1.e-14)
-        {
-          if (cosine > 0.)
-            return reference;
-
-          dealii::Tensor<1, 3> rotated = reference;
-          rotated[1]                   = -rotated[1];
-          rotated[2]                   = -rotated[2];
-          return rotated;
-        }
-
-      axis /= sine;
-      return reference * cosine +
-             dealii::cross_product_3d(axis, reference) * sine +
-             axis * (axis * reference) * (1. - cosine);
-    }
-
     static dealii::IndexSet
     make_component_subset(const dealii::IndexSet &source,
                           const dealii::IndexSet &component)
@@ -669,8 +637,6 @@ namespace ImmersX
                            ++component)
                         modal_direction[component] +=
                           lifted.mode_values[mode * 3 + component];
-                    modal_direction =
-                      rotate_reference_vector(modal_direction, tangent);
                     AssertThrow(modal_direction.norm() > mode_tolerance_,
                                 dealii::ExcMessage(
                                   "Selected vessel-wall modes do not define "

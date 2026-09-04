@@ -41,6 +41,8 @@
 #include <deal.II/lac/sparsity_pattern.h>
 #include <deal.II/lac/vector.h>
 
+#include <immersx/coupling/reference_frame.h>
+
 #include <fstream>
 
 using namespace dealii;
@@ -123,6 +125,11 @@ namespace ImmersX
     shape_value(const unsigned int i,
                 const unsigned int q,
                 const unsigned int comp) const;
+
+    /// Return selected mode values expressed in the physical frame.
+    std::vector<double>
+    get_transformed_mode_values(const unsigned int         q,
+                                const Tensor<1, spacedim> &new_vertical) const;
 
     /// Returns the mass matrix corresponding to selected basis functions.
     const SparseMatrix<double> &

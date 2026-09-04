@@ -22,6 +22,7 @@
 
 using namespace ImmersX;
 #include <immersx/coupling/reference_cross_section.h> // Add include for ReferenceCrossSection
+#include <immersx/coupling/tensor_product_lift.h>
 
 using namespace dealii;
 
@@ -139,6 +140,75 @@ TEST(ReferenceCrossSection, CheckDiskQuadrature) // NOLINT
 
   ASSERT_NEAR(r_squared_integral, 2 * numbers::PI, 1e-3)
     << "Integral of r^2 over unit circle should equal 2 pi";
+}
+
+
+TEST(ReferenceCrossSection, RotationAwareVectorModes) // NOLINT
+{
+  ParameterAcceptor::clear();
+  ReferenceCrossSectionParameters<1, 3, 3> parameters(
+    "/Rotation-aware cross section/");
+  parameters.inclusion_degree      = 0;
+  parameters.refinement_level      = 1;
+  parameters.selected_coefficients = {2};
+  ReferenceCrossSection<1, 3, 3> section(parameters);
+
+  const Point<3>                  origin(1., 2., 3.);
+  const double                    scale    = 0.37;
+  const std::vector<Tensor<1, 3>> tangents = {Tensor<1, 3>({0., 0., 1.}),
+                                              Tensor<1, 3>({1., 0., 0.}),
+                                              Tensor<1, 3>({0., 0., -1.}),
+                                              Tensor<1, 3>({1., 2., 2.})};
+
+  for (const auto &tangent : tangents)
+    {
+      const auto rotation = detail::reference_to_physical_rotation(tangent);
+      const auto transformed =
+        section.get_transformed_quadrature(origin, tangent, scale);
+      for (unsigned int q = 0; q < section.n_quadrature_points(); ++q)
+        {
+          const auto expected_point =
+            origin +
+            rotation * (scale * section.get_global_quadrature().point(q));
+          for (unsigned int d = 0; d < 3; ++d)
+            EXPECT_NEAR(transformed.point(q)[d], expected_point[d], 1.e-12);
+
+          Tensor<1, 3> reference_value;
+          for (unsigned int component = 0; component < 3; ++component)
+            reference_value[component] = section.shape_value(0, q, component);
+          const auto expected_mode = rotation * reference_value;
+          const auto mode_values =
+            section.get_transformed_mode_values(q, tangent);
+          ASSERT_EQ(mode_values.size(), 3u);
+          for (unsigned int component = 0; component < 3; ++component)
+            EXPECT_NEAR(mode_values[component],
+                        expected_mode[component],
+                        1.e-12);
+        }
+    }
+}
+
+
+TEST(TensorProductLift, RotationAwareVectorModes) // NOLINT
+{
+  ParameterAcceptor::clear();
+  TensorProductLift<1, 2, 3, 3> lift("/Rotation-aware lift/");
+  lift.section.inclusion_degree      = 0;
+  lift.section.refinement_level      = 1;
+  lift.section.selected_coefficients = {2};
+  TensorProductLiftSupport<1, 2, 3, 3> support(lift.parameters());
+
+  Tensor<1, 3> tangent;
+  tangent[0]        = 1.;
+  const auto points = support.transform(Point<3>(), tangent, 1., 0.25, 0);
+  ASSERT_FALSE(points.empty());
+  for (const auto &point : points)
+    {
+      ASSERT_EQ(point.mode_values.size(), 3u);
+      EXPECT_NEAR(point.mode_values[0], 1., 1.e-12);
+      EXPECT_NEAR(point.mode_values[1], 0., 1.e-12);
+      EXPECT_NEAR(point.mode_values[2], 0., 1.e-12);
+    }
 }
 
 

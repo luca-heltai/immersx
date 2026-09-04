@@ -31,9 +31,6 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
-#include <deal.II/physics/transformations.h>
-#include <deal.II/physics/vector_relations.h>
-
 #include <immersx/coupling/reference_cross_section.h>
 
 #include <string>
@@ -318,6 +315,39 @@ namespace ImmersX
   };
 
 
+  template <int dim, int spacedim, int n_components>
+  std::vector<double>
+  ReferenceCrossSection<dim, spacedim, n_components>::
+    get_transformed_mode_values(const unsigned int         q,
+                                const Tensor<1, spacedim> &new_vertical) const
+  {
+    AssertIndexRange(q, global_quadrature.size());
+
+    std::vector<double> values(selected_basis_functions.size() * n_components);
+    for (unsigned int mode = 0; mode < selected_basis_functions.size(); ++mode)
+      for (unsigned int comp = 0; comp < n_components; ++comp)
+        values[mode * n_components + comp] = shape_value(mode, q, comp);
+
+    if (n_components == spacedim)
+      {
+        const auto rotation =
+          detail::reference_to_physical_rotation(new_vertical);
+        for (unsigned int mode = 0; mode < selected_basis_functions.size();
+             ++mode)
+          {
+            Tensor<1, spacedim> reference_value;
+            for (unsigned int comp = 0; comp < n_components; ++comp)
+              reference_value[comp] = values[mode * n_components + comp];
+            const auto physical_value = rotation * reference_value;
+            for (unsigned int comp = 0; comp < n_components; ++comp)
+              values[mode * n_components + comp] = physical_value[comp];
+          }
+      }
+
+    return values;
+  }
+
+
 
   template <int dim, int spacedim, int n_components>
   auto
@@ -389,36 +419,7 @@ namespace ImmersX
     AssertThrow(new_vertical.norm() > 0,
                 ExcMessage("The new vertical direction must be non-zero."));
 
-    Tensor<2, spacedim> rotation;
-    Tensor<1, spacedim> vertical;
-    vertical[spacedim - 1] = 1;
-    if constexpr (spacedim == 3)
-      {
-        Tensor<1, spacedim> axis = cross_product_3d(vertical, new_vertical);
-        const double        axis_norm = axis.norm();
-        if (axis_norm < 1e-10)
-          {
-            // The two vectors are parallel, no rotation needed
-            for (unsigned int i = 0; i < spacedim; ++i)
-              rotation[i][i] = 1;
-          }
-        else
-          {
-            axis /= axis_norm;
-            double angle = Physics::VectorRelations::signed_angle(vertical,
-                                                                  new_vertical,
-                                                                  axis);
-            rotation =
-              Physics::Transformations::Rotations::rotation_matrix_3d(axis,
-                                                                      angle);
-          }
-      }
-    else if constexpr (spacedim == 2)
-      {
-        double angle = Physics::VectorRelations::angle(vertical, new_vertical);
-        rotation =
-          Physics::Transformations::Rotations::rotation_matrix_2d(angle);
-      }
+    const auto rotation = detail::reference_to_physical_rotation(new_vertical);
 
     // Create transformed quadrature by applying the mapping to points and
     // weights
