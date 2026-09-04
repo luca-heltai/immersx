@@ -129,6 +129,25 @@ namespace
   }
 
   std::string
+  acceleration_expression()
+  {
+    const std::string r2  = "(y*y+z*z)";
+    const std::string r   = "sqrt(" + r2 + ")";
+    const std::string s   = "(x+half)";
+    const std::string a   = "(a0+amp*(1-cos(om*t))*sin(k*" + s + "))";
+    const std::string at  = "(amp*om*sin(om*t)*sin(k*" + s + "))";
+    const std::string att = "(amp*om*om*cos(om*t)*sin(k*" + s + "))";
+    const std::string dtt = "(" + att + "/(2*sqrt(pi*" + a + "))-" + at + "*" +
+                            at + "/(4*sqrt(pi)*" + a + "*sqrt(" + a + ")))";
+    const std::string phi = "(" + r2 + "<=r0*r0 ? " + r +
+                            "/r0 : " + "r0/(r0*r0-r1*r1)*(" + r + "-r1*r1/" +
+                            r + "))";
+    const std::string radial = "(" + dtt + "*" + phi + ")";
+    return "0;(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
+           "==0 ? 0 : " + radial + "*z/" + r + ")";
+  }
+
+  std::string
   body_force_expression()
   {
     const std::string r2  = "(y*y+z*z)";
@@ -405,16 +424,20 @@ namespace
       flow_problem->initialize_params(parameter_file);
 
       const Parameters par;
-      flow_time->initial_time                  = 0.;
-      flow_time->final_time                    = final_time;
-      flow_time->time_step                     = final_time / n_steps;
-      flow_time->number_of_steps               = n_steps;
-      flow_time->initial_step_size             = final_time / n_steps;
-      flow_time->minimum_step_size             = final_time * 1.e-6;
+      flow_time->initial_time      = 0.;
+      flow_time->final_time        = final_time;
+      flow_time->time_step         = final_time / n_steps;
+      flow_time->number_of_steps   = n_steps;
+      flow_time->initial_step_size = final_time / n_steps;
+      flow_time->minimum_step_size =
+        std::getenv("IMMERSX_RUN_MMS_STUDIES") != nullptr ?
+          final_time / n_steps :
+          final_time * 1.e-6;
       flow_time->maximum_order                 = 1;
       flow_time->maximum_non_linear_iterations = 3;
       flow_time->absolute_tolerance            = 1.e-2;
       flow_time->relative_tolerance            = 1.e-2;
+      flow_time->ls_norm_factor                = 1.e-2;
       flow_time->output_frequency              = 0;
 
       solid_parameters->initial_refinement =
@@ -568,8 +591,37 @@ namespace
         flow_state_dot[index] = exact_fe_derivative[index];
       flow_state_dot.compress(VectorOperation::insert);
       adapter->field(state_dot, solid_fields->fields().displacement) = velocity;
-      FlowVector acceleration;
-      solid_problem->initial_acceleration(acceleration);
+      FunctionParser<3> exact_acceleration(3);
+      std::string       acceleration_formula = acceleration_expression();
+      const Parameters  par;
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "a0", number(reference_area(par)));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "r0", number(par.reference_r));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "r1", number(par.outer_r));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "amp", number(par.area_amplitude));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "om", number(par.omega));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "k", number(wave_number(par)));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "half", number(par.length / 2.));
+      acceleration_formula =
+        replace_symbol(acceleration_formula, "pi", number(numbers::PI));
+      exact_acceleration.initialize(
+        FunctionParser<3>::default_variable_names() + ",t",
+        spatial_case ? "0;0;0" : acceleration_formula,
+        {{"pi", numbers::PI}},
+        true);
+      exact_acceleration.set_time(0.);
+      SolidVector acceleration;
+      acceleration.reinit(solid_problem->locally_owned_dofs(), MPI_COMM_WORLD);
+      VectorTools::interpolate(solid_problem->dof_handler(),
+                               exact_acceleration,
+                               acceleration);
+      acceleration.compress(VectorOperation::insert);
       adapter->field(state_dot, solid_fields->fields().velocity) = acceleration;
       set_exact_multiplier(state, 0.);
       adapter->field(state_dot, coupling_fields.multiplier) = 0.;
@@ -790,24 +842,19 @@ namespace
   run_transient_case(const unsigned int flow_level,
                      const unsigned int solid_level,
                      const unsigned int n_steps,
-                     const unsigned int logical_level)
+                     const unsigned int logical_level,
+                     const double       final_time = 0.1)
   {
-    MMSFixture fixture(flow_level, 0.1, false, n_steps, solid_level);
+    MMSFixture fixture(flow_level, final_time, false, n_steps, solid_level);
     auto       state     = fixture.adapter->make_state();
     auto       state_dot = fixture.adapter->make_state();
     fixture.initialize(state, state_dot);
     EXPECT_GT(fixture.adapter->solve(state, state_dot), 0u);
     EXPECT_TRUE(std::isfinite(state.l2_norm()));
     auto residual = fixture.adapter->make_state();
-    fixture.adapter->solver().residual(fixture.flow_time->final_time,
-                                       state,
-                                       state_dot,
-                                       residual);
+    fixture.adapter->solver().residual(final_time, state, state_dot, residual);
     EXPECT_TRUE(std::isfinite(residual.l2_norm()));
-    auto result    = fixture.errors(state,
-                                 state_dot,
-                                 fixture.flow_time->final_time,
-                                 logical_level);
+    auto result = fixture.errors(state, state_dot, final_time, logical_level);
     result.n_steps = n_steps;
     return result;
   }
@@ -816,25 +863,80 @@ namespace
   write_error_table(const std::string              &name,
                     const std::vector<ErrorRecord> &records)
   {
+    const auto rate = [](const double previous,
+                         const double current,
+                         const double refinement_ratio) {
+      return previous > 0. && current > 0. && refinement_ratio > 1. ?
+               std::log(previous / current) / std::log(refinement_ratio) :
+               std::numeric_limits<double>::quiet_NaN();
+    };
+    const auto refinement_ratio = [&records, &name](const unsigned int level) {
+      if (level == 0)
+        return 1.;
+      if (name == "temporal-study")
+        return static_cast<double>(records[level].n_steps) /
+               records[level - 1].n_steps;
+      return records[level - 1].h_flow / records[level].h_flow;
+    };
     const auto filename = TestPaths::output_path(
       "metric-flow-x-elastodynamics-mms/" + name + ".csv");
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       {
         std::filesystem::create_directories(filename.parent_path());
         std::ofstream output(filename);
-        output
-          << "level,n_steps,h_flow,h_solid,flow_dofs,solid_dofs,"
-             "multiplier_dofs,area_l2,velocity_l2,displacement_l2,"
-             "displacement_h1,velocity_solid_l2,multiplier_l2,constraint\n";
+        output << "level,n_steps,h_flow,h_solid,flow_dofs,solid_dofs,"
+                  "multiplier_dofs,area_l2,velocity_l2,displacement_l2,"
+                  "displacement_h1,velocity_solid_l2,multiplier_l2,constraint,"
+                  "area_rate,velocity_rate,displacement_rate,"
+                  "displacement_h1_rate,velocity_solid_rate,multiplier_rate,"
+                  "constraint_rate\n";
         for (const auto &record : records)
-          output << record.level << ',' << record.n_steps << ','
-                 << std::setprecision(17) << record.h_flow << ','
-                 << record.h_solid << ',' << record.flow_dofs << ','
-                 << record.solid_dofs << ',' << record.multiplier_dofs << ','
-                 << record.area_l2 << ',' << record.velocity_l2 << ','
-                 << record.displacement_l2 << ',' << record.displacement_h1
-                 << ',' << record.velocity_solid_l2 << ','
-                 << record.multiplier_l2 << ',' << record.constraint << '\n';
+          {
+            const auto level = record.level;
+            output << record.level << ',' << record.n_steps << ','
+                   << std::setprecision(17) << record.h_flow << ','
+                   << record.h_solid << ',' << record.flow_dofs << ','
+                   << record.solid_dofs << ',' << record.multiplier_dofs << ','
+                   << record.area_l2 << ',' << record.velocity_l2 << ','
+                   << record.displacement_l2 << ',' << record.displacement_h1
+                   << ',' << record.velocity_solid_l2 << ','
+                   << record.multiplier_l2 << ',' << record.constraint;
+            if (level > 0)
+              {
+                const auto ratio = refinement_ratio(level);
+                output << ','
+                       << rate(records[level - 1].area_l2,
+                               record.area_l2,
+                               ratio)
+                       << ','
+                       << rate(records[level - 1].velocity_l2,
+                               record.velocity_l2,
+                               ratio)
+                       << ','
+                       << rate(records[level - 1].displacement_l2,
+                               record.displacement_l2,
+                               ratio)
+                       << ','
+                       << rate(records[level - 1].displacement_h1,
+                               record.displacement_h1,
+                               ratio)
+                       << ','
+                       << rate(records[level - 1].velocity_solid_l2,
+                               record.velocity_solid_l2,
+                               ratio)
+                       << ','
+                       << rate(records[level - 1].multiplier_l2,
+                               record.multiplier_l2,
+                               ratio)
+                       << ','
+                       << rate(records[level - 1].constraint,
+                               record.constraint,
+                               ratio);
+              }
+            else
+              output << ",nan,nan,nan,nan,nan,nan,nan";
+            output << '\n';
+          }
 
         std::cout
           << "\n"
@@ -843,15 +945,39 @@ namespace
              "       displacement_L2       displacement_H1"
              "       velocity_solid_L2       multiplier_L2       constraint\n";
         for (const auto &record : records)
-          std::cout << std::setw(5) << record.level << std::setw(7)
-                    << record.n_steps << std::scientific << std::setprecision(6)
-                    << std::setw(13) << record.h_flow << std::setw(14)
-                    << record.area_l2 << std::setw(15) << record.velocity_l2
-                    << std::setw(22) << record.displacement_l2 << std::setw(22)
-                    << record.displacement_h1 << std::setw(24)
-                    << record.velocity_solid_l2 << std::setw(18)
-                    << record.multiplier_l2 << std::setw(15)
-                    << record.constraint << '\n';
+          {
+            std::cout << std::setw(5) << record.level << std::setw(7)
+                      << record.n_steps << std::scientific
+                      << std::setprecision(6) << std::setw(13) << record.h_flow
+                      << std::setw(14) << record.area_l2 << std::setw(15)
+                      << record.velocity_l2 << std::setw(22)
+                      << record.displacement_l2 << std::setw(22)
+                      << record.displacement_h1 << std::setw(24)
+                      << record.velocity_solid_l2 << std::setw(18)
+                      << record.multiplier_l2 << std::setw(15)
+                      << record.constraint;
+            if (record.level > 0)
+              {
+                const auto ratio = refinement_ratio(record.level);
+                std::cout << "  rates: A="
+                          << rate(records[record.level - 1].area_l2,
+                                  record.area_l2,
+                                  ratio)
+                          << " u="
+                          << rate(records[record.level - 1].displacement_l2,
+                                  record.displacement_l2,
+                                  ratio)
+                          << " lambda="
+                          << rate(records[record.level - 1].multiplier_l2,
+                                  record.multiplier_l2,
+                                  ratio)
+                          << " G="
+                          << rate(records[record.level - 1].constraint,
+                                  record.constraint,
+                                  ratio);
+              }
+            std::cout << '\n';
+          }
       }
     MPI_Barrier(MPI_COMM_WORLD);
   }
