@@ -101,6 +101,29 @@ TEST(TensorProductSpace0D, PointCloudOrientationAndDefault)
   EXPECT_NEAR(oriented_space.get_entity_orientation(0)[1], 0., 1e-12);
 }
 
+
+TEST(TensorProductSpace0D, VectorModesFollowPointCloudOrientation)
+{
+  TensorProductSpaceParameters<0, 2, 2, 2> params;
+  params.thickness                     = "0.25";
+  params.section.inclusion_degree      = 0;
+  params.section.selected_coefficients = {0};
+  params.point_cloud.points            = {Point<2>(0., 0.)};
+  params.point_cloud.catalog           = {
+    {"orientation", FieldAssociation::point_data, 2, 0, 0}};
+  params.point_cloud.properties = {{1., 0.}};
+
+  TensorProductSpace<0, 2, 2, 2> space(params);
+  space.initialize();
+
+  const auto &mode_values = space.get_locally_owned_mode_values().front();
+  ASSERT_EQ(mode_values.size(), 2u);
+  // Mode 0 is e_x in the reference section.  The point-cloud orientation is
+  // e_x, so the reference e_y is mapped to e_x and e_x is mapped to -e_y.
+  EXPECT_NEAR(mode_values[0], 0., 1.e-12);
+  EXPECT_NEAR(mode_values[1], -1., 1.e-12);
+}
+
 TEST(TensorProductSpace0D, RejectsTimeDependentThickness)
 {
   TensorProductSpaceParameters<0, 2, 2, 1> params;

@@ -79,7 +79,6 @@ namespace ImmersX
     transform_representative_point(
       const Section                     &section,
       const std::vector<unsigned int>   &selected_modes,
-      const unsigned int                 n_components,
       const dealii::Point<spacedim>     &origin,
       const dealii::Tensor<1, spacedim> &tangent,
       const double                       representative_weight,
@@ -101,12 +100,8 @@ namespace ImmersX
           point.representative_qpoint = representative_qpoint;
           point.section_qpoint        = section_q;
           point.selected_modes        = selected_modes;
-          point.mode_values.resize(section.n_selected_basis() * n_components);
-          for (unsigned int mode = 0; mode < section.n_selected_basis(); ++mode)
-            for (unsigned int component = 0; component < n_components;
-                 ++component)
-              point.mode_values[mode * n_components + component] =
-                section.shape_value(mode, section_q, component);
+          point.mode_values =
+            section.get_transformed_mode_values(section_q, tangent);
 
           if (!representative_basis.empty())
             {
@@ -235,8 +230,13 @@ namespace ImmersX
     /** Quadrature slot within the source representative entity. */
     unsigned int source_representative_qpoint =
       dealii::numbers::invalid_unsigned_int;
-    unsigned int                                 section_qpoint = 0;
-    std::vector<unsigned int>                    selected_modes;
+    unsigned int              section_qpoint = 0;
+    std::vector<unsigned int> selected_modes;
+    /**
+     * Selected mode values. Scalar modes remain scalar; vector mode values
+     * with n_components == spacedim are expressed in the physical frame
+     * associated with the representative tangent.
+     */
     std::vector<double>                          mode_values;
     std::vector<double>                          tensor_product_basis_values;
     std::vector<dealii::types::global_dof_index> source_dof_indices;
@@ -315,7 +315,6 @@ namespace ImmersX
       return detail::transform_representative_point<surface_dim, spacedim>(
         *section_,
         parameters_.section.selected_coefficients,
-        n_components,
         origin,
         tangent,
         representative_weight,

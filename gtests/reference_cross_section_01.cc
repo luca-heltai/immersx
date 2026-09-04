@@ -20,8 +20,11 @@
 #include <gtest/gtest.h>
 #include <immersx/coupling/inclusions.h>
 
+#include <array>
+
 using namespace ImmersX;
 #include <immersx/coupling/reference_cross_section.h> // Add include for ReferenceCrossSection
+#include <immersx/coupling/tensor_product_lift.h>
 
 using namespace dealii;
 
@@ -139,6 +142,177 @@ TEST(ReferenceCrossSection, CheckDiskQuadrature) // NOLINT
 
   ASSERT_NEAR(r_squared_integral, 2 * numbers::PI, 1e-3)
     << "Integral of r^2 over unit circle should equal 2 pi";
+}
+
+
+TEST(ReferenceFrame, RotationInvariants3D) // NOLINT
+{
+  const std::array<Tensor<1, 3>, 4> tangents = {Tensor<1, 3>({0., 0., 1.}),
+                                                Tensor<1, 3>({1., 0., 0.}),
+                                                Tensor<1, 3>({0., 0., -1.}),
+                                                Tensor<1, 3>({1., 2., 2.})};
+
+  for (const auto &tangent : tangents)
+    {
+      const auto rotation     = detail::reference_to_physical_rotation(tangent);
+      const auto unit_tangent = tangent / tangent.norm();
+
+      Tensor<1, 3> reference_vertical;
+      reference_vertical[2] = 1.;
+      const auto mapped     = rotation * reference_vertical;
+      for (unsigned int d = 0; d < 3; ++d)
+        EXPECT_NEAR(mapped[d], unit_tangent[d], 1.e-12);
+
+      for (unsigned int i = 0; i < 3; ++i)
+        for (unsigned int j = 0; j < 3; ++j)
+          {
+            double entry = 0.;
+            for (unsigned int k = 0; k < 3; ++k)
+              entry += rotation[k][i] * rotation[k][j];
+            EXPECT_NEAR(entry, i == j ? 1. : 0., 1.e-12);
+          }
+
+      const double determinant =
+        rotation[0][0] *
+          (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1]) -
+        rotation[0][1] *
+          (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0]) +
+        rotation[0][2] *
+          (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0]);
+      EXPECT_NEAR(determinant, 1., 1.e-12);
+    }
+}
+
+
+TEST(ReferenceFrame, RotationInvariants2D) // NOLINT
+{
+  const std::array<Tensor<1, 2>, 3> tangents = {Tensor<1, 2>({0., 1.}),
+                                                Tensor<1, 2>({1., 0.}),
+                                                Tensor<1, 2>({0., -1.})};
+
+  for (const auto &tangent : tangents)
+    {
+      const auto rotation     = detail::reference_to_physical_rotation(tangent);
+      const auto unit_tangent = tangent / tangent.norm();
+
+      Tensor<1, 2> reference_vertical;
+      reference_vertical[1] = 1.;
+      const auto mapped     = rotation * reference_vertical;
+      for (unsigned int d = 0; d < 2; ++d)
+        EXPECT_NEAR(mapped[d], unit_tangent[d], 1.e-12);
+
+      for (unsigned int i = 0; i < 2; ++i)
+        for (unsigned int j = 0; j < 2; ++j)
+          {
+            double entry = 0.;
+            for (unsigned int k = 0; k < 2; ++k)
+              entry += rotation[k][i] * rotation[k][j];
+            EXPECT_NEAR(entry, i == j ? 1. : 0., 1.e-12);
+          }
+
+      const double determinant =
+        rotation[0][0] * rotation[1][1] - rotation[0][1] * rotation[1][0];
+      EXPECT_NEAR(determinant, 1., 1.e-12);
+    }
+}
+
+
+TEST(ReferenceCrossSection, RotationAwareVectorModes) // NOLINT
+{
+  ParameterAcceptor::clear();
+  ReferenceCrossSectionParameters<1, 3, 3> parameters(
+    "/Rotation-aware cross section/");
+  parameters.inclusion_degree      = 0;
+  parameters.refinement_level      = 1;
+  parameters.selected_coefficients = {2};
+  ReferenceCrossSection<1, 3, 3> section(parameters);
+
+  const Point<3>                  origin(1., 2., 3.);
+  const double                    scale    = 0.37;
+  const std::vector<Tensor<1, 3>> tangents = {Tensor<1, 3>({0., 0., 1.}),
+                                              Tensor<1, 3>({1., 0., 0.}),
+                                              Tensor<1, 3>({0., 0., -1.}),
+                                              Tensor<1, 3>({1., 2., 2.})};
+
+  for (const auto &tangent : tangents)
+    {
+      const auto rotation = detail::reference_to_physical_rotation(tangent);
+      const auto transformed =
+        section.get_transformed_quadrature(origin, tangent, scale);
+      for (unsigned int q = 0; q < section.n_quadrature_points(); ++q)
+        {
+          const auto expected_point =
+            origin +
+            rotation * (scale * section.get_global_quadrature().point(q));
+          for (unsigned int d = 0; d < 3; ++d)
+            EXPECT_NEAR(transformed.point(q)[d], expected_point[d], 1.e-12);
+
+          Tensor<1, 3> reference_value;
+          for (unsigned int component = 0; component < 3; ++component)
+            reference_value[component] = section.shape_value(0, q, component);
+          const auto expected_mode = rotation * reference_value;
+          const auto mode_values =
+            section.get_transformed_mode_values(q, tangent);
+          ASSERT_EQ(mode_values.size(), 3u);
+          for (unsigned int component = 0; component < 3; ++component)
+            EXPECT_NEAR(mode_values[component],
+                        expected_mode[component],
+                        1.e-12);
+        }
+    }
+}
+
+
+TEST(TensorProductLift, RotationAwareVectorModes) // NOLINT
+{
+  ParameterAcceptor::clear();
+  TensorProductLift<1, 2, 3, 3> lift("/Rotation-aware lift/");
+  lift.section.inclusion_degree      = 0;
+  lift.section.refinement_level      = 1;
+  lift.section.selected_coefficients = {2};
+  TensorProductLiftSupport<1, 2, 3, 3> support(lift.parameters());
+
+  const std::array<Tensor<1, 3>, 4> tangents = {Tensor<1, 3>({0., 0., 1.}),
+                                                Tensor<1, 3>({1., 0., 0.}),
+                                                Tensor<1, 3>({0., 0., -1.}),
+                                                Tensor<1, 3>({1., 2., 2.})};
+
+  for (const auto &tangent : tangents)
+    {
+      const auto points = support.transform(Point<3>(), tangent, 1., 0.25, 0);
+      ASSERT_FALSE(points.empty());
+      const auto expected = tangent / tangent.norm();
+      for (const auto &point : points)
+        {
+          ASSERT_EQ(point.mode_values.size(), 3u);
+          // Selected mode 2 is the reference e_z Cartesian vector.
+          for (unsigned int component = 0; component < 3; ++component)
+            EXPECT_NEAR(point.mode_values[component],
+                        expected[component],
+                        1.e-12);
+        }
+    }
+}
+
+
+TEST(ReferenceCrossSection, ScalarModesRemainUnchangedUnderRotation)
+{
+  ParameterAcceptor::clear();
+  ReferenceCrossSectionParameters<2, 3, 1> parameters(
+    "/Scalar rotation cross section/");
+  parameters.inclusion_degree      = 0;
+  parameters.refinement_level      = 1;
+  parameters.selected_coefficients = {0};
+  ReferenceCrossSection<2, 3, 1> section(parameters);
+
+  for (const auto &tangent : {Tensor<1, 3>({0., 0., 1.}),
+                              Tensor<1, 3>({1., 0., 0.}),
+                              Tensor<1, 3>({1., 2., 2.})})
+    {
+      const auto values = section.get_transformed_mode_values(0, tangent);
+      ASSERT_EQ(values.size(), 1u);
+      EXPECT_NEAR(values[0], section.shape_value(0, 0, 0), 1.e-12);
+    }
 }
 
 

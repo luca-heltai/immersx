@@ -277,6 +277,10 @@ namespace ImmersX
     const std::vector<std::vector<double>> &
     get_locally_owned_weights() const;
 
+    /// Return selected cross-section modes in the physical frame.
+    const std::vector<std::vector<double>> &
+    get_locally_owned_mode_values() const;
+
     /**
      * Return reduced-manifold quadrature points owned by this rank.
      */
@@ -515,6 +519,7 @@ namespace ImmersX
      * Weights associated with all lifted quadrature points.
      */
     std::vector<std::vector<double>> all_weights;
+    std::vector<std::vector<double>> all_mode_values;
 
     /**
      * Quadrature points on the reduced manifold.
@@ -587,6 +592,10 @@ namespace ImmersX
     get_locally_owned_qpoints() const;
     const std::vector<std::vector<double>> &
     get_locally_owned_weights() const;
+
+    /// Return selected cross-section modes in the physical frame.
+    const std::vector<std::vector<double>> &
+    get_locally_owned_mode_values() const;
     const std::vector<Point<spacedim>> &
     get_locally_owned_reduced_qpoints() const;
     const std::vector<std::vector<double>> &
@@ -666,6 +675,7 @@ namespace ImmersX
                                      representative_entity_to_dof_indices;
     std::vector<Point<spacedim>>     all_qpoints;
     std::vector<std::vector<double>> all_weights;
+    std::vector<std::vector<double>> all_mode_values;
     std::vector<Point<spacedim>>     reduced_qpoints;
     std::vector<std::vector<double>> reduced_weights;
     std::vector<std::vector<double>> section_measure;

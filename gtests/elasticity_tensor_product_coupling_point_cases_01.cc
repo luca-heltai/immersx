@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 
+#include <array>
 #include <cmath>
 #include <set>
 #include <string>
@@ -40,7 +41,8 @@ namespace
   void
   set_tensor_product_defaults(ElasticityProblemParameters<dim, spacedim> &par,
                               const std::string              &output_name,
-                              const std::vector<std::string> &rhs)
+                              const std::vector<std::string> &rhs,
+                              const std::string &grid_name = "one_cylinder.vtk")
   {
 #  ifdef DEBUG
     par.output_directory =
@@ -73,7 +75,7 @@ namespace
     auto &tensor_product_parameters = par.tensor_product_coupling_parameters;
     tensor_product_parameters.tensor_product_space_parameters
       .reduced_grid_name =
-      ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+      ImmersX::TestPaths::data_filename("tests/" + grid_name);
     tensor_product_parameters.tensor_product_space_parameters.fe_degree  = 1;
     tensor_product_parameters.tensor_product_space_parameters.n_q_points = 2;
     tensor_product_parameters.tensor_product_space_parameters.thickness =
@@ -101,14 +103,78 @@ namespace
   }
 
   template <int dim, int spacedim>
-  void
+  std::array<double, 2>
   run_tensor_product_case(ElasticityProblemParameters<dim, spacedim> &par)
   {
     ElasticityProblem<dim, spacedim> problem(par);
     initialize_parameters();
     ParameterAcceptor::parse_all_parameters();
-    ASSERT_NO_THROW(problem.run());
+    try
+      {
+        problem.run();
+      }
+    catch (const std::exception &exception)
+      {
+        ADD_FAILURE() << exception.what();
+        return {};
+      }
     assert_tensor_product_solution(problem);
+    return {problem.solution.block(0).l2_norm(),
+            problem.solution.block(1).l2_norm()};
+  }
+
+  void
+  set_issue_165_parameters(ElasticityProblemParameters<3>     &par,
+                           const std::string                  &output_name,
+                           const std::string                  &grid_name,
+                           const std::set<types::boundary_id> &dirichlet_ids,
+                           const std::set<types::boundary_id> &normal_flux_ids)
+  {
+    par.output_directory =
+      ImmersX::TestPaths::output_directory("elasticity-tensor-product-point");
+    par.output_name         = output_name;
+    par.fe_degree           = 1;
+    par.initial_refinement  = 4;
+    par.domain_type         = "generate";
+    par.name_of_grid        = "hyper_cube";
+    par.arguments_for_grid  = "-2: 2: true";
+    par.triangulation_type  = "distributed";
+    par.refinement_strategy = "global";
+    par.refinement_fraction = 1.0;
+    par.n_refinement_cycles = 1;
+    par.max_cells           = 2000000;
+    par.dirichlet_ids       = dirichlet_ids;
+    par.normal_flux_ids     = normal_flux_ids;
+
+    par.default_material_properties.Lame_mu     = 1;
+    par.default_material_properties.Lame_lambda = 1;
+    par.displacement_solver_control.set_reduction(1.e-8);
+    par.displacement_solver_control.set_tolerance(1.e-8);
+    par.reduced_mass_solver_control.set_reduction(1.e-8);
+    par.reduced_mass_solver_control.set_tolerance(1.e-8);
+
+    par.coupling_type               = CouplingType::TensorProduct;
+    auto &tensor_product_parameters = par.tensor_product_coupling_parameters;
+    auto &space_parameters =
+      tensor_product_parameters.tensor_product_space_parameters;
+    space_parameters.reduced_grid_name =
+      ImmersX::TestPaths::data_filename("tests/" + grid_name);
+    space_parameters.fe_degree                     = 1;
+    space_parameters.n_q_points                    = 3;
+    space_parameters.n_quadrature_repetitions      = 4;
+    space_parameters.thickness                     = "0.2";
+    space_parameters.input_file_fields             = "displacement";
+    space_parameters.section.inclusion_type        = "hyper_ball";
+    space_parameters.section.inclusion_degree      = 1;
+    space_parameters.section.refinement_level      = 1;
+    space_parameters.section.selected_coefficients = {3, 7};
+    tensor_product_parameters.refinement_parameters
+      .embedded_pre_refinement_cycles = 0;
+    tensor_product_parameters.refinement_parameters
+      .embedded_post_refinement_cycles = 0;
+    tensor_product_parameters.particle_coupling_parameters
+      .rtree_extraction_level                          = 1;
+    tensor_product_parameters.coupling_rhs_expressions = {"0.1", "0.1"};
   }
 } // namespace
 
@@ -163,19 +229,26 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> par_x;
-  set_tensor_product_defaults(par_x,
-                              "tensor_product_rotation_x",
-                              {"1", "0", "0"});
+  set_issue_165_parameters(par_x,
+                           "tensor_product_issue_165_rotation_x",
+                           "one_cylinder_rotation_x.vtk",
+                           {2, 3, 4, 5},
+                           {0, 1});
   par_x.triangulation_type = current_triangulation_type(*this);
-  run_tensor_product_case(par_x);
+  const auto x_norms       = run_tensor_product_case(par_x);
 
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> par_z;
-  set_tensor_product_defaults(par_z,
-                              "tensor_product_rotation_z",
-                              {"0", "0", "1"});
+  set_issue_165_parameters(par_z,
+                           "tensor_product_issue_165_rotation_z",
+                           "one_cylinder_rotation_z.vtk",
+                           {0, 1, 2, 3},
+                           {4, 5});
   par_z.triangulation_type = current_triangulation_type(*this);
-  run_tensor_product_case(par_z);
+  const auto z_norms       = run_tensor_product_case(par_z);
+
+  EXPECT_NEAR(x_norms[0], z_norms[0], 1.e-8);
+  EXPECT_NEAR(x_norms[1], z_norms[1], 1.e-8);
 }
 
 TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
