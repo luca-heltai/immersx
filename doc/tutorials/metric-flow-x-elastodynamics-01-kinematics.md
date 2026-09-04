@@ -28,7 +28,7 @@ Run the independent mathematical and two-way residual gate with:
 
 ```bash
 ctest --test-dir build-metric-flow-x-debug -V \
-  -R '^metric_flow_x_elastodynamics_mms_convergence$'
+  -R '^metric_flow_x_elastodynamics_mms_verification$'
 ```
 
 The configured production-path input is

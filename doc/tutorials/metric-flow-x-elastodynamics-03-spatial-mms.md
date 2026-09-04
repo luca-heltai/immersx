@@ -28,18 +28,23 @@ The independent formulas and two-way residual composition are exercised with:
 
 ```bash
 ctest --test-dir build-metric-flow-x-debug -V \
-  -R '^metric_flow_x_elastodynamics_mms_convergence$'
+  -R '^metric_flow_x_elastodynamics_mms_verification$'
 ```
 
 Runtime files belong below the build-tree test-output directory.
 
-For the four-level measured spatial table, run:
+For the opt-in stationary spatial diagnostic, run:
 
 ```bash
 cd build-metric-flow-x-debug/gtests
-IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_convergence_debug \
+IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_verification_debug \
   --gtest_filter=OneVesselMMSDriver.MPI_ActualFourLevelSpatialStudy
 ```
 
 The CSV table is written below
 `build-metric-flow-x-debug/test_output/metric-flow-x-elastodynamics-mms/`.
+It is diagnostic rather than an asymptotic FE-convergence claim: the
+production full-system linear solve currently blocks on the finest coupled
+levels. The stationary MMS uses a genuinely time-independent two-way problem,
+so this limitation is solver scalability rather than a transient-study
+substitution.

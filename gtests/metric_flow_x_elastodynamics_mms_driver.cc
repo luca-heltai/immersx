@@ -435,10 +435,15 @@ namespace
           final_time * 1.e-6;
       flow_time->maximum_order                 = 1;
       flow_time->maximum_non_linear_iterations = 3;
-      flow_time->absolute_tolerance            = 1.e-2;
-      flow_time->relative_tolerance            = 1.e-2;
-      flow_time->ls_norm_factor                = 1.e-2;
-      flow_time->output_frequency              = 0;
+      const bool study = std::getenv("IMMERSX_RUN_MMS_STUDIES") != nullptr;
+      // The registered smoke gate is deliberately inexpensive.  Opt-in
+      // studies use solver tolerances suitable for measuring discretization
+      // errors; their rates remain diagnostic until the production linear
+      // solver scales on the finest coupled levels.
+      flow_time->absolute_tolerance = study ? 1.e-8 : 1.e-2;
+      flow_time->relative_tolerance = study ? 1.e-8 : 1.e-2;
+      flow_time->ls_norm_factor     = 1.e-2;
+      flow_time->output_frequency   = 0;
 
       solid_parameters->initial_refinement =
         solid_level == numbers::invalid_unsigned_int ? flow_level : solid_level;
@@ -742,6 +747,31 @@ namespace
       return std::sqrt(std::max(0., value * image));
     }
 
+    double
+    multiplier_dual_norm(const CouplingVector &value) const
+    {
+      // The multiplier coefficients represent a dual residual in the
+      // constraint equation.  Its physical norm is therefore induced by the
+      // inverse of the assembled multiplier L2 metric, not by applying that
+      // metric a second time.
+      const auto metric = linear_operator<CouplingVector>(
+        interaction->multiplier_metric_matrix());
+      SolverControl control(1000, std::max(1.e-14, 1.e-10 * value.l2_norm()));
+      SolverCG<CouplingVector> solver(control);
+      const auto     inverse_metric = inverse_operator(metric, solver);
+      CouplingVector coefficient_solution;
+      coefficient_solution.reinit(value);
+      coefficient_solution = inverse_metric * value;
+      return std::sqrt(std::max(0., value * coefficient_solution));
+    }
+
+    static unsigned int
+    global_dof_count(const IndexSet &locally_owned)
+    {
+      return static_cast<unsigned int>(
+        Utilities::MPI::sum(locally_owned.n_elements(), MPI_COMM_WORLD));
+    }
+
     ErrorRecord
     errors(const GlobalVector &state,
            const GlobalVector &state_dot,
@@ -762,10 +792,10 @@ namespace
         if (cell->is_locally_owned())
           result.h_solid = std::max(result.h_solid, cell->diameter());
       result.h_solid    = Utilities::MPI::max(result.h_solid, MPI_COMM_WORLD);
-      result.flow_dofs  = flow_problem->dof_handler().n_dofs();
-      result.solid_dofs = solid_problem->dof_handler().n_dofs();
+      result.flow_dofs  = global_dof_count(flow_problem->locally_owned_dofs());
+      result.solid_dofs = global_dof_count(solid_problem->locally_owned_dofs());
       result.multiplier_dofs =
-        interaction->multiplier_locally_owned_dofs().size();
+        global_dof_count(interaction->multiplier_locally_owned_dofs());
       result.area_l2           = flow_error(state, time, 0);
       result.velocity_l2       = flow_error(state, time, 1);
       result.displacement_l2   = solid_error(state, time, false);
@@ -785,7 +815,7 @@ namespace
 
       auto residual = adapter->make_state();
       adapter->solver().residual(time, state, state_dot, residual);
-      result.constraint = multiplier_metric_norm(
+      result.constraint = multiplier_dual_norm(
         adapter->field(residual, coupling_fields.multiplier));
       return result;
     }
@@ -856,6 +886,26 @@ namespace
     EXPECT_TRUE(std::isfinite(residual.l2_norm()));
     auto result = fixture.errors(state, state_dot, final_time, logical_level);
     result.n_steps = n_steps;
+    return result;
+  }
+
+  ErrorRecord
+  run_stationary_case(const unsigned int flow_level,
+                      const unsigned int solid_level,
+                      const unsigned int logical_level,
+                      const double       final_time = 0.1)
+  {
+    MMSFixture fixture(flow_level, final_time, true, 1, solid_level);
+    auto       state     = fixture.adapter->make_state();
+    auto       state_dot = fixture.adapter->make_state();
+    fixture.initialize(state, state_dot);
+    EXPECT_GT(fixture.adapter->solve(state, state_dot), 0u);
+    EXPECT_TRUE(std::isfinite(state.l2_norm()));
+    auto residual = fixture.adapter->make_state();
+    fixture.adapter->solver().residual(final_time, state, state_dot, residual);
+    EXPECT_TRUE(std::isfinite(residual.l2_norm()));
+    auto result = fixture.errors(state, state_dot, final_time, logical_level);
+    result.n_steps = 1;
     return result;
   }
 
@@ -1013,7 +1063,7 @@ namespace
       GTEST_SKIP() << "Set IMMERSX_RUN_MMS_STUDIES=1 for the expensive study.";
     std::vector<ErrorRecord> records;
     for (unsigned int level = 0; level < 4; ++level)
-      records.push_back(run_transient_case(level, level, 1, level));
+      records.push_back(run_stationary_case(level, level, level));
     write_error_table("spatial-study", records);
     for (unsigned int level = 1; level < records.size(); ++level)
       {

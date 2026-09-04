@@ -28,17 +28,23 @@ build-metric-flow-x-debug/metric_flow_x_elastodynamics_debug \
   build-metric-flow-x-debug/tutorials/metric_flow_x_elastodynamics/04_transient_mms.prm
 ```
 
-The registered gate `metric_flow_x_elastodynamics_mms_convergence` currently
-checks the four-level analytical convergence table together with the assembled
-two-way residual composition. An IDA time solve remains a separate production
-application check. The driver also contains four-level actual temporal and
-combined studies. Run them with:
+The registered gate `metric_flow_x_elastodynamics_mms_verification` checks the
+analytical formulas, independent exact-gradient finite differences, assembled
+discrete virtual work, two-way residual/sign composition, the full coupled
+Jacobian by finite differences, and a small actual transient IDA solve. It is a
+verification baseline and does not claim asymptotic convergence. Tutorial 04
+remains genuinely transient; the stationary spatial case is a separate driver
+path. The driver also contains opt-in temporal and combined diagnostics. Run
+them with:
 
 ```bash
 cd build-metric-flow-x-debug/gtests
-IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_convergence_debug \
+IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_verification_debug \
   --gtest_filter='OneVesselMMSDriver.MPI_ActualFourLevelTemporalStudy:OneVesselMMSDriver.MPI_ActualFourLevelCombinedStudy'
 ```
 
 Both studies print physical error tables and write CSV files below
 `build-metric-flow-x-debug/test_output/metric-flow-x-elastodynamics-mms/`.
+Their rates are diagnostic only. The current production full-system linear
+solver blocks on the finest coupled levels, so complete asymptotic temporal or
+combined convergence is an explicit follow-up rather than a result of this PR.

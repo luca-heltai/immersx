@@ -340,7 +340,7 @@ namespace ImmersX::OneVesselMMS
       if (spatial)
         return spatial_radius_increment_s(par, s);
       return velocity ? exact_radius_increment_st(par, s, time) :
-                        exact_radius_increment_t(par, s, time);
+                        exact_radius_increment_s(par, s, time);
     };
 
     std::vector<std::function<double(const dealii::Point<3> &)>> values(3);

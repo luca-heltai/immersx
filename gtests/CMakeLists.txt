@@ -194,7 +194,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
        DEAL_II_BUILD_TYPE MATCHES "${_build_type}")
       string(TOUPPER "${_build_type}" _BUILD_TYPE)
       set(_mms_gate_target
-          "metric_flow_x_elastodynamics_mms_convergence${${_build_type}_postfix}")
+          "metric_flow_x_elastodynamics_mms_verification${${_build_type}_postfix}")
       add_executable(${_mms_gate_target}
                      metric_flow_x_vessel_wall_interaction_01.cc
                      metric_flow_x_elastodynamics_mms_01.cc
@@ -222,10 +222,10 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       find_program(_immersx_mpiexec NAMES mpirun mpiexec)
       if(_immersx_mpiexec)
         add_test(
-          NAME metric_flow_x_elastodynamics_mms_convergence
+          NAME metric_flow_x_elastodynamics_mms_verification
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
-                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallInteraction.MPI_FullCoupledJacobianFiniteDifference)
+                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallInteraction.MPI_DiscreteVirtualWorkNormalization:MetricFlowXVesselWallInteraction.MPI_FullCoupledJacobianFiniteDifference)
       endif()
     endif()
   endforeach()

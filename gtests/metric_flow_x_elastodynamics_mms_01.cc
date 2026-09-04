@@ -160,7 +160,7 @@ namespace
                 1.e-14);
   }
 
-  TEST(OneVesselMMS, FourLevelAreaRadiusConvergenceTable)
+  TEST(OneVesselMMS, RadiusDerivativeFiniteDifferenceConvergence)
   {
     Parameters   par;
     const double s    = 0.37 * par.length;
@@ -191,5 +191,51 @@ namespace
     for (unsigned int level = 1; level < errors.size(); ++level)
       EXPECT_GT(std::log(errors[level - 1] / errors[level]) / std::log(2.),
                 1.8);
+  }
+
+  TEST(OneVesselMMS, ExactSolidGradientFiniteDifference)
+  {
+    Parameters   par;
+    const double time = 0.37;
+    const double h    = 1.e-7 * par.length;
+
+    const auto check = [h](const auto             &function,
+                           const dealii::Point<3> &point) {
+      for (unsigned int component : {1u, 2u})
+        {
+          const auto gradient = function.gradient(point, component);
+          for (unsigned int direction = 0; direction < 3; ++direction)
+            {
+              auto plus  = point;
+              auto minus = point;
+              plus[direction] += h;
+              minus[direction] -= h;
+              const double finite_difference =
+                (function.value(plus, component) -
+                 function.value(minus, component)) /
+                (2. * h);
+              EXPECT_NEAR(finite_difference, gradient[direction], 2.e-10);
+            }
+        }
+    };
+
+    for (const auto &point : {dealii::Point<3>(-0.31 * par.length,
+                                               0.55 * par.reference_r,
+                                               0.37 * par.reference_r),
+                              dealii::Point<3>(0.19 * par.length,
+                                               1.35 * par.reference_r,
+                                               -0.62 * par.reference_r),
+                              dealii::Point<3>(0.43 * par.length,
+                                               1.25 * par.outer_r,
+                                               0.31 * par.outer_r)})
+      {
+        check(ImmersX::OneVesselMMS::solid_exact_function(par, time, false),
+              point);
+        check(
+          ImmersX::OneVesselMMS::solid_exact_function(par, time, false, true),
+          point);
+        check(ImmersX::OneVesselMMS::solid_exact_function(par, time, true),
+              point);
+      }
   }
 } // namespace

@@ -9,7 +9,10 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/function.h>
 #include <deal.II/base/parameter_acceptor.h>
+
+#include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/vessel_wall_interaction.h>
@@ -48,6 +51,29 @@ namespace
   using FlowFields = decltype(std::declval<Adapter &>().add(
     std::declval<const FlowDescriptor &>()));
 
+  class LinearRadialVirtualDisplacement : public dealii::Function<3>
+  {
+  public:
+    explicit LinearRadialVirtualDisplacement(const double scale)
+      : dealii::Function<3>(3)
+      , scale(scale)
+    {}
+
+    double
+    value(const dealii::Point<3> &point,
+          const unsigned int      component = 0) const override
+    {
+      if (component == 1)
+        return scale * point[1];
+      if (component == 2)
+        return scale * point[2];
+      return 0.;
+    }
+
+  private:
+    const double scale;
+  };
+
   struct Fixture
   {
     Fixture()
@@ -75,6 +101,7 @@ namespace
       ImmersX::initialize_parameters(parameter_file);
       flow_problem->initialize_params(parameter_file);
 
+      solid_parameters->dirichlet_ids.clear();
       solid_problem = std::make_unique<SolidProblem>(*solid_parameters);
       solid_problem->make_grid();
       solid_problem->setup_fe();
@@ -302,6 +329,108 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
 
   EXPECT_TRUE(std::isfinite(residual.l2_norm()));
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
+}
+
+TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
+{
+  Fixture fixture;
+
+  using SolidVector      = typename SolidProblem::VectorType;
+  using MultiplierVector = typename Interaction::VectorType;
+  MultiplierVector multiplier;
+  multiplier.reinit(fixture.interaction->multiplier_locally_owned_dofs(),
+                    fixture.interaction->multiplier_locally_relevant_dofs(),
+                    MPI_COMM_WORLD);
+  constexpr double pressure = 2.;
+  multiplier                = pressure;
+  multiplier.compress(dealii::VectorOperation::insert);
+  multiplier.update_ghost_values();
+
+  SolidVector displacement_owned;
+  displacement_owned.reinit(fixture.solid_problem->locally_owned_dofs(),
+                            MPI_COMM_WORLD);
+  constexpr double                radial_scale = 1.e-3;
+  LinearRadialVirtualDisplacement virtual_displacement(radial_scale);
+  ASSERT_EQ(fixture.wall_representation->support().selected_modes(),
+            (std::vector<unsigned int>{3u, 7u}));
+  ASSERT_EQ(
+    fixture.wall_representation->support().representative_quadrature().size(),
+    2u);
+  EXPECT_GT(dealii::Utilities::MPI::sum(
+              fixture.wall_representation->points().size(), MPI_COMM_WORLD),
+            0u);
+  dealii::VectorTools::interpolate(fixture.solid_problem->dof_handler(),
+                                   virtual_displacement,
+                                   displacement_owned);
+  displacement_owned.compress(dealii::VectorOperation::insert);
+  SolidVector displacement;
+  displacement.reinit(fixture.solid_problem->locally_owned_dofs(),
+                      fixture.solid_problem->locally_relevant_dofs(),
+                      MPI_COMM_WORLD);
+  displacement = displacement_owned;
+  displacement.update_ghost_values();
+
+  SolidVector reaction;
+  reaction.reinit(fixture.solid_problem->locally_owned_dofs(), MPI_COMM_WORLD);
+  fixture.interaction->solid_coupling_matrix().vmult(reaction, multiplier);
+  double discrete_work = 0.;
+  for (const auto index : fixture.solid_problem->locally_owned_dofs())
+    discrete_work += displacement[index] * reaction[index];
+  discrete_work = dealii::Utilities::MPI::sum(discrete_work, MPI_COMM_WORLD);
+
+  double           expected_work   = 0.;
+  double           expected_metric = 0.;
+  MultiplierVector displacement_pairing;
+  displacement_pairing.reinit(
+    fixture.interaction->multiplier_locally_owned_dofs(),
+    fixture.interaction->multiplier_locally_relevant_dofs(),
+    MPI_COMM_WORLD);
+  fixture.interaction->solid_coupling_matrix().Tvmult(displacement_pairing,
+                                                      displacement);
+  double transposed_work = 0.;
+  for (const auto index : multiplier.locally_owned_elements())
+    transposed_work += multiplier[index] * displacement_pairing[index];
+  transposed_work =
+    dealii::Utilities::MPI::sum(transposed_work, MPI_COMM_WORLD);
+
+  for (const auto &point : fixture.wall_representation->points())
+    {
+      double basis_sum = 0.;
+      for (const auto basis : point.area_basis_values)
+        basis_sum += basis;
+      EXPECT_NEAR(basis_sum, 1., 1.e-12);
+      const double radius = (point.point - point.representative_point).norm();
+      // The virtual displacement has delta R = radial_scale * R.  Since the
+      // lifted quadrature integrates circumference measure, p*delta A*L is
+      // p * delta R times the assembled point weights.
+      expected_work += pressure * radial_scale * radius * point.weight;
+      expected_metric += pressure * pressure * point.weight;
+    }
+
+  MultiplierVector metric_image;
+  metric_image.reinit(multiplier);
+  fixture.interaction->multiplier_metric_matrix().vmult(metric_image,
+                                                        multiplier);
+  double metric_work = 0.;
+  for (const auto index : multiplier.locally_owned_elements())
+    metric_work += multiplier[index] * metric_image[index];
+  metric_work = dealii::Utilities::MPI::sum(metric_work, MPI_COMM_WORLD);
+
+  expected_work = dealii::Utilities::MPI::sum(expected_work, MPI_COMM_WORLD);
+  expected_metric =
+    dealii::Utilities::MPI::sum(expected_metric, MPI_COMM_WORLD);
+  const double work_scale = std::max(1., std::abs(discrete_work));
+  // The production convention is F_solid + B lambda = 0.  The corresponding
+  // virtual-work identity is therefore the positive adjoint pairing
+  // <B lambda, delta u> = <lambda, B^T delta u>; the physical interpretation
+  // is p*delta A*L when delta A is the radial area variation.
+  EXPECT_NEAR(discrete_work, transposed_work, 2.e-10 * work_scale);
+  EXPECT_NEAR(discrete_work,
+              expected_work,
+              2.e-10 * std::max(1., std::abs(expected_work)));
+  EXPECT_NEAR(metric_work,
+              expected_metric,
+              2.e-12 * std::max(1., std::abs(expected_metric)));
 }
 
 TEST(MetricFlowXVesselWallInteraction, MPI_FullCoupledJacobianFiniteDifference)
