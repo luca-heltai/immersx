@@ -35,11 +35,9 @@ main(int argc, char *argv[])
 
       if (filter.empty() || filter == "*")
         filter = "*-" + std::string(mpi_test_pattern);
-      else if (const auto dash_pos = filter.find('-');
-               dash_pos == std::string::npos)
+      else if (filter.find("-*.MPI_*") == std::string::npos &&
+               filter.find("MPI_") == std::string::npos)
         filter += "-" + std::string(mpi_test_pattern);
-      else
-        filter += ":" + std::string(mpi_test_pattern);
 
       ::testing::GTEST_FLAG(filter) = filter;
     }
@@ -50,11 +48,8 @@ main(int argc, char *argv[])
 
       if (filter.empty() || filter == "*")
         filter = mpi_test_pattern;
-      else if (const auto dash_pos = filter.find('-');
-               dash_pos == std::string::npos)
+      else if (filter.find("MPI_") == std::string::npos)
         filter += ":" + std::string(mpi_test_pattern);
-      else
-        filter.insert(dash_pos, ":" + std::string(mpi_test_pattern));
 
       ::testing::GTEST_FLAG(filter) = filter;
     }
