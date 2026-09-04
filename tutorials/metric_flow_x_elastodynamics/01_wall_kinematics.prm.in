@@ -1,8 +1,3 @@
-set dimension       = 3
-set space dimension = 3
-set reduced dimension = 1
-set cross section dimension = 2
-
 subsection Time parameters
   set Initial time = 0.0
   set Final time = 0.0
@@ -18,8 +13,8 @@ subsection Elastodynamics
   set Dirichlet boundary ids = 0
   set Output directory = @TEST_OUTPUT_DIR@/tutorial-output/metric-flow-x-elastodynamics-01
   subsection Grid generation
-    set Grid generator = hyper_cube
-    set Grid generator arguments = -1: 1: false
+    set Grid generator = subdivided_cylinder
+    set Grid generator arguments = 4:0.05:0.120685
   end
 end
 
@@ -45,7 +40,11 @@ subsection MetricFlowSystem<1, 3>
   set Verbosity (console depth) = 0
   set Numerical flux type = HLL
   set Outlet boundary condition type = RCR
-  set Vtk file path for mesh input = @TEST_DATA_DIR@/metric_flow_x/single_vessel.vtk
+  set Vtk file path for mesh input = @TEST_DATA_DIR@/metric_flow_x/single_vessel_centered.vtk
+end
+
+subsection MetricFlowX elastodynamics tutorial
+  set MMS case = kinematics
 end
 
 subsection MetricFlowX vessel wall lift

@@ -25,9 +25,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <iostream>
 #include <optional>
 #include <utility>
 
+#include "metric_flow_x_elastodynamics_mms.h"
 #include "test_paths.h"
 
 #if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
@@ -76,7 +79,7 @@ namespace
 
   struct Fixture
   {
-    Fixture()
+    explicit Fixture(const bool high_resolution_section = false)
     {
       const auto parameter_file = ImmersX::TestPaths::parameter_path(
         "gtests/parameters/metric_flow_x_elastodynamics.prm");
@@ -91,7 +94,7 @@ namespace
       wall_lift = std::make_unique<WallRepresentation::Lift>(
         "/MetricFlowX vessel wall lift/");
       wall_lift->section.inclusion_degree      = 1;
-      wall_lift->section.refinement_level      = 1;
+      wall_lift->section.refinement_level      = 5;
       wall_lift->section.selected_coefficients = {3u, 7u};
       wall_lift->section.n_q_points            = 8;
       wall_lift->representative_n_q_points     = 2;
@@ -100,6 +103,8 @@ namespace
 
       ImmersX::initialize_parameters(parameter_file);
       flow_problem->initialize_params(parameter_file);
+
+      wall_lift->section.refinement_level = high_resolution_section ? 5 : 1;
 
       solid_parameters->dirichlet_ids.clear();
       solid_problem = std::make_unique<SolidProblem>(*solid_parameters);
@@ -333,7 +338,26 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
 
 TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
 {
-  Fixture fixture;
+  Fixture fixture(true);
+
+  const ImmersX::OneVesselMMS::Parameters mms_parameters;
+  const auto   properties = fixture.flow_problem->vessel_properties(0);
+  const double formula_area =
+    ImmersX::OneVesselMMS::reference_area(mms_parameters);
+  const double formula_radius = std::sqrt(formula_area / dealii::numbers::PI);
+  double       local_geometry_length = 0.;
+  for (const auto &cell :
+       fixture.flow_problem->triangulation().active_cell_iterators())
+    if (cell->is_locally_owned())
+      local_geometry_length += cell->diameter();
+  const double geometry_length =
+    dealii::Utilities::MPI::sum(local_geometry_length, MPI_COMM_WORLD);
+  EXPECT_NEAR(properties.a0, formula_area, 1.e-15);
+  EXPECT_NEAR(std::sqrt(properties.a0 / dealii::numbers::PI),
+              formula_radius,
+              1.e-15);
+  EXPECT_NEAR(properties.L, mms_parameters.length, 1.e-14);
+  EXPECT_NEAR(geometry_length, properties.L, 1.e-14);
 
   using SolidVector      = typename SolidProblem::VectorType;
   using MultiplierVector = typename Interaction::VectorType;
@@ -378,7 +402,9 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
     discrete_work += displacement[index] * reaction[index];
   discrete_work = dealii::Utilities::MPI::sum(discrete_work, MPI_COMM_WORLD);
 
-  double           expected_work   = 0.;
+  const double expected_work = pressure * 2. * dealii::numbers::PI *
+                               radial_scale * formula_radius * formula_radius *
+                               properties.L;
   double           expected_metric = 0.;
   MultiplierVector displacement_pairing;
   displacement_pairing.reinit(
@@ -399,11 +425,6 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
       for (const auto basis : point.area_basis_values)
         basis_sum += basis;
       EXPECT_NEAR(basis_sum, 1., 1.e-12);
-      const double radius = (point.point - point.representative_point).norm();
-      // The virtual displacement has delta R = radial_scale * R.  Since the
-      // lifted quadrature integrates circumference measure, p*delta A*L is
-      // p * delta R times the assembled point weights.
-      expected_work += pressure * radial_scale * radius * point.weight;
       expected_metric += pressure * pressure * point.weight;
     }
 
@@ -416,7 +437,6 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
     metric_work += multiplier[index] * metric_image[index];
   metric_work = dealii::Utilities::MPI::sum(metric_work, MPI_COMM_WORLD);
 
-  expected_work = dealii::Utilities::MPI::sum(expected_work, MPI_COMM_WORLD);
   expected_metric =
     dealii::Utilities::MPI::sum(expected_metric, MPI_COMM_WORLD);
   const double work_scale = std::max(1., std::abs(discrete_work));
@@ -431,6 +451,13 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
   EXPECT_NEAR(metric_work,
               expected_metric,
               2.e-12 * std::max(1., std::abs(expected_metric)));
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    std::cout << "Independent geometry virtual work: discrete="
+              << std::setprecision(17) << discrete_work
+              << ", analytical=" << expected_work << ", relative defect="
+              << std::abs(discrete_work - expected_work) /
+                   std::max(1.e-300, std::abs(expected_work))
+              << std::endl;
 }
 
 TEST(MetricFlowXVesselWallInteraction, MPI_FullCoupledJacobianFiniteDifference)

@@ -11,11 +11,16 @@ $$
 The nonlinear radius map is retained exactly. Since the radial profile is
 piecewise, the continuous solid source is obtained from `-div sigma(u*)`, not
 from a discrete residual. The flow mass equation remains source free. The
-source formulas and the native multiplier-to-pressure convention are captured
-in the shared analytical gate; the checked-in input is the generated
-production-path baseline for this tutorial step. The actual two-way IDA
-verification driver also reports area, flow velocity, solid displacement,
-solid H1, velocity, multiplier-metric, and constraint errors in physical norms.
+source formulas and the native multiplier-to-pressure convention are installed
+by the executable from the shared C++ analytical helper.
+
+Tutorial 03 sets `MMS case = spatial` in the `MetricFlowX elastodynamics
+tutorial` subsection of its input and evaluates this time-independent exact
+state through the assembled two-way residual. This is a stationary-exact
+verification, not a steady-solver or spatial-convergence result. The actual
+two-way IDA verification driver separately reports area, flow velocity, solid
+displacement, solid H1, velocity, multiplier-metric, and constraint errors in
+physical norms.
 
 Use the configured production input:
 

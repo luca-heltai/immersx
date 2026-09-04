@@ -11,12 +11,17 @@
 #define IMMERSX_METRIC_FLOW_X_ELASTODYNAMICS_MMS_H
 
 #include <deal.II/base/function.h>
+#include <deal.II/base/function_parser.h>
 #include <deal.II/base/numbers.h>
 #include <deal.II/base/point.h>
 #include <deal.II/base/tensor.h>
 
 #include <cmath>
 #include <functional>
+#include <iomanip>
+#include <map>
+#include <sstream>
+#include <string>
 #include <vector>
 
 namespace ImmersX::OneVesselMMS
@@ -606,6 +611,296 @@ namespace ImmersX::OneVesselMMS
     return 2.0 * dealii::numbers::PI * radius *
            (1.0 / (2.0 * std::sqrt(dealii::numbers::PI *
                                    (dealii::numbers::PI * radius * radius))));
+  }
+
+  inline std::string
+  number(const double value)
+  {
+    std::ostringstream stream;
+    stream << std::setprecision(17) << value;
+    return stream.str();
+  }
+
+  inline std::string
+  replace_symbol(std::string        expression,
+                 const std::string &symbol,
+                 const std::string &value)
+  {
+    std::size_t position = 0;
+    while ((position = expression.find(symbol, position)) != std::string::npos)
+      {
+        expression.replace(position, symbol.size(), value);
+        position += value.size();
+      }
+    return expression;
+  }
+
+  inline std::string
+  function_constants()
+  {
+    const Parameters   par;
+    std::ostringstream constants;
+    constants << "a0=" << reference_area(par) << ", r0=" << par.reference_r
+              << ", r1=" << par.outer_r << ", amp=" << par.area_amplitude
+              << ", om=" << par.omega << ", k=" << wave_number(par)
+              << ", half=" << par.length / 2. << ", rho=" << par.solid_density
+              << ", mu=" << par.shear_modulus << ", lam=" << par.lame_lambda
+              << ", d0=1.e-4";
+    return constants.str();
+  }
+
+  inline std::map<std::string, double>
+  function_constant_values()
+  {
+    const Parameters par;
+    return {{"a0", reference_area(par)},
+            {"r0", par.reference_r},
+            {"r1", par.outer_r},
+            {"amp", par.area_amplitude},
+            {"om", par.omega},
+            {"k", wave_number(par)},
+            {"half", par.length / 2.},
+            {"rho", par.solid_density},
+            {"mu", par.shear_modulus},
+            {"lam", par.lame_lambda},
+            {"d0", 1.e-4},
+            {"pi", dealii::numbers::PI}};
+  }
+
+  inline std::string
+  radial_displacement_expression(const std::string &area)
+  {
+    const std::string r2  = "(y*y+z*z)";
+    const std::string r   = "sqrt(" + r2 + ")";
+    const std::string d   = "(sqrt(" + area + "/pi)-r0)";
+    const std::string phi = "(" + r2 + "<=r0*r0 ? " + r +
+                            "/r0 : " + "r0/(r0*r0-r1*r1)*(" + r + "-r1*r1/" +
+                            r + "))";
+    const std::string radial = "(" + d + "*" + phi + ")";
+    return "0;(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
+           "==0 ? 0 : " + radial + "*z/" + r + ")";
+  }
+
+  inline std::string
+  exact_displacement_expression()
+  {
+    return radial_displacement_expression(
+      "(a0+amp*(1-cos(om*t))*sin(k*(x+half)))");
+  }
+
+  inline std::string
+  spatial_displacement_expression()
+  {
+    return radial_displacement_expression("(a0+amp*sin(k*(x+half)))");
+  }
+
+  inline std::string
+  static_displacement_expression()
+  {
+    return radial_displacement_expression("(pi*(r0+d0)*(r0+d0))");
+  }
+
+  inline double
+  traction_jump_coefficient(const Parameters &par);
+
+  inline std::string
+  static_flow_area_expression()
+  {
+    const Parameters par;
+    return number(dealii::numbers::PI * (par.reference_r + 1.e-4) *
+                  (par.reference_r + 1.e-4));
+  }
+
+  inline std::string
+  static_multiplier_expression()
+  {
+    const Parameters par;
+    return number(-traction_jump_coefficient(par) * 1.e-4);
+  }
+
+  inline std::string
+  acceleration_expression()
+  {
+    const std::string r2  = "(y*y+z*z)";
+    const std::string r   = "sqrt(" + r2 + ")";
+    const std::string s   = "(x+half)";
+    const std::string a   = "(a0+amp*(1-cos(om*t))*sin(k*" + s + "))";
+    const std::string at  = "(amp*om*sin(om*t)*sin(k*" + s + "))";
+    const std::string att = "(amp*om*om*cos(om*t)*sin(k*" + s + "))";
+    const std::string dtt = "(" + att + "/(2*sqrt(pi*" + a + "))-" + at + "*" +
+                            at + "/(4*sqrt(pi)*" + a + "*sqrt(" + a + ")))";
+    const std::string phi = "(" + r2 + "<=r0*r0 ? " + r +
+                            "/r0 : " + "r0/(r0*r0-r1*r1)*(" + r + "-r1*r1/" +
+                            r + "))";
+    const std::string radial = "(" + dtt + "*" + phi + ")";
+    return "0;(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
+           "==0 ? 0 : " + radial + "*z/" + r + ")";
+  }
+
+  inline std::string
+  body_force_expression()
+  {
+    const std::string r2  = "(y*y+z*z)";
+    const std::string r   = "sqrt(" + r2 + ")";
+    const std::string s   = "(x+half)";
+    const std::string q   = "(1-cos(om*t))";
+    const std::string a   = "(a0+amp*" + q + "*sin(k*" + s + "))";
+    const std::string as  = "(amp*" + q + "*k*cos(k*" + s + "))";
+    const std::string ass = "(-amp*" + q + "*k*k*sin(k*" + s + "))";
+    const std::string att = "(amp*om*om*cos(om*t)*sin(k*" + s + "))";
+    const std::string dss = "(" + ass + "/(2*sqrt(pi*" + a + "))-" + as + "*" +
+                            as + "/(4*sqrt(pi)*" + a + "*sqrt(" + a + ")))";
+    const std::string dtt = "(" + att + "/(2*sqrt(pi*" + a + "))-" +
+                            "(amp*om*sin(om*t)*sin(k*" + s +
+                            "))*(amp*om*sin(om*t)*sin(k*" + s +
+                            "))/(4*sqrt(pi)*" + a + "*sqrt(" + a + ")))";
+    const std::string phi = "(" + r2 + "<=r0*r0 ? " + r +
+                            "/r0 : " + "r0/(r0*r0-r1*r1)*(" + r + "-r1*r1/" +
+                            r + "))";
+    const std::string div = "(" + r2 + "<=r0*r0 ? 2/r0 : 2*r0/(r0*r0-r1*r1))";
+    const std::string radial = "((rho*" + dtt + "-mu*" + dss + ")*" + phi + ")";
+    const std::string ds     = "(" + as + "/(2*sqrt(pi*" + a + ")))";
+    const std::string axial  = "(-(mu+lam)*" + ds + "*" + div + ")";
+    return axial + ";(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
+           "==0 ? 0 : " + radial + "*z/" + r + ")";
+  }
+
+  inline std::string
+  spatial_body_force_expression()
+  {
+    const std::string r2  = "(y*y+z*z)";
+    const std::string r   = "sqrt(" + r2 + ")";
+    const std::string s   = "(x+half)";
+    const std::string a   = "(a0+amp*sin(k*" + s + "))";
+    const std::string as  = "(amp*k*cos(k*" + s + "))";
+    const std::string ass = "(-amp*k*k*sin(k*" + s + "))";
+    const std::string dss = "(" + ass + "/(2*sqrt(pi*" + a + "))-" + as + "*" +
+                            as + "/(4*sqrt(pi)*" + a + "*sqrt(" + a + ")))";
+    const std::string phi = "(" + r2 + "<=r0*r0 ? " + r +
+                            "/r0 : " + "r0/(r0*r0-r1*r1)*(" + r + "-r1*r1/" +
+                            r + "))";
+    const std::string div = "(" + r2 + "<=r0*r0 ? 2/r0 : 2*r0/(r0*r0-r1*r1))";
+    const std::string radial = "(-mu*" + dss + "*" + phi + ")";
+    const std::string ds     = "(" + as + "/(2*sqrt(pi*" + a + ")))";
+    const std::string axial  = "(-(mu+lam)*" + ds + "*" + div + ")";
+    return axial + ";(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
+           "==0 ? 0 : " + radial + "*z/" + r + ")";
+  }
+
+  inline std::string
+  flow_area_expression(const bool spatial = false)
+  {
+    const Parameters par;
+    if (spatial)
+      return number(reference_area(par)) + "+" + number(par.area_amplitude) +
+             "*sin(" + number(wave_number(par)) + "*(x+" +
+             number(par.length / 2.) + "))";
+    return number(reference_area(par)) + "+" + number(par.area_amplitude) +
+           "*(1-cos(" + number(par.omega) + "*t))*sin(" +
+           number(wave_number(par)) + "*(x+" + number(par.length / 2.) + "))";
+  }
+
+  inline std::string
+  flow_velocity_expression()
+  {
+    const Parameters  par;
+    const std::string a = "(" + flow_area_expression() + ")";
+    return "-" + number(par.area_amplitude) + "*" + number(par.omega) +
+           "*sin(" + number(par.omega) + "*t)/" + number(wave_number(par)) +
+           "*(1-cos(" + number(wave_number(par)) + "*(x+" +
+           number(par.length / 2.) + ")))/" + a;
+  }
+
+  inline std::string
+  flow_velocity_time_derivative_expression()
+  {
+    const Parameters  par;
+    const std::string a = "(" + flow_area_expression() + ")";
+    const std::string h = "(1-cos(" + number(wave_number(par)) + "*(x+" +
+                          number(par.length / 2.) + ")))";
+    const std::string at = "(" + number(par.area_amplitude) + "*" +
+                           number(par.omega) + "*sin(" + number(par.omega) +
+                           "*t)*sin(" + number(wave_number(par)) + "*(x+" +
+                           number(par.length / 2.) + ")))";
+    return "-" + number(par.area_amplitude) + "*" + number(par.omega) + "*" +
+           number(par.omega) + "*cos(" + number(par.omega) + "*t)/" +
+           number(wave_number(par)) + "*" + h + "/" + a + "+" +
+           number(par.area_amplitude) + "*" + number(par.omega) + "*sin(" +
+           number(par.omega) + "*t)/" + number(wave_number(par)) + "*" + h +
+           "*" + at + "/(" + a + "*" + a + ")";
+  }
+
+  inline std::string
+  flow_rhs_expression(const bool spatial = false)
+  {
+    const Parameters par;
+    if (spatial)
+      {
+        const std::string  a  = "(a0+amp*sin(k*(x+half)))";
+        const std::string  as = "(amp*k*cos(k*(x+half)))";
+        std::ostringstream ext;
+        ext << std::setprecision(17) << traction_jump_coefficient(par);
+        std::string expression =
+          "0;((4*sqrt(pi)*" + number(par.tube_E) + "*" +
+          number(par.tube_h_wall) + "/(3*" + number(par.tube_a_d) + "*2*sqrt(" +
+          a + "))*" + as + ")+ (" + ext.str() + "*(" + as + "/(2*sqrt(pi*" + a +
+          "))))/" + number(par.fluid_density) + ")";
+        expression =
+          replace_symbol(expression, "a0", number(reference_area(par)));
+        expression =
+          replace_symbol(expression, "amp", number(par.area_amplitude));
+        expression = replace_symbol(expression, "k", number(wave_number(par)));
+        expression =
+          replace_symbol(expression, "half", number(par.length / 2.));
+        expression =
+          replace_symbol(expression, "pi", number(dealii::numbers::PI));
+        return expression;
+      }
+    const std::string s  = "(x+half)";
+    const std::string a  = "(a0+amp*(1-cos(om*t))*sin(k*" + s + "))";
+    const std::string at = "(amp*om*sin(om*t)*sin(k*" + s + "))";
+    const std::string as = "(amp*(1-cos(om*t))*k*cos(k*" + s + "))";
+    const std::string h  = "(1-cos(k*" + s + "))";
+    const std::string hs = "(k*sin(k*" + s + "))";
+    const std::string u  = "(-amp*om*sin(om*t)/k*" + h + "/" + a + ")";
+    const std::string ut = "(-amp*om*om*cos(om*t)/k*" + h + "/" + a +
+                           "+amp*om*sin(om*t)/k*" + h + "*" + at + "/(" + a +
+                           "*" + a + "))";
+    const std::string us = "(-amp*om*sin(om*t)/k*(" + hs + "/" + a + "-" + h +
+                           "*" + as + "/(" + a + "*" + a + ")))";
+    const std::string tube_ps =
+      "(4*sqrt(pi)*" + number(par.tube_E) + "*" + number(par.tube_h_wall) +
+      "/(3*" + number(par.tube_a_d) + "*2*sqrt(" + a + "))*" + as + ")";
+    std::ostringstream ext;
+    ext << std::setprecision(17) << traction_jump_coefficient(par);
+    const std::string external_ps =
+      "(" + ext.str() + "*(" + as + "/(2*sqrt(pi*" + a + "))))";
+    std::string expression = "0;" + ut + "+" + u + "*" + us + "+(" + tube_ps +
+                             "+" + external_ps + ")/" +
+                             number(par.fluid_density);
+    expression = replace_symbol(expression, "a0", number(reference_area(par)));
+    expression = replace_symbol(expression, "amp", number(par.area_amplitude));
+    expression = replace_symbol(expression, "om", number(par.omega));
+    expression = replace_symbol(expression, "k", number(wave_number(par)));
+    expression = replace_symbol(expression, "half", number(par.length / 2.));
+    expression = replace_symbol(expression, "pi", number(dealii::numbers::PI));
+    return expression;
+  }
+
+  inline void
+  initialize_exact_flow_function(dealii::FunctionParser<3> &result,
+                                 const double               time,
+                                 const bool                 spatial = false)
+  {
+    const auto area = flow_area_expression(spatial);
+    const auto velocity =
+      spatial ? std::string("0") : flow_velocity_expression();
+    result.initialize(dealii::FunctionParser<3>::default_variable_names() +
+                        ",t",
+                      area + ";" + velocity + ";" + area + ";" + velocity,
+                      {{"pi", dealii::numbers::PI}},
+                      true);
+    result.set_time(time);
   }
 } // namespace ImmersX::OneVesselMMS
 

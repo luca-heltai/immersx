@@ -28,6 +28,10 @@ build-metric-flow-x-debug/metric_flow_x_elastodynamics_debug \
   build-metric-flow-x-debug/tutorials/metric_flow_x_elastodynamics/04_transient_mms.prm
 ```
 
+The input sets a nonzero final time (`0.1`) and one time step. The executable
+therefore performs an actual IDA step for the transient manufactured state;
+the spatial stationary-exact case is kept separate in Tutorial 03.
+
 The registered gate `metric_flow_x_elastodynamics_mms_verification` checks the
 analytical formulas, independent exact-gradient finite differences, assembled
 discrete virtual work, two-way residual/sign composition, the full coupled

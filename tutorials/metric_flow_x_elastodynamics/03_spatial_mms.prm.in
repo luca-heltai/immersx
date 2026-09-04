@@ -9,3 +9,7 @@ subsection Elastodynamics
   set Output name = spatial_mms
   set Initial refinement = 2
 end
+
+subsection MetricFlowX elastodynamics tutorial
+  set MMS case = spatial
+end

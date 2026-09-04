@@ -26,7 +26,17 @@ The production residual is `F_solid + B lambda = 0`, hence the independent
 sign oracle uses `lambda* = -K d0`. The interaction sends `-lambda` to the
 native MetricFlowX external-pressure operation, preserving action/reaction.
 
-The production-path input is
+Tutorial 02 sets `MMS case = static_equilibrium` in the
+`MetricFlowX elastodynamics tutorial` subsection of its input.
+It evaluates the time-independent two-way residual at the analytical
+equilibrium; it does not substitute a transient solve for a steady problem.
+
+```bash
+build-metric-flow-x-debug/metric_flow_x_elastodynamics_debug \
+  build-metric-flow-x-debug/tutorials/metric_flow_x_elastodynamics/02_static_equilibrium.prm
+```
+
+The configured input is
 `build-metric-flow-x-debug/tutorials/metric_flow_x_elastodynamics/02_static_equilibrium.prm`.
 The lower-level two-way residual and sign gate is:
 

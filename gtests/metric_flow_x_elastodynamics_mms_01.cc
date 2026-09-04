@@ -226,8 +226,8 @@ namespace
                                                1.35 * par.reference_r,
                                                -0.62 * par.reference_r),
                               dealii::Point<3>(0.43 * par.length,
-                                               1.25 * par.outer_r,
-                                               0.31 * par.outer_r)})
+                                               0.75 * par.outer_r,
+                                               0.25 * par.outer_r)})
       {
         check(ImmersX::OneVesselMMS::solid_exact_function(par, time, false),
               point);

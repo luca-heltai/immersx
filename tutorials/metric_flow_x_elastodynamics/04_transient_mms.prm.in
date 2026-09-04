@@ -1,9 +1,31 @@
 include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/01_wall_kinematics.prm
 
 subsection Time parameters
-  set Final time = 0.0
+  set Final time = 0.1
+  set Time step = 0.1
+  set Number of time steps = 1
+  set Output frequency = 1
+  subsection Running parameters
+    set Initial step size = 0.1
+    set Minimum step size = 1e-6
+    set Maximum order of BDF = 1
+    set Maximum number of nonlinear iterations = 3
+  end
+  subsection Error control
+    set Absolute error tolerance = 1e-2
+    set Relative error tolerance = 1e-2
+  end
+  subsection Initial condition correction parameters
+    set Correction type at initial time = none
+    set Correction type after restart = none
+    set Factor to use when converting from the integrator tolerance to the linear solver tolerance = 1e-2
+  end
 end
 
 subsection MetricFlowSystem<1, 3>
   set Output filename = transient_mms
+end
+
+subsection MetricFlowX elastodynamics tutorial
+  set MMS case = transient
 end
