@@ -8,10 +8,28 @@ from the solver that executes the resulting equations.
 **Problem** owns physical and discretization-specific information: mesh,
 finite element, material data, native operators, forcing, boundary data, and
 accepted physical state. A Problem does not know global coupled-system block
-numbers.
+numbers and is not required to inherit an ImmersX base class. An external
+library Problem, such as a MetricFlowX problem, can be adapted from the
+outside through its public discretization accessors.
 
 **Field** is a semantic identity for a state and residual row. It is not a
 global matrix block, native Problem block, or execution-adapter block.
+
+The finite-element vocabulary is deliberately layered:
+
+```text
+DoFHandler (+ Mapping/constraints view) -> FE space
+FE space/subspace -> named Field
+Field(s) -> Observable<T>
+```
+
+`fe_space(...)` is a non-owning view over an existing deal.II
+`DoFHandler`, mapping, and constraints. A `Field` adds semantic naming and
+optional extractor information; it owns no solution vector. `Observable<T>` is
+a typed, composable physical quantity derived from one or more Fields. Its
+public contract describes dependencies and differentiability, while point
+search, quadrature orchestration, and evaluation caches remain implementation
+details.
 
 **State** is the collection of field values supplied for an evaluation.
 `StateView` and `StateAccessor` provide current, frozen, historical, or

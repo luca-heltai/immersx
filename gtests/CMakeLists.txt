@@ -29,6 +29,7 @@ set(_public_headers
     immersx/core/constraint_contributor.h
     immersx/core/contributor.h
     immersx/core/expression_representation.h
+    immersx/core/fe_space.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
     immersx/core/lifting.h
@@ -44,6 +45,7 @@ set(_public_headers
     immersx/core/time_parameters.h
     immersx/core/linear_adapter.h
     immersx/core/matrix_operator.h
+    immersx/core/observable.h
     immersx/core/problem_handle.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
