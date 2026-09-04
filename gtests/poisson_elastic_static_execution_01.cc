@@ -69,11 +69,13 @@ TEST(ApplicationExecution, StandaloneAndAdapterStaticApplications)
 
   run_application("poisson", "poisson_execution_1d3.prm");
   EXPECT_TRUE(std::filesystem::exists(poisson_output / "solution.pvd"));
+  std::filesystem::remove_all(poisson_output);
   run_application("poisson_adapter", "poisson_execution_1d3.prm");
   EXPECT_TRUE(std::filesystem::exists(poisson_output / "solution.pvd"));
 
   run_application("elastic_static", "elastic_static_execution_1d3.prm");
   EXPECT_TRUE(std::filesystem::exists(elastic_output / "elastic_static.pvd"));
+  std::filesystem::remove_all(elastic_output);
   run_application("elastic_static_adapter", "elastic_static_execution_1d3.prm");
   EXPECT_TRUE(std::filesystem::exists(elastic_output / "elastic_static.pvd"));
 }

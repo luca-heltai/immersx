@@ -5,9 +5,25 @@
 #include <immersx/physics/modulated_parsed_function.h>
 
 #include <cmath>
+#include <string>
 
 namespace ImmersX
 {
+  namespace
+  {
+    std::string
+    zero_function_expression(const unsigned int n_components)
+    {
+      std::string expression;
+      for (unsigned int component = 0; component < n_components; ++component)
+        {
+          if (!expression.empty())
+            expression += "; ";
+          expression += "0";
+        }
+      return expression;
+    }
+  } // namespace
   template <int spacedim>
   ModulatedParsedFunction<spacedim>::ModulatedParsedFunction(
     const std::string &section_name,
@@ -15,9 +31,7 @@ namespace ImmersX
     : ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>(section_name,
                                                                   n_components)
     , n_components(n_components)
-    , function_expression(spacedim == 1 ? "0" :
-                          spacedim == 2 ? "0; 0" :
-                                          "0; 0; 0")
+    , function_expression(zero_function_expression(n_components))
     , variable_names(spacedim == 1 ? "x,t" :
                      spacedim == 2 ? "x,y,t" :
                                      "x,y,z,t")
