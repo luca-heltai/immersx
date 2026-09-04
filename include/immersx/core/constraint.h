@@ -265,6 +265,10 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "A constraint multiplier must be an unregistered field."));
       terms_.for_each([&](const auto &entry) {
+        AssertThrow(!entry.term.observable().is_frozen(),
+                    dealii::ExcMessage(
+                      "Constraint weak terms must use active participant "
+                      "fields; put prescribed data in the constraint rhs."));
         AssertThrow(!entry.term.target().is_registered(),
                     dealii::ExcMessage(
                       "A constraint multiplier must be an unregistered "

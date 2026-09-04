@@ -31,6 +31,11 @@ public contract describes dependencies and differentiability, while point
 search, quadrature orchestration, and evaluation caches remain implementation
 details.
 
+`frozen(field, values)` uses an unregistered FE `Field` only for its support
+and finite-element metadata, and retains the supplied coefficients as a
+dependency-free observable. A `weak_term` built from it contributes a fixed
+residual and therefore does not register a source-field Jacobian.
+
 For compatible finite-element spaces, `weak_term(observable, target_field)`
 represents the duality pairing of the observable with the target test
 functions. The term is contributed through the ordinary semantic builder; its

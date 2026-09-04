@@ -203,6 +203,43 @@ TEST(WeakTerm, ScaledObservableScalesResidualAndJacobian)
   EXPECT_LT(action.l2_norm(), 1.e-12);
 }
 
+TEST(WeakTerm, FrozenObservableContributesWithoutSourceDependency)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<2>     fe(1);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source = V.field("frozen-source");
+  const auto target = V.field(layout, "target");
+  using Vector      = Vector<double>;
+  using Matrix      = SparseMatrix<double>;
+  using Model       = SemiDiscreteModel<Vector, Matrix>;
+
+  Vector frozen_values(space.dof_handler.n_dofs());
+  for (unsigned int i = 0; i < frozen_values.size(); ++i)
+    frozen_values[i] = 2. + i;
+  const auto observable = frozen(source, frozen_values);
+  EXPECT_TRUE(observable.dependencies().empty());
+  EXPECT_TRUE(observable.is_frozen());
+  EXPECT_FALSE(observable.source_field().is_valid());
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(observable, target).add(builder);
+
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  Vector                          residual(space.dof_handler.n_dofs());
+  model.evaluate_row(target.field_id(), context, residual);
+
+  const auto expected = expected_scalar_pairing(source, frozen_values);
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
+}
+
 TEST(WeakTerm, VectorPairingHasConsistentTranspose)
 {
   Triangulation<2> tria;

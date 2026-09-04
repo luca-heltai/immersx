@@ -199,9 +199,10 @@ namespace ImmersX
         AssertThrow(target.field_id().is_valid(),
                     dealii::ExcMessage(
                       "A weak term target field must be registered."));
-        AssertThrow(observable.source_field().is_valid(),
+        AssertThrow(observable.is_frozen() ||
+                      observable.source_field().is_valid(),
                     dealii::ExcMessage(
-                      "A weak term source field must be registered."));
+                      "A weak term active source field must be registered."));
         AssertThrow(observable.spacedimension() == spacedim &&
                       SourceField::spacedimension() == spacedim &&
                       SourceField::dimension() >= dim,
@@ -1259,17 +1260,37 @@ namespace ImmersX
       const auto target_id = pairing.target_id;
 
       using Model = SemiDiscreteModel<VectorType, MatrixType>;
-      typename Model::MatrixOperatorFactory state_factory =
-        [pairing](const typename Model::Context &) {
-          (void)pairing.matrix;
-          (void)pairing.sparsity;
-          return pairing.operator_with_matrix;
-        };
-      builder.term(target_id, "weak_term")
-        .residual([pairing, source_id](const auto &ctx) {
-          return pairing.operator_with_matrix.view * ctx.state(source_id);
-        })
-        .state(source_id, std::move(state_factory));
+      auto term   = builder.term(target_id, "weak_term");
+      if (observable_.is_frozen())
+        {
+          const auto frozen = observable_.template frozen_values<VectorType>();
+          term.residual([pairing, frozen](const auto &) {
+            typename Model::Operation result;
+            result.reinit_vector =
+              pairing.operator_with_matrix.view.reinit_range_vector;
+            result.apply = [pairing, frozen](VectorType &destination) {
+              pairing.operator_with_matrix.view.vmult(destination, frozen);
+            };
+            result.apply_add = [pairing, frozen](VectorType &destination) {
+              pairing.operator_with_matrix.view.vmult_add(destination, frozen);
+            };
+            return result;
+          });
+        }
+      else
+        {
+          typename Model::MatrixOperatorFactory state_factory =
+            [pairing](const typename Model::Context &) {
+              (void)pairing.matrix;
+              (void)pairing.sparsity;
+              return pairing.operator_with_matrix;
+            };
+          term
+            .residual([pairing, source_id](const auto &ctx) {
+              return pairing.operator_with_matrix.view * ctx.state(source_id);
+            })
+            .state(source_id, std::move(state_factory));
+        }
       return target_id;
     }
 

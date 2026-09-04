@@ -38,8 +38,9 @@ namespace ImmersX
   /** Metadata for a typed, differentiable quantity derived from Fields.
    *
    * Observable deliberately describes only the mathematical quantity. It
-   * does not expose point search, quadrature, evaluation contexts, caches, or
-   * coefficient storage.
+   * does not expose point search, quadrature, evaluation contexts, or caches.
+   * A frozen observable may retain caller-supplied coefficients, but has no
+   * active Field dependency.
    */
   template <typename ValueType, typename SourceFieldType = void>
   class Observable
@@ -69,6 +70,21 @@ namespace ImmersX
       , spacedim_(spacedim)
       , operation_(operation)
       , source_(source)
+    {}
+
+    template <typename SourceField, typename VectorType>
+    Observable(std::vector<FieldId>      dependencies,
+               const unsigned int        dimension,
+               const unsigned int        spacedim,
+               const ObservableOperation operation,
+               const SourceField        &source,
+               const VectorType         &frozen_values)
+      : dependencies_(std::move(dependencies))
+      , dimension_(dimension)
+      , spacedim_(spacedim)
+      , operation_(operation)
+      , source_(source)
+      , frozen_(frozen_values)
     {}
 
     const std::vector<FieldId> &
@@ -104,11 +120,11 @@ namespace ImmersX
     FieldId
     source_field() const
     {
-      AssertThrow(dependencies_.size() == 1,
+      AssertThrow(dependencies_.empty() || dependencies_.size() == 1,
                   dealii::ExcMessage(
                     "source_field() is only defined for one-field "
                     "observables."));
-      return dependencies_.front();
+      return dependencies_.empty() ? FieldId() : dependencies_.front();
     }
 
     /** Return the typed source retained by an observable factory. */
@@ -122,6 +138,26 @@ namespace ImmersX
                     "The observable does not contain the requested source "
                     "field type."));
       return *source;
+    }
+
+    /** Whether this observable is supplied by fixed, external values. */
+    bool
+    is_frozen() const
+    {
+      return frozen_.has_value();
+    }
+
+    /** Return the fixed values retained by a frozen observable. */
+    template <typename VectorType>
+    const VectorType &
+    frozen_values() const
+    {
+      const auto *values = std::any_cast<VectorType>(&frozen_);
+      AssertThrow(values != nullptr,
+                  dealii::ExcMessage(
+                    "The frozen observable does not contain the requested "
+                    "vector type."));
+      return *values;
     }
 
     ObservableOperation
@@ -165,6 +201,7 @@ namespace ImmersX
     ObservableOperation  operation_;
     double               scale_ = 1.;
     std::any             source_;
+    std::any             frozen_;
   };
 
   template <typename FieldType>
@@ -195,6 +232,22 @@ namespace ImmersX
                                             Field::spacedimension(),
                                             ObservableOperation::gradient,
                                             field);
+  }
+
+  /** Construct a dependency-free observable from fixed FE coefficients. */
+  template <typename FieldType, typename VectorType>
+  Observable<typename std::decay_t<FieldType>::value_type,
+             std::decay_t<FieldType>>
+  frozen(const FieldType &field, const VectorType &values)
+  {
+    using Field = std::decay_t<FieldType>;
+    return Observable<typename Field::value_type, Field>(
+      {},
+      Field::dimension(),
+      Field::spacedimension(),
+      ObservableOperation::value,
+      field,
+      values);
   }
 
   /** Scale an observable while preserving its dependencies and source. */
