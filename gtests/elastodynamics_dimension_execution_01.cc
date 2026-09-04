@@ -232,6 +232,15 @@ namespace
                               state_dot,
                               residual);
     EXPECT_LT(residual.l2_norm(), 1.e-7);
+
+    adapter.solver().setup_jacobian(problem.current_time(),
+                                    state,
+                                    state_dot,
+                                    1.);
+    GlobalVector action;
+    adapter.solver().reinit_vector(action);
+    adapter.current_jacobian().vmult(action, state);
+    EXPECT_TRUE(std::isfinite(action.l2_norm()));
   }
 } // namespace
 
