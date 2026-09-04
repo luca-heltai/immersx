@@ -9,7 +9,12 @@
 
 #include <deal.II/base/mpi.h>
 
-#include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
+#include <deal.II/dofs/dof_tools.h>
+
+#include <deal.II/numerics/data_out.h>
+
+#include <immersx/core/constraint.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
@@ -32,11 +37,8 @@ namespace
     initialize_parameters(parameter_file);
 
 #ifdef DEAL_II_WITH_SUNDIALS
-    using Problem        = ElastodynamicsSolver<dim, dim>;
-    using VectorType     = typename Problem::VectorType;
-    using Representation = VectorFiniteElementRepresentation<dim, dim>;
-    using Interaction =
-      VectorLagrangeMultiplierInteraction<Representation, Representation>;
+    using Problem      = ElastodynamicsSolver<dim, dim>;
+    using VectorType   = typename Problem::VectorType;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = IDAAdapter<VectorType, GlobalVector>;
     Problem matrix_problem(parameters.matrix_parameters);
@@ -52,49 +54,82 @@ namespace
     fiber_problem.assemble_operators();
     fiber_problem.set_initial_conditions();
 
-    Representation matrix_velocity(matrix_problem.triangulation(),
-                                   matrix_problem.dof_handler(),
-                                   matrix_problem.locally_owned_dofs(),
-                                   matrix_problem.locally_relevant_dofs(),
-                                   matrix_problem.velocity_constraints());
-    Representation fiber_velocity(fiber_problem.triangulation(),
-                                  fiber_problem.dof_handler(),
-                                  fiber_problem.locally_owned_dofs(),
-                                  fiber_problem.locally_relevant_dofs(),
-                                  fiber_problem.velocity_constraints());
-    Interaction    interaction(matrix_velocity,
-                            fiber_velocity,
-                            parameters.coupling_parameters);
-    interaction.assemble();
+    dealii::DoFHandler<dim> multiplier_dh(
+      fiber_problem.dof_handler().get_triangulation());
+    multiplier_dh.distribute_dofs(fiber_problem.fe());
+    const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+    const auto multiplier_relevant =
+      dealii::DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+    dealii::AffineConstraints<double> multiplier_constraints;
+    multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+    dealii::DoFTools::make_hanging_node_constraints(multiplier_dh,
+                                                    multiplier_constraints);
+    multiplier_constraints.close();
+
+    const auto matrix_view     = fe_space(matrix_problem.dof_handler(),
+                                      matrix_problem.mapping(),
+                                      matrix_problem.velocity_constraints());
+    const auto fiber_view      = fe_space(fiber_problem.dof_handler(),
+                                     fiber_problem.mapping(),
+                                     fiber_problem.velocity_constraints());
+    const auto multiplier_view = fe_space(multiplier_dh,
+                                          fiber_problem.mapping(),
+                                          multiplier_constraints,
+                                          &multiplier_relevant);
 
     Adapter    adapter(parameters.time_parameters, MPI_COMM_WORLD);
-    const auto matrix   = adapter.add(matrix_problem, "matrix");
-    const auto fiber    = adapter.add(fiber_problem, "fiber");
-    const auto coupling = adapter.add(interaction,
-                                      "fiber-coupling",
-                                      matrix.fields().velocity,
-                                      fiber.fields().velocity);
+    const auto matrix = adapter.add(matrix_problem, "matrix");
+    const auto fiber  = adapter.add(fiber_problem, "fiber");
+    const auto matrix_velocity =
+      matrix_view.field(matrix.fields().velocity,
+                        "matrix_velocity",
+                        dealii::FEValuesExtractors::Vector(0));
+    const auto fiber_velocity =
+      fiber_view.field(fiber.fields().velocity,
+                       "fiber_velocity",
+                       dealii::FEValuesExtractors::Vector(0));
+    const auto multiplier =
+      multiplier_view.field("velocity_multiplier",
+                            dealii::FEValuesExtractors::Vector(0));
+    const auto constraint =
+      make_constraint(weak_term(value(matrix_velocity), multiplier) -
+                      weak_term(value(fiber_velocity), multiplier));
+    const auto coupling = adapter.add(constraint, "fiber-coupling");
 
-    const auto output = [&parameters,
-                         &matrix_problem,
-                         &fiber_problem,
-                         &interaction](const double       time,
-                                       const unsigned int step) {
+    const auto output_multiplier = [&parameters,
+                                    &multiplier_dh](const VectorType  &values,
+                                                    const unsigned int step) {
+      std::filesystem::create_directories(parameters.output_directory);
+      dealii::DataOut<dim> data_out;
+      data_out.attach_dof_handler(multiplier_dh);
+      data_out.add_data_vector(values, parameters.multiplier_output_name);
+      data_out.build_patches();
+      const auto rank =
+        dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+      const auto filename =
+        std::filesystem::path(parameters.output_directory) /
+        (parameters.multiplier_output_name + "-" + std::to_string(step) + "." +
+         std::to_string(rank) + ".vtu");
+      std::ofstream output(filename);
+      data_out.write_vtu(output);
+    };
+
+    const auto output = [&matrix_problem,
+                         &fiber_problem](const double       time,
+                                         const unsigned int step) {
       matrix_problem.output_results();
       fiber_problem.output_results();
-      interaction.output_results(parameters.output_directory + "/interaction",
-                                 parameters.multiplier_output_name,
-                                 step,
-                                 time);
+      (void)time;
+      (void)step;
     };
     adapter.set_output_step([&adapter,
                              &matrix_problem,
                              &fiber_problem,
-                             &interaction,
                              matrix,
                              fiber,
                              coupling,
                              &parameters,
+                             output_multiplier,
                              output](const double        time,
                                      const GlobalVector &state,
                                      const GlobalVector &state_dot,
@@ -109,14 +144,16 @@ namespace
                                  adapter.field(state, fiber.fields().velocity),
                                  time,
                                  step);
-      interaction.set_multiplier(
-        adapter.field(state, coupling.fields().multiplier));
       if ((parameters.time_parameters.output_frequency == 0 &&
            (step == 0 || time >= parameters.time_parameters.final_time)) ||
           (parameters.time_parameters.output_frequency > 0 &&
            (step % parameters.time_parameters.output_frequency == 0 ||
             time >= parameters.time_parameters.final_time)))
-        output(time, step);
+        {
+          output(time, step);
+          output_multiplier(adapter.field(state, coupling.fields().multiplier),
+                            step);
+        }
       (void)state_dot;
     });
 
@@ -137,8 +174,6 @@ namespace
     adapter.field(state_dot, fiber.fields().velocity)      = 0.;
     adapter.field(state_dot, coupling.fields().multiplier) = 0.;
 
-    interaction.set_multiplier(
-      adapter.field(state, coupling.fields().multiplier));
     adapter.solve(state, state_dot);
 #else
     FiberReinforcedElastodynamics<dim> driver(parameters);
