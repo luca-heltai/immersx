@@ -130,6 +130,22 @@ namespace ImmersX
       return operation_;
     }
 
+    /** Return the scalar coefficient applied to this observable. */
+    double
+    scale() const
+    {
+      return scale_;
+    }
+
+    /** Return a copy multiplied by a scalar coefficient. */
+    Observable
+    scaled(const double coefficient) const
+    {
+      Observable result = *this;
+      result.scale_ *= coefficient;
+      return result;
+    }
+
     bool
     is_differentiable() const
     {
@@ -147,6 +163,7 @@ namespace ImmersX
     unsigned int         dimension_;
     unsigned int         spacedim_;
     ObservableOperation  operation_;
+    double               scale_ = 1.;
     std::any             source_;
   };
 
@@ -178,6 +195,24 @@ namespace ImmersX
                                             Field::spacedimension(),
                                             ObservableOperation::gradient,
                                             field);
+  }
+
+  /** Scale an observable while preserving its dependencies and source. */
+  template <typename ValueType, typename SourceFieldType>
+  Observable<ValueType, SourceFieldType>
+  operator*(const double                           coefficient,
+            Observable<ValueType, SourceFieldType> observable)
+  {
+    return observable.scaled(coefficient);
+  }
+
+  /** Scale an observable while preserving its dependencies and source. */
+  template <typename ValueType, typename SourceFieldType>
+  Observable<ValueType, SourceFieldType>
+  operator*(Observable<ValueType, SourceFieldType> observable,
+            const double                           coefficient)
+  {
+    return observable.scaled(coefficient);
   }
 } // namespace ImmersX
 

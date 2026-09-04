@@ -1180,7 +1180,7 @@ namespace ImmersX
                const unsigned int     j,
                const unsigned int     q)
       {
-        (void)observable;
+        const auto scale = observable.scale();
         if constexpr (std::is_same_v<typename SourceField::value_type, double>)
           {
             if constexpr (std::is_same_v<typename ObservableType::value_type,
@@ -1190,7 +1190,7 @@ namespace ImmersX
                   scalar_shape_value(target_values, target.extractor(), i, q);
                 const auto trial =
                   scalar_shape_value(source_values, source.extractor(), j, q);
-                return test * trial;
+                return scale * test * trial;
               }
             else if constexpr (std::is_same_v<
                                  typename ObservableType::value_type,
@@ -1202,7 +1202,7 @@ namespace ImmersX
                                                          q);
                 const auto test =
                   vector_shape_value(target_values, target.extractor(), i, q);
-                return trial * test;
+                return scale * (trial * test);
               }
             else
               {
@@ -1222,7 +1222,7 @@ namespace ImmersX
                   vector_shape_value(source_values, source.extractor(), j, q);
                 const auto test =
                   vector_shape_value(target_values, target.extractor(), i, q);
-                return trial * test;
+                return scale * (trial * test);
               }
             else
               {
