@@ -1044,9 +1044,11 @@ namespace ImmersX
     TargetField    target_;
   };
 
+  /** \cond deduction_guide */
   template <typename ObservableType, typename TargetField>
   WeakTerm(ObservableType, TargetField)
     -> WeakTerm<ObservableType, TargetField>;
+  /** \endcond */
 
   /** Create a residual term representing the FE duality pairing. */
   template <typename ObservableType, typename TargetField>

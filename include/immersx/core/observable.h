@@ -163,10 +163,7 @@ namespace ImmersX
 
   template <typename FieldType>
   auto
-  gradient(const FieldType &field) -> Observable<std::conditional_t<
-    std::is_same_v<typename std::decay_t<FieldType>::value_type, double>,
-    dealii::Tensor<1, std::decay_t<FieldType>::spacedimension()>,
-    dealii::Tensor<2, std::decay_t<FieldType>::spacedimension()>>>
+  gradient(const FieldType &field)
   {
     using Field = std::decay_t<FieldType>;
     using GradientValue =
