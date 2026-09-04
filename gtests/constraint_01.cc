@@ -136,6 +136,10 @@ namespace
     state_view.bind(source_2.field_id(), u2);
     state_view.bind(fields.multiplier, l);
     const EvaluationContext<Vector> context(0., state_view);
+    const auto metric = model.multiplier_metric(fields.multiplier, context);
+    ASSERT_TRUE(metric.has_value());
+    ASSERT_TRUE(metric->is_materializable());
+    EXPECT_GT(metric->matrix()->frobenius_norm(), 1.e-12);
 
     const auto b1 = model.state_matrix_operator(fields.multiplier,
                                                 source_1.field_id(),
