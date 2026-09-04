@@ -22,6 +22,7 @@
 
 #include <immersx/core/fe_space.h>
 
+#include <any>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -54,6 +55,19 @@ namespace ImmersX
       , dimension_(dimension)
       , spacedim_(spacedim)
       , operation_(operation)
+    {}
+
+    template <typename SourceField>
+    Observable(std::vector<FieldId>      dependencies,
+               const unsigned int        dimension,
+               const unsigned int        spacedim,
+               const ObservableOperation operation,
+               const SourceField        &source)
+      : dependencies_(std::move(dependencies))
+      , dimension_(dimension)
+      , spacedim_(spacedim)
+      , operation_(operation)
+      , source_(source)
     {}
 
     const std::vector<FieldId> &
@@ -96,6 +110,19 @@ namespace ImmersX
       return dependencies_.front();
     }
 
+    /** Return the typed source retained by an observable factory. */
+    template <typename SourceField>
+    const SourceField &
+    source() const
+    {
+      const auto *source = std::any_cast<SourceField>(&source_);
+      AssertThrow(source != nullptr,
+                  dealii::ExcMessage(
+                    "The observable does not contain the requested source "
+                    "field type."));
+      return *source;
+    }
+
     ObservableOperation
     operation() const
     {
@@ -119,6 +146,7 @@ namespace ImmersX
     unsigned int         dimension_;
     unsigned int         spacedim_;
     ObservableOperation  operation_;
+    std::any             source_;
   };
 
   template <typename FieldType>
@@ -129,7 +157,8 @@ namespace ImmersX
     return Observable<typename Field::value_type>({field.field_id()},
                                                   Field::dimension(),
                                                   Field::spacedimension(),
-                                                  ObservableOperation::value);
+                                                  ObservableOperation::value,
+                                                  field);
   }
 
   template <typename FieldType>
@@ -147,7 +176,8 @@ namespace ImmersX
     return Observable<GradientValue>({field.field_id()},
                                      Field::dimension(),
                                      Field::spacedimension(),
-                                     ObservableOperation::gradient);
+                                     ObservableOperation::gradient,
+                                     field);
   }
 } // namespace ImmersX
 

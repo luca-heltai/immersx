@@ -46,6 +46,7 @@ set(_public_headers
     immersx/core/linear_adapter.h
     immersx/core/matrix_operator.h
     immersx/core/observable.h
+    immersx/core/weak_term.h
     immersx/core/problem_handle.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h

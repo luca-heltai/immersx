@@ -31,6 +31,12 @@ public contract describes dependencies and differentiability, while point
 search, quadrature orchestration, and evaluation caches remain implementation
 details.
 
+For compatible finite-element spaces, `weak_term(observable, target_field)`
+represents the duality pairing of the observable with the target test
+functions. The term is contributed through the ordinary semantic builder; its
+FE assembly strategy is private and may be prepared once for linear
+observables.
+
 **State** is the collection of field values supplied for an evaluation.
 `StateView` and `StateAccessor` provide current, frozen, historical, or
 interpolated values without making a candidate state the accepted state.

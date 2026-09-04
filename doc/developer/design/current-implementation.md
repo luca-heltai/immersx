@@ -26,6 +26,13 @@ Problems and Interactions add residual terms and separate `dF/dy` and
 typed derivatives remain available for the existing coupling paths while
 newer composition code adopts `Observable<T>`.
 
+The `weak_term(...)` contributor provides the first direct FE assembly path
+for this vocabulary. It assembles the observable/test-function duality into a
+prepared deal.II matrix during contribution registration, then reuses that
+matrix for the residual and `dF/dy`. Same-DoFHandler terms use one cell
+traversal and shared `FEValues`; different DoFHandlers on one triangulation
+use paired active-cell traversal without point search or inverse mapping.
+
 `LinearAdapter` executes affine steady systems. `IDAAdapter` executes the
 canonical DAE residual `F(t,y,ydot)=0` through deal.II's SUNDIALS IDA wrapper.
 Both adapters privately own execution block layouts, vectors, callbacks, and
