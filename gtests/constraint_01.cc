@@ -11,6 +11,8 @@
 
 #include <deal.II/distributed/tria.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_q1.h>
@@ -346,4 +348,88 @@ TEST(Constraint, NonmatchingGeometryUsesCachedBackend)
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
             preparations + 2);
 #endif
+}
+
+
+TEST(Constraint, MPI_NonmatchingDistributedReaction)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+
+  parallel::distributed::Triangulation<2> source_tria(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> multiplier_tria(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(source_tria);
+  GridGenerator::hyper_cube(multiplier_tria);
+  source_tria.refine_global(2);
+  multiplier_tria.refine_global(3);
+
+  FE_Q<2>       source_fe(1);
+  FE_Q<2>       multiplier_fe(2);
+  DoFHandler<2> source_dh(source_tria);
+  DoFHandler<2> multiplier_dh(multiplier_tria);
+  source_dh.distribute_dofs(source_fe);
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  const auto source_owned = source_dh.locally_owned_dofs();
+  const auto source_relevant =
+    DoFTools::extract_locally_relevant_dofs(source_dh);
+  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+  const auto multiplier_relevant =
+    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+  AffineConstraints<double> source_constraints;
+  AffineConstraints<double> multiplier_constraints;
+  source_constraints.reinit(source_owned, source_relevant);
+  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+  source_constraints.close();
+  multiplier_constraints.close();
+
+  const auto  source_view     = fe_space(source_dh,
+                                    StaticMappingQ1<2>::mapping,
+                                    source_constraints,
+                                    source_relevant);
+  const auto  multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints,
+                                        multiplier_relevant);
+  StateLayout layout;
+  const auto  source = source_view.field(layout, "source");
+  const auto  lambda = multiplier_view.field("lambda");
+
+  using Vector = ImmersXLA::MPI::Vector;
+  using Matrix = ImmersXLA::MPI::SparseMatrix;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto                          fields =
+    make_constraint(weak_term(value(source), lambda)).add(builder);
+
+  Vector source_state(source_owned, MPI_COMM_WORLD);
+  Vector lambda_state(multiplier_owned, MPI_COMM_WORLD);
+  source_state = 1.;
+  lambda_state = 0.25;
+  source_state.compress(VectorOperation::insert);
+  lambda_state.compress(VectorOperation::insert);
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  Vector residual;
+  residual.reinit(multiplier_owned, MPI_COMM_WORLD);
+  model.evaluate_row(fields.multiplier, context, residual);
+  const auto pairing =
+    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  ASSERT_TRUE(pairing.has_value());
+  Vector expected;
+  expected.reinit(multiplier_owned, MPI_COMM_WORLD);
+  pairing->view.vmult(expected, source_state);
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
+
+  Vector reaction;
+  reaction.reinit(source_owned, MPI_COMM_WORLD);
+  model.evaluate_row(source.field_id(), context, reaction);
+  Vector expected_reaction;
+  expected_reaction.reinit(source_owned, MPI_COMM_WORLD);
+  pairing->view.Tvmult(expected_reaction, lambda_state);
+  reaction -= expected_reaction;
+  EXPECT_LT(reaction.l2_norm(), 1.e-12);
 }
