@@ -17,6 +17,7 @@
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/full_matrix.h>
@@ -75,7 +76,14 @@ namespace ImmersX
                              const std::string &ids_and_cad_file_names,
                              Triangulation<dim, spacedim> &tria)
     {
-      read_grid_and_cad_files(grid_file_name, ids_and_cad_file_names, tria);
+      if constexpr (dim == 1 && spacedim == 1)
+        {
+          GridIn<dim, spacedim> grid_in;
+          grid_in.attach_triangulation(tria);
+          grid_in.read(grid_file_name);
+        }
+      else
+        read_grid_and_cad_files(grid_file_name, ids_and_cad_file_names, tria);
     }
   } // namespace
 
@@ -149,7 +157,9 @@ namespace ImmersX
     leave_subsection();
 
     const auto declare_zero_vector_function = [this]() {
-      const std::string zero_expression = spacedim == 2 ? "0; 0" : "0; 0; 0";
+      const std::string zero_expression = spacedim == 1 ? "0" :
+                                          spacedim == 2 ? "0; 0" :
+                                                          "0; 0; 0";
       this->prm.declare_entry(
         "Function expression",
         zero_expression,
@@ -212,14 +222,18 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::make_triangulation_storage(
     MPI_Comm mpi_communicator)
   {
-    return TriangulationVariant(
-      std::in_place_type<DistributedTriangulation>,
-      mpi_communicator,
-      typename Triangulation<dim, spacedim>::MeshSmoothing(
-        Triangulation<dim, spacedim>::smoothing_on_refinement |
-        Triangulation<dim, spacedim>::smoothing_on_coarsening),
-      parallel::distributed::Triangulation<dim, spacedim>::
-        construct_multigrid_hierarchy);
+    if constexpr (dim == 1)
+      return TriangulationVariant(
+        std::in_place_type<FullyDistributedTriangulation>, mpi_communicator);
+    else
+      return TriangulationVariant(
+        std::in_place_type<DistributedTriangulation>,
+        mpi_communicator,
+        typename Triangulation<dim, spacedim>::MeshSmoothing(
+          Triangulation<dim, spacedim>::smoothing_on_refinement |
+          Triangulation<dim, spacedim>::smoothing_on_coarsening),
+        parallel::distributed::Triangulation<dim, spacedim>::
+          construct_multigrid_hierarchy);
   }
 
 
@@ -239,8 +253,12 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Make grid");
 
+    // deal.II's p4est-backed distributed triangulation is not available for
+    // one-dimensional meshes.  Match PoissonSolver's policy and use the
+    // fully-distributed representation for every 1D problem, irrespective of
+    // the parameter-file selection.
     const bool need_fully_distributed =
-      par.triangulation_type == "fullydistributed";
+      dim == 1 || par.triangulation_type == "fullydistributed";
 
     if (need_fully_distributed && !uses_fully_distributed_triangulation())
       triangulation_storage.template emplace<FullyDistributedTriangulation>(
@@ -308,6 +326,20 @@ namespace ImmersX
     serial_tria.refine_global(par.initial_refinement);
     auto &fully_distributed_tria =
       std::get<FullyDistributedTriangulation>(triangulation_storage);
+    if constexpr (dim == 1)
+      {
+        // Keep children of an interval distributed across ranks.  The default
+        // partitioner may leave a rank without cells after refinement, which
+        // in turn produces invalid local DoF indices at the endpoints.
+        fully_distributed_tria.set_partitioner(
+          [](Triangulation<dim, spacedim> &serial_tria,
+             const unsigned int            n_partitions) {
+            GridTools::partition_triangulation_zorder(n_partitions,
+                                                      serial_tria,
+                                                      false);
+          },
+          TriangulationDescription::Settings::default_setting);
+      }
     for (const auto manifold_id : serial_tria.get_manifold_ids())
       if (manifold_id != numbers::flat_manifold_id)
         fully_distributed_tria.set_manifold(
@@ -1019,10 +1051,12 @@ namespace ImmersX
           dt =
             std::min(dt, par.time_parameters.final_time - current_time_storage);
         advance_one_timestep(dt);
-        if (par.time_parameters.output_frequency > 0 &&
-            (time_step_number_storage % par.time_parameters.output_frequency ==
-               0 ||
-             step + 1 == n_steps))
+        if ((par.time_parameters.output_frequency == 0 &&
+             step + 1 == n_steps) ||
+            (par.time_parameters.output_frequency > 0 &&
+             (time_step_number_storage % par.time_parameters.output_frequency ==
+                0 ||
+              step + 1 == n_steps)))
           output_results();
       }
   }
@@ -1041,6 +1075,11 @@ namespace ImmersX
                              ParameterHandler::Short);
 
     make_grid();
+    AssertThrow(
+      !uses_fully_distributed_triangulation() || par.n_refinement_cycles <= 1,
+      ExcMessage(
+        "Refinement cycles are not available with the immutable "
+        "parallel::fullydistributed::Triangulation in ElastodynamicsSolver."));
     setup_fe();
 
     for (refinement_cycle_storage = 0;
@@ -1298,9 +1337,17 @@ namespace ImmersX
   }
 
 
-  template class ElastodynamicsParameters<2>;
-  template class ElastodynamicsParameters<3>;
+  template class ElastodynamicsParameters<1, 1>;
+  template class ElastodynamicsParameters<1, 2>;
+  template class ElastodynamicsParameters<1, 3>;
+  template class ElastodynamicsParameters<2, 2>;
+  template class ElastodynamicsParameters<2, 3>;
+  template class ElastodynamicsParameters<3, 3>;
 
-  template class ElastodynamicsSolver<2>;
-  template class ElastodynamicsSolver<3>;
+  template class ElastodynamicsSolver<1, 1>;
+  template class ElastodynamicsSolver<1, 2>;
+  template class ElastodynamicsSolver<1, 3>;
+  template class ElastodynamicsSolver<2, 2>;
+  template class ElastodynamicsSolver<2, 3>;
+  template class ElastodynamicsSolver<3, 3>;
 } // namespace ImmersX
