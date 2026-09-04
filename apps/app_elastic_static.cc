@@ -9,81 +9,25 @@
 
 #include <deal.II/base/mpi.h>
 
-#include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastic_static.h>
 
 #include <iostream>
 #include <string>
-#include <type_traits>
 
 namespace
 {
-  template <int dim>
-  void
-  solve_one_cycle(ImmersX::ElasticStaticProblem<dim>    &problem,
-                  const unsigned int                     cycle,
-                  const ImmersX::LinearSolverParameters &adapter_parameters)
-  {
-    using namespace ImmersX;
-    using FieldVector  = ImmersXLA::MPI::Vector;
-    using GlobalVector = ImmersXLA::MPI::BlockVector;
-    using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
-
-    Adapter adapter(adapter_parameters, MPI_COMM_WORLD);
-
-    const auto fields = adapter.add(problem, "elastic-static");
-    auto       state  = adapter.make_state();
-    adapter.solve(state);
-    problem.set_solution(adapter.field(state, fields.fields().displacement));
-
-    FieldVector residual;
-    residual.reinit(problem.solution());
-    problem.stiffness_operator().vmult(residual, problem.solution());
-    residual -= problem.forcing();
-    problem.constraints().set_zero(residual);
-    const double residual_norm = residual.l2_norm();
-    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      std::cout << "elastic_static_residual = " << residual_norm << '\n';
-
-    AssertThrow(residual_norm < 1.e-9,
-                ExcMessage("Static elasticity residual is too large in cycle " +
-                           std::to_string(cycle) + "."));
-  }
-
-  template <int dim>
+  template <int dim, int spacedim = dim>
   void
   run_static_elasticity(const std::string &parameter_file)
   {
     using namespace ImmersX;
-    using Problem = ElasticStaticProblem<dim>;
 
-    ElasticStaticParameters<dim> parameters;
-    LinearSolverParameters       adapter_parameters;
+    ElasticStaticParameters<dim, spacedim> parameters;
     initialize_parameters(parameter_file);
-    AssertThrow(parameters.triangulation_type != "fullydistributed" ||
-                  parameters.n_refinement_cycles <= 1,
-                ExcMessage(
-                  "parallel::fullydistributed::Triangulation supports only one "
-                  "static refinement cycle because its mesh is immutable after "
-                  "copy_triangulation()."));
 
-    Problem problem(parameters);
-    problem.setup();
-
-    for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
-         ++cycle)
-      {
-        solve_one_cycle(problem, cycle, adapter_parameters);
-        problem.compute_error(parameters.convergence_table);
-        problem.output_results(cycle);
-
-        if (cycle + 1 < parameters.n_refinement_cycles)
-          problem.refine_global();
-      }
-
-    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      parameters.convergence_table.output_table(std::cout);
+    ElasticStaticProblem<dim, spacedim> problem(parameters);
+    problem.run();
   }
 } // namespace
 
@@ -96,11 +40,20 @@ main(int argc, char *argv[])
   try
     {
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
+
       const std::string parameter_file = argc > 1 ? argv[1] : "parameters.prm";
       const auto        dimensions = get_dimension_parameters(parameter_file);
 
-      if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
+      if (dimensions.dimension == 1 && dimensions.space_dimension == 1)
+        run_static_elasticity<1>(parameter_file);
+      else if (dimensions.dimension == 1 && dimensions.space_dimension == 2)
+        run_static_elasticity<1, 2>(parameter_file);
+      else if (dimensions.dimension == 1 && dimensions.space_dimension == 3)
+        run_static_elasticity<1, 3>(parameter_file);
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 2)
         run_static_elasticity<2>(parameter_file);
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
+        run_static_elasticity<2, 3>(parameter_file);
       else if (dimensions.dimension == 3 && dimensions.space_dimension == 3)
         run_static_elasticity<3>(parameter_file);
       else

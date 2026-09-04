@@ -1,0 +1,35 @@
+set dimension       = 1
+set space dimension = 3
+
+subsection Poisson
+  set FE degree                   = 1
+  set Initial refinement          = 1
+  set Dirichlet boundary ids      = 0, 1
+  set Output directory            = @TEST_OUTPUT_DIR@/poisson-execution
+  set Output name                 = solution
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Triangulation type       = distributed
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+    set Strategy                   = global
+  end
+  subsection Right hand side
+    set Function expression = 1
+    set Variable names      = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Solver
+    subsection Control
+      set Max steps  = 1000
+      set Reduction  = 1.e-10
+      set Tolerance  = 1.e-12
+      set Log result = false
+    end
+  end
+end

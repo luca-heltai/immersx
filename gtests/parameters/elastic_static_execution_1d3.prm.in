@@ -1,0 +1,41 @@
+set dimension       = 1
+set space dimension = 3
+
+subsection Elastic static
+  set FE degree              = 1
+  set Initial refinement     = 1
+  set Dirichlet boundary ids = 0, 1
+  set Output directory       = @TEST_OUTPUT_DIR@/elastic-static-execution
+  set Output name            = elastic_static
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: false
+    set Triangulation type       = distributed
+  end
+  subsection Refinement
+    set Number of refinement cycles = 1
+  end
+  subsection Functions
+    subsection Right hand side
+      set Function expression = 0; 0; 1
+      set Variable names      = x,y,z,t
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 0; 0; 0
+      set Variable names      = x,y,z,t
+    end
+    subsection Exact solution
+      set Function expression = 0; 0; 0
+      set Variable names      = x,y,z,t
+    end
+  end
+  subsection Solver
+    subsection Control
+      set Max steps  = 1000
+      set Reduction  = 1.e-10
+      set Tolerance  = 1.e-12
+      set Log result = false
+    end
+  end
+end
