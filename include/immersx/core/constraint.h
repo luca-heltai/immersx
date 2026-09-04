@@ -22,6 +22,17 @@
 
 namespace ImmersX
 {
+  namespace detail
+  {
+    template <typename Type>
+    struct is_weak_term : std::false_type
+    {};
+
+    template <typename ObservableType, typename TargetField>
+    struct is_weak_term<WeakTerm<ObservableType, TargetField>> : std::true_type
+    {};
+  } // namespace detail
+
   /** A signed sum of weak terms defining one constraint row. */
   template <typename Term>
   class ConstraintSum
@@ -55,7 +66,8 @@ namespace ImmersX
     std::vector<Entry> entries_;
   };
 
-  template <typename Term>
+  template <typename Term,
+            std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
   ConstraintSum<Term>
   operator+(Term lhs, Term rhs)
   {
@@ -64,7 +76,8 @@ namespace ImmersX
                                std::move(rhs));
   }
 
-  template <typename Term>
+  template <typename Term,
+            std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
   ConstraintSum<Term>
   operator-(Term lhs, Term rhs)
   {
@@ -108,10 +121,17 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "A constraint multiplier must be an unregistered field."));
       for (const auto &entry : terms_.entries())
-        AssertThrow(&entry.term.target().space() == &target.space(),
-                    dealii::ExcMessage(
-                      "All weak terms in a constraint must use the same "
-                      "multiplier FE space."));
+        {
+          AssertThrow(!entry.term.target().is_registered(),
+                      dealii::ExcMessage(
+                        "A constraint multiplier must be an unregistered "
+                        "field."));
+          AssertThrow(&entry.term.target().space() == &target.space() &&
+                        entry.term.target().name() == target.name(),
+                      dealii::ExcMessage(
+                        "All weak terms in a constraint must use the same "
+                        "multiplier field."));
+        }
     }
 
     const auto &
