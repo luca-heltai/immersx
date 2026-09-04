@@ -67,7 +67,8 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ReducedCoupling0D
     VectorLagrangeMultiplierInteraction
     RepresentationContract
-    RepresentationLoadInteraction)
+    RepresentationLoadInteraction
+    WeakTermNonmatching)
 
 set(IMMERSX_VALIDATION_TEST_SUITES
     OneVesselMMS
@@ -121,6 +122,7 @@ set(_immersx_expected_test_suites
     ElasticityCouplingParticleOutput
     ElasticityTensorProductCoupling
     TriangulationBackends/*
+    WeakTermNonmatching
     Elastodynamics
     ElastodynamicsExecution
     ElastodynamicsDimension
