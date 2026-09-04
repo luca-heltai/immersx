@@ -15,7 +15,9 @@ namespace ImmersX
     : ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>(section_name,
                                                                   n_components)
     , n_components(n_components)
-    , function_expression(spacedim == 2 ? "0; 0" : "0; 0; 0")
+    , function_expression(spacedim == 1 ? "0" :
+                          spacedim == 2 ? "0; 0" :
+                                          "0; 0; 0")
     , variable_names(spacedim == 1 ? "x,t" :
                      spacedim == 2 ? "x,y,t" :
                                      "x,y,z,t")

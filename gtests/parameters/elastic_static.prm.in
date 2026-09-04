@@ -52,6 +52,14 @@ subsection Elastic static
       set Variable names      = x,y,t
     end
   end
+  subsection Solver
+    subsection Control
+      set Max steps  = 1000
+      set Reduction  = 1.e-10
+      set Tolerance  = 1.e-12
+      set Log result = false
+    end
+  end
   subsection Material properties
     set Material tags by material id = 1:stiff
     subsection default

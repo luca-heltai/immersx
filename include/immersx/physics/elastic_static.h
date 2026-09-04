@@ -29,11 +29,15 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/full_matrix.h>
+#include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/vector.h>
 
@@ -50,6 +54,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <set>
@@ -106,6 +111,8 @@ namespace ImmersX
       , neumann_bc(elastic_static_detail::normalize_subsection(subsection) +
                      "Functions/Neumann boundary conditions",
                    spacedim)
+      , solver_control(elastic_static_detail::normalize_subsection(subsection) +
+                       "Solver/Control")
       , convergence_table(std::vector<std::string>(spacedim, "u"))
     {
       add_parameter(
@@ -336,22 +343,24 @@ namespace ImmersX
     mutable ModulatedParsedFunction<spacedim> neumann_bc;
     std::map<types::boundary_id,
              std::shared_ptr<ModulatedParsedFunction<spacedim>>>
-                                   neumann_bc_by_id;
-    mutable ParsedConvergenceTable convergence_table;
+      neumann_bc_by_id;
+    /** Canonical linear solver control shared by native and adapter paths. */
+    mutable ParameterAcceptorProxy<ReductionControl> solver_control;
+    mutable ParsedConvergenceTable                   convergence_table;
   };
 
   /**
    * Parameter-driven assembled linear elasticity Problem for a static solve.
    *
    * The Problem owns the mesh, displacement DoFs, constraints, stiffness
-   * matrix, forcing, and accepted solution. It deliberately does not own a
-   * solver or any coupling state.
+   * matrix, forcing, accepted solution, and native linear solver control. It
+   * does not own any coupling state.
    */
   template <int dim, int spacedim = dim>
   class ElasticStaticProblem
   {
-    static_assert(dim == spacedim,
-                  "ElasticStaticProblem currently requires dim == spacedim.");
+    static_assert(dim >= 1 && dim <= spacedim && spacedim <= 3,
+                  "ElasticStaticProblem requires 1 <= dim <= spacedim <= 3.");
 
   public:
     using VectorType = ImmersXLA::MPI::Vector;
@@ -507,9 +516,61 @@ namespace ImmersX
       assemble_system(&function);
     }
 
+    /** Solve the assembled static elasticity system natively. */
+    void
+    solve()
+    {
+      AssertThrow(dof_handler_->n_dofs() != 0,
+                  ExcMessage("Call setup() before solving static elasticity."));
+
+      ImmersXLA::MPI::PreconditionAMG                          preconditioner;
+      typename ImmersXLA::MPI::PreconditionAMG::AdditionalData data;
+#ifdef IMMERSX_USE_PETSC_LA
+      data.symmetric_operator = true;
+#endif
+      preconditioner.initialize(stiffness_matrix_, data);
+
+      constraints_.distribute(solution_);
+      SolverCG<VectorType> solver(parameters_.solver_control);
+      solver.solve(stiffness_matrix_, solution_, forcing_, preconditioner);
+      constraints_.distribute(solution_);
+      update_locally_relevant_solution();
+    }
+
+    /** Run the ordinary standalone static elasticity lifecycle. */
+    void
+    run()
+    {
+      AssertThrow(
+        std::holds_alternative<DistributedTriangulation>(
+          triangulation_storage_) ||
+          parameters_.n_refinement_cycles <= 1,
+        ExcMessage(
+          "parallel::fullydistributed::Triangulation supports only one static "
+          "refinement cycle because its mesh is immutable after "
+          "copy_triangulation()."));
+
+      setup();
+      for (unsigned int cycle = 0; cycle < parameters_.n_refinement_cycles;
+           ++cycle)
+        {
+          solve();
+          compute_error(parameters_.convergence_table);
+          output_results(cycle);
+
+          if (cycle + 1 < parameters_.n_refinement_cycles)
+            refine_global();
+        }
+
+      if (Utilities::MPI::this_mpi_process(communicator_) == 0)
+        parameters_.convergence_table.output_table(std::cout);
+    }
+
     void
     set_solution(const VectorType &new_solution)
     {
+      AssertThrow(solution_.size() == new_solution.size(),
+                  ExcDimensionMismatch(solution_.size(), new_solution.size()));
       solution_ = new_solution;
       constraints_.distribute(solution_);
       update_locally_relevant_solution();
@@ -574,7 +635,13 @@ namespace ImmersX
     make_triangulation_storage(const MPI_Comm communicator,
                                const bool     fully_distributed)
     {
-      if (fully_distributed)
+      if constexpr (dim == 1)
+        {
+          (void)fully_distributed;
+          return TriangulationVariant(
+            std::in_place_type<FullyDistributedTriangulation>, communicator);
+        }
+      else if (fully_distributed)
         return TriangulationVariant(
           std::in_place_type<FullyDistributedTriangulation>, communicator);
 
@@ -610,9 +677,16 @@ namespace ImmersX
         }
       else
         {
-          read_grid_and_cad_files(parameters_.name_of_grid,
-                                  parameters_.arguments_for_grid,
-                                  tria);
+          if constexpr (dim == 1)
+            {
+              GridIn<dim, spacedim> grid_in;
+              grid_in.attach_triangulation(tria);
+              grid_in.read(parameters_.name_of_grid);
+            }
+          else
+            read_grid_and_cad_files(parameters_.name_of_grid,
+                                    parameters_.arguments_for_grid,
+                                    tria);
         }
 
       if (parameters_.grid_scale != 1.)
@@ -636,6 +710,16 @@ namespace ImmersX
           Triangulation<dim, spacedim>::smoothing_on_refinement |
           Triangulation<dim, spacedim>::smoothing_on_coarsening));
       make_grid_in(serial_tria);
+      if constexpr (dim == 1)
+        std::get<FullyDistributedTriangulation>(triangulation_storage_)
+          .set_partitioner(
+            [](Triangulation<dim, spacedim> &serial_mesh,
+               const unsigned int            n_partitions) {
+              GridTools::partition_triangulation_zorder(n_partitions,
+                                                        serial_mesh,
+                                                        false);
+            },
+            TriangulationDescription::Settings::default_setting);
       std::get<FullyDistributedTriangulation>(triangulation_storage_)
         .copy_triangulation(serial_tria);
     }
