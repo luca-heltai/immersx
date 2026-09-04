@@ -65,6 +65,16 @@ namespace
 
     problem.set_forcing(dealii::Functions::ConstantFunction<spacedim>(
       std::vector<double>(spacedim, 1.)));
+    EXPECT_TRUE(std::isfinite(problem.forcing().l2_norm()));
+
+    typename ElasticStaticProblem<dim, spacedim>::VectorType probe;
+    probe.reinit(problem.solution());
+    probe = 1.;
+    typename ElasticStaticProblem<dim, spacedim>::VectorType image;
+    image.reinit(probe);
+    problem.stiffness_operator().vmult(image, probe);
+    EXPECT_TRUE(std::isfinite(image.l2_norm()));
+
     problem.solve();
 
     EXPECT_TRUE(std::isfinite(problem.solution().l2_norm()));
