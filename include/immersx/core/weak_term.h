@@ -216,6 +216,11 @@ namespace ImmersX
                                          double>)
               return assemble_from_source<SourceField, VectorType, MatrixType>(
                 observable, observable.template source<SourceField>(), target);
+            else if constexpr (std::is_same_v<
+                                 typename ObservableType::value_type,
+                                 dealii::Tensor<1, spacedim>>)
+              return assemble_from_source<SourceField, VectorType, MatrixType>(
+                observable, observable.template source<SourceField>(), target);
           }
         else if (observable.operation() == ObservableOperation::gradient)
           {
@@ -251,6 +256,11 @@ namespace ImmersX
           {
             if constexpr (std::is_same_v<typename ObservableType::value_type,
                                          double>)
+              return prepare_from_source<SourceField, VectorType, MatrixType>(
+                observable, observable.template source<SourceField>(), target);
+            else if constexpr (std::is_same_v<
+                                 typename ObservableType::value_type,
+                                 dealii::Tensor<1, spacedim>>)
               return prepare_from_source<SourceField, VectorType, MatrixType>(
                 observable, observable.template source<SourceField>(), target);
           }
@@ -539,16 +549,24 @@ namespace ImmersX
 #ifdef IMMERSX_WEAK_TERM_TESTING
         ++weak_term_nonmatching_preparations;
 #endif
-        if constexpr (SourceField::dimension() == dim)
+        if constexpr (SourceField::dimension() == dim && dim == spacedim)
           return assemble_nonmatching_same_dimension<SourceField,
                                                      VectorType,
                                                      MatrixType>(
             observable, source, target, quadrature, update_flags);
-        else
+        else if constexpr (SourceField::dimension() > dim)
           return assemble_nonmatching_reverse<SourceField,
                                               VectorType,
                                               MatrixType>(
             observable, source, target, quadrature, update_flags);
+        else
+          {
+            AssertThrow(false,
+                        dealii::ExcMessage(
+                          "This weak-term geometry combination is not "
+                          "implemented."));
+            return {};
+          }
       }
 
       template <typename SourceField, typename VectorType, typename MatrixType>

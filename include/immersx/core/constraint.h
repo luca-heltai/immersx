@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -31,73 +32,129 @@ namespace ImmersX
     template <typename ObservableType, typename TargetField>
     struct is_weak_term<WeakTerm<ObservableType, TargetField>> : std::true_type
     {};
+
+    template <typename Wanted,
+              std::size_t Index,
+              typename First,
+              typename... Rest>
+    constexpr std::size_t
+    constraint_entry_index()
+    {
+      if constexpr (std::is_same_v<Wanted, First>)
+        return Index;
+      else
+        return constraint_entry_index<Wanted, Index + 1, Rest...>();
+    }
   } // namespace detail
 
   /** A signed sum of weak terms defining one constraint row. */
-  template <typename Term>
+  template <typename... Terms>
   class ConstraintSum
   {
   public:
+    template <std::size_t Index, typename Term>
     struct Entry
     {
       double coefficient;
       Term   term;
     };
 
+    using FirstTerm = std::tuple_element_t<0, std::tuple<Terms...>>;
+    template <typename Sequence>
+    struct MakeEntryVariant;
+
+    template <std::size_t... Indices>
+    struct MakeEntryVariant<std::index_sequence<Indices...>>
+    {
+      using type = std::variant<Entry<Indices, Terms>...>;
+    };
+
+    using EntryVariant = typename MakeEntryVariant<
+      std::make_index_sequence<sizeof...(Terms)>>::type;
+
     ConstraintSum() = default;
 
-    explicit ConstraintSum(Term term, const double coefficient = 1.)
-      : entries_({{coefficient, std::move(term)}})
-    {}
-
-    ConstraintSum(ConstraintSum lhs, const double sign, Term rhs)
-      : entries_(std::move(lhs.entries_))
+    template <typename Term>
+    void
+    add(Term term, const double coefficient = 1.)
     {
-      entries_.push_back({sign, std::move(rhs)});
+      constexpr auto index =
+        detail::constraint_entry_index<Term, 0, Terms...>();
+      entries_.emplace_back(std::in_place_index<index>,
+                            Entry<index, Term>{coefficient, std::move(term)});
     }
 
-    const std::vector<Entry> &
-    entries() const
+    template <typename Callback>
+    void
+    for_each(Callback &&callback) const
     {
-      return entries_;
+      for (const auto &entry : entries_)
+        std::visit(std::forward<Callback>(callback), entry);
+    }
+
+    bool
+    empty() const
+    {
+      return entries_.empty();
     }
 
   private:
-    std::vector<Entry> entries_;
+    template <typename, typename>
+    friend class Constraint;
+
+    std::vector<EntryVariant> entries_;
   };
 
-  template <typename Term,
-            std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
-  ConstraintSum<Term>
-  operator+(Term lhs, Term rhs)
+  template <typename Lhs,
+            typename Rhs,
+            std::enable_if_t<detail::is_weak_term<Lhs>::value &&
+                               detail::is_weak_term<Rhs>::value,
+                             int> = 0>
+  ConstraintSum<Lhs, Rhs>
+  operator+(Lhs lhs, Rhs rhs)
   {
-    return ConstraintSum<Term>(ConstraintSum<Term>(std::move(lhs)),
-                               1.,
-                               std::move(rhs));
+    ConstraintSum<Lhs, Rhs> result;
+    result.add(std::move(lhs));
+    result.add(std::move(rhs));
+    return result;
   }
 
-  template <typename Term,
-            std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
-  ConstraintSum<Term>
-  operator-(Term lhs, Term rhs)
+  template <typename Lhs,
+            typename Rhs,
+            std::enable_if_t<detail::is_weak_term<Lhs>::value &&
+                               detail::is_weak_term<Rhs>::value,
+                             int> = 0>
+  ConstraintSum<Lhs, Rhs>
+  operator-(Lhs lhs, Rhs rhs)
   {
-    return ConstraintSum<Term>(ConstraintSum<Term>(std::move(lhs)),
-                               -1.,
-                               std::move(rhs));
+    ConstraintSum<Lhs, Rhs> result;
+    result.add(std::move(lhs));
+    result.add(std::move(rhs), -1.);
+    return result;
   }
 
-  template <typename Term>
-  ConstraintSum<Term>
-  operator+(ConstraintSum<Term> lhs, Term rhs)
+  template <typename... Terms, typename NewTerm>
+  ConstraintSum<Terms..., NewTerm>
+  operator+(ConstraintSum<Terms...> lhs, NewTerm rhs)
   {
-    return ConstraintSum<Term>(std::move(lhs), 1., std::move(rhs));
+    ConstraintSum<Terms..., NewTerm> result;
+    lhs.for_each([&result](const auto &entry) {
+      result.add(entry.term, entry.coefficient);
+    });
+    result.add(std::move(rhs));
+    return result;
   }
 
-  template <typename Term>
-  ConstraintSum<Term>
-  operator-(ConstraintSum<Term> lhs, Term rhs)
+  template <typename... Terms, typename NewTerm>
+  ConstraintSum<Terms..., NewTerm>
+  operator-(ConstraintSum<Terms...> lhs, NewTerm rhs)
   {
-    return ConstraintSum<Term>(std::move(lhs), -1., std::move(rhs));
+    ConstraintSum<Terms..., NewTerm> result;
+    lhs.for_each([&result](const auto &entry) {
+      result.add(entry.term, entry.coefficient);
+    });
+    result.add(std::move(rhs), -1.);
+    return result;
   }
 
   /** A generic Lagrange-multiplier constraint over weak terms. */
@@ -108,42 +165,42 @@ namespace ImmersX
     using term_type = Term;
     using rhs_type  = Rhs;
 
-    explicit Constraint(ConstraintSum<Term> terms, Rhs rhs = Rhs())
+    explicit Constraint(Term terms, Rhs rhs = Rhs())
       : terms_(std::move(terms))
       , rhs_(std::move(rhs))
     {
-      AssertThrow(!terms_.entries().empty(),
+      AssertThrow(!terms_.empty(),
                   dealii::ExcMessage(
                     "A constraint must contain at least one weak term."));
 
-      const auto &target = terms_.entries().front().term.target();
+      const auto &target = multiplier();
       AssertThrow(!target.is_registered(),
                   dealii::ExcMessage(
                     "A constraint multiplier must be an unregistered field."));
-      for (const auto &entry : terms_.entries())
-        {
-          AssertThrow(!entry.term.target().is_registered(),
-                      dealii::ExcMessage(
-                        "A constraint multiplier must be an unregistered "
-                        "field."));
-          AssertThrow(&entry.term.target().space() == &target.space() &&
-                        entry.term.target().name() == target.name(),
-                      dealii::ExcMessage(
-                        "All weak terms in a constraint must use the same "
-                        "multiplier field."));
-        }
+      terms_.for_each([&](const auto &entry) {
+        AssertThrow(!entry.term.target().is_registered(),
+                    dealii::ExcMessage(
+                      "A constraint multiplier must be an unregistered "
+                      "field."));
+        AssertThrow(static_cast<const void *>(&entry.term.target().space()) ==
+                        static_cast<const void *>(&target.space()) &&
+                      entry.term.target().name() == target.name(),
+                    dealii::ExcMessage(
+                      "All weak terms in a constraint must use the same "
+                      "multiplier field."));
+      });
     }
 
     const auto &
     terms() const
     {
-      return terms_.entries();
+      return terms_;
     }
 
     const auto &
     multiplier() const
     {
-      return terms_.entries().front().term.target();
+      return std::get<0>(terms_.entries_.front()).term.target();
     }
 
     bool
@@ -163,21 +220,21 @@ namespace ImmersX
                                 multiplier_field.locally_relevant_dofs());
 
       std::vector<FieldId> participants;
-      for (const auto &entry : terms())
-        {
-          const auto participant = entry.term.observable().source_field();
-          if (std::find(participants.begin(),
-                        participants.end(),
-                        participant) == participants.end())
-            participants.push_back(participant);
-        }
+      terms_.for_each([&](const auto &entry) {
+        const auto participant = entry.term.observable().source_field();
+        if (std::find(participants.begin(), participants.end(), participant) ==
+            participants.end())
+          participants.push_back(participant);
+      });
       builder.saddle_point(multiplier_id, participants);
 
-      for (std::size_t index = 0; index < terms().size(); ++index)
-        terms()[index].term.add_constraint_terms(builder,
-                                                 multiplier_id,
-                                                 terms()[index].coefficient,
-                                                 index);
+      std::size_t index = 0;
+      terms_.for_each([&](const auto &entry) {
+        entry.term.add_constraint_terms(builder,
+                                        multiplier_id,
+                                        entry.coefficient,
+                                        index++);
+      });
 
       if constexpr (!std::is_same_v<Rhs, std::monostate>)
         {
@@ -201,41 +258,44 @@ namespace ImmersX
     }
 
   private:
-    ConstraintSum<Term> terms_;
-    Rhs                 rhs_;
+    Term terms_;
+    Rhs  rhs_;
   };
 
-  template <typename Term, typename Rhs>
-  Constraint<Term, std::decay_t<Rhs>>
-  make_constraint(ConstraintSum<Term> terms, Rhs &&rhs)
+  template <typename... Terms, typename Rhs>
+  Constraint<ConstraintSum<Terms...>, std::decay_t<Rhs>>
+  make_constraint(ConstraintSum<Terms...> terms, Rhs &&rhs)
   {
-    return Constraint<Term, std::decay_t<Rhs>>(std::move(terms),
-                                               std::forward<Rhs>(rhs));
+    return Constraint<ConstraintSum<Terms...>, std::decay_t<Rhs>>(
+      std::move(terms), std::forward<Rhs>(rhs));
   }
 
-  template <typename Term>
-  Constraint<Term>
-  make_constraint(ConstraintSum<Term> terms)
+  template <typename... Terms>
+  Constraint<ConstraintSum<Terms...>>
+  make_constraint(ConstraintSum<Terms...> terms)
   {
-    return Constraint<Term>(std::move(terms));
+    return Constraint<ConstraintSum<Terms...>>(std::move(terms));
   }
 
   template <typename Term,
             std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
-  Constraint<Term>
+  Constraint<ConstraintSum<Term>>
   make_constraint(Term term)
   {
-    return make_constraint(ConstraintSum<Term>(std::move(term)));
+    ConstraintSum<Term> terms;
+    terms.add(std::move(term));
+    return make_constraint(std::move(terms));
   }
 
   template <typename Term,
             typename Rhs,
             std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
-  Constraint<Term, std::decay_t<Rhs>>
+  Constraint<ConstraintSum<Term>, std::decay_t<Rhs>>
   make_constraint(Term term, Rhs &&rhs)
   {
-    return make_constraint(ConstraintSum<Term>(std::move(term)),
-                           std::forward<Rhs>(rhs));
+    ConstraintSum<Term> terms;
+    terms.add(std::move(term));
+    return make_constraint(std::move(terms), std::forward<Rhs>(rhs));
   }
 
   template <typename Builder, typename Term, typename Rhs>
