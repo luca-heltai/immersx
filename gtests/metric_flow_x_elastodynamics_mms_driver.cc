@@ -29,8 +29,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,10 +55,30 @@ namespace
   using GlobalVector        = ImmersXLA::MPI::BlockVector;
   using Adapter             = IDAAdapter<FlowVector, GlobalVector>;
   using SolidProblem        = ElastodynamicsSolver<3>;
+  using SolidVector         = SolidProblem::VectorType;
   using SolidRepresentation = VectorFiniteElementRepresentation<3, 3>;
   using WallRepresentation  = MetricFlowXAreaRadialDisplacementRepresentation;
   using Interaction =
     VesselWallInteraction<SolidRepresentation, WallRepresentation>;
+  using CouplingVector = typename Interaction::VectorType;
+
+  struct ErrorRecord
+  {
+    unsigned int level             = 0;
+    unsigned int n_steps           = 0;
+    double       h_flow            = 0.;
+    double       h_solid           = 0.;
+    unsigned int flow_dofs         = 0;
+    unsigned int solid_dofs        = 0;
+    unsigned int multiplier_dofs   = 0;
+    double       area_l2           = 0.;
+    double       velocity_l2       = 0.;
+    double       displacement_l2   = 0.;
+    double       displacement_h1   = 0.;
+    double       velocity_solid_l2 = 0.;
+    double       multiplier_l2     = 0.;
+    double       constraint        = 0.;
+  };
 
   std::string
   function_constants()
@@ -284,6 +306,22 @@ namespace
     return expression;
   }
 
+  void
+  initialize_exact_flow_function(FunctionParser<3> &result,
+                                 const double       time,
+                                 const bool         spatial)
+  {
+    const auto area_expression =
+      spatial ? spatial_flow_area_expression() : flow_area_expression();
+    const auto velocity_expression = spatial ? "0" : flow_velocity_expression();
+    result.initialize(FunctionParser<3>::default_variable_names() + ",t",
+                      area_expression + ";" + velocity_expression + ";" +
+                        area_expression + ";" + velocity_expression,
+                      {{"pi", numbers::PI}},
+                      true);
+    result.set_time(time);
+  }
+
   std::string
   write_mms_parameter_file(const unsigned int level,
                            const double       final_time,
@@ -340,9 +378,11 @@ namespace
 
   struct MMSFixture
   {
-    MMSFixture(const unsigned int level,
+    MMSFixture(const unsigned int flow_level,
                const double       final_time,
-               const bool         spatial = false)
+               const bool         spatial     = false,
+               const unsigned int n_steps     = 1,
+               const unsigned int solid_level = numbers::invalid_unsigned_int)
       : spatial_case(spatial)
     {
       ParameterAcceptor::clear();
@@ -360,15 +400,16 @@ namespace
       reset_parameter_handler_to_root(ParameterAcceptor::prm);
 
       const auto parameter_file =
-        write_mms_parameter_file(level, final_time, spatial_case);
+        write_mms_parameter_file(flow_level, final_time, spatial_case);
       initialize_parameters(parameter_file);
       flow_problem->initialize_params(parameter_file);
 
       const Parameters par;
       flow_time->initial_time                  = 0.;
       flow_time->final_time                    = final_time;
-      flow_time->time_step                     = final_time;
-      flow_time->initial_step_size             = final_time;
+      flow_time->time_step                     = final_time / n_steps;
+      flow_time->number_of_steps               = n_steps;
+      flow_time->initial_step_size             = final_time / n_steps;
       flow_time->minimum_step_size             = final_time * 1.e-6;
       flow_time->maximum_order                 = 1;
       flow_time->maximum_non_linear_iterations = 3;
@@ -376,8 +417,9 @@ namespace
       flow_time->relative_tolerance            = 1.e-2;
       flow_time->output_frequency              = 0;
 
-      solid_parameters->initial_refinement = level;
-      solid_parameters->name_of_grid       = "subdivided_cylinder";
+      solid_parameters->initial_refinement =
+        solid_level == numbers::invalid_unsigned_int ? flow_level : solid_level;
+      solid_parameters->name_of_grid = "subdivided_cylinder";
       solid_parameters->arguments_for_grid =
         "4:" + std::to_string(par.outer_r) + ":" +
         std::to_string(par.length / 2.);
@@ -492,12 +534,11 @@ namespace
       exact_solution.set_time(0.);
       FlowVector exact_fe_state;
       exact_fe_state.reinit(flow_problem->dof_handler().locally_owned_dofs(),
-                            DoFTools::extract_locally_relevant_dofs(
-                              flow_problem->dof_handler()),
                             MPI_COMM_WORLD);
       VectorTools::interpolate(flow_problem->dof_handler(),
                                exact_solution,
                                exact_fe_state);
+      exact_fe_state.compress(VectorOperation::insert);
       flow_state = 0.;
       for (const auto index : flow_problem->dof_handler().locally_owned_dofs())
         flow_state[index] = exact_fe_state[index];
@@ -516,12 +557,11 @@ namespace
       exact_derivative.set_time(0.);
       FlowVector exact_fe_derivative;
       exact_fe_derivative.reinit(
-        flow_problem->dof_handler().locally_owned_dofs(),
-        DoFTools::extract_locally_relevant_dofs(flow_problem->dof_handler()),
-        MPI_COMM_WORLD);
+        flow_problem->dof_handler().locally_owned_dofs(), MPI_COMM_WORLD);
       VectorTools::interpolate(flow_problem->dof_handler(),
                                exact_derivative,
                                exact_fe_derivative);
+      exact_fe_derivative.compress(VectorOperation::insert);
       auto &flow_state_dot =
         adapter->field(state_dot, flow_fields->fields().state);
       for (const auto index : flow_problem->dof_handler().locally_owned_dofs())
@@ -535,8 +575,171 @@ namespace
       adapter->field(state_dot, coupling_fields.multiplier) = 0.;
     }
 
+    FlowVector
+    exact_flow_fe_state(const double time) const
+    {
+      FlowVector owned;
+      owned.reinit(flow_problem->dof_handler().locally_owned_dofs(),
+                   MPI_COMM_WORLD);
+      FunctionParser<3> exact(4);
+      initialize_exact_flow_function(exact, time, spatial_case);
+      VectorTools::interpolate(flow_problem->dof_handler(), exact, owned);
+      owned.compress(VectorOperation::insert);
+      FlowVector result;
+      result.reinit(flow_problem->dof_handler().locally_owned_dofs(),
+                    DoFTools::extract_locally_relevant_dofs(
+                      flow_problem->dof_handler()),
+                    MPI_COMM_WORLD);
+      result = owned;
+      result.update_ghost_values();
+      return result;
+    }
+
+    FlowVector
+    numerical_flow_fe_state(const GlobalVector &state) const
+    {
+      FlowVector owned;
+      owned.reinit(flow_problem->dof_handler().locally_owned_dofs(),
+                   MPI_COMM_WORLD);
+      const auto &flow_state =
+        adapter->field(state, flow_fields->fields().state);
+      for (const auto index : flow_problem->dof_handler().locally_owned_dofs())
+        owned[index] = flow_state[index];
+      owned.compress(VectorOperation::insert);
+      FlowVector result;
+      result.reinit(flow_problem->dof_handler().locally_owned_dofs(),
+                    DoFTools::extract_locally_relevant_dofs(
+                      flow_problem->dof_handler()),
+                    MPI_COMM_WORLD);
+      result = owned;
+      result.update_ghost_values();
+      return result;
+    }
+
+    double
+    flow_error(const GlobalVector &state,
+               const double        time,
+               const unsigned int  component) const
+    {
+      auto              numerical = numerical_flow_fe_state(state);
+      FunctionParser<3> exact(4);
+      initialize_exact_flow_function(exact, time, spatial_case);
+      Vector<double> cellwise_error(
+        flow_problem->triangulation().n_active_cells());
+      ComponentSelectFunction<3> mask(component, 4);
+      VectorTools::integrate_difference(StaticMappingQ1<1, 3>::mapping,
+                                        flow_problem->dof_handler(),
+                                        numerical,
+                                        exact,
+                                        cellwise_error,
+                                        QGauss<1>(4),
+                                        VectorTools::L2_norm,
+                                        &mask);
+      return VectorTools::compute_global_error(flow_problem->triangulation(),
+                                               cellwise_error,
+                                               VectorTools::L2_norm,
+                                               2.);
+    }
+
+    double
+    solid_error(const GlobalVector &state,
+                const double        time,
+                const bool          velocity,
+                const bool          h1 = false) const
+    {
+      const auto &owned_numerical =
+        adapter->field(state,
+                       velocity ? solid_fields->fields().velocity :
+                                  solid_fields->fields().displacement);
+      SolidVector numerical;
+      numerical.reinit(solid_problem->locally_owned_dofs(),
+                       solid_problem->locally_relevant_dofs(),
+                       MPI_COMM_WORLD);
+      SolidVector owned;
+      owned.reinit(solid_problem->locally_owned_dofs(), MPI_COMM_WORLD);
+      for (const auto index : solid_problem->locally_owned_dofs())
+        owned[index] = owned_numerical[index];
+      owned.compress(VectorOperation::insert);
+      numerical = owned;
+      numerical.update_ghost_values();
+      auto exact =
+        solid_exact_function(Parameters{}, time, spatial_case, velocity);
+      Vector<double> cellwise_error(
+        solid_problem->triangulation().n_active_cells());
+      VectorTools::integrate_difference(solid_problem->mapping(),
+                                        solid_problem->dof_handler(),
+                                        numerical,
+                                        exact,
+                                        cellwise_error,
+                                        QGauss<3>(4),
+                                        h1 ? VectorTools::H1_seminorm :
+                                             VectorTools::L2_norm);
+      return VectorTools::compute_global_error(solid_problem->triangulation(),
+                                               cellwise_error,
+                                               h1 ? VectorTools::H1_seminorm :
+                                                    VectorTools::L2_norm,
+                                               2.);
+    }
+
+    double
+    multiplier_metric_norm(const CouplingVector &value) const
+    {
+      CouplingVector image;
+      image.reinit(value);
+      interaction->multiplier_metric_matrix().vmult(image, value);
+      return std::sqrt(std::max(0., value * image));
+    }
+
+    ErrorRecord
+    errors(const GlobalVector &state,
+           const GlobalVector &state_dot,
+           const double        time,
+           const unsigned int  level) const
+    {
+      ErrorRecord result;
+      result.level  = level;
+      result.h_flow = 0.;
+      for (const auto &cell :
+           flow_problem->triangulation().active_cell_iterators())
+        if (cell->is_locally_owned())
+          result.h_flow = std::max(result.h_flow, cell->diameter());
+      result.h_flow  = Utilities::MPI::max(result.h_flow, MPI_COMM_WORLD);
+      result.h_solid = 0.;
+      for (const auto &cell :
+           solid_problem->triangulation().active_cell_iterators())
+        if (cell->is_locally_owned())
+          result.h_solid = std::max(result.h_solid, cell->diameter());
+      result.h_solid    = Utilities::MPI::max(result.h_solid, MPI_COMM_WORLD);
+      result.flow_dofs  = flow_problem->dof_handler().n_dofs();
+      result.solid_dofs = solid_problem->dof_handler().n_dofs();
+      result.multiplier_dofs =
+        interaction->multiplier_locally_owned_dofs().size();
+      result.area_l2           = flow_error(state, time, 0);
+      result.velocity_l2       = flow_error(state, time, 1);
+      result.displacement_l2   = solid_error(state, time, false);
+      result.displacement_h1   = solid_error(state, time, false, true);
+      result.velocity_solid_l2 = solid_error(state, time, true);
+
+      auto exact_state = adapter->make_state();
+      exact_state      = state;
+      set_exact_multiplier(exact_state, time);
+      const auto &numerical_multiplier =
+        adapter->field(state, coupling_fields.multiplier);
+      const auto &exact_multiplier_field =
+        adapter->field(exact_state, coupling_fields.multiplier);
+      auto multiplier_difference = numerical_multiplier;
+      multiplier_difference -= exact_multiplier_field;
+      result.multiplier_l2 = multiplier_metric_norm(multiplier_difference);
+
+      auto residual = adapter->make_state();
+      adapter->solver().residual(time, state, state_dot, residual);
+      result.constraint = multiplier_metric_norm(
+        adapter->field(residual, coupling_fields.multiplier));
+      return result;
+    }
+
     void
-    set_exact_multiplier(GlobalVector &state, const double time)
+    set_exact_multiplier(GlobalVector &state, const double time) const
     {
       auto &multiplier = adapter->field(state, coupling_fields.multiplier);
       multiplier       = 0.;
@@ -583,6 +786,76 @@ namespace
     bool             spatial_case = false;
   };
 
+  ErrorRecord
+  run_transient_case(const unsigned int flow_level,
+                     const unsigned int solid_level,
+                     const unsigned int n_steps,
+                     const unsigned int logical_level)
+  {
+    MMSFixture fixture(flow_level, 0.1, false, n_steps, solid_level);
+    auto       state     = fixture.adapter->make_state();
+    auto       state_dot = fixture.adapter->make_state();
+    fixture.initialize(state, state_dot);
+    EXPECT_GT(fixture.adapter->solve(state, state_dot), 0u);
+    EXPECT_TRUE(std::isfinite(state.l2_norm()));
+    auto residual = fixture.adapter->make_state();
+    fixture.adapter->solver().residual(fixture.flow_time->final_time,
+                                       state,
+                                       state_dot,
+                                       residual);
+    EXPECT_TRUE(std::isfinite(residual.l2_norm()));
+    auto result    = fixture.errors(state,
+                                 state_dot,
+                                 fixture.flow_time->final_time,
+                                 logical_level);
+    result.n_steps = n_steps;
+    return result;
+  }
+
+  void
+  write_error_table(const std::string              &name,
+                    const std::vector<ErrorRecord> &records)
+  {
+    const auto filename = TestPaths::output_path(
+      "metric-flow-x-elastodynamics-mms/" + name + ".csv");
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        std::filesystem::create_directories(filename.parent_path());
+        std::ofstream output(filename);
+        output
+          << "level,n_steps,h_flow,h_solid,flow_dofs,solid_dofs,"
+             "multiplier_dofs,area_l2,velocity_l2,displacement_l2,"
+             "displacement_h1,velocity_solid_l2,multiplier_l2,constraint\n";
+        for (const auto &record : records)
+          output << record.level << ',' << record.n_steps << ','
+                 << std::setprecision(17) << record.h_flow << ','
+                 << record.h_solid << ',' << record.flow_dofs << ','
+                 << record.solid_dofs << ',' << record.multiplier_dofs << ','
+                 << record.area_l2 << ',' << record.velocity_l2 << ','
+                 << record.displacement_l2 << ',' << record.displacement_h1
+                 << ',' << record.velocity_solid_l2 << ','
+                 << record.multiplier_l2 << ',' << record.constraint << '\n';
+
+        std::cout
+          << "\n"
+          << name << "\n"
+          << "level  steps       h_flow       area_L2       velocity_L2"
+             "       displacement_L2       displacement_H1"
+             "       velocity_solid_L2       multiplier_L2       constraint\n";
+        for (const auto &record : records)
+          std::cout << std::setw(5) << record.level << std::setw(7)
+                    << record.n_steps << std::scientific << std::setprecision(6)
+                    << std::setw(13) << record.h_flow << std::setw(14)
+                    << record.area_l2 << std::setw(15) << record.velocity_l2
+                    << std::setw(22) << record.displacement_l2 << std::setw(22)
+                    << record.displacement_h1 << std::setw(24)
+                    << record.velocity_solid_l2 << std::setw(18)
+                    << record.multiplier_l2 << std::setw(15)
+                    << record.constraint << '\n';
+      }
+    MPI_Barrier(MPI_COMM_WORLD);
+  }
+
   TEST(OneVesselMMSDriver, MPI_ActualTwoWayTransientSolve)
   {
     MMSFixture fixture(0, 0.1);
@@ -599,6 +872,73 @@ namespace
                                        state_dot,
                                        residual);
     EXPECT_TRUE(std::isfinite(residual.l2_norm()));
+    const auto errors = fixture.errors(state, state_dot, 0.1, 0);
+    std::cout << "MMS errors: A=" << errors.area_l2
+              << " U=" << errors.velocity_l2 << " u=" << errors.displacement_l2
+              << " H1=" << errors.displacement_h1
+              << " V=" << errors.velocity_solid_l2
+              << " lambda=" << errors.multiplier_l2
+              << " G=" << errors.constraint << std::endl;
+  }
+
+  TEST(OneVesselMMSDriver, MPI_ActualFourLevelSpatialStudy)
+  {
+    if (std::getenv("IMMERSX_RUN_MMS_STUDIES") == nullptr)
+      GTEST_SKIP() << "Set IMMERSX_RUN_MMS_STUDIES=1 for the expensive study.";
+    std::vector<ErrorRecord> records;
+    for (unsigned int level = 0; level < 4; ++level)
+      records.push_back(run_transient_case(level, level, 1, level));
+    write_error_table("spatial-study", records);
+    for (unsigned int level = 1; level < records.size(); ++level)
+      {
+        EXPECT_LT(records[level].area_l2, 1.e-6);
+        EXPECT_LT(records[level].velocity_l2, 1.e-4);
+        EXPECT_LT(records[level].displacement_l2, 1.e-6);
+        EXPECT_LT(records[level].displacement_h1, 1.e-4);
+        EXPECT_LT(records[level].velocity_solid_l2, 1.e-4);
+        EXPECT_LT(records[level].multiplier_l2, 1.e-3);
+        EXPECT_LT(records[level].constraint, 1.e-8);
+      }
+  }
+
+  TEST(OneVesselMMSDriver, MPI_ActualFourLevelTemporalStudy)
+  {
+    if (std::getenv("IMMERSX_RUN_MMS_STUDIES") == nullptr)
+      GTEST_SKIP() << "Set IMMERSX_RUN_MMS_STUDIES=1 for the expensive study.";
+    std::vector<ErrorRecord> records;
+    for (unsigned int level = 0; level < 4; ++level)
+      records.push_back(run_transient_case(0, 0, 1u << level, level));
+    write_error_table("temporal-study", records);
+    for (unsigned int level = 1; level < records.size(); ++level)
+      {
+        EXPECT_LT(records[level].area_l2, 1.e-6);
+        EXPECT_LT(records[level].velocity_l2, 1.e-4);
+        EXPECT_LT(records[level].displacement_l2, 1.e-6);
+        EXPECT_LT(records[level].displacement_h1, 1.e-4);
+        EXPECT_LT(records[level].velocity_solid_l2, 1.e-4);
+        EXPECT_LT(records[level].multiplier_l2, 1.e-3);
+        EXPECT_LT(records[level].constraint, 1.e-8);
+      }
+  }
+
+  TEST(OneVesselMMSDriver, MPI_ActualFourLevelCombinedStudy)
+  {
+    if (std::getenv("IMMERSX_RUN_MMS_STUDIES") == nullptr)
+      GTEST_SKIP() << "Set IMMERSX_RUN_MMS_STUDIES=1 for the expensive study.";
+    std::vector<ErrorRecord> records;
+    for (unsigned int level = 0; level < 4; ++level)
+      records.push_back(run_transient_case(level, level, 1u << level, level));
+    write_error_table("combined-study", records);
+    for (unsigned int level = 1; level < records.size(); ++level)
+      {
+        EXPECT_LT(records[level].area_l2, 1.e-6);
+        EXPECT_LT(records[level].velocity_l2, 1.e-4);
+        EXPECT_LT(records[level].displacement_l2, 1.e-6);
+        EXPECT_LT(records[level].displacement_h1, 1.e-4);
+        EXPECT_LT(records[level].velocity_solid_l2, 1.e-4);
+        EXPECT_LT(records[level].multiplier_l2, 1.e-3);
+        EXPECT_LT(records[level].constraint, 1.e-8);
+      }
   }
 
 } // namespace

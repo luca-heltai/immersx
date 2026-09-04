@@ -31,5 +31,14 @@ build-metric-flow-x-debug/metric_flow_x_elastodynamics_debug \
 The registered gate `metric_flow_x_elastodynamics_mms_convergence` currently
 checks the four-level analytical convergence table together with the assembled
 two-way residual composition. An IDA time solve remains a separate production
-application check; its tolerances should be selected only after the initial
-state has been corrected for the rounded vessel metadata in the fixture.
+application check. The driver also contains four-level actual temporal and
+combined studies. Run them with:
+
+```bash
+cd build-metric-flow-x-debug/gtests
+IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_convergence_debug \
+  --gtest_filter='OneVesselMMSDriver.MPI_ActualFourLevelTemporalStudy:OneVesselMMSDriver.MPI_ActualFourLevelCombinedStudy'
+```
+
+Both studies print physical error tables and write CSV files below
+`build-metric-flow-x-debug/test_output/metric-flow-x-elastodynamics-mms/`.

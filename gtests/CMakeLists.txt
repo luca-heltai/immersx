@@ -226,7 +226,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           NAME metric_flow_x_elastodynamics_mms_convergence
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
-                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.*:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke)
+                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke)
       endif()
     endif()
   endforeach()

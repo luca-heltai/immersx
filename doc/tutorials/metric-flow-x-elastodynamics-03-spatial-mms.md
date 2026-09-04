@@ -13,7 +13,9 @@ piecewise, the continuous solid source is obtained from `-div sigma(u*)`, not
 from a discrete residual. The flow mass equation remains source free. The
 source formulas and the native multiplier-to-pressure convention are captured
 in the shared analytical gate; the checked-in input is the generated
-production-path baseline for this tutorial step.
+production-path baseline for this tutorial step. The actual two-way IDA
+verification driver also reports area, flow velocity, solid displacement,
+solid H1, velocity, multiplier-metric, and constraint errors in physical norms.
 
 Use the configured production input:
 
@@ -30,3 +32,14 @@ ctest --test-dir build-metric-flow-x-debug -V \
 ```
 
 Runtime files belong below the build-tree test-output directory.
+
+For the four-level measured spatial table, run:
+
+```bash
+cd build-metric-flow-x-debug/gtests
+IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_convergence_debug \
+  --gtest_filter=OneVesselMMSDriver.MPI_ActualFourLevelSpatialStudy
+```
+
+The CSV table is written below
+`build-metric-flow-x-debug/test_output/metric-flow-x-elastodynamics-mms/`.

@@ -127,6 +127,14 @@ namespace
     const dealii::Point<3> point(s, 0.02, 0.01);
     EXPECT_GT(
       ImmersX::OneVesselMMS::spatial_solid_body_force(par, point).norm(), 0.);
+    const dealii::Point<3> axis_point(s, 0., 0.);
+    const auto             axis_force =
+      ImmersX::OneVesselMMS::spatial_solid_body_force(par, axis_point);
+    EXPECT_NEAR(axis_force[0],
+                -(par.shear_modulus + par.lame_lambda) *
+                  ImmersX::OneVesselMMS::spatial_radius_increment_s(par, s) *
+                  2. / par.reference_r,
+                1.e-14);
   }
 
   TEST(OneVesselMMS, TransientSourcesAndWallTraceAreFinite)

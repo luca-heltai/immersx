@@ -10,11 +10,14 @@
 #ifndef IMMERSX_METRIC_FLOW_X_ELASTODYNAMICS_MMS_H
 #define IMMERSX_METRIC_FLOW_X_ELASTODYNAMICS_MMS_H
 
+#include <deal.II/base/function.h>
 #include <deal.II/base/numbers.h>
 #include <deal.II/base/point.h>
 #include <deal.II/base/tensor.h>
 
 #include <cmath>
+#include <functional>
+#include <vector>
 
 namespace ImmersX::OneVesselMMS
 {
@@ -189,6 +192,21 @@ namespace ImmersX::OneVesselMMS
   }
 
   inline double
+  exact_radius_increment_st(const Parameters &par,
+                            const double      s,
+                            const double      time)
+  {
+    const double area    = exact_area(par, s, time);
+    const double area_s  = exact_area_s(par, s, time);
+    const double area_t  = exact_area_t(par, s, time);
+    const double area_st = par.area_amplitude * modulation_t(par, time) *
+                           wave_number(par) * std::cos(wave_number(par) * s);
+    return area_st / (2.0 * std::sqrt(dealii::numbers::PI * area)) -
+           area_s * area_t /
+             (4.0 * std::sqrt(dealii::numbers::PI) * std::pow(area, 1.5));
+  }
+
+  inline double
   exact_radius_increment_s(const Parameters &par,
                            const double      s,
                            const double      time)
@@ -299,6 +317,105 @@ namespace ImmersX::OneVesselMMS
                         radial_profile(par, radius));
   }
 
+  /** Return the exact solid displacement or velocity as a deal.II Function.
+   *
+   * The gradient is supplied explicitly so that the verification driver can
+   * use VectorTools::integrate_difference for both L2 and H1 errors.  The
+   * limiting value at the axis is handled analytically rather than through a
+   * division by the cylindrical radius.
+   */
+  inline dealii::FunctionFromFunctionObjects<3>
+  solid_exact_function(const Parameters &par,
+                       const double      time,
+                       const bool        spatial,
+                       const bool        velocity = false)
+  {
+    const auto amplitude = [par, time, spatial, velocity](const double s) {
+      if (spatial)
+        return spatial_radius_increment(par, s);
+      return velocity ? exact_radius_increment_t(par, s, time) :
+                        exact_radius_increment(par, s, time);
+    };
+    const auto amplitude_s = [par, time, spatial, velocity](const double s) {
+      if (spatial)
+        return spatial_radius_increment_s(par, s);
+      return velocity ? exact_radius_increment_st(par, s, time) :
+                        exact_radius_increment_t(par, s, time);
+    };
+
+    std::vector<std::function<double(const dealii::Point<3> &)>> values(3);
+    std::vector<std::function<dealii::Tensor<1, 3>(const dealii::Point<3> &)>>
+      gradients(3);
+    values[0] = [](const dealii::Point<3> &) { return 0.; };
+    values[1] = [par, amplitude](const dealii::Point<3> &point) {
+      const double radius =
+        std::sqrt(point[1] * point[1] + point[2] * point[2]);
+      return radius == 0. ? 0. :
+                            amplitude(point[0] + par.length / 2.) *
+                              radial_profile(par, radius) * point[1] / radius;
+    };
+    values[2] = [par, amplitude](const dealii::Point<3> &point) {
+      const double radius =
+        std::sqrt(point[1] * point[1] + point[2] * point[2]);
+      return radius == 0. ? 0. :
+                            amplitude(point[0] + par.length / 2.) *
+                              radial_profile(par, radius) * point[2] / radius;
+    };
+
+    gradients[0] = [](const dealii::Point<3> &) {
+      return dealii::Tensor<1, 3>();
+    };
+    gradients[1] =
+      [par, amplitude, amplitude_s](const dealii::Point<3> &point) {
+        const double         y      = point[1];
+        const double         z      = point[2];
+        const double         radius = std::sqrt(y * y + z * z);
+        dealii::Tensor<1, 3> gradient;
+        gradient       = 0.;
+        const double s = point[0] + par.length / 2.;
+        const double d = amplitude(s);
+        if (radius == 0.)
+          {
+            gradient[1] = d / par.reference_r;
+            return gradient;
+          }
+        const double phi  = radial_profile(par, radius);
+        const double dphi = radial_profile_derivative(par, radius);
+        gradient[0]       = amplitude_s(s) * phi * y / radius;
+        gradient[1] =
+          d * (dphi * y * y / (radius * radius) +
+               phi * (1. / radius - y * y / (radius * radius * radius)));
+        gradient[2] = d * (dphi * y * z / (radius * radius) -
+                           phi * y * z / (radius * radius * radius));
+        return gradient;
+      };
+    gradients[2] =
+      [par, amplitude, amplitude_s](const dealii::Point<3> &point) {
+        const double         y      = point[1];
+        const double         z      = point[2];
+        const double         radius = std::sqrt(y * y + z * z);
+        dealii::Tensor<1, 3> gradient;
+        gradient       = 0.;
+        const double s = point[0] + par.length / 2.;
+        const double d = amplitude(s);
+        if (radius == 0.)
+          {
+            gradient[2] = d / par.reference_r;
+            return gradient;
+          }
+        const double phi  = radial_profile(par, radius);
+        const double dphi = radial_profile_derivative(par, radius);
+        gradient[0]       = amplitude_s(s) * phi * z / radius;
+        gradient[1]       = d * (dphi * y * z / (radius * radius) -
+                           phi * y * z / (radius * radius * radius));
+        gradient[2] =
+          d * (dphi * z * z / (radius * radius) +
+               phi * (1. / radius - z * z / (radius * radius * radius)));
+        return gradient;
+      };
+    return dealii::FunctionFromFunctionObjects<3>(values, gradients);
+  }
+
   /** Continuous body force for the radial manufactured displacement.
    *
    * The two radial profiles are harmonic in the cross-section, so only the
@@ -314,7 +431,12 @@ namespace ImmersX::OneVesselMMS
     dealii::Tensor<1, 3> result;
     result = 0.;
     if (radius == 0.)
-      return result;
+      {
+        result[0] = -(par.shear_modulus + par.lame_lambda) *
+                    exact_radius_increment_s(par, point[0], time) * 2. /
+                    par.reference_r;
+        return result;
+      }
 
     dealii::Tensor<1, 3> direction;
     direction[0]      = 0.;
@@ -341,7 +463,12 @@ namespace ImmersX::OneVesselMMS
     dealii::Tensor<1, 3> result;
     result = 0.;
     if (radius == 0.)
-      return result;
+      {
+        result[0] = -(par.shear_modulus + par.lame_lambda) *
+                    spatial_radius_increment_s(par, point[0]) * 2. /
+                    par.reference_r;
+        return result;
+      }
 
     dealii::Tensor<1, 3> direction;
     direction[0]      = 0.;
