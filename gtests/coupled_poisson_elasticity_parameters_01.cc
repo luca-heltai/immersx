@@ -21,8 +21,10 @@ TEST(TractionParameters, IndependentParticleCouplingRoots) // NOLINT
 {
   ParameterAcceptor::clear();
 
-  CoupledPoissonElasticity::Traction traction_a("/Traction A/");
-  CoupledPoissonElasticity::Traction traction_b("/Traction B/");
+  CoupledPoissonElasticity::CylinderSurface traction_a(
+    0.2, dealii::Point<3>(0.5, 0.5, 0.), 8, "/Traction A/Particle coupling/");
+  CoupledPoissonElasticity::CylinderSurface traction_b(
+    0.2, dealii::Point<3>(0.5, 0.5, 0.), 8, "/Traction B/Particle coupling/");
 
   ImmersX::initialize_parameters_from_string(R"(
     subsection Traction A

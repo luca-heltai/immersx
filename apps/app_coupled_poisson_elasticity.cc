@@ -37,8 +37,8 @@ main(int argc, char *argv[])
       PoissonParameters<1, 3>                poisson_parameters;
       ElasticStaticParameters<3, 3>          elasticity_parameters;
       CoupledPoissonElasticity::PressureLift pressure_lift("/Pressure lift/");
-      CoupledPoissonElasticity::Traction     traction("/Pressure traction/");
-      LinearSolverParameters                 adapter_parameters;
+      CoupledPoissonElasticity::CylinderSurface surface;
+      LinearSolverParameters                    adapter_parameters;
       const std::string prm_file = argc > 1 ? argv[1] : "parameters.prm";
       initialize_parameters(prm_file);
 
@@ -50,7 +50,6 @@ main(int argc, char *argv[])
 
       ElasticStaticProblem<3, 3> elasticity_problem(elasticity_parameters);
       elasticity_problem.setup();
-      traction.attach(elasticity_problem);
 
       using FieldVector  = ImmersXLA::MPI::Vector;
       using GlobalVector = ImmersXLA::MPI::BlockVector;
@@ -60,10 +59,21 @@ main(int argc, char *argv[])
 
       const auto poisson = adapter.add(poisson_problem);
       const auto elastic = adapter.add(elasticity_problem);
+      const auto elastic_space =
+        fe_space(elasticity_problem.dof_handler(),
+                 dealii::StaticMappingQ1<3, 3>::mapping,
+                 elasticity_problem.constraints(),
+                 elasticity_problem.locally_relevant_dofs());
+      const auto displacement =
+        elastic_space.field(elastic.fields().displacement,
+                            "displacement",
+                            dealii::FEValuesExtractors::Vector(0));
       const auto pressure =
         poisson.observe(CoupledPoissonElasticity::Pressure{})
           .lift(pressure_lift);
-      adapter.couple(pressure, elastic, traction);
+      const auto traction = pressure * ImmersX::normal(surface);
+      adapter.add(ImmersX::weak_term(traction, displacement),
+                  "pressure-traction");
 
       auto state = adapter.make_state();
       adapter.solve(state);
@@ -84,8 +94,13 @@ main(int argc, char *argv[])
         adapter.field(state, elastic.fields().displacement);
       const double pressure_error =
         std::abs(CoupledPoissonElasticity::Pressure{}.factor - 2.);
-      const double traction_error = CoupledPoissonElasticity::traction_balance(
-        pressure, traction, poisson_state, elastic_state);
+      const double traction_error =
+        CoupledPoissonElasticity::traction_balance(pressure,
+                                                   surface,
+                                                   displacement,
+                                                   elasticity_problem,
+                                                   poisson_state,
+                                                   elastic_state);
 
       std::cout << "coupled_residual = " << residual.l2_norm() << '\n'
                 << "pressure_scale_error = " << pressure_error << '\n'

@@ -1239,6 +1239,371 @@ namespace ImmersX
 
   } // namespace detail
 
+  /** A geometry value that supplies normals for a point-supported quantity. */
+  template <typename Surface>
+  class NormalGeometry
+  {
+  public:
+    explicit NormalGeometry(const Surface &surface)
+      : surface_(&surface)
+    {}
+
+    const Surface &
+    surface() const
+    {
+      return *surface_;
+    }
+
+    const auto &
+    particle_coupling_parameters() const
+    {
+      return surface_->particle_coupling_parameters();
+    }
+
+    template <typename Point>
+    auto
+    normal(const Point &point) const
+    {
+      return surface_->normal(point);
+    }
+
+  private:
+    const Surface *surface_;
+  };
+
+  /** Attach a normal geometry observable to a point-supported quantity. */
+  template <typename Surface>
+  NormalGeometry<Surface>
+  normal(const Surface &surface)
+  {
+    return NormalGeometry<Surface>(surface);
+  }
+
+  template <typename Quantity, typename Surface>
+  class NormalQuantity
+  {
+  public:
+    static constexpr unsigned int support_dimension =
+      Quantity::support_dimension;
+    static constexpr unsigned int ambient_dimension =
+      Quantity::ambient_dimension;
+    using value_type = typename Quantity::value_type;
+
+    NormalQuantity(Quantity quantity, NormalGeometry<Surface> geometry)
+      : quantity_(std::move(quantity))
+      , geometry_(std::move(geometry))
+    {}
+
+    const Quantity &
+    quantity() const
+    {
+      return quantity_;
+    }
+
+    const NormalGeometry<Surface> &
+    geometry() const
+    {
+      return geometry_;
+    }
+
+    const std::vector<FieldId> &
+    dependencies() const
+    {
+      return quantity_.dependencies();
+    }
+
+    template <typename Context>
+    auto
+    evaluate(const Context &context) const
+    {
+      return quantity_.evaluate(context);
+    }
+
+    template <typename Context>
+    auto
+    linearize(const Context &context, const FieldId field) const
+    {
+      return quantity_.linearize(context, field);
+    }
+
+    template <typename Context>
+    auto
+    linearize(const Context &context) const
+    {
+      return quantity_.linearize(context);
+    }
+
+    template <typename Quadrature>
+    auto
+    locally_owned_quadrature_points(const Quadrature &quadrature) const
+    {
+      return quantity_.locally_owned_quadrature_points(quadrature);
+    }
+
+    const auto &
+    locally_owned_points() const
+    {
+      return quantity_.locally_owned_points();
+    }
+
+    const auto &
+    locally_relevant_points() const
+    {
+      return quantity_.locally_relevant_points();
+    }
+
+    auto
+    point_index(const std::size_t point) const
+    {
+      return quantity_.point_index(point);
+    }
+
+    auto
+    mpi_communicator() const
+    {
+      return quantity_.mpi_communicator();
+    }
+
+  private:
+    Quantity                quantity_;
+    NormalGeometry<Surface> geometry_;
+  };
+
+  template <typename Quantity, typename Surface>
+  NormalQuantity<Quantity, Surface>
+  operator*(Quantity quantity, NormalGeometry<Surface> geometry)
+  {
+    return NormalQuantity<Quantity, Surface>(std::move(quantity),
+                                             std::move(geometry));
+  }
+
+  namespace detail
+  {
+    /** Assemble the point-supported normal weak form once for fixed geometry.
+     */
+    template <typename Quantity,
+              typename Surface,
+              typename TargetField,
+              typename VectorType>
+    dealii::LinearOperator<VectorType, typename Quantity::value_type>
+    make_normal_load_operator(const NormalQuantity<Quantity, Surface> &load,
+                              const TargetField                       &target)
+    {
+      static_assert(TargetField::dimension() == TargetField::spacedimension(),
+                    "Point-supported normal loads require a full-dimensional "
+                    "target mesh.");
+      using QuantityVector = typename Quantity::value_type;
+      using Operator       = dealii::LinearOperator<VectorType, QuantityVector>;
+      const auto source_points = load.locally_owned_quadrature_points(
+        dealii::Quadrature<Quantity::support_dimension>());
+      const auto point_indices = [&load, n = source_points.size()] {
+        std::vector<dealii::types::global_dof_index> result;
+        result.reserve(n);
+        for (std::size_t q = 0; q < n; ++q)
+          result.push_back(load.point_index(q));
+        return result;
+      }();
+
+      const auto &target_triangulation =
+        target.dof_handler().get_triangulation();
+      const auto *distributed_target =
+        dynamic_cast<const dealii::parallel::TriangulationBase<
+          TargetField::spacedimension()> *>(&target_triangulation);
+      AssertThrow(distributed_target != nullptr,
+                  dealii::ExcMessage(
+                    "Point-supported weak terms require a distributed target "
+                    "triangulation."));
+      const auto &target_mapping = target.mapping();
+      auto        distribution   = std::make_shared<
+        DistributedLiftedQuadrature<TargetField::spacedimension()>>(
+        load.geometry().particle_coupling_parameters());
+      distribution->initialize(*distributed_target,
+                               target_mapping,
+                               source_points);
+
+      using Entry  = std::pair<dealii::types::global_dof_index, double>;
+      auto entries = std::make_shared<
+        std::map<dealii::types::particle_index, std::vector<Entry>>>();
+      for (const auto &particle :
+           distribution->particle_coupling().get_particles())
+        {
+          const auto &cell = particle.get_surrounding_cell();
+          const typename dealii::DoFHandler<TargetField::dimension(),
+                                            TargetField::spacedimension()>::
+            cell_iterator target_cell(*cell, &target.dof_handler());
+          std::vector<dealii::types::global_dof_index> dof_indices(
+            target.space().finite_element().n_dofs_per_cell());
+          target_cell->get_dof_indices(dof_indices);
+          const dealii::Quadrature<TargetField::dimension()> point_quadrature(
+            std::vector<dealii::Point<TargetField::dimension()>>{
+              particle.get_reference_location()});
+          dealii::FEValues<TargetField::dimension(),
+                           TargetField::spacedimension()>
+            target_values(target_mapping,
+                          target.space().finite_element(),
+                          point_quadrature,
+                          dealii::update_values);
+          target_values.reinit(target_cell);
+
+          const auto &stencil = distribution->stencil(particle.get_id());
+          const auto  normal  = load.geometry().normal(particle.get_location());
+          for (unsigned int i = 0; i < dof_indices.size(); ++i)
+            if (target.locally_owned_dofs().is_element(dof_indices[i]))
+              {
+                const auto component = target.space()
+                                         .finite_element()
+                                         .system_to_component_index(i)
+                                         .first;
+                (*entries)[particle.get_id()].emplace_back(
+                  dof_indices[i],
+                  stencil.physical_weight *
+                    (component < TargetField::spacedimension() ?
+                       (normal * detail::vector_shape_value(
+                                   target_values, target.extractor(), i, 0)) :
+                       0.));
+              }
+        }
+
+      const auto owned        = load.locally_owned_points();
+      const auto relevant     = load.locally_relevant_points();
+      const auto communicator = load.mpi_communicator();
+      Operator   result;
+      result.reinit_range_vector = [owned    = target.locally_owned_dofs(),
+                                    relevant = target.locally_relevant_dofs(),
+                                    communicator](VectorType &vector,
+                                                  const bool  omit) {
+        vector.reinit(owned, relevant, communicator);
+        if (!omit)
+          vector = 0.;
+      };
+      result.reinit_domain_vector =
+        [owned, relevant, communicator](QuantityVector &vector,
+                                        const bool      omit) {
+          vector.reinit(owned, relevant, communicator);
+          if (!omit)
+            vector = 0.;
+        };
+
+      const auto values_on_target =
+        [distribution, point_indices](const QuantityVector &source) {
+          dealii::Vector<double> local_values(point_indices.size());
+          for (std::size_t q = 0; q < point_indices.size(); ++q)
+            local_values[q] = source[point_indices[q]];
+          return distribution->values_on_target(local_values);
+        };
+      result.vmult = [entries, values_on_target](VectorType &destination,
+                                                 const QuantityVector &source) {
+        const auto values = values_on_target(source);
+        destination       = 0.;
+        for (const auto &[id, point_entries] : *entries)
+          for (const auto &[row, value] : point_entries)
+            destination[row] += value * values.at(id);
+      };
+      result.vmult_add = [entries,
+                          values_on_target](VectorType           &destination,
+                                            const QuantityVector &source) {
+        const auto values = values_on_target(source);
+        for (const auto &[id, point_entries] : *entries)
+          for (const auto &[row, value] : point_entries)
+            destination[row] += value * values.at(id);
+      };
+      result.Tvmult =
+        [entries, distribution, point_indices](QuantityVector   &destination,
+                                               const VectorType &source) {
+          std::map<dealii::types::particle_index, double> values;
+          for (const auto &[id, point_entries] : *entries)
+            for (const auto &[row, value] : point_entries)
+              values[id] += value * source[row];
+          dealii::Vector<double> local_values(point_indices.size());
+          local_values = 0.;
+          distribution->add_transpose_to_source(values, local_values);
+          destination = 0.;
+          for (std::size_t q = 0; q < point_indices.size(); ++q)
+            destination[point_indices[q]] += local_values[q];
+        };
+      result.Tvmult_add =
+        [entries, distribution, point_indices](QuantityVector   &destination,
+                                               const VectorType &source) {
+          std::map<dealii::types::particle_index, double> values;
+          for (const auto &[id, point_entries] : *entries)
+            for (const auto &[row, value] : point_entries)
+              values[id] += value * source[row];
+          dealii::Vector<double> local_values(point_indices.size());
+          local_values = 0.;
+          distribution->add_transpose_to_source(values, local_values);
+          for (std::size_t q = 0; q < point_indices.size(); ++q)
+            destination[point_indices[q]] += local_values[q];
+        };
+      return result;
+    }
+  } // namespace detail
+
+  /** A weak term for a quantity paired with a geometry-provided normal. */
+  template <typename Quantity, typename Surface, typename TargetField>
+  class NormalWeakTerm
+  {
+  public:
+    NormalWeakTerm(NormalQuantity<Quantity, Surface> load, TargetField target)
+      : load_(std::move(load))
+      , target_(std::move(target))
+    {}
+
+    template <typename VectorType, typename MatrixType>
+    FieldId
+    add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
+    {
+      const auto target_id     = target_.field_id();
+      const auto operator_view = detail::
+        make_normal_load_operator<Quantity, Surface, TargetField, VectorType>(
+          load_, target_);
+      auto term = builder.term(target_id, "normal-weak-term");
+      term.residual([operator_view, load_ = load_](const auto &context) {
+        const auto value = load_.evaluate(context);
+        typename SemiDiscreteModel<VectorType, MatrixType>::Operation result;
+        result.reinit_vector = operator_view.reinit_range_vector;
+        result.apply         = [operator_view, value](VectorType &destination) {
+          operator_view.vmult(destination, value);
+        };
+        result.apply_add = [operator_view, value](VectorType &destination) {
+          operator_view.vmult_add(destination, value);
+        };
+        return result;
+      });
+      using OperatorFactory =
+        typename SemiDiscreteModel<VectorType, MatrixType>::OperatorFactory;
+      for (const auto field : load_.dependencies())
+        term.state(field,
+                   OperatorFactory([operator_view, load_ = load_, field](
+                                     const auto &context) {
+                     return operator_view * load_.linearize(context, field);
+                   }));
+      return target_id;
+    }
+
+    template <typename VectorType, typename MatrixType>
+    FieldId
+    operator()(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
+    {
+      return add(builder);
+    }
+
+    const NormalQuantity<Quantity, Surface> &
+    load() const
+    {
+      return load_;
+    }
+
+    const TargetField &
+    target() const
+    {
+      return target_;
+    }
+
+  private:
+    NormalQuantity<Quantity, Surface> load_;
+    TargetField                       target_;
+  };
+
   /** A solver-neutral FE weak term contributed to a residual row. */
   template <typename ObservableType, typename TargetField>
   class WeakTerm
@@ -1406,6 +1771,14 @@ namespace ImmersX
   {
     return WeakTerm<ObservableType, TargetField>(std::move(observable),
                                                  std::move(target));
+  }
+
+  template <typename Quantity, typename Surface, typename TargetField>
+  auto
+  weak_term(NormalQuantity<Quantity, Surface> load, TargetField target)
+  {
+    return NormalWeakTerm<Quantity, Surface, TargetField>(std::move(load),
+                                                          std::move(target));
   }
 } // namespace ImmersX
 
