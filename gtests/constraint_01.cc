@@ -250,6 +250,38 @@ TEST(Constraint, SingleTerm)
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 }
 
+TEST(Constraint, CombinesSignedSums)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<2>        fe(1);
+  Space<FE_Q<2>> space(tria, fe);
+  StateLayout    layout;
+  const auto     V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source_1 = V.field(layout, "source-1");
+  const auto source_2 = V.field(layout, "source-2");
+  const auto source_3 = V.field(layout, "source-3");
+  const auto source_4 = V.field(layout, "source-4");
+  const auto lambda   = V.field("lambda");
+
+  const auto first_sum =
+    weak_term(value(source_1), lambda) + weak_term(value(source_2), lambda);
+  const auto second_sum =
+    weak_term(value(source_3), lambda) + weak_term(value(source_4), lambda);
+  const auto combined = first_sum - second_sum;
+
+  std::vector<double> coefficients;
+  combined.for_each([&coefficients](const auto &entry) {
+    coefficients.push_back(entry.coefficient);
+  });
+  ASSERT_EQ(coefficients.size(), 4u);
+  EXPECT_DOUBLE_EQ(coefficients[0], 1.);
+  EXPECT_DOUBLE_EQ(coefficients[1], 1.);
+  EXPECT_DOUBLE_EQ(coefficients[2], -1.);
+  EXPECT_DOUBLE_EQ(coefficients[3], -1.);
+}
+
 TEST(Constraint, NonmatchingGeometryUsesCachedBackend)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);

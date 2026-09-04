@@ -216,6 +216,34 @@ namespace ImmersX
     return result;
   }
 
+  template <typename... LhsTerms, typename... RhsTerms>
+  ConstraintSum<LhsTerms..., RhsTerms...>
+  operator+(ConstraintSum<LhsTerms...> lhs, ConstraintSum<RhsTerms...> rhs)
+  {
+    ConstraintSum<LhsTerms..., RhsTerms...> result;
+    lhs.for_each([&result](const auto &entry) {
+      result.add(entry.term, entry.coefficient);
+    });
+    rhs.for_each([&result](const auto &entry) {
+      result.add(entry.term, entry.coefficient);
+    });
+    return result;
+  }
+
+  template <typename... LhsTerms, typename... RhsTerms>
+  ConstraintSum<LhsTerms..., RhsTerms...>
+  operator-(ConstraintSum<LhsTerms...> lhs, ConstraintSum<RhsTerms...> rhs)
+  {
+    ConstraintSum<LhsTerms..., RhsTerms...> result;
+    lhs.for_each([&result](const auto &entry) {
+      result.add(entry.term, entry.coefficient);
+    });
+    rhs.for_each([&result](const auto &entry) {
+      result.add(entry.term, -entry.coefficient);
+    });
+    return result;
+  }
+
   template <typename... Terms,
             typename NewTerm,
             std::enable_if_t<detail::is_weak_term<NewTerm>::value, int> = 0>
