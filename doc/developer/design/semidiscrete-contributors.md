@@ -3,8 +3,8 @@
 Application authors compose standalone Problems and Interactions through an
 execution adapter. The adapter owns storage, execution blocks, DAE metadata,
 and solver policy. The public composition vocabulary is deliberately small:
-add a Problem, observe a quantity, lift it to a user-described support, couple
-it to another Problem, and solve.
+add a Problem, observe a quantity, lift it to a user-described support, form a
+`weak_term`, and solve.
 
 ## Application authors
 
@@ -20,17 +20,18 @@ auto wall  = ida.add(elastic_problem, "wall");
 
 auto pressure = fluid.observe(Pressure{});
 auto wall_pressure = pressure.lift(VesselSurface{});
-ida.couple(wall_pressure, wall, Traction{});
+auto traction = wall_pressure * ImmersX::normal(surface);
+ida.add(ImmersX::weak_term(traction, wall_displacement), "traction");
 
 auto state     = ida.make_state();
 auto state_dot = ida.make_state();
 ida.solve(state, state_dot);
 ```
 
-`Pressure`, `VesselSurface`, and `Traction` are small descriptors supplied by
-the relevant physics modules. ImmersX core does not need to know what those
-quantities mean. The module interprets them and creates the appropriate
-observable, lifting, and interaction implementation.
+`Pressure`, `VesselSurface`, and the surface normal are small descriptors
+supplied by the relevant physics modules. ImmersX core does not need to know
+what those quantities mean. It composes their observable and weak-term
+operations and selects the appropriate local or distributed backend.
 
 For an affine steady problem, use `LinearAdapter`:
 
@@ -163,14 +164,12 @@ auto make_lift(const Quantity &quantity, VesselSurface surface)
   return make_surface_quantity(quantity, surface);
 }
 
-template <typename Quantity, typename ProblemHandle>
-auto make_interaction(const Quantity &quantity,
-                      const ProblemHandle &wall,
-                      Traction traction)
+template <typename Quantity, typename TargetField>
+auto make_weak_term(const Quantity &quantity,
+                    const TargetField &target,
+                    Surface surface)
 {
-  return make_traction_interaction(quantity,
-                                   wall.fields().force,
-                                   traction);
+  return weak_term(quantity * ImmersX::normal(surface), target);
 }
 ```
 
@@ -351,7 +350,8 @@ an existing Problem-owned row. Application code uses the same descriptor API:
 ```{code-block} cpp
 auto pressure = fluid.observe(Pressure{});
 auto wall_pressure = pressure.lift(VesselSurface{});
-adapter.couple(wall_pressure, solid, Traction{});
+auto traction = wall_pressure * ImmersX::normal(surface);
+adapter.add(ImmersX::weak_term(traction, wall_displacement), "traction");
 ```
 
 The physics descriptor implementation contributes both the load residual and
