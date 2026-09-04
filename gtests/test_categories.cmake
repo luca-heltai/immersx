@@ -17,6 +17,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     Inclusion3
     InclusionsBasis2
     CCO
+    Constraint
     SymbolicExpressionKernel
     SymbolicFieldEvaluator
     StateHistory
@@ -134,6 +135,7 @@ set(_immersx_expected_test_suites
     ImportedFiniteElementFields
     InclusionsBasis2
     CCO
+    Constraint
     InputFieldSelector
     LargeNetworks
     LegacyInclusions
