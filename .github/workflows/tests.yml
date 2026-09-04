@@ -34,19 +34,11 @@ jobs:
         run: |
           cd build_linux_debug
           ctest -N
-          ctest --output-on-failure
-
-      - name: Serial gtests debug
-        run: |
-          cd build_linux_debug
-          mkdir -p test_directory
-          (cd test_directory && ../gtests/gtests_debug)
-
-      - name: Parallel gtests debug
-        run: |
-          cd build_linux_debug
-          mkdir -p test_directory
-          (cd test_directory && mpirun -n 2 ../gtests/gtests_debug)
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            ctest -L quick --output-on-failure
+          else
+            ctest --output-on-failure
+          fi
 
   release:
     runs-on: ubuntu-latest
@@ -75,16 +67,8 @@ jobs:
         run: |
           cd build_linux_release
           ctest -N
-          ctest --output-on-failure
-
-      - name: Serial gtests release
-        run: |
-          cd build_linux_release
-          mkdir -p test_directory
-          (cd test_directory && ../gtests/gtests)
-
-      - name: Parallel gtests release
-        run: |
-          cd build_linux_release
-          mkdir -p test_directory
-          (cd test_directory && mpirun -n 2 ../gtests/gtests)
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            ctest -L quick --output-on-failure
+          else
+            ctest --output-on-failure
+          fi

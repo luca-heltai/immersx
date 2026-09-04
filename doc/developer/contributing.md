@@ -207,6 +207,22 @@ the application where practical.
 
 ### Focused test runs
 
+CTest is the authoritative orchestration layer and exposes the test hierarchy
+through labels:
+
+```bash
+ctest --test-dir build-debug -L quick --output-on-failure
+ctest --test-dir build-debug -L unit --output-on-failure
+ctest --test-dir build-debug -L integration --output-on-failure
+ctest --test-dir build-debug -L validation --output-on-failure
+ctest --test-dir build-debug -L application --output-on-failure
+ctest --test-dir build-debug --output-on-failure
+```
+
+Unit and integration tests are marked `quick`; MPI is independent and is
+marked `mpi`. Pull-request CI runs `quick`, while pushes to `master` run the
+full manifest. Do not add a second full GoogleTest invocation to CI.
+
 Run one serial test with:
 
 ```bash

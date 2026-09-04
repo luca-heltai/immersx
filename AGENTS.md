@@ -332,6 +332,12 @@ files, and output directories.
 
 ## 11. GoogleTest conventions
 
+CTest is the authoritative orchestration layer. Tests have one primary label
+from `unit`, `integration`, `validation`, or `application`. The `quick` label
+is applied to all unit and integration tests, and `mpi` is orthogonal. Pull
+requests run `ctest -L quick`; pushes to `master` run the full CTest manifest.
+CI must not rerun the aggregate GoogleTest executable outside CTest.
+
 A GoogleTest intended for MPI execution must contain `MPI_` in the test name.
 
 The common test driver uses this naming convention to select serial versus MPI
