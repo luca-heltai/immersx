@@ -330,18 +330,20 @@ global size. Use `differential_field()` for a fully differential field and
 uses the general form; the execution adapter consumes the mask without knowing
 how its components are organized.
 
-Interactions add terms because systems are related. A Lagrange-multiplier
-Interaction contributes participant multiplier forces and the constraint row:
+Interactions add terms because systems are related. A multiplier `Constraint`
+is assembled from ordinary participant `Field`s and an independent multiplier
+`Field`:
 
 ```text
-R_first  = C lambda
-R_second = -Q^T lambda
-R_lambda = C^T first - Q second
+R_participant_i = s_i B_i^T lambda
+R_lambda        = sum_i s_i B_i participant_i - d
 ```
 
-Scalar and vector interactions translate their shared `ConstraintEquation`
-through the same generic semantic mechanism. The multiplier is algebraic and
-contributors never receive IDA's `alpha`.
+Application code constructs the relation with `weak_term`s and adds the
+resulting `Constraint` to the execution adapter. Scalar and vector constraints
+use the same API; the multiplier finite element and extractor determine the
+value type. The multiplier is algebraic and contributors never receive IDA's
+`alpha`.
 
 A non-constraint Interaction can read an observable and add a load directly to
 an existing Problem-owned row. Application code uses the same descriptor API:

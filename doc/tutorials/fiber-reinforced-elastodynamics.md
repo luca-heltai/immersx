@@ -75,8 +75,10 @@ C^T v_m^{n+1}-Qv_f^{n+1}=0,
 ```
 
 with $A=M/\Delta t+D+\Delta t K$ and
-$r=f^{n+1}+Mv^n/\Delta t-Kd^n$. The existing
-`LagrangeMultiplierSchurSolver` solves this block system. After the solve,
+$r=f^{n+1}+Mv^n/\Delta t-Kd^n$. The explicit backward-Euler fallback currently
+uses the legacy `LagrangeMultiplierSchurSolver` to solve this block system;
+the modern IDA composition path expresses the same relation with one
+`Constraint` over `weak_term`s. After the solve,
 $d^{n+1}=d^n+\Delta t\,v^{n+1}$, and the driver records both velocity and
 displacement compatibility diagnostics.
 

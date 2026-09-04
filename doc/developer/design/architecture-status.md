@@ -345,10 +345,10 @@ Possible families include:
 - circuit, interface-state, and co-simulation ports.
 
 The old `LagrangeMultiplierInteraction` is a legacy concrete scalar continuity
-implementation retained only by the explicit solver path. The current
-composition API represents scalar and vector multiplier constraints with one
-`Constraint` over `weak_term`s. Some Interactions introduce no multiplier and
-no auxiliary Field.
+implementation retained only by explicit solver regressions and specialized
+legacy paths. The current composition API represents scalar and vector
+multiplier constraints with one `Constraint` over `weak_term`s. Some
+Interactions introduce no multiplier and no auxiliary Field.
 
 An Interaction may introduce first-class auxiliary unknowns such as Lagrange
 multipliers, contact variables, interface states, or circuit variables. Those
@@ -529,7 +529,8 @@ Interaction; the Solver consumes the resulting operator or action.
 
 ## M. Linear constraint specialization
 
-For linear constraints, a `ConstraintEquation` specialization remains useful:
+For legacy linear constraints, a `ConstraintEquation` specialization remains
+useful:
 
 $$
 \sum_i C_i u_i = d.
@@ -540,8 +541,10 @@ handled by a specialized saddle-point or Schur/augmented-Lagrangian solver.
 It is not the global residual model, not the definition of Interaction, and not
 a requirement that all future relations introduce a multiplier.
 
-The current scalar multiplier path can therefore remain production code while
-the broader residual architecture is introduced around it incrementally.
+It is retained only where the older explicit Schur/augmented-Lagrangian paths
+still need its materialized matrices. New composition code uses `Constraint`
+and ordinary `weak_term`s, which provide the residual and participant adjoint
+reactions through the common execution model.
 
 ## N. Architecture diagrams and data flow
 
