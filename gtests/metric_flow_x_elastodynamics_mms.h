@@ -321,6 +321,7 @@ namespace ImmersX::OneVesselMMS
     direction[1]      = point[1] / radius;
     direction[2]      = point[2] / radius;
     const double phi  = radial_profile(par, radius);
+    const double d_s  = exact_radius_increment_s(par, point[0], time);
     const double d_ss = exact_radius_increment_ss(par, point[0], time);
     const double d_tt = exact_radius_increment_tt(par, point[0], time);
     const double divergence_profile =
@@ -329,7 +330,7 @@ namespace ImmersX::OneVesselMMS
     result = direction *
              (par.solid_density * d_tt * phi - par.shear_modulus * d_ss * phi);
     result[0] -=
-      (par.shear_modulus + par.lame_lambda) * d_ss * divergence_profile;
+      (par.shear_modulus + par.lame_lambda) * d_s * divergence_profile;
     return result;
   }
 
@@ -347,12 +348,13 @@ namespace ImmersX::OneVesselMMS
     direction[1]      = point[1] / radius;
     direction[2]      = point[2] / radius;
     const double phi  = radial_profile(par, radius);
+    const double d_s  = spatial_radius_increment_s(par, point[0]);
     const double d_ss = spatial_radius_increment_ss(par, point[0]);
     const double divergence_profile =
       radial_profile_derivative(par, radius) + phi / radius;
     result = direction * (-par.shear_modulus * d_ss * phi);
     result[0] -=
-      (par.shear_modulus + par.lame_lambda) * d_ss * divergence_profile;
+      (par.shear_modulus + par.lame_lambda) * d_s * divergence_profile;
     return result;
   }
 

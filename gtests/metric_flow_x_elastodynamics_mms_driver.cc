@@ -128,7 +128,8 @@ namespace
                             r + "))";
     const std::string div = "(" + r2 + "<=r0*r0 ? 2/r0 : 2*r0/(r0*r0-r1*r1))";
     const std::string radial = "((rho*" + dtt + "-mu*" + dss + ")*" + phi + ")";
-    const std::string axial  = "(-(mu+lam)*" + dss + "*" + div + ")";
+    const std::string ds     = "(" + as + "/(2*sqrt(pi*" + a + ")))";
+    const std::string axial  = "(-(mu+lam)*" + ds + "*" + div + ")";
     return axial + ";(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
            "==0 ? 0 : " + radial + "*z/" + r + ")";
   }
@@ -149,7 +150,8 @@ namespace
                             r + "))";
     const std::string div = "(" + r2 + "<=r0*r0 ? 2/r0 : 2*r0/(r0*r0-r1*r1))";
     const std::string radial = "(-mu*" + dss + "*" + phi + ")";
-    const std::string axial  = "(-(mu+lam)*" + dss + "*" + div + ")";
+    const std::string ds     = "(" + as + "/(2*sqrt(pi*" + a + ")))";
+    const std::string axial  = "(-(mu+lam)*" + ds + "*" + div + ")";
     return axial + ";(" + r2 + "==0 ? 0 : " + radial + "*y/" + r + ");(" + r2 +
            "==0 ? 0 : " + radial + "*z/" + r + ")";
   }
