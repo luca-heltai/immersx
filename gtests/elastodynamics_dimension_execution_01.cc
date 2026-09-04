@@ -98,6 +98,8 @@ namespace
     configure_parameters(parameters, refinement, nonzero_force);
     ImmersX::ElastodynamicsSolver<dim, spacedim> problem(parameters);
     initialize_problem(problem, nonzero_force);
+    parameters.solver_control.set_reduction(1.e-14);
+    parameters.solver_control.set_tolerance(1.e-14);
 
     EXPECT_GT(problem.n_dofs(), 0u);
     EXPECT_EQ(problem.mass_matrix().m(), problem.n_dofs());
@@ -149,7 +151,9 @@ namespace
     for (const auto index : work.locally_owned_elements())
       if (problem.constraints().is_constrained(index))
         work(index) = 0.;
-    EXPECT_TRUE(std::isfinite(work.l2_norm()));
+    const double residual_tolerance =
+      100. * parameters.solver_control.tolerance();
+    EXPECT_LT(work.l2_norm(), residual_tolerance);
 
     work = problem.velocity();
     work -= previous_velocity;
@@ -163,7 +167,7 @@ namespace
     for (const auto index : residual.locally_owned_elements())
       if (problem.velocity_constraints().is_constrained(index))
         residual(index) = 0.;
-    EXPECT_TRUE(std::isfinite(residual.l2_norm()));
+    EXPECT_LT(residual.l2_norm(), residual_tolerance);
   }
 } // namespace
 
