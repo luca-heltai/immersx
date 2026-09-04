@@ -21,6 +21,7 @@
 #endif
 
 #include <cmath>
+#include <filesystem>
 
 #include "test_paths.h"
 
@@ -106,10 +107,32 @@ namespace
     EXPECT_DOUBLE_EQ(problem.current_time(),
                      parameters.time_parameters.final_time);
     EXPECT_TRUE(problem.state_is_finite());
+    EXPECT_NEAR(problem.displacement().l2_norm(), 0., 1.e-12);
+    EXPECT_NEAR(problem.velocity().l2_norm(), 0., 1.e-12);
     EXPECT_TRUE(std::isfinite(problem.displacement().l2_norm()));
     EXPECT_TRUE(std::isfinite(problem.velocity().l2_norm()));
   }
 } // namespace
+
+TEST(ElastodynamicsExecution, NativeRunStandalone)
+{
+  dealii::ParameterAcceptor::clear();
+  ImmersX::ElastodynamicsParameters<1, 3> parameters;
+  configure_parameters(parameters);
+  parameters.output_name = "elastodynamics_native_run";
+  ImmersX::ElastodynamicsSolver<1, 3> problem(parameters);
+  ImmersX::initialize_parameters();
+  dealii::ParameterAcceptor::parse_all_parameters();
+
+  problem.run();
+
+  EXPECT_DOUBLE_EQ(problem.current_time(),
+                   parameters.time_parameters.final_time);
+  EXPECT_EQ(problem.time_step_number(), 1u);
+  EXPECT_TRUE(problem.state_is_finite());
+  EXPECT_TRUE(std::filesystem::exists(ImmersX::TestPaths::output_path(
+    "elastodynamics-dimension/elastodynamics_native_run.pvd")));
+}
 
 TEST(ElastodynamicsDimension, OneOneNative)
 {
@@ -199,6 +222,8 @@ namespace
                 parameters.time_parameters.final_time,
                 1.e-10);
     EXPECT_TRUE(problem.state_is_finite());
+    EXPECT_NEAR(problem.displacement().l2_norm(), 0., 1.e-7);
+    EXPECT_NEAR(problem.velocity().l2_norm(), 0., 1.e-7);
 
     GlobalVector residual;
     adapter.solver().reinit_vector(residual);
