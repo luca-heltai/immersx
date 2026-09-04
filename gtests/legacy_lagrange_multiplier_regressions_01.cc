@@ -154,3 +154,84 @@ TEST(LegacyLagrangeMultiplier, MPI_PrescribedPoissonSchurSolve) // NOLINT
   EXPECT_LT(bulk_residual.l2_norm(), 1.e-8);
   EXPECT_LT(constraint_residual.l2_norm(), 1.e-8);
 }
+
+
+TEST(LegacyLagrangeMultiplier, MPI_CoupledPoissonSchurSolve) // NOLINT
+{
+  ParameterAcceptor::clear();
+
+  PoissonParameters<2>    bulk_parameters("/Legacy Coupled Bulk/");
+  PoissonParameters<1, 2> embedded_parameters("/Legacy Coupled Embedded/");
+  ParticleCouplingParameters<2> search_parameters;
+
+  initialize_parameters_from_string(R"(
+    subsection Legacy Coupled Bulk
+      set FE degree                   = 1
+      set Initial refinement          = 2
+      set Dirichlet boundary ids      = 0
+      subsection Grid generation
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Right hand side
+        set Function expression = 0
+        set Variable names      = x,y,t
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0
+        set Variable names      = x,y,t
+      end
+    end
+    subsection Legacy Coupled Embedded
+      set FE degree                   = 1
+      set Initial refinement          = 1
+      set Dirichlet boundary ids      = 0,1
+      subsection Grid generation
+        set Grid generator           = hyper_cube
+        set Grid generator arguments = -1: 1: false
+      end
+      subsection Right hand side
+        set Function expression = 1
+        set Variable names      = x,y,t
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0
+        set Variable names      = x,y,t
+      end
+    end
+  )");
+
+  PoissonSolver<2>    bulk_problem(bulk_parameters);
+  PoissonSolver<1, 2> embedded_problem(embedded_parameters);
+  const auto          initialize_problem = [](auto &problem) {
+    problem.make_grid();
+    problem.setup_fe();
+    problem.setup_system();
+    problem.assemble_system();
+  };
+  initialize_problem(bulk_problem);
+  initialize_problem(embedded_problem);
+
+  IdentityRepresentation<2, 2> bulk_representation(
+    bulk_problem.triangulation(),
+    bulk_problem.dof_handler(),
+    bulk_problem.locally_owned_dofs(),
+    bulk_problem.locally_relevant_dofs(),
+    bulk_problem.constraints());
+  IdentityRepresentation<1, 2> embedded_representation(
+    embedded_problem.triangulation(),
+    embedded_problem.dof_handler(),
+    embedded_problem.locally_owned_dofs(),
+    embedded_problem.locally_relevant_dofs(),
+    embedded_problem.constraints());
+  LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
+                                IdentityRepresentation<1, 2>>
+    interaction(bulk_representation,
+                embedded_representation,
+                search_parameters);
+  interaction.assemble();
+
+  ASSERT_EQ(interaction.constraint_equation().contributions_view().size(), 2u);
+  ASSERT_GT(interaction.coupling_matrix().frobenius_norm(), 1.e-12);
+  ASSERT_GT(interaction.multiplier_mass_matrix().frobenius_norm(), 1.e-12);
+}

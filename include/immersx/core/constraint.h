@@ -44,6 +44,91 @@ namespace ImmersX
       else
         return constraint_entry_index<Wanted, Index + 1, Rest...>();
     }
+
+    /** Assemble the multiplier-space mass metric used by AL preconditioners. */
+    template <typename VectorType, typename MatrixType, typename FieldType>
+    typename SemiDiscreteModel<VectorType, MatrixType>::MatrixOperator
+    make_multiplier_metric(SemidiscreteBuilder<VectorType, MatrixType> &builder,
+                           const FieldType                             &field)
+    {
+      constexpr int dim      = FieldType::dimension();
+      constexpr int spacedim = FieldType::spacedimension();
+      using MatrixOperator =
+        typename SemiDiscreteModel<VectorType, MatrixType>::MatrixOperator;
+
+      const auto                degree = field.space().finite_element().degree;
+      const dealii::QGauss<dim> quadrature(degree + 1);
+      dealii::DynamicSparsityPattern sparsity(field.dof_handler().n_dofs(),
+                                              field.dof_handler().n_dofs(),
+                                              field.locally_owned_dofs());
+      std::vector<dealii::types::global_dof_index> indices(
+        field.dof_handler().get_fe().n_dofs_per_cell());
+      for (const auto &cell : field.dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            cell->get_dof_indices(indices);
+            field.constraints().add_entries_local_to_global(indices,
+                                                            indices,
+                                                            sparsity,
+                                                            false);
+          }
+
+      auto matrix = std::make_shared<MatrixType>();
+      auto matrix_sparsity =
+        initialize_weak_matrix(*matrix,
+                               field.locally_owned_dofs(),
+                               field.locally_owned_dofs(),
+                               sparsity,
+                               field.space().mpi_communicator());
+      dealii::FEValues<dim, spacedim> values(field.mapping(),
+                                             field.space().finite_element(),
+                                             quadrature,
+                                             dealii::update_values |
+                                               dealii::update_JxW_values);
+      dealii::FullMatrix<double>      local(indices.size(), indices.size());
+      for (const auto &cell : field.dof_handler().active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            cell->get_dof_indices(indices);
+            values.reinit(cell);
+            local = 0.;
+            for (unsigned int i = 0; i < indices.size(); ++i)
+              for (unsigned int j = 0; j < indices.size(); ++j)
+                for (unsigned int q = 0; q < quadrature.size(); ++q)
+                  {
+                    double product = 0.;
+                    if constexpr (std::is_same_v<
+                                    typename FieldType::extractor_type,
+                                    dealii::FEValuesExtractors::Scalar>)
+                      product =
+                        scalar_shape_value(values, field.extractor(), i, q) *
+                        scalar_shape_value(values, field.extractor(), j, q);
+                    else if constexpr (std::is_same_v<
+                                         typename FieldType::extractor_type,
+                                         dealii::FEValuesExtractors::Vector>)
+                      product =
+                        vector_shape_value(values, field.extractor(), i, q) *
+                        vector_shape_value(values, field.extractor(), j, q);
+                    else
+                      AssertThrow(false,
+                                  dealii::ExcMessage(
+                                    "Multiplier metrics support scalar and "
+                                    "vector fields only."));
+                    local(i, j) += product * values.JxW(q);
+                  }
+            field.constraints().distribute_local_to_global(local,
+                                                           indices,
+                                                           *matrix);
+          }
+      compress_weak_matrix(*matrix);
+
+      MatrixOperator result   = builder.matrix_operator(*matrix);
+      result.materialize      = [matrix, matrix_sparsity] { return matrix; };
+      result.materialize_into = [matrix](MatrixType &destination) {
+        destination.copy_from(*matrix);
+      };
+      return result;
+    }
   } // namespace detail
 
   /** A signed sum of weak terms defining one constraint row. */
@@ -228,7 +313,9 @@ namespace ImmersX
             participants.end())
           participants.push_back(participant);
       });
-      builder.saddle_point(multiplier_id, participants);
+      const auto metric =
+        detail::make_multiplier_metric(builder, multiplier_field);
+      builder.saddle_point(multiplier_id, participants, metric);
 
       std::size_t index = 0;
       terms_.for_each([&](const auto &entry) {

@@ -119,6 +119,7 @@ namespace
     ASSERT_EQ(model.saddle_points().size(), 1u);
     EXPECT_EQ(model.saddle_points().front().multiplier, fields.multiplier);
     EXPECT_EQ(model.saddle_points().front().participants.size(), 2u);
+    EXPECT_TRUE(model.has_multiplier_metric(fields.multiplier));
 
     Vector u1(source_space_1.dof_handler.n_dofs());
     Vector u2(source_space_2.dof_handler.n_dofs());

@@ -23,7 +23,6 @@
 #include <deal.II/numerics/data_out.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/lagrange_multiplier_interaction.h>
 #include <immersx/core/constraint.h>
 #include <immersx/core/fe_space.h>
 #include <immersx/core/linear_adapter.h>
@@ -32,8 +31,6 @@
 #include <vector>
 
 using namespace ImmersX;
-#include <immersx/core/representation.h>
-#include <immersx/coupling/particle_coupling.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
 #include <immersx/physics/poisson_residual.h>
@@ -274,29 +271,6 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   initialize_problem(bulk_problem);
   initialize_problem(embedded_problem);
 
-  // Retain the legacy interaction only for the independent matrix-based
-  // augmented-Lagrangian regression below.  The primary coupled solve and
-  // multiplier output use the unified Constraint API above.
-  ParticleCouplingParameters<2> search_parameters;
-  IdentityRepresentation<2, 2>  bulk_representation(
-    bulk_problem.triangulation(),
-    bulk_problem.dof_handler(),
-    bulk_problem.locally_owned_dofs(),
-    bulk_problem.locally_relevant_dofs(),
-    bulk_problem.constraints());
-  IdentityRepresentation<1, 2> embedded_representation(
-    embedded_problem.triangulation(),
-    embedded_problem.dof_handler(),
-    embedded_problem.locally_owned_dofs(),
-    embedded_problem.locally_relevant_dofs(),
-    embedded_problem.constraints());
-  LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
-                                IdentityRepresentation<1, 2>>
-    interaction(bulk_representation,
-                embedded_representation,
-                search_parameters);
-  interaction.assemble();
-
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
@@ -395,10 +369,16 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   const auto augmented_bulk = augmented.add(bulk_problem, "bulk-al");
   const auto augmented_embedded =
     augmented.add(embedded_problem, "embedded-al");
-  augmented.add(interaction,
-                "continuity-al",
-                augmented_bulk.fields().solution,
-                augmented_embedded.fields().solution);
+  const auto augmented_bulk_field =
+    bulk_view.field(augmented_bulk.fields().solution, "bulk_solution");
+  const auto augmented_embedded_field =
+    embedded_view.field(augmented_embedded.fields().solution,
+                        "embedded_solution");
+  const auto augmented_lambda = multiplier_view.field("lambda");
+  augmented.add(make_constraint(
+                  weak_term(value(augmented_bulk_field), augmented_lambda) -
+                  weak_term(value(augmented_embedded_field), augmented_lambda)),
+                "continuity-al");
   auto augmented_state = augmented.make_state();
   augmented.solve(augmented_state);
   GlobalVector augmented_residual;
@@ -410,15 +390,22 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   Adapter    direct(direct_options, MPI_COMM_WORLD);
   const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");
   const auto direct_embedded = direct.add(embedded_problem, "embedded-direct");
-  direct.add(interaction,
-             "continuity-direct",
-             direct_bulk.fields().solution,
-             direct_embedded.fields().solution);
+  const auto direct_bulk_field =
+    bulk_view.field(direct_bulk.fields().solution, "bulk_solution");
+  const auto direct_embedded_field =
+    embedded_view.field(direct_embedded.fields().solution, "embedded_solution");
+  const auto direct_lambda = multiplier_view.field("lambda");
+  direct.add(make_constraint(
+               weak_term(value(direct_bulk_field), direct_lambda) -
+               weak_term(value(direct_embedded_field), direct_lambda)),
+             "continuity-direct");
   auto direct_state = direct.make_state();
   EXPECT_TRUE(direct.can_materialize_matrix(direct_state));
   const auto direct_matrix = direct.monolithic_matrix(direct_state);
-  EXPECT_EQ(direct_matrix.m(), 31u);
-  EXPECT_EQ(direct_matrix.n(), 31u);
+  const auto expected_system_size =
+    bulk_problem.n_dofs() + embedded_problem.n_dofs() + multiplier_dh.n_dofs();
+  EXPECT_EQ(direct_matrix.m(), expected_system_size);
+  EXPECT_EQ(direct_matrix.n(), expected_system_size);
 
   auto sample_state = direct.make_state();
   for (unsigned int block = 0; block < sample_state.n_blocks(); ++block)
