@@ -21,7 +21,11 @@
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
+#include <immersx/core/constraint.h>
+#include <immersx/core/contributor.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/representation.h>
+#include <immersx/core/state.h>
 
 #include <cmath>
 #include <vector>
@@ -172,6 +176,93 @@ TEST(VectorLagrangeMultiplierInteraction, MatchingPairingAndDimensions)
                   interaction.pairing_matrix().el(i, j),
                   1.e-12);
   EXPECT_TRUE(interaction.assembly_is_current());
+}
+
+
+TEST(VectorLagrangeMultiplierInteraction, UnifiedConstraintMatchesBlocks)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+
+  VectorSpace matrix_space(MPI_COMM_WORLD);
+  VectorSpace fiber_space(MPI_COMM_WORLD);
+  auto        matrix_representation = make_representation(matrix_space);
+  auto        fiber_representation  = make_representation(fiber_space);
+  ParticleCouplingParameters<2> search_parameters;
+
+  Interaction legacy(matrix_representation,
+                     fiber_representation,
+                     search_parameters);
+  legacy.assemble();
+
+  DoFHandler<2> multiplier_dh(fiber_space.triangulation);
+  multiplier_dh.distribute_dofs(fiber_space.fe);
+  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+  const auto multiplier_relevant =
+    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+  AffineConstraints<double> multiplier_constraints;
+  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+  DoFTools::make_hanging_node_constraints(multiplier_dh,
+                                          multiplier_constraints);
+  multiplier_constraints.close();
+
+  const auto  matrix_view     = fe_space(matrix_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    matrix_space.constraints);
+  const auto  fiber_view      = fe_space(fiber_space.dof_handler,
+                                   StaticMappingQ1<2>::mapping,
+                                   fiber_space.constraints);
+  const auto  multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints,
+                                        multiplier_relevant);
+  StateLayout layout;
+  const auto  matrix =
+    matrix_view.field(layout, "matrix", FEValuesExtractors::Vector(0));
+  const auto fiber =
+    fiber_view.field(layout, "fiber", FEValuesExtractors::Vector(0));
+  const auto lambda =
+    multiplier_view.field("lambda", FEValuesExtractors::Vector(0));
+
+  using Matrix = ImmersXLA::MPI::SparseMatrix;
+  using Model  = SemiDiscreteModel<VectorType, Matrix>;
+  Model                                   model;
+  SemidiscreteBuilder<VectorType, Matrix> builder(layout, model);
+  const auto fields = make_constraint(weak_term(value(matrix), lambda) -
+                                      weak_term(value(fiber), lambda))
+                        .add(builder);
+
+  ASSERT_EQ(multiplier_dh.n_dofs(), fiber_space.dof_handler.n_dofs());
+  VectorType matrix_state = constant_vector(matrix_space, 1., 2.);
+  VectorType fiber_state  = constant_vector(fiber_space, 1., 2.);
+  VectorType lambda_state(multiplier_owned, MPI_COMM_WORLD);
+  lambda_state = 0.;
+  lambda_state.compress(VectorOperation::insert);
+  StateView<VectorType> state_view(layout, 0.);
+  state_view.bind(matrix.field_id(), matrix_state);
+  state_view.bind(fiber.field_id(), fiber_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<VectorType> context(0., state_view);
+
+  const auto matrix_block =
+    model.state_matrix_operator(fields.multiplier, matrix.field_id(), context);
+  const auto fiber_block =
+    model.state_matrix_operator(fields.multiplier, fiber.field_id(), context);
+  ASSERT_TRUE(matrix_block.has_value());
+  ASSERT_TRUE(fiber_block.has_value());
+  const auto matrix_operator = matrix_block->matrix();
+  const auto fiber_operator  = fiber_block->matrix();
+  for (types::global_dof_index i = 0; i < multiplier_dh.n_dofs(); ++i)
+    for (types::global_dof_index j = 0; j < matrix_space.dof_handler.n_dofs();
+         ++j)
+      EXPECT_NEAR(matrix_operator->el(i, j),
+                  legacy.coupling_matrix().el(j, i),
+                  1.e-12);
+  for (types::global_dof_index i = 0; i < multiplier_dh.n_dofs(); ++i)
+    for (types::global_dof_index j = 0; j < fiber_space.dof_handler.n_dofs();
+         ++j)
+      EXPECT_NEAR(fiber_operator->el(i, j),
+                  -legacy.pairing_matrix().el(i, j),
+                  1.e-12);
 }
 
 
