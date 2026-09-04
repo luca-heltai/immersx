@@ -82,6 +82,13 @@ namespace ImmersX
       return field_id();
     }
 
+    /** Return the same semantic field with execution storage assigned. */
+    Field
+    with_id(const FieldId id) const
+    {
+      return Field(space(), name_, extractor_, id);
+    }
+
     bool
     is_registered() const
     {

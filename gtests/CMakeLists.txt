@@ -26,6 +26,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 # directive: a failure here is a public-header dependency or namespace error,
 # not a runtime test failure.
 set(_public_headers
+    immersx/core/constraint.h
     immersx/core/constraint_equation.h
     immersx/core/constraint_contributor.h
     immersx/core/contributor.h

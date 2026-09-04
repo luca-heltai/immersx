@@ -958,6 +958,8 @@ namespace ImmersX
   class WeakTerm
   {
   public:
+    using target_type = TargetField;
+
     WeakTerm(ObservableType observable, TargetField target)
       : observable_(std::move(observable))
       , target_(std::move(target))
@@ -967,57 +969,52 @@ namespace ImmersX
     FieldId
     add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
     {
-      using Assembly = detail::WeakAssembly<ObservableType, TargetField>;
-      const bool nonmatching_geometry =
-        Assembly::geometry_is_nonmatching(observable_, target_);
-      std::shared_ptr<
-        typename Assembly::template PreparedMatrix<VectorType, MatrixType>>
-                                                            prepared;
-      typename Assembly::template MatrixStorage<MatrixType> matrix_storage;
-      typename SemiDiscreteModel<VectorType, MatrixType>::MatrixOperator
-        operator_with_matrix;
-      if (nonmatching_geometry)
-        {
-          prepared =
-            Assembly::template prepare<VectorType, MatrixType>(observable_,
-                                                               target_);
-          matrix_storage.matrix   = prepared->storage.matrix;
-          matrix_storage.sparsity = prepared->storage.sparsity;
-          operator_with_matrix =
-            Assembly::template dynamic_matrix_operator<VectorType, MatrixType>(
-              prepared);
-        }
-      else
-        {
-          matrix_storage =
-            Assembly::template assemble<VectorType, MatrixType>(observable_,
-                                                                target_);
-          operator_with_matrix =
-            builder.matrix_operator(*matrix_storage.matrix);
-        }
-      const auto matrix    = matrix_storage.matrix;
-      const auto source_id = observable_.source_field();
-      const auto target_id = target_.field_id();
+      const auto pairing   = make_pairing(builder, target_);
+      const auto source_id = pairing.source_id;
+      const auto target_id = pairing.target_id;
 
       using Model = SemiDiscreteModel<VectorType, MatrixType>;
       typename Model::MatrixOperatorFactory state_factory =
-        [matrix,
-         matrix_sparsity = matrix_storage.sparsity,
-         operator_with_matrix](const typename Model::Context &) {
-          (void)matrix;
-          (void)matrix_sparsity;
-          return operator_with_matrix;
+        [pairing](const typename Model::Context &) {
+          (void)pairing.matrix;
+          (void)pairing.sparsity;
+          return pairing.operator_with_matrix;
         };
       builder.term(target_id, "weak_term")
-        .residual([matrix,
-                   matrix_sparsity = matrix_storage.sparsity,
-                   operator_with_matrix,
-                   source_id](const auto &ctx) {
-          (void)matrix_sparsity;
-          return operator_with_matrix.view * ctx.state(source_id);
+        .residual([pairing, source_id](const auto &ctx) {
+          return pairing.operator_with_matrix.view * ctx.state(source_id);
         })
         .state(source_id, std::move(state_factory));
       return target_id;
+    }
+
+    /** Add both rows of this term to a multiplier constraint. */
+    template <typename VectorType, typename MatrixType>
+    void
+    add_constraint_terms(SemidiscreteBuilder<VectorType, MatrixType> &builder,
+                         const FieldId     multiplier,
+                         const double      sign,
+                         const std::size_t index) const
+    {
+      const auto multiplier_field = target_.with_id(multiplier);
+      const auto pairing          = make_pairing(builder, multiplier_field);
+      const auto reaction =
+        ImmersX::transpose_operator(pairing.operator_with_matrix);
+      const auto source_id = pairing.source_id;
+
+      const auto suffix = "constraint." + std::to_string(index);
+      builder.term(multiplier, suffix + ".multiplier")
+        .residual([pairing, source_id, sign](const auto &context) {
+          return sign *
+                 (pairing.operator_with_matrix.view * context.state(source_id));
+        })
+        .state(source_id, sign * pairing.operator_with_matrix);
+
+      builder.term(source_id, suffix + ".participant")
+        .residual([reaction, multiplier, sign](const auto &context) {
+          return sign * (reaction.view * context.state(multiplier));
+        })
+        .state(multiplier, sign * reaction);
     }
 
     template <typename VectorType, typename MatrixType>
@@ -1040,6 +1037,52 @@ namespace ImmersX
     }
 
   private:
+    template <typename VectorType, typename MatrixType>
+    struct Pairing
+    {
+      using Model = SemiDiscreteModel<VectorType, MatrixType>;
+
+      std::shared_ptr<MatrixType>              matrix;
+      std::shared_ptr<dealii::SparsityPattern> sparsity;
+      typename Model::MatrixOperator           operator_with_matrix;
+      FieldId                                  source_id;
+      FieldId                                  target_id;
+    };
+
+    template <typename VectorType, typename MatrixType, typename Target>
+    Pairing<VectorType, MatrixType>
+    make_pairing(SemidiscreteBuilder<VectorType, MatrixType> &builder,
+                 const Target                                &target) const
+    {
+      using Assembly = detail::WeakAssembly<ObservableType, Target>;
+      Pairing<VectorType, MatrixType> result;
+      const bool                      nonmatching_geometry =
+        Assembly::geometry_is_nonmatching(observable_, target);
+      if (nonmatching_geometry)
+        {
+          const auto prepared =
+            Assembly::template prepare<VectorType, MatrixType>(observable_,
+                                                               target);
+          result.matrix   = prepared->storage.matrix;
+          result.sparsity = prepared->storage.sparsity;
+          result.operator_with_matrix =
+            Assembly::template dynamic_matrix_operator<VectorType, MatrixType>(
+              prepared);
+        }
+      else
+        {
+          const auto storage =
+            Assembly::template assemble<VectorType, MatrixType>(observable_,
+                                                                target);
+          result.matrix               = storage.matrix;
+          result.sparsity             = storage.sparsity;
+          result.operator_with_matrix = builder.matrix_operator(*result.matrix);
+        }
+      result.source_id = observable_.source_field();
+      result.target_id = target.field_id();
+      return result;
+    }
+
     ObservableType observable_;
     TargetField    target_;
   };
