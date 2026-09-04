@@ -31,17 +31,17 @@ namespace ImmersX::OneVesselMMS
     // single-vessel MetricFlowX metadata.  This is intentionally not r_d.
     double reference_r    = 0.009870093245078749;
     double outer_r        = 0.05;
-    double area_amplitude = 1.e-5;
+    double area_amplitude = 1.e-8;
     double omega          = 2.0;
     double shear_modulus  = 1.0;
     double lame_lambda    = 0.0;
     double solid_density  = 1.0;
     double fluid_density  = 1060.0;
-    double tube_a_d       = 4.5239e-4;
+    double tube_a_d       = 3.0605e-4;
     double tube_E         = 4.e5;
     double tube_h_wall    = 1.2e-3;
     double tube_p0        = 0.0;
-    double tube_p_d       = 9.46e3;
+    double tube_p_d       = 0.0;
   };
 
   inline double
@@ -79,6 +79,52 @@ namespace ImmersX::OneVesselMMS
   {
     return reference_area(par) + par.area_amplitude * modulation(par, time) *
                                    std::sin(wave_number(par) * s);
+  }
+
+  inline double
+  spatial_area(const Parameters &par, const double s)
+  {
+    return reference_area(par) +
+           par.area_amplitude * std::sin(wave_number(par) * s);
+  }
+
+  inline double
+  spatial_area_s(const Parameters &par, const double s)
+  {
+    return par.area_amplitude * wave_number(par) *
+           std::cos(wave_number(par) * s);
+  }
+
+  inline double
+  spatial_area_ss(const Parameters &par, const double s)
+  {
+    const double k = wave_number(par);
+    return -par.area_amplitude * k * k * std::sin(k * s);
+  }
+
+  inline double
+  spatial_radius_increment(const Parameters &par, const double s)
+  {
+    return std::sqrt(spatial_area(par, s) / dealii::numbers::PI) -
+           par.reference_r;
+  }
+
+  inline double
+  spatial_radius_increment_s(const Parameters &par, const double s)
+  {
+    return spatial_area_s(par, s) /
+           (2.0 * std::sqrt(dealii::numbers::PI * spatial_area(par, s)));
+  }
+
+  inline double
+  spatial_radius_increment_ss(const Parameters &par, const double s)
+  {
+    const double area   = spatial_area(par, s);
+    const double area_s = spatial_area_s(par, s);
+    return spatial_area_ss(par, s) /
+             (2.0 * std::sqrt(dealii::numbers::PI * area)) -
+           area_s * area_s /
+             (4.0 * std::sqrt(dealii::numbers::PI) * std::pow(area, 1.5));
   }
 
   inline double
@@ -235,6 +281,24 @@ namespace ImmersX::OneVesselMMS
     return result;
   }
 
+  inline dealii::Tensor<1, 3>
+  spatial_radial_displacement(const Parameters       &par,
+                              const dealii::Point<3> &point)
+  {
+    const double radius = std::sqrt(point[1] * point[1] + point[2] * point[2]);
+    dealii::Tensor<1, 3> result;
+    result = 0.;
+    if (radius == 0.)
+      return result;
+
+    dealii::Tensor<1, 3> direction;
+    direction[0] = 0.;
+    direction[1] = point[1] / radius;
+    direction[2] = point[2] / radius;
+    return direction * (spatial_radius_increment(par, point[0]) *
+                        radial_profile(par, radius));
+  }
+
   /** Continuous body force for the radial manufactured displacement.
    *
    * The two radial profiles are harmonic in the cross-section, so only the
@@ -257,7 +321,6 @@ namespace ImmersX::OneVesselMMS
     direction[1]      = point[1] / radius;
     direction[2]      = point[2] / radius;
     const double phi  = radial_profile(par, radius);
-    const double d_s  = exact_radius_increment_s(par, point[0], time);
     const double d_ss = exact_radius_increment_ss(par, point[0], time);
     const double d_tt = exact_radius_increment_tt(par, point[0], time);
     const double divergence_profile =
@@ -266,7 +329,30 @@ namespace ImmersX::OneVesselMMS
     result = direction *
              (par.solid_density * d_tt * phi - par.shear_modulus * d_ss * phi);
     result[0] -=
-      (par.shear_modulus + par.lame_lambda) * d_s * divergence_profile;
+      (par.shear_modulus + par.lame_lambda) * d_ss * divergence_profile;
+    return result;
+  }
+
+  inline dealii::Tensor<1, 3>
+  spatial_solid_body_force(const Parameters &par, const dealii::Point<3> &point)
+  {
+    const double radius = std::sqrt(point[1] * point[1] + point[2] * point[2]);
+    dealii::Tensor<1, 3> result;
+    result = 0.;
+    if (radius == 0.)
+      return result;
+
+    dealii::Tensor<1, 3> direction;
+    direction[0]      = 0.;
+    direction[1]      = point[1] / radius;
+    direction[2]      = point[2] / radius;
+    const double phi  = radial_profile(par, radius);
+    const double d_ss = spatial_radius_increment_ss(par, point[0]);
+    const double divergence_profile =
+      radial_profile_derivative(par, radius) + phi / radius;
+    result = direction * (-par.shear_modulus * d_ss * phi);
+    result[0] -=
+      (par.shear_modulus + par.lame_lambda) * d_ss * divergence_profile;
     return result;
   }
 
@@ -292,6 +378,12 @@ namespace ImmersX::OneVesselMMS
   {
     return -traction_jump_coefficient(par) *
            exact_radius_increment(par, s, time);
+  }
+
+  inline double
+  spatial_multiplier(const Parameters &par, const double s)
+  {
+    return -traction_jump_coefficient(par) * spatial_radius_increment(par, s);
   }
 
   inline double
@@ -322,6 +414,25 @@ namespace ImmersX::OneVesselMMS
   }
 
   inline double
+  spatial_physical_pressure(const Parameters &par, const double s)
+  {
+    return tube_pressure(par, spatial_area(par, s)) -
+           spatial_multiplier(par, s);
+  }
+
+  inline double
+  spatial_flow_momentum_source(const Parameters &par, const double s)
+  {
+    const double area = spatial_area(par, s);
+    const double beta =
+      4.0 * std::sqrt(dealii::numbers::PI) * par.tube_E * par.tube_h_wall / 3.0;
+    const double pressure_s =
+      beta / (2.0 * par.tube_a_d * std::sqrt(area)) * spatial_area_s(par, s) +
+      traction_jump_coefficient(par) * spatial_radius_increment_s(par, s);
+    return pressure_s / par.fluid_density;
+  }
+
+  inline double
   flow_momentum_source(const Parameters &par, const double s, const double time)
   {
     const double k          = wave_number(par);
@@ -342,7 +453,7 @@ namespace ImmersX::OneVesselMMS
     const double tube_pressure_s =
       beta / (2.0 * par.tube_a_d * std::sqrt(area)) * area_s;
     const double external_pressure_s =
-      -traction_jump_coefficient(par) * exact_radius_increment_s(par, s, time);
+      traction_jump_coefficient(par) * exact_radius_increment_s(par, s, time);
     return velocity_t + velocity * velocity_s +
            (tube_pressure_s + external_pressure_s) / par.fluid_density;
   }

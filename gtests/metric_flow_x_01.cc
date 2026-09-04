@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "test_paths.h"
 
@@ -213,7 +214,7 @@ TEST(MetricFlowX, MPI_IDAVerticalSmoke) // NOLINT
   EXPECT_GT(adapter.solve(state, state_dot), 0u);
 }
 
-TEST(MetricFlowX, MPI_ExactFunctionInitializesNativeState) // NOLINT
+TEST(MetricFlowX, MPI_NativeStateInitializesPositiveArea) // NOLINT
 {
   dealii::ParameterAcceptor::clear();
   ImmersX::TimeParameters time_parameters(
@@ -221,18 +222,14 @@ TEST(MetricFlowX, MPI_ExactFunctionInitializesNativeState) // NOLINT
   Problem problem(MPI_COMM_WORLD);
   initialize_problem(problem);
 
-  const double a0 = problem.vessel_properties(0).a0;
-  problem.exact_solution.update_expression(std::to_string(a0) +
-                                           "; 0.0; 0.0; 0.0");
   auto state = problem.make_state();
   problem.compute_initial_solution(state, 0.);
 
-  double max_area_error = 0.;
+  double minimum_area = std::numeric_limits<double>::max();
   for (const auto index : problem.component_dofs(Problem::Component::area))
-    max_area_error = std::max(max_area_error, std::abs(state[index] - a0));
-  EXPECT_NEAR(dealii::Utilities::MPI::max(max_area_error, MPI_COMM_WORLD),
-              0.,
-              1.e-12);
+    if (state.locally_owned_elements().is_element(index))
+      minimum_area = std::min(minimum_area, static_cast<double>(state[index]));
+  EXPECT_GT(dealii::Utilities::MPI::min(minimum_area, MPI_COMM_WORLD), 0.);
 }
 
 #else

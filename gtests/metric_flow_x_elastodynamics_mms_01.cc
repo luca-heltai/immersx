@@ -108,6 +108,27 @@ namespace
     EXPECT_NEAR(force.norm(), 0., 1.e-14);
   }
 
+  TEST(OneVesselMMS, SpatialSourcesUseNativePressureSign)
+  {
+    Parameters   par;
+    const double s = 0.23 * par.length;
+    const double h = 1.e-6 * par.length;
+    const double pressure_s =
+      (ImmersX::OneVesselMMS::spatial_physical_pressure(par, s - 2. * h) -
+       8. * ImmersX::OneVesselMMS::spatial_physical_pressure(par, s - h) +
+       8. * ImmersX::OneVesselMMS::spatial_physical_pressure(par, s + h) -
+       ImmersX::OneVesselMMS::spatial_physical_pressure(par, s + 2. * h)) /
+      (12. * h);
+    EXPECT_NEAR(pressure_s,
+                par.fluid_density *
+                  ImmersX::OneVesselMMS::spatial_flow_momentum_source(par, s),
+                5.e-5);
+
+    const dealii::Point<3> point(s, 0.02, 0.01);
+    EXPECT_GT(
+      ImmersX::OneVesselMMS::spatial_solid_body_force(par, point).norm(), 0.);
+  }
+
   TEST(OneVesselMMS, TransientSourcesAndWallTraceAreFinite)
   {
     Parameters             par;

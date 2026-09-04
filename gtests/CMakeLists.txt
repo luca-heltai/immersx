@@ -198,6 +198,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       add_executable(${_mms_gate_target}
                      metric_flow_x_vessel_wall_interaction_01.cc
                      metric_flow_x_elastodynamics_mms_01.cc
+                     metric_flow_x_elastodynamics_mms_driver.cc
                      mms_convergence_main.cc)
       target_include_directories(
         ${_mms_gate_target}
@@ -225,7 +226,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           NAME metric_flow_x_elastodynamics_mms_convergence
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
-                  --gtest_filter=OneVesselMMS.*:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke)
+                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.*:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke)
       endif()
     endif()
   endforeach()
