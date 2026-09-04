@@ -15,7 +15,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -59,7 +58,6 @@ namespace ImmersX
       Term   term;
     };
 
-    using FirstTerm = std::tuple_element_t<0, std::tuple<Terms...>>;
     template <typename Sequence>
     struct MakeEntryVariant;
 
@@ -133,7 +131,9 @@ namespace ImmersX
     return result;
   }
 
-  template <typename... Terms, typename NewTerm>
+  template <typename... Terms,
+            typename NewTerm,
+            std::enable_if_t<detail::is_weak_term<NewTerm>::value, int> = 0>
   ConstraintSum<Terms..., NewTerm>
   operator+(ConstraintSum<Terms...> lhs, NewTerm rhs)
   {
@@ -145,7 +145,9 @@ namespace ImmersX
     return result;
   }
 
-  template <typename... Terms, typename NewTerm>
+  template <typename... Terms,
+            typename NewTerm,
+            std::enable_if_t<detail::is_weak_term<NewTerm>::value, int> = 0>
   ConstraintSum<Terms..., NewTerm>
   operator-(ConstraintSum<Terms...> lhs, NewTerm rhs)
   {
