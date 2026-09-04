@@ -269,6 +269,20 @@ TEST(Constraint, NonmatchingGeometryUsesCachedBackend)
   model.evaluate_row(fields.multiplier, context, repeated_residual);
   repeated_residual -= residual;
   EXPECT_LT(repeated_residual.l2_norm(), 1.e-12);
+  const auto pairing =
+    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  const auto reaction =
+    model.state_matrix_operator(source.field_id(), fields.multiplier, context);
+  ASSERT_TRUE(pairing.has_value());
+  ASSERT_TRUE(reaction.has_value());
+  Vector expected_reaction;
+  expected_reaction.reinit(source.locally_owned_dofs(), MPI_COMM_WORLD);
+  pairing->view.Tvmult(expected_reaction, lambda_state);
+  Vector reaction_residual;
+  reaction_residual.reinit(source.locally_owned_dofs(), MPI_COMM_WORLD);
+  model.evaluate_row(source.field_id(), context, reaction_residual);
+  reaction_residual -= expected_reaction;
+  EXPECT_LT(reaction_residual.l2_norm(), 1.e-12);
 #ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
             preparations + 2);
