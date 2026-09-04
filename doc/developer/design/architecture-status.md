@@ -25,7 +25,8 @@ elasticity, and standalone Navier--Stokes discretizations, the semantic
 external-state evaluation, PackagedOperation residuals, separate
 LinearOperator Jacobian blocks, DAE metadata, state history/interpolation,
 immersed and reduced coupling classes, `Representation`/`TensorProductSpace` machinery,
-particle/search support, multiplier specializations, and linear algebra
+particle/search support, generic `Observable`/`weak_term`/`Constraint`
+composition, retained legacy multiplier specializations, and linear algebra
 solvers.
 
 **Validated distributed execution on this branch.** The semantic core is
@@ -42,7 +43,7 @@ Problems directly to `IDAAdapter` or `LinearAdapter`, chooses prefixes and
 `HistoryGroupId`s through the contributor scope, and can register multiple
 instances of the same Problem class.
 The full-order fiber test combines two Elastodynamics contributors and one
-vector multiplier Interaction in the five-field layout
+generic multiplier Constraint in the five-field layout
 `matrix.displacement`, `matrix.velocity`, `fiber.displacement`,
 `fiber.velocity`, and `fiber_coupling.lambda`.
 
@@ -344,11 +345,11 @@ Possible families include:
 - source or conservative exchange;
 - circuit, interface-state, and co-simulation ports.
 
-The old `LagrangeMultiplierInteraction` is a legacy concrete scalar continuity
-implementation retained only by explicit solver regressions and specialized
-legacy paths. The current composition API represents scalar and vector
-multiplier constraints with one `Constraint` over `weak_term`s. Some
-Interactions introduce no multiplier and no auxiliary Field.
+The old scalar and vector `LagrangeMultiplierInteraction` classes are retained
+only by explicit solver regressions, the specialized tensor-product path, and
+the no-SUNDIALS fiber fallback. The current composition API represents scalar
+and vector multiplier constraints with one `Constraint` over `weak_term`s.
+Some Interactions introduce no multiplier and no auxiliary Field.
 
 An Interaction may introduce first-class auxiliary unknowns such as Lagrange
 multipliers, contact variables, interface states, or circuit variables. Those
@@ -647,7 +648,7 @@ conceptual API from being mistaken for a merged one.
 | Status | Meaning in this specification |
 | --- | --- |
 | **Merged on `master`** | Current Poisson, elasticity, Navier--Stokes, elastodynamics, semantic Field/state/residual core, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
-| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity Representation dependencies, short two-rank IDA solves, and the five-field fiber semantic residual/Jacobian against backward Euler + Schur. |
+| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity `Field`/`Observable` dependencies, cached weak-term geometry backends, short two-rank IDA solves, and the five-field fiber semantic residual/Jacobian against backward Euler + Schur. |
 | **Roadmap** | Navier--Stokes ARKode/IMEX convection, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
 
 Existing `Poisson`, `Elasticity`, `ReducedPoisson`, and production coupling
