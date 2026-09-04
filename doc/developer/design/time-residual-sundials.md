@@ -130,11 +130,11 @@ preconditioner; this is a validation strategy, not a performance claim.
 
 The current real IDA gates include unsteady Stokes
 (`include_convective_term=false`) and a distributed five-field fiber model:
-two Elastodynamics contributors and a vector multiplier Interaction provide
-four differential fields plus one algebraic multiplier field. The five-field
-test uses a short ramp-forced IDA integration with FGMRES and an identity
-preconditioner; this validates composition and callback semantics, not
-scalability or production preconditioning. A fully implicit convection
+two Elastodynamics contributors and one generic `Constraint` over weak terms
+provide four differential fields plus one algebraic multiplier field. The
+five-field test uses a short ramp-forced IDA integration with FGMRES and an
+identity preconditioner; this validates composition and callback semantics,
+not scalability or production preconditioning. A fully implicit convection
 Jacobian and an ARKode/IMEX execution path remain follow-up work.
 
 The mixed-field DAE test uses one four-component semantic field with only its
