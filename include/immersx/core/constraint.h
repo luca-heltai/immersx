@@ -220,6 +220,24 @@ namespace ImmersX
     return Constraint<Term>(std::move(terms));
   }
 
+  template <typename Term,
+            std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
+  Constraint<Term>
+  make_constraint(Term term)
+  {
+    return make_constraint(ConstraintSum<Term>(std::move(term)));
+  }
+
+  template <typename Term,
+            typename Rhs,
+            std::enable_if_t<detail::is_weak_term<Term>::value, int> = 0>
+  Constraint<Term, std::decay_t<Rhs>>
+  make_constraint(Term term, Rhs &&rhs)
+  {
+    return make_constraint(ConstraintSum<Term>(std::move(term)),
+                           std::forward<Rhs>(rhs));
+  }
+
   template <typename Builder, typename Term, typename Rhs>
   ConstraintFields
   contribute(Builder &builder, const Constraint<Term, Rhs> &constraint)
