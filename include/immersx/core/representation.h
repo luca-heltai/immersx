@@ -1253,6 +1253,231 @@ namespace ImmersX
       return result;
     }
 
+    /** Evaluate a retained stencil with coefficients supplied by its point. */
+    template <typename VectorType,
+              typename PointType,
+              typename DofIndices,
+              typename Coefficient>
+    double
+    evaluate_stencil(const VectorType &source,
+                     const PointType  &point,
+                     DofIndices        dof_indices,
+                     Coefficient       coefficient)
+    {
+      const auto &indices = dof_indices(point);
+      double      result  = 0.;
+      for (unsigned int i = 0; i < indices.size(); ++i)
+        result += coefficient(point, i) * source[indices[i]];
+      return result;
+    }
+
+    /** Build the relevant source vector for a retained linear map. */
+    template <typename StateVectorType>
+    StateVectorType
+    make_relevant_stencil_source(
+      const StateVectorType                   &source,
+      const dealii::IndexSet                  &source_owned,
+      const dealii::IndexSet                  &source_relevant,
+      const dealii::AffineConstraints<double> *constraints,
+      const MPI_Comm                           communicator,
+      const bool                               use_inhomogeneities)
+    {
+      StateVectorType owned;
+      owned.reinit(source_owned, communicator);
+      owned = source;
+      if (constraints != nullptr)
+        {
+          if (use_inhomogeneities || !constraints->has_inhomogeneities())
+            constraints->distribute(owned);
+          else
+            {
+              // The derivative of an affine constraint is its homogeneous
+              // linear part. Reuse deal.II's distribution logic after
+              // removing only the affine offsets.
+              dealii::AffineConstraints<double> homogeneous_constraints(
+                *constraints);
+              for (const auto &line : homogeneous_constraints.get_lines())
+                homogeneous_constraints.set_inhomogeneity(line.index, 0.);
+              homogeneous_constraints.distribute(owned);
+            }
+        }
+
+      StateVectorType relevant;
+      relevant.reinit(source_owned, source_relevant, communicator);
+      relevant = owned;
+      relevant.update_ghost_values();
+      return relevant;
+    }
+
+    /** Apply retained FE stencils in the forward direction. */
+    template <typename PointType,
+              typename SourceVectorType,
+              typename TargetVectorType,
+              typename TargetIndexType,
+              typename DofIndices,
+              typename Coefficient>
+    void
+    apply_stencils(const std::vector<PointType>            &points,
+                   const std::vector<TargetIndexType>      &target_indices,
+                   const dealii::IndexSet                  &source_owned,
+                   const dealii::IndexSet                  &source_relevant,
+                   const dealii::AffineConstraints<double> *constraints,
+                   const MPI_Comm                           communicator,
+                   const SourceVectorType                  &source,
+                   TargetVectorType                        &destination,
+                   DofIndices                               dof_indices,
+                   Coefficient                              coefficient,
+                   const bool                               use_inhomogeneities,
+                   const bool                               add)
+    {
+      AssertDimension(points.size(), target_indices.size());
+      const auto relevant = make_relevant_stencil_source(source,
+                                                         source_owned,
+                                                         source_relevant,
+                                                         constraints,
+                                                         communicator,
+                                                         use_inhomogeneities);
+
+      if (!add)
+        destination = 0.;
+      for (std::size_t q = 0; q < points.size(); ++q)
+        destination[target_indices[q]] +=
+          evaluate_stencil(relevant, points[q], dof_indices, coefficient);
+    }
+
+    /**
+     * Apply stencils to an owned destination and publish its ghosted view.
+     *
+     * Distributed deal.II vectors with ghost entries are read-only.  Keep the
+     * writable accumulation separate from the returned relevant vector.
+     */
+    template <typename PointType,
+              typename SourceVectorType,
+              typename TargetVectorType,
+              typename TargetIndexType,
+              typename DofIndices,
+              typename Coefficient>
+    void
+    apply_stencils(const std::vector<PointType>            &points,
+                   const std::vector<TargetIndexType>      &target_indices,
+                   const dealii::IndexSet                  &source_owned,
+                   const dealii::IndexSet                  &source_relevant,
+                   const dealii::IndexSet                  &target_owned,
+                   const dealii::IndexSet                  &target_relevant,
+                   const dealii::AffineConstraints<double> *constraints,
+                   const MPI_Comm                           communicator,
+                   const SourceVectorType                  &source,
+                   TargetVectorType                        &destination,
+                   DofIndices                               dof_indices,
+                   Coefficient                              coefficient,
+                   const bool                               use_inhomogeneities,
+                   const bool                               add)
+    {
+      AssertDimension(points.size(), target_indices.size());
+      const auto relevant = make_relevant_stencil_source(source,
+                                                         source_owned,
+                                                         source_relevant,
+                                                         constraints,
+                                                         communicator,
+                                                         use_inhomogeneities);
+
+      TargetVectorType owned_destination;
+      owned_destination.reinit(target_owned, communicator);
+      if (add)
+        owned_destination = destination;
+      else
+        owned_destination = 0.;
+      for (std::size_t q = 0; q < points.size(); ++q)
+        if (target_owned.is_element(target_indices[q]))
+          owned_destination[target_indices[q]] +=
+            evaluate_stencil(relevant, points[q], dof_indices, coefficient);
+
+      destination.reinit(target_owned, target_relevant, communicator);
+      destination = owned_destination;
+      destination.update_ghost_values();
+    }
+
+    /** Apply the algebraic transpose of retained FE stencils. */
+    template <typename PointType,
+              typename SourceVectorType,
+              typename StateVectorType,
+              typename SourceIndexType,
+              typename DofIndices,
+              typename Coefficient>
+    void
+    apply_stencils_transpose(
+      const std::vector<PointType>            &points,
+      const std::vector<SourceIndexType>      &source_indices,
+      const dealii::IndexSet                  &source_owned,
+      const dealii::AffineConstraints<double> *constraints,
+      const MPI_Comm                           communicator,
+      const SourceVectorType                  &source,
+      StateVectorType                         &destination,
+      DofIndices                               dof_indices,
+      Coefficient                              coefficient,
+      const bool                               add)
+    {
+      AssertDimension(points.size(), source_indices.size());
+      StateVectorType contribution;
+      contribution.reinit(source_owned, communicator);
+      contribution = 0.;
+      std::vector<dealii::types::global_dof_index> contribution_indices;
+      std::vector<double>                          contribution_values;
+      for (std::size_t q = 0; q < points.size(); ++q)
+        {
+          const auto &indices = dof_indices(points[q]);
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            {
+              contribution_indices.push_back(indices[i]);
+              contribution_values.push_back(coefficient(points[q], i) *
+                                            source[source_indices[q]]);
+            }
+        }
+      if (!contribution_indices.empty())
+        contribution.add(contribution_indices, contribution_values);
+      contribution.compress(dealii::VectorOperation::add);
+
+      StateVectorType correction;
+      if (constraints != nullptr)
+        {
+          correction.reinit(source_owned, communicator);
+          correction = 0.;
+          std::vector<dealii::types::global_dof_index> correction_indices;
+          std::vector<double>                          correction_values;
+          for (const auto &line : constraints->get_lines())
+            if (source_owned.is_element(line.index))
+              {
+                const double constrained = contribution[line.index];
+                correction_indices.push_back(line.index);
+                correction_values.push_back(-constrained);
+                for (const auto &[master, constraint_coefficient] :
+                     line.entries)
+                  {
+                    correction_indices.push_back(master);
+                    correction_values.push_back(constraint_coefficient *
+                                                constrained);
+                  }
+              }
+          if (!correction_indices.empty())
+            correction.add(correction_indices, correction_values);
+          correction.compress(dealii::VectorOperation::add);
+        }
+
+      StateVectorType owned_destination;
+      owned_destination.reinit(source_owned, communicator);
+      if (add)
+        owned_destination = destination;
+      else
+        owned_destination = 0.;
+      for (const auto index : source_owned)
+        owned_destination[index] +=
+          contribution[index] +
+          (constraints != nullptr ? correction[index] : 0.);
+
+      destination = owned_destination;
+      destination.update_ghost_values();
+    }
+
     /** Detect a source-provided symbolic thickness evaluation. */
     template <typename Source, int spacedim, typename = void>
     struct has_source_thickness : std::false_type
@@ -1355,21 +1580,27 @@ namespace ImmersX
     QuantityVectorType
     sample(const StateVectorType &state) const
     {
-      const auto relevant = make_relevant_source(state,
-                                                 source_owned_,
-                                                 source_relevant_,
-                                                 constraints_,
-                                                 communicator_,
-                                                 false);
-
       QuantityVectorType result;
       result.reinit(point_owned_, point_relevant_, communicator_);
-      result = 0.;
-      for (std::size_t q = 0; q < points_.size(); ++q)
-        result[point_indices_[q]] =
-          detail::evaluate_stencil(relevant,
-                                   points_[q].dof_indices,
-                                   points_[q].basis_values);
+      detail::apply_stencils(
+        points_,
+        point_indices_,
+        source_owned_,
+        source_relevant_,
+        point_owned_,
+        point_relevant_,
+        constraints_,
+        communicator_,
+        state,
+        result,
+        [](const Point &point) -> decltype(auto) {
+          return (point.dof_indices);
+        },
+        [](const Point &point, const unsigned int i) {
+          return point.basis_values[i];
+        },
+        true,
+        false);
       return result;
     }
 
@@ -1450,6 +1681,8 @@ namespace ImmersX
       };
       result.vmult = [points,
                       point_indices,
+                      point_owned,
+                      point_relevant,
                       source_owned,
                       source_relevant,
                       constraints,
@@ -1457,18 +1690,31 @@ namespace ImmersX
                       gradient,
                       component](QuantityVectorType    &destination,
                                  const StateVectorType &source) {
-        const auto relevant = make_relevant_source(source,
-                                                   source_owned,
-                                                   source_relevant,
-                                                   constraints,
-                                                   communicator,
-                                                   true);
-        for (std::size_t q = 0; q < points.size(); ++q)
-          destination[point_indices[q]] =
-            evaluate_stencil(relevant, points[q], gradient, component);
+        detail::apply_stencils(
+          points,
+          point_indices,
+          source_owned,
+          source_relevant,
+          point_owned,
+          point_relevant,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const Point &point) -> decltype(auto) {
+            return (point.dof_indices);
+          },
+          [gradient, component](const Point &point, const unsigned int i) {
+            return gradient ? point.basis_gradients[i][component] :
+                              point.basis_values[i];
+          },
+          false,
+          false);
       };
       result.vmult_add = [points,
                           point_indices,
+                          point_owned,
+                          point_relevant,
                           source_owned,
                           source_relevant,
                           constraints,
@@ -1476,164 +1722,78 @@ namespace ImmersX
                           gradient,
                           component](QuantityVectorType    &destination,
                                      const StateVectorType &source) {
-        const auto relevant = make_relevant_source(source,
-                                                   source_owned,
-                                                   source_relevant,
-                                                   constraints,
-                                                   communicator,
-                                                   true);
-        for (std::size_t q = 0; q < points.size(); ++q)
-          destination[point_indices[q]] +=
-            evaluate_stencil(relevant, points[q], gradient, component);
+        detail::apply_stencils(
+          points,
+          point_indices,
+          source_owned,
+          source_relevant,
+          point_owned,
+          point_relevant,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const Point &point) -> decltype(auto) {
+            return (point.dof_indices);
+          },
+          [gradient, component](const Point &point, const unsigned int i) {
+            return gradient ? point.basis_gradients[i][component] :
+                              point.basis_values[i];
+          },
+          false,
+          true);
       };
       result.Tvmult = [points,
                        point_indices,
                        source_owned,
-                       source_relevant,
                        constraints,
                        communicator,
                        gradient,
                        component](StateVectorType          &destination,
                                   const QuantityVectorType &source) {
-        apply_transpose(points,
-                        point_indices,
-                        source_owned,
-                        source_relevant,
-                        constraints,
-                        communicator,
-                        gradient,
-                        component,
-                        source,
-                        destination,
-                        false);
+        detail::apply_stencils_transpose(
+          points,
+          point_indices,
+          source_owned,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const Point &point) -> decltype(auto) {
+            return (point.dof_indices);
+          },
+          [gradient, component](const Point &point, const unsigned int i) {
+            return gradient ? point.basis_gradients[i][component] :
+                              point.basis_values[i];
+          },
+          false);
       };
       result.Tvmult_add = [points,
                            point_indices,
                            source_owned,
-                           source_relevant,
                            constraints,
                            communicator,
                            gradient,
                            component](StateVectorType          &destination,
                                       const QuantityVectorType &source) {
-        apply_transpose(points,
-                        point_indices,
-                        source_owned,
-                        source_relevant,
-                        constraints,
-                        communicator,
-                        gradient,
-                        component,
-                        source,
-                        destination,
-                        true);
+        detail::apply_stencils_transpose(
+          points,
+          point_indices,
+          source_owned,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const Point &point) -> decltype(auto) {
+            return (point.dof_indices);
+          },
+          [gradient, component](const Point &point, const unsigned int i) {
+            return gradient ? point.basis_gradients[i][component] :
+                              point.basis_values[i];
+          },
+          true);
       };
       return result;
-    }
-
-    template <typename VectorType>
-    static double
-    evaluate_stencil(const VectorType  &source,
-                     const Point       &point,
-                     const bool         gradient,
-                     const unsigned int component)
-    {
-      if (gradient)
-        {
-          double result = 0.;
-          for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
-            result += point.basis_gradients[i][component] *
-                      source[point.dof_indices[i]];
-          return result;
-        }
-      return detail::evaluate_stencil(source,
-                                      point.dof_indices,
-                                      point.basis_values);
-    }
-
-    static StateVectorType
-    make_relevant_source(const StateVectorType  &source,
-                         const dealii::IndexSet &source_owned,
-                         const dealii::IndexSet &source_relevant,
-                         const dealii::AffineConstraints<double> *constraints,
-                         const MPI_Comm                           communicator,
-                         const bool                               homogeneous)
-    {
-      StateVectorType owned;
-      owned.reinit(source_owned, communicator);
-      owned = source;
-      if (constraints != nullptr)
-        {
-          if (!homogeneous || !constraints->has_inhomogeneities())
-            constraints->distribute(owned);
-          else
-            {
-              // deal.II's distribute() applies the affine offset.  A
-              // Jacobian perturbation needs the same constraint relation with
-              // all offsets removed, so reuse the deal.II constraint logic on
-              // a local homogeneous copy.
-              dealii::AffineConstraints<double> homogeneous_constraints(
-                *constraints);
-              for (const auto &line : homogeneous_constraints.get_lines())
-                homogeneous_constraints.set_inhomogeneity(line.index, 0.);
-              homogeneous_constraints.distribute(owned);
-            }
-        }
-
-      StateVectorType relevant;
-      relevant.reinit(source_owned, source_relevant, communicator);
-      relevant = owned;
-      relevant.update_ghost_values();
-      return relevant;
-    }
-
-    static void
-    apply_transpose(
-      const std::vector<Point>                           &points,
-      const std::vector<dealii::types::global_dof_index> &point_indices,
-      const dealii::IndexSet                             &source_owned,
-      const dealii::IndexSet                             &source_relevant,
-      const dealii::AffineConstraints<double>            *constraints,
-      const MPI_Comm                                      communicator,
-      const bool                                          gradient,
-      const unsigned int                                  component,
-      const QuantityVectorType                           &source,
-      StateVectorType                                    &destination,
-      const bool                                          add)
-    {
-      dealii::LinearAlgebra::distributed::Vector<double> contribution;
-      contribution.reinit(source_owned, source_relevant, communicator);
-      contribution = 0.;
-      for (std::size_t q = 0; q < points.size(); ++q)
-        for (std::size_t i = 0; i < points[q].dof_indices.size(); ++i)
-          contribution[points[q].dof_indices[i]] +=
-            (gradient ? points[q].basis_gradients[i][component] :
-                        points[q].basis_values[i]) *
-            source[point_indices[q]];
-      contribution.compress(dealii::VectorOperation::add);
-
-      if (constraints != nullptr)
-        {
-          dealii::LinearAlgebra::distributed::Vector<double> correction;
-          correction.reinit(source_owned, source_relevant, communicator);
-          correction = 0.;
-          for (const auto &line : constraints->get_lines())
-            if (source_owned.is_element(line.index))
-              {
-                const double constrained = contribution[line.index];
-                correction[line.index] -= constrained;
-                for (const auto &[master, coefficient] : line.entries)
-                  correction[master] += coefficient * constrained;
-              }
-          correction.compress(dealii::VectorOperation::add);
-          for (const auto index : source_owned)
-            contribution[index] += correction[index];
-        }
-
-      if (!add)
-        destination = 0.;
-      for (const auto index : source_owned)
-        destination[index] += contribution[index];
     }
 
     std::vector<Point>                           points_;
@@ -1807,7 +1967,8 @@ namespace ImmersX
                                lifted_points_,
                                source_.locally_owned_dofs(),
                                source_.locally_relevant_dofs(),
-                               source_.mpi_communicator());
+                               source_.mpi_communicator(),
+                               &source_.constraints());
     }
 
     const TriangulationType &
@@ -1974,8 +2135,13 @@ namespace ImmersX
       const auto  lifted_points   = lifted_points_;
       const auto  source_owned    = source_.locally_owned_dofs();
       const auto  source_relevant = source_.locally_relevant_dofs();
+      const auto *constraints     = &source_.constraints();
       const auto  communicator    = source_.mpi_communicator();
       const auto *reference       = &context.state(source_.source());
+      std::vector<dealii::types::global_dof_index> lifted_indices(
+        lifted_points.size());
+      for (std::size_t q = 0; q < lifted_indices.size(); ++q)
+        lifted_indices[q] = q;
 
       Operator result;
       result.reinit_range_vector =
@@ -1989,48 +2155,98 @@ namespace ImmersX
         vector.reinit(*reference, omit);
       };
       result.vmult = [lifted_points,
+                      lifted_indices,
                       source_owned,
                       source_relevant,
+                      constraints,
                       communicator](value_type       &destination,
                                     const state_type &source) {
-        destination = evaluate_stencils(
-          source, lifted_points, source_owned, source_relevant, communicator);
+        detail::apply_stencils(
+          lifted_points,
+          lifted_indices,
+          source_owned,
+          source_relevant,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const auto &point) -> decltype(auto) {
+            return (point.source_dof_indices);
+          },
+          [](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i];
+          },
+          false,
+          false);
       };
       result.vmult_add = [lifted_points,
+                          lifted_indices,
                           source_owned,
                           source_relevant,
+                          constraints,
                           communicator](value_type       &destination,
                                         const state_type &source) {
-        const auto values = evaluate_stencils(
-          source, lifted_points, source_owned, source_relevant, communicator);
-        for (unsigned int q = 0; q < values.size(); ++q)
-          destination[q] += values[q];
+        detail::apply_stencils(
+          lifted_points,
+          lifted_indices,
+          source_owned,
+          source_relevant,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const auto &point) -> decltype(auto) {
+            return (point.source_dof_indices);
+          },
+          [](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i];
+          },
+          false,
+          true);
       };
       result.Tvmult = [lifted_points,
+                       lifted_indices,
                        source_owned,
-                       source_relevant,
+                       constraints,
                        communicator](state_type       &destination,
                                      const value_type &source) {
-        apply_stencil_transpose(lifted_points,
-                                source_owned,
-                                source_relevant,
-                                communicator,
-                                source,
-                                destination,
-                                false);
+        detail::apply_stencils_transpose(
+          lifted_points,
+          lifted_indices,
+          source_owned,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const auto &point) -> decltype(auto) {
+            return (point.source_dof_indices);
+          },
+          [](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i];
+          },
+          false);
       };
       result.Tvmult_add = [lifted_points,
+                           lifted_indices,
                            source_owned,
-                           source_relevant,
+                           constraints,
                            communicator](state_type       &destination,
                                          const value_type &source) {
-        apply_stencil_transpose(lifted_points,
-                                source_owned,
-                                source_relevant,
-                                communicator,
-                                source,
-                                destination,
-                                true);
+        detail::apply_stencils_transpose(
+          lifted_points,
+          lifted_indices,
+          source_owned,
+          constraints,
+          communicator,
+          source,
+          destination,
+          [](const auto &point) -> decltype(auto) {
+            return (point.source_dof_indices);
+          },
+          [](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i];
+          },
+          true);
       };
       (void)request;
       return result;
@@ -2053,47 +2269,33 @@ namespace ImmersX
       const state_type                                                 &source,
       const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &points,
       const dealii::IndexSet                                           &owned,
-      const dealii::IndexSet &relevant,
-      const MPI_Comm          communicator)
+      const dealii::IndexSet                  &relevant,
+      const MPI_Comm                           communicator,
+      const dealii::AffineConstraints<double> *constraints = nullptr)
     {
-      state_type relevant_source;
-      relevant_source.reinit(owned, relevant, communicator);
-      relevant_source = source;
-      relevant_source.update_ghost_values();
-
       value_type result;
       result.reinit(points.size());
-      for (unsigned int q = 0; q < points.size(); ++q)
-        result[q] = detail::evaluate_stencil(relevant_source,
-                                             points[q].source_dof_indices,
-                                             points[q].source_basis_values);
+      std::vector<dealii::types::global_dof_index> point_indices(points.size());
+      for (std::size_t q = 0; q < point_indices.size(); ++q)
+        point_indices[q] = q;
+      detail::apply_stencils(
+        points,
+        point_indices,
+        owned,
+        relevant,
+        constraints,
+        communicator,
+        source,
+        result,
+        [](const auto &point) -> decltype(auto) {
+          return (point.source_dof_indices);
+        },
+        [](const auto &point, const unsigned int i) {
+          return point.source_basis_values[i];
+        },
+        constraints != nullptr,
+        false);
       return result;
-    }
-
-    static void
-    apply_stencil_transpose(
-      const std::vector<TensorProductLiftPoint<surface_dim, spacedim>> &points,
-      const dealii::IndexSet                                           &owned,
-      const dealii::IndexSet &relevant,
-      const MPI_Comm          communicator,
-      const value_type       &source,
-      state_type             &destination,
-      const bool              add)
-    {
-      dealii::LinearAlgebra::distributed::Vector<double> contribution;
-      contribution.reinit(owned, relevant, communicator);
-      contribution = 0.;
-      for (unsigned int q = 0; q < points.size(); ++q)
-        for (unsigned int i = 0; i < points[q].source_dof_indices.size(); ++i)
-          contribution[points[q].source_dof_indices[i]] +=
-            points[q].source_basis_values[i] * source[q];
-      contribution.compress(dealii::VectorOperation::add);
-      if (add)
-        for (const auto index : destination.locally_owned_elements())
-          destination[index] += contribution[index];
-      else
-        for (const auto index : destination.locally_owned_elements())
-          destination[index] = contribution[index];
     }
 
     /**

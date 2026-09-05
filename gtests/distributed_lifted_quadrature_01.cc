@@ -78,6 +78,9 @@ TEST(DistributedLiftedQuadrature,
   const auto target_values = distributed.values_on_target(source_values);
   ASSERT_EQ(target_values.size(), 1u);
   EXPECT_DOUBLE_EQ(target_values.begin()->second, 2. - rank);
+  const auto repeated_target_values =
+    distributed.values_on_target(source_values);
+  EXPECT_EQ(repeated_target_values, target_values);
 
   std::map<types::particle_index, double> target_contribution;
   target_contribution.emplace(stencil.stable_id,
@@ -85,6 +88,10 @@ TEST(DistributedLiftedQuadrature,
   Vector<double> transposed(1);
   transposed = 0.;
   distributed.add_transpose_to_source(target_contribution, transposed);
+  Vector<double> repeated_transposed(1);
+  repeated_transposed = 0.;
+  distributed.add_transpose_to_source(target_contribution, repeated_transposed);
+  EXPECT_DOUBLE_EQ(repeated_transposed[0], transposed[0]);
 
   const double local_lhs =
     target_values.begin()->second * target_contribution.begin()->second;
