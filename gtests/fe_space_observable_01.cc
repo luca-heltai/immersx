@@ -131,6 +131,39 @@ TEST(FESpace, ValueAndGradientExposeTypedDependencies)
   EXPECT_EQ(displacement_value.source_field(), displacement.field_id());
 }
 
+TEST(FESpace, TestExpressionsAndNativeAlgebra)
+{
+  ExternalFESystem     system;
+  ImmersX::StateLayout layout;
+  const auto           V = ImmersX::fe_space(system.dof_handler,
+                                   system.mapping,
+                                   system.constraints,
+                                   system.relevant);
+  const auto           displacement =
+    V.field(layout, "displacement", FEValuesExtractors::Vector(0));
+
+  const auto v          = ImmersX::test(displacement);
+  const auto grad_v     = ImmersX::gradient(v);
+  const auto value_u    = ImmersX::value(displacement);
+  const auto sum        = value_u + value_u;
+  const auto difference = value_u - value_u;
+  const auto convection = ImmersX::gradient(displacement) * value_u;
+
+  EXPECT_TRUE(v.dependencies().empty());
+  EXPECT_TRUE(grad_v.dependencies().empty());
+  EXPECT_EQ(v.source_field(), displacement.field_id());
+  static_assert(
+    std::is_same_v<typename decltype(grad_v)::value_type,
+                   typename FEValuesViews::
+                     View<2, 2, FEValuesExtractors::Vector>::gradient_type>);
+  static_assert(std::is_same_v<typename decltype(sum)::value_type,
+                               typename decltype(value_u)::value_type>);
+  static_assert(std::is_same_v<typename decltype(difference)::value_type,
+                               typename decltype(value_u)::value_type>);
+  static_assert(
+    std::is_same_v<typename decltype(convection)::value_type, Tensor<1, 2>>);
+}
+
 TEST(FESpace, TensorExtractorsUseDealIIViewTypes)
 {
   Triangulation<2> tria;

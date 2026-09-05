@@ -2261,7 +2261,7 @@ namespace ImmersX
         if constexpr (detail::is_lifted_observable<TestExpression>::value)
           return target_.with_id(multiplier);
         else
-          return value(multiplier_field);
+          return test(multiplier_field);
       };
       const auto multiplier_expression = make_multiplier_expression();
       const auto suffix                = "constraint." + std::to_string(index);
@@ -2486,6 +2486,18 @@ namespace ImmersX
   {
     return NormalWeakTerm<Quantity, Surface, TargetField>(std::move(load),
                                                           std::move(target));
+  }
+
+  template <typename Quantity,
+            typename Surface,
+            typename SourceFieldType,
+            typename Operation>
+  auto
+  weak_term(NormalQuantity<Quantity, Surface>          load,
+            TestExpression<SourceFieldType, Operation> target)
+  {
+    return NormalWeakTerm<Quantity, Surface, SourceFieldType>(std::move(load),
+                                                              target.source());
   }
 } // namespace ImmersX
 

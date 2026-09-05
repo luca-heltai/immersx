@@ -461,6 +461,12 @@ namespace ImmersX
       : source_(source)
     {}
 
+    template <typename OtherOperation>
+    TestExpression(const TestExpression<SourceFieldType, OtherOperation> &other)
+      : source_(other.source_)
+      , scale_(other.scale_)
+    {}
+
     TestExpression(const TestExpression &) = default;
     TestExpression(TestExpression &&)      = default;
     TestExpression &
@@ -567,6 +573,9 @@ namespace ImmersX
     }
 
   private:
+    template <typename, typename>
+    friend class TestExpression;
+
     SourceFieldType source_;
     double          scale_ = 1.;
   };
@@ -1203,8 +1212,7 @@ namespace ImmersX
   auto
   value(const TestExpression<SourceFieldType, Operation> &expression)
   {
-    return TestExpression<SourceFieldType, detail::ValueOperation>(
-      expression.source());
+    return TestExpression<SourceFieldType, detail::ValueOperation>(expression);
   }
 
   template <typename SourceFieldType, typename Operation>
@@ -1212,7 +1220,7 @@ namespace ImmersX
   gradient(const TestExpression<SourceFieldType, Operation> &expression)
   {
     return TestExpression<SourceFieldType, detail::GradientOperation>(
-      expression.source());
+      expression);
   }
 
   template <typename SourceFieldType, typename Operation>
@@ -1220,7 +1228,7 @@ namespace ImmersX
   divergence(const TestExpression<SourceFieldType, Operation> &expression)
   {
     return TestExpression<SourceFieldType, detail::DivergenceOperation>(
-      expression.source());
+      expression);
   }
 
   template <typename SourceFieldType, typename Operation>
@@ -1229,15 +1237,14 @@ namespace ImmersX
     const TestExpression<SourceFieldType, Operation> &expression)
   {
     return TestExpression<SourceFieldType, detail::SymmetricGradientOperation>(
-      expression.source());
+      expression);
   }
 
   template <typename SourceFieldType, typename Operation>
   auto
   curl(const TestExpression<SourceFieldType, Operation> &expression)
   {
-    return TestExpression<SourceFieldType, detail::CurlOperation>(
-      expression.source());
+    return TestExpression<SourceFieldType, detail::CurlOperation>(expression);
   }
 
   namespace detail
