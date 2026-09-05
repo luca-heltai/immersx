@@ -12,6 +12,8 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/symmetric_tensor.h>
+#include <deal.II/base/tensor.h>
 
 #include <deal.II/distributed/tria.h>
 
@@ -103,45 +105,134 @@ namespace ImmersX
         matrix.compress(dealii::VectorOperation::add);
     }
 
-    template <int dim, int spacedim>
-    double
-    scalar_shape_value(const dealii::FEValuesBase<dim, spacedim> &fe_values,
-                       const dealii::FEValuesExtractors::Scalar  &extractor,
-                       const unsigned int                         i,
-                       const unsigned int                         q)
+    template <typename Type, typename = void>
+    struct has_raw_tensor_access : std::false_type
+    {};
+
+    template <typename Type>
+    struct has_raw_tensor_access<
+      Type,
+      std::void_t<decltype(std::declval<Type &>().access_raw_entry(0u))>>
+      : std::true_type
+    {};
+
+    template <typename Type>
+    struct is_tensor : std::false_type
+    {};
+
+    template <int rank, int dim, typename Number>
+    struct is_tensor<dealii::Tensor<rank, dim, Number>> : std::true_type
+    {};
+
+    template <typename Type>
+    inline constexpr bool is_supported_transport_value =
+      std::is_arithmetic_v<std::decay_t<Type>> ||
+      is_tensor<std::decay_t<Type>>::value ||
+      has_raw_tensor_access<std::decay_t<Type>>::value;
+
+    template <typename Type>
+    inline constexpr bool dependent_false = false;
+
+    template <typename Type>
+    constexpr unsigned int
+    n_stored_components()
     {
-      return fe_values.shape_value_component(i, q, extractor.component);
+      using ValueType = std::decay_t<Type>;
+      static_assert(is_supported_transport_value<ValueType>,
+                    "Weak-term values must be arithmetic, Tensor, or "
+                    "SymmetricTensor types.");
+      if constexpr (std::is_arithmetic_v<ValueType>)
+        return 1;
+      else
+        return ValueType::n_independent_components;
     }
 
-    template <int dim, int spacedim>
-    dealii::Tensor<1, spacedim>
-    vector_shape_value(const dealii::FEValuesBase<dim, spacedim> &fe_values,
-                       const dealii::FEValuesExtractors::Vector  &extractor,
-                       const unsigned int                         i,
-                       const unsigned int                         q)
+    template <typename Type>
+    constexpr bool is_scalar_value =
+      std::is_arithmetic_v<Type> || std::is_convertible_v<Type, double>;
+
+    template <typename Type>
+    void
+    flatten_value(const Type &value, std::vector<double> &result)
     {
-      dealii::Tensor<1, spacedim> value;
-      for (unsigned int component = 0; component < spacedim; ++component)
-        value[component] = fe_values.shape_value_component(
-          i, q, extractor.first_vector_component + component);
-      return value;
+      using ValueType = std::decay_t<Type>;
+      if constexpr (is_scalar_value<ValueType>)
+        result.push_back(static_cast<double>(value));
+      else if constexpr (is_tensor<ValueType>::value)
+        for (unsigned int i = 0; i < n_stored_components<ValueType>(); ++i)
+          result.push_back(value[ValueType::unrolled_to_component_indices(i)]);
+      else if constexpr (has_raw_tensor_access<ValueType>::value)
+        for (unsigned int i = 0; i < n_stored_components<ValueType>(); ++i)
+          result.push_back(value.access_raw_entry(i));
+      else
+        static_assert(dependent_false<ValueType>,
+                      "Weak-term values must be arithmetic, Tensor, or "
+                      "SymmetricTensor types.");
     }
 
-    template <int dim, int spacedim>
-    dealii::Tensor<1, spacedim>
-    scalar_shape_gradient(const dealii::FEValuesBase<dim, spacedim> &fe_values,
-                          const dealii::FEValuesExtractors::Scalar  &extractor,
-                          const unsigned int                         i,
-                          const unsigned int                         q)
+    template <typename Type, typename Container>
+    Type
+    unflatten_value(const Container &values, unsigned int &offset)
     {
-      return fe_values.shape_grad_component(i, q, extractor.component);
+      Type result;
+      using ValueType = std::decay_t<Type>;
+      if constexpr (is_scalar_value<ValueType>)
+        result = values[offset++];
+      else if constexpr (is_tensor<ValueType>::value)
+        for (unsigned int i = 0; i < n_stored_components<ValueType>(); ++i)
+          result[ValueType::unrolled_to_component_indices(i)] =
+            values[offset++];
+      else if constexpr (has_raw_tensor_access<ValueType>::value)
+        for (unsigned int i = 0; i < n_stored_components<ValueType>(); ++i)
+          result.access_raw_entry(i) = values[offset++];
+      else
+        static_assert(dependent_false<ValueType>,
+                      "Weak-term values must be arithmetic, Tensor, or "
+                      "SymmetricTensor types.");
+      return result;
     }
 
-    template <typename ObservableType, typename TargetField>
+    /** \cond */
+    template <typename Left, typename Right, typename = void>
+    struct has_scalar_product : std::false_type
+    {};
+
+    template <typename Left, typename Right>
+    struct has_scalar_product<Left,
+                              Right,
+                              std::void_t<decltype(dealii::scalar_product(
+                                std::declval<const Left &>(),
+                                std::declval<const Right &>()))>>
+      : std::true_type
+    {};
+
+    template <typename Left, typename Right>
+    decltype(auto)
+    natural_pairing(const Left &left, const Right &right)
+    {
+      using LeftType  = std::decay_t<Left>;
+      using RightType = std::decay_t<Right>;
+      if constexpr (std::is_arithmetic_v<LeftType> &&
+                    std::is_arithmetic_v<RightType>)
+        return left * right;
+      else
+        {
+          static_assert(
+            has_scalar_product<LeftType, RightType>::value,
+            "Weak-term expression values must be arithmetic or support "
+            "dealii::scalar_product.");
+          return dealii::scalar_product(left, right);
+        }
+    }
+    /** \endcond */
+
+    template <typename ObservableType, typename TargetExpression>
     struct WeakAssembly
     {
-      static constexpr int dim      = TargetField::dimension();
-      static constexpr int spacedim = TargetField::spacedimension();
+      static constexpr int dim =
+        TargetExpression::source_field_type::dimension();
+      static constexpr int spacedim =
+        TargetExpression::source_field_type::spacedimension();
 
       using SourceField = typename ObservableType::source_field_type;
 
@@ -194,89 +285,43 @@ namespace ImmersX
 
       template <typename VectorType, typename MatrixType>
       static MatrixStorage<MatrixType>
-      assemble(const ObservableType &observable, const TargetField &target)
+      assemble(const ObservableType &observable, const TargetExpression &target)
       {
-        AssertThrow(target.field_id().is_valid(),
+        const auto &target_field = target.source();
+        AssertThrow(target_field.field_id().is_valid(),
                     dealii::ExcMessage(
                       "A weak term target field must be registered."));
         AssertThrow(observable.is_frozen() ||
                       observable.source_field().is_valid(),
                     dealii::ExcMessage(
                       "A weak term active source field must be registered."));
-        AssertThrow(observable.spacedimension() == spacedim &&
-                      SourceField::spacedimension() == spacedim &&
+        AssertThrow(SourceField::spacedimension() == spacedim &&
                       SourceField::dimension() >= dim,
                     dealii::ExcMessage(
                       "Weak-term source and target must share an embedding "
                       "dimension, with the source support no lower than the "
                       "target support."));
 
-        if (observable.operation() == ObservableOperation::value)
-          {
-            if constexpr (std::is_same_v<typename ObservableType::value_type,
-                                         double>)
-              return assemble_from_source<SourceField, VectorType, MatrixType>(
-                observable, observable.template source<SourceField>(), target);
-            else if constexpr (std::is_same_v<
-                                 typename ObservableType::value_type,
-                                 dealii::Tensor<1, spacedim>>)
-              return assemble_from_source<SourceField, VectorType, MatrixType>(
-                observable, observable.template source<SourceField>(), target);
-          }
-        else if (observable.operation() == ObservableOperation::gradient)
-          {
-            if constexpr (std::is_same_v<typename ObservableType::value_type,
-                                         dealii::Tensor<1, spacedim>>)
-              return assemble_from_source<SourceField, VectorType, MatrixType>(
-                observable, observable.template source<SourceField>(), target);
-          }
-
-        AssertThrow(false,
-                    dealii::ExcMessage(
-                      "Unsupported weak-term observable/source pairing."));
-        return {};
+        return assemble_from_source<SourceField, VectorType, MatrixType>(
+          observable, observable.source(), target);
       }
 
       static bool
-      geometry_is_nonmatching(const ObservableType &observable,
-                              const TargetField    &target)
+      geometry_is_nonmatching(const ObservableType   &observable,
+                              const TargetExpression &target)
       {
         return static_cast<const void *>(
-                 &observable.template source<SourceField>()
-                    .dof_handler()
-                    .get_triangulation()) !=
+                 &observable.source().dof_handler().get_triangulation()) !=
                static_cast<const void *>(
-                 &target.dof_handler().get_triangulation());
+                 &target.source().dof_handler().get_triangulation());
       }
 
       template <typename VectorType, typename MatrixType>
       static std::shared_ptr<PreparedMatrix<VectorType, MatrixType>>
-      prepare(const ObservableType &observable, const TargetField &target)
+      prepare(const ObservableType &observable, const TargetExpression &target)
       {
-        if (observable.operation() == ObservableOperation::value)
-          {
-            if constexpr (std::is_same_v<typename ObservableType::value_type,
-                                         double>)
-              return prepare_from_source<SourceField, VectorType, MatrixType>(
-                observable, observable.template source<SourceField>(), target);
-            else if constexpr (std::is_same_v<
-                                 typename ObservableType::value_type,
-                                 dealii::Tensor<1, spacedim>>)
-              return prepare_from_source<SourceField, VectorType, MatrixType>(
-                observable, observable.template source<SourceField>(), target);
-          }
-        else if (observable.operation() == ObservableOperation::gradient)
-          {
-            if constexpr (std::is_same_v<typename ObservableType::value_type,
-                                         dealii::Tensor<1, spacedim>>)
-              return prepare_from_source<SourceField, VectorType, MatrixType>(
-                observable, observable.template source<SourceField>(), target);
-          }
-
-        AssertThrow(false,
-                    dealii::ExcMessage(
-                      "Unsupported weak-term observable/source pairing."));
-        return {};
+        return prepare_from_source<SourceField, VectorType, MatrixType>(
+          observable, observable.source(), target);
       }
 
       template <typename VectorType, typename MatrixType>
@@ -333,40 +378,38 @@ namespace ImmersX
     private:
       template <typename SourceField, typename VectorType, typename MatrixType>
       static std::shared_ptr<PreparedMatrix<VectorType, MatrixType>>
-      prepare_from_source(const ObservableType &observable,
-                          const SourceField    &source,
-                          const TargetField    &target)
+      prepare_from_source(const ObservableType   &observable,
+                          const SourceField      &source,
+                          const TargetExpression &target)
       {
-        const auto degree = std::max(source.space().finite_element().degree,
-                                     target.space().finite_element().degree);
+        const auto target_field = target.source();
+        const auto degree =
+          std::max(source.space().finite_element().degree,
+                   target_field.space().finite_element().degree);
         const dealii::QGauss<dim> quadrature(degree + 1);
-        dealii::UpdateFlags       update_flags =
-          dealii::update_values | dealii::update_JxW_values;
-        if (observable.operation() == ObservableOperation::gradient)
-          update_flags |= dealii::update_gradients;
 
         auto result =
           std::make_shared<PreparedMatrix<VectorType, MatrixType>>();
-        result->rebuild =
-          [observable, source, target, quadrature, update_flags] {
-            return assemble_nonmatching<SourceField, VectorType, MatrixType>(
-              observable, source, target, quadrature, update_flags);
-          };
+        result->rebuild = [observable, source, target, quadrature] {
+          return assemble_nonmatching<SourceField, VectorType, MatrixType>(
+            observable, source, target, quadrature);
+        };
         result->structure_is_current =
           [source,
-           target,
+           target_field,
            source_tria   = &source.dof_handler().get_triangulation(),
-           target_tria   = &target.dof_handler().get_triangulation(),
+           target_tria   = &target_field.dof_handler().get_triangulation(),
            source_n_dofs = source.dof_handler().n_dofs(),
-           target_n_dofs = target.dof_handler().n_dofs(),
+           target_n_dofs = target_field.dof_handler().n_dofs(),
            source_fe     = &source.space().finite_element(),
-           target_fe     = &target.space().finite_element()] {
+           target_fe     = &target_field.space().finite_element()] {
             return source_tria == &source.dof_handler().get_triangulation() &&
-                   target_tria == &target.dof_handler().get_triangulation() &&
+                   target_tria ==
+                     &target_field.dof_handler().get_triangulation() &&
                    source.dof_handler().n_dofs() == source_n_dofs &&
-                   target.dof_handler().n_dofs() == target_n_dofs &&
+                   target_field.dof_handler().n_dofs() == target_n_dofs &&
                    source_fe == &source.space().finite_element() &&
-                   target_fe == &target.space().finite_element();
+                   target_fe == &target_field.space().finite_element();
           };
         result->storage = result->rebuild();
         result->operator_with_matrix =
@@ -380,15 +423,15 @@ namespace ImmersX
         result->source_connection =
           source.dof_handler().get_triangulation().signals.any_change.connect(
             invalidate);
-        result->target_connection =
-          target.dof_handler().get_triangulation().signals.any_change.connect(
-            invalidate);
+        result->target_connection = target_field.dof_handler()
+                                      .get_triangulation()
+                                      .signals.any_change.connect(invalidate);
         result->source_mesh_connection =
           source.dof_handler()
             .get_triangulation()
             .signals.mesh_movement.connect(invalidate);
         result->target_mesh_connection =
-          target.dof_handler()
+          target_field.dof_handler()
             .get_triangulation()
             .signals.mesh_movement.connect(invalidate);
         result->source_partition_connection =
@@ -396,7 +439,7 @@ namespace ImmersX
             .get_triangulation()
             .signals.pre_partition.connect(invalidate);
         result->target_partition_connection =
-          target.dof_handler()
+          target_field.dof_handler()
             .get_triangulation()
             .signals.pre_partition.connect(invalidate);
         return result;
@@ -404,10 +447,11 @@ namespace ImmersX
 
       template <typename SourceField, typename VectorType, typename MatrixType>
       static MatrixStorage<MatrixType>
-      assemble_from_source(const ObservableType &observable,
-                           const SourceField    &source,
-                           const TargetField    &target)
+      assemble_from_source(const ObservableType   &observable,
+                           const SourceField      &source,
+                           const TargetExpression &target)
       {
+        const auto target_field = target.source();
         if constexpr (SourceField::dimension() != dim)
           {
             AssertThrow(false,
@@ -420,88 +464,97 @@ namespace ImmersX
           {
             const auto degree =
               std::max(source.space().finite_element().degree,
-                       target.space().finite_element().degree);
+                       target_field.space().finite_element().degree);
             const dealii::QGauss<dim> quadrature(degree + 1);
-            dealii::UpdateFlags       update_flags =
-              dealii::update_values | dealii::update_JxW_values;
-            if (observable.operation() == ObservableOperation::gradient)
-              update_flags |= dealii::update_gradients;
+            dealii::UpdateFlags       update_flags = dealii::update_JxW_values |
+                                               observable.update_flags() |
+                                               target.update_flags();
 
             if (&source.space().dof_handler().get_triangulation() !=
-                &target.space().dof_handler().get_triangulation())
+                &target_field.space().dof_handler().get_triangulation())
               return assemble_nonmatching<SourceField, VectorType, MatrixType>(
-                observable, source, target, quadrature, update_flags);
+                observable, source, target, quadrature);
 
-            AssertThrow(&source.mapping() == &target.mapping(),
+            AssertThrow(&source.mapping() == &target_field.mapping(),
                         dealii::ExcMessage(
                           "A weak term requires compatible source and target "
                           "mappings."));
 
             dealii::DynamicSparsityPattern sparsity(
-              target.dof_handler().n_dofs(),
+              target_field.dof_handler().n_dofs(),
               source.dof_handler().n_dofs(),
-              target.locally_owned_dofs());
+              target_field.locally_owned_dofs());
 
-            if (&source.dof_handler() == &target.dof_handler())
-              for_each_same_cell(target, [&](const auto &cell) {
-                if (!cell->is_locally_owned())
-                  return;
-                std::vector<dealii::types::global_dof_index> indices(
-                  cell->get_fe().n_dofs_per_cell());
-                cell->get_dof_indices(indices);
-                target.constraints().add_entries_local_to_global(
-                  indices, source.constraints(), indices, sparsity, false);
-              });
+            if (&source.dof_handler() == &target_field.dof_handler())
+              {
+                for (const auto &cell :
+                     target_field.dof_handler().active_cell_iterators())
+                  if (cell->is_locally_owned())
+                    {
+                      std::vector<dealii::types::global_dof_index> indices(
+                        cell->get_fe().n_dofs_per_cell());
+                      cell->get_dof_indices(indices);
+                      target_field.constraints().add_entries_local_to_global(
+                        indices,
+                        source.constraints(),
+                        indices,
+                        sparsity,
+                        false);
+                    }
+              }
             else
-              for_each_cell(
-                source,
-                target,
-                [&](const auto &source_cell, const auto &target_cell) {
+              for (const auto &source_cell :
+                   source.dof_handler().active_cell_iterators())
+                {
+                  const auto target_cell = source_cell->as_dof_handler_iterator(
+                    target_field.dof_handler());
                   if (!target_cell->is_locally_owned())
-                    return;
+                    continue;
                   std::vector<dealii::types::global_dof_index> source_indices(
                     source_cell->get_fe().n_dofs_per_cell());
                   std::vector<dealii::types::global_dof_index> target_indices(
                     target_cell->get_fe().n_dofs_per_cell());
                   source_cell->get_dof_indices(source_indices);
                   target_cell->get_dof_indices(target_indices);
-                  target.constraints().add_entries_local_to_global(
+                  target_field.constraints().add_entries_local_to_global(
                     target_indices,
                     source.constraints(),
                     source_indices,
                     sparsity,
                     false);
-                });
+                }
 
             auto matrix = std::make_shared<MatrixType>();
             auto matrix_sparsity =
               initialize_weak_matrix(*matrix,
-                                     target.locally_owned_dofs(),
+                                     target_field.locally_owned_dofs(),
                                      source.locally_owned_dofs(),
                                      sparsity,
-                                     target.space().mpi_communicator());
+                                     target_field.space().mpi_communicator());
 
-            if (&source.dof_handler() == &target.dof_handler())
+            if (&source.dof_handler() == &target_field.dof_handler())
               {
                 dealii::FEValues<dim, spacedim> values(
-                  target.mapping(),
-                  target.space().finite_element(),
+                  target_field.mapping(),
+                  target_field.space().finite_element(),
                   quadrature,
                   update_flags);
-                for_each_same_cell(target, [&](const auto &cell) {
-                  if (!cell->is_locally_owned())
-                    return;
-                  values.reinit(cell);
-                  assemble_cell(observable,
-                                source,
-                                values,
-                                target,
-                                values,
-                                cell,
-                                cell,
-                                quadrature,
-                                *matrix);
-                });
+                for (const auto &cell :
+                     target_field.dof_handler().active_cell_iterators())
+                  {
+                    if (!cell->is_locally_owned())
+                      continue;
+                    values.reinit(cell);
+                    assemble_cell(observable,
+                                  source,
+                                  values,
+                                  target,
+                                  values,
+                                  cell,
+                                  cell,
+                                  quadrature,
+                                  *matrix);
+                  }
               }
             else
               {
@@ -511,28 +564,30 @@ namespace ImmersX
                   quadrature,
                   update_flags);
                 dealii::FEValues<dim, spacedim> target_values(
-                  target.mapping(),
-                  target.space().finite_element(),
+                  target_field.mapping(),
+                  target_field.space().finite_element(),
                   quadrature,
                   update_flags);
-                for_each_cell(source,
-                              target,
-                              [&](const auto &source_cell,
-                                  const auto &target_cell) {
-                                if (!target_cell->is_locally_owned())
-                                  return;
-                                source_values.reinit(source_cell);
-                                target_values.reinit(target_cell);
-                                assemble_cell(observable,
-                                              source,
-                                              source_values,
-                                              target,
-                                              target_values,
-                                              source_cell,
-                                              target_cell,
-                                              quadrature,
-                                              *matrix);
-                              });
+                for (const auto &source_cell :
+                     source.dof_handler().active_cell_iterators())
+                  {
+                    const auto target_cell =
+                      source_cell->as_dof_handler_iterator(
+                        target_field.dof_handler());
+                    if (!target_cell->is_locally_owned())
+                      continue;
+                    source_values.reinit(source_cell);
+                    target_values.reinit(target_cell);
+                    assemble_cell(observable,
+                                  source,
+                                  source_values,
+                                  target,
+                                  target_values,
+                                  source_cell,
+                                  target_cell,
+                                  quadrature,
+                                  *matrix);
+                  }
               }
             compress_weak_matrix(*matrix);
             return {std::move(matrix), std::move(matrix_sparsity)};
@@ -543,9 +598,8 @@ namespace ImmersX
       static MatrixStorage<MatrixType>
       assemble_nonmatching(const ObservableType          &observable,
                            const SourceField             &source,
-                           const TargetField             &target,
-                           const dealii::Quadrature<dim> &quadrature,
-                           const dealii::UpdateFlags      update_flags)
+                           const TargetExpression        &target,
+                           const dealii::Quadrature<dim> &quadrature)
       {
 #ifdef IMMERSX_WEAK_TERM_TESTING
         ++weak_term_nonmatching_preparations;
@@ -553,8 +607,10 @@ namespace ImmersX
         if constexpr (SourceField::dimension() == spacedim)
           return assemble_nonmatching_reverse<SourceField,
                                               VectorType,
-                                              MatrixType>(
-            observable, source, target, quadrature, update_flags);
+                                              MatrixType>(observable,
+                                                          source,
+                                                          target,
+                                                          quadrature);
         else
           {
             AssertThrow(false,
@@ -574,14 +630,14 @@ namespace ImmersX
       static MatrixStorage<MatrixType>
       assemble_nonmatching_reverse(const ObservableType          &observable,
                                    const SourceField             &source,
-                                   const TargetField             &target,
-                                   const dealii::Quadrature<dim> &quadrature,
-                                   const dealii::UpdateFlags      update_flags)
+                                   const TargetExpression        &target,
+                                   const dealii::Quadrature<dim> &quadrature)
       {
         static_assert(SourceField::dimension() == spacedim,
                       "Nonmatching weak terms require a full-dimensional "
                       "source background.");
 
+        const auto  target_field = target.source();
         const auto *source_tria =
           dynamic_cast<const dealii::parallel::TriangulationBase<spacedim> *>(
             &source.space().dof_handler().get_triangulation());
@@ -592,24 +648,23 @@ namespace ImmersX
 
         using Point = RepresentationQuadraturePoint<spacedim, double>;
         const unsigned int n_target_dofs =
-          target.space().finite_element().n_dofs_per_cell();
-        const bool target_is_vector =
-          std::is_same_v<typename TargetField::value_type,
-                         dealii::Tensor<1, spacedim>>;
-        const unsigned int target_components = target_is_vector ? spacedim : 1;
+          target_field.space().finite_element().n_dofs_per_cell();
+        const unsigned int target_components =
+          n_stored_components<typename TargetExpression::value_type>();
         const unsigned int n_properties =
           1 + n_target_dofs + n_target_dofs * target_components;
 
         std::vector<Point>              target_points;
         dealii::FEValues<dim, spacedim> target_values(
-          target.mapping(),
-          target.space().finite_element(),
+          target_field.mapping(),
+          target_field.space().finite_element(),
           quadrature,
-          dealii::update_values | dealii::update_JxW_values |
-            dealii::update_quadrature_points);
+          dealii::update_JxW_values | dealii::update_quadrature_points |
+            target.update_flags());
         std::vector<dealii::types::global_dof_index> target_indices(
           n_target_dofs);
-        for (const auto &cell : target.dof_handler().active_cell_iterators())
+        for (const auto &cell :
+             target_field.dof_handler().active_cell_iterators())
           if (cell->is_locally_owned())
             {
               target_values.reinit(cell);
@@ -627,20 +682,13 @@ namespace ImmersX
                                       quadrature.size() +
                                     q;
                   point.dof_indices = target_indices;
-                  point.basis_values.resize(n_target_dofs * target_components);
+                  point.basis_values.reserve(n_target_dofs * target_components);
                   for (unsigned int i = 0; i < n_target_dofs; ++i)
-                    if constexpr (std::is_same_v<
-                                    typename TargetField::value_type,
-                                    dealii::Tensor<1, spacedim>>)
-                      {
-                        const auto value = vector_shape_value(
-                          target_values, target.extractor(), i, q);
-                        for (unsigned int d = 0; d < spacedim; ++d)
-                          point.basis_values[i * spacedim + d] = value[d];
-                      }
-                    else
-                      point.basis_values[i] = scalar_shape_value(
-                        target_values, target.extractor(), i, q);
+                    flatten_value(target.operation()(
+                                    target_values[target_field.extractor()],
+                                    i,
+                                    q),
+                                  point.basis_values);
                   target_points.emplace_back(std::move(point));
                 }
             }
@@ -681,9 +729,10 @@ namespace ImmersX
 
         const unsigned int n_source_dofs =
           source.space().finite_element().n_dofs_per_cell();
-        dealii::DynamicSparsityPattern sparsity(source.dof_handler().n_dofs(),
-                                                target.dof_handler().n_dofs(),
-                                                source.locally_relevant_dofs());
+        dealii::DynamicSparsityPattern sparsity(
+          source.dof_handler().n_dofs(),
+          target_field.dof_handler().n_dofs(),
+          source.locally_relevant_dofs());
         std::vector<dealii::types::global_dof_index> source_indices(
           n_source_dofs);
         for (const auto &particle : distribution.get_particles())
@@ -713,13 +762,12 @@ namespace ImmersX
         auto matrix_sparsity =
           initialize_weak_matrix(*matrix,
                                  source.locally_owned_dofs(),
-                                 target.locally_owned_dofs(),
+                                 target_field.locally_owned_dofs(),
                                  sparsity,
                                  source.space().mpi_communicator());
 
-        const auto source_flags = dealii::UpdateFlags(dealii::update_values) |
-                                  (update_flags & dealii::update_gradients);
-        const auto                 scale = observable.scale();
+        const auto                 source_flags = observable.update_flags();
+        const auto                 scale = observable.scale() * target.scale();
         dealii::FullMatrix<double> local;
         for (const auto &particle : distribution.get_particles())
           if (particle.get_surrounding_cell()->is_locally_owned())
@@ -747,111 +795,26 @@ namespace ImmersX
               for (unsigned int i = 0; i < n_source_dofs; ++i)
                 for (unsigned int j = 0; j < n_target_dofs; ++j)
                   {
-                    double source_value = 0.;
-                    if constexpr (std::is_same_v<
-                                    typename SourceField::value_type,
-                                    double>)
-                      {
-                        if (observable.operation() ==
-                            ObservableOperation::value)
-                          source_value = scalar_shape_value(source_point_values,
-                                                            source.extractor(),
-                                                            i,
-                                                            0);
-                        else
-                          {
-                            const auto gradient = scalar_shape_gradient(
-                              source_point_values, source.extractor(), i, 0);
-                            if (target_is_vector)
-                              for (unsigned int d = 0; d < spacedim; ++d)
-                                local(i, j) +=
-                                  scale * gradient[d] *
-                                  particle_properties[1 + n_target_dofs +
-                                                      j * spacedim + d] *
-                                  particle_properties[0];
-                            else
-                              AssertThrow(
-                                false,
-                                dealii::ExcMessage(
-                                  "A scalar gradient weak term requires a "
-                                  "vector target field."));
-                            continue;
-                          }
-                      }
-                    else
-                      {
-                        const auto value = vector_shape_value(
-                          source_point_values, source.extractor(), i, 0);
-                        if (target_is_vector)
-                          for (unsigned int d = 0; d < spacedim; ++d)
-                            local(i, j) +=
-                              scale * value[d] *
-                              particle_properties[1 + n_target_dofs +
-                                                  j * spacedim + d] *
-                              particle_properties[0];
-                        else
-                          AssertThrow(
-                            false,
-                            dealii::ExcMessage(
-                              "A vector-source weak term requires a vector "
-                              "target field."));
-                        continue;
-                      }
-                    local(i, j) =
-                      scale * source_value *
-                      particle_properties[1 + n_target_dofs +
-                                          (target_is_vector ? j * spacedim :
-                                                              j)] *
-                      particle_properties[0];
+                    const auto source_value = observable.operation()(
+                      source_point_values[source.extractor()], i, 0);
+                    unsigned int target_offset =
+                      1 + n_target_dofs + j * target_components;
+                    const auto target_value =
+                      unflatten_value<typename TargetExpression::value_type>(
+                        particle_properties, target_offset);
+                    local(i, j) += scale *
+                                   natural_pairing(source_value, target_value) *
+                                   particle_properties[0];
                   }
               source.constraints().distribute_local_to_global(
                 local,
                 source_indices,
-                target.constraints(),
+                target_field.constraints(),
                 target_dofs,
                 *matrix);
             }
         matrix->compress(dealii::VectorOperation::add);
         return {ImmersX::detail::transpose_matrix(matrix), nullptr};
-      }
-
-      template <typename Source, typename Target>
-      static void
-      assert_cell_pair(const Source &source_cell, const Target &target_cell)
-      {
-        AssertThrow(source_cell->id() == target_cell->id(),
-                    dealii::ExcMessage(
-                      "Source and target active-cell traversals disagree."));
-      }
-
-      template <typename Source, typename Target, typename Callback>
-      static void
-      for_each_cell(const Source &source, const Target &target, Callback &&cb)
-      {
-        auto source_cell = source.dof_handler().begin_active();
-        auto source_end  = source.dof_handler().end();
-        auto target_cell = target.dof_handler().begin_active();
-        auto target_end  = target.dof_handler().end();
-        for (; source_cell != source_end && target_cell != target_end;
-             ++source_cell, ++target_cell)
-          {
-            assert_cell_pair(source_cell, target_cell);
-            cb(source_cell, target_cell);
-          }
-        AssertThrow(source_cell == source_end && target_cell == target_end,
-                    dealii::ExcMessage(
-                      "Source and target spaces have different active-cell "
-                      "counts."));
-      }
-
-      template <typename Target, typename Callback>
-      static void
-      for_each_same_cell(const Target &target, Callback &&cb)
-      {
-        for (auto cell = target.dof_handler().begin_active();
-             cell != target.dof_handler().end();
-             ++cell)
-          cb(cell);
       }
 
       template <typename SourceField,
@@ -864,13 +827,14 @@ namespace ImmersX
       assemble_cell(const ObservableType          &observable,
                     const SourceField             &source,
                     const SourceValues            &source_values,
-                    const TargetField             &target,
+                    const TargetExpression        &target,
                     const TargetValues            &target_values,
                     const SourceCell              &source_cell,
                     const TargetCell              &target_cell,
                     const dealii::Quadrature<dim> &quadrature,
                     MatrixType                    &matrix)
       {
+        const auto &target_field = target.source();
         std::vector<dealii::types::global_dof_index> source_indices(
           source_cell->get_fe().n_dofs_per_cell());
         std::vector<dealii::types::global_dof_index> target_indices(
@@ -878,92 +842,21 @@ namespace ImmersX
         source_cell->get_dof_indices(source_indices);
         target_cell->get_dof_indices(target_indices);
 
+        const auto &trial_view = source_values[source.extractor()];
+        const auto &test_view  = target_values[target_field.extractor()];
         dealii::FullMatrix<double> local(target_indices.size(),
                                          source_indices.size());
         for (unsigned int q = 0; q < quadrature.size(); ++q)
           for (unsigned int i = 0; i < target_indices.size(); ++i)
             for (unsigned int j = 0; j < source_indices.size(); ++j)
-              local(i, j) += contract(observable,
-                                      source,
-                                      source_values,
-                                      target,
-                                      target_values,
-                                      i,
-                                      j,
-                                      q) *
+              local(i, j) += observable.scale() * target.scale() *
+                             detail::natural_pairing(
+                               observable.operation()(trial_view, j, q),
+                               target.operation()(test_view, i, q)) *
                              target_values.JxW(q);
 
-        target.constraints().distribute_local_to_global(
+        target_field.constraints().distribute_local_to_global(
           local, target_indices, source.constraints(), source_indices, matrix);
-      }
-
-      template <typename SourceField,
-                typename TargetFieldType,
-                typename SourceValues,
-                typename TargetValues>
-      static double
-      contract(const ObservableType  &observable,
-               const SourceField     &source,
-               const SourceValues    &source_values,
-               const TargetFieldType &target,
-               const TargetValues    &target_values,
-               const unsigned int     i,
-               const unsigned int     j,
-               const unsigned int     q)
-      {
-        const auto scale = observable.scale();
-        if constexpr (std::is_same_v<typename SourceField::value_type, double>)
-          {
-            if constexpr (std::is_same_v<typename ObservableType::value_type,
-                                         double>)
-              {
-                const auto test =
-                  scalar_shape_value(target_values, target.extractor(), i, q);
-                const auto trial =
-                  scalar_shape_value(source_values, source.extractor(), j, q);
-                return scale * test * trial;
-              }
-            else if constexpr (std::is_same_v<
-                                 typename ObservableType::value_type,
-                                 dealii::Tensor<1, spacedim>>)
-              {
-                const auto trial = scalar_shape_gradient(source_values,
-                                                         source.extractor(),
-                                                         j,
-                                                         q);
-                const auto test =
-                  vector_shape_value(target_values, target.extractor(), i, q);
-                return scale * (trial * test);
-              }
-            else
-              {
-                AssertThrow(false,
-                            dealii::ExcMessage(
-                              "This scalar-source weak-term pairing is not "
-                              "implemented."));
-                return 0.;
-              }
-          }
-        else
-          {
-            if constexpr (std::is_same_v<typename ObservableType::value_type,
-                                         dealii::Tensor<1, spacedim>>)
-              {
-                const auto trial =
-                  vector_shape_value(source_values, source.extractor(), j, q);
-                const auto test =
-                  vector_shape_value(target_values, target.extractor(), i, q);
-                return scale * (trial * test);
-              }
-            else
-              {
-                AssertThrow(false,
-                            dealii::ExcMessage(
-                              "This vector-source weak-term pairing is not "
-                              "implemented."));
-                return 0.;
-              }
-          }
       }
     };
 
@@ -1180,17 +1073,10 @@ namespace ImmersX
           for (unsigned int i = 0; i < dof_indices.size(); ++i)
             if (target.locally_owned_dofs().is_element(dof_indices[i]))
               {
-                const auto component = target.space()
-                                         .finite_element()
-                                         .system_to_component_index(i)
-                                         .first;
+                const auto &target_view = target_values[target.extractor()];
                 (*entries)[particle.get_id()].emplace_back(
                   dof_indices[i],
-                  stencil.physical_weight *
-                    (component < TargetField::spacedimension() ?
-                       (normal * detail::vector_shape_value(
-                                   target_values, target.extractor(), i, 0)) :
-                       0.));
+                  stencil.physical_weight * (normal * target_view.value(i, 0)));
               }
         }
 
@@ -1335,13 +1221,13 @@ namespace ImmersX
   };
 
   /** A solver-neutral FE weak term contributed to a residual row. */
-  template <typename ObservableType, typename TargetField>
+  template <typename TrialExpression, typename TestExpression>
   class WeakTerm
   {
   public:
-    using target_type = TargetField;
+    using target_type = TestExpression;
 
-    WeakTerm(ObservableType observable, TargetField target)
+    WeakTerm(TrialExpression observable, TestExpression target)
       : observable_(std::move(observable))
       , target_(std::move(target))
     {}
@@ -1397,8 +1283,9 @@ namespace ImmersX
                          const double      sign,
                          const std::size_t index) const
     {
-      const auto multiplier_field = target_.with_id(multiplier);
-      const auto pairing          = make_pairing(builder, multiplier_field);
+      const auto multiplier_field      = target_.source().with_id(multiplier);
+      const auto multiplier_expression = value(multiplier_field);
+      const auto pairing = make_pairing(builder, multiplier_expression);
       const auto reaction =
         ImmersX::transpose_operator(pairing.operator_with_matrix);
       const auto source_id = pairing.source_id;
@@ -1425,13 +1312,13 @@ namespace ImmersX
       return add(builder);
     }
 
-    const ObservableType &
+    const TrialExpression &
     observable() const
     {
       return observable_;
     }
 
-    const TargetField &
+    const TestExpression &
     target() const
     {
       return target_;
@@ -1455,7 +1342,7 @@ namespace ImmersX
     make_pairing(SemidiscreteBuilder<VectorType, MatrixType> &builder,
                  const Target                                &target) const
     {
-      using Assembly = detail::WeakAssembly<ObservableType, Target>;
+      using Assembly = detail::WeakAssembly<TrialExpression, Target>;
       Pairing<VectorType, MatrixType> result;
       const bool                      nonmatching_geometry =
         Assembly::geometry_is_nonmatching(observable_, target);
@@ -1480,27 +1367,30 @@ namespace ImmersX
           result.operator_with_matrix = builder.matrix_operator(*result.matrix);
         }
       result.source_id = observable_.source_field();
-      result.target_id = target.field_id();
+      result.target_id = target.source().field_id();
       return result;
     }
 
-    ObservableType observable_;
-    TargetField    target_;
+    TrialExpression observable_;
+    TestExpression  target_;
   };
 
   /** \cond deduction_guide */
-  template <typename ObservableType, typename TargetField>
-  WeakTerm(ObservableType, TargetField)
-    -> WeakTerm<ObservableType, TargetField>;
+  template <typename TrialExpression, typename TestExpression>
+  WeakTerm(TrialExpression, TestExpression)
+    -> WeakTerm<TrialExpression, TestExpression>;
   /** \endcond */
 
   /** Create a residual term representing the FE duality pairing. */
-  template <typename ObservableType, typename TargetField>
+  template <typename Trial, typename Test>
   auto
-  weak_term(ObservableType observable, TargetField target)
+  weak_term(Trial trial, Test test)
   {
-    return WeakTerm<ObservableType, TargetField>(std::move(observable),
-                                                 std::move(target));
+    auto trial_expression = as_fe_expression(trial);
+    auto test_expression  = as_fe_expression(test);
+    return WeakTerm<std::decay_t<decltype(trial_expression)>,
+                    std::decay_t<decltype(test_expression)>>(
+      std::move(trial_expression), std::move(test_expression));
   }
 
   template <typename Quantity, typename Surface, typename TargetField>

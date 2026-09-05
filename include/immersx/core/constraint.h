@@ -96,25 +96,10 @@ namespace ImmersX
               for (unsigned int j = 0; j < indices.size(); ++j)
                 for (unsigned int q = 0; q < quadrature.size(); ++q)
                   {
-                    double product = 0.;
-                    if constexpr (std::is_same_v<
-                                    typename FieldType::extractor_type,
-                                    dealii::FEValuesExtractors::Scalar>)
-                      product =
-                        scalar_shape_value(values, field.extractor(), i, q) *
-                        scalar_shape_value(values, field.extractor(), j, q);
-                    else if constexpr (std::is_same_v<
-                                         typename FieldType::extractor_type,
-                                         dealii::FEValuesExtractors::Vector>)
-                      product =
-                        vector_shape_value(values, field.extractor(), i, q) *
-                        vector_shape_value(values, field.extractor(), j, q);
-                    else
-                      AssertThrow(false,
-                                  dealii::ExcMessage(
-                                    "Multiplier metrics support scalar and "
-                                    "vector fields only."));
-                    local(i, j) += product * values.JxW(q);
+                    const auto &view = values[field.extractor()];
+                    local(i, j) += detail::natural_pairing(view.value(i, q),
+                                                           view.value(j, q)) *
+                                   values.JxW(q);
                   }
             field.constraints().distribute_local_to_global(local,
                                                            indices,
@@ -297,16 +282,16 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Constraint weak terms must use active participant "
                       "fields; put prescribed data in the constraint rhs."));
-        AssertThrow(!entry.term.target().is_registered(),
+        AssertThrow(!entry.term.target().source().is_registered(),
                     dealii::ExcMessage(
                       "A constraint multiplier must be an unregistered "
                       "field."));
-        AssertThrow(static_cast<const void *>(&entry.term.target().space()) ==
-                        static_cast<const void *>(&target.space()) &&
-                      entry.term.target().name() == target.name(),
-                    dealii::ExcMessage(
-                      "All weak terms in a constraint must use the same "
-                      "multiplier field."));
+        AssertThrow(
+          static_cast<const void *>(&entry.term.target().source().space()) ==
+              static_cast<const void *>(&target.space()) &&
+            entry.term.target().source().name() == target.name(),
+          dealii::ExcMessage("All weak terms in a constraint must use the same "
+                             "multiplier field."));
       });
     }
 
@@ -319,7 +304,7 @@ namespace ImmersX
     const auto &
     multiplier() const
     {
-      return std::get<0>(terms_.entries_.front()).term.target();
+      return std::get<0>(terms_.entries_.front()).term.target().source();
     }
 
     bool

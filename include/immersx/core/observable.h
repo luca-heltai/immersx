@@ -18,7 +18,8 @@
 #define immersx_observable_h
 
 #include <deal.II/base/exceptions.h>
-#include <deal.II/base/tensor.h>
+
+#include <deal.II/fe/fe_update_flags.h>
 
 #include <immersx/core/fe_space.h>
 
@@ -29,61 +30,138 @@
 
 namespace ImmersX
 {
-  enum class ObservableOperation
+  namespace detail
   {
-    value,
-    gradient
-  };
+    /** The identity operation on a deal.II FEValues view. */
+    struct ValueOperation
+    {
+      static constexpr dealii::UpdateFlags update_flags = dealii::update_values;
 
-  /** Metadata for a typed, differentiable quantity derived from Fields.
+      template <typename View>
+      decltype(auto)
+      operator()(const View        &view,
+                 const unsigned int i,
+                 const unsigned int q) const
+      {
+        return view.value(i, q);
+      }
+    };
+
+    /** The first derivative operation supplied by a deal.II FEValues view. */
+    struct GradientOperation
+    {
+      static constexpr dealii::UpdateFlags update_flags =
+        dealii::update_gradients;
+
+      template <typename View>
+      decltype(auto)
+      operator()(const View        &view,
+                 const unsigned int i,
+                 const unsigned int q) const
+      {
+        return view.gradient(i, q);
+      }
+    };
+
+    /** The divergence operation supplied by a deal.II FEValues view. */
+    struct DivergenceOperation
+    {
+      static constexpr dealii::UpdateFlags update_flags =
+        dealii::update_gradients;
+
+      template <typename View>
+      decltype(auto)
+      operator()(const View        &view,
+                 const unsigned int i,
+                 const unsigned int q) const
+      {
+        return view.divergence(i, q);
+      }
+    };
+
+    /** The symmetric-gradient operation supplied by a deal.II FEValues view.
+     */
+    struct SymmetricGradientOperation
+    {
+      static constexpr dealii::UpdateFlags update_flags =
+        dealii::update_gradients;
+
+      template <typename View>
+      decltype(auto)
+      operator()(const View        &view,
+                 const unsigned int i,
+                 const unsigned int q) const
+      {
+        return view.symmetric_gradient(i, q);
+      }
+    };
+
+    /** The curl operation supplied by a deal.II FEValues view. */
+    struct CurlOperation
+    {
+      static constexpr dealii::UpdateFlags update_flags =
+        dealii::update_gradients;
+
+      template <typename View>
+      decltype(auto)
+      operator()(const View        &view,
+                 const unsigned int i,
+                 const unsigned int q) const
+      {
+        return view.curl(i, q);
+      }
+    };
+
+    template <typename Type>
+    struct is_field : std::false_type
+    {};
+
+    template <int dim, int spacedim, typename Extractor>
+    struct is_field<Field<dim, spacedim, Extractor>> : std::true_type
+    {};
+
+    template <typename FieldType, typename Operation, typename = void>
+    struct is_supported_operation : std::false_type
+    {};
+
+    template <typename FieldType, typename Operation>
+    struct is_supported_operation<
+      FieldType,
+      Operation,
+      std::void_t<decltype(std::declval<Operation>()(
+        std::declval<const typename FieldType::view_type &>(),
+        0u,
+        0u))>> : std::true_type
+    {};
+  } // namespace detail
+
+  /** A typed FE expression: a Field, a deal.II view operation, and metadata.
    *
-   * Observable deliberately describes only the mathematical quantity. It
-   * does not expose point search, quadrature, evaluation contexts, or caches.
-   * A frozen observable may retain caller-supplied coefficients, but has no
-   * active Field dependency.
+   * The expression's value type is the result of invoking its operation on
+   * the source Field's deal.II FEValues view. This keeps FE tensor typing and
+   * operation support in deal.II rather than maintaining a parallel algebra in
+   * ImmersX.
    */
-  template <typename ValueType, typename SourceFieldType = void>
+  template <typename SourceFieldType, typename Operation>
   class Observable
   {
   public:
-    using value_type        = ValueType;
     using source_field_type = SourceFieldType;
+    using operation_type    = Operation;
+    using view_type         = typename SourceFieldType::view_type;
+    using value_type        = std::decay_t<
+      decltype(std::declval<Operation>()(std::declval<const view_type &>(),
+                                         0u,
+                                         0u))>;
 
-    Observable(std::vector<FieldId>      dependencies,
-               const unsigned int        dimension,
-               const unsigned int        spacedim,
-               const ObservableOperation operation)
-      : dependencies_(std::move(dependencies))
-      , dimension_(dimension)
-      , spacedim_(spacedim)
-      , operation_(operation)
+    explicit Observable(const SourceFieldType &source)
+      : source_(source)
+      , dependencies_{source.field_id()}
     {}
 
-    template <typename SourceField>
-    Observable(std::vector<FieldId>      dependencies,
-               const unsigned int        dimension,
-               const unsigned int        spacedim,
-               const ObservableOperation operation,
-               const SourceField        &source)
-      : dependencies_(std::move(dependencies))
-      , dimension_(dimension)
-      , spacedim_(spacedim)
-      , operation_(operation)
-      , source_(source)
-    {}
-
-    template <typename SourceField, typename VectorType>
-    Observable(std::vector<FieldId>      dependencies,
-               const unsigned int        dimension,
-               const unsigned int        spacedim,
-               const ObservableOperation operation,
-               const SourceField        &source,
-               const VectorType         &frozen_values)
-      : dependencies_(std::move(dependencies))
-      , dimension_(dimension)
-      , spacedim_(spacedim)
-      , operation_(operation)
-      , source_(source)
+    template <typename VectorType>
+    Observable(const SourceFieldType &source, const VectorType &frozen_values)
+      : source_(source)
       , frozen_(frozen_values)
     {}
 
@@ -93,26 +171,26 @@ namespace ImmersX
       return dependencies_;
     }
 
-    unsigned int
-    dimension() const
+    static constexpr unsigned int
+    dimension()
     {
-      return dimension_;
+      return SourceFieldType::dimension();
     }
 
-    unsigned int
-    space_dimension() const
+    static constexpr unsigned int
+    space_dimension()
     {
       return dimension();
     }
 
-    unsigned int
-    spacedimension() const
+    static constexpr unsigned int
+    spacedimension()
     {
-      return spacedim_;
+      return SourceFieldType::spacedimension();
     }
 
-    unsigned int
-    spacedim() const
+    static constexpr unsigned int
+    spacedim()
     {
       return spacedimension();
     }
@@ -120,34 +198,33 @@ namespace ImmersX
     FieldId
     source_field() const
     {
-      AssertThrow(dependencies_.empty() || dependencies_.size() == 1,
-                  dealii::ExcMessage(
-                    "source_field() is only defined for one-field "
-                    "observables."));
       return dependencies_.empty() ? FieldId() : dependencies_.front();
     }
 
-    /** Return the typed source retained by an observable factory. */
-    template <typename SourceField>
-    const SourceField &
+    const SourceFieldType &
     source() const
     {
-      const auto *source = std::any_cast<SourceField>(&source_);
-      AssertThrow(source != nullptr,
-                  dealii::ExcMessage(
-                    "The observable does not contain the requested source "
-                    "field type."));
-      return *source;
+      return source_;
     }
 
-    /** Whether this observable is supplied by fixed, external values. */
+    Operation
+    operation() const
+    {
+      return {};
+    }
+
+    static constexpr dealii::UpdateFlags
+    update_flags()
+    {
+      return Operation::update_flags;
+    }
+
     bool
     is_frozen() const
     {
       return frozen_.has_value();
     }
 
-    /** Return the fixed values retained by a frozen observable. */
     template <typename VectorType>
     const VectorType &
     frozen_values() const
@@ -160,20 +237,12 @@ namespace ImmersX
       return *values;
     }
 
-    ObservableOperation
-    operation() const
-    {
-      return operation_;
-    }
-
-    /** Return the scalar coefficient applied to this observable. */
     double
     scale() const
     {
       return scale_;
     }
 
-    /** Return a copy multiplied by a scalar coefficient. */
     Observable
     scaled(const double coefficient) const
     {
@@ -182,87 +251,128 @@ namespace ImmersX
       return result;
     }
 
-    bool
-    is_differentiable() const
-    {
-      return true;
-    }
-
-    bool
-    is_linear() const
-    {
-      return true;
-    }
-
   private:
+    SourceFieldType      source_;
     std::vector<FieldId> dependencies_;
-    unsigned int         dimension_;
-    unsigned int         spacedim_;
-    ObservableOperation  operation_;
     double               scale_ = 1.;
-    std::any             source_;
     std::any             frozen_;
   };
 
-  template <typename FieldType>
-  Observable<typename std::decay_t<FieldType>::value_type,
-             std::decay_t<FieldType>>
+  namespace detail
+  {
+    template <typename Type>
+    struct is_observable : std::false_type
+    {};
+
+    template <typename SourceFieldType, typename Operation>
+    struct is_observable<Observable<SourceFieldType, Operation>>
+      : std::true_type
+    {};
+  } // namespace detail
+
+  template <typename FieldType,
+            std::enable_if_t<
+              detail::is_field<FieldType>::value &&
+                detail::is_supported_operation<std::decay_t<FieldType>,
+                                               detail::ValueOperation>::value,
+              int> = 0>
+  auto
   value(const FieldType &field)
   {
-    using Field = std::decay_t<FieldType>;
-    return Observable<typename Field::value_type, Field>(
-      {field.field_id()},
-      Field::dimension(),
-      Field::spacedimension(),
-      ObservableOperation::value,
-      field);
+    return Observable<std::decay_t<FieldType>, detail::ValueOperation>(field);
   }
 
-  template <typename FieldType>
+  template <typename FieldType,
+            std::enable_if_t<detail::is_field<FieldType>::value &&
+                               detail::is_supported_operation<
+                                 std::decay_t<FieldType>,
+                                 detail::GradientOperation>::value,
+                             int> = 0>
   auto
   gradient(const FieldType &field)
   {
-    using Field = std::decay_t<FieldType>;
-    using GradientValue =
-      std::conditional_t<std::is_same_v<typename Field::value_type, double>,
-                         dealii::Tensor<1, Field::spacedimension()>,
-                         dealii::Tensor<2, Field::spacedimension()>>;
-    return Observable<GradientValue, Field>({field.field_id()},
-                                            Field::dimension(),
-                                            Field::spacedimension(),
-                                            ObservableOperation::gradient,
-                                            field);
+    return Observable<std::decay_t<FieldType>, detail::GradientOperation>(
+      field);
   }
 
-  /** Construct a dependency-free observable from fixed FE coefficients. */
+  template <typename FieldType,
+            std::enable_if_t<detail::is_field<FieldType>::value &&
+                               detail::is_supported_operation<
+                                 std::decay_t<FieldType>,
+                                 detail::DivergenceOperation>::value,
+                             int> = 0>
+  auto
+  divergence(const FieldType &field)
+  {
+    return Observable<std::decay_t<FieldType>, detail::DivergenceOperation>(
+      field);
+  }
+
+  template <typename FieldType,
+            std::enable_if_t<detail::is_field<FieldType>::value &&
+                               detail::is_supported_operation<
+                                 std::decay_t<FieldType>,
+                                 detail::SymmetricGradientOperation>::value,
+                             int> = 0>
+  auto
+  symmetric_gradient(const FieldType &field)
+  {
+    return Observable<std::decay_t<FieldType>,
+                      detail::SymmetricGradientOperation>(field);
+  }
+
+  template <typename FieldType,
+            std::enable_if_t<
+              detail::is_field<FieldType>::value &&
+                detail::is_supported_operation<std::decay_t<FieldType>,
+                                               detail::CurlOperation>::value,
+              int> = 0>
+  auto
+  curl(const FieldType &field)
+  {
+    return Observable<std::decay_t<FieldType>, detail::CurlOperation>(field);
+  }
+
+  /** \cond */
+  template <
+    typename Type,
+    std::enable_if_t<detail::is_observable<std::decay_t<Type>>::value, int> = 0>
+  const std::decay_t<Type> &
+  as_fe_expression(const Type &expression)
+  {
+    return expression;
+  }
+
+  template <
+    typename Type,
+    std::enable_if_t<detail::is_field<std::decay_t<Type>>::value, int> = 0>
+  auto
+  as_fe_expression(const Type &field)
+  {
+    return value(field);
+  }
+  /** \endcond */
+
+  /** Construct a dependency-free expression from fixed FE coefficients. */
   template <typename FieldType, typename VectorType>
-  Observable<typename std::decay_t<FieldType>::value_type,
-             std::decay_t<FieldType>>
+  auto
   frozen(const FieldType &field, const VectorType &values)
   {
-    using Field = std::decay_t<FieldType>;
-    return Observable<typename Field::value_type, Field>(
-      {},
-      Field::dimension(),
-      Field::spacedimension(),
-      ObservableOperation::value,
-      field,
-      values);
+    return Observable<std::decay_t<FieldType>, detail::ValueOperation>(field,
+                                                                       values);
   }
 
-  /** Scale an observable while preserving its dependencies and source. */
-  template <typename ValueType, typename SourceFieldType>
-  Observable<ValueType, SourceFieldType>
+  template <typename SourceFieldType, typename Operation>
+  Observable<SourceFieldType, Operation>
   operator*(const double                           coefficient,
-            Observable<ValueType, SourceFieldType> observable)
+            Observable<SourceFieldType, Operation> observable)
   {
     return observable.scaled(coefficient);
   }
 
-  /** Scale an observable while preserving its dependencies and source. */
-  template <typename ValueType, typename SourceFieldType>
-  Observable<ValueType, SourceFieldType>
-  operator*(Observable<ValueType, SourceFieldType> observable,
+  template <typename SourceFieldType, typename Operation>
+  Observable<SourceFieldType, Operation>
+  operator*(Observable<SourceFieldType, Operation> observable,
             const double                           coefficient)
   {
     return observable.scaled(coefficient);

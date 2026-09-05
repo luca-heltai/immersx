@@ -12,6 +12,7 @@
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
@@ -19,8 +20,11 @@
 
 #include <deal.II/grid/grid_generator.h>
 
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/vector.h>
+
+#include <deal.II/numerics/matrix_creator.h>
 
 #include <gtest/gtest.h>
 #include <immersx/core/contributor.h>
@@ -91,7 +95,7 @@ TEST(WeakTerm, ScalarSameDoFHandler)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  const auto                          term = weak_term(value(source), target);
+  const auto                          term = weak_term(source, target);
   EXPECT_EQ(term(builder), target.field_id());
 
   Vector state(space.dof_handler.n_dofs());
@@ -161,6 +165,257 @@ TEST(WeakTerm, ScalarDifferentDoFHandlersOnOneTriangulation)
   EXPECT_LT(action.l2_norm(), 1.e-12);
 }
 
+TEST(WeakTerm, SameDoFHandlerGradientMatchesMatrixCreator)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FE_Q<2>     fe(1);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source = V.field(layout, "source");
+  const auto target = V.field(layout, "target");
+  using Vector      = Vector<double>;
+  using Matrix      = SparseMatrix<double>;
+  using Model       = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(gradient(source), gradient(target)).add(builder);
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  const auto                      actual =
+    model.state_matrix_operator(target.field_id(), source.field_id(), context);
+  ASSERT_TRUE(actual.has_value());
+  ASSERT_TRUE(actual->is_materializable());
+
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(space.dof_handler,
+                                  dynamic_sparsity,
+                                  space.constraints,
+                                  false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
+  Matrix reference(sparsity);
+  MatrixCreator::create_laplace_matrix(StaticMappingQ1<2>::mapping,
+                                       space.dof_handler,
+                                       quadrature,
+                                       reference,
+                                       static_cast<const Function<2> *>(
+                                         nullptr),
+                                       space.constraints);
+
+  const auto actual_matrix = actual->matrix();
+  ASSERT_EQ(actual_matrix->m(), reference.m());
+  ASSERT_EQ(actual_matrix->n(), reference.n());
+  for (unsigned int i = 0; i < reference.m(); ++i)
+    for (unsigned int j = 0; j < reference.n(); ++j)
+      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+}
+
+TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FESystem<2> fe(FE_Q<2>(1), 2);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source = V.field(layout, "source", FEValuesExtractors::Vector(0));
+  const auto target = V.field(layout, "target", FEValuesExtractors::Vector(0));
+  using Vector      = Vector<double>;
+  using Matrix      = SparseMatrix<double>;
+  using Model       = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(gradient(source), gradient(target)).add(builder);
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  const auto                      actual =
+    model.state_matrix_operator(target.field_id(), source.field_id(), context);
+  ASSERT_TRUE(actual.has_value());
+  ASSERT_TRUE(actual->is_materializable());
+
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(space.dof_handler,
+                                  dynamic_sparsity,
+                                  space.constraints,
+                                  false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
+  Matrix      reference(sparsity);
+  FEValues<2> values(StaticMappingQ1<2>::mapping,
+                     fe,
+                     quadrature,
+                     update_gradients | update_JxW_values);
+  const auto &view = values[FEValuesExtractors::Vector(0)];
+  std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+  FullMatrix<double> local(fe.n_dofs_per_cell(), fe.n_dofs_per_cell());
+  for (const auto &cell : space.dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      local = 0.;
+      for (const unsigned int q : values.quadrature_point_indices())
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            local(i, j) +=
+              dealii::scalar_product(view.gradient(j, q), view.gradient(i, q)) *
+              values.JxW(q);
+      space.constraints.distribute_local_to_global(local, indices, reference);
+    }
+
+  const auto actual_matrix = actual->matrix();
+  for (unsigned int i = 0; i < reference.m(); ++i)
+    for (unsigned int j = 0; j < reference.n(); ++j)
+      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+}
+
+TEST(WeakTerm, SameDoFHandlerSymmetricGradientUsesBothExpressions)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FESystem<2> fe(FE_Q<2>(1), 2);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source = V.field(layout, "source", FEValuesExtractors::Vector(0));
+  const auto target = V.field(layout, "target", FEValuesExtractors::Vector(0));
+  using Vector      = Vector<double>;
+  using Matrix      = SparseMatrix<double>;
+  using Model       = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(symmetric_gradient(source), symmetric_gradient(target))
+    .add(builder);
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  const auto                      actual =
+    model.state_matrix_operator(target.field_id(), source.field_id(), context);
+  ASSERT_TRUE(actual.has_value());
+  ASSERT_TRUE(actual->is_materializable());
+
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(space.dof_handler,
+                                  dynamic_sparsity,
+                                  space.constraints,
+                                  false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
+  Matrix      reference(sparsity);
+  FEValues<2> values(StaticMappingQ1<2>::mapping,
+                     fe,
+                     quadrature,
+                     update_gradients | update_JxW_values);
+  const auto &view = values[FEValuesExtractors::Vector(0)];
+  std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+  FullMatrix<double> local(fe.n_dofs_per_cell(), fe.n_dofs_per_cell());
+  for (const auto &cell : space.dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      local = 0.;
+      for (const unsigned int q : values.quadrature_point_indices())
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            local(i, j) +=
+              dealii::scalar_product(view.symmetric_gradient(j, q),
+                                     view.symmetric_gradient(i, q)) *
+              values.JxW(q);
+      space.constraints.distribute_local_to_global(local, indices, reference);
+    }
+
+  const auto actual_matrix = actual->matrix();
+  for (unsigned int i = 0; i < reference.m(); ++i)
+    for (unsigned int j = 0; j < reference.n(); ++j)
+      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+}
+
+TEST(WeakTerm, TestSideDivergenceUsesTypedOperation)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FESystem<2> fe(FE_Q<2>(1), 3);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source =
+    V.field(layout, "pressure", FEValuesExtractors::Scalar(0));
+  const auto target =
+    V.field(layout, "velocity", FEValuesExtractors::Vector(1));
+  using Vector = Vector<double>;
+  using Matrix = SparseMatrix<double>;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(value(source), divergence(target)).add(builder);
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  const auto                      actual =
+    model.state_matrix_operator(target.field_id(), source.field_id(), context);
+  ASSERT_TRUE(actual.has_value());
+  ASSERT_TRUE(actual->is_materializable());
+
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(space.dof_handler,
+                                  dynamic_sparsity,
+                                  space.constraints,
+                                  false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
+  Matrix      reference(sparsity);
+  FEValues<2> values(StaticMappingQ1<2>::mapping,
+                     fe,
+                     quadrature,
+                     update_values | update_gradients | update_JxW_values);
+  const auto &source_view = values[FEValuesExtractors::Scalar(0)];
+  const auto &target_view = values[FEValuesExtractors::Vector(1)];
+  std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+  FullMatrix<double> local(fe.n_dofs_per_cell(), fe.n_dofs_per_cell());
+  for (const auto &cell : space.dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      local = 0.;
+      for (const unsigned int q : values.quadrature_point_indices())
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            local(i, j) += source_view.value(j, q) *
+                           target_view.divergence(i, q) * values.JxW(q);
+      space.constraints.distribute_local_to_global(local, indices, reference);
+    }
+
+  const auto actual_matrix = actual->matrix();
+  for (unsigned int i = 0; i < reference.m(); ++i)
+    for (unsigned int j = 0; j < reference.n(); ++j)
+      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+}
+
 TEST(WeakTerm, ScaledObservableScalesResidualAndJacobian)
 {
   Triangulation<2> tria;
@@ -178,7 +433,7 @@ TEST(WeakTerm, ScaledObservableScalesResidualAndJacobian)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(2.5 * value(source), target).add(builder);
+  weak_term(2.5 * value(source), 3.0 * value(target)).add(builder);
 
   Vector state(space.dof_handler.n_dofs());
   for (unsigned int i = 0; i < state.size(); ++i)
@@ -190,7 +445,7 @@ TEST(WeakTerm, ScaledObservableScalesResidualAndJacobian)
   Vector residual(state.size());
   model.evaluate_row(target.field_id(), context, residual);
   auto expected = expected_scalar_pairing(source, state);
-  expected *= 2.5;
+  expected *= 7.5;
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 

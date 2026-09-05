@@ -87,10 +87,13 @@ A Field is not:
 
 Keep semantic Field identity separate from execution storage.
 
-### Representation
+### Representation and FE expression
 
-A Representation is a reusable typed observable/lifting derived from one or
-more Fields and geometric/discretization data.
+A Representation is a reusable typed lifting or observable derived from one or
+more Fields and geometric/discretization data. A local FE expression is the
+smaller `Observable<Field, Operation>` value used by weak terms; it delegates
+FE value/result types and first-order operations to deal.II's
+`FEValuesViews`.
 
 It does not own the physical coupling relation between Problems.
 
