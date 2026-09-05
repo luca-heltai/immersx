@@ -30,7 +30,7 @@ namespace ImmersX
    *   [ C^T 0 ] [lambda]   [g_Q  ].
    * @endcode
    *
-   * The solver is independent of the Problem and Representation layers.  Its
+   * The solver is independent of Problem and FE-field layers.  Its
    * Schur complement is applied matrix-free and the only preconditioner it
    * needs is the one for the PDE block A.
    */

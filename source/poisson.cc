@@ -186,29 +186,6 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
-  PoissonSolver<dim, spacedim>::set_imported_fields(
-    std::shared_ptr<const ImportedFields> fields)
-  {
-    AssertThrow(fields != nullptr,
-                ExcMessage("Imported finite-element fields must not be null."));
-    AssertThrow(&fields->triangulation() == tria,
-                ExcMessage(
-                  "Imported finite-element fields must use the Poisson "
-                  "triangulation."));
-    imported_fields_storage = std::move(fields);
-  }
-
-  template <int dim, int spacedim>
-  const std::shared_ptr<
-    const typename PoissonSolver<dim, spacedim>::ImportedFields> &
-  PoissonSolver<dim, spacedim>::imported_fields() const
-  {
-    return imported_fields_storage;
-  }
-
-
-  template <int dim, int spacedim>
-  void
   PoissonSolver<dim, spacedim>::make_grid()
   {
     TimerOutput::Scope t(computing_timer, "Make grid");

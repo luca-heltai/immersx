@@ -17,6 +17,8 @@
 
 #include <deal.II/dofs/dof_handler.h>
 
+#include <deal.II/fe/mapping_q1.h>
+
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/la_parallel_vector.h>
 
@@ -25,8 +27,8 @@
 #include <boost/signals2/connection.hpp>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/reduced_field_catalog.h>
-#include <immersx/core/representation.h>
 
 #include <memory>
 #include <string>
@@ -49,7 +51,8 @@ namespace ImmersX
     using TriangulationType =
       dealii::parallel::TriangulationBase<dim, spacedim>;
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
-    using Representation = FiniteElementRepresentation<dim, spacedim>;
+    using SpaceView      = FESpaceView<dim, spacedim>;
+    using FieldType = Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
 
   private:
     struct Storage
@@ -59,12 +62,9 @@ namespace ImmersX
 
       Storage(const TriangulationType &tria, const MPI_Comm comm)
         : triangulation(&tria)
-        , dof_handler(const_cast<TriangulationType &>(tria))
         , coefficients()
         , communicator(comm)
       {
-        constraints.close();
-
         auto &mutable_tria = const_cast<TriangulationType &>(tria);
         using DistributedTriangulation =
           dealii::parallel::distributed::Triangulation<dim, spacedim>;
@@ -93,19 +93,16 @@ namespace ImmersX
       void
       complete_refinement();
 
-      const TriangulationType                              *triangulation;
-      DoFHandlerType                                        dof_handler;
-      std::unique_ptr<dealii::FiniteElement<dim, spacedim>> finite_element;
-      dealii::IndexSet                                      locally_owned_dofs;
-      dealii::IndexSet                      locally_relevant_dofs;
-      dealii::AffineConstraints<double>     constraints;
-      std::shared_ptr<VectorType>           coefficients;
-      FieldCatalog                          catalog;
-      MPI_Comm                              communicator;
-      std::shared_ptr<VectorType>           refinement_input;
-      std::shared_ptr<SolutionTransferType> refinement_transfer;
-      boost::signals2::scoped_connection    pre_refinement_connection;
-      boost::signals2::scoped_connection    post_refinement_connection;
+      const TriangulationType                     *triangulation;
+      std::unique_ptr<OwnedFESpace<dim, spacedim>> space;
+      std::unique_ptr<SpaceView>                   space_view;
+      std::shared_ptr<VectorType>                  coefficients;
+      FieldCatalog                                 catalog;
+      MPI_Comm                                     communicator;
+      std::shared_ptr<VectorType>                  refinement_input;
+      std::shared_ptr<SolutionTransferType>        refinement_transfer;
+      boost::signals2::scoped_connection           pre_refinement_connection;
+      boost::signals2::scoped_connection           post_refinement_connection;
     };
 
   public:
@@ -115,19 +112,25 @@ namespace ImmersX
     public:
       FieldView() = delete;
 
-      Representation
-      representation() const
+      FieldType
+      field() const
       {
         const auto component_offset =
           descriptor_.first_fe_component + component_;
-        return Representation(*storage_->triangulation,
-                              storage_->dof_handler,
-                              storage_->locally_owned_dofs,
-                              storage_->locally_relevant_dofs,
-                              storage_->constraints,
-                              dealii::StaticMappingQ1<dim, spacedim>::mapping,
-                              dealii::FEValuesExtractors::Scalar(
-                                component_offset));
+        return storage_->space_view->field(
+          name(), dealii::FEValuesExtractors::Scalar(component_offset));
+      }
+
+      const SpaceView &
+      space() const
+      {
+        return *storage_->space_view;
+      }
+
+      const TriangulationType &
+      triangulation() const
+      {
+        return *storage_->triangulation;
       }
 
       const VectorType &
@@ -190,31 +193,44 @@ namespace ImmersX
     const DoFHandlerType &
     dof_handler() const
     {
-      return storage_->dof_handler;
+      return storage_->space->dof_handler();
     }
 
     const dealii::FiniteElement<dim, spacedim> &
     finite_element() const
     {
-      return storage_->dof_handler.get_fe();
+      return storage_->space->finite_element();
     }
 
     const dealii::IndexSet &
     locally_owned_dofs() const
     {
-      return storage_->locally_owned_dofs;
+      return storage_->space->locally_owned_dofs();
     }
 
     const dealii::IndexSet &
     locally_relevant_dofs() const
     {
-      return storage_->locally_relevant_dofs;
+      return storage_->space->locally_relevant_dofs();
     }
 
     const VectorType &
     coefficients() const
     {
       return *storage_->coefficients;
+    }
+
+    const VectorType &
+    coefficients(const std::string &name) const
+    {
+      (void)field(name);
+      return coefficients();
+    }
+
+    const SpaceView &
+    space() const
+    {
+      return *storage_->space_view;
     }
 
     const FieldCatalog &

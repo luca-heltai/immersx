@@ -70,7 +70,7 @@ namespace ImmersX
   };
 
   /**
-   * Representation used for the immersed coupling.
+   * Backend used for the immersed coupling.
    *
    * Point coupling reads discrete inclusion centers and their finite radii.
    * Tensor-product coupling reads a reduced mesh and combines it with a
@@ -239,13 +239,13 @@ namespace ImmersX
     std::string weight_expression = "1.";
 
 #ifdef DEAL_II_WITH_VTK
-    /** Parameters for the tensor-product coupling representation. */
+    /** Parameters for the tensor-product coupling backend. */
     ReducedCouplingParameters<1, 2, spacedim, spacedim>
       tensor_product_coupling_parameters;
 #endif
 
     /**
-     * Representation used for the immersed coupling. `Point` uses discrete
+     * Backend used for the immersed coupling. `Point` uses discrete
      * inclusion centers with finite radii; `TensorProduct` uses a VTK reduced
      * mesh and a reference cross section.
      */

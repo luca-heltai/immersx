@@ -9,7 +9,7 @@ owns the orchestration of this particular 1D–3D example. It is distinct from
 `coupled_elasticity`, which is a legacy `lib1dsolver` workflow. In the
 architectural direction described in {doc}`../concepts/architecture`, the network and tissue
 physics can eventually contribute to the same residual through reusable
-Representations and Interactions, with monolithic or partitioned execution
+Observables and Interactions, with monolithic or partitioned execution
 selected outside the physics layer. That common adapter is a roadmap item,
 not an API claim about this tutorial.
 

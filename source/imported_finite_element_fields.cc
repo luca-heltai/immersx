@@ -42,19 +42,20 @@ namespace ImmersX
                 dealii::ExcMessage(
                   "Imported finite-element field refinement transfer is "
                   "already pending."));
-    AssertThrow(finite_element != nullptr && coefficients != nullptr,
+    AssertThrow(space != nullptr && coefficients != nullptr,
                 dealii::ExcMessage(
                   "Imported finite-element field storage is not initialized "
                   "for refinement."));
 
     refinement_input = std::make_shared<VectorType>();
-    refinement_input->reinit(locally_owned_dofs,
-                             locally_relevant_dofs,
+    refinement_input->reinit(space->locally_owned_dofs(),
+                             space->locally_relevant_dofs(),
                              communicator);
     *refinement_input = *coefficients;
     refinement_input->update_ghost_values();
 
-    refinement_transfer = std::make_shared<SolutionTransferType>(dof_handler);
+    refinement_transfer =
+      std::make_shared<SolutionTransferType>(space->dof_handler());
     refinement_transfer->prepare_for_coarsening_and_refinement(
       *refinement_input);
   }
@@ -67,20 +68,15 @@ namespace ImmersX
                 dealii::ExcMessage(
                   "Imported finite-element field refinement transfer was not "
                   "prepared."));
-    AssertThrow(finite_element != nullptr && coefficients != nullptr,
+    AssertThrow(space != nullptr && coefficients != nullptr,
                 dealii::ExcMessage(
                   "Imported finite-element field storage is not initialized "
                   "for refinement."));
 
-    dof_handler.distribute_dofs(*finite_element);
-    locally_owned_dofs = dof_handler.locally_owned_dofs();
-    locally_relevant_dofs =
-      dealii::DoFTools::extract_locally_relevant_dofs(dof_handler);
-    constraints.clear();
-    constraints.close();
+    space->distribute_dofs();
 
     VectorType transferred;
-    transferred.reinit(locally_owned_dofs, communicator);
+    transferred.reinit(space->locally_owned_dofs(), communicator);
     refinement_transfer->interpolate(transferred);
     transferred.compress(dealii::VectorOperation::insert);
     *coefficients = transferred;
@@ -150,18 +146,20 @@ namespace ImmersX
                        storage->catalog);
     assert_same_mesh(serial_triangulation, triangulation);
 
-    storage->finite_element = serial_dof_handler.get_fe().clone();
-    storage->dof_handler.distribute_dofs(*storage->finite_element);
-    storage->locally_owned_dofs = storage->dof_handler.locally_owned_dofs();
-    storage->locally_relevant_dofs =
-      dealii::DoFTools::extract_locally_relevant_dofs(storage->dof_handler);
-    coefficients->reinit(storage->locally_owned_dofs, communicator);
+    storage->space = std::make_unique<OwnedFESpace<dim, spacedim>>(
+      triangulation, serial_dof_handler.get_fe().clone());
+    storage->space_view = std::make_unique<
+      typename ImportedFiniteElementFields<dim, spacedim>::SpaceView>(
+      storage->space->view(dealii::StaticMappingQ1<dim, spacedim>::mapping));
+    coefficients->reinit(storage->space->locally_owned_dofs(), communicator);
     AssertDimension(serial_coefficients.size(), serial_dof_handler.n_dofs());
-    AssertDimension(storage->dof_handler.n_dofs(), serial_dof_handler.n_dofs());
-    ReducedFieldUtils::serial_vector_to_distributed_vector(serial_dof_handler,
-                                                           storage->dof_handler,
-                                                           serial_coefficients,
-                                                           *coefficients);
+    AssertDimension(storage->space->dof_handler().n_dofs(),
+                    serial_dof_handler.n_dofs());
+    ReducedFieldUtils::serial_vector_to_distributed_vector(
+      serial_dof_handler,
+      storage->space->dof_handler(),
+      serial_coefficients,
+      *coefficients);
     storage->coefficients = std::move(coefficients);
 
 #else

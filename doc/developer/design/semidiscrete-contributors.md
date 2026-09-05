@@ -1,375 +1,90 @@
 # Semidiscrete contributors
 
-Application authors compose standalone Problems and Interactions through an
-execution adapter. The adapter owns storage, execution blocks, DAE metadata,
-and solver policy. The public composition vocabulary is deliberately small:
-add a Problem, observe a quantity, lift it to a user-described support, form a
-`weak_term`, and solve.
+ImmersX composes native Problems and relation-specific Interactions through an
+execution adapter. The current public path is:
+
+```text
+deal.II FE space -> Field -> Observable / FE expression
+                 -> weak_term -> Constraint / Interaction
+                 -> LinearAdapter or IDAAdapter
+```
 
 ## Application authors
 
-The returned value is a semantic Problem handle. It keeps the contributor's
-Field identifiers and a non-owning view of the adapter; it does not duplicate
-Problem state or execution storage. A typical coupled workflow is:
+A Problem owns its mesh, finite element, native operators, physical data, and
+accepted state. An adapter owns solver policy and execution storage. Fields are
+semantic state/residual identities; they are not global block numbers.
 
-```{code-block} cpp
-TimeParameters time_parameters;
+```cpp
 IDAAdapter<FieldVector, GlobalVector> ida(time_parameters, MPI_COMM_WORLD);
 auto fluid = ida.add(flow_problem, "fluid");
 auto wall  = ida.add(elastic_problem, "wall");
 
-auto pressure = fluid.observe(Pressure{});
-auto wall_pressure = pressure.lift(VesselSurface{});
-auto traction = wall_pressure * ImmersX::normal(surface);
-ida.add(ImmersX::weak_term(traction, wall_displacement), "traction");
-
-auto state     = ida.make_state();
-auto state_dot = ida.make_state();
-ida.solve(state, state_dot);
+auto pressure = value(fluid.fields().pressure);
+auto traction = pressure * ImmersX::normal(surface);
+ida.add(ImmersX::weak_term(traction,
+                           wall.fields().displacement),
+        "traction");
 ```
 
-`Pressure`, `VesselSurface`, and the surface normal are small descriptors
-supplied by the relevant physics modules. ImmersX core does not need to know
-what those quantities mean. It composes their observable and weak-term
-operations and selects the appropriate local or distributed backend.
+The adapter maps semantic Fields to execution storage and keeps differential
+and algebraic metadata private. Candidate residual evaluations do not update a
+Problem's accepted history.
 
-For an affine steady problem, use `LinearAdapter`:
+## Observables and weak terms
 
-```{code-block} cpp
-using Adapter = LinearAdapter<LA::MPI::Vector, LA::MPI::BlockVector>;
-LinearAdapterParameters linear_parameters;
-Adapter linear(linear_parameters, MPI_COMM_WORLD);
-auto bulk = linear.add(bulk_problem, "bulk");
-auto state = linear.make_state();
-linear.solve(state);
-bulk_problem.set_solution(linear.field(state, bulk.fields().solution));
-bulk_problem.output_results();
+`FESpaceView` is a non-owning view of a deal.II DoFHandler, mapping, and
+constraints. A `Field` adds a semantic name and extractor. `Observable<Field,
+Operation>` is a typed FE expression whose value type and supported operations
+come from deal.II's `FEValuesViews`.
+
+```cpp
+auto displacement = solid_space.field(
+  solid_fields.displacement, "displacement",
+  dealii::FEValuesExtractors::Vector(0));
+auto strain = ImmersX::symmetric_gradient(displacement);
+auto pressure = ImmersX::value(flow_fields.pressure);
+
+auto term = ImmersX::weak_term(pressure * ImmersX::normal(surface),
+                               displacement);
 ```
 
-The execution adapter owns the coupled solver state, while each Problem owns
-its accepted physical state and native output. After a successful solve,
-applications transfer each physical Field back to its owning Problem before
-calling that Problem's output method. An Interaction owns any auxiliary Fields
-it introduces, such as Lagrange multipliers, and provides their native output;
-the execution adapter does not own visualization.
+The same operations apply to frozen coefficients. A frozen FE expression has
+no active dependencies; it does not require a parallel class hierarchy.
+Imported finite-element data is therefore ordinary FE-space metadata plus
+externally owned coefficients.
 
-### MetricFlowX vessel-wall feedback
+The backend may use direct same-DoFHandler assembly, paired cell traversal,
+particle search, or tensor-product lifting. Those are execution details and do
+not change the mathematical contributor API.
 
-`VesselWallInteraction` couples a `MetricFlowXAreaRadialDisplacementRepresentation`
-to elastodynamics in both directions. Its multiplier is the pressure jump
+## Constraints and Interactions
 
-$$
-\lambda = p_{\mathrm{external}} - p_{\mathrm{internal,tube}}.
-$$
+A `Constraint` or domain-specific Interaction contributes residual rows and
+the corresponding linearization. Auxiliary multipliers are ordinary
+algebraic Fields on their own FE spaces. Reactions are assembled from the
+transpose of the same weak-term operator that defines the constraint.
 
-The solid receives the existing `+B lambda` traction term. MetricFlowX receives
-the corresponding external pressure `-lambda`, evaluated on the incident
-centerline cell, through its native additive pressure operation. The interaction
-also registers the multiplier-to-flow Jacobian action, so the execution adapter
-assembles the full two-way block structure without exposing global block
-numbers to the application.
+MetricFlowX remains an external/native Problem. Its vessel-wall path exposes
+the Area state as a Field, maps it through the nonlinear radial-displacement
+Observable, and contributes a `MetricFlowXVesselWallConstraint` coupling to the
+solid Field and pressure multiplier. The native MetricFlowX Problem is not
+wrapped in a generic ImmersX Problem base class.
 
-The application workflow remains ordinary Problem/Interaction composition:
-
-```{code-block} cpp
+```cpp
 auto flow = adapter.add(ImmersX::metric_flow_x(flow_problem), "blood-flow");
-auto wall = adapter.add(solid_problem, "elastodynamics");
-VesselWallInteraction interaction(solid_representation,
-                                  wall_representation,
-                                  search_parameters);
-interaction.assemble();
-auto coupling = adapter.add(interaction,
-                            "vessel-wall",
-                            wall.fields().displacement,
-                            wall.fields().velocity,
-                            flow.fields().state);
+auto solid = adapter.add(solid_problem, "elastodynamics");
+MetricFlowXVesselWallConstraint coupling(solid_field,
+                                         wall_observable,
+                                         search_parameters);
+coupling.assemble();
+auto fields = adapter.add(coupling,
+                          "vessel-wall",
+                          solid.fields().displacement,
+                          solid.fields().velocity,
+                          flow.fields().state);
 ```
 
-For output, pass the candidate multiplier to the interaction's pressure
-provider when requesting MetricFlowX pressure output. Accepted multipliers are
-copied to the interaction with `set_multiplier()` at the adapter's accepted
-step callback; residual evaluations do not update accepted physical history.
-
-For example, a composed Poisson/elasticity solve keeps the two physical output
-paths explicit:
-
-```{code-block} cpp
-auto state = adapter.make_state();
-adapter.solve(state);
-
-poisson_problem.set_solution(
-  adapter.field(state, poisson.fields().solution));
-elasticity_problem.set_solution(
-  adapter.field(state, elastic.fields().displacement));
-
-poisson_problem.output_results();
-elasticity_problem.output_results(0);
-```
-
-For a unified Lagrange-multiplier constraint, the execution adapter returns the
-semantic multiplier Field alongside the other contributor fields:
-
-```{code-block} cpp
-auto state = adapter.make_state();
-adapter.solve(state);
-
-poisson_problem.set_solution(
-  adapter.field(state, poisson.fields().solution));
-const auto lambda = adapter.field(state, constraint.fields().multiplier);
-
-poisson_problem.output_results();
-// Write lambda with the DoFHandler used by its fe_space(...) view.
-```
-
-The multiplier is an ordinary Field on the independent finite-element space
-provided by its `fe_space(...)` view. Problems output Problem-owned fields;
-application code writes the multiplier with that view's own DoFHandler. No
-execution block number is part of this handoff.
-
-The standard adapters select their iterative/direct policy internally. An
-expert application may still pass a custom solve callback when it needs full
-control of the linear solve.
-
-For a direct contributor-level workflow, Field identifiers are available from
-the handle's `fields()` view:
-
-```{code-block} cpp
-auto bulk = linear.add(bulk_problem, "bulk");
-auto embedded = linear.add(embedded_problem, "embedded");
-auto continuity = linear.add(interaction, "continuity",
-                             bulk.fields().solution,
-                             embedded.fields().solution);
-```
-
-The returned `continuity.fields().multiplier` is an algebraic semantic Field.
-The application never names its execution block.
-
-## Observables, lifting, and coupling
-
-Application code does not construct observable or coupling implementation
-objects. Physics modules expose descriptors and interpret them through the
-following customization shapes:
-
-```{code-block} cpp
-template <typename ProblemHandle>
-auto make_representation(const ProblemHandle &problem, Pressure)
-{
-  return make_pressure_quantity(problem.fields().pressure);
-}
-
-template <typename Quantity>
-auto make_lift(const Quantity &quantity, VesselSurface surface)
-{
-  return make_surface_quantity(quantity, surface);
-}
-
-template <typename Quantity, typename TargetField>
-auto make_weak_term(const Quantity &quantity,
-                    const TargetField &target,
-                    Surface surface)
-{
-  return weak_term(quantity * ImmersX::normal(surface), target);
-}
-```
-
-These functions are ordinary templates found by ADL. A descriptor may instead
-provide a `create(...)` member. No `ObservableBase`, factory, registry, or
-inheritance hierarchy is required.
-
-The implementation returned by `make_representation` is a reusable observable
-view derived from one or more Fields. It owns no execution block. For example,
-physics code may expose a scaled quantity:
-
-```{code-block} cpp
-auto pressure = fluid.observe(Pressure{}).scaled(2.);
-```
-
-When the sampling geometry is selected by a later lift, a physics module can
-return a deferred finite-element expression. It describes the source FE view,
-semantic bindings, expression text, and constants, but does not create a
-quadrature or retained sampling plan:
-
-```{code-block} cpp
-const Pressure descriptor;
-auto pressure = make_fe_expression(
-  source_view,
-  {value(problem.fields().solution, "A")},
-  "factor*A",
-  {{"factor", descriptor.factor}});
-auto lifted_pressure = pressure.lift(pressure_lift);
-```
-
-`pressure.lift(pressure_lift)` obtains the representative quadrature from the
-lift, samples the expression through the existing
-`make_expression_representation` path, and then composes the existing value
-transfer. Applications do not provide `UpdateFlags`,
-`RetainedSamplingPlan`, or symbolic-kernel objects. For an explicit sampling
-conversion, use `sample(expression, quadrature)`.
-
-The following details are useful when implementing a descriptor, but are not
-needed by application authors. A representation has a source Field dependency
-and a physical evaluation domain. `RepresentationDomain` records dimensions
-and a geometry identity; an `EvaluationRequest` supplies points for one
-evaluation. `QuantitySpace<ValueType>` carries the typed value and domain.
-
-It does not own a mesh, DoFHandler, quadrature, or target Problem. An
-`EvaluationRequest` supplies the points and optional evaluation-policy
-identity for one call. Thus the same cylindrical Representation can be
-evaluated at several point sets without changing its domain or source
-dependency:
-
-```{code-block} cpp
-RepresentationDomain surface_domain(2, 3, "cylindrical-surface");
-EvaluationRequest request_a(surface_points_a, "surface-points-a");
-EvaluationRequest request_b(surface_points_b, "surface-points-b");
-auto values_a = surface_quantity.evaluate(context, request_a);
-auto values_b = surface_quantity.evaluate(context, request_b);
-```
-
-The physical value space is described by `QuantitySpace<ValueType>`. It
-combines the typed quantity value with its `RepresentationDomain`, while
-owning no mesh, DoFHandler, Problem, residual, or execution storage. A
-Representation therefore has a state type and a quantity type; its derivative
-is the map $dq/dy$ from state perturbations to quantity perturbations. Those
-types are allowed to differ even when the identity and scaled examples happen
-to use the same algebraic vector type.
-
-Later representations can select components, evaluate other nonlinear
-observables, or provide geometry-dependent lifting without changing the
-Problem/Field execution storage.
-
-A geometry lifting remains a Representation. The geometry owns only the map
-between target points and source parameters; it does not know vectors or
-evaluation point sets. `ValueTransfer` owns the algebraic interpolation, and
-the lifting composes the transfer with the source Representation:
-
-```{code-block} cpp
-ParametricGeometryMap cylinder_map(
-  source_parameters, surface_domain,
-  [](const dealii::Point<3> &point) { return point[0]; });
-EvaluationRequest surface_request(surface_points, "surface-points");
-auto surface_quantity =
-  lift(line_quantity, cylinder_map, target_prototype, surface_request);
-```
-
-`surface_quantity.source()` is the same Field as `line_quantity.source()`,
-while `surface_quantity.domain()` is the cylindrical surface domain. Its
-geometry map is independent of its vector-valued transfer. Evaluation and
-linearization apply the requested transfer and then the source Representation;
-no Field, execution block, or Problem is created.
-
-`ValueTransfer` maps quantity values to quantity values. It is distinct from a
-`CouplingOperator`, which applies the weak form from quantity values into a
-residual/test space. The latter is the boundary where integration and target
-residual storage enter.
-
-For a mixed Field, a component view selects an `IndexSet` in the existing Field
-vector. The view and its Representation remain non-owning; evaluating them
-does not create a compacted vector or a new execution block.
-
-## CouplingOperator boundary
-
-A `CouplingOperator` maps evaluated quantity values into a target residual
-space. It owns the target-space action and its reinitialization, but it does
-not know the source Field or Representation:
-
-```{code-block} cpp
-CouplingSpace<Vector> target_space(target_prototype);
-CouplingOperator<Vector, Vector> coupling(weak_form, target_space);
-```
-
-An Interaction composes the two derivatives when registering a term:
-
-$$
-\frac{dR_{target}}{dy_{source}} =
-\frac{dR_{target}}{dq}\frac{dq}{dy_{source}}.
-$$
-
-The Interaction names the target row and registers the residual; weak-form
-actions stay in the CouplingOperator, while Representation supplies the
-quantity and its source linearization. The quantity and target vector types
-are separate so a later lifting can connect different spaces.
-
-## Contributor authors
-
-A Problem contributor declares semantic Fields and contributes residual,
-`dF/dy`, and `dF/dydot` terms. A contributor is selected by the adapter through
-an ADL customization point such as:
-
-```{code-block} cpp
-template <typename Builder>
-Fields contribute(Builder &builder, const MyProblem &problem)
-{
-  auto temperature = builder.differential_field("temperature", owned, relevant);
-  auto mass = payload_free(linear_operator<Vector, Vector>(problem.mass()));
-  auto stiffness =
-    payload_free(linear_operator<Vector, Vector>(problem.stiffness()));
-
-  builder.term(temperature, "heat")
-    .residual([temperature, mass, stiffness](const auto &ctx) {
-      return mass * ctx.derivative(temperature) +
-             stiffness * ctx.state(temperature);
-    })
-    .state(temperature, stiffness)
-    .derivative(temperature, mass);
-  return {temperature};
-}
-```
-
-The scoped builder supplies the contributor prefix. The term handle keeps one
-residual and its two Jacobian parts under one semantic name, so term selection
-cannot retain an inconsistent linearization. `PackagedOperation`s are applied
-immediately and must not retain temporary evaluation state.
-
-The general `builder.field(name, owned, relevant, differential_components)`
-form accepts any differential-component `IndexSet` with the field vector's
-global size. Use `differential_field()` for a fully differential field and
-`algebraic_field()` for a field with no differential components. A mixed field
-uses the general form; the execution adapter consumes the mask without knowing
-how its components are organized.
-
-Interactions add terms because systems are related. A multiplier `Constraint`
-is assembled from ordinary participant `Field`s and an independent multiplier
-`Field`:
-
-```text
-R_participant_i = s_i B_i^T lambda
-R_lambda        = sum_i s_i B_i participant_i - d
-```
-
-Application code constructs the relation with `weak_term`s and adds the
-resulting `Constraint` to the execution adapter. Scalar and vector constraints
-use the same API; the multiplier finite element and extractor determine the
-value type. The multiplier is algebraic and contributors never receive IDA's
-`alpha`.
-
-A non-constraint Interaction can read an observable and add a load directly to
-an existing Problem-owned row. Application code uses the same descriptor API:
-
-```{code-block} cpp
-auto pressure = fluid.observe(Pressure{});
-auto wall_pressure = pressure.lift(VesselSurface{});
-auto traction = wall_pressure * ImmersX::normal(surface);
-adapter.add(ImmersX::weak_term(traction, wall_displacement), "traction");
-```
-
-The physics descriptor implementation contributes both the load residual and
-its `dF/dy` operator. The adapter still owns the global block layout; the
-interaction only names the semantic target row and the observable-to-force
-operator.
-
-## Adapter distinction and lifetime
-
-`LinearAdapter` requires an affine steady residual and rejects derivative
-terms. `IDAAdapter` evaluates the canonical residual
-
-$$F(t,y,\dot y)=0$$
-
-and alone forms
-
-$$J=dF/dy+\alpha dF/d\dot y.$$
-
-State-dependent Jacobian factories are evaluated with stable snapshots held by
-the prepared global operator. Problems and Interactions captured by a
-contributor must outlive the adapter. Future KINSOL and ARKode adapters can
-reuse the same contributor contract.
+The canonical residual is `F(t, y, ydot) = 0`; Problems and Interactions
+provide `dF/dy` and `dF/dydot` separately. Solver-specific combinations belong
+to the execution adapter.

@@ -16,5 +16,4 @@ design/current-implementation
 design/semidiscrete-contributors
 design/unified-constraints
 design/time-residual-sundials
-design/tensor-product-lift-parity
 ```

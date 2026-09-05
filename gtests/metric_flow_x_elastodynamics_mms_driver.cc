@@ -19,13 +19,13 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/vessel_wall_interaction.h>
+#include <immersx/algebra/metric_flow_x_vessel_wall_constraint.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
 #include <immersx/physics/metric_flow_x.h>
-#include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
+#include <immersx/physics/metric_flow_x_vessel_wall_observable.h>
 
 #include <algorithm>
 #include <cmath>
@@ -50,16 +50,16 @@ namespace
   using namespace dealii;
   using namespace ImmersX::OneVesselMMS;
 
-  using FlowProblem         = MetricFlowX::BloodFlowSystem<1, 3>;
-  using FlowVector          = MetricFlowX::VectorType;
-  using GlobalVector        = ImmersXLA::MPI::BlockVector;
-  using Adapter             = IDAAdapter<FlowVector, GlobalVector>;
-  using SolidProblem        = ElastodynamicsSolver<3>;
-  using SolidVector         = SolidProblem::VectorType;
-  using SolidRepresentation = VectorFiniteElementRepresentation<3, 3>;
-  using WallRepresentation  = MetricFlowXAreaRadialDisplacementRepresentation;
+  using FlowProblem    = MetricFlowX::BloodFlowSystem<1, 3>;
+  using FlowVector     = MetricFlowX::VectorType;
+  using GlobalVector   = ImmersXLA::MPI::BlockVector;
+  using Adapter        = IDAAdapter<FlowVector, GlobalVector>;
+  using SolidProblem   = ElastodynamicsSolver<3>;
+  using SolidVector    = SolidProblem::VectorType;
+  using SolidField     = Field<3, 3, dealii::FEValuesExtractors::Vector>;
+  using WallObservable = MetricFlowXAreaRadialDisplacementObservable;
   using Interaction =
-    VesselWallInteraction<SolidRepresentation, WallRepresentation>;
+    MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
   using CouplingVector = typename Interaction::VectorType;
 
   struct ErrorRecord
@@ -413,7 +413,7 @@ namespace
         std::make_unique<ElastodynamicsParameters<3>>("/Elastodynamics/",
                                                       flow_time.get());
       reset_parameter_handler_to_root(ParameterAcceptor::prm);
-      wall_lift = std::make_unique<WallRepresentation::Lift>(
+      wall_lift = std::make_unique<WallObservable::Lift>(
         "/MetricFlowX vessel wall lift/");
       ParticleCouplingParameters<3> search_parameters;
       reset_parameter_handler_to_root(ParameterAcceptor::prm);
@@ -497,20 +497,22 @@ namespace
       solid_fields.emplace(adapter->add(*solid_problem, "elastodynamics"));
       flow_fields.emplace(
         adapter->add(metric_flow_x(*flow_problem), "blood-flow"));
-      solid_representation = std::make_unique<SolidRepresentation>(
-        solid_problem->triangulation(),
+      solid_space = std::make_unique<FESpaceView<3, 3>>(
         solid_problem->dof_handler(),
-        solid_problem->locally_owned_dofs(),
-        solid_problem->locally_relevant_dofs(),
-        solid_problem->constraints(),
         solid_problem->mapping(),
-        FEValuesExtractors::Vector(0));
-      wall_representation =
-        std::make_unique<WallRepresentation>(*flow_problem,
-                                             flow_fields->fields().area,
-                                             *wall_lift);
-      interaction = std::make_unique<Interaction>(*solid_representation,
-                                                  *wall_representation,
+        solid_problem->constraints(),
+        &solid_problem->locally_relevant_dofs());
+      solid_field = std::make_unique<SolidField>(
+        solid_space->field(solid_fields->fields().displacement,
+                           "displacement",
+                           FEValuesExtractors::Vector(0)));
+      wall_observable =
+        std::make_unique<WallObservable>(*flow_problem,
+                                         flow_fields->fields().area,
+                                         flow_fields->fields().area_components,
+                                         *wall_lift);
+      interaction = std::make_unique<Interaction>(*solid_field,
+                                                  *wall_observable,
                                                   search_parameters);
       interaction->assemble();
       coupling_fields = adapter
@@ -831,7 +833,7 @@ namespace
       DoFTools::map_dofs_to_support_points(mapping,
                                            flow_problem->dof_handler(),
                                            support_points);
-      for (const auto &point : wall_representation->points())
+      for (const auto &point : wall_observable->points())
         for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
           {
             const auto dof = point.dof_indices[i];
@@ -852,9 +854,10 @@ namespace
     std::unique_ptr<TimeParameters>              flow_time;
     std::unique_ptr<ElastodynamicsParameters<3>> solid_parameters;
     std::unique_ptr<SolidProblem>                solid_problem;
-    std::unique_ptr<WallRepresentation::Lift>    wall_lift;
-    std::unique_ptr<SolidRepresentation>         solid_representation;
-    std::unique_ptr<WallRepresentation>          wall_representation;
+    std::unique_ptr<WallObservable::Lift>        wall_lift;
+    std::unique_ptr<FESpaceView<3, 3>>           solid_space;
+    std::unique_ptr<SolidField>                  solid_field;
+    std::unique_ptr<WallObservable>              wall_observable;
     std::unique_ptr<Interaction>                 interaction;
     std::unique_ptr<Adapter>                     adapter;
     std::optional<decltype(std::declval<Adapter &>().add(

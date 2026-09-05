@@ -7,8 +7,8 @@
 //
 // ---------------------------------------------------------------------
 
-#ifndef immersx_vessel_wall_interaction_h
-#define immersx_vessel_wall_interaction_h
+#ifndef immersx_metric_flow_x_vessel_wall_constraint_h
+#define immersx_metric_flow_x_vessel_wall_constraint_h
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -22,11 +22,10 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
-#include <immersx/core/constraint_contributor.h>
+#include <immersx/core/constraint.h>
 #include <immersx/core/contributor.h>
-#include <immersx/core/representation.h>
 #include <immersx/coupling/particle_coupling.h>
-#include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
+#include <immersx/physics/metric_flow_x_vessel_wall_observable.h>
 
 #include <algorithm>
 #include <cmath>
@@ -61,49 +60,41 @@ namespace ImmersX
    * by the outward wall normal and the residual convention
    * `internal force - applied force`.
    */
-  template <typename SolidRepresentation,
+  template <typename SolidField,
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
-            typename WallRepresentation =
-              MetricFlowXAreaRadialDisplacementRepresentation>
+            typename WallObservable =
+              MetricFlowXAreaRadialDisplacementObservable>
 #else
-            typename WallRepresentation>
+            typename WallObservable>
 #endif
-  class VesselWallInteraction
+  class MetricFlowXVesselWallConstraint
   {
   public:
-    static constexpr unsigned int spacedim =
-      SolidRepresentation::ambient_dimension;
+    static constexpr unsigned int spacedim = SolidField::spacedimension();
     static_assert(spacedim == 3,
                   "The initial MetricFlowX vessel wall is embedded in 3D.");
-    static_assert(RepresentationConcept<SolidRepresentation>::value,
-                  "The solid endpoint does not satisfy the representation "
-                  "contract.");
-    static_assert(std::is_same<typename SolidRepresentation::value_type,
+    static_assert(std::is_same<typename SolidField::value_type,
                                dealii::Tensor<1, spacedim>>::value,
-                  "VesselWallInteraction needs a vector-valued solid "
+                  "MetricFlowX vessel constraint needs a vector-valued solid "
                   "representation.");
-    static_assert(std::is_same<typename WallRepresentation::value_type,
+    static_assert(std::is_same<typename WallObservable::value_type,
                                std::vector<dealii::Tensor<1, spacedim>>>::value,
                   "The vessel-wall endpoint must be a vector-valued sampled "
                   "Area representation.");
 
     using MatrixType = ImmersXLA::MPI::SparseMatrix;
     using VectorType = ImmersXLA::MPI::Vector;
-    using PointType  = typename WallRepresentation::WallPoint;
+    using PointType  = typename WallObservable::WallPoint;
 
-    VesselWallInteraction(
-      const SolidRepresentation                  &solid,
-      const WallRepresentation                   &wall,
+    MetricFlowXVesselWallConstraint(
+      const SolidField                           &solid,
+      const WallObservable                       &wall,
       const ParticleCouplingParameters<spacedim> &search_parameters)
       : solid_(solid)
       , wall_(wall)
-      , constraint_equation_storage(wall.multiplier_locally_owned_dofs(),
-                                    wall.mpi_communicator(),
-                                    wall.multiplier_locally_relevant_dofs())
       , particle_coupling_(search_parameters)
     {
-      AssertThrow(solid.triangulation().get_mpi_communicator() ==
-                    wall.mpi_communicator(),
+      AssertThrow(solid.space().mpi_communicator() == wall.mpi_communicator(),
                   dealii::ExcMessage(
                     "The solid and MetricFlowX wall must use the same MPI "
                     "communicator."));
@@ -124,9 +115,8 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Wall representation DoF metadata is inconsistent."));
       const unsigned int n_properties = 1 + 2 * n_lambda + spacedim;
-      particle_coupling_.initialize_particle_handler(solid_.triangulation(),
-                                                     solid_.mapping(),
-                                                     n_properties);
+      particle_coupling_.initialize_particle_handler(
+        solid_.distributed_triangulation(), solid_.mapping(), n_properties);
 
       std::vector<dealii::Point<spacedim>> points;
       std::vector<std::vector<double>>     properties;
@@ -159,14 +149,6 @@ namespace ImmersX
       assemble_solid_coupling();
       assemble_multiplier_metric();
 
-      constraint_equation_storage.clear_contributions();
-      constraint_equation_storage.clear_rhs();
-      constraint_equation_storage.add_contribution(
-        0,
-        solid_coupling_storage,
-        ConstraintContributionOrientation::transpose);
-      constraint_equation_storage.set_multiplier_metric(
-        multiplier_metric_storage);
       assembled_ = true;
     }
 
@@ -188,26 +170,20 @@ namespace ImmersX
       return multiplier_metric_storage;
     }
 
-    const ConstraintEquation &
-    constraint_equation() const
-    {
-      return constraint_equation_storage;
-    }
-
-    const SolidRepresentation &
-    solid_representation() const
+    const SolidField &
+    solid_field() const
     {
       return solid_;
     }
 
-    const WallRepresentation &
-    wall_representation() const
+    const WallObservable &
+    wall_observable() const
     {
       return wall_;
     }
 
     using ExternalPressureProvider =
-      typename WallRepresentation::ExternalPressureProvider;
+      typename WallObservable::ExternalPressureProvider;
 
     ExternalPressureProvider
     make_external_pressure_provider(const VectorType &multiplier) const
@@ -337,16 +313,15 @@ namespace ImmersX
       std::vector<dealii::types::global_dof_index> &dofs) const
     {
       const auto &cell = particle.get_surrounding_cell();
-      const typename SolidRepresentation::DoFHandlerType::cell_iterator
+      const typename SolidField::space_type::DoFHandlerType::cell_iterator
         solid_cell(*cell, &solid_.dof_handler());
       solid_cell->get_dof_indices(dofs);
     }
 
     dealii::Tensor<1, spacedim>
     solid_basis_value(
-      const unsigned int                                           i,
-      const dealii::Point<SolidRepresentation::support_dimension> &reference)
-      const
+      const unsigned int                            i,
+      const dealii::Point<SolidField::dimension()> &reference) const
     {
       dealii::Tensor<1, spacedim> value;
       value = 0.;
@@ -385,12 +360,12 @@ namespace ImmersX
       dealii::SparsityTools::distribute_sparsity_pattern(
         dsp,
         solid_.locally_owned_dofs(),
-        solid_.triangulation().get_mpi_communicator(),
+        solid_.space().mpi_communicator(),
         solid_.locally_relevant_dofs());
       solid_coupling_storage.reinit(solid_.locally_owned_dofs(),
                                     wall_.multiplier_locally_owned_dofs(),
                                     dsp,
-                                    solid_.mpi_communicator());
+                                    solid_.space().mpi_communicator());
 
       dealii::FullMatrix<double>  local_matrix(n_first, n_second);
       std::vector<double>         basis;
@@ -596,9 +571,9 @@ namespace ImmersX
     dealii::LinearOperator<VectorType, VectorType>
     area_constraint_jacobian(const EvaluationContext<VectorType> &context) const
     {
-      const auto representation_derivative = wall_.linearize(context);
-      const auto points                    = wall_points_;
-      const auto owned        = wall_.multiplier_locally_owned_dofs();
+      const auto observable_derivative = wall_.linearize(context);
+      const auto points                = wall_points_;
+      const auto owned                 = wall_.multiplier_locally_owned_dofs();
       const auto relevant     = wall_.multiplier_locally_relevant_dofs();
       const auto communicator = wall_.mpi_communicator();
       dealii::LinearOperator<VectorType, VectorType> result;
@@ -613,12 +588,12 @@ namespace ImmersX
                                                     const bool  omit) {
           vector.reinit(reference, omit);
         };
-      result.vmult = [representation_derivative,
+      result.vmult = [observable_derivative,
                       points](VectorType       &destination,
                               const VectorType &direction) {
         std::vector<dealii::Tensor<1, 3>> values;
-        representation_derivative.reinit_range_vector(values, false);
-        representation_derivative.vmult(values, direction);
+        observable_derivative.reinit_range_vector(values, false);
+        observable_derivative.vmult(values, direction);
         destination = 0.;
         for (std::size_t q = 0; q < points.size(); ++q)
           {
@@ -632,12 +607,12 @@ namespace ImmersX
           }
         destination.compress(dealii::VectorOperation::add);
       };
-      result.vmult_add = [representation_derivative,
+      result.vmult_add = [observable_derivative,
                           points](VectorType       &destination,
                                   const VectorType &direction) {
         std::vector<dealii::Tensor<1, 3>> values;
-        representation_derivative.reinit_range_vector(values, false);
-        representation_derivative.vmult(values, direction);
+        observable_derivative.reinit_range_vector(values, false);
+        observable_derivative.vmult(values, direction);
         for (std::size_t q = 0; q < points.size(); ++q)
           {
             const double value =
@@ -650,7 +625,7 @@ namespace ImmersX
           }
         destination.compress(dealii::VectorOperation::add);
       };
-      result.Tvmult = [representation_derivative,
+      result.Tvmult = [observable_derivative,
                        points](VectorType       &destination,
                                const VectorType &source) {
         std::vector<dealii::Tensor<1, 3>> values(points.size());
@@ -664,9 +639,9 @@ namespace ImmersX
                        source[points[q].multiplier_dof_indices[i]];
             values[q] = points[q].normal * (points[q].weight * value);
           }
-        representation_derivative.Tvmult(destination, values);
+        observable_derivative.Tvmult(destination, values);
       };
-      result.Tvmult_add = [representation_derivative,
+      result.Tvmult_add = [observable_derivative,
                            points](VectorType       &destination,
                                    const VectorType &source) {
         std::vector<dealii::Tensor<1, 3>> values(points.size());
@@ -680,15 +655,14 @@ namespace ImmersX
                        source[points[q].multiplier_dof_indices[i]];
             values[q] = points[q].normal * (points[q].weight * value);
           }
-        representation_derivative.Tvmult_add(destination, values);
+        observable_derivative.Tvmult_add(destination, values);
       };
       return result;
     }
 
   private:
-    const SolidRepresentation             &solid_;
-    const WallRepresentation              &wall_;
-    ConstraintEquation                     constraint_equation_storage;
+    const SolidField                      &solid_;
+    const WallObservable                  &wall_;
     ParticleCoupling<spacedim>             particle_coupling_;
     std::unique_ptr<dealii::Quadrature<2>> quadrature_;
     std::vector<PointType>                 wall_points_;
@@ -700,13 +674,11 @@ namespace ImmersX
     mutable std::vector<std::pair<double, std::string>> output_records_;
   };
 
-  template <typename Builder,
-            typename SolidRepresentation,
-            typename WallRepresentation>
+  template <typename Builder, typename SolidField, typename WallObservable>
   ConstraintFields
-  contribute(Builder                                         &builder,
-             const VesselWallInteraction<SolidRepresentation,
-                                         WallRepresentation> &interaction,
+  contribute(Builder &builder,
+             const MetricFlowXVesselWallConstraint<SolidField, WallObservable>
+                          &interaction,
              const FieldId solid_displacement,
              const FieldId solid_velocity,
              const FieldId flow_state)
@@ -723,9 +695,9 @@ namespace ImmersX
     builder.preconditioner(
       flow_state, [](const auto &matrix, const auto &reinit_vector) {
         return make_amg_preconditioner<
-          typename WallRepresentation::StateType,
-          typename VesselWallInteraction<SolidRepresentation,
-                                         WallRepresentation>::MatrixType>(
+          typename WallObservable::StateType,
+          typename MetricFlowXVesselWallConstraint<SolidField,
+                                                   WallObservable>::MatrixType>(
           matrix, reinit_vector);
       });
     builder.saddle_point(multiplier,
@@ -771,4 +743,4 @@ namespace ImmersX
   }
 } // namespace ImmersX
 
-#endif // immersx_vessel_wall_interaction_h
+#endif // immersx_metric_flow_x_vessel_wall_constraint_h

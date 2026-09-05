@@ -17,6 +17,8 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria.h>
 
+#include <deal.II/lac/vector.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/observable.h>
 #include <immersx/physics/poisson.h>
@@ -162,6 +164,29 @@ TEST(FESpace, TensorExtractorsUseDealIIViewTypes)
   static_assert(
     std::is_same_v<typename SymmetricView::divergence_type,
                    typename decltype(symmetric_divergence)::value_type>);
+}
+
+TEST(FESpace, FrozenObservablesReuseFEOperations)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<2>       fe(1);
+  DoFHandler<2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
+  const auto     field = V.field("frozen");
+  Vector<double> coefficients(dof_handler.n_dofs());
+  const auto     frozen_value = ImmersX::frozen(field, coefficients);
+  const auto     frozen_grad  = ImmersX::gradient(frozen_value);
+
+  EXPECT_TRUE(frozen_value.is_frozen());
+  EXPECT_TRUE(frozen_grad.is_frozen());
+  EXPECT_TRUE(frozen_value.dependencies().empty());
+  EXPECT_TRUE(frozen_grad.dependencies().empty());
+  EXPECT_EQ(frozen_grad.update_flags() & update_gradients, update_gradients);
 }
 
 TEST(FESpace, WrapsAnExistingProblemFromTheOutside)

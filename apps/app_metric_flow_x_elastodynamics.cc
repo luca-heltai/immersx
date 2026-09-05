@@ -21,13 +21,13 @@
 
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
 
-#  include <immersx/algebra/vessel_wall_interaction.h>
+#  include <immersx/algebra/metric_flow_x_vessel_wall_constraint.h>
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastodynamics.h>
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
-#  include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
+#  include <immersx/physics/metric_flow_x_vessel_wall_observable.h>
 
 #  include <filesystem>
 #  include <fstream>
@@ -158,12 +158,10 @@ namespace
     using FieldVector  = MetricFlowX::VectorType;
     using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
     using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
-    using SolidRepresentation =
-      ImmersX::VectorFiniteElementRepresentation<3, 3>;
-    using WallRepresentation =
-      ImmersX::MetricFlowXAreaRadialDisplacementRepresentation;
+    using SolidField = ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>;
+    using WallObservable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
     using Interaction =
-      ImmersX::VesselWallInteraction<SolidRepresentation, WallRepresentation>;
+      ImmersX::MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
 
     dealii::ParameterAcceptor::clear();
     FlowProblem flow_problem(MPI_COMM_WORLD);
@@ -175,7 +173,7 @@ namespace
     ImmersX::ElastodynamicsParameters<3> solid_parameters("/Elastodynamics/",
                                                           &flow_time);
     ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
-    WallRepresentation::Lift wall_lift("/MetricFlowX vessel wall lift/");
+    WallObservable::Lift wall_lift("/MetricFlowX vessel wall lift/");
     wall_lift.section.inclusion_degree      = 1;
     wall_lift.section.refinement_level      = 1;
     wall_lift.section.selected_coefficients = {3u, 7u};
@@ -283,20 +281,20 @@ namespace
     const auto flow_fields =
       adapter.add(ImmersX::metric_flow_x(flow_problem), "blood-flow");
 
-    const SolidRepresentation solid_representation(
-      solid_problem.triangulation(),
-      solid_problem.dof_handler(),
-      solid_problem.locally_owned_dofs(),
-      solid_problem.locally_relevant_dofs(),
-      solid_problem.constraints(),
-      solid_problem.mapping(),
-      dealii::FEValuesExtractors::Vector(0));
-    const WallRepresentation wall_representation(flow_problem,
-                                                 flow_fields.fields().area,
-                                                 wall_lift);
-    Interaction              interaction(solid_representation,
-                            wall_representation,
-                            search_parameters);
+    const auto solid_space =
+      ImmersX::fe_space(solid_problem.dof_handler(),
+                        solid_problem.mapping(),
+                        solid_problem.constraints(),
+                        solid_problem.locally_relevant_dofs());
+    const SolidField solid_field =
+      solid_space.field(solid_fields.fields().displacement,
+                        "displacement",
+                        dealii::FEValuesExtractors::Vector(0));
+    const WallObservable wall_observable(flow_problem,
+                                         flow_fields.fields().area,
+                                         flow_fields.fields().area_components,
+                                         wall_lift);
+    Interaction interaction(solid_field, wall_observable, search_parameters);
     interaction.assemble();
     const auto coupling_fields = adapter.add(interaction,
                                              "vessel-wall",
@@ -455,7 +453,7 @@ namespace
           DoFTools::map_dofs_to_support_points(mapping,
                                                flow_problem.dof_handler(),
                                                support_points);
-          for (const auto &point : wall_representation.points())
+          for (const auto &point : wall_observable.points())
             for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
               {
                 const auto it = support_points.find(point.dof_indices[i]);

@@ -1,103 +1,40 @@
 # Imported finite-element fields
 
-An imported field is a finite-element field whose coefficients originate
-outside the current state vector. VTK PointData is represented with a
-continuous `FE_Q` field and VTK CellData with a discontinuous `FE_DGQ` field.
-Both are stored on a separate DoFHandler associated with the Problem mesh.
+`ImportedFiniteElementFields` stores finite-element coefficients supplied by an
+external file or producer. It owns the imported FE space and coefficient
+vectors; application code consumes the data as ordinary `Field` objects and
+dependency-free frozen observables.
 
 ```cpp
 auto imported = std::make_shared<
   ImmersX::ImportedFiniteElementFields<1, 3>>(
     vtk_filename, poisson.triangulation());
-poisson.set_imported_fields(imported);
 
-const auto path_length = imported->field("path_length");
+const auto path = imported->field("path_length");
+const auto frozen_path = ImmersX::frozen(
+  path.field(), imported->coefficients("path_length"));
 ```
 
-`field(name, component)` returns a scalar component view without copying the
-coefficient vector. The view exposes its finite-element representation and
-frozen coefficients for value or gradient sampling. The target triangulation
-must already describe the same mesh as the VTK file; interpolation or remote
-point evaluation between different meshes is deliberately not implicit.
+The imported space is separate from the execution adapter. It owns its
+DoFHandler, finite element, constraints, locally relevant indices, and
+coefficients, but it does not own a Problem, solver vector, or execution block.
+`FESpaceView` remains a non-owning view, so the same FE-space vocabulary is
+used for native and imported data.
 
-The imported storage is immutable from the application’s point of view and can
-be shared by multiple consumers with
-`std::shared_ptr<const ImportedFiniteElementFields<...>>`. On a
-`parallel::distributed::Triangulation`, the imported DoFHandler and
-coefficients are automatically transferred across refinement and coarsening
-through deal.II’s `SolutionTransfer`. Existing `FieldView` objects therefore
-remain valid and observe the current mesh and coefficient vector after the
-operation; the coefficient-vector object itself is retained so shared
-consumers continue to refer to the same storage. The transfer is synchronized
-by RAII-managed triangulation signal connections.
+PointData uses a continuous `FE_Q` field and CellData uses a discontinuous
+`FE_DGQ` field. Imported coefficients are transferred across supported
+distributed refinement through deal.II's `SolutionTransfer`. Consumers must
+use the triangulation associated with the imported space; interpolation or
+remote point evaluation is not implicit.
 
-Refinement support is intentionally limited to
-`parallel::distributed::Triangulation`. Fully distributed triangulations do
-not currently implement refinement, and imported fields report this as an
-unsupported operation rather than attempting a partial transfer. A refinement
-callback must also complete before another refinement callback begins; this
-guards against stale or overlapping transfer state.
-
-The object is bound to exactly one `Triangulation`: sharing one imported
-instance requires all consumers to use that same triangulation object. Problems
-with distinct triangulations create distinct imported-field instances, even
-when their meshes are geometrically equivalent.
-
-Each `FieldView` retains the complete shared imported storage, including the
-DoFHandler, finite element, index sets, constraints, catalog, and coefficient
-vector. It is therefore safe to keep and sample a view after the parent
-`ImportedFiniteElementFields` handle has been destroyed. The generic storage is
-usable by any Problem; VTK material or geometric data is only one use case.
-
-For example, both Poisson and Elasticity expose the same attachment contract:
+The resulting frozen observable has no active dependencies, but it supports
+the same deal.II FE operations as an active observable:
 
 ```cpp
-poisson.set_imported_fields(imported);
-elasticity.set_imported_fields(imported);
-
-const auto path_length = imported->field("path_length");
-const auto lambda      = imported->field("lambda");
+auto frozen_path_gradient = ImmersX::gradient(frozen_path);
 ```
 
-The view’s `representation()` is reconstructed from the current imported
-DoFHandler, index sets, and constraints. Rebuild any retained sampling plan or
-expression representation after mesh refinement; those objects intentionally
-capture the sampling geometry at construction time.
-
-An imported `frozen_field()` keeps the coefficients frozen while retaining a
-factory for the current finite-element representation. It can therefore be
-created before distributed refinement and used to build a new expression after
-refinement. An already-built expression retains its original sampling plan and
-must be rebuilt after the mesh changes.
-
-PointData and CellData continue to use the existing VTK finite-element choice:
-continuous `FE_Q` for PointData and discontinuous `FE_DGQ` for CellData. Field
-metadata remains available through `catalog()`.
-
-## Expressions
-
-Expression bindings distinguish an active state source from frozen
-coefficients, while keeping the same `value()` and `gradient()` API:
-
-```cpp
-const auto source = ImmersX::FiniteElementRepresentation<1, 3>(
-  poisson.triangulation(), poisson.dof_handler(),
-  poisson.locally_owned_dofs(), poisson.locally_relevant_dofs(),
-  poisson.constraints());
-const auto u = ImmersX::state_field(source, solution_field);
-const auto path = ImmersX::frozen_field(path_length);
-
-const auto pressure = ImmersX::make_fe_expression(
-  source,
-  {ImmersX::gradient(u, "grad_u_z", 2),
-   ImmersX::value(path, "path_length")},
-  "alpha * grad_u_z + beta * cos(path_length * omega)",
-  {{"alpha", 2.0}, {"beta", 1.0}, {"omega", 0.5}});
-```
-
-Only `state_field` bindings appear in `dependencies()` and contribute to
-`linearize()`. A frozen binding is evaluated from its shared coefficient
-storage, including gradients, and contributes no Jacobian term. The expression
-installs one retained sampling plan per distinct FE source: repeated value and
-gradient bindings for the same source share a plan, whose `UpdateFlags` are
-the union of that source's requirements.
+For symbolic combinations, compose the typed observables and the existing
+symbolic evaluator at the application boundary. The public model remains
+`Field` → `Observable` → `weak_term`; imported storage is an implementation
+detail of the data source, not a second representation hierarchy.

@@ -15,9 +15,10 @@
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
 
 #  include <immersx/core/contributor.h>
-#  include <immersx/core/representation.h>
+#  include <immersx/core/fe_space.h>
 #  include <metric_flow_x/blood_flow_system.h>
 
+#  include <memory>
 #  include <utility>
 
 namespace ImmersX
@@ -40,9 +41,15 @@ namespace ImmersX
   /** Semantic fields and native component views for one BloodFlowSystem. */
   struct MetricFlowXFields
   {
-    FieldId            state;
-    FieldComponentView area;
-    FieldComponentView velocity;
+    using Space       = FESpaceView<1, 3>;
+    using ScalarField = Field<1, 3, dealii::FEValuesExtractors::Scalar>;
+
+    FieldId                      state;
+    std::shared_ptr<const Space> space;
+    ScalarField                  area;
+    ScalarField                  velocity;
+    dealii::IndexSet             area_components;
+    dealii::IndexSet             velocity_components;
   };
 
   /** Make a non-owning MetricFlowX contribution descriptor. */
@@ -119,12 +126,17 @@ namespace ImmersX
       };
     term.derivative(state, std::move(derivative_factory));
 
-    return {
-      state,
-      FieldComponentView(state,
-                         problem.component_dofs(Problem::Component::area)),
-      FieldComponentView(state,
-                         problem.component_dofs(Problem::Component::velocity))};
+    auto space = std::make_shared<MetricFlowXFields::Space>(
+      problem.dof_handler(),
+      dealii::StaticMappingQ1<1, 3>::mapping,
+      problem.constraints(),
+      &problem.locally_relevant_dofs());
+    return {state,
+            space,
+            space->field(state, "area", problem.area_extractor()),
+            space->field(state, "velocity", problem.velocity_extractor()),
+            problem.component_dofs(Problem::Component::area),
+            problem.component_dofs(Problem::Component::velocity)};
   }
 } // namespace ImmersX
 

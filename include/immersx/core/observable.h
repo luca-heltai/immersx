@@ -30,6 +30,9 @@
 
 namespace ImmersX
 {
+  template <typename SourceFieldType, typename Operation>
+  class Observable;
+
   namespace detail
   {
     /** The identity operation on a deal.II FEValues view. */
@@ -165,6 +168,14 @@ namespace ImmersX
       , frozen_(frozen_values)
     {}
 
+    template <typename OtherOperation>
+    Observable(const Observable<SourceFieldType, OtherOperation> &other)
+      : source_(other.source_)
+      , dependencies_(other.dependencies_)
+      , scale_(other.scale_)
+      , frozen_(other.frozen_)
+    {}
+
     const std::vector<FieldId> &
     dependencies() const
     {
@@ -252,6 +263,9 @@ namespace ImmersX
     }
 
   private:
+    template <typename, typename>
+    friend class Observable;
+
     SourceFieldType      source_;
     std::vector<FieldId> dependencies_;
     double               scale_ = 1.;
@@ -360,6 +374,43 @@ namespace ImmersX
   {
     return Observable<std::decay_t<FieldType>, detail::ValueOperation>(field,
                                                                        values);
+  }
+
+  /** Re-evaluate a frozen or active FE quantity with another FE operation. */
+  template <typename SourceFieldType, typename Operation>
+  auto
+  value(const Observable<SourceFieldType, Operation> &observable)
+  {
+    return Observable<SourceFieldType, detail::ValueOperation>(observable);
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  gradient(const Observable<SourceFieldType, Operation> &observable)
+  {
+    return Observable<SourceFieldType, detail::GradientOperation>(observable);
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  divergence(const Observable<SourceFieldType, Operation> &observable)
+  {
+    return Observable<SourceFieldType, detail::DivergenceOperation>(observable);
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  symmetric_gradient(const Observable<SourceFieldType, Operation> &observable)
+  {
+    return Observable<SourceFieldType, detail::SymmetricGradientOperation>(
+      observable);
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  curl(const Observable<SourceFieldType, Operation> &observable)
+  {
+    return Observable<SourceFieldType, detail::CurlOperation>(observable);
   }
 
   template <typename SourceFieldType, typename Operation>

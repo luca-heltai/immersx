@@ -82,9 +82,9 @@ once for fixed geometry.
 `StateView` and `StateAccessor` provide current, frozen, historical, or
 interpolated values without making a candidate state the accepted state.
 
-**Representation** is a typed observable or lifting derived from one or more
-Fields and geometric/discretization data. It does not own the physical
-coupling relation.
+**Observable** is a typed quantity derived from one or more Fields. A lifting
+or particle search is an execution backend for an Observable, not a second
+mathematical ownership layer.
 
 **Interaction** owns terms that exist because two or more systems are related.
 It may own transfer, search, geometry, auxiliary fields, and coupling residuals.
