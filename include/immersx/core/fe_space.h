@@ -20,7 +20,10 @@
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/index_set.h>
 
+#include <deal.II/distributed/tria_base.h>
+
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_values_extractors.h>
 #include <deal.II/fe/fe_values_views.h>
@@ -30,6 +33,7 @@
 
 #include <immersx/core/field.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -351,6 +355,93 @@ namespace ImmersX
     const MappingType                       *mapping_;
     const dealii::AffineConstraints<double> *constraints_;
     const dealii::IndexSet                  *locally_relevant_;
+  };
+
+  /** An owning finite-element discretization with a non-owning view API. */
+  template <int dim, int spacedim = dim>
+  class OwnedFESpace
+  {
+  public:
+    using TriangulationType =
+      dealii::parallel::TriangulationBase<dim, spacedim>;
+    using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
+
+    OwnedFESpace(const TriangulationType &triangulation,
+                 std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe)
+      : triangulation_(&triangulation)
+      , dof_handler_(const_cast<TriangulationType &>(triangulation))
+      , finite_element_(std::move(fe))
+    {
+      AssertThrow(finite_element_ != nullptr,
+                  dealii::ExcMessage(
+                    "An owned FE space needs a finite element."));
+      distribute_dofs();
+    }
+
+    void
+    distribute_dofs()
+    {
+      dof_handler_.distribute_dofs(*finite_element_);
+      locally_owned_dofs_ = dof_handler_.locally_owned_dofs();
+      locally_relevant_dofs_ =
+        dealii::DoFTools::extract_locally_relevant_dofs(dof_handler_);
+      constraints_.clear();
+      constraints_.close();
+    }
+
+    const TriangulationType &
+    triangulation() const
+    {
+      return *triangulation_;
+    }
+
+    const DoFHandlerType &
+    dof_handler() const
+    {
+      return dof_handler_;
+    }
+
+    const dealii::FiniteElement<dim, spacedim> &
+    finite_element() const
+    {
+      return *finite_element_;
+    }
+
+    const dealii::AffineConstraints<double> &
+    constraints() const
+    {
+      return constraints_;
+    }
+
+    const dealii::IndexSet &
+    locally_owned_dofs() const
+    {
+      return locally_owned_dofs_;
+    }
+
+    const dealii::IndexSet &
+    locally_relevant_dofs() const
+    {
+      return locally_relevant_dofs_;
+    }
+
+    template <typename Mapping>
+    FESpaceView<dim, spacedim>
+    view(const Mapping &mapping) const
+    {
+      return FESpaceView<dim, spacedim>(dof_handler_,
+                                        mapping,
+                                        constraints_,
+                                        &locally_relevant_dofs_);
+    }
+
+  private:
+    const TriangulationType                              *triangulation_;
+    DoFHandlerType                                        dof_handler_;
+    std::unique_ptr<dealii::FiniteElement<dim, spacedim>> finite_element_;
+    dealii::IndexSet                                      locally_owned_dofs_;
+    dealii::IndexSet                  locally_relevant_dofs_;
+    dealii::AffineConstraints<double> constraints_;
   };
 
   template <int dim, int spacedim = dim>

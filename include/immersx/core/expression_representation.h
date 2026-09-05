@@ -105,14 +105,32 @@ namespace ImmersX
   auto
   frozen_field(const ImportedFieldView &field)
   {
-    using FERepresentation = std::decay_t<decltype(field.representation())>;
-    using FieldView        = std::decay_t<ImportedFieldView>;
-    auto owner             = std::make_shared<const FieldView>(field);
-    return FrozenField<FERepresentation>{field.representation(),
-                                         field.coefficients_handle(),
-                                         [owner]() {
-                                           return owner->representation();
-                                         }};
+    using FieldView = std::decay_t<ImportedFieldView>;
+    using FieldType = std::decay_t<decltype(field.field())>;
+    using FERepresentation =
+      FiniteElementRepresentation<FieldType::dimension(),
+                                  FieldType::spacedimension()>;
+    auto       owner    = std::make_shared<const FieldView>(field);
+    const auto fe_field = field.field();
+    const auto representation =
+      FERepresentation(field.triangulation(),
+                       fe_field.dof_handler(),
+                       fe_field.locally_owned_dofs(),
+                       fe_field.locally_relevant_dofs(),
+                       fe_field.constraints(),
+                       fe_field.mapping(),
+                       fe_field.extractor());
+    return FrozenField<FERepresentation>{
+      representation, field.coefficients_handle(), [owner]() {
+        const auto current = owner->field();
+        return FERepresentation(owner->triangulation(),
+                                current.dof_handler(),
+                                current.locally_owned_dofs(),
+                                current.locally_relevant_dofs(),
+                                current.constraints(),
+                                current.mapping(),
+                                current.extractor());
+      }};
   }
 
   /** Bind a semantic value observable to an FE source and symbol. */
