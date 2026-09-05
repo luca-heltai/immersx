@@ -149,8 +149,6 @@ namespace ImmersX
     using source_field_type = SourceFieldType;
     using operation_type    = Operation;
     using view_type         = typename SourceFieldType::view_type;
-    using extractor_type    = typename SourceFieldType::extractor_type;
-    using space_type        = typename SourceFieldType::space_type;
     using value_type        = std::decay_t<
       decltype(std::declval<Operation>()(std::declval<const view_type &>(),
                                          0u,
@@ -209,75 +207,6 @@ namespace ImmersX
       return source_;
     }
 
-    FieldId
-    field_id() const
-    {
-      return source_.field_id();
-    }
-
-    const std::string &
-    name() const
-    {
-      return source_.name();
-    }
-
-    const space_type &
-    space() const
-    {
-      return source_.space();
-    }
-
-    const extractor_type &
-    extractor() const
-    {
-      return source_.extractor();
-    }
-
-    const auto &
-    dof_handler() const
-    {
-      return source_.dof_handler();
-    }
-
-    const auto &
-    mapping() const
-    {
-      return source_.mapping();
-    }
-
-    const auto &
-    constraints() const
-    {
-      return source_.constraints();
-    }
-
-    const auto &
-    locally_owned_dofs() const
-    {
-      return source_.locally_owned_dofs();
-    }
-
-    const auto &
-    locally_relevant_dofs() const
-    {
-      return source_.locally_relevant_dofs();
-    }
-
-    auto
-    mpi_communicator() const
-    {
-      return source_.space().mpi_communicator();
-    }
-
-    Observable
-    with_id(const FieldId id) const
-    {
-      Observable result    = *this;
-      result.source_       = source_.with_id(id);
-      result.dependencies_ = {id};
-      return result;
-    }
-
     Operation
     operation() const
     {
@@ -294,12 +223,6 @@ namespace ImmersX
     is_frozen() const
     {
       return frozen_.has_value();
-    }
-
-    bool
-    is_registered() const
-    {
-      return source_.is_registered();
     }
 
     template <typename VectorType>
@@ -326,18 +249,6 @@ namespace ImmersX
       Observable result = *this;
       result.scale_ *= coefficient;
       return result;
-    }
-
-    bool
-    is_differentiable() const
-    {
-      return true;
-    }
-
-    bool
-    is_linear() const
-    {
-      return true;
     }
 
   private:

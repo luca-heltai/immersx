@@ -123,12 +123,6 @@ TEST(FESpace, ValueAndGradientExposeTypedDependencies)
             std::vector<ImmersX::FieldId>{pressure.field_id()});
   EXPECT_EQ(displacement_value.update_flags() & update_values, update_values);
   EXPECT_EQ(pressure_grad.update_flags() & update_gradients, update_gradients);
-  EXPECT_EQ(displacement_value.dimension(), 2u);
-  EXPECT_EQ(displacement_value.spacedimension(), 2u);
-  EXPECT_TRUE(displacement_value.is_differentiable());
-  EXPECT_TRUE(displacement_value.is_linear());
-  EXPECT_EQ(displacement_value.space_dimension(), 2u);
-  EXPECT_EQ(displacement_value.spacedim(), 2u);
   EXPECT_EQ(displacement_value.source_field(), displacement.field_id());
 }
 

@@ -97,8 +97,9 @@ namespace ImmersX
                 for (unsigned int q = 0; q < quadrature.size(); ++q)
                   {
                     const auto &view = values[field.extractor()];
-                    local(i, j) +=
-                      view.value(i, q) * view.value(j, q) * values.JxW(q);
+                    local(i, j) += detail::natural_pairing(view.value(i, q),
+                                                           view.value(j, q)) *
+                                   values.JxW(q);
                   }
             field.constraints().distribute_local_to_global(local,
                                                            indices,
@@ -281,16 +282,16 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Constraint weak terms must use active participant "
                       "fields; put prescribed data in the constraint rhs."));
-        AssertThrow(!entry.term.target().is_registered(),
+        AssertThrow(!entry.term.target().source().is_registered(),
                     dealii::ExcMessage(
                       "A constraint multiplier must be an unregistered "
                       "field."));
-        AssertThrow(static_cast<const void *>(&entry.term.target().space()) ==
-                        static_cast<const void *>(&target.space()) &&
-                      entry.term.target().name() == target.name(),
-                    dealii::ExcMessage(
-                      "All weak terms in a constraint must use the same "
-                      "multiplier field."));
+        AssertThrow(
+          static_cast<const void *>(&entry.term.target().source().space()) ==
+              static_cast<const void *>(&target.space()) &&
+            entry.term.target().source().name() == target.name(),
+          dealii::ExcMessage("All weak terms in a constraint must use the same "
+                             "multiplier field."));
       });
     }
 
@@ -303,7 +304,7 @@ namespace ImmersX
     const auto &
     multiplier() const
     {
-      return std::get<0>(terms_.entries_.front()).term.target();
+      return std::get<0>(terms_.entries_.front()).term.target().source();
     }
 
     bool

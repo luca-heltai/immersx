@@ -168,7 +168,45 @@ namespace
     action -= residual;
     EXPECT_LT(action.l2_norm(), 1.e-12);
   }
+
+  template <typename ValueType>
+  void
+  check_transport_roundtrip()
+  {
+    ValueType           value;
+    std::vector<double> expected;
+    expected.reserve(detail::n_stored_components<ValueType>());
+    for (unsigned int i = 0; i < detail::n_stored_components<ValueType>(); ++i)
+      {
+        const double entry = 1. + static_cast<double>(i);
+        if constexpr (detail::is_tensor<ValueType>::value)
+          value[ValueType::unrolled_to_component_indices(i)] = entry;
+        else
+          value.access_raw_entry(i) = entry;
+        expected.push_back(entry);
+      }
+
+    std::vector<double> flattened;
+    detail::flatten_value(value, flattened);
+    EXPECT_EQ(flattened, expected);
+
+    unsigned int offset = 0;
+    const auto   roundtrip =
+      detail::unflatten_value<ValueType>(flattened, offset);
+    EXPECT_EQ(offset, flattened.size());
+    std::vector<double> roundtrip_flattened;
+    detail::flatten_value(roundtrip, roundtrip_flattened);
+    EXPECT_EQ(roundtrip_flattened, expected);
+  }
 } // namespace
+
+TEST(WeakTermNonmatching, TensorValueTransportRoundTripsAllComponents)
+{
+  check_transport_roundtrip<Tensor<2, 2>>();
+  check_transport_roundtrip<Tensor<2, 3>>();
+  check_transport_roundtrip<SymmetricTensor<2, 2>>();
+  check_transport_roundtrip<SymmetricTensor<2, 3>>();
+}
 
 TEST(WeakTermNonmatching, NonmatchingScalarDifferentDegrees)
 {

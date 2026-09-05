@@ -50,8 +50,7 @@ namespace ImmersX
   class Field
   {
   public:
-    static constexpr bool is_field_type = true;
-    using extractor_type                = Extractor;
+    using extractor_type = Extractor;
     using view_type  = dealii::FEValuesViews::View<dim, spacedim, Extractor>;
     using value_type = typename view_type::value_type;
     using space_type = FESpaceView<dim, spacedim>;
