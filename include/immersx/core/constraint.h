@@ -96,25 +96,9 @@ namespace ImmersX
               for (unsigned int j = 0; j < indices.size(); ++j)
                 for (unsigned int q = 0; q < quadrature.size(); ++q)
                   {
-                    double product = 0.;
-                    if constexpr (std::is_same_v<
-                                    typename FieldType::extractor_type,
-                                    dealii::FEValuesExtractors::Scalar>)
-                      product =
-                        scalar_shape_value(values, field.extractor(), i, q) *
-                        scalar_shape_value(values, field.extractor(), j, q);
-                    else if constexpr (std::is_same_v<
-                                         typename FieldType::extractor_type,
-                                         dealii::FEValuesExtractors::Vector>)
-                      product =
-                        vector_shape_value(values, field.extractor(), i, q) *
-                        vector_shape_value(values, field.extractor(), j, q);
-                    else
-                      AssertThrow(false,
-                                  dealii::ExcMessage(
-                                    "Multiplier metrics support scalar and "
-                                    "vector fields only."));
-                    local(i, j) += product * values.JxW(q);
+                    const auto &view = values[field.extractor()];
+                    local(i, j) +=
+                      view.value(i, q) * view.value(j, q) * values.JxW(q);
                   }
             field.constraints().distribute_local_to_global(local,
                                                            indices,

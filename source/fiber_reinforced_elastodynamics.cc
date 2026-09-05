@@ -40,7 +40,8 @@ namespace ImmersX
   namespace
   {
     template <int dim>
-    using FiberVectorField = typename FESpaceView<dim, dim>::VectorField;
+    using FiberVectorField =
+      Field<dim, dim, dealii::FEValuesExtractors::Vector>;
 
     template <int dim>
     void
@@ -65,23 +66,25 @@ namespace ImmersX
                                "velocity_multiplier",
                                dealii::FEValuesExtractors::Vector(0));
 
-      const auto matrix_observable = value(matrix_velocity);
-      const auto fiber_observable  = value(fiber_velocity);
-      using MatrixObservable       = decltype(matrix_observable);
-      using FiberObservable        = decltype(fiber_observable);
-      using MultiplierField        = FiberVectorField<dim>;
-      using MatrixType             = ImmersXLA::MPI::SparseMatrix;
-      using VectorType             = ImmersXLA::MPI::Vector;
+      const auto matrix_observable     = value(matrix_velocity);
+      const auto fiber_observable      = value(fiber_velocity);
+      using MatrixObservable           = decltype(matrix_observable);
+      using FiberObservable            = decltype(fiber_observable);
+      using MultiplierField            = FiberVectorField<dim>;
+      const auto multiplier_observable = value(multiplier);
+      using MultiplierObservable       = decltype(multiplier_observable);
+      using MatrixType                 = ImmersXLA::MPI::SparseMatrix;
+      using VectorType                 = ImmersXLA::MPI::Vector;
 
       matrix_to_multiplier =
-        detail::WeakAssembly<MatrixObservable, MultiplierField>::
+        detail::WeakAssembly<MatrixObservable, MultiplierObservable>::
           template assemble<VectorType, MatrixType>(matrix_observable,
-                                                    multiplier)
+                                                    multiplier_observable)
             .matrix;
       fiber_to_multiplier =
-        detail::WeakAssembly<FiberObservable, MultiplierField>::
+        detail::WeakAssembly<FiberObservable, MultiplierObservable>::
           template assemble<VectorType, MatrixType>(fiber_observable,
-                                                    multiplier)
+                                                    multiplier_observable)
             .matrix;
       const auto matrix_operator =
         ImmersX::matrix_operator<VectorType, MatrixType>(*matrix_to_multiplier);

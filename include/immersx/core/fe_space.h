@@ -19,11 +19,11 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/index_set.h>
-#include <deal.II/base/tensor.h>
 
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe_values_extractors.h>
+#include <deal.II/fe/fe_values_views.h>
 #include <deal.II/fe/mapping.h>
 
 #include <deal.II/lac/affine_constraints.h>
@@ -46,21 +46,20 @@ namespace ImmersX
    * an execution adapter assigns semantic storage; such fields have an
    * invalid FieldId until they are registered.
    */
-  template <int dim,
-            int spacedim,
-            typename ValueType,
-            typename Extractor = dealii::FEValuesExtractors::Scalar>
+  template <int dim, int spacedim, typename Extractor>
   class Field
   {
   public:
-    using value_type     = ValueType;
-    using extractor_type = Extractor;
-    using space_type     = FESpaceView<dim, spacedim>;
+    static constexpr bool is_field_type = true;
+    using extractor_type                = Extractor;
+    using view_type  = dealii::FEValuesViews::View<dim, spacedim, Extractor>;
+    using value_type = typename view_type::value_type;
+    using space_type = FESpaceView<dim, spacedim>;
 
     Field(const space_type &space,
           std::string       name,
-          const Extractor  &extractor = Extractor(0),
-          const FieldId     id        = FieldId())
+          const Extractor  &extractor,
+          const FieldId     id = FieldId())
       : space_(&space)
       , name_(std::move(name))
       , id_(id)
@@ -174,12 +173,12 @@ namespace ImmersX
     Extractor         extractor_;
   };
 
-  template <int dim, int spacedim, typename Extractor, typename ValueType>
+  template <int dim, int spacedim, typename Extractor>
   class FESubspaceView
   {
   public:
     using space_type = FESpaceView<dim, spacedim>;
-    using field_type = Field<dim, spacedim, ValueType, Extractor>;
+    using field_type = Field<dim, spacedim, Extractor>;
 
     FESubspaceView(const space_type &space, const Extractor &extractor)
       : space_(&space)
@@ -233,12 +232,6 @@ namespace ImmersX
   public:
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
     using MappingType    = dealii::Mapping<dim, spacedim>;
-    using ScalarField =
-      Field<dim, spacedim, double, dealii::FEValuesExtractors::Scalar>;
-    using VectorField = Field<dim,
-                              spacedim,
-                              dealii::Tensor<1, spacedim>,
-                              dealii::FEValuesExtractors::Vector>;
 
     FESpaceView(const DoFHandlerType                    &dof_handler,
                 const MappingType                       &mapping,
@@ -293,83 +286,53 @@ namespace ImmersX
       return dof_handler().get_triangulation().get_mpi_communicator();
     }
 
-    ScalarField
+    auto
     field(const std::string &name) const
     {
-      return ScalarField(*this, name);
+      return field(name, dealii::FEValuesExtractors::Scalar(0));
     }
 
-    ScalarField
+    auto
     field(StateLayout &layout, const std::string &name) const
     {
       return field(layout, name, dealii::FEValuesExtractors::Scalar(0));
     }
 
-    ScalarField
+    auto
     field(const FieldId id, const std::string &name) const
     {
       return field(id, name, dealii::FEValuesExtractors::Scalar(0));
     }
 
-    ScalarField
-    field(const std::string                        &name,
-          const dealii::FEValuesExtractors::Scalar &extractor) const
+    template <typename Extractor>
+    Field<dim, spacedim, Extractor>
+    field(const std::string &name, const Extractor &extractor) const
     {
-      return ScalarField(*this, name, extractor);
+      return Field<dim, spacedim, Extractor>(*this, name, extractor);
     }
 
-    ScalarField
-    field(StateLayout                              &layout,
-          const std::string                        &name,
-          const dealii::FEValuesExtractors::Scalar &extractor) const
-    {
-      const auto id = register_field(layout, name);
-      return ScalarField(*this, name, extractor, id);
-    }
-
-    ScalarField
-    field(const FieldId                             id,
-          const std::string                        &name,
-          const dealii::FEValuesExtractors::Scalar &extractor) const
-    {
-      return ScalarField(*this, name, extractor, id);
-    }
-
-    VectorField
-    field(const std::string                        &name,
-          const dealii::FEValuesExtractors::Vector &extractor) const
-    {
-      return VectorField(*this, name, extractor);
-    }
-
-    VectorField
-    field(StateLayout                              &layout,
-          const std::string                        &name,
-          const dealii::FEValuesExtractors::Vector &extractor) const
+    template <typename Extractor>
+    Field<dim, spacedim, Extractor>
+    field(StateLayout       &layout,
+          const std::string &name,
+          const Extractor   &extractor) const
     {
       const auto id = register_field(layout, name);
-      return VectorField(*this, name, extractor, id);
+      return Field<dim, spacedim, Extractor>(*this, name, extractor, id);
     }
 
-    VectorField
-    field(const FieldId                             id,
-          const std::string                        &name,
-          const dealii::FEValuesExtractors::Vector &extractor) const
+    template <typename Extractor>
+    Field<dim, spacedim, Extractor>
+    field(const FieldId      id,
+          const std::string &name,
+          const Extractor   &extractor) const
     {
-      return VectorField(*this, name, extractor, id);
+      return Field<dim, spacedim, Extractor>(*this, name, extractor, id);
     }
 
-    FESubspaceView<dim, spacedim, dealii::FEValuesExtractors::Scalar, double>
-    operator[](const dealii::FEValuesExtractors::Scalar &extractor) const
-    {
-      return {*this, extractor};
-    }
-
-    FESubspaceView<dim,
-                   spacedim,
-                   dealii::FEValuesExtractors::Vector,
-                   dealii::Tensor<1, spacedim>>
-    operator[](const dealii::FEValuesExtractors::Vector &extractor) const
+    template <typename Extractor>
+    FESubspaceView<dim, spacedim, Extractor>
+    operator[](const Extractor &extractor) const
     {
       return {*this, extractor};
     }
