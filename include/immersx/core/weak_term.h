@@ -22,6 +22,7 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/sparsity_pattern.h>
+#include <deal.II/lac/sparsity_tools.h>
 
 #include <boost/signals2/connection.hpp>
 
@@ -646,7 +647,7 @@ namespace ImmersX
                       "Mixed-dimensional weak terms require a distributed "
                       "source background triangulation."));
 
-        using Point = RepresentationQuadraturePoint<spacedim, double>;
+        using Point = detail::CouplingPoint<spacedim, double>;
         const unsigned int n_target_dofs =
           target_field.space().finite_element().n_dofs_per_cell();
         const unsigned int target_components =

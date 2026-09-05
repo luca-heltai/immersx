@@ -51,8 +51,8 @@ TEST(DistributedLiftedQuadrature,
   ASSERT_EQ(centers[1].size(), 3u);
 
   const unsigned int rank = Utilities::MPI::this_mpi_process(comm);
-  RepresentationQuadraturePoint<3, double> source_point;
-  const auto                              &opposite_center = centers[1 - rank];
+  detail::CouplingPoint<3, double> source_point;
+  const auto                      &opposite_center = centers[1 - rank];
   source_point.point =
     Point<3>(opposite_center[0], opposite_center[1], opposite_center[2]);
   source_point.representative_point = source_point.point;
@@ -64,7 +64,10 @@ TEST(DistributedLiftedQuadrature,
   ParticleCouplingParameters<3>  parameters("/Cross partition test/");
   DistributedLiftedQuadrature<3> distributed(parameters);
   MappingQ1<3>                   mapping;
-  distributed.initialize(target_tria, mapping, {source_point});
+  distributed.initialize(target_tria,
+                         mapping,
+                         std::vector<detail::CouplingPoint<3, double>>{
+                           source_point});
 
   ASSERT_EQ(distributed.target_stencils().size(), 1u);
   const auto &stencil = distributed.target_stencils().begin()->second;

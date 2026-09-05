@@ -35,7 +35,7 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
 
-#include <immersx/core/representation.h>
+#include <immersx/coupling/detail/coupling_point.h>
 
 #include <cstdint>
 #include <limits>
@@ -230,7 +230,7 @@ namespace ImmersX
   class DistributedLiftedQuadrature
   {
   public:
-    using Point   = RepresentationQuadraturePoint<spacedim, double>;
+    using Point   = detail::CouplingPoint<spacedim, double>;
     using Stencil = detail::LiftedSourceStencil<spacedim>;
 
     explicit DistributedLiftedQuadrature(
@@ -238,10 +238,11 @@ namespace ImmersX
       : particle_coupling_(parameters)
     {}
 
+    template <typename PointType>
     void
     initialize(const parallel::TriangulationBase<spacedim> &target_tria,
                const Mapping<spacedim>                     &target_mapping,
-               const std::vector<Point>                    &source_points)
+               const std::vector<PointType>                &source_points)
     {
       communicator_ = target_tria.get_mpi_communicator();
       source_ids_by_target_.clear();
