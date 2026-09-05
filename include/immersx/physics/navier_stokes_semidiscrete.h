@@ -68,14 +68,16 @@ namespace ImmersX
     }
   } // namespace navier_stokes_detail
 
+  template <int dim, int spacedim = dim>
   struct NavierStokesFields
   {
-    FieldId velocity;
-    FieldId pressure;
+    FieldId                                           velocity;
+    FieldId                                           pressure;
+    std::shared_ptr<const FESpaceView<dim, spacedim>> space;
   };
 
   template <typename Builder, int dim, int spacedim = dim>
-  NavierStokesFields
+  NavierStokesFields<dim, spacedim>
   contribute(Builder &builder, const NavierStokesSolver<dim, spacedim> &problem)
   {
     using VectorType = typename NavierStokesSolver<dim, spacedim>::VectorType;
@@ -109,12 +111,13 @@ namespace ImmersX
                                problem.pressure_metric_matrix(), prototype);
                            });
 
-    const FESpaceView<dim, spacedim> space(problem.dof_handler(),
-                                           problem.mapping(),
-                                           problem.constraints(),
-                                           &problem.locally_relevant_dofs());
-    const auto                       u = navier_stokes_detail::make_block_field(
-      space,
+    auto space = std::make_shared<FESpaceView<dim, spacedim>>(
+      problem.dof_handler(),
+      problem.mapping(),
+      problem.constraints(),
+      &problem.locally_relevant_dofs());
+    const auto u = navier_stokes_detail::make_block_field(
+      *space,
       velocity_id,
       "velocity",
       problem.velocity_extractor(),
@@ -124,7 +127,7 @@ namespace ImmersX
       problem.locally_relevant_dofs_by_block()[0],
       problem.constraints());
     const auto p = navier_stokes_detail::make_block_field(
-      space,
+      *space,
       pressure_id,
       "pressure",
       problem.pressure_extractor(),
@@ -171,7 +174,7 @@ namespace ImmersX
     if (problem.include_convective_term())
       weak_term(problem.density() * (gradient(u) * u), v).add(builder);
 
-    return {velocity_id, pressure_id};
+    return {velocity_id, pressure_id, std::move(space)};
   }
 } // namespace ImmersX
 

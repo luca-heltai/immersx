@@ -122,7 +122,7 @@ namespace ImmersX
           unconstrained->close();
           execution_constraints = std::move(unconstrained);
         }
-      Field result(space(), std::move(name), extractor_);
+      Field result(space(), std::move(name), extractor_, id_);
       result.execution_layout_ = std::make_shared<ExecutionLayout>();
       result.execution_layout_->locally_owned    = locally_owned;
       result.execution_layout_->locally_relevant = locally_relevant;

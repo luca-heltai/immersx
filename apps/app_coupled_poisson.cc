@@ -133,7 +133,7 @@ namespace
     multiplier_output.attach_dof_handler(multiplier_dh);
     multiplier_output.add_data_vector(
       adapter.field(state, coupling.fields().multiplier),
-      application_parameters.multiplier_output_name,
+      "lagrange_multiplier",
       dealii::DataOut<1, 2>::type_dof_data);
     multiplier_output.build_patches();
     const auto rank = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
@@ -143,6 +143,15 @@ namespace
        std::to_string(rank) + ".vtu");
     std::ofstream multiplier_file(multiplier_filename);
     multiplier_output.write_vtu(multiplier_file);
+    if (rank == 0)
+      {
+        std::ofstream multiplier_pvd(
+          std::filesystem::path(application_parameters.output_directory) /
+          (application_parameters.multiplier_output_name + ".pvd"));
+        dealii::DataOutBase::write_pvd_record(
+          multiplier_pvd,
+          {{0., application_parameters.multiplier_output_name + "-0.0.vtu"}});
+      }
 
     auto residual = adapter.make_state();
     adapter.evaluate_residual(state, residual);

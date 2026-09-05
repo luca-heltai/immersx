@@ -1319,11 +1319,11 @@ namespace ImmersX
       }
 
       template <typename VectorType, typename MatrixType, typename Context>
-      static dealii::LinearOperator<VectorType, VectorType>
-      linearize(const ObservableType   &observable,
-                const TargetExpression &target,
-                const FieldId           field,
-                const Context          &context)
+      static MaterializedOperator<VectorType, MatrixType>
+      linearize_matrix(const ObservableType   &observable,
+                       const TargetExpression &target,
+                       const FieldId           field,
+                       const Context          &context)
       {
         const auto storage =
           jacobian<VectorType, MatrixType>(observable, target, field, context);
@@ -1331,39 +1331,54 @@ namespace ImmersX
         const auto sparsity = storage.sparsity;
         const auto matrix_view =
           ImmersX::matrix_operator<VectorType, MatrixType>(*matrix).view;
-        const auto range  = context.state(target.source().field_id());
-        const auto domain = context.state(field);
-
-        dealii::LinearOperator<VectorType, VectorType> result;
-        result.reinit_range_vector = [range](VectorType &vector,
-                                             const bool  omit) {
-          vector.reinit(range, omit);
-        };
-        result.reinit_domain_vector = [domain](VectorType &vector,
-                                               const bool  omit) {
-          vector.reinit(domain, omit);
-        };
-        result.vmult =
+        MaterializedOperator<VectorType, MatrixType> result;
+        result.view.reinit_range_vector =
+          [matrix, sparsity, matrix_view](VectorType &vector, const bool omit) {
+            matrix_view.reinit_range_vector(vector, omit);
+          };
+        result.view.reinit_domain_vector =
+          [matrix, sparsity, matrix_view](VectorType &vector, const bool omit) {
+            matrix_view.reinit_domain_vector(vector, omit);
+          };
+        result.view.vmult =
           [matrix, sparsity, matrix_view](VectorType       &destination,
                                           const VectorType &source) {
             matrix_view.vmult(destination, source);
           };
-        result.vmult_add =
+        result.view.vmult_add =
           [matrix, sparsity, matrix_view](VectorType       &destination,
                                           const VectorType &source) {
             matrix_view.vmult_add(destination, source);
           };
-        result.Tvmult =
+        result.view.Tvmult =
           [matrix, sparsity, matrix_view](VectorType       &destination,
                                           const VectorType &source) {
             matrix_view.Tvmult(destination, source);
           };
-        result.Tvmult_add =
+        result.view.Tvmult_add =
           [matrix, sparsity, matrix_view](VectorType       &destination,
                                           const VectorType &source) {
             matrix_view.Tvmult_add(destination, source);
           };
+        result.materialize      = [matrix]() { return matrix; };
+        result.materialize_into = [matrix](MatrixType &destination) {
+          copy_matrix(destination, *matrix);
+        };
         return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static dealii::LinearOperator<VectorType, VectorType>
+      linearize(const ObservableType   &observable,
+                const TargetExpression &target,
+                const FieldId           field,
+                const Context          &context)
+      {
+        return linearize_matrix<VectorType, MatrixType>(observable,
+                                                        target,
+                                                        field,
+                                                        context)
+          .view;
       }
     };
 
@@ -1589,45 +1604,66 @@ namespace ImmersX
       }
 
       template <typename VectorType, typename MatrixType, typename Context>
+      static MaterializedOperator<VectorType, MatrixType>
+      linearize_matrix(const ObservableType   &observable,
+                       const TargetExpression &target,
+                       const FieldId           field,
+                       const Context          &context)
+      {
+        const auto storage =
+          jacobian<VectorType, MatrixType>(observable, target, field, context);
+        const auto matrix   = storage.matrix;
+        const auto sparsity = storage.sparsity;
+        const auto matrix_view =
+          ImmersX::matrix_operator<VectorType, MatrixType>(*matrix).view;
+        MaterializedOperator<VectorType, MatrixType> result;
+        result.view.reinit_range_vector =
+          [matrix, sparsity, matrix_view](VectorType &vector, const bool omit) {
+            matrix_view.reinit_range_vector(vector, omit);
+          };
+        result.view.reinit_domain_vector =
+          [matrix, sparsity, matrix_view](VectorType &vector, const bool omit) {
+            matrix_view.reinit_domain_vector(vector, omit);
+          };
+        result.view.vmult =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.vmult(destination, source);
+          };
+        result.view.vmult_add =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.vmult_add(destination, source);
+          };
+        result.view.Tvmult =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.Tvmult(destination, source);
+          };
+        result.view.Tvmult_add =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.Tvmult_add(destination, source);
+          };
+        result.materialize      = [matrix]() { return matrix; };
+        result.materialize_into = [matrix](MatrixType &destination) {
+          copy_matrix(destination, *matrix);
+        };
+        return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
       static dealii::LinearOperator<VectorType, VectorType>
       linearize(const ObservableType   &observable,
                 const TargetExpression &target,
                 const FieldId           field,
                 const Context          &context)
       {
-        const auto storage =
-          jacobian<VectorType, MatrixType>(observable, target, field, context);
-        const auto matrix_view =
-          ImmersX::matrix_operator<VectorType, MatrixType>(*storage.matrix)
-            .view;
-        const auto range  = context.state(target.source().field_id());
-        const auto domain = context.state(field);
-        dealii::LinearOperator<VectorType, VectorType> result;
-        result.reinit_range_vector = [range](VectorType &vector,
-                                             const bool  omit) {
-          vector.reinit(range, omit);
-        };
-        result.reinit_domain_vector = [domain](VectorType &vector,
-                                               const bool  omit) {
-          vector.reinit(domain, omit);
-        };
-        result.vmult = [matrix_view](VectorType       &destination,
-                                     const VectorType &source) {
-          matrix_view.vmult(destination, source);
-        };
-        result.vmult_add = [matrix_view](VectorType       &destination,
-                                         const VectorType &source) {
-          matrix_view.vmult_add(destination, source);
-        };
-        result.Tvmult = [matrix_view](VectorType       &destination,
-                                      const VectorType &source) {
-          matrix_view.Tvmult(destination, source);
-        };
-        result.Tvmult_add = [matrix_view](VectorType       &destination,
-                                          const VectorType &source) {
-          matrix_view.Tvmult_add(destination, source);
-        };
-        return result;
+        return linearize_matrix<VectorType, MatrixType>(observable,
+                                                        target,
+                                                        field,
+                                                        context)
+          .view;
       }
     };
 
@@ -2203,16 +2239,16 @@ namespace ImmersX
               };
               return result;
             });
-          using OperatorFactory = typename Model::OperatorFactory;
+          using MatrixOperatorFactory = typename Model::MatrixOperatorFactory;
           for (const auto field : observable_.dependencies())
-            term.state(
-              field,
-              OperatorFactory([observable = observable_,
-                               target     = target_,
-                               field](const auto &context) {
-                return Assembly::template linearize<VectorType, MatrixType>(
-                  observable, target, field, context);
-              }));
+            term.state(field,
+                       MatrixOperatorFactory([observable = observable_,
+                                              target     = target_,
+                                              field](const auto &context) {
+                         return Assembly::template linearize_matrix<VectorType,
+                                                                    MatrixType>(
+                           observable, target, field, context);
+                       }));
         }
       else if (observable_.is_frozen())
         {
