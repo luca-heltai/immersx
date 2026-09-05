@@ -72,8 +72,8 @@ namespace ImmersX
 
     LiftedObservable(SourceObservable source, const Lift &lift)
       : source_(std::move(source))
-      , lift_(&lift)
       , support_(lift.parameters())
+      , constant_thickness_(lift.parameters().constant_thickness)
     {
       build_points();
     }
@@ -353,7 +353,7 @@ namespace ImmersX
                   support_.transform(values.quadrature_point(q),
                                      tangent,
                                      values.JxW(q),
-                                     lift_->constant_thickness,
+                                     constant_thickness_,
                                      q);
                 for (unsigned int section_q = 0; section_q < transformed.size();
                      ++section_q)
@@ -393,10 +393,9 @@ namespace ImmersX
     }
 
     SourceObservable                             source_;
-    const Lift                                  *lift_;
     Support                                      support_;
-    std::vector<Point>                           point_storage_;
-    std::vector<Point>                          &points_ = point_storage_;
+    const double                                 constant_thickness_;
+    std::vector<Point>                           points_;
     dealii::IndexSet                             point_owned_;
     dealii::IndexSet                             point_relevant_;
     std::vector<dealii::types::global_dof_index> point_indices_;

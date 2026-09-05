@@ -87,19 +87,35 @@ A Field is not:
 
 Keep semantic Field identity separate from execution storage.
 
-### Representation and FE expression
+### FE expression / Observable
 
-A Representation is a reusable typed lifting or observable derived from one or
-more Fields and geometric/discretization data. A local FE expression is the
-smaller `Observable<Field, Operation>` value used by weak terms; it delegates
-FE value/result types and first-order operations to deal.II's
-`FEValuesViews`.
+A primitive FE expression is a small typed `Observable<Field, Operation>`
+derived from a Field. It delegates FE value, gradient, and first-order shape
+function operations to deal.II's `FEValuesViews` rather than rebuilding FE
+algebra locally.
 
-It does not own the physical coupling relation between Problems.
+An Observable is a typed physical quantity derived from one or more Fields. It
+may compose pointwise operations or a backend lift, but it does not introduce
+another hierarchy or own the physical coupling relation between Problems.
 
-### Interaction
+`Representation` is no longer a current architectural concept. New extension
+points must use the Field, Observable, WeakTerm, and Constraint/Interaction
+boundaries described here.
 
-An Interaction owns terms that exist because two or more systems are related.
+Lifting, point search, retained stencils, and redistribution are execution or
+backend details. They should be hidden behind the Observable or Interaction
+that needs them rather than exposed as a second architectural concept.
+
+### WeakTerm
+
+A WeakTerm owns the residual and linearization contribution of a variational
+expression. Linear weak terms may use cached deal.II operators; nonlinear terms
+must evaluate their current state and provide the corresponding derivative.
+
+### Constraint / Interaction
+
+A Constraint or Interaction owns terms that exist because two or more systems
+are related.
 
 An Interaction may:
 
@@ -467,7 +483,11 @@ the primary workflow when a higher-level API exists.
 For reusable extension points, document both:
 
 1. ordinary application usage;
-2. how to implement a new Problem, Representation, or Interaction.
+2. how to implement a new Problem, Field-based FE expression/Observable,
+   WeakTerm, or Constraint/Interaction.
+
+Do not document sealed legacy internals as recommended extension points. New
+extension APIs must not reintroduce the obsolete parallel hierarchy.
 
 Keep documented commands consistent with the actual CMake and test workflow.
 
