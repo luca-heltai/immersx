@@ -57,7 +57,6 @@ set(_public_headers
     immersx/algebra/lagrange_multiplier_interaction.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
-    immersx/algebra/vector_lagrange_multiplier_interaction.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
     immersx/physics/elastodynamics.h
