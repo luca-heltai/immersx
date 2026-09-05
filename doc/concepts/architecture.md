@@ -20,27 +20,63 @@ The finite-element vocabulary is deliberately layered:
 ```text
 DoFHandler (+ Mapping/constraints view) -> FE space
 FE space/subspace -> named Field
-Field(s) -> Observable<T>
+Field -> typed FE expression
 ```
 
 `fe_space(...)` is a non-owning view over an existing deal.II
-`DoFHandler`, mapping, and constraints. A `Field` adds semantic naming and
-optional extractor information; it owns no solution vector. `Observable<T>` is
-a typed, composable physical quantity derived from one or more Fields. Its
-public contract describes dependencies and differentiability, while point
-search, quadrature orchestration, and evaluation caches remain implementation
-details.
+`DoFHandler`, mapping, and constraints. A `Field` adds semantic naming and a
+deal.II extractor; it owns no solution vector. `Observable<Field,Operation>` is
+a lightweight FE expression whose operation forwards to the corresponding
+`FEValuesViews` method. Its result type is consequently defined by deal.II,
+while dependencies, scaling, and frozen state remain ImmersX metadata.
 
 `frozen(field, values)` uses an unregistered FE `Field` only for its support
 and finite-element metadata, and retains the supplied coefficients as a
 dependency-free observable. A `weak_term` built from it contributes a fixed
 residual and therefore does not register a source-field Jacobian.
 
-For compatible finite-element spaces, `weak_term(observable, target_field)`
-represents the duality pairing of the observable with the target test
-functions. The term is contributed through the ordinary semantic builder; its
-FE assembly strategy is private and may be prepared once for linear
-observables.
+## FE expressions and weak terms
+
+For a Field (u_h\in V_h), an FE expression (E(u_h)) is one of the
+first-order operations supplied by the deal.II view: (u_h),
+\(\nabla u_h\), \(\nabla\!\cdot u_h\), \(\varepsilon(u_h)\), or
+\(\operatorname{curl}u_h\), where supported by that view. The public helpers
+`value`, `gradient`, `divergence`, `symmetric_gradient`, and `curl` select
+these operations at compile time. Invalid extractor/operation combinations
+are rejected by the compiler.
+
+Both sides of a weak term are FE expressions. A Field is normalized to its
+value expression, so these forms have the same meaning:
+
+```cpp
+weak_term(u, v);                         // ∫ u · v
+weak_term(gradient(p), gradient(q));     // ∫ ∇p · ∇q
+weak_term(divergence(u), p);             // ∫ (∇·u) p
+weak_term(p, divergence(v));             // ∫ p (∇·v)
+weak_term(symmetric_gradient(u),
+          symmetric_gradient(v));         // ∫ ε(u) : ε(v)
+```
+
+For a linear trial expression and test expression, the matrix entry is
+
+```{math}
+A_{ij}=\int_\Gamma
+\left\langle E(\phi_j^u),F(\phi_i^v)\right\rangle\,d\mu.
+```
+
+The natural deal.II tensor product supplies scalar multiplication, vector
+inner products, and tensor contractions. The user-facing mathematics is
+independent of the geometric backend:
+
+```text
+same DoFHandler              -> one direct FE cell loop
+different DoFHandlers/grid   -> as_dof_handler_iterator()
+different geometries         -> prepared and cached particle coupling
+```
+
+The term is contributed through the ordinary semantic builder; its FE
+assembly/search strategy remains an implementation detail and can be prepared
+once for fixed geometry.
 
 **State** is the collection of field values supplied for an evaluation.
 `StateView` and `StateAccessor` provide current, frozen, historical, or

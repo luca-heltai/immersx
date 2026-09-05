@@ -18,16 +18,18 @@ The semantic core is implemented by `FieldId`, `FieldDescriptor`,
 `StateLayout`, `StateView`, `StateAccessor`, `EvaluationContext`, and
 `SemiDiscreteModel`. The foundation FE vocabulary adds `fe_space(...)` as a
 non-owning view over a deal.II FE discretization, `Field` as a named semantic
-variable on that space or an extractor-selected subspace, and `Observable<T>`
-as a typed physical quantity derived from Fields. These objects own no state
+variable on that space or an extractor-selected subspace, and
+`Observable<Field, Operation>` as a typed FE expression derived from a Field.
+Its value/result types and first-order operations come from deal.II's
+`FEValuesViews`. These objects own no state
 vectors and expose no public point-search or evaluation-plan machinery.
 Problems and Interactions add residual terms and separate `dF/dy` and
 `dF/dydot` operators. The transitional `Representation` vocabulary and its
 typed derivatives remain available for the existing coupling paths while
-newer composition code adopts `Observable<T>`.
+newer composition code adopts FE expressions.
 
 The `weak_term(...)` contributor provides the first direct FE assembly path
-for this vocabulary. It assembles the observable/test-function duality into a
+for this vocabulary. It assembles the trial-expression/test-expression duality into a
 prepared deal.II matrix during contribution registration, then reuses that
 matrix for the residual and `dF/dy`. Same-DoFHandler terms use one cell
 traversal and shared `FEValues`; different DoFHandlers on one triangulation
@@ -58,7 +60,7 @@ requirements imposed on Problems or Interactions.
 ```{mermaid}
 flowchart LR
   P["Problem"] --> F["FieldId / FieldDescriptor"]
-  F --> R["Observable<T>"]
+  F --> R["Observable<Field, Operation>"]
   R --> I["Interaction"]
   P --> M["SemiDiscreteModel"]
   I --> M
