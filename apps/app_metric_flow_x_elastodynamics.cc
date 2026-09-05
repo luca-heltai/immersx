@@ -159,7 +159,7 @@ namespace
     using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
     using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
     using SolidField = ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>;
-    using WallObservable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
+    using WallObservable = ImmersX::MetricFlowXVesselWallGeometry;
     using Interaction =
       ImmersX::MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
 
@@ -179,7 +179,6 @@ namespace
     wall_lift.section.selected_coefficients = {3u, 7u};
     wall_lift.section.n_q_points            = 8;
     wall_lift.representative_n_q_points     = 2;
-    ImmersX::ParticleCouplingParameters<3> search_parameters;
     ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
 
     const auto flow_bootstrap = write_metric_flow_bootstrap(parameter_file);
@@ -294,9 +293,8 @@ namespace
                                          flow_fields.fields().area,
                                          flow_fields.fields().area_components,
                                          wall_lift);
-    Interaction interaction(solid_field, wall_observable, search_parameters);
-    interaction.assemble();
-    const auto lambda_field      = interaction.multiplier_field();
+    Interaction          interaction(solid_field, wall_observable);
+    const auto           lambda_field = interaction.multiplier_field();
     const auto wall_displacement = interaction.radial_displacement(wall_lift);
     const auto radial_law        = wall_observable.radial_law();
     const auto lambda_wall =

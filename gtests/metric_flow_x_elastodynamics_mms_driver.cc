@@ -57,7 +57,7 @@ namespace
   using SolidProblem   = ElastodynamicsSolver<3>;
   using SolidVector    = SolidProblem::VectorType;
   using SolidField     = Field<3, 3, dealii::FEValuesExtractors::Vector>;
-  using WallObservable = MetricFlowXAreaRadialDisplacementObservable;
+  using WallObservable = MetricFlowXVesselWallGeometry;
   using Interaction =
     MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
   using CouplingVector = typename Interaction::VectorType;
@@ -415,7 +415,6 @@ namespace
       reset_parameter_handler_to_root(ParameterAcceptor::prm);
       wall_lift = std::make_unique<WallObservable::Lift>(
         "/MetricFlowX vessel wall lift/");
-      ParticleCouplingParameters<3> search_parameters;
       reset_parameter_handler_to_root(ParameterAcceptor::prm);
 
       const auto parameter_file =
@@ -511,10 +510,8 @@ namespace
                                          flow_fields->fields().area,
                                          flow_fields->fields().area_components,
                                          *wall_lift);
-      interaction = std::make_unique<Interaction>(*solid_field,
-                                                  *wall_observable,
-                                                  search_parameters);
-      interaction->assemble();
+      interaction =
+        std::make_unique<Interaction>(*solid_field, *wall_observable);
       const auto lambda_field = interaction->multiplier_field();
       const auto wall_displacement =
         interaction->radial_displacement(*wall_lift);
@@ -756,33 +753,6 @@ namespace
                                                2.);
     }
 
-    double
-    multiplier_metric_norm(const CouplingVector &value) const
-    {
-      CouplingVector image;
-      image.reinit(value);
-      interaction->multiplier_metric_matrix().vmult(image, value);
-      return std::sqrt(std::max(0., value * image));
-    }
-
-    double
-    multiplier_dual_norm(const CouplingVector &value) const
-    {
-      // The multiplier coefficients represent a dual residual in the
-      // constraint equation.  Its physical norm is therefore induced by the
-      // inverse of the assembled multiplier L2 metric, not by applying that
-      // metric a second time.
-      const auto metric = linear_operator<CouplingVector>(
-        interaction->multiplier_metric_matrix());
-      SolverControl control(1000, std::max(1.e-14, 1.e-10 * value.l2_norm()));
-      SolverCG<CouplingVector> solver(control);
-      const auto     inverse_metric = inverse_operator(metric, solver);
-      CouplingVector coefficient_solution;
-      coefficient_solution.reinit(value);
-      coefficient_solution = inverse_metric * value;
-      return std::sqrt(std::max(0., value * coefficient_solution));
-    }
-
     static unsigned int
     global_dof_count(const IndexSet &locally_owned)
     {
@@ -829,12 +799,12 @@ namespace
         adapter->field(exact_state, coupling_fields.multiplier);
       auto multiplier_difference = numerical_multiplier;
       multiplier_difference -= exact_multiplier_field;
-      result.multiplier_l2 = multiplier_metric_norm(multiplier_difference);
+      result.multiplier_l2 = multiplier_difference.l2_norm();
 
       auto residual = adapter->make_state();
       adapter->solver().residual(time, state, state_dot, residual);
-      result.constraint = multiplier_dual_norm(
-        adapter->field(residual, coupling_fields.multiplier));
+      result.constraint =
+        adapter->field(residual, coupling_fields.multiplier).l2_norm();
       return result;
     }
 

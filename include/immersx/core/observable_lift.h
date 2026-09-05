@@ -321,56 +321,34 @@ namespace ImmersX
       else if constexpr (detail::is_transformed_observable<
                            SourceObservable>::value)
         return linearize_composed(context, field);
-      const auto owned            = point_owned_;
-      const auto relevant         = point_relevant_;
-      const auto point_ids        = point_indices_;
-      const auto points           = points_;
-      const auto source_field_ref = source();
-      const auto communicator     = mpi_communicator();
-      const auto coefficient      = scale();
+      else
+        {
+          const auto owned            = point_owned_;
+          const auto relevant         = point_relevant_;
+          const auto point_ids        = point_indices_;
+          const auto points           = points_;
+          const auto source_field_ref = source();
+          const auto communicator     = mpi_communicator();
+          const auto coefficient      = scale();
 
-      Operator result;
-      result.reinit_range_vector =
-        [owned, relevant, communicator](value_type &vector, const bool omit) {
-          vector.reinit(owned, relevant, communicator);
-          if (!omit)
-            vector = 0.;
-        };
-      result.reinit_domain_vector =
-        [source_field_ref, communicator](state_type &vector, const bool omit) {
-          vector.reinit(source_field_ref.locally_owned_dofs(),
-                        source_field_ref.locally_relevant_dofs(),
-                        communicator);
-          if (!omit)
-            vector = 0.;
-        };
-      result.vmult = [points,
-                      point_ids,
-                      source_field_ref,
-                      owned,
-                      relevant,
-                      communicator,
-                      coefficient](value_type       &destination,
-                                   const state_type &values) {
-        detail::apply_stencils(
-          points,
-          point_ids,
-          source_field_ref.locally_owned_dofs(),
-          source_field_ref.locally_relevant_dofs(),
-          owned,
-          relevant,
-          &source_field_ref.constraints(),
-          communicator,
-          values,
-          destination,
-          [](const auto &point) -> const auto & { return point.dof_indices; },
-          [coefficient](const auto &point, const unsigned int i) {
-            return coefficient * point.basis_values[i];
-          },
-          false,
-          false);
-      };
-      result.vmult_add = [points,
+          Operator result;
+          result.reinit_range_vector =
+            [owned, relevant, communicator](value_type &vector,
+                                            const bool  omit) {
+              vector.reinit(owned, relevant, communicator);
+              if (!omit)
+                vector = 0.;
+            };
+          result.reinit_domain_vector = [source_field_ref,
+                                         communicator](state_type &vector,
+                                                       const bool  omit) {
+            vector.reinit(source_field_ref.locally_owned_dofs(),
+                          source_field_ref.locally_relevant_dofs(),
+                          communicator);
+            if (!omit)
+              vector = 0.;
+          };
+          result.vmult = [points,
                           point_ids,
                           source_field_ref,
                           owned,
@@ -378,59 +356,94 @@ namespace ImmersX
                           communicator,
                           coefficient](value_type       &destination,
                                        const state_type &values) {
-        detail::apply_stencils(
-          points,
-          point_ids,
-          source_field_ref.locally_owned_dofs(),
-          source_field_ref.locally_relevant_dofs(),
-          owned,
-          relevant,
-          &source_field_ref.constraints(),
-          communicator,
-          values,
-          destination,
-          [](const auto &point) -> const auto & { return point.dof_indices; },
-          [coefficient](const auto &point, const unsigned int i) {
-            return coefficient * point.basis_values[i];
-          },
-          false,
-          true);
-      };
-      result.Tvmult =
-        [points, point_ids, source_field_ref, communicator, coefficient](
-          state_type &destination, const value_type &values) {
-          detail::apply_stencils_transpose(
-            points,
-            point_ids,
-            source_field_ref.locally_owned_dofs(),
-            &source_field_ref.constraints(),
-            communicator,
-            values,
-            destination,
-            [](const auto &point) -> const auto & { return point.dof_indices; },
-            [coefficient](const auto &point, const unsigned int i) {
-              return coefficient * point.basis_values[i];
-            },
-            false);
-        };
-      result.Tvmult_add =
-        [points, point_ids, source_field_ref, communicator, coefficient](
-          state_type &destination, const value_type &values) {
-          detail::apply_stencils_transpose(
-            points,
-            point_ids,
-            source_field_ref.locally_owned_dofs(),
-            &source_field_ref.constraints(),
-            communicator,
-            values,
-            destination,
-            [](const auto &point) -> const auto & { return point.dof_indices; },
-            [coefficient](const auto &point, const unsigned int i) {
-              return coefficient * point.basis_values[i];
-            },
-            true);
-        };
-      return result;
+            detail::apply_stencils(
+              points,
+              point_ids,
+              source_field_ref.locally_owned_dofs(),
+              source_field_ref.locally_relevant_dofs(),
+              owned,
+              relevant,
+              &source_field_ref.constraints(),
+              communicator,
+              values,
+              destination,
+              [](const auto &point) -> const auto & {
+                return point.dof_indices;
+              },
+              [coefficient](const auto &point, const unsigned int i) {
+                return coefficient * point.basis_values[i];
+              },
+              false,
+              false);
+          };
+          result.vmult_add = [points,
+                              point_ids,
+                              source_field_ref,
+                              owned,
+                              relevant,
+                              communicator,
+                              coefficient](value_type       &destination,
+                                           const state_type &values) {
+            detail::apply_stencils(
+              points,
+              point_ids,
+              source_field_ref.locally_owned_dofs(),
+              source_field_ref.locally_relevant_dofs(),
+              owned,
+              relevant,
+              &source_field_ref.constraints(),
+              communicator,
+              values,
+              destination,
+              [](const auto &point) -> const auto & {
+                return point.dof_indices;
+              },
+              [coefficient](const auto &point, const unsigned int i) {
+                return coefficient * point.basis_values[i];
+              },
+              false,
+              true);
+          };
+          result.Tvmult =
+            [points, point_ids, source_field_ref, communicator, coefficient](
+              state_type &destination, const value_type &values) {
+              detail::apply_stencils_transpose(
+                points,
+                point_ids,
+                source_field_ref.locally_owned_dofs(),
+                &source_field_ref.constraints(),
+                communicator,
+                values,
+                destination,
+                [](const auto &point) -> const auto & {
+                  return point.dof_indices;
+                },
+                [coefficient](const auto &point, const unsigned int i) {
+                  return coefficient * point.basis_values[i];
+                },
+                false);
+            };
+          result.Tvmult_add =
+            [points, point_ids, source_field_ref, communicator, coefficient](
+              state_type &destination, const value_type &values) {
+              detail::apply_stencils_transpose(
+                points,
+                point_ids,
+                source_field_ref.locally_owned_dofs(),
+                &source_field_ref.constraints(),
+                communicator,
+                values,
+                destination,
+                [](const auto &point) -> const auto & {
+                  return point.dof_indices;
+                },
+                [coefficient](const auto &point, const unsigned int i) {
+                  return coefficient * point.basis_values[i];
+                },
+                true);
+            };
+          return result;
+        }
     }
 
     template <typename Context>
