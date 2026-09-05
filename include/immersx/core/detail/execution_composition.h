@@ -398,6 +398,30 @@ namespace ImmersX::detail
       return std::make_shared<Snapshot>(*this, time, state, state_dot);
     }
 
+    struct StateSnapshot
+    {
+      StateSnapshot(const ExecutionComposition &composition,
+                    const double                time,
+                    const GlobalVectorType     &state)
+        : state_storage(state)
+        , state_view(composition.layout_, time)
+        , context(time, state_view)
+      {
+        composition.field_layout_.bind_state(state_view, state_storage);
+      }
+
+      GlobalVectorType                   state_storage;
+      StateView<FieldVectorType>         state_view;
+      EvaluationContext<FieldVectorType> context;
+    };
+
+    std::shared_ptr<StateSnapshot>
+    make_snapshot(const double time, const GlobalVectorType &state) const
+    {
+      validate_state(state);
+      return std::make_shared<StateSnapshot>(*this, time, state);
+    }
+
     Operator
     jacobian(const EvaluationContext<FieldVectorType> &context,
              const double                              alpha) const
