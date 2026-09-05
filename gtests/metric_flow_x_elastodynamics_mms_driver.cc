@@ -813,12 +813,11 @@ namespace
     {
       auto &multiplier = adapter->field(state, coupling_fields.multiplier);
       multiplier       = 0.;
-      const Parameters                            par;
-      std::map<types::global_dof_index, Point<3>> support_points;
-      MappingQ1<1, 3>                             mapping;
-      DoFTools::map_dofs_to_support_points(mapping,
-                                           flow_problem->dof_handler(),
-                                           support_points);
+      const Parameters par;
+      MappingQ1<1, 3>  mapping;
+      const auto       support_points =
+        DoFTools::map_dofs_to_support_points(mapping,
+                                             flow_problem->dof_handler());
       for (const auto &point : wall_observable->points())
         for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
           {
