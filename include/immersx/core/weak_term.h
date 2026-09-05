@@ -12,6 +12,8 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/quadrature_lib.h>
+#include <deal.II/base/symmetric_tensor.h>
+#include <deal.II/base/tensor.h>
 
 #include <deal.II/distributed/tria.h>
 
@@ -745,12 +747,36 @@ namespace ImmersX
         return {ImmersX::detail::transpose_matrix(matrix), nullptr};
       }
 
+      template <typename Left, typename Right, typename = void>
+      struct has_scalar_product : std::false_type
+      {};
+
       template <typename Left, typename Right>
-      static auto
+      struct has_scalar_product<Left,
+                                Right,
+                                std::void_t<decltype(dealii::scalar_product(
+                                  std::declval<const Left &>(),
+                                  std::declval<const Right &>()))>>
+        : std::true_type
+      {};
+
+      template <typename Left, typename Right>
+      static decltype(auto)
       natural_pairing(const Left &left, const Right &right)
-        -> decltype(left * right)
       {
-        return left * right;
+        using LeftType  = std::decay_t<Left>;
+        using RightType = std::decay_t<Right>;
+        if constexpr (std::is_arithmetic_v<LeftType> &&
+                      std::is_arithmetic_v<RightType>)
+          return left * right;
+        else
+          {
+            static_assert(
+              has_scalar_product<LeftType, RightType>::value,
+              "Weak-term expression values must be arithmetic or support "
+              "dealii::scalar_product.");
+            return dealii::scalar_product(left, right);
+          }
       }
 
       template <typename SourceField,

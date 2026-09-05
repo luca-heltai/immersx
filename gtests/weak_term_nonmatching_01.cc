@@ -17,6 +17,9 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
 
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
+#include <deal.II/lac/sparse_matrix.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/fe_space.h>
@@ -195,6 +198,106 @@ TEST(WeakTermNonmatching, NonmatchingScalarDifferentDegrees)
   });
 }
 
+TEST(WeakTermNonmatching, NonmatchingScalarGradientUsesPointSearch)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  parallel::distributed::Triangulation<2> source_tria(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> target_tria(MPI_COMM_WORLD);
+  FE_Q<2>                                 source_fe(1);
+  FE_Q<2>                                 target_fe(2);
+  DistributedScalarSpace source_space(source_tria, source_fe, 1);
+  DistributedScalarSpace target_space(target_tria, target_fe, 2);
+  const auto             source_view = fe_space(source_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    source_space.constraints);
+  const auto             target_view = fe_space(target_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    target_space.constraints);
+
+  StateLayout layout;
+  const auto  source = source_view.field(layout, "source");
+  const auto  target = target_view.field(layout, "target");
+  using Vector       = ImmersXLA::MPI::Vector;
+  using Matrix       = ImmersXLA::MPI::SparseMatrix;
+  using Model        = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(gradient(source), gradient(target)).add(builder);
+
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  const auto                      actual =
+    model.state_matrix_operator(target.field_id(), source.field_id(), context);
+  ASSERT_TRUE(actual.has_value());
+  ASSERT_TRUE(actual->is_materializable());
+
+  const QGauss<2>        quadrature(target_fe.degree + 1);
+  DynamicSparsityPattern reference_sparsity(target_space.dof_handler.n_dofs(),
+                                            source_space.dof_handler.n_dofs());
+  for (unsigned int i = 0; i < target_space.dof_handler.n_dofs(); ++i)
+    for (unsigned int j = 0; j < source_space.dof_handler.n_dofs(); ++j)
+      reference_sparsity.add(i, j);
+  SparsityPattern reference_pattern;
+  reference_pattern.copy_from(reference_sparsity);
+  SparseMatrix<double> reference(reference_pattern);
+
+  FEValues<2> target_values(StaticMappingQ1<2>::mapping,
+                            target_fe,
+                            quadrature,
+                            update_gradients | update_JxW_values |
+                              update_quadrature_points);
+  const auto &target_view_values = target_values[FEValuesExtractors::Scalar(0)];
+  std::vector<types::global_dof_index> target_indices(
+    target_fe.n_dofs_per_cell());
+  std::vector<types::global_dof_index> source_indices(
+    source_fe.n_dofs_per_cell());
+  for (const auto &target_cell :
+       target_space.dof_handler.active_cell_iterators())
+    {
+      if (!target_cell->is_locally_owned())
+        continue;
+      target_values.reinit(target_cell);
+      target_cell->get_dof_indices(target_indices);
+      for (const unsigned int q : target_values.quadrature_point_indices())
+        {
+          const auto source_cell_and_reference =
+            GridTools::find_active_cell_around_point(
+              StaticMappingQ1<2>::mapping,
+              source_space.dof_handler,
+              target_values.quadrature_point(q));
+          ASSERT_NE(source_cell_and_reference.first,
+                    source_space.dof_handler.end());
+
+          const Quadrature<2> source_quadrature(
+            std::vector<Point<2>>{source_cell_and_reference.second});
+          FEValues<2> source_values(StaticMappingQ1<2>::mapping,
+                                    source_fe,
+                                    source_quadrature,
+                                    update_gradients);
+          source_values.reinit(source_cell_and_reference.first);
+          source_cell_and_reference.first->get_dof_indices(source_indices);
+          const auto &source_view_values =
+            source_values[FEValuesExtractors::Scalar(0)];
+          for (unsigned int i = 0; i < target_indices.size(); ++i)
+            for (unsigned int j = 0; j < source_indices.size(); ++j)
+              reference.add(
+                target_indices[i],
+                source_indices[j],
+                dealii::scalar_product(source_view_values.gradient(j, 0),
+                                       target_view_values.gradient(i, q)) *
+                  target_values.JxW(q));
+        }
+    }
+
+  const auto actual_matrix = actual->matrix();
+  ASSERT_EQ(actual_matrix->m(), reference.m());
+  ASSERT_EQ(actual_matrix->n(), reference.n());
+  for (unsigned int i = 0; i < reference.m(); ++i)
+    for (unsigned int j = 0; j < reference.n(); ++j)
+      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+}
+
 TEST(WeakTermNonmatching, MPI_NonmatchingPartitionAndTranspose)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
@@ -248,7 +351,8 @@ TEST(WeakTermNonmatching, MPI_ScaledPairing)
   Model       scaled_model;
   SemidiscreteBuilder<Vector, Matrix> scaled_builder(scaled_layout,
                                                      scaled_model);
-  weak_term(2.0 * value(scaled_source), scaled_target).add(scaled_builder);
+  weak_term(2.0 * value(scaled_source), 3.0 * value(scaled_target))
+    .add(scaled_builder);
 
   Vector base_state;
   Vector scaled_state;
@@ -278,7 +382,7 @@ TEST(WeakTermNonmatching, MPI_ScaledPairing)
   scaled_model.evaluate_row(scaled_target.field_id(),
                             scaled_context,
                             scaled_residual);
-  scaled_residual.add(-2., base_residual);
+  scaled_residual.add(-6., base_residual);
   EXPECT_LT(scaled_residual.l2_norm(), 1.e-12);
 
   const auto base_matrix =
@@ -297,7 +401,7 @@ TEST(WeakTermNonmatching, MPI_ScaledPairing)
   scaled_action.reinit(scaled_target.locally_owned_dofs(), MPI_COMM_WORLD);
   base_matrix->view.vmult(base_action, base_state);
   scaled_matrix->view.vmult(scaled_action, scaled_state);
-  scaled_action.add(-2., base_action);
+  scaled_action.add(-6., base_action);
   EXPECT_LT(scaled_action.l2_norm(), 1.e-12);
 }
 
