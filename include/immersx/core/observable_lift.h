@@ -294,7 +294,6 @@ namespace ImmersX
       double derivative = 0.;
       if constexpr (detail::is_transformed_observable<SourceObservable>::value)
         derivative = composed_basis_derivative(source_,
-                                               source(),
                                                context.state(field),
                                                field,
                                                points_[point],
@@ -601,13 +600,8 @@ namespace ImmersX
                 local[i] =
                   weight *
                   (detail::is_transformed_observable<SourceObservable>::value ?
-                     composed_basis_derivative(observable,
-                                               source_ref,
-                                               current,
-                                               field,
-                                               points[q],
-                                               i,
-                                               time) :
+                     composed_basis_derivative(
+                       observable, current, field, points[q], i, time) :
                      (observable.is_frozen() ?
                         0. :
                         points[q].source_basis_values[i]));
@@ -718,9 +712,8 @@ namespace ImmersX
             std::vector<double> local(points[q].dof_indices.size());
             for (unsigned int i = 0; i < local.size(); ++i)
               local[i] =
-                weight *
-                composed_basis_derivative(
-                  observable, source_ref, current, field, points[q], i, time);
+                weight * composed_basis_derivative(
+                           observable, current, field, points[q], i, time);
             source_ref.constraints().distribute_local_to_global(
               local, points[q].dof_indices, destination);
           }
@@ -787,13 +780,12 @@ namespace ImmersX
 
     template <typename ObservableType>
     static double
-    composed_basis_derivative(const ObservableType    &observable,
-                              const source_field_type &field,
-                              const state_type        &current,
-                              const FieldId            requested_field,
-                              const Point             &point,
-                              const unsigned int       basis,
-                              const double             time)
+    composed_basis_derivative(const ObservableType &observable,
+                              const state_type     &current,
+                              const FieldId         requested_field,
+                              const Point          &point,
+                              const unsigned int    basis,
+                              const double          time)
     {
       const auto evaluate = [&](const auto &input, const auto &, const double) {
         const auto &coefficients =
