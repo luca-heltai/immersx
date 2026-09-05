@@ -321,7 +321,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           NAME metric_flow_x_elastodynamics_mms_verification
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
-                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallConstraint.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallConstraint.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallConstraint.MPI_DiscreteVirtualWorkNormalization:MetricFlowXVesselWallConstraint.MPI_FullCoupledJacobianFiniteDifference)
+                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallConstraint.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallConstraint.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallConstraint.MPI_GenericKinematicCompositionSmoke:MetricFlowXVesselWallConstraint.MPI_FullCoupledJacobianFiniteDifference)
         set_tests_properties(metric_flow_x_elastodynamics_mms_verification
                              PROPERTIES LABELS "validation;mpi")
       endif()

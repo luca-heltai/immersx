@@ -62,7 +62,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
 set(IMMERSX_VALIDATION_TEST_SUITES
     OneVesselMMS
     OneVesselMMSDriver
-    MetricFlowXVesselWallObservable
+    MetricFlowXVesselWallGeometry
     MetricFlowXVesselWallConstraint
     NavierStokes)
 
@@ -130,7 +130,7 @@ set(_immersx_expected_test_suites
     RhsParameters
     OneVesselMMS
     OneVesselMMSDriver
-    MetricFlowXVesselWallObservable
+    MetricFlowXVesselWallGeometry
     MetricFlowXVesselWallConstraint
     ModulatedParsedFunction
     NavierStokes

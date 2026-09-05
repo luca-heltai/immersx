@@ -67,22 +67,26 @@ transpose of the same weak-term operator that defines the constraint.
 
 MetricFlowX remains an external/native Problem. Its vessel-wall path exposes
 the Area state as a Field, maps it through the nonlinear radial-displacement
-Observable, and contributes a `MetricFlowXVesselWallConstraint` coupling to the
-solid Field and pressure multiplier. The native MetricFlowX Problem is not
-wrapped in a generic ImmersX Problem base class.
+Observable, and contributes a `MetricFlowXVesselWallConstraint` for native
+pressure feedback. The kinematic relation itself is composed from the generic
+Observable, `lift`, `weak_term`, and `make_constraint` APIs. The native
+MetricFlowX Problem is not wrapped in a generic ImmersX Problem base class.
 
 ```cpp
 auto flow = adapter.add(ImmersX::metric_flow_x(flow_problem), "blood-flow");
 auto solid = adapter.add(solid_problem, "elastodynamics");
-MetricFlowXVesselWallConstraint coupling(solid_field,
-                                         wall_observable,
-                                         search_parameters);
-coupling.assemble();
-auto fields = adapter.add(coupling,
-                          "vessel-wall",
-                          solid.fields().displacement,
-                          solid.fields().velocity,
-                          flow.fields().state);
+MetricFlowXVesselWallConstraint interaction(solid_field, wall_observable);
+auto lambda = interaction.multiplier_field();
+auto wall_displacement = interaction.radial_displacement(wall_lift);
+auto lambda_wall = lift(value(lambda), wall_lift, thickness);
+auto kinematics = make_constraint(
+  weak_term(value(solid_field), lambda_wall) -
+  weak_term(wall_displacement, lambda));
+auto fields = adapter.add(kinematics, "vessel-wall");
+adapter.add(interaction,
+            "vessel-wall-pressure",
+            flow.fields().state,
+            fields.fields().multiplier);
 ```
 
 The canonical residual is `F(t, y, ydot) = 0`; Problems and Interactions
