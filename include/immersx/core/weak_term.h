@@ -192,6 +192,7 @@ namespace ImmersX
       return result;
     }
 
+    /** \cond */
     template <typename Left, typename Right, typename = void>
     struct has_scalar_product : std::false_type
     {};
@@ -223,6 +224,7 @@ namespace ImmersX
           return dealii::scalar_product(left, right);
         }
     }
+    /** \endcond */
 
     template <typename ObservableType, typename TargetExpression>
     struct WeakAssembly
