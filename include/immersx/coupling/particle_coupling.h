@@ -324,6 +324,9 @@ namespace ImmersX
     std::map<types::particle_index, double>
     values_on_target(const dealii::Vector<double> &source_values) const
     {
+      // This is the forward redistribution D. Geometry and source stencils
+      // were exchanged by initialize(); repeated applications only exchange
+      // values.
       std::map<unsigned int, std::map<types::particle_index, double>>
         values_by_target;
       for (const auto &[target_rank, ids] : source_ids_by_target_)
@@ -347,6 +350,9 @@ namespace ImmersX
       const std::map<types::particle_index, double> &target_values,
       dealii::Vector<double>                        &source_values) const
     {
+      // This is D^T, the transpose of the value redistribution above. It is
+      // separate from the tensor-product lift transpose and does not rebuild
+      // or modify the exchanged geometry stencils.
       std::map<unsigned int, std::map<types::particle_index, double>>
         values_by_source;
       for (const auto &[id, value] : target_values)

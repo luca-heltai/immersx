@@ -22,6 +22,8 @@
 #include <gtest/gtest.h>
 #include <immersx/core/representation.h>
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 using namespace dealii;
@@ -160,6 +162,116 @@ TEST(RetainedSampling,
   EXPECT_NEAR(local_dot(plan.locally_owned_points(), values, weights),
               local_dot(data.locally_owned, direction, transpose),
               1.e-9);
+}
+
+
+TEST(RetainedSampling, AdjointnessUsesDeterministicVectors)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  SamplingData    data;
+  const QGauss<2> quadrature(3);
+  const auto      plan =
+    make_retained_sampling_plan(*data.representation, quadrature);
+
+  ImmersXLA::MPI::Vector x;
+  x.reinit(data.locally_owned, MPI_COMM_WORLD);
+  for (const auto index : data.locally_owned)
+    x[index] = 0.125 + 0.375 * static_cast<double>(index) +
+               0.03125 * static_cast<double>(index * index);
+
+  ImmersXLA::MPI::Vector y;
+  y.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
+  for (const auto index : plan.locally_owned_points())
+    y[index] = 0.75 - 0.2 * static_cast<double>(index) +
+               0.015625 * static_cast<double>(index * index);
+
+  const auto             sampling = plan.linearize(x);
+  ImmersXLA::MPI::Vector sampling_x;
+  sampling.reinit_range_vector(sampling_x, false);
+  sampling.vmult(sampling_x, x);
+
+  ImmersXLA::MPI::Vector sampling_transpose_y;
+  sampling.reinit_domain_vector(sampling_transpose_y, false);
+  sampling.Tvmult(sampling_transpose_y, y);
+
+  const double lhs = local_dot(plan.locally_owned_points(), sampling_x, y);
+  const double rhs = local_dot(data.locally_owned, x, sampling_transpose_y);
+  EXPECT_NEAR(lhs, rhs, 1.e-12 * std::max({1., std::abs(lhs), std::abs(rhs)}));
+}
+
+
+TEST(RetainedSampling, ConstrainedAdjointnessUsesIndependentReference)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  SamplingData    data(true);
+  const QGauss<2> quadrature(3);
+  const auto      plan =
+    make_retained_sampling_plan(*data.representation, quadrature);
+
+  ImmersXLA::MPI::Vector x;
+  x.reinit(data.locally_owned, MPI_COMM_WORLD);
+  for (const auto index : data.locally_owned)
+    x[index] = 0.2 + 0.41 * static_cast<double>(index) -
+               0.017 * static_cast<double>(index * index);
+
+  ImmersXLA::MPI::Vector y;
+  y.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
+  for (const auto index : plan.locally_owned_points())
+    y[index] = -0.3 + 0.27 * static_cast<double>(index) +
+               0.013 * static_cast<double>(index * index);
+
+  const auto sampled  = plan.sample(x);
+  const auto sampling = plan.linearize(x);
+
+  ImmersXLA::MPI::Vector sampling_x;
+  sampling.reinit_range_vector(sampling_x, false);
+  sampling.vmult(sampling_x, x);
+
+  ImmersXLA::MPI::Vector sampling_transpose_y;
+  sampling.reinit_domain_vector(sampling_transpose_y, false);
+  sampling.Tvmult(sampling_transpose_y, y);
+
+  // Reference S_c x = S C x, with the homogeneous constraint x_0 = 0.5 x_1
+  // written out independently of AffineConstraints and the operator under
+  // test. The inhomogeneous offset belongs to sample(), not linearize().
+  ImmersXLA::MPI::Vector homogeneous_x = x;
+  homogeneous_x[0]                     = 0.5 * homogeneous_x[1];
+  for (std::size_t q = 0; q < plan.points().size(); ++q)
+    {
+      double expected_linearized = 0.;
+      double expected_offset     = 0.;
+      for (std::size_t i = 0; i < plan.points()[q].dof_indices.size(); ++i)
+        {
+          const auto index = plan.points()[q].dof_indices[i];
+          expected_linearized +=
+            plan.points()[q].basis_values[i] * homogeneous_x[index];
+          if (index == 0)
+            expected_offset += 2. * plan.points()[q].basis_values[i];
+        }
+      const auto point = plan.point_index(q);
+      EXPECT_NEAR(sampling_x[point], expected_linearized, 1.e-12);
+      EXPECT_NEAR(sampled[point] - sampling_x[point], expected_offset, 1.e-12);
+    }
+
+  // Reference C^T S^T y: first assemble the unconstrained S^T y, then apply
+  // the transpose of x_0 = 0.5 x_1 by hand.
+  ImmersXLA::MPI::Vector raw_transpose;
+  raw_transpose.reinit(data.locally_owned, MPI_COMM_WORLD);
+  raw_transpose = 0.;
+  for (std::size_t q = 0; q < plan.points().size(); ++q)
+    for (std::size_t i = 0; i < plan.points()[q].dof_indices.size(); ++i)
+      raw_transpose[plan.points()[q].dof_indices[i]] +=
+        plan.points()[q].basis_values[i] * y[plan.point_index(q)];
+
+  ImmersXLA::MPI::Vector expected_transpose = raw_transpose;
+  expected_transpose[0]                     = 0.;
+  expected_transpose[1] += 0.5 * raw_transpose[0];
+  for (const auto index : data.locally_owned)
+    EXPECT_NEAR(sampling_transpose_y[index], expected_transpose[index], 1.e-12);
+
+  const double lhs = local_dot(plan.locally_owned_points(), sampling_x, y);
+  const double rhs = local_dot(data.locally_owned, x, sampling_transpose_y);
+  EXPECT_NEAR(lhs, rhs, 1.e-12 * std::max({1., std::abs(lhs), std::abs(rhs)}));
 }
 
 

@@ -258,6 +258,87 @@ namespace
       return 0.1 + 0.5 * point[2];
     }
   };
+
+  /** Minimal modal source exposing the public Representation lifting seam. */
+  struct ModalOperatorSource
+  {
+    using value_type      = dealii::Vector<double>;
+    using state_type      = ImmersX::ImmersXLA::MPI::Vector;
+    using QuadraturePoint = ImmersX::RepresentationQuadraturePoint<3, double>;
+    using TriangulationType =
+      dealii::parallel::TriangulationBase<reduced_dim, spacedim>;
+    using DoFHandlerType = dealii::DoFHandler<reduced_dim, spacedim>;
+    using ExtractorType  = dealii::FEValuesExtractors::Scalar;
+
+    ModalOperatorSource()
+    {
+      locally_owned.set_size(4);
+      locally_owned.add_range(0, 4);
+      locally_owned.compress();
+      locally_relevant = locally_owned;
+      constraints_.reinit(locally_owned, locally_relevant);
+      constraints_.close();
+    }
+
+    FieldId
+    source() const
+    {
+      return FieldId(0);
+    }
+
+    const IndexSet &
+    locally_owned_dofs() const
+    {
+      return locally_owned;
+    }
+
+    const IndexSet &
+    locally_relevant_dofs() const
+    {
+      return locally_relevant;
+    }
+
+    const AffineConstraints<double> &
+    constraints() const
+    {
+      return constraints_;
+    }
+
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return MPI_COMM_WORLD;
+    }
+
+    std::vector<QuadraturePoint>
+    locally_owned_quadrature_points(
+      const dealii::Quadrature<1> &quadrature) const
+    {
+      std::vector<QuadraturePoint> result;
+      result.reserve(quadrature.size());
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          QuadraturePoint point;
+          point.point      = dealii::Point<3>(0.5, 0.5, quadrature.point(q)[0]);
+          point.tangent[2] = 1.;
+          point.weight     = 0.5;
+          point.source_entity_id      = q;
+          point.representative_qpoint = q;
+          point.stable_id             = q;
+          point.dof_indices           = {0, 1, 2, 3};
+          point.basis_values          = {0.7 + 0.1 * q,
+                                         -0.2 + 0.05 * q,
+                                         0.4 - 0.03 * q,
+                                         0.6 + 0.02 * q};
+          result.push_back(point);
+        }
+      return result;
+    }
+
+    IndexSet                  locally_owned;
+    IndexSet                  locally_relevant;
+    AffineConstraints<double> constraints_;
+  };
 } // namespace
 
 
@@ -510,6 +591,98 @@ TEST(TensorProductLift, ModalSourceDistinctCoefficients) // NOLINT
               << "Lifted basis at point " << q << ", slot " << slot;
           }
     }
+}
+
+
+TEST(TensorProductLift, ModalRepresentationVmultiplicationIsAdjoint)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  ParameterAcceptor::clear();
+
+  TensorProductLift<reduced_dim, surface_dim, spacedim, n_components> lift(
+    "/Modal operator/");
+  lift.thickness                        = "0.2";
+  lift.representative_quadrature_type   = "gauss";
+  lift.representative_n_q_points        = 2;
+  lift.representative_n_repetitions     = 1;
+  lift.section.inclusion_type           = "hyper_ball";
+  lift.section.refinement_level         = 1;
+  lift.section.inclusion_degree         = 1;
+  lift.section.selected_coefficients    = {0, 1};
+  lift.section.quadrature_type          = "gauss";
+  lift.section.n_q_points               = 4;
+  lift.section.n_quadrature_repetitions = 1;
+
+  ModalOperatorSource source;
+  const auto          modal_lift = ImmersX::make_modal_lift(source, lift);
+  ASSERT_TRUE(modal_lift.modal());
+  ASSERT_FALSE(modal_lift.lifted_points().empty());
+  for (const auto &point : modal_lift.lifted_points())
+    {
+      ASSERT_EQ(point.source_dof_indices.size(), 4u);
+      ASSERT_EQ(point.source_basis_values.size(), 4u);
+      ASSERT_EQ(point.mode_values.size(), 2u);
+    }
+
+  StateLayout     layout;
+  FieldDescriptor descriptor;
+  descriptor.name             = "modal";
+  descriptor.locally_owned    = source.locally_owned_dofs();
+  descriptor.locally_relevant = source.locally_relevant_dofs();
+  const FieldId field         = layout.add_field(std::move(descriptor));
+  ASSERT_EQ(field, source.source());
+
+  ImmersXLA::MPI::Vector x;
+  x.reinit(source.locally_owned_dofs(), MPI_COMM_WORLD);
+  x[0] = 0.65;
+  x[1] = -0.35;
+  x[2] = 0.25;
+  x[3] = 0.9;
+
+  StateView<ImmersXLA::MPI::Vector> state_view(layout, 0.);
+  state_view.bind(field, x);
+  const EvaluationContext<ImmersXLA::MPI::Vector> context(0., state_view);
+  const auto operator_view = modal_lift.linearize(context);
+
+  dealii::Vector<double> lifted_values;
+  operator_view.reinit_range_vector(lifted_values, false);
+  operator_view.vmult(lifted_values, x);
+
+  dealii::Vector<double> y(lifted_values.size());
+  for (unsigned int q = 0; q < y.size(); ++q)
+    y[q] = -0.4 + 0.17 * static_cast<double>(q);
+
+  ImmersXLA::MPI::Vector transpose;
+  operator_view.reinit_domain_vector(transpose, false);
+  operator_view.Tvmult(transpose, y);
+
+  ImmersXLA::MPI::Vector expected_transpose;
+  expected_transpose.reinit(source.locally_owned_dofs(), MPI_COMM_WORLD);
+  expected_transpose = 0.;
+  for (unsigned int q = 0; q < modal_lift.lifted_points().size(); ++q)
+    {
+      const auto &point          = modal_lift.lifted_points()[q];
+      double      expected_value = 0.;
+      for (unsigned int i = 0; i < point.source_dof_indices.size(); ++i)
+        {
+          const double coefficient =
+            point.source_basis_values[i] * point.mode_values[i % 2];
+          expected_value += coefficient * x[point.source_dof_indices[i]];
+          expected_transpose[point.source_dof_indices[i]] += coefficient * y[q];
+        }
+      EXPECT_NEAR(lifted_values[q], expected_value, 1.e-12);
+    }
+
+  for (const auto index : source.locally_owned_dofs())
+    EXPECT_NEAR(transpose[index], expected_transpose[index], 1.e-12);
+
+  double lhs = 0.;
+  for (unsigned int q = 0; q < lifted_values.size(); ++q)
+    lhs += lifted_values[q] * y[q];
+  double rhs = 0.;
+  for (const auto index : source.locally_owned_dofs())
+    rhs += x[index] * transpose[index];
+  EXPECT_NEAR(lhs, rhs, 1.e-12 * std::max({1., std::abs(lhs), std::abs(rhs)}));
 }
 
 

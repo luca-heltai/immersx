@@ -18,6 +18,8 @@
 #include <immersx/coupling/tensor_product_lift.h>
 #include <immersx/io/utils.h>
 
+#include <algorithm>
+#include <cmath>
 #include <type_traits>
 
 using namespace ImmersX;
@@ -161,6 +163,79 @@ end
   EXPECT_NEAR(weight_sum,
               2. * support.section_measure(support.thickness()),
               1.e-12);
+}
+
+TEST(TensorProductLift, ValueKernelAndTransposeAreAdjoint) // NOLINT
+{
+  ParameterAcceptor::clear();
+  Tensor<1, 3> tangent;
+  tangent[0] = 1.;
+  const Point<3> origin(0., 0., 0.5);
+
+  auto check_adjointness = [&](const auto &points, const unsigned int n_modes) {
+    std::vector<types::global_dof_index> target_indices(points.size());
+    std::vector<std::vector<types::global_dof_index>> source_indices(
+      points.size());
+    for (unsigned int q = 0; q < points.size(); ++q)
+      {
+        target_indices[q] = q;
+        for (unsigned int mode = 0; mode < n_modes; ++mode)
+          source_indices[q].push_back(mode);
+      }
+
+    Vector<double> x(n_modes);
+    for (unsigned int mode = 0; mode < n_modes; ++mode)
+      x[mode] = 0.6 - 0.35 * static_cast<double>(mode);
+    Vector<double> y(points.size());
+    for (unsigned int q = 0; q < points.size(); ++q)
+      y[q] = 0.8 + 0.07 * static_cast<double>(q) -
+             0.003 * static_cast<double>(q * q);
+
+    Vector<double> lift_x(points.size());
+    detail::apply_tensor_product_lift(
+      points, target_indices, source_indices, x, lift_x, false, false);
+    Vector<double> lift_transpose_y(n_modes);
+    detail::apply_tensor_product_lift(
+      points, target_indices, source_indices, y, lift_transpose_y, true, false);
+
+    double lhs = 0.;
+    double rhs = 0.;
+    for (unsigned int q = 0; q < points.size(); ++q)
+      lhs += lift_x[q] * y[q];
+    for (unsigned int mode = 0; mode < n_modes; ++mode)
+      rhs += x[mode] * lift_transpose_y[mode];
+    EXPECT_NEAR(lhs, rhs, 1.e-12 * std::max(1., std::abs(lhs)));
+  };
+
+  TensorProductLift<1, 2, 3, 1> physical_lift("/Physical kernel lift/");
+  physical_lift.thickness                        = "0.25";
+  physical_lift.section.inclusion_type           = "hyper_ball";
+  physical_lift.section.refinement_level         = 1;
+  physical_lift.section.inclusion_degree         = 0;
+  physical_lift.section.selected_coefficients    = {0};
+  physical_lift.section.quadrature_type          = "gauss";
+  physical_lift.section.n_q_points               = 5;
+  physical_lift.section.n_quadrature_repetitions = 1;
+  const TensorProductLiftSupport<1, 2, 3, 1> physical_support(
+    physical_lift.parameters());
+  const auto physical_points =
+    physical_support.transform(origin, tangent, 1., 0.25, 0);
+  check_adjointness(physical_points, 1);
+
+  TensorProductLift<1, 2, 3, 1> modal_lift("/Modal kernel lift/");
+  modal_lift.thickness                        = "0.25";
+  modal_lift.section.inclusion_type           = "hyper_ball";
+  modal_lift.section.refinement_level         = 1;
+  modal_lift.section.inclusion_degree         = 1;
+  modal_lift.section.selected_coefficients    = {0, 1};
+  modal_lift.section.quadrature_type          = "gauss";
+  modal_lift.section.n_q_points               = 5;
+  modal_lift.section.n_quadrature_repetitions = 1;
+  const TensorProductLiftSupport<1, 2, 3, 1> modal_support(
+    modal_lift.parameters());
+  const auto modal_points =
+    modal_support.transform(origin, tangent, 1., 0.25, 0);
+  check_adjointness(modal_points, 2);
 }
 
 TEST(Representation, IdentityDomain) // NOLINT

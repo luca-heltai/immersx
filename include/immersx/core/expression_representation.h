@@ -1099,14 +1099,17 @@ namespace ImmersX
       result.reinit(lifted_owned_,
                     lifted_relevant_,
                     geometry_.mpi_communicator());
-      for (std::size_t q = 0; q < lifted_indices_.size(); ++q)
-        {
-          const auto representative_index = source_.sampling_plan().point_index(
-            geometry_.lifted_points()[q].source_representative_qpoint);
-          result[lifted_indices_[q]] =
-            geometry_.lifted_points()[q].mode_values[0] *
-            representative[representative_index];
-        }
+      const auto source_indices = representative_indices();
+      detail::apply_tensor_product_lift(geometry_.lifted_points(),
+                                        lifted_indices_,
+                                        source_indices,
+                                        representative,
+                                        result,
+                                        false,
+                                        false,
+                                        lifted_owned_,
+                                        lifted_relevant_,
+                                        geometry_.mpi_communicator());
       return result;
     }
 
@@ -1118,6 +1121,9 @@ namespace ImmersX
       const auto lifted_owned    = lifted_owned_;
       const auto lifted_relevant = lifted_relevant_;
       const auto source_plan     = source_.sampling_plan();
+      const auto source_indices  = representative_indices();
+      const auto source_owned    = source_plan.locally_owned_points();
+      const auto source_relevant = source_plan.locally_relevant_points();
       const auto communicator    = geometry_.mpi_communicator();
 
       ValueOperator result;
@@ -1136,42 +1142,90 @@ namespace ImmersX
         if (!omit)
           vector = 0.;
       };
-      result.vmult =
-        [lifted_points, lifted_indices, source_plan](value_type &destination,
-                                                     const value_type &source) {
-          destination = 0.;
-          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
-            destination[lifted_indices[q]] =
-              lifted_points[q].mode_values[0] *
-              source[source_plan.point_index(
-                lifted_points[q].source_representative_qpoint)];
-        };
-      result.vmult_add =
-        [lifted_points, lifted_indices, source_plan](value_type &destination,
-                                                     const value_type &source) {
-          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
-            destination[lifted_indices[q]] +=
-              lifted_points[q].mode_values[0] *
-              source[source_plan.point_index(
-                lifted_points[q].source_representative_qpoint)];
-        };
-      result.Tvmult =
-        [lifted_points, lifted_indices, source_plan](value_type &destination,
-                                                     const value_type &source) {
-          destination = 0.;
-          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
-            destination[source_plan.point_index(
-              lifted_points[q].source_representative_qpoint)] +=
-              lifted_points[q].mode_values[0] * source[lifted_indices[q]];
-        };
-      result.Tvmult_add =
-        [lifted_points, lifted_indices, source_plan](value_type &destination,
-                                                     const value_type &source) {
-          for (std::size_t q = 0; q < lifted_indices.size(); ++q)
-            destination[source_plan.point_index(
-              lifted_points[q].source_representative_qpoint)] +=
-              lifted_points[q].mode_values[0] * source[lifted_indices[q]];
-        };
+      result.vmult = [lifted_points,
+                      lifted_indices,
+                      source_indices,
+                      lifted_owned,
+                      lifted_relevant,
+                      communicator](value_type       &destination,
+                                    const value_type &source) {
+        detail::apply_tensor_product_lift(lifted_points,
+                                          lifted_indices,
+                                          source_indices,
+                                          source,
+                                          destination,
+                                          false,
+                                          false,
+                                          lifted_owned,
+                                          lifted_relevant,
+                                          communicator);
+      };
+      result.vmult_add = [lifted_points,
+                          lifted_indices,
+                          source_indices,
+                          lifted_owned,
+                          lifted_relevant,
+                          communicator](value_type       &destination,
+                                        const value_type &source) {
+        detail::apply_tensor_product_lift(lifted_points,
+                                          lifted_indices,
+                                          source_indices,
+                                          source,
+                                          destination,
+                                          false,
+                                          true,
+                                          lifted_owned,
+                                          lifted_relevant,
+                                          communicator);
+      };
+      result.Tvmult = [lifted_points,
+                       lifted_indices,
+                       source_indices,
+                       source_owned,
+                       source_relevant,
+                       communicator](value_type       &destination,
+                                     const value_type &source) {
+        detail::apply_tensor_product_lift(lifted_points,
+                                          lifted_indices,
+                                          source_indices,
+                                          source,
+                                          destination,
+                                          true,
+                                          false,
+                                          source_owned,
+                                          source_relevant,
+                                          communicator);
+      };
+      result.Tvmult_add = [lifted_points,
+                           lifted_indices,
+                           source_indices,
+                           source_owned,
+                           source_relevant,
+                           communicator](value_type       &destination,
+                                         const value_type &source) {
+        detail::apply_tensor_product_lift(lifted_points,
+                                          lifted_indices,
+                                          source_indices,
+                                          source,
+                                          destination,
+                                          true,
+                                          true,
+                                          source_owned,
+                                          source_relevant,
+                                          communicator);
+      };
+      return result;
+    }
+
+    std::vector<std::vector<dealii::types::global_dof_index>>
+    representative_indices() const
+    {
+      const auto &lifted_points = geometry_.lifted_points();
+      std::vector<std::vector<dealii::types::global_dof_index>> result(
+        lifted_points.size());
+      for (std::size_t q = 0; q < lifted_points.size(); ++q)
+        result[q].push_back(source_.sampling_plan().point_index(
+          lifted_points[q].source_representative_qpoint));
       return result;
     }
 

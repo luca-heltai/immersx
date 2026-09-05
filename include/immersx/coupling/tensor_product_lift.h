@@ -243,6 +243,105 @@ namespace ImmersX
     std::vector<double>                          source_basis_values;
   };
 
+  namespace detail
+  {
+    /**
+     * Apply the algebraic tensor-product lift or its transpose.
+     *
+     * The source index lists identify the representative value(s) associated
+     * with each lifted point.  A physical lift has one entry per point; a
+     * modal lift has one entry per selected mode.  Physical quadrature weights
+     * are deliberately absent: they belong to the eventual integration
+     * pairing, not to this value-space operator.
+     *
+     * This overload is for writable, non-ghosted vectors. Use the distributed
+     * overload below when the destination is a relevant (ghosted) view.
+     */
+    template <typename PointType, typename VectorType, typename IndexType>
+    void
+    apply_tensor_product_lift(
+      const std::vector<PointType>              &points,
+      const std::vector<IndexType>              &target_indices,
+      const std::vector<std::vector<IndexType>> &source_indices,
+      const VectorType                          &source,
+      VectorType                                &destination,
+      const bool                                 transpose,
+      const bool                                 add)
+    {
+      AssertDimension(points.size(), target_indices.size());
+      AssertDimension(points.size(), source_indices.size());
+      if (!add)
+        destination = 0.;
+
+      for (std::size_t q = 0; q < points.size(); ++q)
+        {
+          AssertDimension(points[q].mode_values.size(),
+                          source_indices[q].size());
+          for (unsigned int mode = 0; mode < points[q].mode_values.size();
+               ++mode)
+            if (transpose)
+              destination[source_indices[q][mode]] +=
+                points[q].mode_values[mode] * source[target_indices[q]];
+            else
+              destination[target_indices[q]] +=
+                points[q].mode_values[mode] * source[source_indices[q][mode]];
+        }
+    }
+
+    /**
+     * Distributed-vector variant: accumulate in owned storage, then publish a
+     * read-only relevant view.
+     */
+    template <typename PointType, typename VectorType, typename IndexType>
+    void
+    apply_tensor_product_lift(
+      const std::vector<PointType>              &points,
+      const std::vector<IndexType>              &target_indices,
+      const std::vector<std::vector<IndexType>> &source_indices,
+      const VectorType                          &source,
+      VectorType                                &destination,
+      const bool                                 transpose,
+      const bool                                 add,
+      const dealii::IndexSet                    &destination_owned,
+      const dealii::IndexSet                    &destination_relevant,
+      const MPI_Comm                             communicator)
+    {
+      AssertDimension(points.size(), target_indices.size());
+      AssertDimension(points.size(), source_indices.size());
+
+      VectorType owned_destination;
+      owned_destination.reinit(destination_owned, communicator);
+      if (add)
+        owned_destination = destination;
+      else
+        owned_destination = 0.;
+
+      for (std::size_t q = 0; q < points.size(); ++q)
+        {
+          AssertDimension(points[q].mode_values.size(),
+                          source_indices[q].size());
+          for (unsigned int mode = 0; mode < points[q].mode_values.size();
+               ++mode)
+            {
+              const auto index =
+                transpose ? source_indices[q][mode] : target_indices[q];
+              if (!destination_owned.is_element(index))
+                continue;
+              if (transpose)
+                owned_destination[index] +=
+                  points[q].mode_values[mode] * source[target_indices[q]];
+              else
+                owned_destination[index] +=
+                  points[q].mode_values[mode] * source[source_indices[q][mode]];
+            }
+        }
+
+      destination.reinit(destination_owned, destination_relevant, communicator);
+      destination = owned_destination;
+      destination.update_ghost_values();
+    }
+  } // namespace detail
+
   /** Shared lifting-side geometry, quadrature, and modal support. */
   template <int reduced_dim,
             int surface_dim,
