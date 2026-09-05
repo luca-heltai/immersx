@@ -10,7 +10,6 @@
 #ifndef immersx_constraint_h
 #define immersx_constraint_h
 
-#include <immersx/core/constraint_contributor.h>
 #include <immersx/core/weak_term.h>
 
 #include <algorithm>
@@ -22,6 +21,11 @@
 
 namespace ImmersX
 {
+  struct ConstraintFields
+  {
+    FieldId multiplier;
+  };
+
   namespace detail
   {
     template <typename Type>

@@ -20,7 +20,6 @@
 
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
-#include <immersx/core/representation.h>
 #include <immersx/core/time_parameters.h>
 
 #include <algorithm>
@@ -46,9 +45,6 @@ namespace ImmersX
   public:
     using Composition =
       detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
-    using RepresentationType = Representation<FieldVectorType>;
-    using ComponentRepresentationType =
-      ComponentRepresentation<FieldVectorType>;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
     using SaddlePointMetadata = typename Composition::SaddlePointMetadata;
@@ -103,21 +99,6 @@ namespace ImmersX
             << " semantic field(s) available." << std::endl;
       return ProblemHandle<IDAAdapter, decltype(fields)>(*this,
                                                          std::move(fields));
-    }
-
-    template <typename Quantity, typename Target, typename Coupling>
-    auto
-    couple(const Quantity &quantity,
-           const Target   &target,
-           const Coupling &coupling)
-    {
-      AssertThrow(!connected_,
-                  dealii::ExcMessage(
-                    "IDAAdapter couplings must be added before reinit or "
-                    "solve."));
-      auto interaction = detail::invoke_coupling(quantity, target, coupling, 0);
-      return add(std::move(interaction),
-                 "coupling" + std::to_string(coupling_count_++));
     }
 
     void
@@ -221,34 +202,6 @@ namespace ImmersX
     field(const GlobalVectorType &state, const FieldId id) const
     {
       return composition_.field(state, id);
-    }
-
-    RepresentationType
-    observe(const FieldId id) const
-    {
-      AssertThrow(composition_.state_layout().contains(id),
-                  dealii::ExcMessage("Cannot observe an unknown Field."));
-      return RepresentationType(id);
-    }
-
-    FieldComponentView
-    component(const FieldId id, const dealii::IndexSet &components) const
-    {
-      AssertThrow(composition_.state_layout().contains(id),
-                  dealii::ExcMessage("Cannot select an unknown Field."));
-      AssertThrow(components.size() ==
-                    composition_.state_layout().field(id).locally_owned.size(),
-                  dealii::ExcMessage(
-                    "Component view must have the Field's global size."));
-      return FieldComponentView(id, components);
-    }
-
-    ComponentRepresentationType
-    observe(const FieldComponentView &view) const
-    {
-      AssertThrow(composition_.state_layout().contains(view.source()),
-                  dealii::ExcMessage("Cannot observe an unknown Field."));
-      return ComponentRepresentationType(view);
     }
 
     dealii::IndexSet
@@ -591,7 +544,6 @@ namespace ImmersX
     RestartFunction                     solver_should_restart_;
     GlobalVectorType                   *current_state_              = nullptr;
     bool                                current_solver_is_flexible_ = false;
-    std::size_t                         coupling_count_             = 0;
     bool                                connected_                  = false;
   };
 } // namespace ImmersX

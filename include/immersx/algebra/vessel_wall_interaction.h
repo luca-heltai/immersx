@@ -22,7 +22,7 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
-#include <immersx/core/constraint_contributor.h>
+#include <immersx/core/constraint.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/representation.h>
 #include <immersx/coupling/particle_coupling.h>
@@ -97,9 +97,6 @@ namespace ImmersX
       const ParticleCouplingParameters<spacedim> &search_parameters)
       : solid_(solid)
       , wall_(wall)
-      , constraint_equation_storage(wall.multiplier_locally_owned_dofs(),
-                                    wall.mpi_communicator(),
-                                    wall.multiplier_locally_relevant_dofs())
       , particle_coupling_(search_parameters)
     {
       AssertThrow(solid.triangulation().get_mpi_communicator() ==
@@ -159,14 +156,6 @@ namespace ImmersX
       assemble_solid_coupling();
       assemble_multiplier_metric();
 
-      constraint_equation_storage.clear_contributions();
-      constraint_equation_storage.clear_rhs();
-      constraint_equation_storage.add_contribution(
-        0,
-        solid_coupling_storage,
-        ConstraintContributionOrientation::transpose);
-      constraint_equation_storage.set_multiplier_metric(
-        multiplier_metric_storage);
       assembled_ = true;
     }
 
@@ -186,12 +175,6 @@ namespace ImmersX
     multiplier_metric_matrix() const
     {
       return multiplier_metric_storage;
-    }
-
-    const ConstraintEquation &
-    constraint_equation() const
-    {
-      return constraint_equation_storage;
     }
 
     const SolidRepresentation &
@@ -688,7 +671,6 @@ namespace ImmersX
   private:
     const SolidRepresentation             &solid_;
     const WallRepresentation              &wall_;
-    ConstraintEquation                     constraint_equation_storage;
     ParticleCoupling<spacedim>             particle_coupling_;
     std::unique_ptr<dealii::Quadrature<2>> quadrature_;
     std::vector<PointType>                 wall_points_;

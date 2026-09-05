@@ -25,7 +25,6 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
-#include <immersx/core/representation.h>
 
 #include <functional>
 #include <iostream>
@@ -95,10 +94,7 @@ namespace ImmersX
       detail::ExecutionComposition<FieldVectorType, GlobalVectorType>;
 
   public:
-    using Parameters         = LinearAdapterParameters;
-    using RepresentationType = Representation<FieldVectorType>;
-    using ComponentRepresentationType =
-      ComponentRepresentation<FieldVectorType>;
+    using Parameters          = LinearAdapterParameters;
     using Operator            = dealii::LinearOperator<GlobalVectorType>;
     using LocalOperator       = dealii::LinearOperator<FieldVectorType>;
     using MatrixType          = typename Composition::MatrixType;
@@ -179,17 +175,6 @@ namespace ImmersX
                                                             std::move(fields));
     }
 
-    template <typename Quantity, typename Target, typename Coupling>
-    auto
-    couple(const Quantity &quantity,
-           const Target   &target,
-           const Coupling &coupling)
-    {
-      auto interaction = detail::invoke_coupling(quantity, target, coupling, 0);
-      return add(std::move(interaction),
-                 "coupling" + std::to_string(coupling_count_++));
-    }
-
     GlobalVectorType
     make_state() const
     {
@@ -212,34 +197,6 @@ namespace ImmersX
     field(const GlobalVectorType &state, const FieldId id) const
     {
       return composition_.field(state, id);
-    }
-
-    RepresentationType
-    observe(const FieldId id) const
-    {
-      AssertThrow(composition_.state_layout().contains(id),
-                  dealii::ExcMessage("Cannot observe an unknown Field."));
-      return RepresentationType(id);
-    }
-
-    FieldComponentView
-    component(const FieldId id, const dealii::IndexSet &components) const
-    {
-      AssertThrow(composition_.state_layout().contains(id),
-                  dealii::ExcMessage("Cannot select an unknown Field."));
-      AssertThrow(components.size() ==
-                    composition_.state_layout().field(id).locally_owned.size(),
-                  dealii::ExcMessage(
-                    "Component view must have the Field's global size."));
-      return FieldComponentView(id, components);
-    }
-
-    ComponentRepresentationType
-    observe(const FieldComponentView &view) const
-    {
-      AssertThrow(composition_.state_layout().contains(view.source()),
-                  dealii::ExcMessage("Cannot observe an unknown Field."));
-      return ComponentRepresentationType(view);
     }
 
     void
@@ -543,7 +500,6 @@ namespace ImmersX
 #ifdef DEAL_II_WITH_MUMPS
     mutable std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;
 #endif
-    std::size_t coupling_count_ = 0;
   };
 } // namespace ImmersX
 
