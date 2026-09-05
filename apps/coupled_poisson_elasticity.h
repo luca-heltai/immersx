@@ -12,7 +12,8 @@
 
 #include <deal.II/base/mpi.h>
 
-#include <immersx/core/expression_representation.h>
+#include <immersx/core/observable.h>
+#include <immersx/core/observable_lift.h>
 #include <immersx/core/problem_handle.h>
 #include <immersx/core/weak_term.h>
 #include <immersx/physics/elastic_static.h>
@@ -26,14 +27,6 @@ namespace CoupledPoissonElasticity
   struct Pressure
   {
     double factor = 2.;
-  };
-
-  struct PathPressure
-  {
-    double      alpha      = 1.25;
-    double      beta       = 0.75;
-    double      omega      = 0.5;
-    std::string path_field = "path_length";
   };
 
   using PressureLift = ImmersX::TensorProductLift<1, 2, 3, 1>;
@@ -79,53 +72,6 @@ namespace CoupledPoissonElasticity
     Point                                  center_;
     ImmersX::ParticleCouplingParameters<3> particle_parameters_;
   };
-
-  template <typename Adapter, typename Fields>
-  auto
-  make_representation(const ImmersX::ProblemHandle<Adapter, Fields> &problem,
-                      const Pressure                                &pressure)
-  {
-    const auto &poisson = *problem.fields().problem;
-    const ImmersX::FiniteElementRepresentation<1, 3> source(
-      poisson.triangulation(),
-      poisson.dof_handler(),
-      poisson.locally_owned_dofs(),
-      poisson.locally_relevant_dofs(),
-      poisson.constraints());
-    const auto active = ImmersX::state_field(source, problem.fields().solution);
-    return ImmersX::make_fe_expression(source,
-                                       {ImmersX::value(active, "A")},
-                                       "factor*A",
-                                       {{"factor", pressure.factor}});
-  }
-
-  template <typename Adapter, typename Fields>
-  auto
-  make_representation(const ImmersX::ProblemHandle<Adapter, Fields> &problem,
-                      const PathPressure                            &pressure)
-  {
-    const auto &poisson = *problem.fields().problem;
-    AssertThrow(poisson.imported_fields() != nullptr,
-                dealii::ExcMessage(
-                  "PathPressure requires imported finite-element fields."));
-    const ImmersX::FiniteElementRepresentation<1, 3> source(
-      poisson.triangulation(),
-      poisson.dof_handler(),
-      poisson.locally_owned_dofs(),
-      poisson.locally_relevant_dofs(),
-      poisson.constraints());
-    const auto active = ImmersX::state_field(source, problem.fields().solution);
-    const auto path   = ImmersX::frozen_field(
-      poisson.imported_fields()->field(pressure.path_field));
-    return ImmersX::make_fe_expression(
-      source,
-      {ImmersX::gradient(active, "grad_u_2", 2),
-       ImmersX::value(path, "path_length")},
-      "alpha*grad_u_2 + beta*cos(path_length*omega)",
-      {{"alpha", pressure.alpha},
-       {"beta", pressure.beta},
-       {"omega", pressure.omega}});
-  }
 
   template <typename Quantity>
   inline typename Quantity::value_type

@@ -11,6 +11,8 @@
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <immersx/core/linear_adapter.h>
+#include <immersx/core/observable.h>
+#include <immersx/core/observable_lift.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/poisson.h>
@@ -68,9 +70,19 @@ main(int argc, char *argv[])
         elastic_space.field(elastic.fields().displacement,
                             "displacement",
                             dealii::FEValuesExtractors::Vector(0));
+      const auto poisson_space =
+        fe_space(poisson_problem.dof_handler(),
+                 dealii::StaticMappingQ1<1, 3>::mapping,
+                 poisson_problem.constraints(),
+                 poisson_problem.locally_relevant_dofs());
+      const auto poisson_field =
+        poisson_space.field(poisson.fields().solution,
+                            "pressure",
+                            dealii::FEValuesExtractors::Scalar(0));
       const auto pressure =
-        poisson.observe(CoupledPoissonElasticity::Pressure{})
-          .lift(pressure_lift);
+        ImmersX::make_lift(CoupledPoissonElasticity::Pressure{}.factor *
+                             ImmersX::value(poisson_field),
+                           pressure_lift);
       const auto traction = pressure * ImmersX::normal(surface);
       adapter.add(ImmersX::weak_term(traction, displacement),
                   "pressure-traction");
