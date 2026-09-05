@@ -12,10 +12,14 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/dofs/dof_handler.h>
+
+#include <deal.II/lac/affine_constraints.h>
+
 #include <immersx/algebra/lagrange_multiplier_schur_solver.h>
 #include <immersx/algebra/linear_algebra.h>
-#include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
-#include <immersx/core/representation.h>
+#include <immersx/core/constraint.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/time_parameters.h>
 #ifdef DEAL_II_WITH_SUNDIALS
 #  include <immersx/core/sundials_ida_adapter.h>
@@ -26,6 +30,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ImmersX
 {
@@ -78,17 +84,10 @@ namespace ImmersX
   class FiberReinforcedElastodynamics
   {
   public:
-    using Parameters     = FiberReinforcedElastodynamicsParameters<dim>;
-    using Problem        = ElastodynamicsSolver<dim, dim>;
-    using VectorType     = typename Problem::VectorType;
-    using MatrixType     = typename Problem::MatrixType;
-    using Representation = VectorFiniteElementRepresentation<dim, dim>;
-    using Interaction =
-      VectorLagrangeMultiplierInteraction<Representation, Representation>;
-    using SchurSolver =
-      LagrangeMultiplierSchurSolver<MatrixType,
-                                    VectorType,
-                                    ImmersXLA::MPI::PreconditionJacobi>;
+    using Parameters = FiberReinforcedElastodynamicsParameters<dim>;
+    using Problem    = ElastodynamicsSolver<dim, dim>;
+    using VectorType = typename Problem::VectorType;
+    using MatrixType = typename Problem::MatrixType;
 #ifdef DEAL_II_WITH_SUNDIALS
     using GlobalVectorType = ImmersXLA::MPI::BlockVector;
     using IDAAdapterType   = IDAAdapter<VectorType, GlobalVectorType>;
@@ -125,12 +124,6 @@ namespace ImmersX
     {
       return fiber_problem_storage;
     }
-
-    const Interaction &
-    interaction() const;
-
-    Interaction &
-    interaction();
 
     const VectorType &
     multiplier() const;
@@ -202,10 +195,23 @@ namespace ImmersX
     Problem           matrix_problem_storage;
     Problem           fiber_problem_storage;
 
-    std::unique_ptr<Representation> matrix_velocity_representation;
-    std::unique_ptr<Representation> fiber_velocity_representation;
-    std::unique_ptr<Interaction>    interaction_storage;
-    std::unique_ptr<SchurSolver>    schur_solver;
+    using SchurSolver =
+      LagrangeMultiplierSchurSolver<MatrixType,
+                                    VectorType,
+                                    ImmersXLA::MPI::PreconditionJacobi>;
+
+    std::unique_ptr<dealii::DoFHandler<dim>> multiplier_dof_handler_storage;
+    std::unique_ptr<dealii::IndexSet>        multiplier_relevant_storage;
+    std::unique_ptr<dealii::AffineConstraints<double>>
+                                           multiplier_constraints_storage;
+    std::unique_ptr<FESpaceView<dim, dim>> matrix_space_storage;
+    std::unique_ptr<FESpaceView<dim, dim>> fiber_space_storage;
+    std::unique_ptr<FESpaceView<dim, dim>> multiplier_space_storage;
+    std::shared_ptr<MatrixType>            matrix_to_multiplier_storage;
+    std::shared_ptr<MatrixType>            fiber_to_multiplier_storage;
+    std::shared_ptr<MatrixType>            matrix_coupling_storage;
+    std::shared_ptr<MatrixType>            multiplier_metric_storage;
+    std::unique_ptr<SchurSolver>           schur_solver;
 #ifdef DEAL_II_WITH_SUNDIALS
     std::unique_ptr<IDAAdapterType> ida_storage;
 
@@ -218,6 +224,8 @@ namespace ImmersX
     MatrixType fiber_effective_matrix;
     VectorType multiplier_storage;
     VectorType matrix_only_displacement_storage;
+    mutable std::vector<std::pair<double, std::string>>
+      multiplier_output_records_storage;
 
     double       current_time_storage     = 0.;
     unsigned int time_step_number_storage = 0;

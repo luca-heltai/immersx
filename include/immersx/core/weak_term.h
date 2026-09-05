@@ -551,9 +551,9 @@ namespace ImmersX
         ++weak_term_nonmatching_preparations;
 #endif
         if constexpr (SourceField::dimension() == dim && dim == spacedim)
-          return assemble_nonmatching_same_dimension<SourceField,
-                                                     VectorType,
-                                                     MatrixType>(
+          return assemble_nonmatching_reverse<SourceField,
+                                              VectorType,
+                                              MatrixType>(
             observable, source, target, quadrature, update_flags);
         else if constexpr (SourceField::dimension() > dim)
           return assemble_nonmatching_reverse<SourceField,
@@ -760,6 +760,195 @@ namespace ImmersX
         return {std::move(matrix), std::move(matrix_sparsity)};
       }
 
+      /** Assemble a full-dimensional nonmatching pairing over the target
+       * support.  This is the natural domain for a constraint multiplier: a
+       * background participant is evaluated at quadrature points owned by the
+       * multiplier mesh. */
+      template <typename SourceField, typename VectorType, typename MatrixType>
+      static MatrixStorage<MatrixType>
+      assemble_nonmatching_target_domain(
+        const ObservableType          &observable,
+        const SourceField             &source,
+        const TargetField             &target,
+        const dealii::Quadrature<dim> &quadrature,
+        const dealii::UpdateFlags      update_flags)
+      {
+        const auto *source_tria =
+          dynamic_cast<const dealii::parallel::TriangulationBase<dim> *>(
+            &source.space().dof_handler().get_triangulation());
+        AssertThrow(source_tria != nullptr,
+                    dealii::ExcMessage(
+                      "Nonmatching weak terms require a distributed source "
+                      "triangulation."));
+
+        using Point = RepresentationQuadraturePoint<dim, double>;
+        const bool target_is_vector =
+          std::is_same_v<typename TargetField::value_type,
+                         dealii::Tensor<1, spacedim>>;
+        const unsigned int target_components = target_is_vector ? spacedim : 1;
+        const unsigned int n_target_dofs =
+          target.space().finite_element().n_dofs_per_cell();
+
+        std::vector<Point>              target_points;
+        dealii::FEValues<dim, spacedim> target_values(
+          target.mapping(),
+          target.space().finite_element(),
+          quadrature,
+          dealii::update_values | dealii::update_JxW_values |
+            dealii::update_quadrature_points);
+        std::vector<dealii::types::global_dof_index> target_indices(
+          n_target_dofs);
+        for (const auto &cell : target.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              target_values.reinit(cell);
+              cell->get_dof_indices(target_indices);
+              for (const auto q : target_values.quadrature_point_indices())
+                {
+                  Point point;
+                  point.point = target_values.quadrature_point(q);
+                  point.representative_point = point.point;
+                  point.weight               = target_values.JxW(q);
+                  point.source_entity_id     = cell->global_active_cell_index();
+                  point.representative_qpoint = q;
+                  point.stable_id             = static_cast<std::uint64_t>(
+                                      cell->global_active_cell_index()) *
+                                      quadrature.size() +
+                                    q;
+                  point.dof_indices = target_indices;
+                  point.basis_values.resize(n_target_dofs * target_components);
+                  for (unsigned int i = 0; i < n_target_dofs; ++i)
+                    if constexpr (std::is_same_v<
+                                    typename TargetField::value_type,
+                                    dealii::Tensor<1, spacedim>>)
+                      {
+                        const auto value = vector_shape_value(
+                          target_values, target.extractor(), i, q);
+                        for (unsigned int d = 0; d < spacedim; ++d)
+                          point.basis_values[i * spacedim + d] = value[d];
+                      }
+                    else
+                      point.basis_values[i] = scalar_shape_value(
+                        target_values, target.extractor(), i, q);
+                  target_points.emplace_back(std::move(point));
+                }
+            }
+
+        ParticleCouplingParameters<dim> particle_parameters(
+          "/ImmersX/weak term/target-domain/" +
+          std::to_string(reinterpret_cast<std::uintptr_t>(&source)));
+        DistributedLiftedQuadrature<dim> distribution(particle_parameters);
+        distribution.initialize(*source_tria, source.mapping(), target_points);
+
+        const unsigned int n_source_dofs =
+          source.space().finite_element().n_dofs_per_cell();
+        dealii::DynamicSparsityPattern sparsity(target.dof_handler().n_dofs(),
+                                                source.dof_handler().n_dofs(),
+                                                target.locally_relevant_dofs());
+        std::vector<dealii::types::global_dof_index> source_indices(
+          n_source_dofs);
+        for (const auto &particle :
+             distribution.particle_coupling().get_particles())
+          if (particle.get_surrounding_cell()->is_locally_owned())
+            {
+              const typename SourceField::space_type::DoFHandlerType::
+                cell_iterator source_cell(*particle.get_surrounding_cell(),
+                                          &source.dof_handler());
+              source_cell->get_dof_indices(source_indices);
+              const auto &stencil = distribution.stencil(particle.get_id());
+              for (const auto target_dof : stencil.source_dof_indices)
+                for (const auto source_dof : source_indices)
+                  sparsity.add(target_dof, source_dof);
+            }
+        dealii::SparsityTools::distribute_sparsity_pattern(
+          sparsity,
+          target.locally_owned_dofs(),
+          target.space().mpi_communicator(),
+          target.locally_relevant_dofs());
+
+        auto matrix = std::make_shared<MatrixType>();
+        auto matrix_sparsity =
+          initialize_weak_matrix(*matrix,
+                                 target.locally_owned_dofs(),
+                                 source.locally_owned_dofs(),
+                                 sparsity,
+                                 target.space().mpi_communicator());
+
+        const auto source_flags = dealii::UpdateFlags(dealii::update_values) |
+                                  (update_flags & dealii::update_gradients);
+        for (const auto &particle :
+             distribution.particle_coupling().get_particles())
+          if (particle.get_surrounding_cell()->is_locally_owned())
+            {
+              const typename SourceField::space_type::DoFHandlerType::
+                cell_iterator source_cell(*particle.get_surrounding_cell(),
+                                          &source.dof_handler());
+              source_cell->get_dof_indices(source_indices);
+              const dealii::Quadrature<dim> source_point_quadrature(
+                std::vector<dealii::Point<dim>>{
+                  particle.get_reference_location()});
+              dealii::FEValues<dim, spacedim> source_values(
+                source.mapping(),
+                source.space().finite_element(),
+                source_point_quadrature,
+                source_flags);
+              source_values.reinit(source_cell);
+
+              const auto &stencil     = distribution.stencil(particle.get_id());
+              const auto &target_dofs = stencil.source_dof_indices;
+              dealii::FullMatrix<double> local(target_dofs.size(),
+                                               source_indices.size());
+              for (unsigned int i = 0; i < target_dofs.size(); ++i)
+                for (unsigned int j = 0; j < source_indices.size(); ++j)
+                  {
+                    double contribution = 0.;
+                    if constexpr (std::is_same_v<
+                                    typename SourceField::value_type,
+                                    double>)
+                      {
+                        if constexpr (std::is_same_v<
+                                        typename ObservableType::value_type,
+                                        double>)
+                          contribution = scalar_shape_value(source_values,
+                                                            source.extractor(),
+                                                            j,
+                                                            0) *
+                                         stencil.source_basis_values[i];
+                        else
+                          {
+                            const auto gradient = scalar_shape_gradient(
+                              source_values, source.extractor(), j, 0);
+                            dealii::Tensor<1, spacedim> test;
+                            for (unsigned int d = 0; d < spacedim; ++d)
+                              test[d] =
+                                stencil.source_basis_values[i * spacedim + d];
+                            contribution = gradient * test;
+                          }
+                      }
+                    else
+                      {
+                        const auto value = vector_shape_value(
+                          source_values, source.extractor(), j, 0);
+                        dealii::Tensor<1, spacedim> test;
+                        for (unsigned int d = 0; d < spacedim; ++d)
+                          test[d] =
+                            stencil.source_basis_values[i * spacedim + d];
+                        contribution = value * test;
+                      }
+                    local(i, j) = observable.scale() * contribution *
+                                  stencil.physical_weight;
+                  }
+              target.constraints().distribute_local_to_global(
+                local,
+                target_dofs,
+                source.constraints(),
+                source_indices,
+                *matrix);
+            }
+        compress_weak_matrix(*matrix);
+        return {std::move(matrix), std::move(matrix_sparsity)};
+      }
+
       /** Assemble a mixed-dimensional pairing by transposing the natural
        * source-row matrix.  Target quadrature points are searched in the
        * full-dimensional source mesh, so rows remain owned by the source
@@ -776,9 +965,9 @@ namespace ImmersX
         static_assert(SourceField::dimension() == spacedim,
                       "Mixed-dimensional reverse weak terms require a "
                       "full-dimensional source background.");
-        static_assert(SourceField::dimension() > dim,
-                      "Reverse weak-term assembly requires a lower-dimensional "
-                      "target support.");
+        static_assert(SourceField::dimension() >= dim,
+                      "Reverse weak-term assembly requires a full-dimensional "
+                      "source background.");
 
         const auto *source_tria =
           dynamic_cast<const dealii::parallel::TriangulationBase<spacedim> *>(

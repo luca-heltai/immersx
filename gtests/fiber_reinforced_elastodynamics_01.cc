@@ -9,10 +9,19 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/lac/solver_gmres.h>
 
+#include <deal.II/numerics/data_out.h>
+
 #include <gtest/gtest.h>
+#include <immersx/core/constraint.h>
+#include <immersx/core/fe_space.h>
+#include <immersx/core/matrix_operator.h>
+#include <immersx/core/observable.h>
 #include <immersx/core/sundials_ida_adapter.h>
+#include <immersx/core/weak_term.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
@@ -262,7 +271,18 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   FiberReinforcedElastodynamics<2> driver(parameters);
   driver.setup();
   driver.set_initial_conditions();
-  auto &interaction = driver.interaction();
+
+  DoFHandler<2> multiplier_dh(
+    driver.fiber_problem().dof_handler().get_triangulation());
+  multiplier_dh.distribute_dofs(driver.fiber_problem().fe());
+  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+  const auto multiplier_relevant =
+    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+  AffineConstraints<double> multiplier_constraints;
+  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+  DoFTools::make_hanging_node_constraints(multiplier_dh,
+                                          multiplier_constraints);
+  multiplier_constraints.close();
 
   using Adapter = IDAAdapter<FieldVector, GlobalVector>;
   TimeParameters time_parameters;
@@ -279,13 +299,51 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   time_parameters.correction_type_at_initial_time = "none";
   time_parameters.correction_type_after_restart   = "none";
   Adapter    ida(time_parameters, MPI_COMM_WORLD, solve_global_operator);
-  const auto matrix   = ida.add(driver.matrix_problem(), "matrix");
-  const auto fiber    = ida.add(driver.fiber_problem(), "fiber");
-  const auto coupling = ida.add(driver.interaction(),
-                                "fiber_coupling",
-                                matrix.fields().velocity,
-                                fiber.fields().velocity);
+  const auto matrix = ida.add(driver.matrix_problem(), "matrix");
+  const auto fiber  = ida.add(driver.fiber_problem(), "fiber");
+  const auto matrix_view =
+    fe_space(driver.matrix_problem().dof_handler(),
+             driver.matrix_problem().mapping(),
+             driver.matrix_problem().velocity_constraints(),
+             &driver.matrix_problem().locally_relevant_dofs());
+  const auto fiber_view =
+    fe_space(driver.fiber_problem().dof_handler(),
+             driver.fiber_problem().mapping(),
+             driver.fiber_problem().velocity_constraints(),
+             &driver.fiber_problem().locally_relevant_dofs());
+  const auto multiplier_view = fe_space(multiplier_dh,
+                                        driver.fiber_problem().mapping(),
+                                        multiplier_constraints,
+                                        &multiplier_relevant);
+  const auto matrix_velocity = matrix_view.field(matrix.fields().velocity,
+                                                 "matrix_velocity",
+                                                 FEValuesExtractors::Vector(0));
+  const auto fiber_velocity  = fiber_view.field(fiber.fields().velocity,
+                                               "fiber_velocity",
+                                               FEValuesExtractors::Vector(0));
+  const auto multiplier =
+    multiplier_view.field("velocity_multiplier", FEValuesExtractors::Vector(0));
+  const auto constraint =
+    make_constraint(weak_term(value(matrix_velocity), multiplier) -
+                    weak_term(value(fiber_velocity), multiplier));
+  const auto coupling = ida.add(constraint, "fiber_coupling");
 
+  using MatrixType = ImmersXLA::MPI::SparseMatrix;
+  const auto matrix_pairing =
+    detail::WeakAssembly<decltype(value(matrix_velocity)),
+                         FESpaceView<2, 2>::VectorField>::
+      template assemble<FieldVector, MatrixType>(
+        value(matrix_velocity),
+        multiplier.with_id(coupling.fields().multiplier))
+        .matrix;
+  const auto fiber_pairing =
+    detail::WeakAssembly<decltype(value(fiber_velocity)),
+                         FESpaceView<2, 2>::VectorField>::
+      template assemble<FieldVector, MatrixType>(
+        value(fiber_velocity), multiplier.with_id(coupling.fields().multiplier))
+        .matrix;
+  const auto matrix_coupling = transpose_operator(
+    ImmersX::matrix_operator<FieldVector, MatrixType>(*matrix_pairing));
   auto state     = ida.make_state();
   auto state_dot = ida.make_state();
   auto residual  = ida.make_state();
@@ -344,9 +402,8 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   FieldVector force;
   driver.matrix_problem().body_force_at_time(0., force);
   matrix_v_residual -= force;
-  interaction.coupling_matrix().vmult(work,
-                                      ida.field(state,
-                                                coupling.fields().multiplier));
+  matrix_coupling.view.vmult(work,
+                             ida.field(state, coupling.fields().multiplier));
   matrix_v_residual += work;
   zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
                               matrix_v_residual);
@@ -369,18 +426,14 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   fiber_v_residual += work_f;
   driver.fiber_problem().body_force_at_time(0., force);
   fiber_v_residual -= force;
-  interaction.pairing_matrix().Tvmult(work_f,
-                                      ida.field(state,
-                                                coupling.fields().multiplier));
+  fiber_pairing->Tvmult(work_f, ida.field(state, coupling.fields().multiplier));
   fiber_v_residual -= work_f;
   zero_constrained_entries<2>(driver.fiber_problem().velocity_constraints(),
                               fiber_v_residual);
 
-  interaction.coupling_matrix().Tvmult(lambda_residual,
-                                       ida.field(state,
-                                                 matrix.fields().velocity));
-  interaction.pairing_matrix().vmult(work_lambda,
-                                     ida.field(state, fiber.fields().velocity));
+  matrix_pairing->vmult(lambda_residual,
+                        ida.field(state, matrix.fields().velocity));
+  fiber_pairing->vmult(work_lambda, ida.field(state, fiber.fields().velocity));
   lambda_residual -= work_lambda;
   auto check = actual_matrix_d;
   check -= matrix_d_residual;
@@ -434,9 +487,9 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
     work, ida.field(increment, matrix.fields().velocity));
   work *= 1.5;
   expected_matrix_v_action += work;
-  interaction.coupling_matrix().vmult(work,
-                                      ida.field(increment,
-                                                coupling.fields().multiplier));
+  matrix_coupling.view.vmult(work,
+                             ida.field(increment,
+                                       coupling.fields().multiplier));
   expected_matrix_v_action += work;
   zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
                               expected_matrix_v_action);
@@ -459,19 +512,16 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
     work_f, ida.field(increment, fiber.fields().velocity));
   work_f *= 1.5;
   expected_fiber_v_action += work_f;
-  interaction.pairing_matrix().Tvmult(work_f,
-                                      ida.field(increment,
-                                                coupling.fields().multiplier));
+  fiber_pairing->Tvmult(work_f,
+                        ida.field(increment, coupling.fields().multiplier));
   expected_fiber_v_action -= work_f;
   zero_constrained_entries<2>(driver.fiber_problem().velocity_constraints(),
                               expected_fiber_v_action);
 
-  interaction.coupling_matrix().Tvmult(expected_lambda_action,
-                                       ida.field(increment,
-                                                 matrix.fields().velocity));
-  interaction.pairing_matrix().vmult(work_lambda,
-                                     ida.field(increment,
-                                               fiber.fields().velocity));
+  matrix_pairing->vmult(expected_lambda_action,
+                        ida.field(increment, matrix.fields().velocity));
+  fiber_pairing->vmult(work_lambda,
+                       ida.field(increment, fiber.fields().velocity));
   expected_lambda_action -= work_lambda;
   check = ida.field(action, matrix.fields().displacement);
   check -= expected_matrix_d_action;
@@ -501,14 +551,26 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   EXPECT_LT(residual.l2_norm(), 1.e-5);
   EXPECT_LT(ida.field(residual, coupling.fields().multiplier).l2_norm(), 1.e-5);
 
-  interaction.set_multiplier(ida.field(state, coupling.fields().multiplier));
-  for (const auto index : interaction.multiplier_locally_owned_dofs())
-    EXPECT_NEAR(interaction.multiplier()(index),
-                ida.field(state, coupling.fields().multiplier)(index),
-                1.e-11);
-  const auto multiplier_output =
+  const std::filesystem::path multiplier_output =
     TestPaths::output_directory("fiber-vector-multiplier");
-  interaction.output_results(multiplier_output, "vector_multiplier", 1);
+  std::filesystem::create_directories(multiplier_output);
+  DataOut<2> data_out;
+  data_out.attach_dof_handler(multiplier_dh);
+  const std::vector<std::string> names(2, "lagrange_multiplier");
+  const std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    interpretation(2, DataComponentInterpretation::component_is_part_of_vector);
+  data_out.add_data_vector(ida.field(state, coupling.fields().multiplier),
+                           names,
+                           DataOut<2>::type_dof_data,
+                           interpretation);
+  data_out.build_patches(driver.fiber_problem().mapping());
+  data_out.write_vtu_in_parallel(
+    (multiplier_output / "vector_multiplier_1.vtu").string(), MPI_COMM_WORLD);
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      std::ofstream pvd(multiplier_output / "vector_multiplier.pvd");
+      DataOutBase::write_pvd_record(pvd, {{1., "vector_multiplier_1.vtu"}});
+    }
   MPI_Barrier(MPI_COMM_WORLD);
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     {
