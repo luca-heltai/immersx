@@ -288,6 +288,15 @@ namespace ImmersX
       return composition_.block_matrix(state, &state_dot, alpha);
     }
 
+    std::optional<typename Composition::Model::MatrixOperator>
+    state_matrix_operator(const GlobalVectorType &state,
+                          const FieldId           row,
+                          const FieldId           column,
+                          const double            time = 0.) const
+    {
+      return composition_.state_matrix_operator(state, row, column, time);
+    }
+
     typename Composition::MatrixType
     monolithic_matrix(const GlobalVectorType &state,
                       const GlobalVectorType &state_dot,

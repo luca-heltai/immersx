@@ -19,12 +19,6 @@ subsection Fiber Reinforced Elastodynamics
     set Initial compatibility tolerance = 1.e-10
   end
 
-  subsection Fiber Coupling
-    subsection Particle search
-      set RTree extraction level = 1
-    end
-  end
-
   subsection Matrix Elastodynamics
     set FE degree          = 1
     set Initial refinement = 2

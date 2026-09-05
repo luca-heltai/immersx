@@ -19,20 +19,22 @@ list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
 list(FILTER _test_files EXCLUDE REGEX "mms_convergence_main\\.cc$")
 
 include(GoogleTest)
+include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 
 # Compile selected installed-facing headers independently. These translation
 # units intentionally contain no project umbrella include or namespace using
 # directive: a failure here is a public-header dependency or namespace error,
 # not a runtime test failure.
 set(_public_headers
+    immersx/core/constraint.h
     immersx/core/constraint_equation.h
     immersx/core/constraint_contributor.h
     immersx/core/contributor.h
     immersx/core/expression_representation.h
+    immersx/core/fe_space.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
     immersx/core/lifting.h
-    immersx/core/load_interaction.h
     immersx/core/reduced_field_catalog.h
     immersx/core/reduced_field_utils.h
     immersx/core/reduced_field_values.h
@@ -44,6 +46,8 @@ set(_public_headers
     immersx/core/time_parameters.h
     immersx/core/linear_adapter.h
     immersx/core/matrix_operator.h
+    immersx/core/observable.h
+    immersx/core/weak_term.h
     immersx/core/problem_handle.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
@@ -53,7 +57,6 @@ set(_public_headers
     immersx/algebra/lagrange_multiplier_interaction.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
-    immersx/algebra/vector_lagrange_multiplier_interaction.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
     immersx/physics/elastodynamics.h
@@ -104,6 +107,8 @@ add_custom_target(immersx_public_header_self_containment ALL
 add_test(NAME ImmersX.PublicHeaderSelfContainment
          COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
                  --target immersx_public_header_self_containment)
+set_tests_properties(ImmersX.PublicHeaderSelfContainment
+                     PROPERTIES LABELS "unit;quick")
 
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
@@ -130,13 +135,96 @@ FOREACH(_build_type ${_d2_build_types})
       IMMERSX_SOURCE_DIR="${IMMERSX_SOURCE_DIR}"
       IMMERSX_BINARY_DIR="${IMMERSX_BINARY_DIR}"
       TEST_DATA_DIR="${TEST_DATA_DIR}"
-      TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}")
+      TEST_OUTPUT_DIR="${TEST_OUTPUT_DIR}"
+      IMMERSX_WEAK_TERM_TESTING)
     IF(ENABLE_COUPLED_PROBLEMS)
       TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
     ENDIF()
     DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     target_include_directories(${_exe} PRIVATE ${GTEST_INCLUDE_DIRS})
     LIST(APPEND IMMERSX_TEST_TARGETS ${_exe})
+
+    set(_unit_patterns)
+    foreach(_suite ${IMMERSX_UNIT_TEST_SUITES})
+      list(APPEND _unit_patterns "${_suite}.*")
+    endforeach()
+    string(JOIN ":" _unit_filter ${_unit_patterns})
+    set(_integration_patterns)
+    foreach(_suite ${IMMERSX_INTEGRATION_TEST_SUITES})
+      list(APPEND _integration_patterns "${_suite}.*")
+    endforeach()
+    string(JOIN ":" _integration_filter ${_integration_patterns})
+    set(_validation_patterns)
+    foreach(_suite ${IMMERSX_VALIDATION_TEST_SUITES})
+      list(APPEND _validation_patterns "${_suite}.*")
+    endforeach()
+    string(JOIN ":" _validation_filter ${_validation_patterns})
+    set(_application_patterns)
+    foreach(_suite ${IMMERSX_APPLICATION_TEST_SUITES})
+      list(APPEND _application_patterns "${_suite}.*")
+    endforeach()
+    string(JOIN ":" _application_filter ${_application_patterns})
+    set(_unit_mpi_suites)
+    foreach(_suite ${IMMERSX_UNIT_TEST_SUITES})
+      list(APPEND _unit_mpi_suites "${_suite}.MPI_*")
+    endforeach()
+    set(_integration_mpi_suites)
+    foreach(_suite ${IMMERSX_INTEGRATION_TEST_SUITES})
+      list(APPEND _integration_mpi_suites "${_suite}.MPI_*")
+    endforeach()
+    set(_validation_mpi_suites)
+    foreach(_suite ${IMMERSX_VALIDATION_TEST_SUITES})
+      list(APPEND _validation_mpi_suites "${_suite}.MPI_*")
+    endforeach()
+    set(_application_mpi_suites)
+    foreach(_suite ${IMMERSX_APPLICATION_TEST_SUITES})
+      list(APPEND _application_mpi_suites "${_suite}.MPI_*")
+    endforeach()
+    string(JOIN ":" _unit_mpi_filter ${_unit_mpi_suites})
+    string(JOIN ":" _integration_mpi_filter ${_integration_mpi_suites})
+    string(JOIN ":" _validation_mpi_filter ${_validation_mpi_suites})
+    string(JOIN ":" _application_mpi_filter ${_application_mpi_suites})
+    find_program(_immersx_mpiexec NAMES mpirun mpiexec)
+
+    # One aggregate executable keeps the translation units compiled once.
+    # CTest provides the user-facing category and process-count matrix.
+    foreach(_category unit integration validation application)
+      set(_category_quick FALSE)
+      if(_category STREQUAL "unit")
+        set(_category_filter "${_unit_filter}")
+        set(_category_mpi_filter "${_unit_mpi_filter}")
+        set(_category_quick TRUE)
+      elseif(_category STREQUAL "integration")
+        set(_category_filter "${_integration_filter}")
+        set(_category_mpi_filter "${_integration_mpi_filter}")
+        set(_category_quick TRUE)
+      elseif(_category STREQUAL "validation")
+        set(_category_filter "${_validation_filter}")
+        set(_category_mpi_filter "${_validation_mpi_filter}")
+      else()
+        set(_category_filter "${_application_filter}")
+        set(_category_mpi_filter "${_application_mpi_filter}")
+      endif()
+
+      set(_serial_test "ImmersX.${_category}.Serial")
+      add_test(NAME ${_serial_test}
+               COMMAND $<TARGET_FILE:${_exe}>
+                       --gtest_filter=${_category_filter}-*.MPI_*)
+      set(_labels "${_category}")
+      if(_category_quick)
+        list(APPEND _labels quick)
+      endif()
+      set_tests_properties(${_serial_test} PROPERTIES LABELS "${_labels}")
+
+      if(_immersx_mpiexec)
+        set(_mpi_test "ImmersX.${_category}.MPI")
+        add_test(NAME ${_mpi_test}
+                 COMMAND ${_immersx_mpiexec} -np 2
+                         $<TARGET_FILE:${_exe}>
+                         --gtest_filter=${_category_mpi_filter})
+        set_tests_properties(${_mpi_test} PROPERTIES LABELS "${_labels};mpi")
+      endif()
+    endforeach()
     IF(IMMERSX_INSTALL_TESTS)
       INSTALL(TARGETS ${_exe}
         RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/immersx/tests)
@@ -177,6 +265,20 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       target_include_directories(${_metric_flow_x_test_target}
                                  PRIVATE ${GTEST_INCLUDE_DIRS})
       DEAL_II_SETUP_TARGET(${_metric_flow_x_test_target} ${_BUILD_TYPE})
+      add_test(NAME ImmersX.integration.MetricFlowX.Serial
+               COMMAND $<TARGET_FILE:${_metric_flow_x_test_target}>
+                       --gtest_filter=MetricFlowX.*-*.MPI_*)
+      set_tests_properties(ImmersX.integration.MetricFlowX.Serial
+                           PROPERTIES LABELS "integration;quick")
+      find_program(_immersx_mpiexec NAMES mpirun mpiexec)
+      if(_immersx_mpiexec)
+        add_test(NAME ImmersX.integration.MetricFlowX.MPI
+                 COMMAND ${_immersx_mpiexec} -np 2
+                         $<TARGET_FILE:${_metric_flow_x_test_target}>
+                         --gtest_filter=MetricFlowX.MPI_*)
+        set_tests_properties(ImmersX.integration.MetricFlowX.MPI
+                             PROPERTIES LABELS "integration;quick;mpi")
+      endif()
       list(APPEND IMMERSX_TEST_TARGETS ${_metric_flow_x_test_target})
       if(IMMERSX_INSTALL_TESTS)
         install(TARGETS ${_metric_flow_x_test_target}
@@ -226,6 +328,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
                   --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallInteraction.MPI_DiscreteVirtualWorkNormalization:MetricFlowXVesselWallInteraction.MPI_FullCoupledJacobianFiniteDifference)
+        set_tests_properties(metric_flow_x_elastodynamics_mms_verification
+                             PROPERTIES LABELS "validation;mpi")
       endif()
     endif()
   endforeach()

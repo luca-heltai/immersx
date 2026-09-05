@@ -125,6 +125,7 @@ namespace ImmersX
     return ValueBinding<FERepresentation>{std::move(source), std::move(symbol)};
   }
 
+  /** \cond legacy_expression_api */
   /** Bind a physical gradient component to an FE source and symbol. */
   template <typename Source>
   auto
@@ -136,6 +137,7 @@ namespace ImmersX
                                              std::move(symbol),
                                              component};
   }
+  /** \endcond */
 
   namespace detail
   {

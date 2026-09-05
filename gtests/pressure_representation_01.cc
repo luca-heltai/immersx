@@ -262,8 +262,7 @@ check_path_pressure_with_elasticity(const unsigned int expected_processes)
   elasticity_parameters.triangulation_type = "fullydistributed";
   ElasticStaticProblem<3, 3> elasticity(elasticity_parameters);
   elasticity.setup();
-  CoupledPoissonElasticity::Traction traction;
-  traction.attach(elasticity);
+  CoupledPoissonElasticity::CylinderSurface surface;
 
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
@@ -282,13 +281,22 @@ check_path_pressure_with_elasticity(const unsigned int expected_processes)
 
   const auto poisson_handle = adapter.add(poisson);
   const auto elastic_handle = adapter.add(elasticity);
+  const auto elastic_space  = fe_space(elasticity.dof_handler(),
+                                      dealii::StaticMappingQ1<3, 3>::mapping,
+                                      elasticity.constraints(),
+                                      elasticity.locally_relevant_dofs());
+  const auto displacement =
+    elastic_space.field(elastic_handle.fields().displacement,
+                        "displacement",
+                        dealii::FEValuesExtractors::Vector(0));
   const CoupledPoissonElasticity::PathPressure path_pressure{1.25,
                                                              0.75,
                                                              0.5,
                                                              "path_length"};
   const auto pressure = poisson_handle.observe(path_pressure);
   const auto lifted   = pressure.lift(CoupledPoissonElasticity::PressureLift());
-  adapter.couple(lifted, elastic_handle, traction);
+  const auto traction = lifted * ImmersX::normal(surface);
+  adapter.add(ImmersX::weak_term(traction, displacement), "pressure-traction");
 
   const auto &expression = lifted.source_representation();
   ASSERT_EQ(expression.dependencies().size(), 1u);
@@ -416,8 +424,12 @@ check_path_pressure_with_elasticity(const unsigned int expected_processes)
     adapter.field(state, poisson_handle.fields().solution);
   const auto &solved_elastic =
     adapter.field(state, elastic_handle.fields().displacement);
-  EXPECT_LT(CoupledPoissonElasticity::traction_balance(
-              lifted, traction, solved_poisson, solved_elastic),
+  EXPECT_LT(CoupledPoissonElasticity::traction_balance(lifted,
+                                                       surface,
+                                                       displacement,
+                                                       elasticity,
+                                                       solved_poisson,
+                                                       solved_elastic),
             1.e-9);
 }
 

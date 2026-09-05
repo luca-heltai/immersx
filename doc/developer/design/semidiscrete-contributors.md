@@ -3,8 +3,8 @@
 Application authors compose standalone Problems and Interactions through an
 execution adapter. The adapter owns storage, execution blocks, DAE metadata,
 and solver policy. The public composition vocabulary is deliberately small:
-add a Problem, observe a quantity, lift it to a user-described support, couple
-it to another Problem, and solve.
+add a Problem, observe a quantity, lift it to a user-described support, form a
+`weak_term`, and solve.
 
 ## Application authors
 
@@ -20,17 +20,18 @@ auto wall  = ida.add(elastic_problem, "wall");
 
 auto pressure = fluid.observe(Pressure{});
 auto wall_pressure = pressure.lift(VesselSurface{});
-ida.couple(wall_pressure, wall, Traction{});
+auto traction = wall_pressure * ImmersX::normal(surface);
+ida.add(ImmersX::weak_term(traction, wall_displacement), "traction");
 
 auto state     = ida.make_state();
 auto state_dot = ida.make_state();
 ida.solve(state, state_dot);
 ```
 
-`Pressure`, `VesselSurface`, and `Traction` are small descriptors supplied by
-the relevant physics modules. ImmersX core does not need to know what those
-quantities mean. The module interprets them and creates the appropriate
-observable, lifting, and interaction implementation.
+`Pressure`, `VesselSurface`, and the surface normal are small descriptors
+supplied by the relevant physics modules. ImmersX core does not need to know
+what those quantities mean. It composes their observable and weak-term
+operations and selects the appropriate local or distributed backend.
 
 For an affine steady problem, use `LinearAdapter`:
 
@@ -105,8 +106,8 @@ poisson_problem.output_results();
 elasticity_problem.output_results(0);
 ```
 
-For a Lagrange-multiplier Interaction, the accepted-state handoff is explicit
-and uses the semantic multiplier Field returned by the Interaction contributor:
+For a unified Lagrange-multiplier constraint, the execution adapter returns the
+semantic multiplier Field alongside the other contributor fields:
 
 ```{code-block} cpp
 auto state = adapter.make_state();
@@ -114,16 +115,15 @@ adapter.solve(state);
 
 poisson_problem.set_solution(
   adapter.field(state, poisson.fields().solution));
-interaction.set_multiplier(
-  adapter.field(state, continuity.fields().multiplier));
+const auto lambda = adapter.field(state, constraint.fields().multiplier);
 
 poisson_problem.output_results();
-interaction.output_results(output_directory, "multiplier", 0);
+// Write lambda with the DoFHandler used by its fe_space(...) view.
 ```
 
-The scalar and vector Lagrange-multiplier Interactions place this auxiliary
-field on the second representation's finite-element space. Problems output
-Problem-owned fields; Interactions output Interaction-owned fields. No
+The multiplier is an ordinary Field on the independent finite-element space
+provided by its `fe_space(...)` view. Problems output Problem-owned fields;
+application code writes the multiplier with that view's own DoFHandler. No
 execution block number is part of this handoff.
 
 The standard adapters select their iterative/direct policy internally. An
@@ -163,14 +163,12 @@ auto make_lift(const Quantity &quantity, VesselSurface surface)
   return make_surface_quantity(quantity, surface);
 }
 
-template <typename Quantity, typename ProblemHandle>
-auto make_interaction(const Quantity &quantity,
-                      const ProblemHandle &wall,
-                      Traction traction)
+template <typename Quantity, typename TargetField>
+auto make_weak_term(const Quantity &quantity,
+                    const TargetField &target,
+                    Surface surface)
 {
-  return make_traction_interaction(quantity,
-                                   wall.fields().force,
-                                   traction);
+  return weak_term(quantity * ImmersX::normal(surface), target);
 }
 ```
 
@@ -330,18 +328,20 @@ global size. Use `differential_field()` for a fully differential field and
 uses the general form; the execution adapter consumes the mask without knowing
 how its components are organized.
 
-Interactions add terms because systems are related. A Lagrange-multiplier
-Interaction contributes participant multiplier forces and the constraint row:
+Interactions add terms because systems are related. A multiplier `Constraint`
+is assembled from ordinary participant `Field`s and an independent multiplier
+`Field`:
 
 ```text
-R_first  = C lambda
-R_second = -Q^T lambda
-R_lambda = C^T first - Q second
+R_participant_i = s_i B_i^T lambda
+R_lambda        = sum_i s_i B_i participant_i - d
 ```
 
-Scalar and vector interactions translate their shared `ConstraintEquation`
-through the same generic semantic mechanism. The multiplier is algebraic and
-contributors never receive IDA's `alpha`.
+Application code constructs the relation with `weak_term`s and adds the
+resulting `Constraint` to the execution adapter. Scalar and vector constraints
+use the same API; the multiplier finite element and extractor determine the
+value type. The multiplier is algebraic and contributors never receive IDA's
+`alpha`.
 
 A non-constraint Interaction can read an observable and add a load directly to
 an existing Problem-owned row. Application code uses the same descriptor API:
@@ -349,7 +349,8 @@ an existing Problem-owned row. Application code uses the same descriptor API:
 ```{code-block} cpp
 auto pressure = fluid.observe(Pressure{});
 auto wall_pressure = pressure.lift(VesselSurface{});
-adapter.couple(wall_pressure, solid, Traction{});
+auto traction = wall_pressure * ImmersX::normal(surface);
+adapter.add(ImmersX::weak_term(traction, wall_displacement), "traction");
 ```
 
 The physics descriptor implementation contributes both the load residual and

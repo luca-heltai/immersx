@@ -16,9 +16,22 @@ terms of the former.
 
 The semantic core is implemented by `FieldId`, `FieldDescriptor`,
 `StateLayout`, `StateView`, `StateAccessor`, `EvaluationContext`, and
-`SemiDiscreteModel`. Problems and Interactions add residual terms and separate
-`dF/dy` and `dF/dydot` operators. `Representation` and its typed derivatives
-expose observables and lifts derived from semantic fields.
+`SemiDiscreteModel`. The foundation FE vocabulary adds `fe_space(...)` as a
+non-owning view over a deal.II FE discretization, `Field` as a named semantic
+variable on that space or an extractor-selected subspace, and `Observable<T>`
+as a typed physical quantity derived from Fields. These objects own no state
+vectors and expose no public point-search or evaluation-plan machinery.
+Problems and Interactions add residual terms and separate `dF/dy` and
+`dF/dydot` operators. The transitional `Representation` vocabulary and its
+typed derivatives remain available for the existing coupling paths while
+newer composition code adopts `Observable<T>`.
+
+The `weak_term(...)` contributor provides the first direct FE assembly path
+for this vocabulary. It assembles the observable/test-function duality into a
+prepared deal.II matrix during contribution registration, then reuses that
+matrix for the residual and `dF/dy`. Same-DoFHandler terms use one cell
+traversal and shared `FEValues`; different DoFHandlers on one triangulation
+use paired active-cell traversal without point search or inverse mapping.
 
 `LinearAdapter` executes affine steady systems. `IDAAdapter` executes the
 canonical DAE residual `F(t,y,ydot)=0` through deal.II's SUNDIALS IDA wrapper.
@@ -45,7 +58,7 @@ requirements imposed on Problems or Interactions.
 ```{mermaid}
 flowchart LR
   P["Problem"] --> F["FieldId / FieldDescriptor"]
-  F --> R["Representation"]
+  F --> R["Observable<T>"]
   R --> I["Interaction"]
   P --> M["SemiDiscreteModel"]
   I --> M
@@ -137,8 +150,8 @@ implementation:
 - {doc}`../../api/class_immers_x_1_1_imported_finite_element_fields`
 - {doc}`../../api/class_immers_x_1_1_representation`
 - {doc}`../../api/class_immers_x_1_1_linear_adapter`
-- {doc}`../../api/class_immers_x_1_1_lagrange_multiplier_interaction`
-- {doc}`../../api/class_immers_x_1_1_constraint_equation`
+- {doc}`../../api/class_immers_x_1_1_constraint`
+- {doc}`../../api/class_immers_x_1_1_weak_term`
 
 For runnable examples, see {doc}`../../developer/design/semidiscrete-contributors`,
 {doc}`../../developer/design/time-residual-sundials`, and

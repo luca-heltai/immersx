@@ -63,7 +63,3 @@ subsection Embedded Poisson
     end
   end
 end
-
-subsection Particle coupling
-  set RTree extraction level = 1
-end

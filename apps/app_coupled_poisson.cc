@@ -10,16 +10,22 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
-#include <immersx/algebra/lagrange_multiplier_interaction.h>
+#include <deal.II/dofs/dof_tools.h>
+
+#include <deal.II/fe/fe_dgq.h>
+
+#include <deal.II/numerics/data_out.h>
+
+#include <immersx/core/constraint.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/linear_adapter.h>
-#include <immersx/core/representation.h>
-#include <immersx/coupling/particle_coupling.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
 #include <immersx/physics/poisson_residual.h>
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -46,9 +52,8 @@ namespace
 
     CoupledPoissonApplicationParameters application_parameters;
     PoissonParameters<2>                bulk_parameters;
-    PoissonParameters<1, 2>       embedded_parameters("/Embedded Poisson/");
-    ParticleCouplingParameters<2> search_parameters("/Particle coupling/");
-    LinearSolverParameters        adapter_parameters;
+    PoissonParameters<1, 2> embedded_parameters("/Embedded Poisson/");
+    LinearSolverParameters  adapter_parameters;
     initialize_parameters(parameter_file);
 
     bulk_parameters.output_directory = application_parameters.output_directory;
@@ -67,26 +72,6 @@ namespace
     initialize_problem(bulk_problem);
     initialize_problem(embedded_problem);
 
-    IdentityRepresentation<2, 2> bulk_representation(
-      bulk_problem.triangulation(),
-      bulk_problem.dof_handler(),
-      bulk_problem.locally_owned_dofs(),
-      bulk_problem.locally_relevant_dofs(),
-      bulk_problem.constraints());
-    IdentityRepresentation<1, 2> embedded_representation(
-      embedded_problem.triangulation(),
-      embedded_problem.dof_handler(),
-      embedded_problem.locally_owned_dofs(),
-      embedded_problem.locally_relevant_dofs(),
-      embedded_problem.constraints());
-
-    LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
-                                  IdentityRepresentation<1, 2>>
-      interaction(bulk_representation,
-                  embedded_representation,
-                  search_parameters);
-    interaction.assemble();
-
     using FieldVector  = ImmersXLA::MPI::Vector;
     using GlobalVector = ImmersXLA::MPI::BlockVector;
     using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
@@ -94,10 +79,43 @@ namespace
     Adapter    adapter(adapter_parameters, MPI_COMM_WORLD);
     const auto bulk     = adapter.add(bulk_problem, "bulk");
     const auto embedded = adapter.add(embedded_problem, "embedded");
-    const auto coupling = adapter.add(interaction,
-                                      "continuity",
-                                      bulk.fields().solution,
-                                      embedded.fields().solution);
+
+    const auto bulk_view = fe_space(bulk_problem.dof_handler(),
+                                    StaticMappingQ1<2>::mapping,
+                                    bulk_problem.constraints(),
+                                    bulk_problem.locally_relevant_dofs());
+    const auto embedded_view =
+      fe_space(embedded_problem.dof_handler(),
+               StaticMappingQ1<1, 2>::mapping,
+               embedded_problem.constraints(),
+               embedded_problem.locally_relevant_dofs());
+
+    // The multiplier has its own FE/DoFHandler, while sharing the embedded
+    // geometry with the line problem.  This deliberately exercises the
+    // paired-DoFHandler weak-term path rather than particle search.
+    FE_DGQ<1, 2>     multiplier_fe(0);
+    DoFHandler<1, 2> multiplier_dh(embedded_problem.triangulation());
+    multiplier_dh.distribute_dofs(multiplier_fe);
+    const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+    const auto multiplier_relevant =
+      DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+    AffineConstraints<double> multiplier_constraints;
+    multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+    multiplier_constraints.close();
+
+    const auto multiplier_view = fe_space(multiplier_dh,
+                                          StaticMappingQ1<1, 2>::mapping,
+                                          multiplier_constraints,
+                                          multiplier_relevant);
+    const auto bulk_field =
+      bulk_view.field(bulk.fields().solution, "bulk_solution");
+    const auto embedded_field =
+      embedded_view.field(embedded.fields().solution, "embedded_solution");
+    const auto multiplier = multiplier_view.field("lambda");
+    const auto constraint =
+      make_constraint(weak_term(value(bulk_field), multiplier) -
+                      weak_term(value(embedded_field), multiplier));
+    const auto coupling = adapter.add(constraint, "continuity");
 
     auto state = adapter.make_state();
     adapter.solve(state);
@@ -105,14 +123,26 @@ namespace
     bulk_problem.set_solution(adapter.field(state, bulk.fields().solution));
     embedded_problem.set_solution(
       adapter.field(state, embedded.fields().solution));
-    interaction.set_multiplier(
-      adapter.field(state, coupling.fields().multiplier));
 
     bulk_problem.output_results();
     embedded_problem.output_results();
-    interaction.output_results(application_parameters.output_directory,
-                               application_parameters.multiplier_output_name,
-                               0);
+
+    std::filesystem::create_directories(
+      application_parameters.output_directory);
+    dealii::DataOut<1, 2> multiplier_output;
+    multiplier_output.attach_dof_handler(multiplier_dh);
+    multiplier_output.add_data_vector(
+      adapter.field(state, coupling.fields().multiplier),
+      application_parameters.multiplier_output_name,
+      dealii::DataOut<1, 2>::type_dof_data);
+    multiplier_output.build_patches();
+    const auto rank = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    const auto multiplier_filename =
+      std::filesystem::path(application_parameters.output_directory) /
+      (application_parameters.multiplier_output_name + "-0." +
+       std::to_string(rank) + ".vtu");
+    std::ofstream multiplier_file(multiplier_filename);
+    multiplier_output.write_vtu(multiplier_file);
 
     auto residual = adapter.make_state();
     adapter.evaluate_residual(state, residual);

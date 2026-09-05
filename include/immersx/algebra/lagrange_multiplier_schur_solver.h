@@ -143,11 +143,13 @@ namespace ImmersX
       VectorType bulk_inverse_rhs;
       VectorType embedded_inverse_rhs;
       VectorType multiplier_rhs;
+      VectorType multiplier_correction;
       VectorType bulk_correction;
       VectorType embedded_correction;
       bulk_inverse_rhs.reinit(bulk_owned_dofs, mpi_communicator);
       embedded_inverse_rhs.reinit(embedded_owned_dofs, mpi_communicator);
       multiplier_rhs.reinit(multiplier_owned_dofs, mpi_communicator);
+      multiplier_correction.reinit(multiplier_owned_dofs, mpi_communicator);
       bulk_correction.reinit(bulk_owned_dofs, mpi_communicator);
       embedded_correction.reinit(embedded_owned_dofs, mpi_communicator);
 
@@ -158,8 +160,8 @@ namespace ImmersX
                   embedded_preconditioner);
 
       coupling_matrix.Tvmult(multiplier_rhs, bulk_inverse_rhs);
-      mass_matrix.vmult(embedded_correction, embedded_inverse_rhs);
-      multiplier_rhs -= embedded_correction;
+      mass_matrix.vmult(multiplier_correction, embedded_inverse_rhs);
+      multiplier_rhs -= multiplier_correction;
 
       multiplier.reinit(multiplier_owned_dofs, mpi_communicator);
       multiplier = 0.;

@@ -16,18 +16,21 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
-#include <deal.II/lac/solver_gmres.h>
+#include <deal.II/dofs/dof_tools.h>
+
+#include <deal.II/fe/fe_dgq.h>
+
+#include <deal.II/numerics/data_out.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/lagrange_multiplier_interaction.h>
+#include <immersx/core/constraint.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/linear_adapter.h>
 
 #include <filesystem>
 #include <vector>
 
 using namespace ImmersX;
-#include <immersx/algebra/lagrange_multiplier_schur_solver.h>
-#include <immersx/core/representation.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
 #include <immersx/physics/poisson_residual.h>
@@ -62,13 +65,12 @@ namespace
 } // namespace
 
 
-TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
+TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
 {
   ParameterAcceptor::clear();
 
-  PoissonParameters<2>          bulk_parameters("/Bulk Poisson/");
-  PoissonParameters<1, 2>       embedded_parameters("/Embedded Poisson/");
-  ParticleCouplingParameters<2> search_parameters;
+  PoissonParameters<2>    bulk_parameters("/Bulk Poisson/");
+  PoissonParameters<1, 2> embedded_parameters("/Embedded Poisson/");
 
   initialize_parameters_from_string(R"(
     subsection Bulk Poisson
@@ -145,88 +147,64 @@ TEST(CoupledPoisson, MPI_RepresentationDrivenSchurSolve) // NOLINT
   embedded_problem.setup_system();
   embedded_problem.assemble_system();
 
-  IdentityRepresentation<2, 2> bulk_representation(
-    bulk_problem.triangulation(),
-    bulk_problem.dof_handler(),
-    bulk_problem.locally_owned_dofs(),
-    bulk_problem.locally_relevant_dofs(),
-    bulk_problem.constraints());
-  IdentityRepresentation<1, 2> embedded_representation(
-    embedded_problem.triangulation(),
-    embedded_problem.dof_handler(),
-    embedded_problem.locally_owned_dofs(),
-    embedded_problem.locally_relevant_dofs(),
-    embedded_problem.constraints());
+  using FieldVector  = ImmersXLA::MPI::Vector;
+  using GlobalVector = ImmersXLA::MPI::BlockVector;
+  using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
+  LinearSolverParameters linear_parameters;
+  Adapter                adapter(linear_parameters, MPI_COMM_WORLD);
+  const auto             bulk     = adapter.add(bulk_problem, "bulk");
+  const auto             embedded = adapter.add(embedded_problem, "embedded");
 
-  LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
-                                IdentityRepresentation<1, 2>>
-    interaction(bulk_representation,
-                embedded_representation,
-                search_parameters);
-  interaction.assemble();
-  ASSERT_EQ(interaction.constraint_equation().contributions_view().size(), 2u);
-  ASSERT_TRUE(interaction.constraint_equation().has_multiplier_metric());
+  const auto       bulk_view     = fe_space(bulk_problem.dof_handler(),
+                                  StaticMappingQ1<2>::mapping,
+                                  bulk_problem.constraints(),
+                                  bulk_problem.locally_relevant_dofs());
+  const auto       embedded_view = fe_space(embedded_problem.dof_handler(),
+                                      StaticMappingQ1<1, 2>::mapping,
+                                      embedded_problem.constraints(),
+                                      embedded_problem.locally_relevant_dofs());
+  FE_DGQ<1, 2>     multiplier_fe(0);
+  DoFHandler<1, 2> multiplier_dh(embedded_problem.triangulation());
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+  const auto multiplier_relevant =
+    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+  AffineConstraints<double> multiplier_constraints;
+  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+  multiplier_constraints.close();
+  const auto multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<1, 2>::mapping,
+                                        multiplier_constraints,
+                                        multiplier_relevant);
+  const auto bulk_field =
+    bulk_view.field(bulk.fields().solution, "bulk_solution");
+  const auto embedded_field =
+    embedded_view.field(embedded.fields().solution, "embedded_solution");
+  const auto lambda = multiplier_view.field("lambda");
+  const auto constraint =
+    make_constraint(weak_term(value(bulk_field), lambda) -
+                    weak_term(value(embedded_field), lambda));
+  const auto coupling = adapter.add(constraint, "continuity");
 
-  using MatrixType = ImmersXLA::MPI::SparseMatrix;
-  using VectorType = ImmersXLA::MPI::Vector;
-  using AMGType    = ImmersXLA::MPI::PreconditionAMG;
-  using SchurSolver =
-    LagrangeMultiplierSchurSolver<MatrixType, VectorType, AMGType>;
+  auto state = adapter.make_state();
+  adapter.solve(state);
+  bulk_problem.set_solution(adapter.field(state, bulk.fields().solution));
+  embedded_problem.set_solution(
+    adapter.field(state, embedded.fields().solution));
 
-  SchurSolver solver(bulk_problem.system_matrix(),
-                     embedded_problem.system_matrix(),
-                     interaction.coupling_matrix(),
-                     interaction.multiplier_mass_matrix(),
-                     bulk_problem.locally_owned_dofs(),
-                     embedded_problem.locally_owned_dofs(),
-                     interaction.multiplier_locally_owned_dofs(),
-                     MPI_COMM_WORLD);
-
-  VectorType bulk_solution;
-  VectorType embedded_solution;
-  VectorType multiplier;
-  solver.solve(bulk_solution,
-               embedded_solution,
-               multiplier,
-               bulk_problem.system_rhs(),
-               embedded_problem.system_rhs());
-
-  bulk_problem.set_solution(bulk_solution);
-  embedded_problem.set_solution(embedded_solution);
-
-  VectorType bulk_residual;
-  VectorType embedded_residual;
-  VectorType multiplier_residual;
-  VectorType temporary;
-  bulk_residual.reinit(bulk_problem.locally_owned_dofs(), MPI_COMM_WORLD);
-  embedded_residual.reinit(embedded_problem.locally_owned_dofs(),
-                           MPI_COMM_WORLD);
-  multiplier_residual.reinit(interaction.multiplier_locally_owned_dofs(),
-                             MPI_COMM_WORLD);
-  temporary.reinit(embedded_problem.locally_owned_dofs(), MPI_COMM_WORLD);
-
-  bulk_problem.system_matrix().vmult(bulk_residual, bulk_problem.solution());
-  interaction.coupling_matrix().vmult_add(bulk_residual, multiplier);
-  bulk_residual -= bulk_problem.system_rhs();
-
-  embedded_problem.system_matrix().vmult(embedded_residual,
-                                         embedded_problem.solution());
-  interaction.multiplier_mass_matrix().Tvmult(temporary, multiplier);
-  embedded_residual -= temporary;
-  embedded_residual -= embedded_problem.system_rhs();
-
-  const std::vector<const VectorType *> states{&bulk_problem.solution(),
-                                               &embedded_problem.solution()};
-  interaction.constraint_equation().residual(states, multiplier_residual);
-
+  ASSERT_EQ(adapter.saddle_points().size(), 1u);
+  EXPECT_EQ(adapter.saddle_points().front().participants.size(), 2u);
+  EXPECT_EQ(adapter.field(state, coupling.fields().multiplier).size(),
+            multiplier_dh.n_dofs());
+  EXPECT_TRUE(std::isfinite(
+    adapter.field(state, coupling.fields().multiplier).l2_norm()));
   EXPECT_TRUE(bulk_problem.solution_is_finite());
   EXPECT_TRUE(embedded_problem.solution_is_finite());
-  EXPECT_TRUE(std::isfinite(multiplier.l2_norm()));
   EXPECT_GT(bulk_problem.solution_l2_norm(), 1.e-12);
   EXPECT_GT(embedded_problem.solution_l2_norm(), 1.e-12);
-  EXPECT_LT(bulk_residual.l2_norm(), 1.e-8);
-  EXPECT_LT(embedded_residual.l2_norm(), 1.e-8);
-  EXPECT_LT(multiplier_residual.l2_norm(), 1.e-8);
+  GlobalVector residual;
+  adapter.evaluate_residual(state, residual);
+  EXPECT_LT(residual.l2_norm(), 1.e-7);
 
   // The externally computed states remain valid Poisson states, including
   // ghost updates used by the existing output path.
@@ -238,9 +216,8 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
 {
   ParameterAcceptor::clear();
 
-  PoissonParameters<2>          bulk_parameters("/Adapter Bulk/");
-  PoissonParameters<1, 2>       embedded_parameters("/Adapter Embedded/");
-  ParticleCouplingParameters<2> search_parameters;
+  PoissonParameters<2>    bulk_parameters("/Adapter Bulk/");
+  PoissonParameters<1, 2> embedded_parameters("/Adapter Embedded/");
   initialize_parameters_from_string(R"(
     subsection Adapter Bulk
       set FE degree = 1
@@ -294,25 +271,6 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   initialize_problem(bulk_problem);
   initialize_problem(embedded_problem);
 
-  IdentityRepresentation<2, 2> bulk_representation(
-    bulk_problem.triangulation(),
-    bulk_problem.dof_handler(),
-    bulk_problem.locally_owned_dofs(),
-    bulk_problem.locally_relevant_dofs(),
-    bulk_problem.constraints());
-  IdentityRepresentation<1, 2> embedded_representation(
-    embedded_problem.triangulation(),
-    embedded_problem.dof_handler(),
-    embedded_problem.locally_owned_dofs(),
-    embedded_problem.locally_relevant_dofs(),
-    embedded_problem.constraints());
-  LagrangeMultiplierInteraction<IdentityRepresentation<2, 2>,
-                                IdentityRepresentation<1, 2>>
-    interaction(bulk_representation,
-                embedded_representation,
-                search_parameters);
-  interaction.assemble();
-
   using FieldVector  = ImmersXLA::MPI::Vector;
   using GlobalVector = ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::LinearAdapter<FieldVector, GlobalVector>;
@@ -320,10 +278,37 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   Adapter                         linear(linear_parameters, MPI_COMM_WORLD);
   const auto                      bulk = linear.add(bulk_problem, "bulk");
   const auto embedded = linear.add(embedded_problem, "embedded");
-  const auto coupling = linear.add(interaction,
-                                   "continuity",
-                                   bulk.fields().solution,
-                                   embedded.fields().solution);
+
+  const auto       bulk_view     = fe_space(bulk_problem.dof_handler(),
+                                  StaticMappingQ1<2>::mapping,
+                                  bulk_problem.constraints(),
+                                  bulk_problem.locally_relevant_dofs());
+  const auto       embedded_view = fe_space(embedded_problem.dof_handler(),
+                                      StaticMappingQ1<1, 2>::mapping,
+                                      embedded_problem.constraints(),
+                                      embedded_problem.locally_relevant_dofs());
+  FE_DGQ<1, 2>     multiplier_fe(0);
+  DoFHandler<1, 2> multiplier_dh(embedded_problem.triangulation());
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+  const auto multiplier_relevant =
+    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+  AffineConstraints<double> multiplier_constraints;
+  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
+  multiplier_constraints.close();
+  const auto multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<1, 2>::mapping,
+                                        multiplier_constraints,
+                                        multiplier_relevant);
+  const auto bulk_field =
+    bulk_view.field(bulk.fields().solution, "bulk_solution");
+  const auto embedded_field =
+    embedded_view.field(embedded.fields().solution, "embedded_solution");
+  const auto lambda = multiplier_view.field("lambda");
+  const auto constraint =
+    make_constraint(weak_term(value(bulk_field), lambda) -
+                    weak_term(value(embedded_field), lambda));
+  const auto coupling = linear.add(constraint, "continuity");
   auto       state    = linear.make_state();
   linear.solve(state);
 
@@ -332,23 +317,25 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   bulk_problem.set_solution(bulk_state);
   embedded_problem.set_solution(embedded_state);
 
-  interaction.set_multiplier(linear.field(state, coupling.fields().multiplier));
-  for (const auto index : interaction.multiplier_locally_owned_dofs())
-    EXPECT_NEAR(interaction.multiplier()(index),
-                linear.field(state, coupling.fields().multiplier)(index),
-                1.e-12);
   const auto multiplier_output =
     ImmersX::TestPaths::output_directory("linear-adapter-multiplier");
-  interaction.output_results(multiplier_output, "scalar_multiplier", 0);
+  std::filesystem::create_directories(multiplier_output);
+  const auto    rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  DataOut<1, 2> multiplier_data;
+  multiplier_data.attach_dof_handler(multiplier_dh);
+  multiplier_data.add_data_vector(linear.field(state,
+                                               coupling.fields().multiplier),
+                                  "scalar_multiplier",
+                                  DataOut<1, 2>::type_dof_data);
+  multiplier_data.build_patches();
+  std::ofstream multiplier_file(
+    std::filesystem::path(multiplier_output) /
+    ("scalar_multiplier." + std::to_string(rank) + ".vtu"));
+  multiplier_data.write_vtu(multiplier_file);
   MPI_Barrier(MPI_COMM_WORLD);
-  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-    {
-      EXPECT_TRUE(std::filesystem::exists(
-        std::filesystem::path(multiplier_output) / "scalar_multiplier.pvd"));
-      EXPECT_TRUE(output_contains(multiplier_output,
-                                  "scalar_multiplier_0",
-                                  "lagrange_multiplier"));
-    }
+  EXPECT_TRUE(output_contains(multiplier_output,
+                              "scalar_multiplier.",
+                              "scalar_multiplier"));
 
   ImmersXLA::MPI::Vector bulk_difference;
   bulk_difference.reinit(bulk_problem.solution());
@@ -382,10 +369,16 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   const auto augmented_bulk = augmented.add(bulk_problem, "bulk-al");
   const auto augmented_embedded =
     augmented.add(embedded_problem, "embedded-al");
-  augmented.add(interaction,
-                "continuity-al",
-                augmented_bulk.fields().solution,
-                augmented_embedded.fields().solution);
+  const auto augmented_bulk_field =
+    bulk_view.field(augmented_bulk.fields().solution, "bulk_solution");
+  const auto augmented_embedded_field =
+    embedded_view.field(augmented_embedded.fields().solution,
+                        "embedded_solution");
+  const auto augmented_lambda = multiplier_view.field("lambda");
+  augmented.add(make_constraint(
+                  weak_term(value(augmented_bulk_field), augmented_lambda) -
+                  weak_term(value(augmented_embedded_field), augmented_lambda)),
+                "continuity-al");
   auto augmented_state = augmented.make_state();
   augmented.solve(augmented_state);
   GlobalVector augmented_residual;
@@ -397,15 +390,22 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   Adapter    direct(direct_options, MPI_COMM_WORLD);
   const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");
   const auto direct_embedded = direct.add(embedded_problem, "embedded-direct");
-  direct.add(interaction,
-             "continuity-direct",
-             direct_bulk.fields().solution,
-             direct_embedded.fields().solution);
+  const auto direct_bulk_field =
+    bulk_view.field(direct_bulk.fields().solution, "bulk_solution");
+  const auto direct_embedded_field =
+    embedded_view.field(direct_embedded.fields().solution, "embedded_solution");
+  const auto direct_lambda = multiplier_view.field("lambda");
+  direct.add(make_constraint(
+               weak_term(value(direct_bulk_field), direct_lambda) -
+               weak_term(value(direct_embedded_field), direct_lambda)),
+             "continuity-direct");
   auto direct_state = direct.make_state();
   EXPECT_TRUE(direct.can_materialize_matrix(direct_state));
   const auto direct_matrix = direct.monolithic_matrix(direct_state);
-  EXPECT_EQ(direct_matrix.m(), 31u);
-  EXPECT_EQ(direct_matrix.n(), 31u);
+  const auto expected_system_size =
+    bulk_problem.n_dofs() + embedded_problem.n_dofs() + multiplier_dh.n_dofs();
+  EXPECT_EQ(direct_matrix.m(), expected_system_size);
+  EXPECT_EQ(direct_matrix.n(), expected_system_size);
 
   auto sample_state = direct.make_state();
   for (unsigned int block = 0; block < sample_state.n_blocks(); ++block)

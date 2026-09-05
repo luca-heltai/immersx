@@ -24,17 +24,21 @@ The example defines three descriptors next to the application:
 - `Pressure` names the observable `p=2u` of the Poisson solution;
 - `CylinderSurface` names a fixed radius cylinder parameterized by axial
   coordinate `s` and angle `theta`;
-- `Traction` names the one-way weak load
-  \(\int_\Gamma p\,n\cdot v\,\mathrm{d}\Gamma\) on elasticity.
+- `normal(CylinderSurface)` supplies the geometric normal for the load
+  \(p n\);
+- `weak_term` pairs that load with the elasticity displacement test field.
 
 The executable’s composition is correspondingly short:
 
 ```cpp
 const auto poisson = adapter.add(poisson_problem);
 const auto elastic = adapter.add(elasticity_problem);
+const auto displacement = elastic_space.field(
+  elastic.fields().displacement, "displacement", FEValuesExtractors::Vector(0));
 const auto pressure =
-  poisson.observe(Pressure{}).lift(surface);
-adapter.couple(pressure, elastic, traction);
+  poisson.observe(Pressure{}).lift(pressure_lift);
+const auto traction = pressure * normal(surface);
+adapter.add(weak_term(traction, displacement), "pressure-traction");
 
 auto state = adapter.make_state();
 adapter.solve(state);
@@ -55,9 +59,9 @@ use different output directories, or the same directory with distinct
 `Output name` values; the application does not assemble filenames itself.
 
 The application descriptor implementations hide the geometry map, value
-transfer, finite-element point evaluation, and weak-form operator. They are
-not part of the public application workflow and are not new library-level
-composition objects.
+transfer, finite-element point evaluation, and cached nonmatching search. The
+application supplies only the FE-space view, observable composition, normal,
+and weak term; the backend chooses the appropriate cell or particle path.
 
 ## Running it
 

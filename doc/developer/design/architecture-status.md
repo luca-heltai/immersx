@@ -25,7 +25,8 @@ elasticity, and standalone Navier--Stokes discretizations, the semantic
 external-state evaluation, PackagedOperation residuals, separate
 LinearOperator Jacobian blocks, DAE metadata, state history/interpolation,
 immersed and reduced coupling classes, `Representation`/`TensorProductSpace` machinery,
-particle/search support, multiplier specializations, and linear algebra
+particle/search support, generic `Observable`/`weak_term`/`Constraint`
+composition, retained legacy multiplier specializations, and linear algebra
 solvers.
 
 **Validated distributed execution on this branch.** The semantic core is
@@ -42,7 +43,7 @@ Problems directly to `IDAAdapter` or `LinearAdapter`, chooses prefixes and
 `HistoryGroupId`s through the contributor scope, and can register multiple
 instances of the same Problem class.
 The full-order fiber test combines two Elastodynamics contributors and one
-vector multiplier Interaction in the five-field layout
+generic multiplier Constraint in the five-field layout
 `matrix.displacement`, `matrix.velocity`, `fiber.displacement`,
 `fiber.velocity`, and `fiber_coupling.lambda`.
 
@@ -344,9 +345,12 @@ Possible families include:
 - source or conservative exchange;
 - circuit, interface-state, and co-simulation ports.
 
-`LagrangeMultiplierInteraction` is a concrete scalar continuity interaction,
-not the definition of Interaction. Some Interactions introduce no multiplier
-and no auxiliary Field.
+The old scalar `LagrangeMultiplierInteraction` is retained only by explicit
+solver regressions and the specialized tensor-product path. The current
+composition API represents scalar and vector multiplier constraints with one
+`Constraint` over `weak_term`s; the no-SUNDIALS fiber fallback also uses the
+generic coupling matrices directly.
+Some Interactions introduce no multiplier and no auxiliary Field.
 
 An Interaction may introduce first-class auxiliary unknowns such as Lagrange
 multipliers, contact variables, interface states, or circuit variables. Those
@@ -527,7 +531,8 @@ Interaction; the Solver consumes the resulting operator or action.
 
 ## M. Linear constraint specialization
 
-For linear constraints, a `ConstraintEquation` specialization remains useful:
+For legacy linear constraints, a `ConstraintEquation` specialization remains
+useful:
 
 $$
 \sum_i C_i u_i = d.
@@ -538,8 +543,10 @@ handled by a specialized saddle-point or Schur/augmented-Lagrangian solver.
 It is not the global residual model, not the definition of Interaction, and not
 a requirement that all future relations introduce a multiplier.
 
-The current scalar multiplier path can therefore remain production code while
-the broader residual architecture is introduced around it incrementally.
+It is retained only where the older explicit Schur/augmented-Lagrangian paths
+still need its materialized matrices. New composition code uses `Constraint`
+and ordinary `weak_term`s, which provide the residual and participant adjoint
+reactions through the common execution model.
 
 ## N. Architecture diagrams and data flow
 
@@ -642,7 +649,7 @@ conceptual API from being mistaken for a merged one.
 | Status | Meaning in this specification |
 | --- | --- |
 | **Merged on `master`** | Current Poisson, elasticity, Navier--Stokes, elastodynamics, semantic Field/state/residual core, reduced-coupling, tensor-product, particle/search, multiplier, and solver classes. Existing tutorials describe these paths. |
-| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity Representation dependencies, short two-rank IDA solves, and the five-field fiber semantic residual/Jacobian against backward Euler + Schur. |
+| **Validated on this branch** | Direct one-block-per-Field `IDA<LA::MPI::BlockVector>` binding, real distributed Elastodynamics and unsteady-Stokes residual/Jacobian actions, DAE masks, mixed-FE velocity `Field`/`Observable` dependencies, cached weak-term geometry backends, short two-rank IDA solves, and the five-field fiber semantic residual/Jacobian against backward Euler + Schur. |
 | **Roadmap** | Navier--Stokes ARKode/IMEX convection, broader execution adapters, independent time-grid policies, moving-geometry integration, co-simulation, and a lightweight global composer/registry. |
 
 Existing `Poisson`, `Elasticity`, `ReducedPoisson`, and production coupling

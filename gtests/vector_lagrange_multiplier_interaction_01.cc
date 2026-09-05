@@ -15,15 +15,15 @@
 
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
-#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/vector_lagrange_multiplier_interaction.h>
-#include <immersx/core/representation.h>
+#include <immersx/core/constraint.h>
+#include <immersx/core/contributor.h>
+#include <immersx/core/fe_space.h>
+#include <immersx/core/state.h>
 
-#include <cmath>
 #include <vector>
 
 using namespace ImmersX;
@@ -37,7 +37,6 @@ namespace
                          const unsigned int refinement = 0)
       : triangulation(communicator)
       , dof_handler(triangulation)
-      , constraints()
     {
       GridGenerator::hyper_cube(triangulation, -1., 1.);
       triangulation.refine_global(refinement);
@@ -58,20 +57,9 @@ namespace
     AffineConstraints<double>               constraints;
   };
 
-  using Representation = VectorFiniteElementRepresentation<2, 2>;
-  using Interaction =
-    VectorLagrangeMultiplierInteraction<Representation, Representation>;
   using VectorType = ImmersXLA::MPI::Vector;
-
-  Representation
-  make_representation(const VectorSpace &space)
-  {
-    return Representation(space.triangulation,
-                          space.dof_handler,
-                          space.locally_owned_dofs,
-                          space.locally_relevant_dofs,
-                          space.constraints);
-  }
+  using MatrixType = ImmersXLA::MPI::SparseMatrix;
+  using Model      = SemiDiscreteModel<VectorType, MatrixType>;
 
   VectorType
   constant_vector(const VectorSpace &space,
@@ -95,213 +83,141 @@ namespace
     return values;
   }
 
-  VectorType
-  affine_vector(const VectorSpace &space)
+  void
+  initialize_constraints(const DoFHandler<2>       &dof_handler,
+                         const IndexSet            &locally_owned,
+                         const IndexSet            &locally_relevant,
+                         AffineConstraints<double> &constraints)
   {
-    VectorType values(space.locally_owned_dofs, MPI_COMM_WORLD);
-    values = 0.;
-    MappingQ1<2> mapping;
-    const auto  &support_points = space.fe.get_unit_support_points();
-    std::vector<types::global_dof_index> indices(space.fe.n_dofs_per_cell());
-    for (const auto &cell : space.dof_handler.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          cell->get_dof_indices(indices);
-          for (unsigned int i = 0; i < indices.size(); ++i)
-            if (values.locally_owned_elements().is_element(indices[i]))
-              {
-                const auto point =
-                  mapping.transform_unit_to_real_cell(cell, support_points[i]);
-                const auto component =
-                  space.fe.system_to_component_index(i).first;
-                values(indices[i]) = component == 0 ? point[0] + 2. * point[1] :
-                                                      -point[0] + point[1];
-              }
-        }
-    values.compress(VectorOperation::insert);
-    return values;
-  }
-
-  std::vector<unsigned int>
-  dof_components(const VectorSpace &space)
-  {
-    std::vector<unsigned int> components(space.dof_handler.n_dofs(), 0);
-    std::vector<types::global_dof_index> indices(space.fe.n_dofs_per_cell());
-    for (const auto &cell : space.dof_handler.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          cell->get_dof_indices(indices);
-          for (unsigned int i = 0; i < indices.size(); ++i)
-            components[indices[i]] =
-              space.fe.system_to_component_index(i).first;
-        }
-    return components;
+    constraints.reinit(locally_owned, locally_relevant);
+    DoFTools::make_hanging_node_constraints(dof_handler, constraints);
+    constraints.close();
   }
 } // namespace
 
 
-TEST(VectorLagrangeMultiplierInteraction, MatchingPairingAndDimensions)
+TEST(Constraint, IndependentVectorMultiplierSharedGeometry)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
 
-  VectorSpace matrix_space(MPI_COMM_WORLD);
-  VectorSpace fiber_space(MPI_COMM_WORLD);
-  auto        matrix_representation = make_representation(matrix_space);
-  auto        fiber_representation  = make_representation(fiber_space);
-  ParticleCouplingParameters<2> search_parameters;
+  VectorSpace   source_space(MPI_COMM_WORLD);
+  FESystem<2>   multiplier_fe(FE_Q<2>(2), 2);
+  DoFHandler<2> multiplier_dh(source_space.triangulation);
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
+  const auto multiplier_relevant =
+    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
+  AffineConstraints<double> multiplier_constraints;
+  initialize_constraints(multiplier_dh,
+                         multiplier_owned,
+                         multiplier_relevant,
+                         multiplier_constraints);
 
-  Interaction interaction(matrix_representation,
-                          fiber_representation,
-                          search_parameters);
-  interaction.assemble();
+  const auto source_view     = fe_space(source_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    source_space.constraints);
+  const auto multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints,
+                                        multiplier_relevant);
 
-  EXPECT_EQ(interaction.coupling_matrix().m(),
-            matrix_space.dof_handler.n_dofs());
-  EXPECT_EQ(interaction.coupling_matrix().n(),
-            fiber_space.dof_handler.n_dofs());
-  EXPECT_EQ(interaction.pairing_matrix().m(), fiber_space.dof_handler.n_dofs());
-  EXPECT_EQ(interaction.pairing_matrix().n(), fiber_space.dof_handler.n_dofs());
-  EXPECT_GT(interaction.coupling_matrix().frobenius_norm(), 1.e-12);
-  EXPECT_GT(interaction.pairing_matrix().frobenius_norm(), 1.e-12);
+  StateLayout layout;
+  const auto  source =
+    source_view.field(layout, "source", FEValuesExtractors::Vector(0));
+  const auto lambda =
+    multiplier_view.field("lambda", FEValuesExtractors::Vector(0));
 
-  for (types::global_dof_index i = 0; i < matrix_space.dof_handler.n_dofs();
-       ++i)
-    for (types::global_dof_index j = 0; j < fiber_space.dof_handler.n_dofs();
-         ++j)
-      EXPECT_NEAR(interaction.coupling_matrix().el(i, j),
-                  interaction.pairing_matrix().el(i, j),
-                  1.e-12);
-  EXPECT_TRUE(interaction.assembly_is_current());
+  Model                                       model;
+  SemidiscreteBuilder<VectorType, MatrixType> builder(layout, model);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto preparations = detail::weak_term_nonmatching_preparations.load();
+#endif
+  const auto fields =
+    make_constraint(weak_term(value(source), lambda)).add(builder);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), preparations);
+#endif
+
+  VectorType source_state = constant_vector(source_space, 1., -2.);
+  VectorType lambda_state(multiplier_owned, MPI_COMM_WORLD);
+  lambda_state = 0.;
+  lambda_state.compress(VectorOperation::insert);
+
+  StateView<VectorType> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<VectorType> context(0., state_view);
+
+  const auto multiplier_block =
+    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  const auto source_block =
+    model.state_matrix_operator(source.field_id(), fields.multiplier, context);
+  ASSERT_TRUE(multiplier_block.has_value());
+  ASSERT_TRUE(source_block.has_value());
+  ASSERT_EQ(multiplier_block->matrix()->m(), multiplier_dh.n_dofs());
+  ASSERT_EQ(multiplier_block->matrix()->n(), source_space.dof_handler.n_dofs());
+  ASSERT_EQ(source_block->matrix()->m(), source_space.dof_handler.n_dofs());
+  ASSERT_EQ(source_block->matrix()->n(), multiplier_dh.n_dofs());
+  EXPECT_GT(multiplier_block->matrix()->n_nonzero_elements(), 0u);
+
+  VectorType multiplier_action(multiplier_owned, MPI_COMM_WORLD);
+  VectorType source_reaction(source_space.locally_owned_dofs, MPI_COMM_WORLD);
+  multiplier_block->view.vmult(multiplier_action, source_state);
+  source_block->view.vmult(source_reaction, lambda_state);
+  EXPECT_NEAR(multiplier_action * lambda_state,
+              source_state * source_reaction,
+              1.e-11);
 }
 
 
-TEST(VectorLagrangeMultiplierInteraction, ComponentIndependence)
-{
-  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
-
-  VectorSpace matrix_space(MPI_COMM_WORLD);
-  VectorSpace fiber_space(MPI_COMM_WORLD);
-  auto        matrix_representation = make_representation(matrix_space);
-  auto        fiber_representation  = make_representation(fiber_space);
-  ParticleCouplingParameters<2> search_parameters;
-  Interaction                   interaction(matrix_representation,
-                          fiber_representation,
-                          search_parameters);
-  interaction.assemble();
-
-  const auto matrix_components = dof_components(matrix_space);
-  const auto fiber_components  = dof_components(fiber_space);
-
-  for (types::global_dof_index i = 0; i < matrix_space.dof_handler.n_dofs();
-       ++i)
-    for (types::global_dof_index j = 0; j < fiber_space.dof_handler.n_dofs();
-         ++j)
-      if (matrix_components[i] != fiber_components[j])
-        EXPECT_NEAR(interaction.coupling_matrix().el(i, j), 0., 1.e-12);
-}
-
-
-TEST(VectorLagrangeMultiplierInteraction, NonmatchingConstantReproduction)
-{
-  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
-
-  VectorSpace matrix_space(MPI_COMM_WORLD);
-  VectorSpace fiber_space(MPI_COMM_WORLD);
-  fiber_space.triangulation.clear();
-  GridGenerator::subdivided_hyper_rectangle(fiber_space.triangulation,
-                                            {4, 1},
-                                            Point<2>(-.6, -.1),
-                                            Point<2>(.6, .1),
-                                            true);
-  fiber_space.dof_handler.distribute_dofs(fiber_space.fe);
-  fiber_space.constraints.clear();
-  fiber_space.locally_owned_dofs = fiber_space.dof_handler.locally_owned_dofs();
-  fiber_space.locally_relevant_dofs =
-    DoFTools::extract_locally_relevant_dofs(fiber_space.dof_handler);
-  fiber_space.constraints.reinit(fiber_space.locally_owned_dofs,
-                                 fiber_space.locally_relevant_dofs);
-  DoFTools::make_hanging_node_constraints(fiber_space.dof_handler,
-                                          fiber_space.constraints);
-  fiber_space.constraints.close();
-
-  auto matrix_representation = make_representation(matrix_space);
-  auto fiber_representation  = make_representation(fiber_space);
-  ParticleCouplingParameters<2> search_parameters;
-  Interaction                   interaction(matrix_representation,
-                          fiber_representation,
-                          search_parameters);
-  interaction.assemble();
-
-  const auto matrix_values = constant_vector(matrix_space, 1., 2.);
-  const auto fiber_values  = constant_vector(fiber_space, 1., 2.);
-  std::vector<const VectorType *> states{&matrix_values, &fiber_values};
-  VectorType                      residual;
-  interaction.constraint_equation().residual(states, residual);
-
-  EXPECT_TRUE(std::isfinite(residual.l2_norm()));
-  EXPECT_LT(residual.l2_norm(), 1.e-11);
-  EXPECT_GT(interaction.coupling_matrix().n_nonzero_elements(), 0u);
-  EXPECT_GT(interaction.pairing_matrix().n_nonzero_elements(), 0u);
-}
-
-
-TEST(VectorLagrangeMultiplierInteraction, MatchingAffineReproduction)
-{
-  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
-
-  VectorSpace matrix_space(MPI_COMM_WORLD, 1);
-  VectorSpace fiber_space(MPI_COMM_WORLD, 1);
-  auto        matrix_representation = make_representation(matrix_space);
-  auto        fiber_representation  = make_representation(fiber_space);
-  ParticleCouplingParameters<2> search_parameters;
-  Interaction                   interaction(matrix_representation,
-                          fiber_representation,
-                          search_parameters);
-  interaction.assemble();
-
-  const auto                      matrix_values = affine_vector(matrix_space);
-  const auto                      fiber_values  = affine_vector(fiber_space);
-  std::vector<const VectorType *> states{&matrix_values, &fiber_values};
-  VectorType                      residual;
-  interaction.constraint_equation().residual(states, residual);
-
-  EXPECT_LT(residual.l2_norm(), 1.e-11);
-}
-
-
-TEST(VectorLagrangeMultiplierInteraction, MPI_NonmatchingDistributedSearch)
+TEST(Constraint, MPI_VectorNonmatchingGeometry)
 {
   ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
 
-  VectorSpace matrix_space(MPI_COMM_WORLD, 2);
-  VectorSpace fiber_space(MPI_COMM_WORLD);
-  fiber_space.triangulation.clear();
-  GridGenerator::subdivided_hyper_rectangle(fiber_space.triangulation,
-                                            {4, 2},
-                                            Point<2>(-.6, -.1),
-                                            Point<2>(.6, .1),
-                                            true);
-  fiber_space.dof_handler.distribute_dofs(fiber_space.fe);
-  fiber_space.constraints.clear();
-  fiber_space.locally_owned_dofs = fiber_space.dof_handler.locally_owned_dofs();
-  fiber_space.locally_relevant_dofs =
-    DoFTools::extract_locally_relevant_dofs(fiber_space.dof_handler);
-  fiber_space.constraints.reinit(fiber_space.locally_owned_dofs,
-                                 fiber_space.locally_relevant_dofs);
-  DoFTools::make_hanging_node_constraints(fiber_space.dof_handler,
-                                          fiber_space.constraints);
-  fiber_space.constraints.close();
+  VectorSpace source_space(MPI_COMM_WORLD, 2);
+  VectorSpace multiplier_space(MPI_COMM_WORLD);
+  const auto  source_view     = fe_space(source_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    source_space.constraints);
+  const auto  multiplier_view = fe_space(multiplier_space.dof_handler,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_space.constraints,
+                                        multiplier_space.locally_relevant_dofs);
 
-  auto matrix_representation = make_representation(matrix_space);
-  auto fiber_representation  = make_representation(fiber_space);
-  ParticleCouplingParameters<2> search_parameters;
-  Interaction                   interaction(matrix_representation,
-                          fiber_representation,
-                          search_parameters);
-  interaction.assemble();
+  StateLayout layout;
+  const auto  source =
+    source_view.field(layout, "source", FEValuesExtractors::Vector(0));
+  const auto lambda =
+    multiplier_view.field("lambda", FEValuesExtractors::Vector(0));
 
-  EXPECT_EQ(interaction.coupling_matrix().m(),
-            matrix_space.dof_handler.n_dofs());
-  EXPECT_EQ(interaction.pairing_matrix().m(), fiber_space.dof_handler.n_dofs());
-  EXPECT_TRUE(interaction.assembly_is_current());
+  Model                                       model;
+  SemidiscreteBuilder<VectorType, MatrixType> builder(layout, model);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto preparations = detail::weak_term_nonmatching_preparations.load();
+#endif
+  const auto fields =
+    make_constraint(weak_term(value(source), lambda)).add(builder);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 1);
+#endif
+
+  VectorType source_state(source_space.locally_owned_dofs, MPI_COMM_WORLD);
+  source_state = 1.;
+  source_state.compress(VectorOperation::insert);
+  VectorType lambda_state(multiplier_space.locally_owned_dofs, MPI_COMM_WORLD);
+  lambda_state = 0.;
+  lambda_state.compress(VectorOperation::insert);
+  StateView<VectorType> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<VectorType> context(0., state_view);
+
+  const auto multiplier_block =
+    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  ASSERT_TRUE(multiplier_block.has_value());
+  EXPECT_EQ(multiplier_block->matrix()->m(),
+            multiplier_space.dof_handler.n_dofs());
+  EXPECT_EQ(multiplier_block->matrix()->n(), source_space.dof_handler.n_dofs());
+  EXPECT_GT(multiplier_block->matrix()->n_nonzero_elements(), 0u);
 }

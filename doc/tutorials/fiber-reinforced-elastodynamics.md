@@ -39,9 +39,10 @@ effective block remains positive definite for the existing Schur solver.
 
 ## Coupling and time stepping
 
-The matrix and fiber velocity representations are typed
-`VectorFiniteElementRepresentation`s. `VectorLagrangeMultiplierInteraction`
-uses the fiber vector FE space as the multiplier space and assembles
+The matrix and fiber velocity spaces are exposed as typed `Field`s. The
+multiplier is another vector `Field` on its own FE space, constructed with the
+ordinary `fe_space(...)` view API. The unified `Constraint` construction
+assembles
 
 ```{math}
 C_{ij}=\int_{\Omega_f}
@@ -53,8 +54,12 @@ Q_{jk}=\int_{\Omega_f}
 
 Here $Q$ is an interaction pairing matrix, not the fiber’s physical mass
 matrix. Fiber quadrature points are located in the distributed matrix mesh by
-the existing `ParticleCoupling` search. Vector basis values are evaluated by
-component, so an x basis function cannot couple to a y basis function.
+the cached nonmatching weak-term backend. Vector basis values are evaluated by
+component, so an x basis function cannot couple to a y basis function. The
+application constructs the relation from `weak_term(value(...), lambda)`
+terms; the search and matrix storage remain private to that implementation.
+The multiplier uses the fiber FE degree by default; set `Multiplier FE degree`
+to a positive value to choose an independent vector finite element degree.
 
 The application driver, rather than either Problem’s standalone time loop,
 owns the five-field IDA solve. Eliminating displacement gives
@@ -72,8 +77,10 @@ C^T v_m^{n+1}-Qv_f^{n+1}=0,
 ```
 
 with $A=M/\Delta t+D+\Delta t K$ and
-$r=f^{n+1}+Mv^n/\Delta t-Kd^n$. The existing
-`LagrangeMultiplierSchurSolver` solves this block system. After the solve,
+$r=f^{n+1}+Mv^n/\Delta t-Kd^n$. The explicit backward-Euler fallback currently
+uses the legacy `LagrangeMultiplierSchurSolver` to solve this block system;
+the modern IDA composition path expresses the same relation with one
+`Constraint` over `weak_term`s. After the solve,
 $d^{n+1}=d^n+\Delta t\,v^{n+1}$, and the driver records both velocity and
 displacement compatibility diagnostics.
 
@@ -86,16 +93,15 @@ and adaptive refinement during the coupled run are not implemented here.
 
 Output ownership follows the semantic composition boundary. The two Problems
 accept their solved displacement and velocity states and write their native
-mesh output. The vector Interaction accepts the multiplier state and writes
-`velocity_multiplier` on the second (fiber) representation mesh; it is not
-written through either Problem or through the execution adapter. In the IDA
-path, the handoff occurs for the initial state, configured accepted output
-states, and final accepted state, never from residual or Jacobian trial
-evaluations.
+mesh output. The reusable driver writes `velocity_multiplier` with the
+multiplier’s own DoFHandler and finite element; it is not attached to an
+endpoint Problem’s DoFHandler merely because the geometry is related. In the
+IDA path, output uses accepted state handoffs, never residual or Jacobian
+trial evaluations.
 
 ## Semantic five-field execution
 
-The application composes the two Problems, Representations, and Interaction
+The application composes the two Problems and one unified `Constraint`
 directly through the public `IDAAdapter` with one private semantic execution
 layout containing
 
@@ -108,14 +114,14 @@ fiber_coupling.lambda      algebraic
 ```
 
 The two Elastodynamics contributors use caller-selected prefixes and distinct
-`HistoryGroupId`s. The vector Interaction registers the algebraic multiplier
-field and adds `C lambda`, `-Q^T lambda`, and `C^T v_matrix - Q v_fiber` to
-the appropriate rows. Each Problem and the Interaction retain their own
-accepted state and native output. The application’s accepted-state callback
-hands displacement and velocity back to both Problems and the multiplier back
-to the Interaction before output is written. Focused tests compare all five
-residual rows and all five Jacobian rows with the native `M`, `K`, `D`, `C`,
-and `Q` actions.
+`HistoryGroupId`s. The unified constraint owns an algebraic multiplier Field
+on its independent finite-element space and adds the signed `weak_term`
+contributions `C lambda`, `-Q^T lambda`, and `C^T v_matrix - Q v_fiber` to
+the appropriate rows. Each Problem retains its own accepted state and native
+output. The application’s accepted-state callback hands displacement and
+velocity back to both Problems before output is written. Focused tests compare
+all five residual rows and all five Jacobian rows with the native `M`, `K`,
+`D`, `C`, and `Q` actions.
 
 ## Scope and future path
 
