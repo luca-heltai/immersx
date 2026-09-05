@@ -329,10 +329,11 @@ namespace ImmersX
 
       std::vector<FieldId> participants;
       terms_.for_each([&](const auto &entry) {
-        const auto participant = entry.term.observable().source_field();
-        if (std::find(participants.begin(), participants.end(), participant) ==
-            participants.end())
-          participants.push_back(participant);
+        for (const auto participant : entry.term.observable().dependencies())
+          if (std::find(participants.begin(),
+                        participants.end(),
+                        participant) == participants.end())
+            participants.push_back(participant);
       });
       const auto metric =
         detail::make_multiplier_metric(builder, multiplier_field);

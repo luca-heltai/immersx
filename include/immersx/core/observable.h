@@ -23,7 +23,10 @@
 
 #include <immersx/core/fe_space.h>
 
+#include <algorithm>
 #include <any>
+#include <memory>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -136,6 +139,57 @@ namespace ImmersX
         0u,
         0u))>> : std::true_type
     {};
+
+    template <typename Kernel, int spacedim, typename = void>
+    struct has_point_kernel_evaluation : std::false_type
+    {};
+
+    template <typename Kernel, int spacedim>
+    struct has_point_kernel_evaluation<
+      Kernel,
+      spacedim,
+      std::void_t<decltype(std::declval<const Kernel &>().evaluate(
+        std::declval<const dealii::Point<spacedim> &>(),
+        0.,
+        std::declval<const std::vector<double> &>()))>> : std::true_type
+    {};
+
+    template <typename Kernel, typename = void>
+    struct has_value_kernel_evaluation : std::false_type
+    {};
+
+    template <typename Kernel>
+    struct has_value_kernel_evaluation<
+      Kernel,
+      std::void_t<decltype(std::declval<const Kernel &>().evaluate(
+        std::declval<const std::vector<double> &>()))>> : std::true_type
+    {};
+
+    template <typename Kernel, int spacedim>
+    auto
+    evaluate_kernel(const Kernel                  &kernel,
+                    const dealii::Point<spacedim> &point,
+                    const double                   time,
+                    const std::vector<double>     &values)
+    {
+      if constexpr (has_point_kernel_evaluation<Kernel, spacedim>::value)
+        return kernel.evaluate(point, time, values);
+      else
+        {
+          static_assert(has_value_kernel_evaluation<Kernel>::value,
+                        "A nonlinear kernel must provide evaluate(values) or "
+                        "evaluate(point, time, values).");
+          return kernel.evaluate(values);
+        }
+    }
+
+    template <typename Type>
+    struct is_transformed_observable : std::false_type
+    {};
+
+    template <typename Type>
+    struct is_linear_observable : std::false_type
+    {};
   } // namespace detail
 
   /** A typed FE expression: a Field, a deal.II view operation, and metadata.
@@ -218,6 +272,15 @@ namespace ImmersX
       return source_;
     }
 
+    const SourceFieldType &
+    source_for(const FieldId field) const
+    {
+      AssertThrow(source_field() == field,
+                  dealii::ExcMessage(
+                    "The requested field is not an Observable dependency."));
+      return source_;
+    }
+
     Operation
     operation() const
     {
@@ -254,6 +317,33 @@ namespace ImmersX
       return scale_;
     }
 
+    static constexpr bool
+    is_linear()
+    {
+      return true;
+    }
+
+    template <typename Evaluator>
+    value_type
+    evaluate_point(const dealii::Point<spacedim()> &point,
+                   const double                     time,
+                   Evaluator                      &&evaluator) const
+    {
+      return scale_ * evaluator(*this, point, time);
+    }
+
+    template <typename DerivativeEvaluator>
+    double
+    linearize_point(const FieldId                    field,
+                    const dealii::Point<spacedim()> &point,
+                    const double                     time,
+                    DerivativeEvaluator            &&derivative_evaluator) const
+    {
+      if (is_frozen() || source_field() != field)
+        return 0.;
+      return scale_ * derivative_evaluator(*this, field, point, time);
+    }
+
     Observable
     scaled(const double coefficient) const
     {
@@ -282,7 +372,325 @@ namespace ImmersX
     struct is_observable<Observable<SourceFieldType, Operation>>
       : std::true_type
     {};
+
+    template <typename SourceFieldType, typename Operation>
+    struct is_linear_observable<Observable<SourceFieldType, Operation>>
+      : std::true_type
+    {};
   } // namespace detail
+
+  template <typename ObservableType, typename Evaluator>
+  decltype(auto)
+  evaluate_observable_input(
+    const ObservableType                                  &observable,
+    const dealii::Point<ObservableType::spacedimension()> &point,
+    const double                                           time,
+    Evaluator                                            &&evaluator);
+
+  template <typename ObservableType,
+            typename Evaluator,
+            typename DerivativeEvaluator>
+  double
+  linearize_observable_input(
+    const ObservableType                                  &observable,
+    const FieldId                                          field,
+    const dealii::Point<ObservableType::spacedimension()> &point,
+    const double                                           time,
+    Evaluator                                            &&evaluator,
+    DerivativeEvaluator &&derivative_evaluator);
+
+  /** A compile-time pointwise composition of one or more Observables. */
+  template <typename Kernel, typename... InputObservables>
+  class TransformedObservable
+  {
+    static_assert(sizeof...(InputObservables) > 0,
+                  "A nonlinear Observable needs at least one input.");
+    static_assert(
+      (detail::is_observable<std::decay_t<InputObservables>>::value && ...),
+      "All nonlinear Observable inputs must be Observables.");
+
+    using FirstInput =
+      std::tuple_element_t<0, std::tuple<std::decay_t<InputObservables>...>>;
+
+  public:
+    using source_field_type        = typename FirstInput::source_field_type;
+    using value_type               = double;
+    static constexpr int space_dim = source_field_type::spacedimension();
+
+    TransformedObservable(Kernel kernel, InputObservables... inputs)
+      : kernel_(std::make_shared<const Kernel>(std::move(kernel)))
+      , inputs_(std::move(inputs)...)
+      , dependencies_(collect_dependencies())
+    {}
+
+    const std::vector<FieldId> &
+    dependencies() const
+    {
+      return dependencies_;
+    }
+
+    static constexpr unsigned int
+    dimension()
+    {
+      return source_field_type::dimension();
+    }
+
+    static constexpr unsigned int
+    space_dimension()
+    {
+      return source_field_type::space_dimension();
+    }
+
+    static constexpr unsigned int
+    spacedimension()
+    {
+      return source_field_type::spacedimension();
+    }
+
+    const source_field_type &
+    source() const
+    {
+      return std::get<0>(inputs_).source();
+    }
+
+    const source_field_type &
+    source_for(const FieldId field) const
+    {
+      const source_field_type *result = nullptr;
+      std::apply(
+        [&](const auto &...input) {
+          (
+            [&] {
+              if (std::find(input.dependencies().begin(),
+                            input.dependencies().end(),
+                            field) != input.dependencies().end())
+                result = &input.source_for(field);
+            }(),
+            ...);
+        },
+        inputs_);
+      AssertThrow(result != nullptr,
+                  dealii::ExcMessage(
+                    "The requested field is not a nonlinear Observable "
+                    "dependency."));
+      return *result;
+    }
+
+    FieldId
+    source_field() const
+    {
+      return dependencies_.empty() ? FieldId() : dependencies_.front();
+    }
+
+    static constexpr dealii::UpdateFlags
+    update_flags()
+    {
+      return (InputObservables::update_flags() | ...);
+    }
+
+    bool
+    is_frozen() const
+    {
+      return dependencies_.empty();
+    }
+
+    double
+    scale() const
+    {
+      return scale_;
+    }
+
+    TransformedObservable
+    scaled(const double coefficient) const
+    {
+      auto result = *this;
+      result.scale_ *= coefficient;
+      return result;
+    }
+
+    static constexpr bool
+    is_linear()
+    {
+      return false;
+    }
+
+    const Kernel &
+    kernel() const
+    {
+      return *kernel_;
+    }
+
+    template <typename Evaluator>
+    value_type
+    evaluate_point(const dealii::Point<space_dim> &point,
+                   const double                    time,
+                   Evaluator                     &&evaluator) const
+    {
+      const auto values = input_values(point, time, evaluator);
+      return scale_ *
+             detail::evaluate_kernel(*kernel_, point, time, values).value;
+    }
+
+    template <typename Evaluator, typename DerivativeEvaluator>
+    double
+    linearize_point(const FieldId                   field,
+                    const dealii::Point<space_dim> &point,
+                    const double                    time,
+                    Evaluator                     &&evaluator,
+                    DerivativeEvaluator           &&derivative_evaluator) const
+    {
+      const auto values = input_values(point, time, evaluator);
+      const auto evaluation =
+        detail::evaluate_kernel(*kernel_, point, time, values);
+      return scale_ * linearize_inputs(field,
+                                       point,
+                                       time,
+                                       evaluation.derivatives,
+                                       evaluator,
+                                       derivative_evaluator);
+    }
+
+  private:
+    std::vector<FieldId>
+    collect_dependencies() const
+    {
+      std::vector<FieldId> result;
+      std::apply(
+        [&result](const auto &...input) {
+          (
+            [&result](const auto &observable) {
+              for (const auto field : observable.dependencies())
+                if (std::find(result.begin(), result.end(), field) ==
+                    result.end())
+                  result.push_back(field);
+            }(input),
+            ...);
+        },
+        inputs_);
+      return result;
+    }
+
+    template <typename Evaluator>
+    std::vector<double>
+    input_values(const dealii::Point<space_dim> &point,
+                 const double                    time,
+                 Evaluator                      &evaluator) const
+    {
+      std::vector<double> result;
+      result.reserve(sizeof...(InputObservables));
+      std::apply(
+        [&](const auto &...input) {
+          (result.push_back(
+             evaluate_observable_input(input, point, time, evaluator)),
+           ...);
+        },
+        inputs_);
+      return result;
+    }
+
+    template <typename Evaluator, typename DerivativeEvaluator>
+    double
+    linearize_inputs(const FieldId                   field,
+                     const dealii::Point<space_dim> &point,
+                     const double                    time,
+                     const std::vector<double>      &kernel_derivatives,
+                     Evaluator                      &evaluator,
+                     DerivativeEvaluator            &derivative_evaluator) const
+    {
+      AssertDimension(kernel_derivatives.size(), sizeof...(InputObservables));
+      double      result = 0.;
+      std::size_t index  = 0;
+      std::apply(
+        [&](const auto &...input) {
+          ((result +=
+            kernel_derivatives[index++] *
+            linearize_observable_input(
+              input, field, point, time, evaluator, derivative_evaluator)),
+           ...);
+        },
+        inputs_);
+      return result;
+    }
+
+    std::shared_ptr<const Kernel>                 kernel_;
+    std::tuple<std::decay_t<InputObservables>...> inputs_;
+    std::vector<FieldId>                          dependencies_;
+    double                                        scale_ = 1.;
+  };
+
+  namespace detail
+  {
+    template <typename Kernel, typename... InputObservables>
+    struct is_observable<TransformedObservable<Kernel, InputObservables...>>
+      : std::true_type
+    {};
+
+    template <typename Kernel, typename... InputObservables>
+    struct is_transformed_observable<
+      TransformedObservable<Kernel, InputObservables...>> : std::true_type
+    {};
+  } // namespace detail
+
+  template <typename ObservableType, typename Evaluator>
+  decltype(auto)
+  evaluate_observable_input(
+    const ObservableType                                  &observable,
+    const dealii::Point<ObservableType::spacedimension()> &point,
+    const double                                           time,
+    Evaluator                                            &&evaluator)
+  {
+    if constexpr (detail::is_transformed_observable<ObservableType>::value)
+      return observable.evaluate_point(point,
+                                       time,
+                                       std::forward<Evaluator>(evaluator));
+    else
+      return evaluator(observable, point, time);
+  }
+
+  template <typename ObservableType,
+            typename Evaluator,
+            typename DerivativeEvaluator>
+  double
+  linearize_observable_input(
+    const ObservableType                                  &observable,
+    const FieldId                                          field,
+    const dealii::Point<ObservableType::spacedimension()> &point,
+    const double                                           time,
+    Evaluator                                            &&evaluator,
+    DerivativeEvaluator                                  &&derivative_evaluator)
+  {
+    if constexpr (detail::is_transformed_observable<ObservableType>::value)
+      return observable.linearize_point(
+        field, point, time, evaluator, derivative_evaluator);
+    else
+      return derivative_evaluator(observable, field, point, time);
+  }
+
+  namespace detail
+  {
+    template <typename Tuple, std::size_t... I>
+    auto
+    make_transformed_observable(Tuple &&all, std::index_sequence<I...>)
+    {
+      constexpr std::size_t kernel_index = sizeof...(I);
+      using Kernel = std::decay_t<decltype(std::get<kernel_index>(all))>;
+      return TransformedObservable<Kernel,
+                                   std::decay_t<decltype(std::get<I>(all))>...>(
+        std::move(std::get<kernel_index>(all)), std::move(std::get<I>(all))...);
+    }
+  } // namespace detail
+
+  template <typename First, typename... Rest>
+  auto
+  transform(First first, Rest... rest)
+  {
+    static_assert(sizeof...(Rest) > 0,
+                  "transform requires at least one input and one kernel.");
+    auto all = std::tuple<std::decay_t<First>, std::decay_t<Rest>...>(
+      std::move(first), std::move(rest)...);
+    return detail::make_transformed_observable(
+      std::move(all), std::make_index_sequence<sizeof...(Rest)>{});
+  }
 
   template <typename FieldType,
             std::enable_if_t<

@@ -237,15 +237,15 @@ namespace ImmersX
 
       using SourceField = typename ObservableType::source_field_type;
 
-      static_assert(!std::is_same_v<SourceField, void>,
-                    "weak_term requires an observable produced from a Field.");
-
       template <typename MatrixType>
       struct MatrixStorage
       {
         std::shared_ptr<MatrixType>              matrix;
         std::shared_ptr<dealii::SparsityPattern> sparsity;
       };
+
+      static_assert(!std::is_same_v<SourceField, void>,
+                    "weak_term requires an observable produced from a Field.");
 
       template <typename VectorType, typename MatrixType>
       struct PreparedMatrix
@@ -861,6 +861,394 @@ namespace ImmersX
       }
     };
 
+    /** Pointwise assembly for a state-dependent scalar Observable. */
+    template <typename ObservableType, typename TargetExpression>
+    struct NonlinearWeakAssembly
+    {
+      static constexpr int dim =
+        TargetExpression::source_field_type::dimension();
+      static constexpr int spacedim =
+        TargetExpression::source_field_type::spacedimension();
+
+      using SourceField = typename ObservableType::source_field_type;
+
+      template <typename MatrixType>
+      struct MatrixStorage
+      {
+        std::shared_ptr<MatrixType>              matrix;
+        std::shared_ptr<dealii::SparsityPattern> sparsity;
+      };
+
+      template <typename VectorType, typename FieldType, typename = void>
+      struct has_distributed_reinit : std::false_type
+      {};
+
+      template <typename VectorType, typename FieldType>
+      struct has_distributed_reinit<
+        VectorType,
+        FieldType,
+        std::void_t<decltype(std::declval<VectorType &>().reinit(
+          std::declval<const dealii::IndexSet &>(),
+          std::declval<const dealii::IndexSet &>(),
+          std::declval<MPI_Comm>()))>> : std::true_type
+      {};
+
+      template <typename VectorType, typename FieldType>
+      static void
+      reinit_result(VectorType &vector, const FieldType &field)
+      {
+        if constexpr (has_distributed_reinit<VectorType, FieldType>::value)
+          vector.reinit(field.locally_owned_dofs(),
+                        field.locally_relevant_dofs(),
+                        field.space().mpi_communicator());
+        else
+          vector.reinit(field.dof_handler().n_dofs());
+      }
+
+      template <typename VectorType,
+                typename ObservableType_,
+                typename Context,
+                typename Cell,
+                typename SourceValues>
+      static double
+      primitive_value(const ObservableType_ &observable,
+                      const Context         &context,
+                      const Cell            &source_cell,
+                      const SourceValues    &source_values,
+                      const unsigned int     q)
+      {
+        using Observable = std::decay_t<decltype(observable)>;
+        using Scalar     = typename Observable::value_type;
+        static_assert(std::is_arithmetic_v<Scalar>,
+                      "Nonlinear kernels currently consume scalar FE "
+                      "expressions.");
+
+        const auto input_cell = source_cell->as_dof_handler_iterator(
+          observable.source().dof_handler());
+        std::vector<dealii::types::global_dof_index> indices(
+          input_cell->get_fe().n_dofs_per_cell());
+        input_cell->get_dof_indices(indices);
+        std::vector<double> local_values(indices.size());
+        const auto         &coefficients =
+          observable.is_frozen() ?
+                    observable.template frozen_values<VectorType>() :
+                    context.state(observable.source_field());
+        observable.source().constraints().get_dof_values(coefficients,
+                                                         indices.begin(),
+                                                         local_values.begin(),
+                                                         local_values.end());
+
+        const auto &view   = source_values[observable.source().extractor()];
+        double      result = 0.;
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          result += local_values[i] * observable.operation()(view, i, q);
+        return observable.scale() * result;
+      }
+
+      template <typename ObservableType_, typename Cell, typename SourceValues>
+      static double
+      primitive_derivative(const ObservableType_ &observable,
+                           const FieldId          field,
+                           const Cell            &source_cell,
+                           const SourceValues    &source_values,
+                           const unsigned int     q,
+                           const unsigned int     basis)
+      {
+        using Observable = std::decay_t<decltype(observable)>;
+        if (observable.is_frozen() || observable.source_field() != field)
+          return 0.;
+        const auto input_cell = source_cell->as_dof_handler_iterator(
+          observable.source().dof_handler());
+        AssertIndexRange(basis, input_cell->get_fe().n_dofs_per_cell());
+        const auto &view = source_values[observable.source().extractor()];
+        return observable.scale() * observable.operation()(view, basis, q);
+      }
+
+      template <typename VectorType,
+                typename Context,
+                typename Cell,
+                typename SourceValues>
+      static double
+      value_at(const ObservableType &observable,
+               const Context        &context,
+               const Cell           &source_cell,
+               const SourceValues   &source_values,
+               const unsigned int    q,
+               const double          time)
+      {
+        const auto evaluator =
+          [&](const auto &input, const auto &, const double) {
+            return primitive_value<VectorType>(
+              input, context, source_cell, source_values, q);
+          };
+        return evaluate_observable_input(observable,
+                                         source_values.quadrature_point(q),
+                                         time,
+                                         evaluator);
+      }
+
+      template <typename VectorType,
+                typename Context,
+                typename Cell,
+                typename SourceValues>
+      static double
+      derivative_at(const ObservableType &observable,
+                    const Context        &context,
+                    const FieldId         field,
+                    const Cell           &source_cell,
+                    const SourceValues   &source_values,
+                    const unsigned int    q,
+                    const unsigned int    basis,
+                    const double          time)
+      {
+        const auto evaluator =
+          [&](const auto &input, const auto &, const double) {
+            return primitive_value<VectorType>(
+              input, context, source_cell, source_values, q);
+          };
+        const auto derivative_evaluator = [&](const auto   &input,
+                                              const FieldId input_field,
+                                              const auto &,
+                                              const double) {
+          return primitive_derivative(
+            input, input_field, source_cell, source_values, q, basis);
+        };
+        return linearize_observable_input(observable,
+                                          field,
+                                          source_values.quadrature_point(q),
+                                          time,
+                                          evaluator,
+                                          derivative_evaluator);
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static std::shared_ptr<VectorType>
+      residual(const ObservableType   &observable,
+               const TargetExpression &target,
+               const Context          &context)
+      {
+        const auto &source       = observable.source();
+        const auto  target_field = target.source();
+        AssertThrow(SourceField::dimension() == dim &&
+                      &source.dof_handler().get_triangulation() ==
+                        &target_field.dof_handler().get_triangulation(),
+                    dealii::ExcMessage(
+                      "Nonlinear weak terms currently require matching "
+                      "source and target meshes."));
+
+        const auto degree =
+          std::max(source.space().finite_element().degree,
+                   target_field.space().finite_element().degree);
+        const dealii::QGauss<dim> quadrature(degree + 1);
+        const auto                flags = dealii::update_JxW_values |
+                           observable.update_flags() | target.update_flags();
+        dealii::FEValues<dim, spacedim> source_values(
+          source.mapping(), source.space().finite_element(), quadrature, flags);
+        dealii::FEValues<dim, spacedim> target_values(
+          target_field.mapping(),
+          target_field.space().finite_element(),
+          quadrature,
+          flags);
+
+        auto result = std::make_shared<VectorType>();
+        reinit_result(*result, target_field);
+        *result = 0.;
+        std::vector<dealii::types::global_dof_index> target_indices(
+          target_field.space().finite_element().n_dofs_per_cell());
+        for (const auto &source_cell :
+             source.dof_handler().active_cell_iterators())
+          if (source_cell->is_locally_owned())
+            {
+              const auto target_cell = source_cell->as_dof_handler_iterator(
+                target_field.dof_handler());
+              if (!target_cell->is_locally_owned())
+                continue;
+              source_values.reinit(source_cell);
+              target_values.reinit(target_cell);
+              target_cell->get_dof_indices(target_indices);
+              const auto &target_view = target_values[target_field.extractor()];
+              for (unsigned int q = 0; q < quadrature.size(); ++q)
+                {
+                  const double value = value_at<VectorType>(observable,
+                                                            context,
+                                                            source_cell,
+                                                            source_values,
+                                                            q,
+                                                            context.time());
+                  for (unsigned int i = 0; i < target_indices.size(); ++i)
+                    (*result)(target_indices[i]) +=
+                      target.scale() *
+                      natural_pairing(value,
+                                      target.operation()(target_view, i, q)) *
+                      target_values.JxW(q);
+                }
+            }
+        result->compress(dealii::VectorOperation::add);
+        return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static MatrixStorage<MatrixType>
+      jacobian(const ObservableType   &observable,
+               const TargetExpression &target,
+               const FieldId           field,
+               const Context          &context)
+      {
+        const auto &source        = observable.source();
+        const auto &column_source = observable.source_for(field);
+        const auto  target_field  = target.source();
+        AssertThrow(SourceField::dimension() == dim &&
+                      &source.dof_handler().get_triangulation() ==
+                        &target_field.dof_handler().get_triangulation() &&
+                      &column_source.dof_handler().get_triangulation() ==
+                        &source.dof_handler().get_triangulation(),
+                    dealii::ExcMessage(
+                      "Nonlinear weak terms currently require matching "
+                      "source meshes."));
+
+        const auto degree =
+          std::max(source.space().finite_element().degree,
+                   target_field.space().finite_element().degree);
+        const dealii::QGauss<dim> quadrature(degree + 1);
+        const auto                flags = dealii::update_JxW_values |
+                           observable.update_flags() | target.update_flags();
+
+        dealii::DynamicSparsityPattern sparsity(
+          target_field.dof_handler().n_dofs(),
+          column_source.dof_handler().n_dofs(),
+          target_field.locally_owned_dofs());
+        std::vector<dealii::types::global_dof_index> target_indices(
+          target_field.space().finite_element().n_dofs_per_cell());
+        std::vector<dealii::types::global_dof_index> column_indices(
+          column_source.space().finite_element().n_dofs_per_cell());
+        for (const auto &source_cell :
+             source.dof_handler().active_cell_iterators())
+          if (source_cell->is_locally_owned())
+            {
+              const auto target_cell = source_cell->as_dof_handler_iterator(
+                target_field.dof_handler());
+              if (!target_cell->is_locally_owned())
+                continue;
+              const auto column_cell = source_cell->as_dof_handler_iterator(
+                column_source.dof_handler());
+              target_cell->get_dof_indices(target_indices);
+              column_cell->get_dof_indices(column_indices);
+              target_field.constraints().add_entries_local_to_global(
+                target_indices,
+                column_source.constraints(),
+                column_indices,
+                sparsity,
+                false);
+            }
+
+        MatrixStorage<MatrixType> result;
+        result.matrix = std::make_shared<MatrixType>();
+        result.sparsity =
+          initialize_weak_matrix(*result.matrix,
+                                 target_field.locally_owned_dofs(),
+                                 column_source.locally_owned_dofs(),
+                                 sparsity,
+                                 target_field.space().mpi_communicator());
+
+        dealii::FEValues<dim, spacedim> source_values(
+          source.mapping(), source.space().finite_element(), quadrature, flags);
+        dealii::FEValues<dim, spacedim> target_values(
+          target_field.mapping(),
+          target_field.space().finite_element(),
+          quadrature,
+          flags);
+        for (const auto &source_cell :
+             source.dof_handler().active_cell_iterators())
+          if (source_cell->is_locally_owned())
+            {
+              const auto target_cell = source_cell->as_dof_handler_iterator(
+                target_field.dof_handler());
+              if (!target_cell->is_locally_owned())
+                continue;
+              const auto column_cell = source_cell->as_dof_handler_iterator(
+                column_source.dof_handler());
+              source_values.reinit(source_cell);
+              target_values.reinit(target_cell);
+              target_cell->get_dof_indices(target_indices);
+              column_cell->get_dof_indices(column_indices);
+              const auto &target_view = target_values[target_field.extractor()];
+              dealii::FullMatrix<double> local(target_indices.size(),
+                                               column_indices.size());
+              for (unsigned int q = 0; q < quadrature.size(); ++q)
+                for (unsigned int i = 0; i < target_indices.size(); ++i)
+                  for (unsigned int j = 0; j < column_indices.size(); ++j)
+                    local(i, j) +=
+                      target.scale() *
+                      natural_pairing(derivative_at<VectorType>(observable,
+                                                                context,
+                                                                field,
+                                                                source_cell,
+                                                                source_values,
+                                                                q,
+                                                                j,
+                                                                context.time()),
+                                      target.operation()(target_view, i, q)) *
+                      target_values.JxW(q);
+              target_field.constraints().distribute_local_to_global(
+                local,
+                target_indices,
+                column_source.constraints(),
+                column_indices,
+                *result.matrix);
+            }
+        result.matrix->compress(dealii::VectorOperation::add);
+        return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static dealii::LinearOperator<VectorType, VectorType>
+      linearize(const ObservableType   &observable,
+                const TargetExpression &target,
+                const FieldId           field,
+                const Context          &context)
+      {
+        const auto storage =
+          jacobian<VectorType, MatrixType>(observable, target, field, context);
+        const auto matrix   = storage.matrix;
+        const auto sparsity = storage.sparsity;
+        const auto matrix_view =
+          ImmersX::matrix_operator<VectorType, MatrixType>(*matrix).view;
+        const auto range  = context.state(target.source().field_id());
+        const auto domain = context.state(field);
+
+        dealii::LinearOperator<VectorType, VectorType> result;
+        result.reinit_range_vector = [range](VectorType &vector,
+                                             const bool  omit) {
+          vector.reinit(range, omit);
+        };
+        result.reinit_domain_vector = [domain](VectorType &vector,
+                                               const bool  omit) {
+          vector.reinit(domain, omit);
+        };
+        result.vmult =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.vmult(destination, source);
+          };
+        result.vmult_add =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.vmult_add(destination, source);
+          };
+        result.Tvmult =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.Tvmult(destination, source);
+          };
+        result.Tvmult_add =
+          [matrix, sparsity, matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+            matrix_view.Tvmult_add(destination, source);
+          };
+        return result;
+      }
+    };
+
   } // namespace detail
 
   /** A geometry value that supplies normals for a point-supported quantity. */
@@ -1237,15 +1625,47 @@ namespace ImmersX
     FieldId
     add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
     {
-      const auto pairing   = make_pairing(builder, target_);
-      const auto source_id = pairing.source_id;
-      const auto target_id = pairing.target_id;
-
-      using Model = SemiDiscreteModel<VectorType, MatrixType>;
-      auto term   = builder.term(target_id, "weak_term");
-      if (observable_.is_frozen())
+      using Model          = SemiDiscreteModel<VectorType, MatrixType>;
+      const auto target_id = target_.source().field_id();
+      auto       term      = builder.term(target_id, "weak_term");
+      if constexpr (!detail::is_linear_observable<TrialExpression>::value)
         {
-          const auto frozen = observable_.template frozen_values<VectorType>();
+          using Assembly =
+            detail::NonlinearWeakAssembly<TrialExpression, TestExpression>;
+          term.residual(
+            [observable = observable_, target = target_](const auto &context) {
+              const auto values =
+                Assembly::template residual<VectorType, MatrixType>(observable,
+                                                                    target,
+                                                                    context);
+              typename Model::Operation result;
+              result.reinit_vector = [values](VectorType &vector,
+                                              const bool  omit) {
+                vector.reinit(*values, omit);
+              };
+              result.apply = [values](VectorType &destination) {
+                destination = *values;
+              };
+              result.apply_add = [values](VectorType &destination) {
+                destination += *values;
+              };
+              return result;
+            });
+          using OperatorFactory = typename Model::OperatorFactory;
+          for (const auto field : observable_.dependencies())
+            term.state(
+              field,
+              OperatorFactory([observable = observable_,
+                               target     = target_,
+                               field](const auto &context) {
+                return Assembly::template linearize<VectorType, MatrixType>(
+                  observable, target, field, context);
+              }));
+        }
+      else if (observable_.is_frozen())
+        {
+          const auto pairing = make_pairing(builder, target_);
+          const auto frozen  = observable_.template frozen_values<VectorType>();
           term.residual([pairing, frozen](const auto &) {
             typename Model::Operation result;
             result.reinit_vector =
@@ -1261,6 +1681,8 @@ namespace ImmersX
         }
       else
         {
+          const auto pairing   = make_pairing(builder, target_);
+          const auto source_id = pairing.source_id;
           typename Model::MatrixOperatorFactory state_factory =
             [pairing](const typename Model::Context &) {
               (void)pairing.matrix;
@@ -1286,24 +1708,109 @@ namespace ImmersX
     {
       const auto multiplier_field      = target_.source().with_id(multiplier);
       const auto multiplier_expression = value(multiplier_field);
-      const auto pairing = make_pairing(builder, multiplier_expression);
-      const auto reaction =
-        ImmersX::transpose_operator(pairing.operator_with_matrix);
-      const auto source_id = pairing.source_id;
+      const auto suffix                = "constraint." + std::to_string(index);
+      using Model = SemiDiscreteModel<VectorType, MatrixType>;
+      if constexpr (!detail::is_linear_observable<TrialExpression>::value)
+        {
+          using Assembly =
+            detail::NonlinearWeakAssembly<TrialExpression,
+                                          decltype(multiplier_expression)>;
+          auto multiplier_term =
+            builder.term(multiplier, suffix + ".multiplier");
+          multiplier_term.residual([observable = observable_,
+                                    multiplier_expression,
+                                    sign](const auto &context) {
+            const auto values =
+              Assembly::template residual<VectorType, MatrixType>(
+                observable, multiplier_expression, context);
+            typename Model::Operation result;
+            result.reinit_vector = [values](VectorType &vector,
+                                            const bool  omit) {
+              vector.reinit(*values, omit);
+            };
+            result.apply = [values, sign](VectorType &destination) {
+              destination = *values;
+              destination *= sign;
+            };
+            result.apply_add = [values, sign](VectorType &destination) {
+              destination.add(sign, *values);
+            };
+            return result;
+          });
+          using OperatorFactory = typename Model::OperatorFactory;
+          for (const auto field : observable_.dependencies())
+            multiplier_term.state(
+              field,
+              OperatorFactory(
+                [observable = observable_, multiplier_expression, field, sign](
+                  const auto &context) {
+                  return sign *
+                         Assembly::template linearize<VectorType, MatrixType>(
+                           observable, multiplier_expression, field, context);
+                }));
 
-      const auto suffix = "constraint." + std::to_string(index);
-      builder.term(multiplier, suffix + ".multiplier")
-        .residual([pairing, source_id, sign](const auto &context) {
-          return sign *
-                 (pairing.operator_with_matrix.view * context.state(source_id));
-        })
-        .state(source_id, sign * pairing.operator_with_matrix);
+          for (const auto field : observable_.dependencies())
+            {
+              auto participant_term =
+                builder.term(field, suffix + ".participant");
+              participant_term.residual([observable = observable_,
+                                         multiplier_expression,
+                                         field,
+                                         multiplier,
+                                         sign](const auto &context) {
+                const auto jacobian =
+                  Assembly::template linearize<VectorType, MatrixType>(
+                    observable, multiplier_expression, field, context);
+                const auto  reaction = dealii::transpose_operator(jacobian);
+                const auto *multiplier_state = &context.state(multiplier);
+                typename Model::Operation result;
+                result.reinit_vector = reaction.reinit_range_vector;
+                result.apply =
+                  [reaction, multiplier_state, sign](VectorType &destination) {
+                    reaction.vmult(destination, *multiplier_state);
+                    destination *= sign;
+                  };
+                result.apply_add =
+                  [reaction, multiplier_state, sign](VectorType &destination) {
+                    VectorType contribution;
+                    reaction.reinit_range_vector(contribution, false);
+                    reaction.vmult(contribution, *multiplier_state);
+                    destination.add(sign, contribution);
+                  };
+                return result;
+              });
+              participant_term.state(
+                multiplier,
+                OperatorFactory([observable = observable_,
+                                 multiplier_expression,
+                                 field,
+                                 sign](const auto &context) {
+                  const auto jacobian =
+                    Assembly::template linearize<VectorType, MatrixType>(
+                      observable, multiplier_expression, field, context);
+                  return sign * dealii::transpose_operator(jacobian);
+                }));
+            }
+        }
+      else
+        {
+          const auto pairing = make_pairing(builder, multiplier_expression);
+          const auto reaction =
+            ImmersX::transpose_operator(pairing.operator_with_matrix);
+          const auto source_id = pairing.source_id;
+          builder.term(multiplier, suffix + ".multiplier")
+            .residual([pairing, source_id, sign](const auto &context) {
+              return sign * (pairing.operator_with_matrix.view *
+                             context.state(source_id));
+            })
+            .state(source_id, sign * pairing.operator_with_matrix);
 
-      builder.term(source_id, suffix + ".participant")
-        .residual([reaction, multiplier, sign](const auto &context) {
-          return sign * (reaction.view * context.state(multiplier));
-        })
-        .state(multiplier, sign * reaction);
+          builder.term(source_id, suffix + ".participant")
+            .residual([reaction, multiplier, sign](const auto &context) {
+              return sign * (reaction.view * context.state(multiplier));
+            })
+            .state(multiplier, sign * reaction);
+        }
     }
 
     template <typename VectorType, typename MatrixType>

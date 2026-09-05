@@ -37,6 +37,22 @@ using namespace ImmersX;
 
 namespace
 {
+  struct SquareLaw
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      AssertDimension(values.size(), 1);
+      return {values[0] * values[0], {2. * values[0]}};
+    }
+  };
+
   struct ScalarSpace
   {
     ScalarSpace(Triangulation<2> &tria, const FiniteElement<2> &fe)
@@ -118,6 +134,104 @@ TEST(WeakTerm, ScalarSameDoFHandler)
   matrix->view.vmult(action, state);
   action -= expected;
   EXPECT_LT(action.l2_norm(), 1.e-12);
+}
+
+TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FE_Q<2>     fe(1);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source = V.field(layout, "source");
+  const auto target = V.field(layout, "target");
+  using Vector      = Vector<double>;
+  using Matrix      = SparseMatrix<double>;
+  using Model       = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto nonlinear = transform(value(source), SquareLaw{});
+  weak_term(nonlinear, target).add(builder);
+
+  Vector state(source.dof_handler().n_dofs());
+  for (unsigned int i = 0; i < state.size(); ++i)
+    state[i] = 1. + 0.25 * i;
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  Vector residual(target.dof_handler().n_dofs());
+  model.evaluate_row(target.field_id(), context, residual);
+
+  Vector                               expected(residual.size());
+  const QGauss<2>                      quadrature(fe.degree + 1);
+  FEValues<2>                          values(StaticMappingQ1<2>::mapping,
+                     fe,
+                     quadrature,
+                     update_values | update_JxW_values);
+  std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+  for (const auto &cell : source.dof_handler().active_cell_iterators())
+    {
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          double u = 0.;
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            u += state[indices[j]] * values.shape_value(j, q);
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            expected[indices[i]] +=
+              u * u * values.shape_value(i, q) * values.JxW(q);
+        }
+    }
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
+
+  const auto jacobian =
+    model.state_matrix_operator(target.field_id(), source.field_id(), context);
+  ASSERT_TRUE(jacobian.has_value());
+  Vector action(state.size());
+  jacobian->view.vmult(action, state);
+  Vector expected_action(action.size());
+  for (const auto &cell : source.dof_handler().active_cell_iterators())
+    {
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          double u  = 0.;
+          double du = 0.;
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            {
+              u += state[indices[j]] * values.shape_value(j, q);
+              du += state[indices[j]] * values.shape_value(j, q);
+            }
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            expected_action[indices[i]] +=
+              2. * u * du * values.shape_value(i, q) * values.JxW(q);
+        }
+    }
+  action -= expected_action;
+  EXPECT_LT(action.l2_norm(), 1.e-12);
+
+  const double epsilon   = 1.e-7;
+  Vector       perturbed = state;
+  perturbed.add(epsilon, state);
+  StateView<Vector> perturbed_view(layout, 0.);
+  perturbed_view.bind(source.field_id(), perturbed);
+  const EvaluationContext<Vector> perturbed_context(0., perturbed_view);
+  Vector                          finite_difference(residual.size());
+  model.evaluate_row(target.field_id(), perturbed_context, finite_difference);
+  finite_difference -= residual;
+  finite_difference *= 1. / epsilon;
+  Vector jacobian_action(state.size());
+  jacobian->view.vmult(jacobian_action, state);
+  finite_difference -= jacobian_action;
+  EXPECT_LT(finite_difference.l2_norm(), 1.e-6);
 }
 
 TEST(WeakTerm, ScalarDifferentDoFHandlersOnOneTriangulation)

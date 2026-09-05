@@ -33,6 +33,22 @@ using namespace ImmersX;
 
 namespace
 {
+  struct SquareLawConstraint
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      AssertDimension(values.size(), 1);
+      return {values[0] * values[0], {2. * values[0]}};
+    }
+  };
+
   template <typename FiniteElement>
   struct Space
   {
@@ -248,6 +264,70 @@ TEST(Constraint, SingleTerm)
   model.evaluate_row(fields.multiplier, context, residual);
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
+}
+
+TEST(Constraint, NonlinearSquareLaw)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+
+  FE_Q<2>       source_fe(1);
+  FE_Q<2>       multiplier_fe(2);
+  DoFHandler<2> source_dh(tria);
+  DoFHandler<2> multiplier_dh(tria);
+  source_dh.distribute_dofs(source_fe);
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  AffineConstraints<double> source_constraints;
+  AffineConstraints<double> multiplier_constraints;
+  source_constraints.close();
+  multiplier_constraints.close();
+
+  const auto source_view =
+    fe_space(source_dh, StaticMappingQ1<2>::mapping, source_constraints);
+  const auto  multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints);
+  StateLayout layout;
+  const auto  source = source_view.field(layout, "source");
+  const auto  lambda = multiplier_view.field("lambda");
+
+  using Vector = Vector<double>;
+  using Matrix = SparseMatrix<double>;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto nonlinear = transform(value(source), SquareLawConstraint{});
+  const auto fields =
+    make_constraint(weak_term(nonlinear, lambda)).add(builder);
+
+  Vector source_state(source_dh.n_dofs());
+  Vector lambda_state(multiplier_dh.n_dofs());
+  for (unsigned int i = 0; i < source_state.size(); ++i)
+    source_state[i] = 1. + 0.1 * i;
+  lambda_state = 0.25;
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  const auto constraint_jacobian =
+    model.state_operator(fields.multiplier, source.field_id(), context);
+  Vector constraint_action(lambda_state.size());
+  constraint_jacobian.vmult(constraint_action, source_state);
+  Vector constraint_residual(lambda_state.size());
+  model.evaluate_row(fields.multiplier, context, constraint_residual);
+  constraint_residual -= constraint_action;
+  EXPECT_LT(constraint_residual.l2_norm(), 1.e-12);
+
+  const auto participant_jacobian =
+    model.state_operator(source.field_id(), fields.multiplier, context);
+  Vector reaction(source_state.size());
+  participant_jacobian.vmult(reaction, lambda_state);
+  Vector participant_residual(source_state.size());
+  model.evaluate_row(source.field_id(), context, participant_residual);
+  participant_residual -= reaction;
+  EXPECT_LT(participant_residual.l2_norm(), 1.e-12);
 }
 
 TEST(Constraint, CombinesSignedSums)

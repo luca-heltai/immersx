@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include <immersx/core/observable.h>
+#include <immersx/core/symbolic_expression_kernel.h>
 #include <immersx/physics/poisson.h>
 
 #include <type_traits>
@@ -187,6 +188,96 @@ TEST(FESpace, FrozenObservablesReuseFEOperations)
   EXPECT_TRUE(frozen_value.dependencies().empty());
   EXPECT_TRUE(frozen_grad.dependencies().empty());
   EXPECT_EQ(frozen_grad.update_flags() & update_gradients, update_gradients);
+}
+
+TEST(FESpace, NonlinearTransformChainsActiveAndFrozenInputs)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<2>       fe(1);
+  DoFHandler<2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
+  const auto     field = V.field("active");
+  Vector<double> coefficients(dof_handler.n_dofs());
+  const auto     active = ImmersX::value(field);
+  const auto     fixed  = ImmersX::frozen(field, coefficients);
+
+  struct AffineKernel
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      return {values[0] + 3. * values[1], {1., 3.}};
+    }
+  };
+
+  auto       expression = ImmersX::transform(active, fixed, AffineKernel{});
+  const auto point      = Point<2>(0.25, 0.5);
+  const auto value      = expression.evaluate_point(
+    point, 0., [](const auto &, const auto &, const double) { return 2.; });
+  EXPECT_DOUBLE_EQ(value, 8.);
+  EXPECT_EQ(expression.dependencies(),
+            std::vector<ImmersX::FieldId>{field.field_id()});
+  EXPECT_DOUBLE_EQ(
+    expression.linearize_point(
+      field.field_id(),
+      point,
+      0.,
+      [](const auto &, const auto &, const double) { return 0.; },
+      [](const auto &, const auto, const auto &, const double) { return 1.; }),
+    1.);
+}
+
+TEST(FESpace, SymbolicKernelSuppliesTransformDerivatives)
+{
+  if (!ImmersX::SymbolicExpressionKernel::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<2>       fe(1);
+  DoFHandler<2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
+  const auto     field = V.field("active");
+  Vector<double> coefficients(dof_handler.n_dofs());
+  auto           kernel = ImmersX::SymbolicExpressionKernel();
+  kernel.initialize("u + 2*v", {"u", "v"});
+  const auto expression =
+    ImmersX::transform(ImmersX::value(field),
+                       ImmersX::frozen(field, coefficients),
+                       std::move(kernel));
+  const auto point = Point<2>(0.25, 0.5);
+  EXPECT_DOUBLE_EQ(expression.evaluate_point(
+                     point,
+                     0.,
+                     [](const auto &input, const auto &, const double) {
+                       return input.is_frozen() ? 3. : 4.;
+                     }),
+                   10.);
+  EXPECT_DOUBLE_EQ(
+    expression.linearize_point(
+      field.field_id(),
+      point,
+      0.,
+      [](const auto &, const auto &, const double) { return 0.; },
+      [](const auto &input, const auto, const auto &, const double) {
+        return input.is_frozen() ? 0. : 1.;
+      }),
+    1.);
 }
 
 TEST(FESpace, WrapsAnExistingProblemFromTheOutside)
