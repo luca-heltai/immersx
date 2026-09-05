@@ -1120,6 +1120,7 @@ namespace ImmersX
                    target_field.space().finite_element().degree);
         const dealii::QGauss<dim> quadrature(degree + 1);
         const auto                flags = dealii::update_JxW_values |
+                           dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
         dealii::FEValues<dim, spacedim> source_values(
           source.mapping(), source.space().finite_element(), quadrature, flags);
@@ -1192,6 +1193,7 @@ namespace ImmersX
                    target_field.space().finite_element().degree);
         const dealii::QGauss<dim> quadrature(degree + 1);
         const auto                flags = dealii::update_JxW_values |
+                           dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
 
         dealii::DynamicSparsityPattern sparsity(
