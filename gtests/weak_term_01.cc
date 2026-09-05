@@ -214,7 +214,7 @@ TEST(WeakTerm, SameDoFHandlerGradientMatchesMatrixCreator)
   ASSERT_EQ(actual_matrix->n(), reference.n());
   for (unsigned int i = 0; i < reference.m(); ++i)
     for (unsigned int j = 0; j < reference.n(); ++j)
-      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+      EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
 }
 
 TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
@@ -279,7 +279,7 @@ TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
   const auto actual_matrix = actual->matrix();
   for (unsigned int i = 0; i < reference.m(); ++i)
     for (unsigned int j = 0; j < reference.n(); ++j)
-      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+      EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
 }
 
 TEST(WeakTerm, SameDoFHandlerSymmetricGradientUsesBothExpressions)
@@ -346,7 +346,7 @@ TEST(WeakTerm, SameDoFHandlerSymmetricGradientUsesBothExpressions)
   const auto actual_matrix = actual->matrix();
   for (unsigned int i = 0; i < reference.m(); ++i)
     for (unsigned int j = 0; j < reference.n(); ++j)
-      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+      EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
 }
 
 TEST(WeakTerm, TestSideDivergenceUsesTypedOperation)
@@ -413,7 +413,7 @@ TEST(WeakTerm, TestSideDivergenceUsesTypedOperation)
   const auto actual_matrix = actual->matrix();
   for (unsigned int i = 0; i < reference.m(); ++i)
     for (unsigned int j = 0; j < reference.n(); ++j)
-      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+      EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
 }
 
 TEST(WeakTerm, ScaledObservableScalesResidualAndJacobian)
