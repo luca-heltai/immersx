@@ -140,6 +140,7 @@ namespace ImmersX
         0u))>> : std::true_type
     {};
 
+    /// \cond IMMERSX_INTERNAL
     template <typename Kernel, int spacedim, typename = void>
     struct has_point_scalar_kernel_evaluation : std::false_type
     {};
@@ -228,6 +229,8 @@ namespace ImmersX
     {
       return Type{};
     }
+
+    /// \endcond
 
     template <typename Type>
     struct is_transformed_observable : std::false_type
@@ -1249,6 +1252,7 @@ namespace ImmersX
 
   namespace detail
   {
+    /// \cond IMMERSX_INTERNAL
     template <typename Type>
     inline constexpr bool is_expression_operand =
       is_field<std::decay_t<Type>>::value ||
@@ -1335,6 +1339,7 @@ namespace ImmersX
         return -direction;
       }
     };
+    /// \endcond
   } // namespace detail
 
   template <typename Left,
