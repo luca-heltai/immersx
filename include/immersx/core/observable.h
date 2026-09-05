@@ -141,11 +141,11 @@ namespace ImmersX
     {};
 
     template <typename Kernel, int spacedim, typename = void>
-    struct has_point_kernel_evaluation : std::false_type
+    struct has_point_scalar_kernel_evaluation : std::false_type
     {};
 
     template <typename Kernel, int spacedim>
-    struct has_point_kernel_evaluation<
+    struct has_point_scalar_kernel_evaluation<
       Kernel,
       spacedim,
       std::void_t<decltype(std::declval<const Kernel &>().evaluate(
@@ -155,32 +155,78 @@ namespace ImmersX
     {};
 
     template <typename Kernel, typename = void>
-    struct has_value_kernel_evaluation : std::false_type
+    struct has_scalar_kernel_evaluation : std::false_type
     {};
 
     template <typename Kernel>
-    struct has_value_kernel_evaluation<
+    struct has_scalar_kernel_evaluation<
       Kernel,
       std::void_t<decltype(std::declval<const Kernel &>().evaluate(
         std::declval<const std::vector<double> &>()))>> : std::true_type
     {};
 
+    template <typename Kernel, typename... InputTypes>
+    struct has_typed_kernel_evaluation
+    {
+    private:
+      template <typename Type>
+      static auto
+      test(int) -> decltype(std::declval<const Type &>().evaluate(
+                              std::declval<const InputTypes &>()...),
+                            std::true_type{});
+
+      template <typename>
+      static auto
+      test(...) -> std::false_type;
+
+    public:
+      static constexpr bool value = decltype(test<Kernel>(0))::value;
+    };
+
+    template <typename Type, typename = void>
+    struct has_value_member : std::false_type
+    {};
+
+    template <typename Type>
+    struct has_value_member<
+      Type,
+      std::void_t<decltype(std::declval<const Type &>().value)>>
+      : std::true_type
+    {};
+
+    template <typename Type>
+    decltype(auto)
+    kernel_value(const Type &result)
+    {
+      if constexpr (has_value_member<Type>::value)
+        return result.value;
+      else
+        return result;
+    }
+
     template <typename Kernel, int spacedim>
     auto
-    evaluate_kernel(const Kernel                  &kernel,
-                    const dealii::Point<spacedim> &point,
-                    const double                   time,
-                    const std::vector<double>     &values)
+    evaluate_scalar_kernel(const Kernel                  &kernel,
+                           const dealii::Point<spacedim> &point,
+                           const double                   time,
+                           const std::vector<double>     &values)
     {
-      if constexpr (has_point_kernel_evaluation<Kernel, spacedim>::value)
+      if constexpr (has_point_scalar_kernel_evaluation<Kernel, spacedim>::value)
         return kernel.evaluate(point, time, values);
       else
         {
-          static_assert(has_value_kernel_evaluation<Kernel>::value,
-                        "A nonlinear kernel must provide evaluate(values) or "
+          static_assert(has_scalar_kernel_evaluation<Kernel>::value,
+                        "A scalar kernel must provide evaluate(values) or "
                         "evaluate(point, time, values).");
           return kernel.evaluate(values);
         }
+    }
+
+    template <typename Type>
+    Type
+    zero_like()
+    {
+      return Type{};
     }
 
     template <typename Type>
@@ -345,14 +391,14 @@ namespace ImmersX
     }
 
     template <typename DerivativeEvaluator>
-    double
+    value_type
     linearize_point(const FieldId                    field,
                     const dealii::Point<spacedim()> &point,
                     const double                     time,
                     DerivativeEvaluator            &&derivative_evaluator) const
     {
       if (is_frozen() || source_field() != field)
-        return 0.;
+        return detail::zero_like<value_type>();
       return scale_ * derivative_evaluator(*this, field, point, time);
     }
 
@@ -391,6 +437,152 @@ namespace ImmersX
     {};
   } // namespace detail
 
+  /**
+   * A state-independent FE expression representing a residual test row.
+   *
+   * Test expressions deliberately expose the same native deal.II operation
+   * and source field as an Observable, but have no state dependencies.  This
+   * keeps the trial/state side and the residual/test side distinct in the
+   * weak-term API while allowing the same FEValuesViews operations on both.
+   */
+  template <typename SourceFieldType, typename Operation>
+  class TestExpression
+  {
+  public:
+    using source_field_type = SourceFieldType;
+    using operation_type    = Operation;
+    using view_type         = typename SourceFieldType::view_type;
+    using value_type        = std::decay_t<
+      decltype(std::declval<Operation>()(std::declval<const view_type &>(),
+                                         0u,
+                                         0u))>;
+
+    explicit TestExpression(const SourceFieldType &source)
+      : source_(source)
+    {}
+
+    TestExpression(const TestExpression &) = default;
+    TestExpression(TestExpression &&)      = default;
+    TestExpression &
+    operator=(const TestExpression &) = default;
+    TestExpression &
+    operator=(TestExpression &&) = default;
+
+    static constexpr unsigned int
+    dimension()
+    {
+      return SourceFieldType::dimension();
+    }
+
+    static constexpr unsigned int
+    space_dimension()
+    {
+      return dimension();
+    }
+
+    static constexpr unsigned int
+    spacedimension()
+    {
+      return SourceFieldType::spacedimension();
+    }
+
+    static constexpr unsigned int
+    spacedim()
+    {
+      return spacedimension();
+    }
+
+    const SourceFieldType &
+    source() const
+    {
+      return source_;
+    }
+
+    const SourceFieldType &
+    source_for(const FieldId field) const
+    {
+      AssertThrow(source_.field_id() == field,
+                  dealii::ExcMessage(
+                    "The requested field is not a test expression source."));
+      return source_;
+    }
+
+    FieldId
+    source_field() const
+    {
+      return source_.field_id();
+    }
+
+    const std::vector<FieldId> &
+    dependencies() const
+    {
+      static const std::vector<FieldId> none;
+      return none;
+    }
+
+    Operation
+    operation() const
+    {
+      return {};
+    }
+
+    static constexpr dealii::UpdateFlags
+    update_flags()
+    {
+      return Operation::update_flags;
+    }
+
+    static constexpr bool
+    is_linear()
+    {
+      return true;
+    }
+
+    bool
+    is_frozen() const
+    {
+      return false;
+    }
+
+    double
+    scale() const
+    {
+      return scale_;
+    }
+
+    TestExpression
+    scaled(const double coefficient) const
+    {
+      auto result = *this;
+      result.scale_ *= coefficient;
+      return result;
+    }
+
+    TestExpression
+    with_id(const FieldId id) const
+    {
+      auto result    = *this;
+      result.source_ = source_.with_id(id);
+      return result;
+    }
+
+  private:
+    SourceFieldType source_;
+    double          scale_ = 1.;
+  };
+
+  namespace detail
+  {
+    template <typename Type>
+    struct is_test_expression : std::false_type
+    {};
+
+    template <typename SourceFieldType, typename Operation>
+    struct is_test_expression<TestExpression<SourceFieldType, Operation>>
+      : std::true_type
+    {};
+  } // namespace detail
+
   /// \cond IMMERSX_INTERNAL
   template <typename ObservableType, typename Evaluator>
   decltype(auto)
@@ -403,7 +595,7 @@ namespace ImmersX
   template <typename ObservableType,
             typename Evaluator,
             typename DerivativeEvaluator>
-  double
+  decltype(auto)
   linearize_observable_input(
     const ObservableType                                  &observable,
     const FieldId                                          field,
@@ -411,6 +603,84 @@ namespace ImmersX
     const double                                           time,
     Evaluator                                            &&evaluator,
     DerivativeEvaluator &&derivative_evaluator);
+
+  namespace detail
+  {
+    template <typename Kernel, int spacedim, bool>
+    struct scalar_kernel_value_type;
+
+    template <typename Kernel, int spacedim>
+    struct scalar_kernel_value_type<Kernel, spacedim, true>
+    {
+      using evaluation_type = decltype(std::declval<const Kernel &>().evaluate(
+        std::declval<const dealii::Point<spacedim> &>(),
+        0.,
+        std::declval<const std::vector<double> &>()));
+      using type            = std::decay_t<decltype(kernel_value(
+        std::declval<const evaluation_type &>()))>;
+    };
+
+    template <typename Kernel, int spacedim>
+    struct scalar_kernel_value_type<Kernel, spacedim, false>
+    {
+      using evaluation_type = decltype(std::declval<const Kernel &>().evaluate(
+        std::declval<const std::vector<double> &>()));
+      using type            = std::decay_t<decltype(kernel_value(
+        std::declval<const evaluation_type &>()))>;
+    };
+
+    template <typename Kernel, typename Tuple>
+    struct typed_kernel_value_type;
+
+    template <typename Kernel, typename... InputTypes>
+    struct typed_kernel_value_type<Kernel, std::tuple<InputTypes...>>
+    {
+      using evaluation_type = decltype(std::declval<const Kernel &>().evaluate(
+        std::declval<const InputTypes &>()...));
+      using type            = std::decay_t<decltype(kernel_value(
+        std::declval<const evaluation_type &>()))>;
+    };
+
+    template <typename Kernel, typename Tuple, bool, int spacedim>
+    struct transformed_value_type;
+
+    template <typename Kernel, typename Tuple, int spacedim>
+    struct transformed_value_type<Kernel, Tuple, true, spacedim>
+    {
+      using type = typename typed_kernel_value_type<Kernel, Tuple>::type;
+    };
+
+    template <typename Kernel, typename Tuple, int spacedim>
+    struct transformed_value_type<Kernel, Tuple, false, spacedim>
+    {
+      using type = typename scalar_kernel_value_type<
+        Kernel,
+        spacedim,
+        has_point_scalar_kernel_evaluation<Kernel, spacedim>::value>::type;
+    };
+
+    template <typename Kernel, typename Tuple>
+    struct has_typed_kernel_linearization;
+
+    template <typename Kernel, typename... InputTypes>
+    struct has_typed_kernel_linearization<Kernel, std::tuple<InputTypes...>>
+    {
+    private:
+      template <typename Type>
+      static auto
+      test(int) -> decltype(std::declval<const Type &>().linearize(
+                              std::declval<const InputTypes &>()...,
+                              std::declval<const InputTypes &>()...),
+                            std::true_type{});
+
+      template <typename>
+      static auto
+      test(...) -> std::false_type;
+
+    public:
+      static constexpr bool value = decltype(test<Kernel>(0))::value;
+    };
+  } // namespace detail
 
   /** A compile-time pointwise composition of one or more Observables. */
   template <typename Kernel, typename... InputObservables>
@@ -426,8 +696,22 @@ namespace ImmersX
       std::tuple_element_t<0, std::tuple<std::decay_t<InputObservables>...>>;
 
   public:
-    using source_field_type        = typename FirstInput::source_field_type;
-    using value_type               = double;
+    using source_field_type = typename FirstInput::source_field_type;
+    using input_value_types =
+      std::tuple<typename std::decay_t<InputObservables>::value_type...>;
+    static constexpr bool has_typed_kernel =
+      detail::has_typed_kernel_evaluation<
+        Kernel,
+        typename std::decay_t<InputObservables>::value_type...>::value &&
+      !detail::has_point_scalar_kernel_evaluation<
+        Kernel,
+        source_field_type::spacedimension()>::value &&
+      !detail::has_scalar_kernel_evaluation<Kernel>::value;
+    using value_type = typename detail::transformed_value_type<
+      Kernel,
+      input_value_types,
+      has_typed_kernel,
+      source_field_type::spacedimension()>::type;
     static constexpr int space_dim = source_field_type::spacedimension();
 
     TransformedObservable(Kernel kernel, InputObservables... inputs)
@@ -540,30 +824,108 @@ namespace ImmersX
                    Evaluator                     &&evaluator) const
     {
       const auto values = input_values(point, time, evaluator);
-      return scale_ *
-             detail::evaluate_kernel(*kernel_, point, time, values).value;
+      return scale_ * evaluate_kernel(point, time, values);
     }
 
     template <typename Evaluator, typename DerivativeEvaluator>
-    double
+    value_type
     linearize_point(const FieldId                   field,
                     const dealii::Point<space_dim> &point,
                     const double                    time,
                     Evaluator                     &&evaluator,
                     DerivativeEvaluator           &&derivative_evaluator) const
     {
+      if (std::find(dependencies_.begin(), dependencies_.end(), field) ==
+          dependencies_.end())
+        return detail::zero_like<value_type>();
+
       const auto values = input_values(point, time, evaluator);
-      const auto evaluation =
-        detail::evaluate_kernel(*kernel_, point, time, values);
-      return scale_ * linearize_inputs(field,
-                                       point,
-                                       time,
-                                       evaluation.derivatives,
-                                       evaluator,
-                                       derivative_evaluator);
+      const auto directions =
+        input_directions(field, point, time, evaluator, derivative_evaluator);
+      return scale_ * linearize_kernel(point, time, values, directions);
     }
 
   private:
+    template <typename Tuple>
+    value_type
+    evaluate_kernel(const dealii::Point<space_dim> &point,
+                    const double                    time,
+                    const Tuple                    &values) const
+    {
+      if constexpr (has_typed_kernel)
+        return std::apply(
+          [this](const auto &...input) {
+            return detail::kernel_value(kernel_->evaluate(input...));
+          },
+          values);
+      else
+        {
+          static_assert(
+            (std::is_arithmetic_v<
+               typename std::decay_t<InputObservables>::value_type> &&
+             ...),
+            "A scalar vector kernel may only be used with scalar Observables; "
+            "typed kernels must accept the native Observable value types.");
+          std::vector<double> scalar_values;
+          std::apply(
+            [&scalar_values](const auto &...input) {
+              scalar_values.reserve(sizeof...(input));
+              (scalar_values.push_back(static_cast<double>(input)), ...);
+            },
+            values);
+          return detail::kernel_value(detail::evaluate_scalar_kernel(
+            *kernel_, point, time, scalar_values));
+        }
+    }
+
+    template <typename Tuple>
+    value_type
+    linearize_kernel(const dealii::Point<space_dim> &point,
+                     const double                    time,
+                     const Tuple                    &values,
+                     const Tuple                    &directions) const
+    {
+      if constexpr (detail::has_typed_kernel_linearization<
+                      Kernel,
+                      input_value_types>::value)
+        {
+          const auto all = std::tuple_cat(values, directions);
+          return std::apply(
+            [this](const auto &...input) {
+              return kernel_->linearize(input...);
+            },
+            all);
+        }
+      else
+        {
+          static_assert(!has_typed_kernel,
+                        "A typed C++ kernel must provide linearize(values..., "
+                        "directions...) returning its native output type.");
+          std::vector<double> scalar_values;
+          std::vector<double> scalar_directions;
+          std::apply(
+            [&scalar_values](const auto &...input) {
+              scalar_values.reserve(sizeof...(input));
+              (scalar_values.push_back(static_cast<double>(input)), ...);
+            },
+            values);
+          std::apply(
+            [&scalar_directions](const auto &...input) {
+              scalar_directions.reserve(sizeof...(input));
+              (scalar_directions.push_back(static_cast<double>(input)), ...);
+            },
+            directions);
+          const auto evaluation = detail::evaluate_scalar_kernel(*kernel_,
+                                                                 point,
+                                                                 time,
+                                                                 scalar_values);
+          value_type result     = detail::zero_like<value_type>();
+          for (std::size_t i = 0; i < scalar_directions.size(); ++i)
+            result += evaluation.derivatives[i] * scalar_directions[i];
+          return result;
+        }
+    }
+
     std::vector<FieldId>
     collect_dependencies() const
     {
@@ -584,45 +946,33 @@ namespace ImmersX
     }
 
     template <typename Evaluator>
-    std::vector<double>
+    auto
     input_values(const dealii::Point<space_dim> &point,
                  const double                    time,
                  Evaluator                      &evaluator) const
     {
-      std::vector<double> result;
-      result.reserve(sizeof...(InputObservables));
-      std::apply(
+      return std::apply(
         [&](const auto &...input) {
-          (result.push_back(
-             evaluate_observable_input(input, point, time, evaluator)),
-           ...);
+          return std::make_tuple(
+            evaluate_observable_input(input, point, time, evaluator)...);
         },
         inputs_);
-      return result;
     }
 
     template <typename Evaluator, typename DerivativeEvaluator>
-    double
-    linearize_inputs(const FieldId                   field,
+    auto
+    input_directions(const FieldId                   field,
                      const dealii::Point<space_dim> &point,
                      const double                    time,
-                     const std::vector<double>      &kernel_derivatives,
                      Evaluator                      &evaluator,
                      DerivativeEvaluator            &derivative_evaluator) const
     {
-      AssertDimension(kernel_derivatives.size(), sizeof...(InputObservables));
-      double      result = 0.;
-      std::size_t index  = 0;
-      std::apply(
+      return std::apply(
         [&](const auto &...input) {
-          ((result +=
-            kernel_derivatives[index++] *
-            linearize_observable_input(
-              input, field, point, time, evaluator, derivative_evaluator)),
-           ...);
+          return std::make_tuple(linearize_observable_input(
+            input, field, point, time, evaluator, derivative_evaluator)...);
         },
         inputs_);
-      return result;
     }
 
     std::shared_ptr<const Kernel>                 kernel_;
@@ -663,7 +1013,7 @@ namespace ImmersX
   template <typename ObservableType,
             typename Evaluator,
             typename DerivativeEvaluator>
-  double
+  decltype(auto)
   linearize_observable_input(
     const ObservableType                                  &observable,
     const FieldId                                          field,
@@ -773,6 +1123,16 @@ namespace ImmersX
     return Observable<std::decay_t<FieldType>, detail::CurlOperation>(field);
   }
 
+  /** Mark a Field as the residual row represented by a test function. */
+  template <typename FieldType,
+            std::enable_if_t<detail::is_field<FieldType>::value, int> = 0>
+  auto
+  test(const FieldType &field)
+  {
+    return TestExpression<std::decay_t<FieldType>, detail::ValueOperation>(
+      field);
+  }
+
   /** \cond */
   template <
     typename Type,
@@ -840,19 +1200,225 @@ namespace ImmersX
   }
 
   template <typename SourceFieldType, typename Operation>
-  Observable<SourceFieldType, Operation>
-  operator*(const double                           coefficient,
-            Observable<SourceFieldType, Operation> observable)
+  auto
+  value(const TestExpression<SourceFieldType, Operation> &expression)
   {
-    return observable.scaled(coefficient);
+    return TestExpression<SourceFieldType, detail::ValueOperation>(
+      expression.source());
   }
 
   template <typename SourceFieldType, typename Operation>
-  Observable<SourceFieldType, Operation>
-  operator*(Observable<SourceFieldType, Operation> observable,
-            const double                           coefficient)
+  auto
+  gradient(const TestExpression<SourceFieldType, Operation> &expression)
   {
-    return observable.scaled(coefficient);
+    return TestExpression<SourceFieldType, detail::GradientOperation>(
+      expression.source());
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  divergence(const TestExpression<SourceFieldType, Operation> &expression)
+  {
+    return TestExpression<SourceFieldType, detail::DivergenceOperation>(
+      expression.source());
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  symmetric_gradient(
+    const TestExpression<SourceFieldType, Operation> &expression)
+  {
+    return TestExpression<SourceFieldType, detail::SymmetricGradientOperation>(
+      expression.source());
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  curl(const TestExpression<SourceFieldType, Operation> &expression)
+  {
+    return TestExpression<SourceFieldType, detail::CurlOperation>(
+      expression.source());
+  }
+
+  namespace detail
+  {
+    template <typename Type>
+    inline constexpr bool is_expression_operand =
+      is_field<std::decay_t<Type>>::value ||
+      is_observable<std::decay_t<Type>>::value;
+
+    struct AddKernel
+    {
+      template <typename Left, typename Right>
+      auto
+      evaluate(const Left &left, const Right &right) const
+      {
+        return left + right;
+      }
+
+      template <typename Left, typename Right>
+      auto
+      linearize(const Left  &left,
+                const Right &right,
+                const Left  &dleft,
+                const Right &dright) const
+      {
+        (void)left;
+        (void)right;
+        return dleft + dright;
+      }
+    };
+
+    struct SubtractKernel
+    {
+      template <typename Left, typename Right>
+      auto
+      evaluate(const Left &left, const Right &right) const
+      {
+        return left - right;
+      }
+
+      template <typename Left, typename Right>
+      auto
+      linearize(const Left  &left,
+                const Right &right,
+                const Left  &dleft,
+                const Right &dright) const
+      {
+        (void)left;
+        (void)right;
+        return dleft - dright;
+      }
+    };
+
+    struct ProductKernel
+    {
+      template <typename Left, typename Right>
+      auto
+      evaluate(const Left &left, const Right &right) const
+      {
+        return left * right;
+      }
+
+      template <typename Left, typename Right>
+      auto
+      linearize(const Left  &left,
+                const Right &right,
+                const Left  &dleft,
+                const Right &dright) const
+      {
+        return dleft * right + left * dright;
+      }
+    };
+
+    struct NegateKernel
+    {
+      template <typename Value>
+      auto
+      evaluate(const Value &value) const
+      {
+        return -value;
+      }
+
+      template <typename Value>
+      auto
+      linearize(const Value &value, const Value &direction) const
+      {
+        (void)value;
+        return -direction;
+      }
+    };
+  } // namespace detail
+
+  template <typename Left,
+            typename Right,
+            std::enable_if_t<detail::is_expression_operand<Left> &&
+                               detail::is_expression_operand<Right>,
+                             int> = 0>
+  auto
+  operator+(Left left, Right right)
+  {
+    return transform(as_fe_expression(left),
+                     as_fe_expression(right),
+                     detail::AddKernel{});
+  }
+
+  template <typename Left,
+            typename Right,
+            std::enable_if_t<detail::is_expression_operand<Left> &&
+                               detail::is_expression_operand<Right>,
+                             int> = 0>
+  auto
+  operator-(Left left, Right right)
+  {
+    return transform(as_fe_expression(left),
+                     as_fe_expression(right),
+                     detail::SubtractKernel{});
+  }
+
+  template <
+    typename Expression,
+    std::enable_if_t<detail::is_expression_operand<Expression>, int> = 0>
+  auto
+  operator-(Expression expression)
+  {
+    return transform(as_fe_expression(expression), detail::NegateKernel{});
+  }
+
+  template <typename Left,
+            typename Right,
+            std::enable_if_t<detail::is_expression_operand<Left> &&
+                               detail::is_expression_operand<Right>,
+                             int> = 0>
+  auto
+  operator*(Left left, Right right)
+  {
+    return transform(as_fe_expression(left),
+                     as_fe_expression(right),
+                     detail::ProductKernel{});
+  }
+
+  template <
+    typename Expression,
+    std::enable_if_t<detail::is_expression_operand<Expression>, int> = 0>
+  auto
+  operator*(const double coefficient, Expression expression)
+  {
+    return as_fe_expression(expression).scaled(coefficient);
+  }
+
+  template <
+    typename Expression,
+    std::enable_if_t<detail::is_expression_operand<Expression>, int> = 0>
+  auto
+  operator*(Expression expression, const double coefficient)
+  {
+    return as_fe_expression(expression).scaled(coefficient);
+  }
+
+  template <
+    typename Expression,
+    std::enable_if_t<detail::is_expression_operand<Expression>, int> = 0>
+  auto
+  operator/(Expression expression, const double coefficient)
+  {
+    return as_fe_expression(expression).scaled(1. / coefficient);
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  operator*(const double                               coefficient,
+            TestExpression<SourceFieldType, Operation> expression)
+  {
+    return expression.scaled(coefficient);
+  }
+
+  template <typename SourceFieldType, typename Operation>
+  auto
+  operator*(TestExpression<SourceFieldType, Operation> expression,
+            const double                               coefficient)
+  {
+    return expression.scaled(coefficient);
   }
 } // namespace ImmersX
 

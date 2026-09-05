@@ -111,7 +111,7 @@ TEST(WeakTerm, ScalarSameDoFHandler)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  const auto                          term = weak_term(source, target);
+  const auto                          term = weak_term(source, test(target));
   EXPECT_EQ(term(builder), target.field_id());
 
   Vector state(space.dof_handler.n_dofs());
@@ -155,7 +155,7 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto nonlinear = transform(value(source), SquareLaw{});
-  weak_term(nonlinear, target).add(builder);
+  weak_term(nonlinear, test(target)).add(builder);
 
   Vector state(source.dof_handler().n_dofs());
   for (unsigned int i = 0; i < state.size(); ++i)
@@ -237,6 +237,120 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   EXPECT_LT(finite_difference.l2_norm(), 1.e-6);
 }
 
+TEST(WeakTerm, TypedVectorConvectionResidualJacobian)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FESystem<2> fe(FE_Q<2>(1), 2);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto source = V.field(layout, "source", FEValuesExtractors::Vector(0));
+  const auto target = V.field(layout, "target", FEValuesExtractors::Vector(0));
+  using Vector      = Vector<double>;
+  using Matrix      = SparseMatrix<double>;
+  using Model       = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto                          convection = gradient(source) * source;
+  weak_term(convection, test(target)).add(builder);
+
+  Vector state(source.dof_handler().n_dofs());
+  Vector direction(state.size());
+  for (unsigned int i = 0; i < state.size(); ++i)
+    {
+      state[i]     = 0.2 + 0.13 * i;
+      direction[i] = -0.1 + 0.07 * i;
+    }
+  Vector            target_state(target.dof_handler().n_dofs());
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), state);
+  state_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  Vector residual(target.dof_handler().n_dofs());
+  model.evaluate_row(target.field_id(), context, residual);
+
+  const QGauss<2> quadrature(fe.degree + 1);
+  FEValues<2>     values(StaticMappingQ1<2>::mapping,
+                     fe,
+                     quadrature,
+                     update_values | update_gradients | update_JxW_values);
+  const auto     &view = values[FEValuesExtractors::Vector(0)];
+  std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+  Vector                               expected(residual.size());
+  for (const auto &cell : source.dof_handler().active_cell_iterators())
+    {
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      for (const unsigned int q : values.quadrature_point_indices())
+        {
+          Tensor<1, 2> u;
+          Tensor<2, 2> grad_u;
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            {
+              u += state[indices[j]] * view.value(j, q);
+              grad_u += state[indices[j]] * view.gradient(j, q);
+            }
+          const auto convective = grad_u * u;
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            expected[indices[i]] +=
+              scalar_product(convective, view.value(i, q)) * values.JxW(q);
+        }
+    }
+  const Vector residual_value = residual;
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
+
+  const auto jacobian =
+    model.state_operator(target.field_id(), source.field_id(), context);
+  Vector action(state.size());
+  jacobian.vmult(action, direction);
+  Vector expected_action(action.size());
+  for (const auto &cell : source.dof_handler().active_cell_iterators())
+    {
+      values.reinit(cell);
+      cell->get_dof_indices(indices);
+      for (const unsigned int q : values.quadrature_point_indices())
+        {
+          Tensor<1, 2> u;
+          Tensor<2, 2> grad_u;
+          Tensor<1, 2> du;
+          Tensor<2, 2> grad_du;
+          for (unsigned int j = 0; j < indices.size(); ++j)
+            {
+              u += state[indices[j]] * view.value(j, q);
+              grad_u += state[indices[j]] * view.gradient(j, q);
+              du += direction[indices[j]] * view.value(j, q);
+              grad_du += direction[indices[j]] * view.gradient(j, q);
+            }
+          const auto directional = grad_du * u + grad_u * du;
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            expected_action[indices[i]] +=
+              scalar_product(directional, view.value(i, q)) * values.JxW(q);
+        }
+    }
+  action -= expected_action;
+  EXPECT_LT(action.l2_norm(), 1.e-12);
+
+  const double epsilon = 1.e-7;
+  Vector       plus    = state;
+  plus.add(epsilon, direction);
+  StateView<Vector> plus_view(layout, 0.);
+  plus_view.bind(source.field_id(), plus);
+  plus_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> plus_context(0., plus_view);
+  Vector                          plus_residual(residual.size());
+  model.evaluate_row(target.field_id(), plus_context, plus_residual);
+  plus_residual -= residual_value;
+  plus_residual *= 1. / epsilon;
+  plus_residual -= expected_action;
+  EXPECT_LT(plus_residual.l2_norm(), 1.e-6);
+}
+
 TEST(WeakTerm, ScalarDifferentDoFHandlersOnOneTriangulation)
 {
   Triangulation<2> tria;
@@ -261,7 +375,7 @@ TEST(WeakTerm, ScalarDifferentDoFHandlersOnOneTriangulation)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(value(source), target).add(builder);
+  weak_term(value(source), test(target)).add(builder);
 
   Vector state(source_space.dof_handler.n_dofs());
   for (unsigned int i = 0; i < state.size(); ++i)
@@ -300,7 +414,7 @@ TEST(WeakTerm, SameDoFHandlerGradientMatchesMatrixCreator)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(gradient(source), gradient(target)).add(builder);
+  weak_term(gradient(source), gradient(test(target))).add(builder);
   StateView<Vector>               state_view(layout, 0.);
   const EvaluationContext<Vector> context(0., state_view);
   const auto                      actual =
@@ -352,7 +466,7 @@ TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(gradient(source), gradient(target)).add(builder);
+  weak_term(gradient(source), gradient(test(target))).add(builder);
   StateView<Vector>               state_view(layout, 0.);
   const EvaluationContext<Vector> context(0., state_view);
   const auto                      actual =
@@ -417,7 +531,7 @@ TEST(WeakTerm, SameDoFHandlerSymmetricGradientUsesBothExpressions)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(symmetric_gradient(source), symmetric_gradient(target))
+  weak_term(symmetric_gradient(source), symmetric_gradient(test(target)))
     .add(builder);
   StateView<Vector>               state_view(layout, 0.);
   const EvaluationContext<Vector> context(0., state_view);
@@ -486,7 +600,7 @@ TEST(WeakTerm, TestSideDivergenceUsesTypedOperation)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(value(source), divergence(target)).add(builder);
+  weak_term(value(source), divergence(test(target))).add(builder);
   StateView<Vector>               state_view(layout, 0.);
   const EvaluationContext<Vector> context(0., state_view);
   const auto                      actual =
@@ -550,7 +664,7 @@ TEST(WeakTerm, ScaledObservableScalesResidualAndJacobian)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(2.5 * value(source), 3.0 * value(target)).add(builder);
+  weak_term(2.5 * value(source), 3.0 * test(target)).add(builder);
 
   Vector state(space.dof_handler.n_dofs());
   for (unsigned int i = 0; i < state.size(); ++i)
@@ -600,7 +714,7 @@ TEST(WeakTerm, FrozenObservableContributesWithoutSourceDependency)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(observable, target).add(builder);
+  weak_term(observable, test(target)).add(builder);
 
   StateView<Vector>               state_view(layout, 0.);
   const EvaluationContext<Vector> context(0., state_view);
@@ -630,7 +744,7 @@ TEST(WeakTerm, VectorPairingHasConsistentTranspose)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(value(source), target).add(builder);
+  weak_term(value(source), test(target)).add(builder);
 
   Vector state(space.dof_handler.n_dofs());
   Vector dual(space.dof_handler.n_dofs());
@@ -677,7 +791,7 @@ TEST(WeakTerm, ScalarGradientPairsWithVectorTestField)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(gradient(source), target).add(builder);
+  weak_term(gradient(source), test(target)).add(builder);
 
   Vector state(source_space.dof_handler.n_dofs());
   for (unsigned int i = 0; i < state.size(); ++i)
@@ -721,7 +835,7 @@ TEST(WeakTerm, MPI_DistributedSameDoFHandler)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(value(source), target).add(builder);
+  weak_term(value(source), test(target)).add(builder);
 
   Vector state;
   state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);

@@ -527,8 +527,8 @@ namespace
                                   dealii::numbers::PI);
                }));
       const auto kinematic_constraint =
-        make_constraint(weak_term(value(*solid_field), lambda_wall) -
-                        weak_term(wall_displacement, lambda_field));
+        make_constraint(weak_term(value(*solid_field), test(lambda_wall)) -
+                        weak_term(wall_displacement, test(lambda_field)));
       coupling_fields =
         adapter->add(kinematic_constraint, "vessel-wall").fields();
       adapter->add(*interaction,

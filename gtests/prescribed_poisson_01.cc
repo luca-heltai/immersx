@@ -118,7 +118,7 @@ TEST(PrescribedPoisson, MPI_UnifiedConstraintReplacement) // NOLINT
   prescribed = 1.;
   prescribed.compress(VectorOperation::insert);
   const auto coupling =
-    adapter.add(make_constraint(weak_term(value(bulk_field), lambda),
+    adapter.add(make_constraint(weak_term(value(bulk_field), test(lambda)),
                                 prescribed),
                 "prescribed");
 
@@ -213,7 +213,7 @@ TEST(PrescribedPoisson,
   prescribed = 1.;
   prescribed.compress(VectorOperation::insert);
   const auto coupling =
-    adapter.add(make_constraint(weak_term(value(bulk_field), lambda),
+    adapter.add(make_constraint(weak_term(value(bulk_field), test(lambda)),
                                 prescribed),
                 "prescribed");
 

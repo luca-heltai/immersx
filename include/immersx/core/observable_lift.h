@@ -971,6 +971,31 @@ namespace ImmersX
     std::vector<dealii::types::global_dof_index> point_indices_;
   };
 
+  /** A lifted Observable used only as an explicit residual test expression. */
+  template <typename LiftedObservableType>
+  class TestLiftedObservable : public LiftedObservableType
+  {
+  public:
+    using LiftedObservableType::LiftedObservableType;
+
+    explicit TestLiftedObservable(const LiftedObservableType &observable)
+      : LiftedObservableType(observable)
+    {}
+
+    const std::vector<FieldId> &
+    dependencies() const
+    {
+      static const std::vector<FieldId> none;
+      return none;
+    }
+
+    TestLiftedObservable
+    with_id(const FieldId id) const
+    {
+      return TestLiftedObservable(LiftedObservableType::with_id(id));
+    }
+  };
+
   namespace detail
   {
     template <typename SourceObservable,
@@ -996,7 +1021,26 @@ namespace ImmersX
                                                  spacedim,
                                                  n_components>> : std::true_type
     {};
+
+    template <typename LiftedObservableType>
+    struct is_test_expression<TestLiftedObservable<LiftedObservableType>>
+      : std::true_type
+    {};
+
+    template <typename LiftedObservableType>
+    struct is_lifted_observable<TestLiftedObservable<LiftedObservableType>>
+      : std::true_type
+    {};
   } // namespace detail
+
+  template <typename LiftedObservableType>
+  auto
+  test(const LiftedObservableType &observable) -> std::enable_if_t<
+    detail::is_lifted_observable<LiftedObservableType>::value,
+    TestLiftedObservable<LiftedObservableType>>
+  {
+    return TestLiftedObservable<LiftedObservableType>(observable);
+  }
 
   template <
     typename SourceObservable,

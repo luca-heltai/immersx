@@ -136,8 +136,9 @@ namespace
                             dealii::numbers::PI);
                         }));
       const auto kinematic_constraint = ImmersX::make_constraint(
-        ImmersX::weak_term(ImmersX::value(*solid_field), lambda_wall) -
-        ImmersX::weak_term(wall_displacement, lambda_field));
+        ImmersX::weak_term(ImmersX::value(*solid_field),
+                           ImmersX::test(lambda_wall)) -
+        ImmersX::weak_term(wall_displacement, ImmersX::test(lambda_field)));
       coupling_fields =
         adapter->add(kinematic_constraint, "vessel-wall").fields();
       adapter->add(*interaction,

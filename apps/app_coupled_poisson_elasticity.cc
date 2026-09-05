@@ -84,7 +84,7 @@ main(int argc, char *argv[])
                              ImmersX::value(poisson_field),
                            pressure_lift);
       const auto traction = pressure * ImmersX::normal(surface);
-      adapter.add(ImmersX::weak_term(traction, displacement),
+      adapter.add(ImmersX::weak_term(traction, ImmersX::test(displacement)),
                   "pressure-traction");
 
       auto state = adapter.make_state();

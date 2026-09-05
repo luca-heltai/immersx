@@ -883,7 +883,7 @@ namespace ImmersX
       }
     };
 
-    /** Pointwise assembly for a state-dependent scalar Observable. */
+    /** Pointwise assembly for a state-dependent Observable. */
     template <typename ObservableType, typename TargetExpression>
     struct NonlinearWeakAssembly
     {
@@ -932,7 +932,7 @@ namespace ImmersX
                 typename Context,
                 typename Cell,
                 typename SourceValues>
-      static double
+      static typename std::decay_t<ObservableType_>::value_type
       primitive_value(const ObservableType_ &observable,
                       const Context         &context,
                       const Cell            &source_cell,
@@ -940,10 +940,7 @@ namespace ImmersX
                       const unsigned int     q)
       {
         using Observable = std::decay_t<decltype(observable)>;
-        using Scalar     = typename Observable::value_type;
-        static_assert(std::is_arithmetic_v<Scalar>,
-                      "Nonlinear kernels currently consume scalar FE "
-                      "expressions.");
+        using Value      = typename Observable::value_type;
 
         const auto input_cell = source_cell->as_dof_handler_iterator(
           observable.source().dof_handler());
@@ -961,14 +958,14 @@ namespace ImmersX
                                                          local_values.end());
 
         const auto &view   = source_values[observable.source().extractor()];
-        double      result = 0.;
+        Value       result = Value{};
         for (unsigned int i = 0; i < indices.size(); ++i)
           result += local_values[i] * observable.operation()(view, i, q);
         return observable.scale() * result;
       }
 
       template <typename ObservableType_, typename Cell, typename SourceValues>
-      static double
+      static typename std::decay_t<ObservableType_>::value_type
       primitive_derivative(const ObservableType_ &observable,
                            const FieldId          field,
                            const Cell            &source_cell,
@@ -977,8 +974,9 @@ namespace ImmersX
                            const unsigned int     basis)
       {
         using Observable = std::decay_t<decltype(observable)>;
+        using Value      = typename Observable::value_type;
         if (observable.is_frozen() || observable.source_field() != field)
-          return 0.;
+          return Value{};
         const auto input_cell = source_cell->as_dof_handler_iterator(
           observable.source().dof_handler());
         AssertIndexRange(basis, input_cell->get_fe().n_dofs_per_cell());
@@ -990,7 +988,7 @@ namespace ImmersX
                 typename Context,
                 typename Cell,
                 typename SourceValues>
-      static double
+      static typename std::decay_t<ObservableType>::value_type
       value_at(const ObservableType &observable,
                const Context        &context,
                const Cell           &source_cell,
@@ -1013,7 +1011,7 @@ namespace ImmersX
                 typename Context,
                 typename Cell,
                 typename SourceValues>
-      static double
+      static typename std::decay_t<ObservableType>::value_type
       derivative_at(const ObservableType &observable,
                     const Context        &context,
                     const FieldId         field,
@@ -1091,12 +1089,12 @@ namespace ImmersX
               const auto &target_view = target_values[target_field.extractor()];
               for (unsigned int q = 0; q < quadrature.size(); ++q)
                 {
-                  const double value = value_at<VectorType>(observable,
-                                                            context,
-                                                            source_cell,
-                                                            source_values,
-                                                            q,
-                                                            context.time());
+                  const auto value = value_at<VectorType>(observable,
+                                                          context,
+                                                          source_cell,
+                                                          source_values,
+                                                          q,
+                                                          context.time());
                   for (unsigned int i = 0; i < target_indices.size(); ++i)
                     (*result)(target_indices[i]) +=
                       target.scale() *
@@ -2375,8 +2373,12 @@ namespace ImmersX
   auto
   weak_term(Trial trial, Test test)
   {
+    static_assert(detail::is_test_expression<std::decay_t<Test>>::value,
+                  "weak_term requires an explicit test expression; use "
+                  "test(field), gradient(test(field)), or another test-side "
+                  "FE operation.");
     auto trial_expression = as_fe_expression(trial);
-    auto test_expression  = as_fe_expression(test);
+    auto test_expression  = test;
     return WeakTerm<std::decay_t<decltype(trial_expression)>,
                     std::decay_t<decltype(test_expression)>>(
       std::move(trial_expression), std::move(test_expression));

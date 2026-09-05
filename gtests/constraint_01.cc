@@ -111,8 +111,8 @@ namespace
 
     Model                               model;
     SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-    const auto                          c1 = weak_term(value(source_1), lambda);
-    const auto                          c2 = weak_term(value(source_2), lambda);
+    const auto c1 = weak_term(value(source_1), test(lambda));
+    const auto c2 = weak_term(value(source_2), test(lambda));
 #ifdef IMMERSX_WEAK_TERM_TESTING
     const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #endif
@@ -240,7 +240,7 @@ TEST(Constraint, SingleTerm)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto                          fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
   ASSERT_TRUE(fields.multiplier.is_valid());
   ASSERT_EQ(model.saddle_points().size(), 1u);
@@ -299,7 +299,7 @@ TEST(Constraint, NonlinearSquareLaw)
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto nonlinear = transform(value(source), SquareLawConstraint{});
   const auto fields =
-    make_constraint(weak_term(nonlinear, lambda)).add(builder);
+    make_constraint(weak_term(nonlinear, test(lambda))).add(builder);
 
   Vector source_state(source_dh.n_dofs());
   Vector lambda_state(multiplier_dh.n_dofs());
@@ -377,10 +377,10 @@ TEST(Constraint, CombinesSignedSums)
   const auto source_4 = V.field(layout, "source-4");
   const auto lambda   = V.field("lambda");
 
-  const auto first_sum =
-    weak_term(value(source_1), lambda) + weak_term(value(source_2), lambda);
-  const auto second_sum =
-    weak_term(value(source_3), lambda) + weak_term(value(source_4), lambda);
+  const auto first_sum = weak_term(value(source_1), test(lambda)) +
+                         weak_term(value(source_2), test(lambda));
+  const auto second_sum = weak_term(value(source_3), test(lambda)) +
+                          weak_term(value(source_4), test(lambda));
   const auto combined = first_sum - second_sum;
 
   std::vector<double> coefficients;
@@ -441,8 +441,8 @@ TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
   using Model  = SemiDiscreteModel<Vector, Matrix>;
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  const auto                          c1 = weak_term(value(source), lambda);
-  const auto c2 = weak_term(value(second_source), lambda);
+  const auto c1 = weak_term(value(source), test(lambda));
+  const auto c2 = weak_term(value(second_source), test(lambda));
 #ifdef IMMERSX_WEAK_TERM_TESTING
   const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #endif
@@ -548,7 +548,7 @@ TEST(Constraint, MPI_NonmatchingDistributedReaction)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto                          fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
   Vector source_state(source_owned, MPI_COMM_WORLD);
   Vector lambda_state(multiplier_owned, MPI_COMM_WORLD);
@@ -638,7 +638,7 @@ TEST(Constraint, MPI_MixedDimensionalReverseNonmatching)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto                          fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
   Vector source_state(bulk_owned, MPI_COMM_WORLD);
   Vector lambda_state(line_owned, MPI_COMM_WORLD);

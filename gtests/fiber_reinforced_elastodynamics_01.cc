@@ -363,8 +363,8 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #  endif
   const auto constraint =
-    make_constraint(weak_term(value(matrix_velocity), multiplier) -
-                    weak_term(value(fiber_velocity), multiplier));
+    make_constraint(weak_term(value(matrix_velocity), test(multiplier)) -
+                    weak_term(value(fiber_velocity), test(multiplier)));
   const auto coupling = ida.add(constraint, "fiber_coupling");
 #  ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
