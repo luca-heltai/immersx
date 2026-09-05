@@ -42,5 +42,5 @@ The lower-level two-way residual and sign gate is:
 
 ```bash
 mpirun -np 2 build-metric-flow-x-debug/gtests/gtests_debug \
-  --gtest_filter='MetricFlowXVesselWallInteraction.*'
+  --gtest_filter='MetricFlowXVesselWallConstraint.*'
 ```

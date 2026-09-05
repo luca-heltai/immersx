@@ -22,19 +22,14 @@ set(IMMERSX_UNIT_TEST_SUITES
     StateHistory
     VTKUtils
     FieldCatalog
-    VectorRepresentation
-    RetainedSampling
-    Representation
     MixedField
     TensorProductLift
-    TensorProductLiftParity
     TensorProductSpace0D
     ReducedPoisson0D)
 
 set(IMMERSX_INTEGRATION_TEST_SUITES
     ContributorPhysics
     TractionParameters
-    CouplingOperator
     DistributedIDA
     DistributedLiftedQuadrature
     ElasticStaticDimensions
@@ -50,22 +45,16 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     Elastodynamics
     ElastodynamicsExecution
     ElastodynamicsDimension
-    ExpressionFieldSources
-    ExpressionRepresentation
     FiberReinforcedElastodynamics
     ImportedFiniteElementFields
     LargeNetworks
     LegacyInclusions
-    LegacyLagrangeMultiplier
     LinearAdapter
     TimeParameters
-    DeferredPressureExpression
-    PublicComposition
     ReducedCoupling
     TensorProductSpace
     TensorProductCoupling
     ReducedCoupling0D
-    RepresentationContract
     WeakTermNonmatching
     Constraint
     WeakTerm)
@@ -73,8 +62,8 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
 set(IMMERSX_VALIDATION_TEST_SUITES
     OneVesselMMS
     OneVesselMMSDriver
-    MetricFlowXVesselWallRepresentation
-    MetricFlowXVesselWallInteraction
+    MetricFlowXVesselWallObservable
+    MetricFlowXVesselWallConstraint
     NavierStokes)
 
 set(IMMERSX_APPLICATION_TEST_SUITES
@@ -108,7 +97,6 @@ set(_immersx_expected_test_suites
     ContributorCore
     ContributorPhysics
     TractionParameters
-    CouplingOperator
     DimensionParameters
     DistributedIDA
     DistributedLiftedQuadrature
@@ -126,8 +114,6 @@ set(_immersx_expected_test_suites
     Elastodynamics
     ElastodynamicsExecution
     ElastodynamicsDimension
-    ExpressionFieldSources
-    ExpressionRepresentation
     FESpace
     TimeParameters
     FiberReinforcedElastodynamics
@@ -138,23 +124,20 @@ set(_immersx_expected_test_suites
     InputFieldSelector
     LargeNetworks
     LegacyInclusions
-    LegacyLagrangeMultiplier
     LinearAdapter
     MaterialParameters
     BoundaryConditionParameters
     RhsParameters
     OneVesselMMS
     OneVesselMMSDriver
-    MetricFlowXVesselWallRepresentation
-    MetricFlowXVesselWallInteraction
+    MetricFlowXVesselWallObservable
+    MetricFlowXVesselWallConstraint
     ModulatedParsedFunction
     NavierStokes
     Poisson
     ApplicationExecution
     PoissonExecution
     PrescribedPoisson
-    DeferredPressureExpression
-    PublicComposition
     ReducedCoupling
     TensorProductSpace
     ReferenceCrossSection
@@ -163,20 +146,15 @@ set(_immersx_expected_test_suites
     ReferenceInclusion2
     Inclusion3
     Inclusion2
-    RepresentationContract
-    Representation
     MixedField
-    RetainedSampling
     StateHistory
     SymbolicExpressionKernel
     SymbolicFieldEvaluator
     TensorProductCoupling
-    TensorProductLiftParity
     TensorProductSpace0D
     ReducedCoupling0D
     ReducedPoisson
     ReducedPoisson0D
-    VectorRepresentation
     FieldCatalog
     VTKUtils
     WeakTerm)

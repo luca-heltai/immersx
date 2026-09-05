@@ -1,194 +1,39 @@
-# Current implementation architecture
+# Current implementation
 
-This page describes the implementation on the current `master` branch. It
-complements {doc}`../../concepts/architecture`, which defines the ownership and
-residual contracts. The two pages describe the same repository: the concepts
-page includes the design rationale and roadmap, while this page identifies the
-classes and execution paths that are currently available.
+The current implementation follows one composable semantic path for new
+applications:
 
-## Two current paths
-
-Current ImmersX contains both a semantic/composable path and an established
-reduced/tensor-product path. They coexist; the latter has not been rewritten in
-terms of the former.
-
-### Semantic and composable execution
-
-The semantic core is implemented by `FieldId`, `FieldDescriptor`,
-`StateLayout`, `StateView`, `StateAccessor`, `EvaluationContext`, and
-`SemiDiscreteModel`. The foundation FE vocabulary adds `fe_space(...)` as a
-non-owning view over a deal.II FE discretization, `Field` as a named semantic
-variable on that space or an extractor-selected subspace, and
-`Observable<Field, Operation>` as a typed FE expression derived from a Field.
-Its value/result types and first-order operations come from deal.II's
-`FEValuesViews`. These objects own no state
-vectors and expose no public point-search or evaluation-plan machinery.
-Problems and Interactions add residual terms and separate `dF/dy` and
-`dF/dydot` operators. The transitional `Representation` vocabulary and its
-typed derivatives remain available for the existing coupling paths while
-newer composition code adopts FE expressions.
-
-The `weak_term(...)` contributor provides the first direct FE assembly path
-for this vocabulary. It assembles the trial-expression/test-expression duality into a
-prepared deal.II matrix during contribution registration, then reuses that
-matrix for the residual and `dF/dy`. Same-DoFHandler terms use one cell
-traversal and shared `FEValues`; different DoFHandlers on one triangulation
-use paired active-cell traversal without point search or inverse mapping.
-
-`LinearAdapter` executes affine steady systems. `IDAAdapter` executes the
-canonical DAE residual `F(t,y,ydot)=0` through deal.II's SUNDIALS IDA wrapper.
-Both adapters privately own execution block layouts, vectors, callbacks, and
-solver policy. Applications add Problems and Interactions directly to an
-adapter through `ProblemHandle`; `FieldId` is semantic identity, not a global
-matrix block number. The public composition API is exercised by the distributed
-IDA tests, including mixed fields and multiplier Interactions.
-
-For affine systems, `LinearAdapter` can materialize the assembled block
-operator or expose its deal.II `LinearOperator` view. Its default policy uses
-iterative GMRES for single-field systems and FGMRES for coupled systems, with
-Problem-registered local preconditioners. Block-diagonal, block-triangular,
-saddle-point Schur, and matrix-based augmented-Lagrangian actions are available
-for explicit selection. The augmented-Lagrangian path assembles the primal
-superblock and uses the configured multiplier metric, including a positive
-algebraic fallback for constrained rows whose lumped physical diagonal is zero.
-The direct policy uses the generic Trilinos direct solver for ordinary direct
-solves. When deal.II is configured with native MUMPS support, the explicit
-`mumps` policy selects `SparseDirectMUMPS`; this optional backend is isolated in
-the execution adapter. These are backend choices of the execution adapter, not
-requirements imposed on Problems or Interactions.
-
-```{mermaid}
-flowchart LR
-  P["Problem"] --> F["FieldId / FieldDescriptor"]
-  F --> R["Observable<Field, Operation>"]
-  R --> I["Interaction"]
-  P --> M["SemiDiscreteModel"]
-  I --> M
-  M --> LA["LinearAdapter"]
-  M --> IDA["IDAAdapter"]
+```text
+Problem/native provider -> Field -> Observable -> weak_term
+                         -> Constraint/Interaction -> ExecutionAdapter
 ```
 
-### Reduced and tensor-product execution
+`FieldId`, `FieldDescriptor`, `StateLayout`, `StateView`, `EvaluationContext`,
+and `SemiDiscreteModel` provide semantic state and residual storage.
+`FESpaceView` is a non-owning deal.II FE-space view, while `Field` selects a
+named FE quantity. `Observable<Field, Operation>` delegates value and
+first-order operations to deal.II `FEValuesViews`. Frozen coefficients use the
+same operation machinery with no active dependencies.
 
-The established reduced path is used by `PoissonProblem`, elasticity and
-reduced-Poisson applications, and the coupling classes built around them.
-`ReducedCoupling` owns relation-specific coupling assembly; `TensorProductSpace`
-constructs the reduced representative geometry and reference cross-section;
-`ParticleCoupling` and `ImmersedRepartitioner` provide distributed search and
-ownership services. `Inclusions` remains the legacy input adapter for the
-corresponding applications.
+`weak_term` assembles the duality between trial and test expressions. It can
+use a same-space cell loop, paired DoFHandler traversal, or a prepared
+nonmatching backend. Particle ownership, retained stencils, and tensor-product
+lifting remain internal implementation choices.
 
-For imported reduced fields, VTK or legacy input is read into a `FieldCatalog`.
-`InputFieldSelector` resolves selected fields, `ReducedFieldValues` extracts
-their finite-element values, and `SymbolicFieldEvaluator` evaluates expressions
-such as thickness and reduced loads. `ImportedFiniteElementFields` is the
-reusable finite-element import path used by semantic representations and
-problem modules. The shared `ReducedFieldUtils` transfer copies coefficients
-between serial and distributed DoFHandlers by matching active `CellId`s; it
-does not interpolate, search for points, or project onto a different mesh.
+`LinearAdapter` executes affine systems and `IDAAdapter` executes
+`F(t,y,ydot)=0`. Both keep execution block numbering, vectors, solver policy,
+and callbacks private. Contributors expose separate `dF/dy` and `dF/dydot`
+actions; IDA-specific combinations are created only by the adapter.
 
-```{mermaid}
-flowchart LR
-  VTK["VTK / legacy input"] --> C["FieldCatalog"]
-  C --> S["InputFieldSelector"]
-  S --> RFV["ReducedFieldValues"]
-  RFV --> E["SymbolicFieldEvaluator"]
-  E --> TPS["TensorProductSpace"]
-  TPS --> RC["ReducedCoupling"]
-  RC --> P["Reduced Problems / coupling operators"]
-  C --> IFS["ImportedFiniteElementFields"]
-  IFS --> REP["FiniteElement Representation"]
-```
+## Reduced and protected legacy paths
 
-The reduced and semantic paths can share deal.II meshes, fields, operators,
-and representations where the current APIs connect them, but they retain
-different setup and storage lifecycles. In particular, `TensorProductSpace`
-still owns its reduced property DoFHandler and coefficients, while
-`ImportedFiniteElementFields` owns its reusable imported-field storage.
+`PoissonProblem`, `ElasticityProblem`, and `ReducedPoisson` retain established
+deal.II reduced/tensor-product production paths. Their implementation is a
+protected compatibility boundary for this cleanup. The associated coupling
+and inclusion machinery is not a recommended extension API and is not used by
+the current semantic application path.
 
-## Current ownership boundaries
-
-- A Problem owns its physical equations, discretization, native operators, and
-  accepted physical state.
-- A Field is semantic state/residual identity; execution storage and block
-  numbering belong to an adapter.
-- A Representation is a typed observable or lifting and does not own the
-  physical relation between Problems.
-- An Interaction owns relation-specific coupling, search/transfer state,
-  auxiliary fields, and additive residual terms.
-- An execution adapter owns solver and time-integration policy.
-
-These boundaries apply to the semantic path and are also the direction for
-incremental integration of the established reduced path. There is no separate
-user-visible `CoupledSystem` object in the current composition API.
-
-## Linear algebra composition rules
-
-Within the semantic execution path, a local preconditioner is an approximate
-inverse represented only by a `dealii::LinearOperator`. Its public domain and
-range are the canonical vector space of the Field it preconditions. AMG,
-multigrid, direct solvers, auxiliary vectors, and backend maps are private
-implementation details of the preconditioner factory; they are not part of
-execution composition.
-
-Algebraic composition uses deal.II's `LinearOperator`,
-`PackagedOperation`, and operator algebra; fixed-size block layouts continue to
-use `BlockLinearOperator` where appropriate. For example, a participant
-contribution to a multiplier Schur operator is composed as
-`to_multiplier * inverse * from_multiplier`, and its transpose is supplied by
-`dealii::transpose_operator`. This keeps the implementation aligned with the
-mathematical expression and lets deal.II manage intermediate vectors.
-
-## API entry points
-
-The generated API reference provides class-level details for the current
-implementation:
-
-- {doc}`../../api/class_immers_x_1_1_elasticity_problem`
-- {doc}`../../api/class_immers_x_1_1_poisson_problem`
-- {doc}`../../api/class_immers_x_1_1_elastic_static_problem`
-- {doc}`../../api/class_immers_x_1_1_inclusions`
-- {doc}`../../api/class_immers_x_1_1_tensor_product_space`
-- {doc}`../../api/class_immers_x_1_1_imported_finite_element_fields`
-- {doc}`../../api/class_immers_x_1_1_representation`
-- {doc}`../../api/class_immers_x_1_1_linear_adapter`
-- {doc}`../../api/class_immers_x_1_1_constraint`
-- {doc}`../../api/class_immers_x_1_1_weak_term`
-
-For runnable examples, see {doc}`../../developer/design/semidiscrete-contributors`,
-{doc}`../../developer/design/time-residual-sundials`, and
-{doc}`../../tutorials/index`. The remaining roadmap includes broader execution
-adapters such as ARKode/IMEX, moving geometry, and partitioned or multirate
-execution; those are not presented here as current APIs.
-
-## Reading the architecture pages together
-
-| Page | Purpose |
-| --- | --- |
-| {doc}`current-implementation` | Classes and data paths currently available on `master`. |
-| {doc}`../../concepts/architecture` | Normative ownership, residual, representation, and execution design. |
-| {doc}`../design/architecture-status` | Implemented, validated, and planned capability status. |
-| {doc}`../../concepts/mathematical-background` | Mathematical motivation and reduced Lagrange-multiplier context. |
-| {doc}`../../tutorials/index` | Runnable learning workflows. |
-
-## Portability and validation
-
-The solver stack is validated with out-of-source Debug and Release builds,
-serial GoogleTests, two-rank MPI GoogleTests, and the relevant deal.II
-regression tests. Direct solves materialize the current execution matrix and
-use the generic Trilinos direct backend; an explicit `mumps` policy is compiled
-only when deal.II provides `SparseDirectMUMPS`. No application code depends on
-Amesos2 or Epetra MUMPS plumbing, so configurations without native MUMPS retain
-the ordinary direct and iterative paths.
-
-The two-rank
-`CoupledPoisson.MPI_LinearAdapterComposesStandaloneProblems` path preserves
-the canonical Field vector spaces through matrix materialization and local
-preconditioner construction. `CoupledPoisson.MPI_RepresentationDrivenSchurSolve`
-remains green. A fresh out-of-source Debug build also passes the 199-test
-serial non-application suite, all three application smoke tests
-(`AppExecutables.Elasticity`, `AppExecutables.ReducedPoisson`, and
-`AppExecutables.TutorialFiberReinforcedElastodynamics`), the full 85-test
-two-rank MPI suite, and all five configured CTest tests.
-The earlier failures observed from an incremental build were not reproducible
-from fresh builds and were classified as stale build/test contamination.
+Imported FE data is owned by `ImportedFiniteElementFields` and exposed through
+ordinary Fields plus frozen coefficient vectors. MetricFlowX is adapted through
+its public native DoFHandler and component accessors; it remains an external
+Problem and is not made to inherit an ImmersX interface.

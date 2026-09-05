@@ -27,18 +27,13 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 # not a runtime test failure.
 set(_public_headers
     immersx/core/constraint.h
-    immersx/core/constraint_equation.h
-    immersx/core/constraint_contributor.h
     immersx/core/contributor.h
-    immersx/core/expression_representation.h
     immersx/core/fe_space.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
-    immersx/core/lifting.h
     immersx/core/reduced_field_catalog.h
     immersx/core/reduced_field_utils.h
     immersx/core/reduced_field_values.h
-    immersx/core/representation.h
     immersx/core/semidiscrete_pde_models.h
     immersx/core/state.h
     immersx/core/state_history.h
@@ -51,10 +46,8 @@ set(_public_headers
     immersx/core/problem_handle.h
     immersx/core/symbolic_field_evaluator.h
     immersx/core/time_residual.h
-    immersx/coupling/coupling_operator.h
     immersx/coupling/tensor_product_lift.h
     immersx/physics/elastic_static.h
-    immersx/algebra/lagrange_multiplier_interaction.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
     immersx/coupling/particle_coupling.h
@@ -68,8 +61,8 @@ set(_public_headers
 if(IMMERSX_WITH_METRIC_FLOW_X)
   list(APPEND _public_headers
        immersx/physics/metric_flow_x.h
-       immersx/physics/metric_flow_x_vessel_wall_representation.h
-       immersx/algebra/vessel_wall_interaction.h)
+       immersx/physics/metric_flow_x_vessel_wall_observable.h
+       immersx/algebra/metric_flow_x_vessel_wall_constraint.h)
 endif()
 
 set(_public_header_targets)
@@ -93,8 +86,9 @@ foreach(_public_header ${_public_headers})
   if(IMMERSX_WITH_METRIC_FLOW_X AND
      (_public_header STREQUAL "immersx/physics/metric_flow_x.h" OR
       _public_header STREQUAL
-        "immersx/physics/metric_flow_x_vessel_wall_representation.h" OR
-      _public_header STREQUAL "immersx/algebra/vessel_wall_interaction.h"))
+        "immersx/physics/metric_flow_x_vessel_wall_observable.h" OR
+      _public_header STREQUAL
+        "immersx/algebra/metric_flow_x_vessel_wall_constraint.h"))
     target_link_libraries(${_public_header_target}
                           MetricFlowX::metric_flow_x)
   endif()
@@ -298,7 +292,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       set(_mms_gate_target
           "metric_flow_x_elastodynamics_mms_verification${${_build_type}_postfix}")
       add_executable(${_mms_gate_target}
-                     metric_flow_x_vessel_wall_interaction_01.cc
+                     metric_flow_x_vessel_wall_constraint_01.cc
                      metric_flow_x_elastodynamics_mms_01.cc
                      metric_flow_x_elastodynamics_mms_driver.cc
                      mms_convergence_main.cc)
@@ -327,7 +321,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           NAME metric_flow_x_elastodynamics_mms_verification
           COMMAND ${_immersx_mpiexec} -np 2
                   $<TARGET_FILE:${_mms_gate_target}>
-                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallInteraction.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallInteraction.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallInteraction.MPI_DiscreteVirtualWorkNormalization:MetricFlowXVesselWallInteraction.MPI_FullCoupledJacobianFiniteDifference)
+                  --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallConstraint.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallConstraint.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallConstraint.MPI_DiscreteVirtualWorkNormalization:MetricFlowXVesselWallConstraint.MPI_FullCoupledJacobianFiniteDifference)
         set_tests_properties(metric_flow_x_elastodynamics_mms_verification
                              PROPERTIES LABELS "validation;mpi")
       endif()

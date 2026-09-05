@@ -15,13 +15,13 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
-#include <immersx/algebra/vessel_wall_interaction.h>
+#include <immersx/algebra/metric_flow_x_vessel_wall_constraint.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
 #include <immersx/physics/metric_flow_x.h>
-#include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
+#include <immersx/physics/metric_flow_x_vessel_wall_observable.h>
 
 #include <algorithm>
 #include <cmath>
@@ -37,16 +37,15 @@
 
 namespace
 {
-  using FlowProblem         = MetricFlowX::BloodFlowSystem<1, 3>;
-  using FlowVector          = MetricFlowX::VectorType;
-  using GlobalVector        = ImmersX::ImmersXLA::MPI::BlockVector;
-  using Adapter             = ImmersX::IDAAdapter<FlowVector, GlobalVector>;
-  using SolidProblem        = ImmersX::ElastodynamicsSolver<3>;
-  using SolidRepresentation = ImmersX::VectorFiniteElementRepresentation<3, 3>;
-  using WallRepresentation =
-    ImmersX::MetricFlowXAreaRadialDisplacementRepresentation;
+  using FlowProblem  = MetricFlowX::BloodFlowSystem<1, 3>;
+  using FlowVector   = MetricFlowX::VectorType;
+  using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
+  using Adapter      = ImmersX::IDAAdapter<FlowVector, GlobalVector>;
+  using SolidProblem = ImmersX::ElastodynamicsSolver<3>;
+  using SolidField   = ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>;
+  using WallObservable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
   using Interaction =
-    ImmersX::VesselWallInteraction<SolidRepresentation, WallRepresentation>;
+    ImmersX::MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
   using SolidFields = decltype(std::declval<Adapter &>().add(
     std::declval<const SolidProblem &>()));
   using FlowDescriptor =
@@ -91,7 +90,7 @@ namespace
       solid_parameters = std::make_unique<ImmersX::ElastodynamicsParameters<3>>(
         "/Elastodynamics/", flow_time.get());
       ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
-      wall_lift = std::make_unique<WallRepresentation::Lift>(
+      wall_lift = std::make_unique<WallObservable::Lift>(
         "/MetricFlowX vessel wall lift/");
       wall_lift->section.inclusion_degree      = 1;
       wall_lift->section.refinement_level      = 5;
@@ -119,20 +118,22 @@ namespace
       solid_fields.emplace(adapter->add(*solid_problem, "elastodynamics"));
       flow_fields.emplace(
         adapter->add(ImmersX::metric_flow_x(*flow_problem), "blood-flow"));
-      solid_representation = std::make_unique<SolidRepresentation>(
-        solid_problem->triangulation(),
+      solid_space = std::make_unique<ImmersX::FESpaceView<3, 3>>(
         solid_problem->dof_handler(),
-        solid_problem->locally_owned_dofs(),
-        solid_problem->locally_relevant_dofs(),
-        solid_problem->constraints(),
         solid_problem->mapping(),
-        dealii::FEValuesExtractors::Vector(0));
-      wall_representation =
-        std::make_unique<WallRepresentation>(*flow_problem,
-                                             flow_fields->fields().area,
-                                             *wall_lift);
-      interaction = std::make_unique<Interaction>(*solid_representation,
-                                                  *wall_representation,
+        solid_problem->constraints(),
+        &solid_problem->locally_relevant_dofs());
+      solid_field = std::make_unique<SolidField>(
+        solid_space->field(solid_fields->fields().displacement,
+                           "displacement",
+                           dealii::FEValuesExtractors::Vector(0)));
+      wall_observable =
+        std::make_unique<WallObservable>(*flow_problem,
+                                         flow_fields->fields().area,
+                                         flow_fields->fields().area_components,
+                                         *wall_lift);
+      interaction = std::make_unique<Interaction>(*solid_field,
+                                                  *wall_observable,
                                                   search_parameters);
       interaction->assemble();
       coupling_fields = adapter
@@ -167,9 +168,10 @@ namespace
     std::unique_ptr<ImmersX::TimeParameters>              flow_time;
     std::unique_ptr<ImmersX::ElastodynamicsParameters<3>> solid_parameters;
     std::unique_ptr<SolidProblem>                         solid_problem;
-    std::unique_ptr<WallRepresentation::Lift>             wall_lift;
-    std::unique_ptr<SolidRepresentation>                  solid_representation;
-    std::unique_ptr<WallRepresentation>                   wall_representation;
+    std::unique_ptr<WallObservable::Lift>                 wall_lift;
+    std::unique_ptr<ImmersX::FESpaceView<3, 3>>           solid_space;
+    std::unique_ptr<SolidField>                           solid_field;
+    std::unique_ptr<WallObservable>                       wall_observable;
     std::unique_ptr<Interaction>                          interaction;
     std::unique_ptr<Adapter>                              adapter;
     std::optional<SolidFields>                            solid_fields;
@@ -178,7 +180,7 @@ namespace
   };
 } // namespace
 
-TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
+TEST(MetricFlowXVesselWallConstraint, MPI_TwoWayResidualAndPressureSign)
 {
   Fixture fixture;
   auto    state     = fixture.adapter->make_state();
@@ -323,7 +325,7 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayResidualAndPressureSign)
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
 
-TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
+TEST(MetricFlowXVesselWallConstraint, MPI_TwoWayCompositionResidualSmoke)
 {
   Fixture fixture;
   auto    state     = fixture.adapter->make_state();
@@ -336,7 +338,7 @@ TEST(MetricFlowXVesselWallInteraction, MPI_TwoWayCompositionResidualSmoke)
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
 
-TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
+TEST(MetricFlowXVesselWallConstraint, MPI_DiscreteVirtualWorkNormalization)
 {
   Fixture fixture(true);
 
@@ -375,13 +377,12 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
                             MPI_COMM_WORLD);
   constexpr double                radial_scale = 1.e-3;
   LinearRadialVirtualDisplacement virtual_displacement(radial_scale);
-  ASSERT_EQ(fixture.wall_representation->support().selected_modes(),
+  ASSERT_EQ(fixture.wall_observable->support().selected_modes(),
             (std::vector<unsigned int>{3u, 7u}));
   ASSERT_EQ(
-    fixture.wall_representation->support().representative_quadrature().size(),
-    2u);
+    fixture.wall_observable->support().representative_quadrature().size(), 2u);
   EXPECT_GT(dealii::Utilities::MPI::sum(
-              fixture.wall_representation->points().size(), MPI_COMM_WORLD),
+              fixture.wall_observable->points().size(), MPI_COMM_WORLD),
             0u);
   dealii::VectorTools::interpolate(fixture.solid_problem->dof_handler(),
                                    virtual_displacement,
@@ -419,7 +420,7 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
   transposed_work =
     dealii::Utilities::MPI::sum(transposed_work, MPI_COMM_WORLD);
 
-  for (const auto &point : fixture.wall_representation->points())
+  for (const auto &point : fixture.wall_observable->points())
     {
       double basis_sum = 0.;
       for (const auto basis : point.area_basis_values)
@@ -460,7 +461,7 @@ TEST(MetricFlowXVesselWallInteraction, MPI_DiscreteVirtualWorkNormalization)
               << std::endl;
 }
 
-TEST(MetricFlowXVesselWallInteraction, MPI_FullCoupledJacobianFiniteDifference)
+TEST(MetricFlowXVesselWallConstraint, MPI_FullCoupledJacobianFiniteDifference)
 {
   Fixture fixture;
   auto    state     = fixture.adapter->make_state();
@@ -568,7 +569,7 @@ TEST(MetricFlowXVesselWallInteraction, MPI_FullCoupledJacobianFiniteDifference)
 
 #else
 
-TEST(MetricFlowXVesselWallInteraction, FeatureMacroIsEnabled)
+TEST(MetricFlowXVesselWallConstraint, FeatureMacroIsEnabled)
 {
   GTEST_SKIP() << "MetricFlowX or deal.II SUNDIALS support is unavailable.";
 }

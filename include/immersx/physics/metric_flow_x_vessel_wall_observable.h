@@ -7,8 +7,8 @@
 //
 // ---------------------------------------------------------------------
 
-#ifndef immersx_metric_flow_x_vessel_wall_representation_h
-#define immersx_metric_flow_x_vessel_wall_representation_h
+#ifndef immersx_metric_flow_x_vessel_wall_observable_h
+#define immersx_metric_flow_x_vessel_wall_observable_h
 
 #include <immersx/config.h>
 
@@ -23,7 +23,11 @@
 #  include <deal.II/fe/fe_values_extractors.h>
 
 #  include <immersx/algebra/linear_algebra.h>
-#  include <immersx/core/representation.h>
+#  include <immersx/core/fe_space.h>
+#  include <immersx/core/observable.h>
+#  include <immersx/core/state.h>
+#  include <immersx/coupling/detail/coupling_point.h>
+#  include <immersx/coupling/tensor_product_lift.h>
 #  include <immersx/physics/metric_flow_x.h>
 
 #  include <algorithm>
@@ -56,66 +60,68 @@ namespace ImmersX
    * centerline cell.  No second mesh, Area Field, or resting-area parameter is
    * owned here.
    */
-  class MetricFlowXAreaRadialDisplacementRepresentation
+  class MetricFlowXAreaRadialDisplacementObservable
   {
   public:
     static constexpr unsigned int support_dimension        = 2;
     static constexpr unsigned int ambient_dimension        = 3;
     static constexpr unsigned int representative_dimension = 1;
 
-    using Problem             = ::MetricFlowX::BloodFlowSystem<1, 3>;
-    using StateType           = ::MetricFlowX::VectorType;
-    using Value               = dealii::Tensor<1, 3>;
-    using value_type          = std::vector<Value>;
-    using state_type          = StateType;
-    using quantity_space_type = QuantitySpace<value_type>;
-    using Operator            = RepresentationOperator<value_type, state_type>;
-    using ExtractorType       = dealii::FEValuesExtractors::Scalar;
-    using TriangulationType   = dealii::parallel::TriangulationBase<1, 3>;
-    using DoFHandlerType      = dealii::DoFHandler<1, 3>;
-    using QuadraturePoint     = RepresentationQuadraturePoint<3, Value>;
-    using Lift                = TensorProductLift<1, 2, 3, 3>;
-    using Support             = TensorProductLiftSupport<1, 2, 3, 3>;
+    using Problem           = ::MetricFlowX::BloodFlowSystem<1, 3>;
+    using StateType         = ::MetricFlowX::VectorType;
+    using Value             = dealii::Tensor<1, 3>;
+    using value_type        = std::vector<Value>;
+    using state_type        = StateType;
+    using Operator          = dealii::LinearOperator<value_type, state_type>;
+    using ExtractorType     = dealii::FEValuesExtractors::Scalar;
+    using TriangulationType = dealii::parallel::TriangulationBase<1, 3>;
+    using DoFHandlerType    = dealii::DoFHandler<1, 3>;
+    using Lift              = TensorProductLift<1, 2, 3, 3>;
+    using Support           = TensorProductLiftSupport<1, 2, 3, 3>;
 
-    struct WallPoint : QuadraturePoint
+    struct ObservableEvaluationRequest
+    {};
+
+    struct WallPoint : detail::CouplingPoint<3, double>
     {
       double                                       a0 = 0.;
       dealii::CellId                               cell_id;
       std::vector<double>                          area_basis_values;
       std::vector<dealii::types::global_dof_index> multiplier_dof_indices;
+      dealii::Tensor<1, 3>                         normal;
     };
 
     using ExternalPressureProvider = typename Problem::ExternalPressureProvider;
 
-    MetricFlowXAreaRadialDisplacementRepresentation(
-      const Problem            &problem,
-      const FieldComponentView &area,
-      const Lift               &lift,
-      const double              mode_tolerance = 1.e-10)
+    MetricFlowXAreaRadialDisplacementObservable(
+      const Problem                                         &problem,
+      const Field<1, 3, dealii::FEValuesExtractors::Scalar> &area,
+      const dealii::IndexSet                                &area_components,
+      const Lift                                            &lift,
+      const double mode_tolerance = 1.e-10)
       : problem_(problem)
       , area_(area)
-      , lift_(lift)
+      , area_components_(area_components)
       , support_(lift.parameters())
       , mode_tolerance_(mode_tolerance)
-      , area_owned_(make_component_subset(problem.locally_owned_dofs(),
-                                          area.components()))
+      , area_owned_(
+          make_component_subset(problem.locally_owned_dofs(), area_components_))
       , area_relevant_(make_component_subset(problem.locally_relevant_dofs(),
-                                             area.components()))
+                                             area_components_))
     {
       initialize_multiplier_space();
-      AssertThrow(area_.source().is_valid(),
+      AssertThrow(area_.field_id().is_valid(),
                   dealii::ExcMessage(
-                    "The vessel-wall representation needs a valid Area "
-                    "Field component view."));
-      AssertThrow(area_.components().size() ==
+                    "The vessel-wall observable needs a valid Area Field."));
+      AssertThrow(area_components_.size() ==
                     problem.locally_owned_dofs().size(),
                   dealii::ExcMessage(
-                    "The Area component view does not match the MetricFlowX "
+                    "The Area component set does not match the MetricFlowX "
                     "state space."));
       const std::vector<unsigned int> radial_modes{3u, 7u};
       AssertThrow(support_.selected_modes() == radial_modes,
                   dealii::ExcMessage(
-                    "The radial vessel-wall representation requires cross-"
+                    "The radial vessel-wall observable requires cross-"
                     "section modes 3 and 7 in that order."));
       build_points();
     }
@@ -123,7 +129,7 @@ namespace ImmersX
     FieldId
     source() const
     {
-      return area_.source();
+      return area_.field_id();
     }
 
     std::vector<FieldId>
@@ -132,42 +138,16 @@ namespace ImmersX
       return {source()};
     }
 
-    const RepresentationDomain &
-    domain() const
-    {
-      static const RepresentationDomain value(2, 3, "vessel-wall");
-      return value;
-    }
-
-    quantity_space_type
-    quantity_space() const
-    {
-      return quantity_space_type(domain());
-    }
-
-    template <typename Geometry>
-    decltype(auto)
-    lift(const Geometry &geometry) const
-    {
-      return detail::invoke_lift(*this, geometry, 0);
-    }
-
     const Problem &
     problem() const
     {
       return problem_;
     }
 
-    const FieldComponentView &
+    const Field<1, 3, dealii::FEValuesExtractors::Scalar> &
     area_view() const
     {
       return area_;
-    }
-
-    const Lift &
-    lift_descriptor() const
-    {
-      return lift_;
     }
 
     const Support &
@@ -278,25 +258,6 @@ namespace ImmersX
       return problem_.area_extractor();
     }
 
-    const RepresentationMetadata &
-    metadata() const
-    {
-      metadata_.dependencies = dependencies();
-      return metadata_;
-    }
-
-    std::uint64_t
-    geometry_version() const
-    {
-      return geometry_version_;
-    }
-
-    void
-    invalidate_geometry() const
-    {
-      ++geometry_version_;
-    }
-
     MPI_Comm
     mpi_communicator() const
     {
@@ -322,7 +283,7 @@ namespace ImmersX
 
     value_type
     evaluate(const EvaluationContext<state_type> &context,
-             const EvaluationRequest & = {}) const
+             const ObservableEvaluationRequest & = {}) const
     {
       const auto relevant = relevant_state(context.state(source()));
       value_type result(points_.size());
@@ -336,7 +297,7 @@ namespace ImmersX
 
     Operator
     linearize(const EvaluationContext<state_type> &context,
-              const EvaluationRequest & = {}) const
+              const ObservableEvaluationRequest & = {}) const
     {
       return linearize(context, source());
     }
@@ -344,7 +305,7 @@ namespace ImmersX
     Operator
     linearize(const EvaluationContext<state_type> &context,
               const FieldId                        field,
-              const EvaluationRequest & = {}) const
+              const ObservableEvaluationRequest & = {}) const
     {
       AssertThrow(field == source(),
                   dealii::ExcMessage(
@@ -579,7 +540,7 @@ namespace ImmersX
             cell->get_dof_indices(local_dofs);
             std::vector<std::pair<unsigned int, unsigned int>> area_basis;
             for (unsigned int i = 0; i < n_dofs; ++i)
-              if (area_.components().is_element(local_dofs[i]))
+              if (area_components_.is_element(local_dofs[i]))
                 area_basis.emplace_back(i,
                                         area_to_multiplier_.at(local_dofs[i]));
             cell_data_.emplace(cell->id(),
@@ -650,7 +611,7 @@ namespace ImmersX
                     point.a0 = a0;
                     point.area_basis_values.clear();
                     for (unsigned int i = 0; i < n_dofs; ++i)
-                      if (area_.components().is_element(local_dofs[i]))
+                      if (area_components_.is_element(local_dofs[i]))
                         {
                           const double basis =
                             fe_values[problem_.area_extractor()].value(i, q);
@@ -658,7 +619,6 @@ namespace ImmersX
                           point.multiplier_dof_indices.push_back(
                             area_to_multiplier_.at(local_dofs[i]));
                           point.area_basis_values.push_back(basis);
-                          point.basis_values.push_back(point.normal * basis);
                         }
                     points_.push_back(std::move(point));
                   }
@@ -672,26 +632,24 @@ namespace ImmersX
         dealii::Utilities::MPI::max(n_local_area_dofs, mpi_communicator());
     }
 
-    const Problem                               &problem_;
-    const FieldComponentView                     area_;
-    const Lift                                  &lift_;
-    Support                                      support_;
-    const double                                 mode_tolerance_;
-    dealii::IndexSet                             area_owned_;
-    dealii::IndexSet                             area_relevant_;
-    dealii::IndexSet                             multiplier_owned_;
-    dealii::IndexSet                             multiplier_relevant_;
-    std::vector<dealii::types::global_dof_index> area_dof_numbers_;
+    const Problem                                        &problem_;
+    const Field<1, 3, dealii::FEValuesExtractors::Scalar> area_;
+    const dealii::IndexSet                                area_components_;
+    Support                                               support_;
+    const double                                          mode_tolerance_;
+    dealii::IndexSet                                      area_owned_;
+    dealii::IndexSet                                      area_relevant_;
+    dealii::IndexSet                                      multiplier_owned_;
+    dealii::IndexSet                                      multiplier_relevant_;
+    std::vector<dealii::types::global_dof_index>          area_dof_numbers_;
     std::map<dealii::types::global_dof_index, dealii::types::global_dof_index>
                                        area_to_multiplier_;
     std::map<dealii::CellId, CellData> cell_data_;
     std::vector<WallPoint>             points_;
     unsigned int                       n_area_dofs_per_cell_ = 0;
-    mutable RepresentationMetadata     metadata_;
-    mutable std::uint64_t              geometry_version_ = 0;
   };
 } // namespace ImmersX
 
 #endif // IMMERSX_WITH_METRIC_FLOW_X
 
-#endif // immersx_metric_flow_x_vessel_wall_representation_h
+#endif // immersx_metric_flow_x_vessel_wall_observable_h

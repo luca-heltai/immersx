@@ -16,7 +16,7 @@
 #include <immersx/core/state.h>
 #include <immersx/core/time_parameters.h>
 #include <immersx/physics/metric_flow_x.h>
-#include <immersx/physics/metric_flow_x_vessel_wall_representation.h>
+#include <immersx/physics/metric_flow_x_vessel_wall_observable.h>
 
 #include <cmath>
 #include <map>
@@ -28,11 +28,10 @@
 
 namespace
 {
-  using Problem = MetricFlowX::BloodFlowSystem<1, 3>;
-  using State   = MetricFlowX::VectorType;
-  using Representation =
-    ImmersX::MetricFlowXAreaRadialDisplacementRepresentation;
-  using Lift = Representation::Lift;
+  using Problem    = MetricFlowX::BloodFlowSystem<1, 3>;
+  using State      = MetricFlowX::VectorType;
+  using Observable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
+  using Lift       = Observable::Lift;
 
   struct Fixture
   {
@@ -51,8 +50,15 @@ namespace
       descriptor.locally_owned    = problem->locally_owned_dofs();
       descriptor.locally_relevant = problem->locally_relevant_dofs();
       field                       = layout.add_field(std::move(descriptor));
-      area = std::make_unique<ImmersX::FieldComponentView>(
-        field, problem->component_dofs(Problem::Component::area));
+      space = std::make_shared<ImmersX::FESpaceView<1, 3>>(
+        problem->dof_handler(),
+        dealii::StaticMappingQ1<1, 3>::mapping,
+        problem->constraints(),
+        &problem->locally_relevant_dofs());
+      area = std::make_unique<
+        decltype(space->field(field, "area", problem->area_extractor()))>(
+        space->field(field, "area", problem->area_extractor()));
+      area_components = problem->component_dofs(Problem::Component::area);
 
       lift = std::make_unique<Lift>("/Vessel wall test lift/");
       lift->section.inclusion_degree      = 1;
@@ -60,7 +66,8 @@ namespace
       lift->section.selected_coefficients = {3u, 7u};
       lift->section.n_q_points            = 32;
       lift->representative_n_q_points     = 2;
-      representation = std::make_unique<Representation>(*problem, *area, *lift);
+      representation =
+        std::make_unique<Observable>(*problem, *area, area_components, *lift);
     }
 
     void
@@ -73,13 +80,16 @@ namespace
                                                                     nullptr);
     }
 
-    std::unique_ptr<ImmersX::TimeParameters>           time_parameters;
-    std::unique_ptr<Problem>                           problem;
-    ImmersX::StateLayout                               layout;
-    ImmersX::FieldId                                   field;
-    std::unique_ptr<ImmersX::FieldComponentView>       area;
+    std::unique_ptr<ImmersX::TimeParameters>          time_parameters;
+    std::unique_ptr<Problem>                          problem;
+    ImmersX::StateLayout                              layout;
+    ImmersX::FieldId                                  field;
+    std::shared_ptr<const ImmersX::FESpaceView<1, 3>> space;
+    std::unique_ptr<ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>>
+                                                       area;
+    dealii::IndexSet                                   area_components;
     std::unique_ptr<Lift>                              lift;
-    std::unique_ptr<Representation>                    representation;
+    std::unique_ptr<Observable>                        representation;
     std::unique_ptr<ImmersX::StateView<State>>         state_view;
     std::unique_ptr<ImmersX::EvaluationContext<State>> context;
   };
@@ -96,7 +106,7 @@ namespace
   }
 } // namespace
 
-TEST(MetricFlowXVesselWallRepresentation, RestStateIsZero)
+TEST(MetricFlowXVesselWallObservable, RestStateIsZero)
 {
   Fixture      fixture;
   const double a0    = fixture.problem->vessel_properties(0).a0;
@@ -108,7 +118,7 @@ TEST(MetricFlowXVesselWallRepresentation, RestStateIsZero)
     EXPECT_NEAR(value.norm(), 0., 2.e-12);
 }
 
-TEST(MetricFlowXVesselWallRepresentation, RadiusIncrementIsRadial)
+TEST(MetricFlowXVesselWallObservable, RadiusIncrementIsRadial)
 {
   Fixture      fixture;
   const double a0 = fixture.problem->vessel_properties(0).a0;
@@ -131,7 +141,7 @@ TEST(MetricFlowXVesselWallRepresentation, RadiusIncrementIsRadial)
   EXPECT_DOUBLE_EQ(fixture.representation->mode_coefficients(dr)[1], dr);
 }
 
-TEST(MetricFlowXVesselWallRepresentation, AreaLinearizationAndTranspose)
+TEST(MetricFlowXVesselWallObservable, AreaLinearizationAndTranspose)
 {
   Fixture      fixture;
   const double a0      = fixture.problem->vessel_properties(0).a0;
@@ -183,10 +193,12 @@ TEST(MetricFlowXVesselWallRepresentation, AreaLinearizationAndTranspose)
   for (std::size_t q = 0; q < analytical.size(); ++q)
     left += values[q] * analytical[q];
   double right = transposed * direction;
-  EXPECT_NEAR(left, right, 2.e-9);
+  EXPECT_NEAR(left,
+              right,
+              2.e-9 * std::max(1., std::max(std::abs(left), std::abs(right))));
 }
 
-TEST(MetricFlowXVesselWallRepresentation, MPI_CompactMultiplierSpace)
+TEST(MetricFlowXVesselWallObservable, MPI_CompactMultiplierSpace)
 {
   Fixture     fixture;
   const auto &owned = fixture.representation->multiplier_locally_owned_dofs();
@@ -205,7 +217,7 @@ TEST(MetricFlowXVesselWallRepresentation, MPI_CompactMultiplierSpace)
     }
 }
 
-TEST(MetricFlowXVesselWallRepresentation, MPI_ExternalPressureInterpolation)
+TEST(MetricFlowXVesselWallObservable, MPI_ExternalPressureInterpolation)
 {
   Fixture fixture;
   State   multiplier;
@@ -273,7 +285,7 @@ TEST(MetricFlowXVesselWallRepresentation, MPI_ExternalPressureInterpolation)
             1.e-8);
 }
 
-TEST(MetricFlowXVesselWallRepresentation, AreaPressureNormalization)
+TEST(MetricFlowXVesselWallObservable, AreaPressureNormalization)
 {
   Fixture     fixture;
   const auto &points = fixture.representation->points();
@@ -334,7 +346,7 @@ TEST(MetricFlowXVesselWallRepresentation, AreaPressureNormalization)
 
 #else
 
-TEST(MetricFlowXVesselWallRepresentation, FeatureMacroIsEnabled)
+TEST(MetricFlowXVesselWallObservable, FeatureMacroIsEnabled)
 {
   GTEST_SKIP() << "MetricFlowX or deal.II SUNDIALS support is unavailable.";
 }

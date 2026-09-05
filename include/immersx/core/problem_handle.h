@@ -16,33 +16,6 @@
 
 namespace ImmersX
 {
-  namespace detail
-  {
-    template <typename Quantity, typename Geometry>
-    auto
-    invoke_lift(const Quantity &quantity, const Geometry &geometry, int)
-      -> decltype(make_lift(quantity, geometry))
-    {
-      return make_lift(quantity, geometry);
-    }
-
-    template <typename Quantity, typename Geometry>
-    auto
-    invoke_lift(const Quantity &quantity, const Geometry &geometry, long)
-      -> decltype(geometry.create(quantity))
-    {
-      return geometry.create(quantity);
-    }
-
-    template <typename Quantity, typename Geometry>
-    auto
-    invoke_lift(const Quantity &quantity, const Geometry &geometry, char)
-      -> decltype(lift(quantity, geometry))
-    {
-      return lift(quantity, geometry);
-    }
-  } // namespace detail
-
   /**
    * Semantic view returned when a Problem is added to an execution adapter.
    *

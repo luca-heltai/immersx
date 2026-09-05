@@ -127,6 +127,36 @@ namespace ImmersX
       return space().mapping();
     }
 
+    const dealii::Triangulation<dim, spacedim> &
+    triangulation() const
+    {
+      return dof_handler().get_triangulation();
+    }
+
+    const dealii::parallel::TriangulationBase<dim, spacedim> &
+    distributed_triangulation() const
+    {
+      const auto *distributed = dynamic_cast<
+        const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+        &dof_handler().get_triangulation());
+      AssertThrow(distributed != nullptr,
+                  dealii::ExcMessage(
+                    "This operation requires a distributed triangulation."));
+      return *distributed;
+    }
+
+    const dealii::FiniteElement<dim, spacedim> &
+    finite_element() const
+    {
+      return space().finite_element();
+    }
+
+    unsigned int
+    n_dofs_per_cell() const
+    {
+      return finite_element().n_dofs_per_cell();
+    }
+
     const dealii::AffineConstraints<double> &
     constraints() const
     {

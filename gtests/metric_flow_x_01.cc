@@ -98,11 +98,13 @@ TEST(MetricFlowX, MPI_RegistersOneMixedStateField) // NOLINT
 
   EXPECT_TRUE(fields.fields().state.is_valid());
   EXPECT_EQ(adapter.differential_components(), problem.differential_dofs());
-  EXPECT_EQ(fields.fields().area.source(), fields.fields().state);
-  EXPECT_EQ(fields.fields().velocity.source(), fields.fields().state);
-  EXPECT_EQ(fields.fields().area.components(),
+  EXPECT_EQ(fields.fields().area.name(), "area");
+  EXPECT_EQ(fields.fields().velocity.name(), "velocity");
+  EXPECT_EQ(&fields.fields().area.dof_handler(), &problem.dof_handler());
+  EXPECT_EQ(&fields.fields().velocity.dof_handler(), &problem.dof_handler());
+  EXPECT_EQ(fields.fields().area_components,
             problem.component_dofs(Problem::Component::area));
-  EXPECT_EQ(fields.fields().velocity.components(),
+  EXPECT_EQ(fields.fields().velocity_components,
             problem.component_dofs(Problem::Component::velocity));
   auto state = adapter.make_state();
   EXPECT_EQ(state.n_blocks(), 1u);
