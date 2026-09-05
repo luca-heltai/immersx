@@ -333,7 +333,7 @@ TEST(WeakTermNonmatching, NonmatchingScalarGradientUsesPointSearch)
   ASSERT_EQ(actual_matrix->n(), reference.n());
   for (unsigned int i = 0; i < reference.m(); ++i)
     for (unsigned int j = 0; j < reference.n(); ++j)
-      EXPECT_NEAR((*actual_matrix)(i, j), reference(i, j), 1.e-12);
+      EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
 }
 
 TEST(WeakTermNonmatching, MPI_NonmatchingPartitionAndTranspose)
