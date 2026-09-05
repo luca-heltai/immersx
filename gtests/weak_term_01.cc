@@ -192,7 +192,8 @@ TEST(WeakTerm, SameDoFHandlerGradientMatchesMatrixCreator)
   ASSERT_TRUE(actual->is_materializable());
 
   const QGauss<2>        quadrature(fe.degree + 1);
-  DynamicSparsityPattern dynamic_sparsity;
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(space.dof_handler,
                                   dynamic_sparsity,
                                   space.constraints,
@@ -243,7 +244,8 @@ TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
   ASSERT_TRUE(actual->is_materializable());
 
   const QGauss<2>        quadrature(fe.degree + 1);
-  DynamicSparsityPattern dynamic_sparsity;
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(space.dof_handler,
                                   dynamic_sparsity,
                                   space.constraints,
@@ -308,7 +310,8 @@ TEST(WeakTerm, SameDoFHandlerSymmetricGradientUsesBothExpressions)
   ASSERT_TRUE(actual->is_materializable());
 
   const QGauss<2>        quadrature(fe.degree + 1);
-  DynamicSparsityPattern dynamic_sparsity;
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
   DoFTools::make_sparsity_pattern(space.dof_handler,
                                   dynamic_sparsity,
                                   space.constraints,
