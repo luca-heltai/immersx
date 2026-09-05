@@ -80,9 +80,16 @@ TEST(DistributedLiftedQuadrature,
   EXPECT_DOUBLE_EQ(target_values.begin()->second, 2. - rank);
 
   std::map<types::particle_index, double> target_contribution;
-  target_contribution.emplace(stencil.stable_id, 10. + rank);
+  target_contribution.emplace(stencil.stable_id,
+                              0.75 + 0.5 * static_cast<double>(rank));
   Vector<double> transposed(1);
   transposed = 0.;
   distributed.add_transpose_to_source(target_contribution, transposed);
-  EXPECT_DOUBLE_EQ(transposed[0], 11. - rank);
+
+  const double local_lhs =
+    target_values.begin()->second * target_contribution.begin()->second;
+  const double local_rhs = source_values[0] * transposed[0];
+  EXPECT_NEAR(Utilities::MPI::sum(local_lhs, comm),
+              Utilities::MPI::sum(local_rhs, comm),
+              1.e-12);
 }

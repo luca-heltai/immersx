@@ -22,6 +22,8 @@
 #include <gtest/gtest.h>
 #include <immersx/core/representation.h>
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 using namespace dealii;
@@ -160,6 +162,41 @@ TEST(RetainedSampling,
   EXPECT_NEAR(local_dot(plan.locally_owned_points(), values, weights),
               local_dot(data.locally_owned, direction, transpose),
               1.e-9);
+}
+
+
+TEST(RetainedSampling, AdjointnessUsesDeterministicVectors)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  SamplingData    data;
+  const QGauss<2> quadrature(3);
+  const auto      plan =
+    make_retained_sampling_plan(*data.representation, quadrature);
+
+  ImmersXLA::MPI::Vector x;
+  x.reinit(data.locally_owned, MPI_COMM_WORLD);
+  for (const auto index : data.locally_owned)
+    x[index] = 0.125 + 0.375 * static_cast<double>(index) +
+               0.03125 * static_cast<double>(index * index);
+
+  ImmersXLA::MPI::Vector y;
+  y.reinit(plan.locally_owned_points(), MPI_COMM_WORLD);
+  for (const auto index : plan.locally_owned_points())
+    y[index] = 0.75 - 0.2 * static_cast<double>(index) +
+               0.015625 * static_cast<double>(index * index);
+
+  const auto             sampling = plan.linearize(x);
+  ImmersXLA::MPI::Vector sampling_x;
+  sampling.reinit_range_vector(sampling_x, false);
+  sampling.vmult(sampling_x, x);
+
+  ImmersXLA::MPI::Vector sampling_transpose_y;
+  sampling.reinit_domain_vector(sampling_transpose_y, false);
+  sampling.Tvmult(sampling_transpose_y, y);
+
+  const double lhs = local_dot(plan.locally_owned_points(), sampling_x, y);
+  const double rhs = local_dot(data.locally_owned, x, sampling_transpose_y);
+  EXPECT_NEAR(lhs, rhs, 1.e-12 * std::max({1., std::abs(lhs), std::abs(rhs)}));
 }
 
 
