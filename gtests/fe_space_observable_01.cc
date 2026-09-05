@@ -90,30 +90,39 @@ TEST(FESpace, ValueAndGradientExposeTypedDependencies)
   const auto pressure_value     = ImmersX::value(pressure);
   const auto displacement_grad  = ImmersX::gradient(displacement);
   const auto pressure_grad      = ImmersX::gradient(pressure);
+  const auto displacement_div   = ImmersX::divergence(displacement);
+  const auto displacement_sym   = ImmersX::symmetric_gradient(displacement);
+  const auto displacement_curl  = ImmersX::curl(displacement);
 
+  using DisplacementView =
+    FEValuesViews::View<2, 2, FEValuesExtractors::Vector>;
+  using PressureView = FEValuesViews::View<2, 2, FEValuesExtractors::Scalar>;
   static_assert(
-    std::is_same_v<
-      std::decay_t<decltype(displacement_value)>,
-      ImmersX::Observable<Tensor<1, 2>, std::decay_t<decltype(displacement)>>>);
-  static_assert(std::is_same_v<
-                std::decay_t<decltype(pressure_value)>,
-                ImmersX::Observable<double, std::decay_t<decltype(pressure)>>>);
+    std::is_same_v<typename DisplacementView::value_type,
+                   typename decltype(displacement_value)::value_type>);
+  static_assert(std::is_same_v<typename PressureView::value_type,
+                               typename decltype(pressure_value)::value_type>);
   static_assert(
-    std::is_same_v<
-      std::decay_t<decltype(displacement_grad)>,
-      ImmersX::Observable<Tensor<2, 2>, std::decay_t<decltype(displacement)>>>);
+    std::is_same_v<typename DisplacementView::gradient_type,
+                   typename decltype(displacement_grad)::value_type>);
+  static_assert(std::is_same_v<typename PressureView::gradient_type,
+                               typename decltype(pressure_grad)::value_type>);
   static_assert(
-    std::is_same_v<
-      std::decay_t<decltype(pressure_grad)>,
-      ImmersX::Observable<Tensor<1, 2>, std::decay_t<decltype(pressure)>>>);
+    std::is_same_v<typename DisplacementView::divergence_type,
+                   typename decltype(displacement_div)::value_type>);
+  static_assert(
+    std::is_same_v<typename DisplacementView::symmetric_gradient_type,
+                   typename decltype(displacement_sym)::value_type>);
+  static_assert(
+    std::is_same_v<typename DisplacementView::curl_type,
+                   typename decltype(displacement_curl)::value_type>);
 
   EXPECT_EQ(displacement_value.dependencies(),
             std::vector<ImmersX::FieldId>{displacement.field_id()});
   EXPECT_EQ(pressure_grad.dependencies(),
             std::vector<ImmersX::FieldId>{pressure.field_id()});
-  EXPECT_EQ(displacement_value.operation(),
-            ImmersX::ObservableOperation::value);
-  EXPECT_EQ(pressure_grad.operation(), ImmersX::ObservableOperation::gradient);
+  EXPECT_EQ(displacement_value.update_flags() & update_values, update_values);
+  EXPECT_EQ(pressure_grad.update_flags() & update_gradients, update_gradients);
   EXPECT_EQ(displacement_value.dimension(), 2u);
   EXPECT_EQ(displacement_value.spacedimension(), 2u);
   EXPECT_TRUE(displacement_value.is_differentiable());
@@ -121,6 +130,44 @@ TEST(FESpace, ValueAndGradientExposeTypedDependencies)
   EXPECT_EQ(displacement_value.space_dimension(), 2u);
   EXPECT_EQ(displacement_value.spacedim(), 2u);
   EXPECT_EQ(displacement_value.source_field(), displacement.field_id());
+}
+
+TEST(FESpace, TensorExtractorsUseDealIIViewTypes)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FESystem<2>   fe(FE_Q<2>(1), 4);
+  DoFHandler<2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
+
+  const auto tensor = V[FEValuesExtractors::Tensor<2>(0)].field("tensor");
+  const auto symmetric_tensor =
+    V[FEValuesExtractors::SymmetricTensor<2>(0)].field("symmetric-tensor");
+  const auto tensor_value         = ImmersX::value(tensor);
+  const auto tensor_gradient      = ImmersX::gradient(tensor);
+  const auto tensor_divergence    = ImmersX::divergence(tensor);
+  const auto symmetric_value      = ImmersX::value(symmetric_tensor);
+  const auto symmetric_divergence = ImmersX::divergence(symmetric_tensor);
+
+  using TensorView = FEValuesViews::View<2, 2, FEValuesExtractors::Tensor<2>>;
+  using SymmetricView =
+    FEValuesViews::View<2, 2, FEValuesExtractors::SymmetricTensor<2>>;
+  static_assert(std::is_same_v<typename TensorView::value_type,
+                               typename decltype(tensor_value)::value_type>);
+  static_assert(std::is_same_v<typename TensorView::gradient_type,
+                               typename decltype(tensor_gradient)::value_type>);
+  static_assert(
+    std::is_same_v<typename TensorView::divergence_type,
+                   typename decltype(tensor_divergence)::value_type>);
+  static_assert(std::is_same_v<typename SymmetricView::value_type,
+                               typename decltype(symmetric_value)::value_type>);
+  static_assert(
+    std::is_same_v<typename SymmetricView::divergence_type,
+                   typename decltype(symmetric_divergence)::value_type>);
 }
 
 TEST(FESpace, WrapsAnExistingProblemFromTheOutside)
