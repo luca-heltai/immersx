@@ -23,7 +23,7 @@ auto wall  = ida.add(elastic_problem, "wall");
 auto pressure = value(fluid.fields().pressure);
 auto traction = pressure * ImmersX::normal(surface);
 ida.add(ImmersX::weak_term(traction,
-                           wall.fields().displacement),
+                           test(wall.fields().displacement)),
         "traction");
 ```
 
@@ -46,7 +46,7 @@ auto strain = ImmersX::symmetric_gradient(displacement);
 auto pressure = ImmersX::value(flow_fields.pressure);
 
 auto term = ImmersX::weak_term(pressure * ImmersX::normal(surface),
-                               displacement);
+                               test(displacement));
 ```
 
 The same operations apply to frozen coefficients. A frozen FE expression has
@@ -80,8 +80,8 @@ auto lambda = interaction.multiplier_field();
 auto wall_displacement = interaction.radial_displacement(wall_lift);
 auto lambda_wall = lift(value(lambda), wall_lift, thickness);
 auto kinematics = make_constraint(
-  weak_term(value(solid_field), lambda_wall) -
-  weak_term(wall_displacement, lambda));
+  weak_term(value(solid_field), test(lambda_wall)) -
+  weak_term(wall_displacement, test(lambda)));
 auto fields = adapter.add(kinematics, "vessel-wall");
 adapter.add(interaction,
             "vessel-wall-pressure",

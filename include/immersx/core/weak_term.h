@@ -377,6 +377,20 @@ namespace ImmersX
       }
 
     private:
+      template <typename FieldType>
+      static std::vector<dealii::types::global_dof_index>
+      execution_indices(
+        const FieldType                                    &field,
+        const std::vector<dealii::types::global_dof_index> &native_indices)
+      {
+        std::vector<dealii::types::global_dof_index> result;
+        result.reserve(native_indices.size());
+        for (const auto native : native_indices)
+          if (field.has_execution_index(native))
+            result.push_back(field.execution_index(native));
+        return result;
+      }
+
       template <typename SourceField, typename VectorType, typename MatrixType>
       static std::shared_ptr<PreparedMatrix<VectorType, MatrixType>>
       prepare_from_source(const ObservableType   &observable,
@@ -482,8 +496,8 @@ namespace ImmersX
                           "mappings."));
 
             dealii::DynamicSparsityPattern sparsity(
-              target_field.dof_handler().n_dofs(),
-              source.dof_handler().n_dofs(),
+              target_field.locally_owned_dofs().size(),
+              source.locally_owned_dofs().size(),
               target_field.locally_owned_dofs());
 
             if (&source.dof_handler() == &target_field.dof_handler())
@@ -495,10 +509,14 @@ namespace ImmersX
                       std::vector<dealii::types::global_dof_index> indices(
                         cell->get_fe().n_dofs_per_cell());
                       cell->get_dof_indices(indices);
+                      const auto target_indices =
+                        execution_indices(target_field, indices);
+                      const auto source_indices =
+                        execution_indices(source, indices);
                       target_field.constraints().add_entries_local_to_global(
-                        indices,
+                        target_indices,
                         source.constraints(),
-                        indices,
+                        source_indices,
                         sparsity,
                         false);
                     }
@@ -517,10 +535,14 @@ namespace ImmersX
                     target_cell->get_fe().n_dofs_per_cell());
                   source_cell->get_dof_indices(source_indices);
                   target_cell->get_dof_indices(target_indices);
+                  const auto execution_source_indices =
+                    execution_indices(source, source_indices);
+                  const auto execution_target_indices =
+                    execution_indices(target_field, target_indices);
                   target_field.constraints().add_entries_local_to_global(
-                    target_indices,
+                    execution_target_indices,
                     source.constraints(),
-                    source_indices,
+                    execution_source_indices,
                     sparsity,
                     false);
                 }
@@ -865,21 +887,45 @@ namespace ImmersX
         source_cell->get_dof_indices(source_indices);
         target_cell->get_dof_indices(target_indices);
 
+        std::vector<unsigned int>                    source_positions;
+        std::vector<unsigned int>                    target_positions;
+        std::vector<dealii::types::global_dof_index> source_execution_indices;
+        std::vector<dealii::types::global_dof_index> target_execution_indices;
+        for (unsigned int j = 0; j < source_indices.size(); ++j)
+          if (source.has_execution_index(source_indices[j]))
+            {
+              source_positions.push_back(j);
+              source_execution_indices.push_back(
+                source.execution_index(source_indices[j]));
+            }
+        for (unsigned int i = 0; i < target_indices.size(); ++i)
+          if (target_field.has_execution_index(target_indices[i]))
+            {
+              target_positions.push_back(i);
+              target_execution_indices.push_back(
+                target_field.execution_index(target_indices[i]));
+            }
+
         const auto &trial_view = source_values[source.extractor()];
         const auto &test_view  = target_values[target_field.extractor()];
-        dealii::FullMatrix<double> local(target_indices.size(),
-                                         source_indices.size());
+        dealii::FullMatrix<double> local(target_positions.size(),
+                                         source_positions.size());
         for (unsigned int q = 0; q < quadrature.size(); ++q)
-          for (unsigned int i = 0; i < target_indices.size(); ++i)
-            for (unsigned int j = 0; j < source_indices.size(); ++j)
-              local(i, j) += observable.scale() * target.scale() *
-                             detail::natural_pairing(
-                               observable.operation()(trial_view, j, q),
-                               target.operation()(test_view, i, q)) *
-                             target_values.JxW(q);
+          for (unsigned int i = 0; i < target_positions.size(); ++i)
+            for (unsigned int j = 0; j < source_positions.size(); ++j)
+              local(i, j) +=
+                observable.scale() * target.scale() *
+                detail::natural_pairing(
+                  observable.operation()(trial_view, source_positions[j], q),
+                  target.operation()(test_view, target_positions[i], q)) *
+                target_values.JxW(q);
 
         target_field.constraints().distribute_local_to_global(
-          local, target_indices, source.constraints(), source_indices, matrix);
+          local,
+          target_execution_indices,
+          source.constraints(),
+          source_execution_indices,
+          matrix);
       }
     };
 
@@ -947,20 +993,33 @@ namespace ImmersX
         std::vector<dealii::types::global_dof_index> indices(
           input_cell->get_fe().n_dofs_per_cell());
         input_cell->get_dof_indices(indices);
-        std::vector<double> local_values(indices.size());
-        const auto         &coefficients =
+        const auto &coefficients =
           observable.is_frozen() ?
-                    observable.template frozen_values<VectorType>() :
-                    context.state(observable.source_field());
-        observable.source().constraints().get_dof_values(coefficients,
-                                                         indices.begin(),
-                                                         local_values.begin(),
-                                                         local_values.end());
+            observable.template frozen_values<VectorType>() :
+            context.state(observable.source_field());
+        std::vector<dealii::types::global_dof_index> execution_indices;
+        execution_indices.reserve(indices.size());
+        std::vector<unsigned int> positions;
+        positions.reserve(indices.size());
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          if (observable.source().has_execution_index(indices[i]))
+            {
+              positions.push_back(i);
+              execution_indices.push_back(
+                observable.source().execution_index(indices[i]));
+            }
+        std::vector<double> execution_values(execution_indices.size());
+        observable.source().constraints().get_dof_values(
+          coefficients,
+          execution_indices.begin(),
+          execution_values.begin(),
+          execution_values.end());
 
         const auto &view   = source_values[observable.source().extractor()];
         Value       result = Value{};
-        for (unsigned int i = 0; i < indices.size(); ++i)
-          result += local_values[i] * observable.operation()(view, i, q);
+        for (unsigned int i = 0; i < positions.size(); ++i)
+          result +=
+            execution_values[i] * observable.operation()(view, positions[i], q);
         return observable.scale() * result;
       }
 
@@ -1096,11 +1155,13 @@ namespace ImmersX
                                                           q,
                                                           context.time());
                   for (unsigned int i = 0; i < target_indices.size(); ++i)
-                    (*result)(target_indices[i]) +=
-                      target.scale() *
-                      natural_pairing(value,
-                                      target.operation()(target_view, i, q)) *
-                      target_values.JxW(q);
+                    if (target_field.has_execution_index(target_indices[i]))
+                      (*result)(
+                        target_field.execution_index(target_indices[i])) +=
+                        target.scale() *
+                        natural_pairing(value,
+                                        target.operation()(target_view, i, q)) *
+                        target_values.JxW(q);
                 }
             }
         result->compress(dealii::VectorOperation::add);
@@ -1134,8 +1195,8 @@ namespace ImmersX
                            observable.update_flags() | target.update_flags();
 
         dealii::DynamicSparsityPattern sparsity(
-          target_field.dof_handler().n_dofs(),
-          column_source.dof_handler().n_dofs(),
+          target_field.locally_owned_dofs().size(),
+          column_source.locally_owned_dofs().size(),
           target_field.locally_owned_dofs());
         std::vector<dealii::types::global_dof_index> target_indices(
           target_field.space().finite_element().n_dofs_per_cell());
@@ -1153,10 +1214,22 @@ namespace ImmersX
                 column_source.dof_handler());
               target_cell->get_dof_indices(target_indices);
               column_cell->get_dof_indices(column_indices);
+              std::vector<dealii::types::global_dof_index>
+                target_execution_indices;
+              std::vector<dealii::types::global_dof_index>
+                column_execution_indices;
+              for (const auto index : target_indices)
+                if (target_field.has_execution_index(index))
+                  target_execution_indices.push_back(
+                    target_field.execution_index(index));
+              for (const auto index : column_indices)
+                if (column_source.has_execution_index(index))
+                  column_execution_indices.push_back(
+                    column_source.execution_index(index));
               target_field.constraints().add_entries_local_to_global(
-                target_indices,
+                target_execution_indices,
                 column_source.constraints(),
-                column_indices,
+                column_execution_indices,
                 sparsity,
                 false);
             }
@@ -1192,28 +1265,51 @@ namespace ImmersX
               target_cell->get_dof_indices(target_indices);
               column_cell->get_dof_indices(column_indices);
               const auto &target_view = target_values[target_field.extractor()];
-              dealii::FullMatrix<double> local(target_indices.size(),
-                                               column_indices.size());
+              std::vector<unsigned int> target_positions;
+              std::vector<unsigned int> column_positions;
+              std::vector<dealii::types::global_dof_index>
+                target_execution_indices;
+              std::vector<dealii::types::global_dof_index>
+                column_execution_indices;
+              for (unsigned int i = 0; i < target_indices.size(); ++i)
+                if (target_field.has_execution_index(target_indices[i]))
+                  {
+                    target_positions.push_back(i);
+                    target_execution_indices.push_back(
+                      target_field.execution_index(target_indices[i]));
+                  }
+              for (unsigned int j = 0; j < column_indices.size(); ++j)
+                if (column_source.has_execution_index(column_indices[j]))
+                  {
+                    column_positions.push_back(j);
+                    column_execution_indices.push_back(
+                      column_source.execution_index(column_indices[j]));
+                  }
+              dealii::FullMatrix<double> local(target_positions.size(),
+                                               column_positions.size());
               for (unsigned int q = 0; q < quadrature.size(); ++q)
-                for (unsigned int i = 0; i < target_indices.size(); ++i)
-                  for (unsigned int j = 0; j < column_indices.size(); ++j)
+                for (unsigned int i = 0; i < target_positions.size(); ++i)
+                  for (unsigned int j = 0; j < column_positions.size(); ++j)
                     local(i, j) +=
                       target.scale() *
-                      natural_pairing(derivative_at<VectorType>(observable,
-                                                                context,
-                                                                field,
-                                                                source_cell,
-                                                                source_values,
-                                                                q,
-                                                                j,
-                                                                context.time()),
-                                      target.operation()(target_view, i, q)) *
+                      natural_pairing(
+                        derivative_at<VectorType>(observable,
+                                                  context,
+                                                  field,
+                                                  source_cell,
+                                                  source_values,
+                                                  q,
+                                                  column_positions[j],
+                                                  context.time()),
+                        target.operation()(target_view,
+                                           target_positions[i],
+                                           q)) *
                       target_values.JxW(q);
               target_field.constraints().distribute_local_to_global(
                 local,
-                target_indices,
+                target_execution_indices,
                 column_source.constraints(),
-                column_indices,
+                column_execution_indices,
                 *result.matrix);
             }
         result.matrix->compress(dealii::VectorOperation::add);

@@ -308,6 +308,15 @@ namespace ImmersX
     double
     density() const;
 
+    /** Return the physical viscosity used by the continuous velocity equation.
+     */
+    double
+    viscosity() const;
+
+    /** Whether the semidiscrete contributor includes the convective term. */
+    bool
+    include_convective_term() const;
+
     /** Return the global mixed-block offset of the pressure block. */
     dealii::types::global_dof_index
     velocity_block_size() const;

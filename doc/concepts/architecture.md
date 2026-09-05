@@ -45,17 +45,22 @@ first-order operations supplied by the deal.II view: (u_h),
 these operations at compile time. Invalid extractor/operation combinations
 are rejected by the compiler.
 
-Both sides of a weak term are FE expressions. A Field is normalized to its
-value expression, so these forms have the same meaning:
+The trial side of a weak term is an Observable. The residual row is always an
+explicit state-independent test expression made with `test(field)` and the
+same deal.II FE operation helpers. For example:
 
 ```cpp
-weak_term(u, v);                         // ∫ u · v
-weak_term(gradient(p), gradient(q));     // ∫ ∇p · ∇q
-weak_term(divergence(u), p);             // ∫ (∇·u) p
-weak_term(p, divergence(v));             // ∫ p (∇·v)
+weak_term(value(u), test(v));                         // ∫ u · v
+weak_term(gradient(p), gradient(test(q)));            // ∫ ∇p · ∇q
+weak_term(divergence(u), test(q));                    // ∫ (∇·u) q
+weak_term(value(p), divergence(test(v)));             // ∫ p (∇·v)
 weak_term(symmetric_gradient(u),
-          symmetric_gradient(v));         // ∫ ε(u) : ε(v)
+          symmetric_gradient(test(v)));               // ∫ ε(u) : ε(v)
 ```
+
+Observables may also be composed pointwise with native deal.II algebra. For
+example, `gradient(u) * u` denotes `(grad u) u`, and its directional
+derivative is `(grad du) u + (grad u) du`.
 
 For a linear trial expression and test expression, the matrix entry is
 

@@ -38,7 +38,7 @@ const auto displacement = elastic_space.field(
 const auto pressure =
   poisson.observe(Pressure{}).lift(pressure_lift);
 const auto traction = pressure * normal(surface);
-adapter.add(weak_term(traction, displacement), "pressure-traction");
+adapter.add(weak_term(traction, test(displacement)), "pressure-traction");
 
 auto state = adapter.make_state();
 adapter.solve(state);

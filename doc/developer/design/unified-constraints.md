@@ -10,8 +10,8 @@ multiplier space:
 
 ```{code-block} cpp
 auto lambda = multiplier_space.field("lambda");
-auto first  = weak_term(value(u1), lambda);
-auto second = weak_term(value(u2), lambda);
+auto first  = weak_term(value(u1), test(lambda));
+auto second = weak_term(value(u2), test(lambda));
 auto constraint = make_constraint(first - second, rhs);
 
 auto fields = adapter.add(constraint, "continuity");
