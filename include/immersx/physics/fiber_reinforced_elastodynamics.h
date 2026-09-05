@@ -14,6 +14,9 @@
 
 #include <deal.II/dofs/dof_handler.h>
 
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_system.h>
+
 #include <deal.II/lac/affine_constraints.h>
 
 #include <immersx/algebra/lagrange_multiplier_schur_solver.h>
@@ -24,7 +27,6 @@
 #ifdef DEAL_II_WITH_SUNDIALS
 #  include <immersx/core/sundials_ida_adapter.h>
 #endif
-#include <immersx/coupling/particle_coupling.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
 
@@ -46,12 +48,15 @@ namespace ImmersX
 
     TimeParameters time_parameters;
 
-    ElastodynamicsParameters<dim>   matrix_parameters;
-    ElastodynamicsParameters<dim>   fiber_parameters;
-    ParticleCouplingParameters<dim> coupling_parameters;
+    ElastodynamicsParameters<dim> matrix_parameters;
+    ElastodynamicsParameters<dim> fiber_parameters;
 
     std::string output_directory = "./output/fiber_reinforced_elastodynamics";
     std::string multiplier_output_name = "velocity_multiplier";
+
+    /** Zero selects the fiber degree; positive values select an independent
+     * multiplier FE degree. */
+    unsigned int multiplier_degree = 0;
 
     unsigned int schur_max_steps                 = 200;
     double       schur_tolerance                 = 1.e-10;
@@ -95,7 +100,9 @@ namespace ImmersX
 
     explicit FiberReinforcedElastodynamics(const Parameters &parameters);
 
-    /** Create both meshes, assemble both Problems, and assemble the coupling.
+    /** Create both meshes and assemble both Problems.
+     *
+     * The coupling is prepared by initialization or by the execution adapter.
      */
     void
     setup();
@@ -174,6 +181,9 @@ namespace ImmersX
     void
     output_results() const;
 
+    void
+    assemble_coupling_matrices();
+
 #ifdef DEAL_II_WITH_SUNDIALS
     void
     run_with_ida();
@@ -200,6 +210,7 @@ namespace ImmersX
                                     VectorType,
                                     ImmersXLA::MPI::PreconditionJacobi>;
 
+    std::unique_ptr<dealii::FESystem<dim>>   multiplier_fe_storage;
     std::unique_ptr<dealii::DoFHandler<dim>> multiplier_dof_handler_storage;
     std::unique_ptr<dealii::IndexSet>        multiplier_relevant_storage;
     std::unique_ptr<dealii::AffineConstraints<double>>
@@ -210,7 +221,6 @@ namespace ImmersX
     std::shared_ptr<MatrixType>            matrix_to_multiplier_storage;
     std::shared_ptr<MatrixType>            fiber_to_multiplier_storage;
     std::shared_ptr<MatrixType>            matrix_coupling_storage;
-    std::shared_ptr<MatrixType>            multiplier_metric_storage;
     std::unique_ptr<SchurSolver>           schur_solver;
 #ifdef DEAL_II_WITH_SUNDIALS
     std::unique_ptr<IDAAdapterType> ida_storage;

@@ -431,6 +431,20 @@ namespace ImmersX::detail
       return model_;
     }
 
+    std::optional<typename Model::MatrixOperator>
+    state_matrix_operator(const GlobalVectorType &state,
+                          const FieldId           row,
+                          const FieldId           column,
+                          const double            time = 0.) const
+    {
+      finalize();
+      validate_state(state);
+      StateView<FieldVectorType> state_view(layout_, time);
+      field_layout_.bind_state(state_view, state);
+      const EvaluationContext<FieldVectorType> context(time, state_view);
+      return model_.state_matrix_operator(row, column, context);
+    }
+
     const StateLayout &
     state_layout() const
     {

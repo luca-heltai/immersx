@@ -50,8 +50,7 @@ namespace ImmersX
       const FESpaceView<dim, dim>                   &multiplier_space,
       std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &matrix_to_multiplier,
       std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &fiber_to_multiplier,
-      std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &matrix_coupling,
-      std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &multiplier_metric)
+      std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &matrix_coupling)
     {
       const auto matrix_velocity =
         matrix_space.field(FieldId(0),
@@ -66,15 +65,13 @@ namespace ImmersX
                                "velocity_multiplier",
                                dealii::FEValuesExtractors::Vector(0));
 
-      const auto matrix_observable     = value(matrix_velocity);
-      const auto fiber_observable      = value(fiber_velocity);
-      const auto multiplier_observable = value(multiplier);
-
-      using MatrixObservable = decltype(matrix_observable);
-      using FiberObservable  = decltype(fiber_observable);
-      using MultiplierField  = FiberVectorField<dim>;
-      using MatrixType       = ImmersXLA::MPI::SparseMatrix;
-      using VectorType       = ImmersXLA::MPI::Vector;
+      const auto matrix_observable = value(matrix_velocity);
+      const auto fiber_observable  = value(fiber_velocity);
+      using MatrixObservable       = decltype(matrix_observable);
+      using FiberObservable        = decltype(fiber_observable);
+      using MultiplierField        = FiberVectorField<dim>;
+      using MatrixType             = ImmersXLA::MPI::SparseMatrix;
+      using VectorType             = ImmersXLA::MPI::Vector;
 
       matrix_to_multiplier =
         detail::WeakAssembly<MatrixObservable, MultiplierField>::
@@ -86,12 +83,6 @@ namespace ImmersX
           template assemble<VectorType, MatrixType>(fiber_observable,
                                                     multiplier)
             .matrix;
-      multiplier_metric =
-        detail::WeakAssembly<decltype(multiplier_observable), MultiplierField>::
-          template assemble<VectorType, MatrixType>(multiplier_observable,
-                                                    multiplier)
-            .matrix;
-
       const auto matrix_operator =
         ImmersX::matrix_operator<VectorType, MatrixType>(*matrix_to_multiplier);
       matrix_coupling = ImmersX::transpose_operator(matrix_operator).matrix();
@@ -184,11 +175,14 @@ namespace ImmersX
     , fiber_parameters(normalize_subsection(subsection) +
                          "Fiber Elastodynamics/",
                        &time_parameters)
-    , coupling_parameters(normalize_subsection(subsection) +
-                          "Fiber Coupling/Particle search/")
   {
     add_parameter("Output directory", output_directory);
     add_parameter("Multiplier output name", multiplier_output_name);
+    add_parameter("Multiplier FE degree",
+                  multiplier_degree,
+                  "Zero follows the fiber FE degree.",
+                  prm,
+                  Patterns::Integer(0));
     enter_subsection("Coupling solver");
     {
       add_parameter("Maximum steps", schur_max_steps);
@@ -254,7 +248,12 @@ namespace ImmersX
 
     multiplier_dof_handler_storage = std::make_unique<dealii::DoFHandler<dim>>(
       fiber_problem_storage.triangulation());
-    multiplier_dof_handler_storage->distribute_dofs(fiber_problem_storage.fe());
+    const unsigned int degree = parameters.multiplier_degree == 0 ?
+                                  fiber_problem_storage.fe().degree :
+                                  parameters.multiplier_degree;
+    multiplier_fe_storage =
+      std::make_unique<dealii::FESystem<dim>>(dealii::FE_Q<dim>(degree), dim);
+    multiplier_dof_handler_storage->distribute_dofs(*multiplier_fe_storage);
     multiplier_constraints_storage =
       std::make_unique<dealii::AffineConstraints<double>>();
     multiplier_constraints_storage->reinit(
@@ -273,13 +272,6 @@ namespace ImmersX
                *multiplier_constraints_storage,
                multiplier_relevant_storage.get()));
 
-    assemble_fiber_constraint_matrices(*matrix_space_storage,
-                                       *fiber_space_storage,
-                                       *multiplier_space_storage,
-                                       matrix_to_multiplier_storage,
-                                       fiber_to_multiplier_storage,
-                                       matrix_coupling_storage,
-                                       multiplier_metric_storage);
     multiplier_storage.reinit(
       multiplier_dof_handler_storage->locally_owned_dofs(), MPI_COMM_WORLD);
     multiplier_storage = 0.;
@@ -290,10 +282,28 @@ namespace ImmersX
 
   template <int dim>
   void
+  FiberReinforcedElastodynamics<dim>::assemble_coupling_matrices()
+  {
+    AssertThrow(setup_complete,
+                ExcMessage("setup() must precede coupling assembly."));
+    assemble_fiber_constraint_matrices(*matrix_space_storage,
+                                       *fiber_space_storage,
+                                       *multiplier_space_storage,
+                                       matrix_to_multiplier_storage,
+                                       fiber_to_multiplier_storage,
+                                       matrix_coupling_storage);
+  }
+
+
+  template <int dim>
+  void
   FiberReinforcedElastodynamics<dim>::set_initial_conditions()
   {
     AssertThrow(setup_complete,
                 ExcMessage("setup() must precede initial conditions."));
+
+    if (!matrix_to_multiplier_storage)
+      assemble_coupling_matrices();
 
     matrix_problem_storage.set_initial_conditions();
     fiber_problem_storage.set_initial_conditions();
@@ -608,6 +618,31 @@ namespace ImmersX
     fiber_fields_storage    = fiber_fields.fields();
     coupling_fields_storage = coupling_fields.fields();
 
+    const auto state = ida_storage->make_state();
+    const auto matrix_to_multiplier =
+      ida_storage->state_matrix_operator(state,
+                                         coupling_fields_storage.multiplier,
+                                         matrix_fields_storage.velocity);
+    const auto negative_fiber_to_multiplier =
+      ida_storage->state_matrix_operator(state,
+                                         coupling_fields_storage.multiplier,
+                                         fiber_fields_storage.velocity);
+    const auto matrix_coupling =
+      ida_storage->state_matrix_operator(state,
+                                         matrix_fields_storage.velocity,
+                                         coupling_fields_storage.multiplier);
+    AssertThrow(
+      matrix_to_multiplier.has_value() &&
+        negative_fiber_to_multiplier.has_value() && matrix_coupling.has_value(),
+      dealii::ExcMessage(
+        "The fiber Constraint must have matrix-based coupling blocks."));
+    matrix_to_multiplier_storage = matrix_to_multiplier->matrix();
+    fiber_to_multiplier_storage  = std::make_shared<MatrixType>();
+    fiber_to_multiplier_storage->copy_from(
+      *negative_fiber_to_multiplier->matrix());
+    *fiber_to_multiplier_storage *= -1.;
+    matrix_coupling_storage = matrix_coupling->matrix();
+
     ida_storage->set_output_step([this](const double            time,
                                         const GlobalVectorType &state,
                                         const GlobalVectorType &state_dot,
@@ -773,11 +808,12 @@ namespace ImmersX
   FiberReinforcedElastodynamics<dim>::run()
   {
     setup();
-    set_initial_conditions();
 #ifdef DEAL_II_WITH_SUNDIALS
     run_with_ida();
     return;
 #endif
+
+    set_initial_conditions();
 
     unsigned int n_steps = parameters.time_parameters.number_of_steps;
     if (n_steps == 0 && parameters.time_parameters.final_time >
