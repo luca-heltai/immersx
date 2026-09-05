@@ -20,6 +20,7 @@
 
 #include <deal.II/grid/grid_generator.h>
 
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/vector.h>
 
@@ -190,12 +191,14 @@ TEST(WeakTerm, SameDoFHandlerGradientMatchesMatrixCreator)
   ASSERT_TRUE(actual.has_value());
   ASSERT_TRUE(actual->is_materializable());
 
-  const QGauss<2> quadrature(fe.degree + 1);
-  SparsityPattern sparsity;
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity;
   DoFTools::make_sparsity_pattern(space.dof_handler,
-                                  sparsity,
+                                  dynamic_sparsity,
                                   space.constraints,
                                   false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
   Matrix reference(sparsity);
   MatrixCreator::create_laplace_matrix(StaticMappingQ1<2>::mapping,
                                        space.dof_handler,
@@ -239,12 +242,14 @@ TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
   ASSERT_TRUE(actual.has_value());
   ASSERT_TRUE(actual->is_materializable());
 
-  const QGauss<2> quadrature(fe.degree + 1);
-  SparsityPattern sparsity;
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity;
   DoFTools::make_sparsity_pattern(space.dof_handler,
-                                  sparsity,
+                                  dynamic_sparsity,
                                   space.constraints,
                                   false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
   Matrix      reference(sparsity);
   FEValues<2> values(StaticMappingQ1<2>::mapping,
                      fe,
@@ -302,12 +307,14 @@ TEST(WeakTerm, SameDoFHandlerSymmetricGradientUsesBothExpressions)
   ASSERT_TRUE(actual.has_value());
   ASSERT_TRUE(actual->is_materializable());
 
-  const QGauss<2> quadrature(fe.degree + 1);
-  SparsityPattern sparsity;
+  const QGauss<2>        quadrature(fe.degree + 1);
+  DynamicSparsityPattern dynamic_sparsity;
   DoFTools::make_sparsity_pattern(space.dof_handler,
-                                  sparsity,
+                                  dynamic_sparsity,
                                   space.constraints,
                                   false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
   Matrix      reference(sparsity);
   FEValues<2> values(StaticMappingQ1<2>::mapping,
                      fe,
