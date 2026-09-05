@@ -43,6 +43,29 @@
 
 namespace ImmersX
 {
+  /** Pointwise MetricFlowX area-to-radius increment and its derivative. */
+  struct MetricFlowXRadialLaw
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      AssertDimension(values.size(), 2);
+      AssertThrow(std::isfinite(values[0]) && values[0] > 0. &&
+                    std::isfinite(values[1]) && values[1] > 0.,
+                  dealii::ExcMessage(
+                    "MetricFlowX Areas must be finite and positive."));
+      return {std::sqrt(values[0] / dealii::numbers::PI) -
+                std::sqrt(values[1] / dealii::numbers::PI),
+              {1. / (2. * std::sqrt(dealii::numbers::PI * values[0])), 0.}};
+    }
+  };
+
   /**
    * Nonlinear radial displacement observable for a MetricFlowX vessel wall.
    *
@@ -386,23 +409,13 @@ namespace ImmersX
     double
     delta_radius(const double area, const double a0) const
     {
-      AssertThrow(std::isfinite(area) && area > 0.,
-                  dealii::ExcMessage(
-                    "MetricFlowX Area must be finite and positive."));
-      AssertThrow(std::isfinite(a0) && a0 > 0.,
-                  dealii::ExcMessage(
-                    "MetricFlowX resting Area must be finite and positive."));
-      return std::sqrt(area / dealii::numbers::PI) -
-             std::sqrt(a0 / dealii::numbers::PI);
+      return MetricFlowXRadialLaw{}.evaluate({area, a0}).value;
     }
 
     double
     radius_derivative(const double area) const
     {
-      AssertThrow(std::isfinite(area) && area > 0.,
-                  dealii::ExcMessage(
-                    "MetricFlowX Area must be finite and positive."));
-      return 1. / (2. * std::sqrt(dealii::numbers::PI * area));
+      return MetricFlowXRadialLaw{}.evaluate({area, 1.}).derivatives.front();
     }
 
   private:

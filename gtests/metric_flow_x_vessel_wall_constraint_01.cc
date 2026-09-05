@@ -35,6 +35,16 @@
 
 #if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
 
+TEST(MetricFlowXRadialLaw, ValueAndDerivative)
+{
+  const auto evaluation = ImmersX::MetricFlowXRadialLaw{}.evaluate(
+    {4. * dealii::numbers::PI, dealii::numbers::PI});
+  EXPECT_DOUBLE_EQ(evaluation.value, 1.);
+  ASSERT_EQ(evaluation.derivatives.size(), 2u);
+  EXPECT_DOUBLE_EQ(evaluation.derivatives[0], 1. / (4. * dealii::numbers::PI));
+  EXPECT_DOUBLE_EQ(evaluation.derivatives[1], 0.);
+}
+
 namespace
 {
   using FlowProblem  = MetricFlowX::BloodFlowSystem<1, 3>;

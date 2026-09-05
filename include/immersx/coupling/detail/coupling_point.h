@@ -35,6 +35,8 @@ namespace ImmersX::detail
     std::uint64_t stable_id = std::numeric_limits<std::uint64_t>::max();
     std::vector<dealii::types::global_dof_index> dof_indices;
     std::vector<ValueType>                       basis_values;
+    std::vector<double>                          source_basis_values;
+    std::vector<double>                          mode_values;
   };
 } // namespace ImmersX::detail
 

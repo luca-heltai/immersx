@@ -21,6 +21,8 @@
 
 #include <gtest/gtest.h>
 #include <immersx/core/observable.h>
+#include <immersx/core/observable_lift.h>
+#include <immersx/core/state.h>
 #include <immersx/core/symbolic_expression_kernel.h>
 #include <immersx/physics/poisson.h>
 
@@ -278,6 +280,66 @@ TEST(FESpace, SymbolicKernelSuppliesTransformDerivatives)
         return input.is_frozen() ? 0. : 1.;
       }),
     1.);
+}
+
+TEST(FESpace, NonlinearLiftUsesComposedSource)
+{
+  struct AffineKernel
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      return {values[0] + values[1], {1., 1.}};
+    }
+  };
+
+  Triangulation<1, 2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<1, 2>       fe(1);
+  DoFHandler<1, 2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<1, 2>::mapping, constraints);
+  ImmersX::StateLayout layout;
+  const auto           source = V.field(layout, "source");
+  using State                 = ImmersX::ImmersXLA::MPI::Vector;
+  State frozen_values;
+  frozen_values.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_SELF);
+  const auto expression =
+    ImmersX::transform(ImmersX::value(source),
+                       ImmersX::frozen(source, frozen_values),
+                       AffineKernel{});
+  ImmersX::TensorProductLift<1, 2, 2, 1> descriptor;
+  descriptor.section.selected_coefficients = {0u};
+  descriptor.section.inclusion_degree      = 1;
+  descriptor.section.refinement_level      = 0;
+  descriptor.section.n_q_points            = 2;
+  descriptor.representative_n_q_points     = 2;
+  const auto lifted = ImmersX::lift(expression, descriptor);
+
+  State state;
+  state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_SELF);
+  state = 1.;
+  ImmersX::StateView<State> state_view(layout, 0.);
+  state_view.bind(source.field_id(), state);
+  const ImmersX::EvaluationContext<State> context(0., state_view);
+  const auto                              values = lifted.evaluate(context);
+  EXPECT_EQ(values.size(), lifted.lifted_points().size());
+  const auto linearization = lifted.linearize(context, source.field_id());
+  State      direction;
+  direction.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_SELF);
+  direction = 1.;
+  ImmersX::ImmersXLA::MPI::Vector action;
+  linearization.vmult(action, direction);
+  EXPECT_EQ(action.size(), values.size());
 }
 
 TEST(FESpace, WrapsAnExistingProblemFromTheOutside)
