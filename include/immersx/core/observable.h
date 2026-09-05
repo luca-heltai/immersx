@@ -422,7 +422,7 @@ namespace ImmersX
     return Observable<std::decay_t<FieldType>, detail::CurlOperation>(field);
   }
 
-  /** Normalize Field sugar to the identity FE expression. */
+  /** \cond */
   template <
     typename Type,
     std::enable_if_t<detail::is_observable<std::decay_t<Type>>::value, int> = 0>
@@ -440,6 +440,7 @@ namespace ImmersX
   {
     return value(field);
   }
+  /** \endcond */
 
   /** Construct a dependency-free expression from fixed FE coefficients. */
   template <typename FieldType, typename VectorType>
