@@ -215,6 +215,92 @@ TEST(WeakTermNonmatching, MPI_NonmatchingPartitionAndTranspose)
   check_nonmatching_scalar_pairing(source, target, 1.);
 }
 
+TEST(WeakTermNonmatching, MPI_ScaledPairing)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  parallel::distributed::Triangulation<2> source_tria(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> target_tria(MPI_COMM_WORLD);
+  FE_Q<2>                                 source_fe(1);
+  FE_Q<2>                                 target_fe(2);
+  DistributedScalarSpace source_space(source_tria, source_fe, 2);
+  DistributedScalarSpace target_space(target_tria, target_fe, 3);
+  const auto             source_view = fe_space(source_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    source_space.constraints);
+  const auto             target_view = fe_space(target_space.dof_handler,
+                                    StaticMappingQ1<2>::mapping,
+                                    target_space.constraints);
+
+  using Vector = ImmersXLA::MPI::Vector;
+  using Matrix = ImmersXLA::MPI::SparseMatrix;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+
+  StateLayout base_layout;
+  const auto  base_source = source_view.field(base_layout, "base-source");
+  const auto  base_target = target_view.field(base_layout, "base-target");
+  Model       base_model;
+  SemidiscreteBuilder<Vector, Matrix> base_builder(base_layout, base_model);
+  weak_term(value(base_source), base_target).add(base_builder);
+
+  StateLayout scaled_layout;
+  const auto  scaled_source = source_view.field(scaled_layout, "scaled-source");
+  const auto  scaled_target = target_view.field(scaled_layout, "scaled-target");
+  Model       scaled_model;
+  SemidiscreteBuilder<Vector, Matrix> scaled_builder(scaled_layout,
+                                                     scaled_model);
+  weak_term(2.0 * value(scaled_source), scaled_target).add(scaled_builder);
+
+  Vector base_state;
+  Vector scaled_state;
+  base_state.reinit(base_source.locally_owned_dofs(), MPI_COMM_WORLD);
+  scaled_state.reinit(scaled_source.locally_owned_dofs(), MPI_COMM_WORLD);
+  for (const auto index : base_state.locally_owned_elements())
+    {
+      const double value  = 0.5 + static_cast<double>(index);
+      base_state[index]   = value;
+      scaled_state[index] = value;
+    }
+  base_state.compress(VectorOperation::insert);
+  scaled_state.compress(VectorOperation::insert);
+
+  StateView<Vector> base_view(base_layout, 0.);
+  StateView<Vector> scaled_view(scaled_layout, 0.);
+  base_view.bind(base_source.field_id(), base_state);
+  scaled_view.bind(scaled_source.field_id(), scaled_state);
+  const EvaluationContext<Vector> base_context(0., base_view);
+  const EvaluationContext<Vector> scaled_context(0., scaled_view);
+
+  Vector base_residual;
+  Vector scaled_residual;
+  base_residual.reinit(base_target.locally_owned_dofs(), MPI_COMM_WORLD);
+  scaled_residual.reinit(scaled_target.locally_owned_dofs(), MPI_COMM_WORLD);
+  base_model.evaluate_row(base_target.field_id(), base_context, base_residual);
+  scaled_model.evaluate_row(scaled_target.field_id(),
+                            scaled_context,
+                            scaled_residual);
+  scaled_residual.add(-2., base_residual);
+  EXPECT_LT(scaled_residual.l2_norm(), 1.e-12);
+
+  const auto base_matrix =
+    base_model.state_matrix_operator(base_target.field_id(),
+                                     base_source.field_id(),
+                                     base_context);
+  const auto scaled_matrix =
+    scaled_model.state_matrix_operator(scaled_target.field_id(),
+                                       scaled_source.field_id(),
+                                       scaled_context);
+  ASSERT_TRUE(base_matrix.has_value());
+  ASSERT_TRUE(scaled_matrix.has_value());
+  Vector base_action;
+  Vector scaled_action;
+  base_action.reinit(base_target.locally_owned_dofs(), MPI_COMM_WORLD);
+  scaled_action.reinit(scaled_target.locally_owned_dofs(), MPI_COMM_WORLD);
+  base_matrix->view.vmult(base_action, base_state);
+  scaled_matrix->view.vmult(scaled_action, scaled_state);
+  scaled_action.add(-2., base_action);
+  EXPECT_LT(scaled_action.l2_norm(), 1.e-12);
+}
+
 TEST(WeakTermNonmatching, NonmatchingVectorPairing)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);

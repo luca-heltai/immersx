@@ -17,13 +17,11 @@ set(IMMERSX_UNIT_TEST_SUITES
     Inclusion3
     InclusionsBasis2
     CCO
-    Constraint
     SymbolicExpressionKernel
     SymbolicFieldEvaluator
     StateHistory
     VTKUtils
     FieldCatalog
-    WeakTerm
     VectorRepresentation
     RetainedSampling
     Representation
@@ -68,7 +66,9 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     TensorProductCoupling
     ReducedCoupling0D
     RepresentationContract
-    WeakTermNonmatching)
+    WeakTermNonmatching
+    Constraint
+    WeakTerm)
 
 set(IMMERSX_VALIDATION_TEST_SUITES
     OneVesselMMS

@@ -282,7 +282,7 @@ TEST(Constraint, CombinesSignedSums)
   EXPECT_DOUBLE_EQ(coefficients[3], -1.);
 }
 
-TEST(Constraint, NonmatchingGeometryUsesCachedBackend)
+TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
 

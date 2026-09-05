@@ -58,6 +58,8 @@ the cached nonmatching weak-term backend. Vector basis values are evaluated by
 component, so an x basis function cannot couple to a y basis function. The
 application constructs the relation from `weak_term(value(...), lambda)`
 terms; the search and matrix storage remain private to that implementation.
+The multiplier uses the fiber FE degree by default; set `Multiplier FE degree`
+to a positive value to choose an independent vector finite element degree.
 
 The application driver, rather than either Problem’s standalone time loop,
 owns the five-field IDA solve. Eliminating displacement gives
@@ -91,7 +93,7 @@ and adaptive refinement during the coupled run are not implemented here.
 
 Output ownership follows the semantic composition boundary. The two Problems
 accept their solved displacement and velocity states and write their native
-mesh output. The application writes `velocity_multiplier` with the
+mesh output. The reusable driver writes `velocity_multiplier` with the
 multiplier’s own DoFHandler and finite element; it is not attached to an
 endpoint Problem’s DoFHandler merely because the geometry is related. In the
 IDA path, output uses accepted state handoffs, never residual or Jacobian

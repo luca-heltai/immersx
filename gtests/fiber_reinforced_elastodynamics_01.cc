@@ -11,6 +11,8 @@
 
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_values.h>
+
 #include <deal.II/lac/solver_gmres.h>
 
 #include <deal.II/numerics/data_out.h>
@@ -201,6 +203,40 @@ namespace
     dst = 0.;
     solver.solve(operator_view, dst, rhs, PreconditionIdentity());
   }
+
+  void
+  assemble_constant_multiplier_pairing(
+    const DoFHandler<2>             &multiplier_dh,
+    const Mapping<2>                &mapping,
+    const AffineConstraints<double> &constraints,
+    const Tensor<1, 2>              &constant,
+    LA::MPI::Vector                 &result)
+  {
+    const QGauss<2> quadrature(multiplier_dh.get_fe().degree + 1);
+    FEValues<2>     fe_values(mapping,
+                          multiplier_dh.get_fe(),
+                          quadrature,
+                          update_values | update_JxW_values);
+    std::vector<types::global_dof_index> indices(
+      multiplier_dh.get_fe().n_dofs_per_cell());
+    Vector<double> local(indices.size());
+    result.reinit(multiplier_dh.locally_owned_dofs(), MPI_COMM_WORLD);
+    result = 0.;
+    const FEValuesExtractors::Vector vector(0);
+    for (const auto &cell : multiplier_dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          fe_values.reinit(cell);
+          cell->get_dof_indices(indices);
+          local = 0.;
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            for (const auto q : fe_values.quadrature_point_indices())
+              local[i] +=
+                (fe_values[vector].value(i, q) * constant) * fe_values.JxW(q);
+          constraints.distribute_local_to_global(local, indices, result);
+        }
+    result.compress(VectorOperation::add);
+  }
 #endif
 } // namespace
 
@@ -266,11 +302,11 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   ParameterAcceptor::clear();
   FiberReinforcedElastodynamicsParameters<2> parameters;
   configure_problem(parameters, true, true);
+  parameters.matrix_parameters.dirichlet_ids.clear();
   parameters.time_parameters.final_time      = 0.001;
   parameters.time_parameters.number_of_steps = 1;
   FiberReinforcedElastodynamics<2> driver(parameters);
   driver.setup();
-  driver.set_initial_conditions();
 
   DoFHandler<2> multiplier_dh(
     driver.fiber_problem().dof_handler().get_triangulation());
@@ -323,27 +359,45 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
                                                FEValuesExtractors::Vector(0));
   const auto multiplier =
     multiplier_view.field("velocity_multiplier", FEValuesExtractors::Vector(0));
+#  ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto preparations = detail::weak_term_nonmatching_preparations.load();
+#  endif
   const auto constraint =
     make_constraint(weak_term(value(matrix_velocity), multiplier) -
                     weak_term(value(fiber_velocity), multiplier));
   const auto coupling = ida.add(constraint, "fiber_coupling");
+#  ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 1);
+#  endif
 
-  using MatrixType = ImmersXLA::MPI::SparseMatrix;
+  using MatrixType          = ImmersXLA::MPI::SparseMatrix;
+  const auto coupling_state = ida.make_state();
   const auto matrix_pairing =
-    detail::WeakAssembly<decltype(value(matrix_velocity)),
-                         FESpaceView<2, 2>::VectorField>::
-      template assemble<FieldVector, MatrixType>(
-        value(matrix_velocity),
-        multiplier.with_id(coupling.fields().multiplier))
-        .matrix;
-  const auto fiber_pairing =
-    detail::WeakAssembly<decltype(value(fiber_velocity)),
-                         FESpaceView<2, 2>::VectorField>::
-      template assemble<FieldVector, MatrixType>(
-        value(fiber_velocity), multiplier.with_id(coupling.fields().multiplier))
-        .matrix;
-  const auto matrix_coupling = transpose_operator(
-    ImmersX::matrix_operator<FieldVector, MatrixType>(*matrix_pairing));
+    ida
+      .state_matrix_operator(coupling_state,
+                             coupling.fields().multiplier,
+                             matrix.fields().velocity)
+      ->matrix();
+  const auto negative_fiber_pairing =
+    ida
+      .state_matrix_operator(coupling_state,
+                             coupling.fields().multiplier,
+                             fiber.fields().velocity)
+      ->matrix();
+  auto fiber_pairing = std::make_shared<MatrixType>();
+  fiber_pairing->copy_from(*negative_fiber_pairing);
+  *fiber_pairing *= -1.;
+  const auto matrix_coupling =
+    ida
+      .state_matrix_operator(coupling_state,
+                             matrix.fields().velocity,
+                             coupling.fields().multiplier)
+      ->matrix();
+#  ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 1);
+#  endif
   auto state     = ida.make_state();
   auto state_dot = ida.make_state();
   auto residual  = ida.make_state();
@@ -351,13 +405,17 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   ida.field(state, matrix.fields().displacement)     = 0.2;
   ida.field(state, matrix.fields().velocity)         = -0.4;
   ida.field(state, fiber.fields().displacement)      = 0.3;
-  ida.field(state, fiber.fields().velocity)          = 0.5;
+  ida.field(state, fiber.fields().velocity)          = 0.;
   ida.field(state, coupling.fields().multiplier)     = -0.7;
   ida.field(state_dot, matrix.fields().displacement) = 0.6;
   ida.field(state_dot, matrix.fields().velocity)     = 0.8;
   ida.field(state_dot, fiber.fields().displacement)  = -0.9;
   ida.field(state_dot, fiber.fields().velocity)      = 1.1;
   ida.field(state_dot, coupling.fields().multiplier) = 0.;
+  driver.matrix_problem().velocity_constraints().distribute(
+    ida.field(state, matrix.fields().velocity));
+  driver.fiber_problem().velocity_constraints().distribute(
+    ida.field(state, fiber.fields().velocity));
 
   ida.solver().residual(0., state, state_dot, residual);
   const auto actual_matrix_d =
@@ -402,8 +460,7 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   FieldVector force;
   driver.matrix_problem().body_force_at_time(0., force);
   matrix_v_residual -= force;
-  matrix_coupling.view.vmult(work,
-                             ida.field(state, coupling.fields().multiplier));
+  matrix_coupling->vmult(work, ida.field(state, coupling.fields().multiplier));
   matrix_v_residual += work;
   zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
                               matrix_v_residual);
@@ -431,10 +488,53 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   zero_constrained_entries<2>(driver.fiber_problem().velocity_constraints(),
                               fiber_v_residual);
 
-  matrix_pairing->vmult(lambda_residual,
-                        ida.field(state, matrix.fields().velocity));
-  fiber_pairing->vmult(work_lambda, ida.field(state, fiber.fields().velocity));
+  Tensor<1, 2> matrix_constant;
+  for (unsigned int d = 0; d < 2; ++d)
+    matrix_constant[d] = -0.4;
+  Tensor<1, 2> fiber_constant;
+  for (unsigned int d = 0; d < 2; ++d)
+    fiber_constant[d] = 0.;
+  FieldVector matrix_oracle;
+  FieldVector fiber_oracle;
+  matrix_oracle.reinit(lambda_residual);
+  fiber_oracle.reinit(lambda_residual);
+  assemble_constant_multiplier_pairing(multiplier_dh,
+                                       driver.fiber_problem().mapping(),
+                                       multiplier_constraints,
+                                       matrix_constant,
+                                       matrix_oracle);
+  assemble_constant_multiplier_pairing(multiplier_dh,
+                                       driver.fiber_problem().mapping(),
+                                       multiplier_constraints,
+                                       fiber_constant,
+                                       fiber_oracle);
+  lambda_residual = matrix_oracle;
+  work_lambda     = fiber_oracle;
   lambda_residual -= work_lambda;
+  FieldVector assembled_matrix_pairing;
+  FieldVector assembled_fiber_pairing;
+  assembled_matrix_pairing.reinit(lambda_residual);
+  assembled_fiber_pairing.reinit(lambda_residual);
+  matrix_pairing->vmult(assembled_matrix_pairing,
+                        ida.field(state, matrix.fields().velocity));
+  fiber_pairing->vmult(assembled_fiber_pairing,
+                       ida.field(state, fiber.fields().velocity));
+  assembled_matrix_pairing -= matrix_oracle;
+  assembled_fiber_pairing -= fiber_oracle;
+  EXPECT_LT(assembled_matrix_pairing.l2_norm(), 1.e-11);
+  EXPECT_LT(assembled_fiber_pairing.l2_norm(), 1.e-11);
+  FieldVector matrix_reaction;
+  FieldVector fiber_reaction;
+  matrix_reaction.reinit(actual_matrix_v);
+  fiber_reaction.reinit(actual_fiber_v);
+  matrix_coupling->vmult(matrix_reaction,
+                         ida.field(state, coupling.fields().multiplier));
+  fiber_pairing->Tvmult(fiber_reaction,
+                        ida.field(state, coupling.fields().multiplier));
+  EXPECT_NEAR(matrix_reaction * ida.field(state, matrix.fields().velocity) -
+                fiber_reaction * ida.field(state, fiber.fields().velocity),
+              lambda_residual * ida.field(state, coupling.fields().multiplier),
+              1.e-11);
   auto check = actual_matrix_d;
   check -= matrix_d_residual;
   EXPECT_LT(check.l2_norm(), 1.e-11);
@@ -487,9 +587,8 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
     work, ida.field(increment, matrix.fields().velocity));
   work *= 1.5;
   expected_matrix_v_action += work;
-  matrix_coupling.view.vmult(work,
-                             ida.field(increment,
-                                       coupling.fields().multiplier));
+  matrix_coupling->vmult(work,
+                         ida.field(increment, coupling.fields().multiplier));
   expected_matrix_v_action += work;
   zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
                               expected_matrix_v_action);
@@ -550,6 +649,10 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   ida.solver().residual(data.final_time, state, state_dot, residual);
   EXPECT_LT(residual.l2_norm(), 1.e-5);
   EXPECT_LT(ida.field(residual, coupling.fields().multiplier).l2_norm(), 1.e-5);
+#  ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 1);
+#  endif
 
   const std::filesystem::path multiplier_output =
     TestPaths::output_directory("fiber-vector-multiplier");
@@ -616,6 +719,7 @@ TEST(FiberReinforcedElastodynamics, ThreeDimensionalSmoke)
     set dimension       = 3
     set space dimension = 3
     subsection Fiber Reinforced Elastodynamics
+      set Multiplier FE degree = 2
       subsection Time parameters
         set Final time         = 0.01
         set Time step          = 0.01
