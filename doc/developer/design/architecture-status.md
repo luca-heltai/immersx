@@ -345,10 +345,11 @@ Possible families include:
 - source or conservative exchange;
 - circuit, interface-state, and co-simulation ports.
 
-The old scalar and vector `LagrangeMultiplierInteraction` classes are retained
-only by explicit solver regressions, the specialized tensor-product path, and
-the no-SUNDIALS fiber fallback. The current composition API represents scalar
-and vector multiplier constraints with one `Constraint` over `weak_term`s.
+The old scalar `LagrangeMultiplierInteraction` is retained only by explicit
+solver regressions and the specialized tensor-product path. The current
+composition API represents scalar and vector multiplier constraints with one
+`Constraint` over `weak_term`s; the no-SUNDIALS fiber fallback also uses the
+generic coupling matrices directly.
 Some Interactions introduce no multiplier and no auxiliary Field.
 
 An Interaction may introduce first-class auxiliary unknowns such as Lagrange

@@ -106,8 +106,8 @@ poisson_problem.output_results();
 elasticity_problem.output_results(0);
 ```
 
-For a Lagrange-multiplier Interaction, the accepted-state handoff is explicit
-and uses the semantic multiplier Field returned by the Interaction contributor:
+For a unified Lagrange-multiplier constraint, the execution adapter returns the
+semantic multiplier Field alongside the other contributor fields:
 
 ```{code-block} cpp
 auto state = adapter.make_state();
@@ -115,16 +115,15 @@ adapter.solve(state);
 
 poisson_problem.set_solution(
   adapter.field(state, poisson.fields().solution));
-interaction.set_multiplier(
-  adapter.field(state, continuity.fields().multiplier));
+const auto lambda = adapter.field(state, constraint.fields().multiplier);
 
 poisson_problem.output_results();
-interaction.output_results(output_directory, "multiplier", 0);
+// Write lambda with the DoFHandler used by its fe_space(...) view.
 ```
 
-The scalar and vector Lagrange-multiplier Interactions place this auxiliary
-field on the second representation's finite-element space. Problems output
-Problem-owned fields; Interactions output Interaction-owned fields. No
+The multiplier is an ordinary Field on the independent finite-element space
+provided by its `fe_space(...)` view. Problems output Problem-owned fields;
+application code writes the multiplier with that view's own DoFHandler. No
 execution block number is part of this handoff.
 
 The standard adapters select their iterative/direct policy internally. An
