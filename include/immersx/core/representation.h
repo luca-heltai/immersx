@@ -2125,19 +2125,23 @@ namespace ImmersX
              const EvaluationRequest             &request = {}) const
     {
       (void)request;
-      return evaluate_stencils(context.state(source_.source()));
+      const unsigned int n_modes =
+        support_.reference_cross_section().n_selected_basis() * n_components;
+      return evaluate_stencils(context.state(source_.source()), n_modes);
     }
 
     Operator
     linearize(const EvaluationContext<state_type> &context,
               const EvaluationRequest             &request = {}) const
     {
-      const auto  lifted_points   = lifted_points_;
-      const auto  source_owned    = source_.locally_owned_dofs();
-      const auto  source_relevant = source_.locally_relevant_dofs();
-      const auto *constraints     = &source_.constraints();
-      const auto  communicator    = source_.mpi_communicator();
-      const auto *reference       = &context.state(source_.source());
+      const auto         lifted_points   = lifted_points_;
+      const auto         source_owned    = source_.locally_owned_dofs();
+      const auto         source_relevant = source_.locally_relevant_dofs();
+      const auto        *constraints     = &source_.constraints();
+      const auto         communicator    = source_.mpi_communicator();
+      const auto        *reference       = &context.state(source_.source());
+      const unsigned int n_modes =
+        support_.reference_cross_section().n_selected_basis() * n_components;
       std::vector<dealii::types::global_dof_index> lifted_indices(
         lifted_points.size());
       for (std::size_t q = 0; q < lifted_indices.size(); ++q)
@@ -2159,8 +2163,9 @@ namespace ImmersX
                       source_owned,
                       source_relevant,
                       constraints,
-                      communicator](value_type       &destination,
-                                    const state_type &source) {
+                      communicator,
+                      n_modes](value_type       &destination,
+                               const state_type &source) {
         detail::apply_stencils(
           lifted_points,
           lifted_indices,
@@ -2173,8 +2178,9 @@ namespace ImmersX
           [](const auto &point) -> decltype(auto) {
             return (point.source_dof_indices);
           },
-          [](const auto &point, const unsigned int i) {
-            return point.source_basis_values[i];
+          [n_modes](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i] *
+                   point.mode_values[i % n_modes];
           },
           false,
           false);
@@ -2184,8 +2190,9 @@ namespace ImmersX
                           source_owned,
                           source_relevant,
                           constraints,
-                          communicator](value_type       &destination,
-                                        const state_type &source) {
+                          communicator,
+                          n_modes](value_type       &destination,
+                                   const state_type &source) {
         detail::apply_stencils(
           lifted_points,
           lifted_indices,
@@ -2198,8 +2205,9 @@ namespace ImmersX
           [](const auto &point) -> decltype(auto) {
             return (point.source_dof_indices);
           },
-          [](const auto &point, const unsigned int i) {
-            return point.source_basis_values[i];
+          [n_modes](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i] *
+                   point.mode_values[i % n_modes];
           },
           false,
           true);
@@ -2208,8 +2216,9 @@ namespace ImmersX
                        lifted_indices,
                        source_owned,
                        constraints,
-                       communicator](state_type       &destination,
-                                     const value_type &source) {
+                       communicator,
+                       n_modes](state_type       &destination,
+                                const value_type &source) {
         detail::apply_stencils_transpose(
           lifted_points,
           lifted_indices,
@@ -2221,8 +2230,9 @@ namespace ImmersX
           [](const auto &point) -> decltype(auto) {
             return (point.source_dof_indices);
           },
-          [](const auto &point, const unsigned int i) {
-            return point.source_basis_values[i];
+          [n_modes](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i] *
+                   point.mode_values[i % n_modes];
           },
           false);
       };
@@ -2230,8 +2240,9 @@ namespace ImmersX
                            lifted_indices,
                            source_owned,
                            constraints,
-                           communicator](state_type       &destination,
-                                         const value_type &source) {
+                           communicator,
+                           n_modes](state_type       &destination,
+                                    const value_type &source) {
         detail::apply_stencils_transpose(
           lifted_points,
           lifted_indices,
@@ -2243,8 +2254,9 @@ namespace ImmersX
           [](const auto &point) -> decltype(auto) {
             return (point.source_dof_indices);
           },
-          [](const auto &point, const unsigned int i) {
-            return point.source_basis_values[i];
+          [n_modes](const auto &point, const unsigned int i) {
+            return point.source_basis_values[i] *
+                   point.mode_values[i % n_modes];
           },
           true);
       };
@@ -2271,6 +2283,7 @@ namespace ImmersX
       const dealii::IndexSet                                           &owned,
       const dealii::IndexSet                  &relevant,
       const MPI_Comm                           communicator,
+      const unsigned int                       n_modes,
       const dealii::AffineConstraints<double> *constraints = nullptr)
     {
       value_type result;
@@ -2290,8 +2303,8 @@ namespace ImmersX
         [](const auto &point) -> decltype(auto) {
           return (point.source_dof_indices);
         },
-        [](const auto &point, const unsigned int i) {
-          return point.source_basis_values[i];
+        [n_modes](const auto &point, const unsigned int i) {
+          return point.source_basis_values[i] * point.mode_values[i % n_modes];
         },
         constraints != nullptr,
         false);
