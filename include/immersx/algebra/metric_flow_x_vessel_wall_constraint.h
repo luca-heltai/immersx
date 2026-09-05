@@ -182,6 +182,19 @@ namespace ImmersX
       return wall_;
     }
 
+    template <typename Lift>
+    auto
+    radial_displacement(const Lift &lift) const
+    {
+      return wall_.radial_displacement(lift);
+    }
+
+    auto
+    multiplier_field() const
+    {
+      return wall_.multiplier_field();
+    }
+
     using ExternalPressureProvider =
       typename WallObservable::ExternalPressureProvider;
 
@@ -679,19 +692,14 @@ namespace ImmersX
   contribute(Builder &builder,
              const MetricFlowXVesselWallConstraint<SolidField, WallObservable>
                           &interaction,
-             const FieldId solid_displacement,
-             const FieldId solid_velocity,
-             const FieldId flow_state)
+             const FieldId flow_state,
+             const FieldId multiplier)
   {
     AssertThrow(interaction.assembled(),
                 dealii::ExcMessage(
                   "A vessel-wall interaction must be assembled before it is "
                   "contributed."));
 
-    const auto multiplier =
-      builder.algebraic_field("lambda",
-                              interaction.multiplier_locally_owned_dofs(),
-                              interaction.multiplier_locally_relevant_dofs());
     builder.preconditioner(
       flow_state, [](const auto &matrix, const auto &reinit_vector) {
         return make_amg_preconditioner<
@@ -700,32 +708,6 @@ namespace ImmersX
                                                    WallObservable>::MatrixType>(
           matrix, reinit_vector);
       });
-    builder.saddle_point(multiplier,
-                         std::vector<FieldId>{solid_displacement, flow_state},
-                         builder.matrix_operator(
-                           interaction.multiplier_metric_matrix()));
-
-    const auto solid_reaction =
-      builder.matrix_operator(interaction.solid_coupling_matrix());
-    builder.term(solid_velocity, "vessel-wall-reaction")
-      .residual([solid_reaction, multiplier](const auto &context) {
-        return solid_reaction.view * context.state(multiplier);
-      })
-      .state(multiplier, solid_reaction.view);
-
-    const auto solid_constraint =
-      dealii::transpose_operator(solid_reaction.view);
-    builder.term(multiplier, "vessel-wall-constraint")
-      .residual([&interaction, solid_displacement](const auto &context) {
-        return interaction.constraint_residual(context, solid_displacement);
-      })
-      .state(solid_displacement, solid_constraint)
-      .state(flow_state,
-             typename Builder::Model::OperatorFactory(
-               [&interaction](const auto &context) {
-                 return -1. * interaction.area_constraint_jacobian(context);
-               }));
-
     builder.term(flow_state, "vessel-wall-pressure-feedback")
       .residual([&interaction, flow_state, multiplier](const auto &context) {
         return interaction.flow_pressure_residual(context,

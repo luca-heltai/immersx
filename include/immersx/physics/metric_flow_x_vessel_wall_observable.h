@@ -25,6 +25,7 @@
 #  include <immersx/algebra/linear_algebra.h>
 #  include <immersx/core/fe_space.h>
 #  include <immersx/core/observable.h>
+#  include <immersx/core/observable_lift.h>
 #  include <immersx/core/state.h>
 #  include <immersx/coupling/detail/coupling_point.h>
 #  include <immersx/coupling/tensor_product_lift.h>
@@ -34,6 +35,7 @@
 #  include <array>
 #  include <cmath>
 #  include <cstdint>
+#  include <functional>
 #  include <limits>
 #  include <map>
 #  include <memory>
@@ -46,6 +48,11 @@ namespace ImmersX
   /** Pointwise MetricFlowX area-to-radius increment and its derivative. */
   struct MetricFlowXRadialLaw
   {
+    using RestingAreaProvider =
+      std::function<double(const dealii::Point<3> &, double)>;
+
+    RestingAreaProvider resting_area;
+
     struct Evaluation
     {
       double              value;
@@ -63,6 +70,19 @@ namespace ImmersX
       return {std::sqrt(values[0] / dealii::numbers::PI) -
                 std::sqrt(values[1] / dealii::numbers::PI),
               {1. / (2. * std::sqrt(dealii::numbers::PI * values[0])), 0.}};
+    }
+
+    Evaluation
+    evaluate(const dealii::Point<3>    &point,
+             const double               time,
+             const std::vector<double> &values) const
+    {
+      AssertThrow(resting_area != nullptr,
+                  dealii::ExcMessage(
+                    "A MetricFlowX radial law needs a resting-area "
+                    "provider for pointwise evaluation."));
+      AssertDimension(values.size(), 1);
+      return evaluate({values.front(), resting_area(point, time)});
     }
   };
 
@@ -190,6 +210,46 @@ namespace ImmersX
     mode_coefficients(const double delta_radius) const
     {
       return {delta_radius, delta_radius};
+    }
+
+    /** Build the generic scalar radial-displacement Observable. */
+    auto
+    radial_displacement(const Lift &lift) const
+    {
+      const auto law = radial_law();
+      return ImmersX::lift(
+        ImmersX::transform(ImmersX::value(area_), law),
+        lift,
+        SourceThicknessEvaluator<3>([law](const dealii::Point<3> &point,
+                                          const double            time,
+                                          const std::vector<double> &) {
+          return std::sqrt(law.resting_area(point, time) / dealii::numbers::PI);
+        }));
+    }
+
+    /** Return the compact FE field used for the scalar wall multiplier. */
+    auto
+    multiplier_field() const
+    {
+      using FieldType = Field<1, 3, dealii::FEValuesExtractors::Scalar>;
+      std::vector<dealii::types::global_dof_index> indices(
+        problem_.dof_handler().n_dofs(),
+        std::numeric_limits<dealii::types::global_dof_index>::max());
+      for (const auto &[native, compact] : area_to_multiplier_)
+        indices[native] = compact;
+      return area_.reindexed("lambda",
+                             multiplier_owned_,
+                             multiplier_relevant_,
+                             std::move(indices));
+    }
+
+    MetricFlowXRadialLaw
+    radial_law() const
+    {
+      return MetricFlowXRadialLaw{
+        [this](const dealii::Point<3> &point, const double) {
+          return resting_area(point);
+        }};
     }
 
     /** Return the current multiplier as a native MetricFlowX pressure field.
@@ -498,6 +558,36 @@ namespace ImmersX
       for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
         result += point.area_basis_values[i] * state[point.dof_indices[i]];
       return result;
+    }
+
+    double
+    resting_area(const dealii::Point<3> &point) const
+    {
+      for (const auto &[cell_id, data] : cell_data_)
+        {
+          const auto   tangent        = data.last_vertex - data.first_vertex;
+          const double length_squared = tangent * tangent;
+          if (length_squared == 0.)
+            continue;
+          const auto   displacement = point - data.first_vertex;
+          const double coordinate   = (displacement * tangent) / length_squared;
+          const auto   projected    = data.first_vertex + coordinate * tangent;
+          if ((point - projected).norm() <
+              1.e-10 * std::max(1., std::sqrt(length_squared)))
+            {
+              (void)cell_id;
+              for (const auto &candidate :
+                   problem_.dof_handler().active_cell_iterators())
+                if (candidate->id() == cell_id)
+                  return problem_.vessel_properties(candidate->material_id())
+                    .a0;
+            }
+        }
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "MetricFlowX could not resolve a resting area at a "
+                    "representative point."));
+      return 0.;
     }
 
     double

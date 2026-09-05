@@ -11,6 +11,7 @@
 #define immersx_coupling_detail_coupling_point_h
 
 #include <deal.II/base/point.h>
+#include <deal.II/base/tensor.h>
 #include <deal.II/base/types.h>
 
 #include <cstdint>
@@ -37,6 +38,7 @@ namespace ImmersX::detail
     std::vector<ValueType>                       basis_values;
     std::vector<double>                          source_basis_values;
     std::vector<double>                          mode_values;
+    dealii::Tensor<1, spacedim>                  mode_vector;
   };
 } // namespace ImmersX::detail
 

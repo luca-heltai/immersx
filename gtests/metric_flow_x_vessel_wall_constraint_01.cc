@@ -146,13 +146,30 @@ namespace
                                                   *wall_observable,
                                                   search_parameters);
       interaction->assemble();
-      coupling_fields = adapter
-                          ->add(*interaction,
-                                "vessel-wall",
-                                solid_fields->fields().displacement,
-                                solid_fields->fields().velocity,
-                                flow_fields->fields().state)
-                          .fields();
+      const auto lambda_field = interaction->multiplier_field();
+      const auto wall_displacement =
+        interaction->radial_displacement(*wall_lift);
+      const auto radial_law = wall_observable->radial_law();
+      const auto lambda_wall =
+        ImmersX::lift(ImmersX::value(lambda_field),
+                      *wall_lift,
+                      ImmersX::SourceThicknessEvaluator<3>(
+                        [radial_law](const dealii::Point<3> &point,
+                                     const double            time,
+                                     const std::vector<double> &) {
+                          return std::sqrt(
+                            radial_law.resting_area(point, time) /
+                            dealii::numbers::PI);
+                        }));
+      const auto kinematic_constraint = ImmersX::make_constraint(
+        ImmersX::weak_term(ImmersX::value(*solid_field), lambda_wall) -
+        ImmersX::weak_term(wall_displacement, lambda_field));
+      coupling_fields =
+        adapter->add(kinematic_constraint, "vessel-wall").fields();
+      adapter->add(*interaction,
+                   "vessel-wall-pressure",
+                   flow_fields->fields().state,
+                   coupling_fields.multiplier);
     }
 
     void

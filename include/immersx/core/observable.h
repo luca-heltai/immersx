@@ -190,6 +190,10 @@ namespace ImmersX
     template <typename Type>
     struct is_linear_observable : std::false_type
     {};
+
+    template <typename Type>
+    struct is_lifted_observable : std::false_type
+    {};
   } // namespace detail
 
   /** A typed FE expression: a Field, a deal.II view operation, and metadata.
@@ -279,6 +283,14 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "The requested field is not an Observable dependency."));
       return source_;
+    }
+
+    Observable
+    with_id(const FieldId id) const
+    {
+      Observable result = *this;
+      result.source_    = source_.with_id(id);
+      return result;
     }
 
     Operation
@@ -379,6 +391,7 @@ namespace ImmersX
     {};
   } // namespace detail
 
+  /// \cond IMMERSX_INTERNAL
   template <typename ObservableType, typename Evaluator>
   decltype(auto)
   evaluate_observable_input(
@@ -663,8 +676,13 @@ namespace ImmersX
       return observable.linearize_point(
         field, point, time, evaluator, derivative_evaluator);
     else
-      return derivative_evaluator(observable, field, point, time);
+      return observable.linearize_point(field,
+                                        point,
+                                        time,
+                                        std::forward<DerivativeEvaluator>(
+                                          derivative_evaluator));
   }
+  /// \endcond
 
   namespace detail
   {

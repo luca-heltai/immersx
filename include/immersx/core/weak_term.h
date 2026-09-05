@@ -648,8 +648,25 @@ namespace ImmersX
                       "source background triangulation."));
 
         using Point = detail::CouplingPoint<spacedim, double>;
-        const unsigned int n_target_dofs =
-          target_field.space().finite_element().n_dofs_per_cell();
+        const unsigned int n_target_dofs = [&target_field] {
+          for (const auto &cell :
+               target_field.dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                std::vector<dealii::types::global_dof_index> indices(
+                  cell->get_fe().n_dofs_per_cell());
+                cell->get_dof_indices(indices);
+                unsigned int count = 0;
+                for (const auto index : indices)
+                  if (target_field.has_execution_index(index))
+                    ++count;
+                return count;
+              }
+          return 0u;
+        }();
+        AssertThrow(n_target_dofs > 0,
+                    dealii::ExcMessage(
+                      "A nonmatching weak term target has no execution DoFs."));
         const unsigned int target_components =
           n_stored_components<typename TargetExpression::value_type>();
         const unsigned int n_properties =
@@ -682,14 +699,19 @@ namespace ImmersX
                                       cell->global_active_cell_index()) *
                                       quadrature.size() +
                                     q;
-                  point.dof_indices = target_indices;
                   point.basis_values.reserve(n_target_dofs * target_components);
-                  for (unsigned int i = 0; i < n_target_dofs; ++i)
-                    flatten_value(target.operation()(
-                                    target_values[target_field.extractor()],
-                                    i,
-                                    q),
-                                  point.basis_values);
+                  for (unsigned int i = 0; i < target_indices.size(); ++i)
+                    if (target_field.has_execution_index(target_indices[i]))
+                      {
+                        point.dof_indices.push_back(
+                          target_field.execution_index(target_indices[i]));
+                        flatten_value(target.operation()(
+                                        target_values[target_field.extractor()],
+                                        i,
+                                        q),
+                                      point.basis_values);
+                      }
+                  AssertDimension(point.dof_indices.size(), n_target_dofs);
                   target_points.emplace_back(std::move(point));
                 }
             }
@@ -732,7 +754,7 @@ namespace ImmersX
           source.space().finite_element().n_dofs_per_cell();
         dealii::DynamicSparsityPattern sparsity(
           source.dof_handler().n_dofs(),
-          target_field.dof_handler().n_dofs(),
+          target_field.locally_owned_dofs().size(),
           source.locally_relevant_dofs());
         std::vector<dealii::types::global_dof_index> source_indices(
           n_source_dofs);
@@ -1249,6 +1271,438 @@ namespace ImmersX
       }
     };
 
+    /** Assemble a lifted Observable against its representative FE field. */
+    template <typename ObservableType, typename TargetExpression>
+    struct LiftedWeakAssembly
+    {
+      using TargetField = typename TargetExpression::source_field_type;
+      using Point       = typename ObservableType::Point;
+      template <typename MatrixType>
+      using MatrixStorage =
+        typename NonlinearWeakAssembly<ObservableType, TargetExpression>::
+          template MatrixStorage<MatrixType>;
+
+      static_assert(std::is_arithmetic_v<typename TargetExpression::value_type>,
+                    "A lifted weak term currently needs a scalar target.");
+
+      template <typename Type>
+      static double
+      radial_value(const Type &value, const Point &point)
+      {
+        if constexpr (std::is_arithmetic_v<std::decay_t<Type>>)
+          return static_cast<double>(value);
+        else
+          return point.mode_vector * value;
+      }
+
+      template <typename VectorType>
+      static void
+      reinit_result(VectorType &vector, const TargetField &field)
+      {
+        if constexpr (NonlinearWeakAssembly<ObservableType, TargetExpression>::
+                        template has_distributed_reinit<VectorType,
+                                                        TargetField>::value)
+          vector.reinit(field.locally_owned_dofs(),
+                        field.locally_relevant_dofs(),
+                        field.space().mpi_communicator());
+        else
+          vector.reinit(field.locally_owned_dofs().size());
+      }
+
+      template <typename Cell>
+      static std::vector<double>
+      target_basis(const TargetExpression &target,
+                   const Cell             &cell,
+                   const Point            &point)
+      {
+        const auto &target_field = target.source();
+        const auto  reference =
+          target_field.mapping().transform_real_to_unit_cell(
+            cell, point.representative_point);
+        const dealii::Quadrature<TargetField::dimension()> quadrature(
+          std::vector<dealii::Point<TargetField::dimension()>>{reference});
+        dealii::FEValues<TargetField::dimension(),
+                         TargetField::spacedimension()>
+          values(target_field.mapping(),
+                 target_field.space().finite_element(),
+                 quadrature,
+                 target.update_flags());
+        values.reinit(cell);
+        const auto         &view = values[target.source().extractor()];
+        std::vector<double> result(cell->get_fe().n_dofs_per_cell());
+        for (unsigned int i = 0; i < result.size(); ++i)
+          result[i] = target.operation()(view, i, 0);
+        return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static std::shared_ptr<VectorType>
+      residual(const ObservableType   &observable,
+               const TargetExpression &target,
+               const Context          &context)
+      {
+        const auto &source       = observable.source();
+        const auto  target_field = target.source();
+        AssertThrow(
+          &source.dof_handler().get_triangulation() ==
+            &target_field.dof_handler().get_triangulation(),
+          dealii::ExcMessage(
+            "A lifted weak term requires a representative target mesh."));
+
+        auto result = std::make_shared<VectorType>();
+        reinit_result(*result, target_field);
+        *result = 0.;
+
+        const auto points = observable.lifted_points();
+        for (const auto &cell :
+             target_field.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              std::vector<dealii::types::global_dof_index> indices(
+                cell->get_fe().n_dofs_per_cell());
+              cell->get_dof_indices(indices);
+              for (std::size_t q = 0; q < points.size(); ++q)
+                if (points[q].source_entity_id ==
+                    cell->global_active_cell_index())
+                  {
+                    const auto   basis = target_basis(target, cell, points[q]);
+                    const double value =
+                      radial_value(observable.evaluate_point(context, q),
+                                   points[q]);
+                    for (unsigned int i = 0; i < indices.size(); ++i)
+                      {
+                        const auto row =
+                          target_field.execution_index(indices[i]);
+                        if (row != std::numeric_limits<
+                                     dealii::types::global_dof_index>::max())
+                          (*result)[row] += target.scale() * value * basis[i] *
+                                            points[q].weight;
+                      }
+                  }
+            }
+        result->compress(dealii::VectorOperation::add);
+        return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static MatrixStorage<MatrixType>
+      jacobian(const ObservableType   &observable,
+               const TargetExpression &target,
+               const FieldId           field,
+               const Context          &context)
+      {
+        const auto &source        = observable.source();
+        const auto &column_source = observable.source_for(field);
+        const auto  target_field  = target.source();
+        AssertThrow(
+          &source.dof_handler().get_triangulation() ==
+              &target_field.dof_handler().get_triangulation() &&
+            &column_source.dof_handler().get_triangulation() ==
+              &source.dof_handler().get_triangulation(),
+          dealii::ExcMessage(
+            "A lifted weak-term derivative requires matching representative "
+            "meshes."));
+
+        dealii::DynamicSparsityPattern sparsity(
+          target_field.locally_owned_dofs().size(),
+          column_source.locally_owned_dofs().size(),
+          target_field.locally_owned_dofs());
+        const auto         points = observable.lifted_points();
+        const unsigned int n_columns =
+          column_source.space().finite_element().n_dofs_per_cell();
+        std::vector<dealii::types::global_dof_index> target_indices(
+          target_field.space().finite_element().n_dofs_per_cell());
+        std::vector<dealii::types::global_dof_index> column_indices(n_columns);
+        for (const auto &cell :
+             target_field.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell->get_dof_indices(target_indices);
+              const auto source_cell =
+                cell->as_dof_handler_iterator(source.dof_handler());
+              source_cell->get_dof_indices(column_indices);
+              std::vector<dealii::types::global_dof_index> rows;
+              rows.reserve(target_indices.size());
+              for (const auto index : target_indices)
+                {
+                  const auto row = target_field.execution_index(index);
+                  if (row != std::numeric_limits<
+                               dealii::types::global_dof_index>::max())
+                    rows.push_back(row);
+                }
+              target_field.constraints().add_entries_local_to_global(
+                rows,
+                column_source.constraints(),
+                column_indices,
+                sparsity,
+                false);
+            }
+
+        MatrixStorage<MatrixType> result;
+        result.matrix = std::make_shared<MatrixType>();
+        result.sparsity =
+          initialize_weak_matrix(*result.matrix,
+                                 target_field.locally_owned_dofs(),
+                                 column_source.locally_owned_dofs(),
+                                 sparsity,
+                                 target_field.space().mpi_communicator());
+
+        for (const auto &cell :
+             target_field.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell->get_dof_indices(target_indices);
+              const auto source_cell =
+                cell->as_dof_handler_iterator(source.dof_handler());
+              source_cell->get_dof_indices(column_indices);
+              std::vector<unsigned int>                    active_rows;
+              std::vector<dealii::types::global_dof_index> rows;
+              for (unsigned int i = 0; i < target_indices.size(); ++i)
+                if (target_field.execution_index(target_indices[i]) !=
+                    std::numeric_limits<dealii::types::global_dof_index>::max())
+                  {
+                    active_rows.push_back(i);
+                    rows.push_back(
+                      target_field.execution_index(target_indices[i]));
+                  }
+              dealii::FullMatrix<double> local(active_rows.size(),
+                                               column_indices.size());
+              for (std::size_t q = 0; q < points.size(); ++q)
+                if (points[q].source_entity_id ==
+                    cell->global_active_cell_index())
+                  {
+                    const auto basis = target_basis(target, cell, points[q]);
+                    for (unsigned int row = 0; row < active_rows.size(); ++row)
+                      for (unsigned int j = 0; j < column_indices.size(); ++j)
+                        local(row, j) +=
+                          target.scale() *
+                          radial_value(
+                            observable.linearize_point(context, field, q, j),
+                            points[q]) *
+                          basis[active_rows[row]] * points[q].weight;
+                  }
+              target_field.constraints().distribute_local_to_global(
+                local,
+                rows,
+                column_source.constraints(),
+                column_indices,
+                *result.matrix);
+            }
+        compress_weak_matrix(*result.matrix);
+        return result;
+      }
+
+      template <typename VectorType, typename MatrixType, typename Context>
+      static dealii::LinearOperator<VectorType, VectorType>
+      linearize(const ObservableType   &observable,
+                const TargetExpression &target,
+                const FieldId           field,
+                const Context          &context)
+      {
+        const auto storage =
+          jacobian<VectorType, MatrixType>(observable, target, field, context);
+        const auto matrix_view =
+          ImmersX::matrix_operator<VectorType, MatrixType>(*storage.matrix)
+            .view;
+        const auto range  = context.state(target.source().field_id());
+        const auto domain = context.state(field);
+        dealii::LinearOperator<VectorType, VectorType> result;
+        result.reinit_range_vector = [range](VectorType &vector,
+                                             const bool  omit) {
+          vector.reinit(range, omit);
+        };
+        result.reinit_domain_vector = [domain](VectorType &vector,
+                                               const bool  omit) {
+          vector.reinit(domain, omit);
+        };
+        result.vmult = [matrix_view](VectorType       &destination,
+                                     const VectorType &source) {
+          matrix_view.vmult(destination, source);
+        };
+        result.vmult_add = [matrix_view](VectorType       &destination,
+                                         const VectorType &source) {
+          matrix_view.vmult_add(destination, source);
+        };
+        result.Tvmult = [matrix_view](VectorType       &destination,
+                                      const VectorType &source) {
+          matrix_view.Tvmult(destination, source);
+        };
+        result.Tvmult_add = [matrix_view](VectorType       &destination,
+                                          const VectorType &source) {
+          matrix_view.Tvmult_add(destination, source);
+        };
+        return result;
+      }
+    };
+
+    /** Assemble a full-dimensional FE quantity against a lifted test. */
+    template <typename ObservableType, typename TargetLift>
+    struct LiftedTargetWeakAssembly
+    {
+      using TargetField = typename TargetLift::source_field_type;
+      using Point       = typename TargetLift::Point;
+
+      template <typename MatrixType>
+      struct MatrixStorage
+      {
+        std::shared_ptr<MatrixType>              matrix;
+        std::shared_ptr<dealii::SparsityPattern> sparsity;
+      };
+
+      template <typename VectorType, typename MatrixType>
+      static MatrixStorage<MatrixType>
+      assemble(const ObservableType &observable, const TargetLift &target)
+      {
+        using SourceField = typename ObservableType::source_field_type;
+        static_assert(SourceField::dimension() == SourceField::spacedimension(),
+                      "A lifted test needs a full-dimensional trial field.");
+        const auto &source       = observable.source();
+        const auto &target_field = target.source();
+        const auto *source_tria =
+          dynamic_cast<const dealii::parallel::TriangulationBase<
+            SourceField::spacedimension()> *>(
+            &source.dof_handler().get_triangulation());
+        AssertThrow(source_tria != nullptr,
+                    dealii::ExcMessage(
+                      "A lifted weak term needs a distributed source mesh."));
+
+        const auto points = target.lifted_points();
+        AssertThrow(!points.empty(),
+                    dealii::ExcMessage(
+                      "A lifted test cannot assemble without points."));
+        const unsigned int n_target_dofs = points.front().dof_indices.size();
+        for (const auto &point : points)
+          AssertDimension(point.dof_indices.size(), n_target_dofs);
+        const unsigned int n_properties =
+          1 + 2 * n_target_dofs + SourceField::spacedimension();
+
+        ParticleCouplingParameters<SourceField::spacedimension()>
+          particle_parameters(
+            "/ImmersX/weak term/lifted-target/" +
+            std::to_string(reinterpret_cast<std::uintptr_t>(&source)));
+        ParticleCoupling<SourceField::spacedimension()> distribution(
+          particle_parameters);
+        distribution.initialize_particle_handler(*source_tria,
+                                                 source.mapping(),
+                                                 n_properties);
+
+        std::vector<dealii::Point<SourceField::spacedimension()>>
+                                         physical_points;
+        std::vector<std::vector<double>> properties;
+        physical_points.reserve(points.size());
+        properties.reserve(points.size());
+        for (const auto &point : points)
+          {
+            physical_points.push_back(point.point);
+            std::vector<double> data;
+            data.reserve(n_properties);
+            data.push_back(point.weight);
+            for (const auto native : point.dof_indices)
+              {
+                const auto execution = target_field.execution_index(native);
+                AssertThrow(
+                  execution !=
+                    std::numeric_limits<dealii::types::global_dof_index>::max(),
+                  dealii::ExcMessage(
+                    "A lifted test contains an unmapped target DoF."));
+                data.push_back(static_cast<double>(execution));
+              }
+            data.insert(data.end(),
+                        point.source_basis_values.begin(),
+                        point.source_basis_values.end());
+            for (unsigned int component = 0;
+                 component < SourceField::spacedimension();
+                 ++component)
+              data.push_back(point.mode_vector[component]);
+            properties.emplace_back(std::move(data));
+          }
+        distribution.insert_points(physical_points, properties);
+
+        const unsigned int n_source_dofs =
+          source.space().finite_element().n_dofs_per_cell();
+        dealii::DynamicSparsityPattern sparsity(
+          source.dof_handler().n_dofs(),
+          target_field.locally_owned_dofs().size(),
+          source.locally_relevant_dofs());
+        std::vector<dealii::types::global_dof_index> source_indices(
+          n_source_dofs);
+        for (const auto &particle : distribution.get_particles())
+          if (particle.get_surrounding_cell()->is_locally_owned())
+            {
+              const typename SourceField::space_type::DoFHandlerType::
+                cell_iterator source_cell(*particle.get_surrounding_cell(),
+                                          &source.dof_handler());
+              source_cell->get_dof_indices(source_indices);
+              const auto &data = particle.get_properties();
+              for (unsigned int i = 0; i < n_target_dofs; ++i)
+                for (unsigned int j = 0; j < n_source_dofs; ++j)
+                  sparsity.add(source_indices[j],
+                               static_cast<dealii::types::global_dof_index>(
+                                 data[1 + i]));
+            }
+        dealii::SparsityTools::distribute_sparsity_pattern(
+          sparsity,
+          source.locally_owned_dofs(),
+          source.space().mpi_communicator(),
+          source.locally_relevant_dofs());
+
+        MatrixStorage<MatrixType> result;
+        result.matrix = std::make_shared<MatrixType>();
+        result.sparsity =
+          initialize_weak_matrix(*result.matrix,
+                                 source.locally_owned_dofs(),
+                                 target_field.locally_owned_dofs(),
+                                 sparsity,
+                                 source.space().mpi_communicator());
+
+        std::vector<dealii::types::global_dof_index> target_indices(
+          n_target_dofs);
+        for (const auto &particle : distribution.get_particles())
+          if (particle.get_surrounding_cell()->is_locally_owned())
+            {
+              const typename SourceField::space_type::DoFHandlerType::
+                cell_iterator source_cell(*particle.get_surrounding_cell(),
+                                          &source.dof_handler());
+              source_cell->get_dof_indices(source_indices);
+              const dealii::Quadrature<SourceField::spacedimension()>
+                quadrature(
+                  std::vector<dealii::Point<SourceField::spacedimension()>>{
+                    particle.get_reference_location()});
+              dealii::FEValues<SourceField::spacedimension(),
+                               SourceField::spacedimension()>
+                source_values(source.mapping(),
+                              source.space().finite_element(),
+                              quadrature,
+                              observable.update_flags());
+              source_values.reinit(source_cell);
+              const auto &data = particle.get_properties();
+              dealii::Tensor<1, SourceField::spacedimension()> normal;
+              for (unsigned int component = 0;
+                   component < SourceField::spacedimension();
+                   ++component)
+                normal[component] = data[1 + 2 * n_target_dofs + component];
+              const auto &view = source_values[source.extractor()];
+              dealii::FullMatrix<double> local(n_source_dofs, n_target_dofs);
+              for (unsigned int i = 0; i < n_source_dofs; ++i)
+                for (unsigned int j = 0; j < n_target_dofs; ++j)
+                  local(i, j) = data[0] * data[1 + n_target_dofs + j] *
+                                (observable.operation()(view, i, 0) * normal);
+              for (unsigned int j = 0; j < n_target_dofs; ++j)
+                target_indices[j] =
+                  static_cast<dealii::types::global_dof_index>(data[1 + j]);
+              source.constraints().distribute_local_to_global(
+                local,
+                source_indices,
+                target_field.constraints(),
+                target_indices,
+                *result.matrix);
+            }
+        compress_weak_matrix(*result.matrix);
+        result.matrix = ImmersX::detail::transpose_matrix(result.matrix);
+        return result;
+      }
+    };
+
   } // namespace detail
 
   /** A geometry value that supplies normals for a point-supported quantity. */
@@ -1630,8 +2084,10 @@ namespace ImmersX
       auto       term      = builder.term(target_id, "weak_term");
       if constexpr (!detail::is_linear_observable<TrialExpression>::value)
         {
-          using Assembly =
-            detail::NonlinearWeakAssembly<TrialExpression, TestExpression>;
+          using Assembly = std::conditional_t<
+            detail::is_lifted_observable<TrialExpression>::value,
+            detail::LiftedWeakAssembly<TrialExpression, TestExpression>,
+            detail::NonlinearWeakAssembly<TrialExpression, TestExpression>>;
           term.residual(
             [observable = observable_, target = target_](const auto &context) {
               const auto values =
@@ -1706,15 +2162,24 @@ namespace ImmersX
                          const double      sign,
                          const std::size_t index) const
     {
-      const auto multiplier_field      = target_.source().with_id(multiplier);
-      const auto multiplier_expression = value(multiplier_field);
+      const auto multiplier_field = target_.source().with_id(multiplier);
+      const auto make_multiplier_expression = [&]() {
+        if constexpr (detail::is_lifted_observable<TestExpression>::value)
+          return target_.with_id(multiplier);
+        else
+          return value(multiplier_field);
+      };
+      const auto multiplier_expression = make_multiplier_expression();
       const auto suffix                = "constraint." + std::to_string(index);
       using Model = SemiDiscreteModel<VectorType, MatrixType>;
       if constexpr (!detail::is_linear_observable<TrialExpression>::value)
         {
-          using Assembly =
+          using Assembly = std::conditional_t<
+            detail::is_lifted_observable<TrialExpression>::value,
+            detail::LiftedWeakAssembly<TrialExpression,
+                                       decltype(multiplier_expression)>,
             detail::NonlinearWeakAssembly<TrialExpression,
-                                          decltype(multiplier_expression)>;
+                                          decltype(multiplier_expression)>>;
           auto multiplier_term =
             builder.term(multiplier, suffix + ".multiplier");
           multiplier_term.residual([observable = observable_,
@@ -1850,29 +2315,45 @@ namespace ImmersX
     make_pairing(SemidiscreteBuilder<VectorType, MatrixType> &builder,
                  const Target                                &target) const
     {
-      using Assembly = detail::WeakAssembly<TrialExpression, Target>;
       Pairing<VectorType, MatrixType> result;
-      const bool                      nonmatching_geometry =
-        Assembly::geometry_is_nonmatching(observable_, target);
-      if (nonmatching_geometry)
+      if constexpr (detail::is_lifted_observable<std::decay_t<Target>>::value)
         {
-          const auto prepared =
-            Assembly::template prepare<VectorType, MatrixType>(observable_,
-                                                               target);
-          result.matrix   = prepared->storage.matrix;
-          result.sparsity = prepared->storage.sparsity;
-          result.operator_with_matrix =
-            Assembly::template dynamic_matrix_operator<VectorType, MatrixType>(
-              prepared);
-        }
-      else
-        {
+          using Assembly =
+            detail::LiftedTargetWeakAssembly<TrialExpression, Target>;
           const auto storage =
             Assembly::template assemble<VectorType, MatrixType>(observable_,
                                                                 target);
           result.matrix               = storage.matrix;
           result.sparsity             = storage.sparsity;
           result.operator_with_matrix = builder.matrix_operator(*result.matrix);
+        }
+      else
+        {
+          using Assembly = detail::WeakAssembly<TrialExpression, Target>;
+          const bool nonmatching_geometry =
+            Assembly::geometry_is_nonmatching(observable_, target);
+          if (nonmatching_geometry)
+            {
+              const auto prepared =
+                Assembly::template prepare<VectorType, MatrixType>(observable_,
+                                                                   target);
+              result.matrix   = prepared->storage.matrix;
+              result.sparsity = prepared->storage.sparsity;
+              result.operator_with_matrix =
+                Assembly::template dynamic_matrix_operator<VectorType,
+                                                           MatrixType>(
+                  prepared);
+            }
+          else
+            {
+              const auto storage =
+                Assembly::template assemble<VectorType, MatrixType>(observable_,
+                                                                    target);
+              result.matrix   = storage.matrix;
+              result.sparsity = storage.sparsity;
+              result.operator_with_matrix =
+                builder.matrix_operator(*result.matrix);
+            }
         }
       result.source_id = observable_.source_field();
       result.target_id = target.source().field_id();

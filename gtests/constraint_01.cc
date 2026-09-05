@@ -313,11 +313,43 @@ TEST(Constraint, NonlinearSquareLaw)
 
   const auto constraint_jacobian =
     model.state_operator(fields.multiplier, source.field_id(), context);
-  Vector constraint_action(lambda_state.size());
-  constraint_jacobian.vmult(constraint_action, source_state);
   Vector constraint_residual(lambda_state.size());
   model.evaluate_row(fields.multiplier, context, constraint_residual);
-  constraint_residual -= constraint_action;
+  QGauss<2>   quadrature(3);
+  FEValues<2> source_values(StaticMappingQ1<2>::mapping,
+                            source_fe,
+                            quadrature,
+                            update_values | update_JxW_values);
+  FEValues<2> multiplier_values(StaticMappingQ1<2>::mapping,
+                                multiplier_fe,
+                                quadrature,
+                                update_values);
+  std::vector<types::global_dof_index> source_indices(
+    source_fe.n_dofs_per_cell());
+  std::vector<types::global_dof_index> multiplier_indices(
+    multiplier_fe.n_dofs_per_cell());
+  Vector expected_constraint(lambda_state.size());
+  for (const auto &source_cell : source_dh.active_cell_iterators())
+    {
+      const auto multiplier_cell =
+        source_cell->as_dof_handler_iterator(multiplier_dh);
+      source_values.reinit(source_cell);
+      multiplier_values.reinit(multiplier_cell);
+      source_cell->get_dof_indices(source_indices);
+      multiplier_cell->get_dof_indices(multiplier_indices);
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          double value = 0.;
+          for (unsigned int j = 0; j < source_indices.size(); ++j)
+            value +=
+              source_state[source_indices[j]] * source_values.shape_value(j, q);
+          for (unsigned int i = 0; i < multiplier_indices.size(); ++i)
+            expected_constraint[multiplier_indices[i]] +=
+              value * value * multiplier_values.shape_value(i, q) *
+              source_values.JxW(q);
+        }
+    }
+  constraint_residual -= expected_constraint;
   EXPECT_LT(constraint_residual.l2_norm(), 1.e-12);
 
   const auto participant_jacobian =

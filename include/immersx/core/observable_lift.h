@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace ImmersX
@@ -59,9 +60,16 @@ namespace ImmersX
     static constexpr unsigned int representative_dimension = reduced_dim;
 
     using source_field_type = typename SourceObservable::source_field_type;
-    using value_type        = ImmersXLA::MPI::Vector;
-    using state_type        = ImmersXLA::MPI::Vector;
-    using Point             = detail::CouplingPoint<spacedim, double>;
+    static constexpr bool vector_lift =
+      n_components == spacedim && n_components > 1;
+    using value_type =
+      std::conditional_t<vector_lift,
+                         std::vector<dealii::Tensor<1, spacedim>>,
+                         ImmersXLA::MPI::Vector>;
+    using point_value_type =
+      std::conditional_t<vector_lift, dealii::Tensor<1, spacedim>, double>;
+    using state_type = ImmersXLA::MPI::Vector;
+    using Point      = detail::CouplingPoint<spacedim, double>;
     using Lift =
       TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>;
     using Support  = TensorProductLiftSupport<reduced_dim,
@@ -73,8 +81,17 @@ namespace ImmersX
     LiftedObservable(SourceObservable source, const Lift &lift)
       : source_(std::move(source))
       , support_(lift.parameters())
-      , constant_thickness_(lift.parameters().constant_thickness)
     {
+      build_points();
+    }
+
+    LiftedObservable(SourceObservable                   source,
+                     const Lift                        &lift,
+                     SourceThicknessEvaluator<spacedim> thickness_evaluator)
+      : source_(std::move(source))
+      , support_(lift.parameters())
+    {
+      support_.set_thickness_evaluator(std::move(thickness_evaluator));
       build_points();
     }
 
@@ -88,6 +105,30 @@ namespace ImmersX
     source_field() const
     {
       return source_.source_field();
+    }
+
+    const source_field_type &
+    source_for(const FieldId field) const
+    {
+      return source_.source_for(field);
+    }
+
+    static constexpr unsigned int
+    dimension()
+    {
+      return source_field_type::dimension();
+    }
+
+    static constexpr unsigned int
+    spacedimension()
+    {
+      return source_field_type::spacedimension();
+    }
+
+    static constexpr bool
+    is_linear()
+    {
+      return false;
     }
 
     const std::vector<FieldId> &
@@ -113,6 +154,14 @@ namespace ImmersX
     scale() const
     {
       return source_.scale();
+    }
+
+    LiftedObservable
+    with_id(const FieldId id) const
+    {
+      LiftedObservable result = *this;
+      result.source_          = source_.with_id(id);
+      return result;
     }
 
     const std::vector<Point> &
@@ -158,51 +207,106 @@ namespace ImmersX
     evaluate(const Context &context) const
     {
       value_type result;
-      result.reinit(point_owned_, point_relevant_, mpi_communicator());
-      if constexpr (detail::is_transformed_observable<SourceObservable>::value)
+      if constexpr (vector_lift)
         {
+          result.resize(points_.size());
           for (std::size_t q = 0; q < points_.size(); ++q)
-            result[point_indices_[q]] = scale() * mode_value(points_[q]) *
-                                        composed_value(context, points_[q]);
+            result[q] = evaluate_point(context, q);
         }
-      else if (is_frozen())
-        detail::apply_stencils(
-          points_,
-          point_indices_,
-          source().locally_owned_dofs(),
-          source().locally_relevant_dofs(),
-          point_owned_,
-          point_relevant_,
-          &source().constraints(),
-          mpi_communicator(),
-          frozen_values<state_type>(),
-          result,
-          [](const auto &point) -> const auto & { return point.dof_indices; },
-          [](const auto &point, const unsigned int i) {
-            return point.basis_values[i];
-          },
-          false,
-          false);
       else
-        detail::apply_stencils(
-          points_,
-          point_indices_,
-          source().locally_owned_dofs(),
-          source().locally_relevant_dofs(),
-          point_owned_,
-          point_relevant_,
-          &source().constraints(),
-          mpi_communicator(),
-          context.state(source_field()),
-          result,
-          [](const auto &point) -> const auto & { return point.dof_indices; },
-          [](const auto &point, const unsigned int i) {
-            return point.basis_values[i];
-          },
-          false,
-          false);
-      result *= scale();
+        {
+          result.reinit(point_owned_, point_relevant_, mpi_communicator());
+          if constexpr (detail::is_transformed_observable<
+                          SourceObservable>::value)
+            for (std::size_t q = 0; q < points_.size(); ++q)
+              result[point_indices_[q]] =
+                mode_value(points_[q]) * composed_value(context, points_[q]);
+          else if (is_frozen())
+            detail::apply_stencils(
+              points_,
+              point_indices_,
+              source().locally_owned_dofs(),
+              source().locally_relevant_dofs(),
+              point_owned_,
+              point_relevant_,
+              &source().constraints(),
+              mpi_communicator(),
+              frozen_values<state_type>(),
+              result,
+              [](const auto &point) -> const auto & {
+                return point.dof_indices;
+              },
+              [](const auto &point, const unsigned int i) {
+                return point.basis_values[i];
+              },
+              false,
+              false);
+          else
+            detail::apply_stencils(
+              points_,
+              point_indices_,
+              source().locally_owned_dofs(),
+              source().locally_relevant_dofs(),
+              point_owned_,
+              point_relevant_,
+              &source().constraints(),
+              mpi_communicator(),
+              context.state(source_field()),
+              result,
+              [](const auto &point) -> const auto & {
+                return point.dof_indices;
+              },
+              [](const auto &point, const unsigned int i) {
+                return point.basis_values[i];
+              },
+              false,
+              false);
+          result *= scale();
+        }
       return result;
+    }
+
+    template <typename Context>
+    point_value_type
+    evaluate_point(const Context &context, const std::size_t point) const
+    {
+      AssertIndexRange(point, points_.size());
+      double scalar = 0.;
+      if constexpr (detail::is_transformed_observable<SourceObservable>::value)
+        scalar = composed_value(context, points_[point]);
+      else
+        scalar = primitive_value(context, points_[point]);
+      if constexpr (vector_lift)
+        return mode_vector(points_[point]) * (scale() * scalar);
+      else
+        return scale() * mode_value(points_[point]) * scalar;
+    }
+
+    template <typename Context>
+    point_value_type
+    linearize_point(const Context     &context,
+                    const FieldId      field,
+                    const std::size_t  point,
+                    const unsigned int basis) const
+    {
+      AssertIndexRange(point, points_.size());
+      AssertIndexRange(basis, points_[point].dof_indices.size());
+      double derivative = 0.;
+      if constexpr (detail::is_transformed_observable<SourceObservable>::value)
+        derivative = composed_basis_derivative(source_,
+                                               source(),
+                                               context.state(field),
+                                               field,
+                                               points_[point],
+                                               basis,
+                                               context.time());
+      else if (!source_.is_frozen() && field == source_field())
+        derivative = points_[point].source_basis_values[basis];
+
+      if constexpr (vector_lift)
+        return mode_vector(points_[point]) * (scale() * derivative);
+      else
+        return scale() * mode_value(points_[point]) * derivative;
     }
 
     template <typename Context>
@@ -212,7 +316,10 @@ namespace ImmersX
       AssertThrow(field == source_field(),
                   dealii::ExcMessage(
                     "The requested field is not a lift dependency."));
-      if constexpr (detail::is_transformed_observable<SourceObservable>::value)
+      if constexpr (vector_lift)
+        return linearize_vector(context, field);
+      else if constexpr (detail::is_transformed_observable<
+                           SourceObservable>::value)
         return linearize_composed(context, field);
       const auto owned            = point_owned_;
       const auto relevant         = point_relevant_;
@@ -334,6 +441,180 @@ namespace ImmersX
     }
 
   private:
+    template <typename Context>
+    double
+    primitive_value(const Context &context, const Point &point) const
+    {
+      const auto &coefficients =
+        source_.is_frozen() ? source_.template frozen_values<state_type>() :
+                              context.state(source_.source_field());
+      const auto          indices = execution_indices(source_.source(), point);
+      std::vector<double> local(point.dof_indices.size());
+      source_.source().constraints().get_dof_values(coefficients,
+                                                    indices.begin(),
+                                                    local.begin(),
+                                                    local.end());
+      double result = 0.;
+      for (unsigned int i = 0; i < local.size(); ++i)
+        result += local[i] * point.source_basis_values[i];
+      return result;
+    }
+
+    static dealii::Tensor<1, spacedim>
+    mode_vector(const Point &point)
+    {
+      if (point.mode_vector.norm_square() > 0.)
+        return point.mode_vector;
+
+      dealii::Tensor<1, spacedim> result;
+      result = 0.;
+      if constexpr (vector_lift)
+        for (unsigned int component = 0; component < spacedim; ++component)
+          if (component < point.mode_values.size())
+            result[component] = point.mode_values[component];
+      return result;
+    }
+
+    static std::vector<dealii::types::global_dof_index>
+    execution_indices(const source_field_type &field, const Point &point)
+    {
+      std::vector<dealii::types::global_dof_index> result;
+      result.reserve(point.dof_indices.size());
+      for (const auto index : point.dof_indices)
+        result.push_back(field.execution_index(index));
+      return result;
+    }
+
+    template <typename Context>
+    Operator
+    linearize_vector(const Context &context, const FieldId field) const
+    {
+      const auto owned        = point_owned_;
+      const auto relevant     = point_relevant_;
+      const auto points       = points_;
+      const auto source_ref   = source();
+      const auto communicator = mpi_communicator();
+      const auto coefficient  = scale();
+      const auto observable   = source_;
+      const auto current      = context.state(field);
+      const auto time         = context.time();
+
+      Operator result;
+      result.reinit_range_vector = [n = points.size()](value_type &vector,
+                                                       const bool) {
+        vector.resize(n);
+        for (auto &entry : vector)
+          entry = 0.;
+      };
+      result.reinit_domain_vector =
+        [source_ref, communicator](state_type &vector, const bool omit) {
+          vector.reinit(source_ref.locally_owned_dofs(),
+                        source_ref.locally_relevant_dofs(),
+                        communicator);
+          if (!omit)
+            vector = 0.;
+        };
+      result.vmult =
+        [points, coefficient, observable, source_ref, current, field, time](
+          value_type &destination, const state_type &direction) {
+          destination.resize(points.size());
+          for (std::size_t q = 0; q < points.size(); ++q)
+            {
+              double derivative = 0.;
+              if constexpr (detail::is_transformed_observable<
+                              SourceObservable>::value)
+                derivative = composed_derivative(observable,
+                                                 source_ref,
+                                                 current,
+                                                 direction,
+                                                 field,
+                                                 points[q],
+                                                 time);
+              else if (!observable.is_frozen())
+                {
+                  std::vector<double> local(points[q].dof_indices.size());
+                  source_ref.constraints().get_dof_values(
+                    direction,
+                    points[q].dof_indices.begin(),
+                    local.begin(),
+                    local.end());
+                  for (unsigned int i = 0; i < local.size(); ++i)
+                    derivative += local[i] * points[q].source_basis_values[i];
+                }
+              destination[q] =
+                mode_vector(points[q]) * (coefficient * derivative);
+            }
+        };
+      result.vmult_add =
+        [points, coefficient, observable, source_ref, current, field, time](
+          value_type &destination, const state_type &direction) {
+          for (std::size_t q = 0; q < points.size(); ++q)
+            {
+              double derivative = 0.;
+              if constexpr (detail::is_transformed_observable<
+                              SourceObservable>::value)
+                derivative = composed_derivative(observable,
+                                                 source_ref,
+                                                 current,
+                                                 direction,
+                                                 field,
+                                                 points[q],
+                                                 time);
+              else if (!observable.is_frozen())
+                {
+                  std::vector<double> local(points[q].dof_indices.size());
+                  source_ref.constraints().get_dof_values(
+                    direction,
+                    points[q].dof_indices.begin(),
+                    local.begin(),
+                    local.end());
+                  for (unsigned int i = 0; i < local.size(); ++i)
+                    derivative += local[i] * points[q].source_basis_values[i];
+                }
+              destination[q] +=
+                mode_vector(points[q]) * (coefficient * derivative);
+            }
+        };
+      result.Tvmult =
+        [points, coefficient, observable, source_ref, current, field, time](
+          state_type &destination, const value_type &values) {
+          destination = 0.;
+          for (std::size_t q = 0; q < points.size(); ++q)
+            {
+              const double weight =
+                coefficient * (mode_vector(points[q]) * values[q]);
+              std::vector<double> local(points[q].dof_indices.size());
+              for (unsigned int i = 0; i < local.size(); ++i)
+                local[i] =
+                  weight *
+                  (detail::is_transformed_observable<SourceObservable>::value ?
+                     composed_basis_derivative(observable,
+                                               source_ref,
+                                               current,
+                                               field,
+                                               points[q],
+                                               i,
+                                               time) :
+                     (observable.is_frozen() ?
+                        0. :
+                        points[q].source_basis_values[i]));
+              source_ref.constraints().distribute_local_to_global(
+                local, points[q].dof_indices, destination);
+            }
+          destination.compress(dealii::VectorOperation::add);
+        };
+      result.Tvmult_add = [transpose =
+                             result.Tvmult](state_type       &destination,
+                                            const value_type &values) {
+        state_type contribution;
+        contribution.reinit(destination);
+        contribution = 0.;
+        transpose(contribution, values);
+        destination += contribution;
+      };
+      return result;
+    }
+
     template <typename Context>
     Operator
     linearize_composed(const Context &context, const FieldId field) const
@@ -582,12 +863,12 @@ namespace ImmersX
             const auto &view = values[field.extractor()];
             for (const auto q : values.quadrature_point_indices())
               {
-                const auto transformed =
-                  support_.transform(values.quadrature_point(q),
-                                     tangent,
-                                     values.JxW(q),
-                                     constant_thickness_,
-                                     q);
+                const auto transformed = support_.transform(
+                  values.quadrature_point(q),
+                  tangent,
+                  values.JxW(q),
+                  support_.thickness(values.quadrature_point(q), 0.),
+                  q);
                 for (unsigned int section_q = 0; section_q < transformed.size();
                      ++section_q)
                   {
@@ -605,12 +886,52 @@ namespace ImmersX
                       q * transformed.size() + section_q;
                     point.dof_indices = indices;
                     point.basis_values.resize(indices.size());
-                    for (unsigned int i = 0; i < indices.size(); ++i)
-                      point.basis_values[i] =
-                        view.value(i, q) * lifted.mode_values.front();
+                    if constexpr (vector_lift)
+                      {
+                        point.mode_vector = 0.;
+                        for (unsigned int mode = 0;
+                             mode * spacedim < lifted.mode_values.size();
+                             ++mode)
+                          for (unsigned int component = 0; component < spacedim;
+                               ++component)
+                            point.mode_vector[component] +=
+                              lifted.mode_values[mode * spacedim + component];
+                        for (unsigned int i = 0; i < indices.size(); ++i)
+                          point.basis_values[i] = view.value(i, q);
+                        const double mode_norm = point.mode_vector.norm();
+                        AssertThrow(mode_norm > 0.,
+                                    dealii::ExcMessage(
+                                      "A vector lift requires a nonzero mode "
+                                      "direction."));
+                        point.mode_vector /= mode_norm;
+                      }
+                    else
+                      for (unsigned int i = 0; i < indices.size(); ++i)
+                        point.basis_values[i] =
+                          view.value(i, q) * lifted.mode_values.front();
                     point.source_basis_values.resize(indices.size());
                     for (unsigned int i = 0; i < indices.size(); ++i)
                       point.source_basis_values[i] = view.value(i, q);
+                    if (field.is_reindexed())
+                      {
+                        std::vector<dealii::types::global_dof_index> dofs;
+                        std::vector<double>                          basis;
+                        std::vector<double> source_basis;
+                        dofs.reserve(point.dof_indices.size());
+                        basis.reserve(point.basis_values.size());
+                        source_basis.reserve(point.source_basis_values.size());
+                        for (unsigned int i = 0; i < indices.size(); ++i)
+                          if (field.has_execution_index(indices[i]))
+                            {
+                              dofs.push_back(indices[i]);
+                              basis.push_back(point.basis_values[i]);
+                              source_basis.push_back(
+                                point.source_basis_values[i]);
+                            }
+                        point.dof_indices         = std::move(dofs);
+                        point.basis_values        = std::move(basis);
+                        point.source_basis_values = std::move(source_basis);
+                      }
                     point.mode_values = lifted.mode_values;
                     points_.push_back(std::move(point));
                   }
@@ -631,12 +952,38 @@ namespace ImmersX
 
     SourceObservable                             source_;
     Support                                      support_;
-    const double                                 constant_thickness_;
     std::vector<Point>                           points_;
     dealii::IndexSet                             point_owned_;
     dealii::IndexSet                             point_relevant_;
     std::vector<dealii::types::global_dof_index> point_indices_;
   };
+
+  namespace detail
+  {
+    template <typename SourceObservable,
+              int reduced_dim,
+              int surface_dim,
+              int spacedim,
+              int n_components>
+    struct is_observable<LiftedObservable<SourceObservable,
+                                          reduced_dim,
+                                          surface_dim,
+                                          spacedim,
+                                          n_components>> : std::true_type
+    {};
+
+    template <typename SourceObservable,
+              int reduced_dim,
+              int surface_dim,
+              int spacedim,
+              int n_components>
+    struct is_lifted_observable<LiftedObservable<SourceObservable,
+                                                 reduced_dim,
+                                                 surface_dim,
+                                                 spacedim,
+                                                 n_components>> : std::true_type
+    {};
+  } // namespace detail
 
   template <
     typename SourceObservable,
@@ -666,11 +1013,50 @@ namespace ImmersX
     int n_components,
     std::enable_if_t<detail::is_observable<SourceObservable>::value, int> = 0>
   auto
+  make_lift(
+    const SourceObservable &source,
+    const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+                                      &lift,
+    SourceThicknessEvaluator<spacedim> thickness_evaluator)
+  {
+    return LiftedObservable<SourceObservable,
+                            reduced_dim,
+                            surface_dim,
+                            spacedim,
+                            n_components>(source,
+                                          lift,
+                                          std::move(thickness_evaluator));
+  }
+
+  template <
+    typename SourceObservable,
+    int reduced_dim,
+    int surface_dim,
+    int spacedim,
+    int n_components,
+    std::enable_if_t<detail::is_observable<SourceObservable>::value, int> = 0>
+  auto
   lift(const SourceObservable &source,
        const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
          &descriptor)
   {
     return make_lift(source, descriptor);
+  }
+
+  template <
+    typename SourceObservable,
+    int reduced_dim,
+    int surface_dim,
+    int spacedim,
+    int n_components,
+    std::enable_if_t<detail::is_observable<SourceObservable>::value, int> = 0>
+  auto
+  lift(const SourceObservable &source,
+       const TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>
+                                         &descriptor,
+       SourceThicknessEvaluator<spacedim> thickness_evaluator)
+  {
+    return make_lift(source, descriptor, std::move(thickness_evaluator));
   }
 } // namespace ImmersX
 

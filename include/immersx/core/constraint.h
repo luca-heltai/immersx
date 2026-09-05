@@ -62,15 +62,20 @@ namespace ImmersX
 
       const auto                degree = field.space().finite_element().degree;
       const dealii::QGauss<dim> quadrature(degree + 1);
-      dealii::DynamicSparsityPattern sparsity(field.dof_handler().n_dofs(),
-                                              field.dof_handler().n_dofs(),
+      dealii::DynamicSparsityPattern sparsity(field.locally_owned_dofs().size(),
+                                              field.locally_owned_dofs().size(),
                                               field.locally_owned_dofs());
-      std::vector<dealii::types::global_dof_index> indices(
+      std::vector<dealii::types::global_dof_index> native_indices(
         field.dof_handler().get_fe().n_dofs_per_cell());
+      std::vector<dealii::types::global_dof_index> indices;
       for (const auto &cell : field.dof_handler().active_cell_iterators())
         if (cell->is_locally_owned())
           {
-            cell->get_dof_indices(indices);
+            cell->get_dof_indices(native_indices);
+            indices.clear();
+            for (const auto index : native_indices)
+              if (field.has_execution_index(index))
+                indices.push_back(field.execution_index(index));
             field.constraints().add_entries_local_to_global(indices,
                                                             indices,
                                                             sparsity,
@@ -89,21 +94,31 @@ namespace ImmersX
                                              quadrature,
                                              dealii::update_values |
                                                dealii::update_JxW_values);
-      dealii::FullMatrix<double>      local(indices.size(), indices.size());
+      dealii::FullMatrix<double>      local;
       for (const auto &cell : field.dof_handler().active_cell_iterators())
         if (cell->is_locally_owned())
           {
-            cell->get_dof_indices(indices);
+            cell->get_dof_indices(native_indices);
+            std::vector<unsigned int> active;
+            indices.clear();
+            for (unsigned int i = 0; i < native_indices.size(); ++i)
+              if (field.has_execution_index(native_indices[i]))
+                {
+                  active.push_back(i);
+                  indices.push_back(field.execution_index(native_indices[i]));
+                }
             values.reinit(cell);
+            local.reinit(active.size(), active.size());
             local = 0.;
-            for (unsigned int i = 0; i < indices.size(); ++i)
-              for (unsigned int j = 0; j < indices.size(); ++j)
+            for (unsigned int i = 0; i < active.size(); ++i)
+              for (unsigned int j = 0; j < active.size(); ++j)
                 for (unsigned int q = 0; q < quadrature.size(); ++q)
                   {
                     const auto &view = values[field.extractor()];
-                    local(i, j) += detail::natural_pairing(view.value(i, q),
-                                                           view.value(j, q)) *
-                                   values.JxW(q);
+                    local(i, j) +=
+                      detail::natural_pairing(view.value(active[i], q),
+                                              view.value(active[j], q)) *
+                      values.JxW(q);
                   }
             field.constraints().distribute_local_to_global(local,
                                                            indices,

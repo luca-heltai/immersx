@@ -160,8 +160,10 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   Vector state(source.dof_handler().n_dofs());
   for (unsigned int i = 0; i < state.size(); ++i)
     state[i] = 1. + 0.25 * i;
+  Vector            target_state(target.dof_handler().n_dofs());
   StateView<Vector> state_view(layout, 0.);
   state_view.bind(source.field_id(), state);
+  state_view.bind(target.field_id(), target_state);
   const EvaluationContext<Vector> context(0., state_view);
 
   Vector residual(target.dof_handler().n_dofs());
@@ -188,14 +190,14 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
               u * u * values.shape_value(i, q) * values.JxW(q);
         }
     }
+  const Vector residual_value = residual;
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 
   const auto jacobian =
-    model.state_matrix_operator(target.field_id(), source.field_id(), context);
-  ASSERT_TRUE(jacobian.has_value());
+    model.state_operator(target.field_id(), source.field_id(), context);
   Vector action(state.size());
-  jacobian->view.vmult(action, state);
+  jacobian.vmult(action, state);
   Vector expected_action(action.size());
   for (const auto &cell : source.dof_handler().active_cell_iterators())
     {
@@ -223,13 +225,14 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   perturbed.add(epsilon, state);
   StateView<Vector> perturbed_view(layout, 0.);
   perturbed_view.bind(source.field_id(), perturbed);
+  perturbed_view.bind(target.field_id(), target_state);
   const EvaluationContext<Vector> perturbed_context(0., perturbed_view);
   Vector                          finite_difference(residual.size());
   model.evaluate_row(target.field_id(), perturbed_context, finite_difference);
-  finite_difference -= residual;
+  finite_difference -= residual_value;
   finite_difference *= 1. / epsilon;
   Vector jacobian_action(state.size());
-  jacobian->view.vmult(jacobian_action, state);
+  jacobian.vmult(jacobian_action, state);
   finite_difference -= jacobian_action;
   EXPECT_LT(finite_difference.l2_norm(), 1.e-6);
 }
