@@ -670,7 +670,7 @@ namespace ImmersX
                       "source background triangulation."));
 
         using Point = detail::CouplingPoint<spacedim, double>;
-        const unsigned int n_target_dofs = [&target_field] {
+        const unsigned int local_target_dofs = [&target_field] {
           for (const auto &cell :
                target_field.dof_handler().active_cell_iterators())
             if (cell->is_locally_owned())
@@ -686,6 +686,13 @@ namespace ImmersX
               }
           return 0u;
         }();
+        // A distributed target triangulation may have no locally owned cells
+        // on some ranks (for example, a coarse one-cell mesh on two ranks).
+        // The particle property layout must nevertheless be identical on all
+        // ranks, so recover the per-cell execution DoF count collectively.
+        const unsigned int n_target_dofs =
+          dealii::Utilities::MPI::max(local_target_dofs,
+                                      source.space().mpi_communicator());
         AssertThrow(n_target_dofs > 0,
                     dealii::ExcMessage(
                       "A nonmatching weak term target has no execution DoFs."));

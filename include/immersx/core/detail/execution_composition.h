@@ -183,22 +183,14 @@ namespace ImmersX::detail
           const auto owned = state.block(block_number).locally_owned_elements();
           const auto &descriptor = layout_.field(field);
 
-          if (descriptor.differential_components.n_elements() != 0)
-            {
-              if (descriptor.differential_components.n_elements() ==
-                  descriptor.locally_owned.size())
-                for (const auto index : owned)
-                  result.add_index(offset + index);
-              else if (owned.size() == descriptor.locally_owned.size())
-                for (const auto index : descriptor.differential_components)
-                  result.add_index(offset + index);
-              else
-                AssertThrow(
-                  false,
-                  dealii::ExcMessage(
-                    "An adaptive state changed the size of a mixed field "
-                    "without updating its differential mask."));
-            }
+          // The descriptor stores differential components in the field's
+          // execution numbering.  Intersect with the current state ownership
+          // explicitly: on a distributed vector the descriptor may contain a
+          // stale or rank-local mask, and comparing IndexSet sizes is not a
+          // valid way to distinguish those cases.
+          for (const auto index : descriptor.differential_components)
+            if (owned.is_element(index))
+              result.add_index(offset + index);
           offset += owned.size();
         }
       result.compress();
@@ -2020,21 +2012,16 @@ namespace ImmersX::detail
                   dealii::ExcMessage(
                     "A derivative operator is not completely matrix-based."));
 
-      std::shared_ptr<MatrixType> result;
+      std::vector<typename Model::MatrixOperator> matrices;
       if (state_matrix.has_value())
-        result = state_matrix->matrix();
+        matrices.push_back(*state_matrix);
       if (derivative_matrix.has_value())
-        {
-          auto derivative = derivative_matrix->matrix();
-          if (result)
-            result->add(alpha, *derivative);
-          else
-            {
-              *derivative *= alpha;
-              result = std::move(derivative);
-            }
-        }
-      return result;
+        matrices.push_back(alpha * *derivative_matrix);
+      if (matrices.empty())
+        return {};
+      if (matrices.size() == 1)
+        return matrices.front().matrix();
+      return detail::sum_matrices(matrices);
     }
 
     BlockMatrixType

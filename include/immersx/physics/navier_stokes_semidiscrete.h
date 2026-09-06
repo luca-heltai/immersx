@@ -170,7 +170,9 @@ namespace ImmersX
               symmetric_gradient(v))
       .add(builder);
     weak_term(-1. * value(p), divergence(v)).add(builder);
-    weak_term(divergence(u), q).add(builder);
+    // The native mixed block stores the continuity equation with the same
+    // negative sign as the pressure term in the velocity equation.
+    weak_term(-1. * divergence(u), q).add(builder);
     if (problem.include_convective_term())
       weak_term(problem.density() * (gradient(u) * u), v).add(builder);
 

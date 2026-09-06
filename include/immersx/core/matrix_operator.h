@@ -383,7 +383,38 @@ namespace ImmersX
       using MatrixType     = typename MatrixOperator::Matrix;
 
       auto first = operators.front().matrix();
-      if constexpr (has_sparse_reinit<MatrixType>::value)
+      if constexpr (has_distributed_partitions<MatrixType>::value)
+        {
+          const auto row_partition    = first->locally_owned_range_indices();
+          const auto column_partition = first->locally_owned_domain_indices();
+          const auto communicator     = first->get_mpi_communicator();
+          dealii::DynamicSparsityPattern sparsity(first->m(),
+                                                  first->n(),
+                                                  row_partition);
+          for (const auto &operator_description : operators)
+            {
+              const auto matrix = operator_description.matrix();
+              for (const auto row : row_partition)
+                for (auto entry = matrix->begin(row); entry != matrix->end(row);
+                     ++entry)
+                  sparsity.add(row, entry->column());
+            }
+
+          auto result = std::make_shared<MatrixType>();
+          result->reinit(
+            row_partition, column_partition, sparsity, communicator, false);
+          for (const auto &operator_description : operators)
+            {
+              const auto matrix = operator_description.matrix();
+              for (const auto row : row_partition)
+                for (auto entry = matrix->begin(row); entry != matrix->end(row);
+                     ++entry)
+                  result->add(row, entry->column(), entry->value());
+            }
+          result->compress(dealii::VectorOperation::add);
+          return result;
+        }
+      else if constexpr (has_sparse_reinit<MatrixType>::value)
         {
           dealii::DynamicSparsityPattern dynamic_sparsity(first->m(),
                                                           first->n());
