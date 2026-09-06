@@ -9,10 +9,8 @@ The runnable example is:
 
 - `tutorials/navier_stokes/transient_2d.prm.in`
 
-The implementation was extracted from the fluid portion of deal.II step-80.
-The reference fluid/manufactured-solution test is the revision
-`c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd`; solid, elasticity, immersed, and
-coupling branches are not part of this application.
+The implementation follows the fluid formulation used by deal.II step-80.
+The application contains no solid or immersed-coupling branch.
 
 ## The problem
 

@@ -22,7 +22,7 @@ two-way IDA verification driver separately reports area, flow velocity, solid
 displacement, solid H1, velocity, multiplier-metric, and constraint errors in
 physical norms.
 
-Use the configured production input:
+Use the configured input:
 
 ```bash
 build-metric-flow-x-debug/metric_flow_x_elastodynamics_debug \
@@ -49,7 +49,5 @@ IMMERSX_RUN_MMS_STUDIES=1 mpirun -np 2 ./metric_flow_x_elastodynamics_mms_verifi
 The CSV table is written below
 `build-metric-flow-x-debug/test_output/metric-flow-x-elastodynamics-mms/`.
 It is diagnostic rather than an asymptotic FE-convergence claim: the
-production full-system linear solve currently blocks on the finest coupled
-levels. The stationary MMS uses a genuinely time-independent two-way problem,
-so this limitation is solver scalability rather than a transient-study
-substitution.
+the full-system linear solve does not complete on the finest coupled levels.
+The stationary MMS uses a time-independent two-way problem.

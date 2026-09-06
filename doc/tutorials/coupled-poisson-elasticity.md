@@ -1,89 +1,38 @@
-# Building a coupled problem
+# Coupled Poisson–elasticity
 
-This tutorial builds one steady coupled system from two existing Problems:
+This application composes a 1D-in-3D Poisson Problem with a 3D static
+elasticity Problem. The Poisson solution is multiplied by two, lifted from
+the representative cylinder, converted to a normal traction, and assembled
+against the elasticity displacement test field:
 
 ```text
-PoissonProblem<1,3> -- p=2u --> cylindrical surface -- traction --> ElasticStaticProblem<3,3>
+PoissonSolver<1,3> -> value -> lift -> normal traction
+                                      -> test(displacement)
+ElasticStaticProblem<3,3> ------------^
 ```
 
-The executable is `coupled_poisson_elasticity`. It is a deliberately small
-vertical slice showing how application-specific physics can extend the public
-composition API without adding a global coupled-system class.
-
-The canonical input is
+The executable is `coupled_poisson_elasticity`, from
+`apps/app_coupled_poisson_elasticity.cc`. Its input is
 `tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm.in`:
 
 ```{literalinclude} ../../tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm.in
 :language: ini
 ```
 
-## Application vocabulary
+The application creates `FESpaceView`s for the two native DoFHandlers, names
+the solution fields, constructs the lift and the surface normal, and adds a
+`weak_term` to a `LinearAdapter`. The adapter owns the execution vector and
+the coupled solve. Each Problem receives its accepted solution before native
+output is written.
 
-The example defines three descriptors next to the application:
-
-- `Pressure` names the observable `p=2u` of the Poisson solution;
-- `CylinderSurface` names a fixed radius cylinder parameterized by axial
-  coordinate `s` and angle `theta`;
-- `normal(CylinderSurface)` supplies the geometric normal for the load
-  \(p n\);
-- `weak_term` pairs that load with the elasticity displacement test field.
-
-The executable’s composition is correspondingly short:
-
-```cpp
-const auto poisson = adapter.add(poisson_problem);
-const auto elastic = adapter.add(elasticity_problem);
-const auto displacement = elastic_space.field(
-  elastic.fields().displacement, "displacement", FEValuesExtractors::Vector(0));
-const auto pressure =
-  poisson.observe(Pressure{}).lift(pressure_lift);
-const auto traction = pressure * normal(surface);
-adapter.add(weak_term(traction, test(displacement)), "pressure-traction");
-
-auto state = adapter.make_state();
-adapter.solve(state);
-
-poisson_problem.set_solution(
-  adapter.field(state, poisson.fields().solution));
-elasticity_problem.set_solution(
-  adapter.field(state, elastic.fields().displacement));
-
-poisson_problem.output_results();
-elasticity_problem.output_results(0);
-```
-
-The adapter owns the coupled solver state, but each Problem owns its accepted
-physical state and native output. The explicit handoff above is therefore the
-acceptance/output boundary. The Poisson and elasticity parameter sections may
-use different output directories, or the same directory with distinct
-`Output name` values; the application does not assemble filenames itself.
-
-The application descriptor implementations hide the geometry map, value
-transfer, finite-element point evaluation, and cached nonmatching search. The
-application supplies only the FE-space view, observable composition, normal,
-and weak term; the backend chooses the appropriate cell or particle path.
-
-## Running it
-
-Build the project and run the generated smoke-test parameters:
+Run the configured input with:
 
 ```bash
 mpirun -np 1 ./build/coupled_poisson_elasticity_debug \
   build/tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm
 ```
 
-The application prints and records checks for the coupled residual, the
-pressure scaling, and the traction balance. The regression test launches the
-same executable from an unrelated working directory and checks those values.
-Its canonical input is the one shown above.
-
-## Scope of this slice
-
-The cylinder is fixed and the coupling is one-way. There are no multipliers,
-nonlinear elasticity terms, ALE/metric-flow terms, FSI time integration, or
-new solver infrastructure. The example is intended to establish the public
-composition workflow before a future metric-flow-x tutorial expands the
-geometry and execution model.
-
-Next, continue to [fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics)
-for a distributed composed example.
+The executable writes the two Problem outputs and a diagnostics file below
+the configured output directory. It checks the coupled residual, the pressure
+factor, and the traction balance. The same input is used by the application
+integration test.

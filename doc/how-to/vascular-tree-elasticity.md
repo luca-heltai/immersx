@@ -1,31 +1,19 @@
-# Specialized vascular-tree elasticity
+# Vascular-tree elasticity
 
-This guide describes a pulsatile one-dimensional network coupled to a
-three-dimensional tissue elasticity problem. The reduced vascular tree drives
-the surrounding tissue through the tensor-product coupling representation.
+The `elasticity` application can run a quasi-static 3D elasticity problem with
+a reduced vascular-tree load. The input is
+`tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm`.
 
-This is a specialized application-level workflow: the `elasticity` executable
-owns the orchestration of this particular 1D–3D example. It is distinct from
-`coupled_elasticity`, which is a legacy `lib1dsolver` workflow. In the
-architectural direction described in {doc}`../concepts/architecture`, the network and tissue
-physics can eventually contribute to the same residual through reusable
-Observables and Interactions, with monolithic or partitioned execution
-selected outside the physics layer. That common adapter is a roadmap item,
-not an API claim about this tutorial.
-
-## Quasi-Static Vascular-Tree Traveling Wave
-
-Input: `tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm`
-
-Run from the repository root with:
+Run it from the repository root with:
 
 ```bash
-./build/elasticity_debug tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm
+./build/elasticity_debug \
+  tutorials/elasticity/vascular_tree_quasistatic_wave_3d.prm
 ```
 
-This example couples 3D elasticity to `data/tests/mstree_100.vtk`. The
-`path_distance` point field is exposed through `Input file fields` and used in
-both the reduced thickness and the traveling load:
+The input reads `data/tests/mstree_100.vtk`, exposes its `path_distance` point
+field through `Input file fields`, and uses that field for the thickness and
+traveling load:
 
 ```{math}
 h(s) = 0.01\exp\left(-\frac{10}{3}s\right),
@@ -33,18 +21,8 @@ h(s) = 0.01\exp\left(-\frac{10}{3}s\right),
 g(s,t) = 0.05\sin\left(2\pi\left(t-\frac{s}{0.69}\right)\right).
 ```
 
-The tree starts at thickness `0.01`, reaches approximately `0.001` at
-`path_distance = 0.69`, and the pulsatile load travels that distance in one
-second. The quasi-static run lasts three seconds, producing three periods
-without inertial dynamics. This example requires a SymEngine-enabled deal.II
-build because the reduced coupling expressions depend on the imported VTK
-field.
-
-```{figure} ../tutorials/assets/vascular_tree_pulsatile_displacement.gif
-:name: fig-vascular-tree-pulsatile-displacement
-:alt: Animation of the pulsatile vascular-tree tissue displacement contour
-
-Evolution of the $10^{-5}$ contour of the tissue displacement caused by the
-pulsatile deformations. The contour travels through the vascular tree as the
-reduced load propagates along `path_distance`.
-```
+The example requires deal.II with SymEngine support. It runs for three seconds
+and produces three periods of the quasi-static traveling load. The
+`coupled_elasticity` executable is a separate 3D/1D `lib1dsolver` application;
+see the [application reference](../reference/applications) for its build
+condition and command-line interface.

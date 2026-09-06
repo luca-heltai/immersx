@@ -22,7 +22,7 @@ K=\frac{2(2\mu+\lambda_s)R_1^2}
         {R_0(R_1^2-R_0^2)}.
 $$
 
-The production residual is `F_solid + B lambda = 0`, hence the independent
+The assembled residual is `F_solid + B lambda = 0`, hence the independent
 sign oracle uses `lambda* = -K d0`. The interaction sends `-lambda` to the
 native MetricFlowX external-pressure operation, preserving action/reaction.
 

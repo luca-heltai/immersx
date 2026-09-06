@@ -16,8 +16,8 @@ cmake -S . -B build \
 cmake --build build -j
 ```
 
-The optional `lib1dsolver` dependency enables the legacy coupled 3D/1D
-executables when it is available. The [application reference](../reference/applications)
+The optional `lib1dsolver` dependency enables the 3D/1D `coupled_elasticity`
+and `pseudocoupling1D` executables when it is available. The [application reference](../reference/applications)
 lists dependencies and supported dimensions for every executable.
 
 To build the published documentation, install the Python requirements and run:

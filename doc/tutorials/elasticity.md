@@ -27,9 +27,9 @@ cmake --build build -j
 
 Results are written below `build/test_output/tutorial-output/elastic-static`.
 The application smoke test runs this exact input and checks the generated
-output. The older `elasticity` executable remains available for immersed and
-verification workflows; its strong/weak/Neumann and MMS cases are kept under
-`tutorials/elasticity/` and are not part of this introductory path.
+output. The `elasticity` executable provides immersed and verification
+workflows; its strong/weak/Neumann and MMS cases are kept under
+`tutorials/elasticity/` and are separate from this introductory example.
 
 For boundary-condition choices, see [Choose boundary conditions](../how-to/boundary-conditions).
 For the time-dependent extension, continue with [Elastodynamics](elastodynamics).

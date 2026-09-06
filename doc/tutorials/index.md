@@ -1,29 +1,26 @@
 # Tutorials
 
-Tutorials are a learning path through real ImmersX executables. Each runnable
-example names its canonical input, includes that input from the repository, and
-is exercised by the application smoke tests.
+These tutorials use the parameter files under `tutorials/` and the
+executables listed in the [application reference](../reference/applications).
+They cover scalar and vector problems, time integration, reduced geometry,
+weak coupling, and a two-way vessel-wall interaction.
 
-## Main path
+The introductory sequence is:
 
-1. [Poisson](poisson) — your first scalar finite-element simulation.
-2. [Static elasticity](elasticity) — vector-valued finite elements, material
-   data, and boundary conditions.
-3. [Elastodynamics](elastodynamics) — time-dependent displacement and velocity
-   fields.
-4. [Reduced Poisson](reduced-poisson) — a lower-dimensional coupling geometry.
-5. [Coupled Poisson](coupled-poisson) — two scalar Problems and a multiplier
-   Interaction.
-6. [Coupled Poisson–elasticity](coupled-poisson-elasticity) — observe, lift,
-   couple, and solve.
-7. [Fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics) — an
-   advanced full-order distributed coupling workflow.
+1. [Poisson](poisson) — a scalar finite-element solve.
+2. [Static elasticity](elasticity) — a vector-valued finite-element solve.
+3. [Elastodynamics](elastodynamics) — displacement and velocity with IDA.
+4. [Reduced Poisson](reduced-poisson) — an immersed lower-dimensional space.
+5. [Coupled Poisson](coupled-poisson) — two Poisson Problems and a multiplier.
+6. [Coupled Poisson–elasticity](coupled-poisson-elasticity) — a lifted load
+   from a 1D Problem onto 3D elasticity.
+7. [Fiber-reinforced elastodynamics](fiber-reinforced-elastodynamics) — two
+   nonmatching Problems and a multiplier constraint.
 
-[Navier–Stokes](navier-stokes) is an independent fluid tutorial. The
-application reference lists other specialized and legacy executables.
-
-The progressive [one-vessel two-way verification tutorials](metric-flow-x-elastodynamics-01-kinematics)
-cover wall kinematics, static sign and units, spatial MMS, and transient MMS.
+[Navier–Stokes](navier-stokes) documents the independent incompressible-flow
+application. The four [MetricFlowX vessel-wall pages](metric-flow-x-elastodynamics-01-kinematics)
+describe the kinematic, static, spatial manufactured, and transient inputs for
+the same two-way coupling application.
 
 ```{toctree}
 :maxdepth: 1
