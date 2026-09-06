@@ -180,8 +180,8 @@ namespace ImmersX
    *   `ElasticityProblemParameters::pressure_coupling` is enabled).
    *
    * The intent of this documentation is to state *exactly* which continuous and
-   * discrete equations correspond to the current implementation in
-   * `source/elasticity.cc` (primarily `assemble_elasticity_system()`,
+   * discrete equations correspond to `source/elasticity.cc` (primarily
+   * `assemble_elasticity_system()`,
    * `assemble_coupling()`, and `solve()`), and to list the constants and
    * options that select between different model variants.
    *
@@ -281,8 +281,8 @@ namespace ImmersX
    * \f]
    *
    * - If `ElasticityProblemParameters::elasticity_model ==
-   * ElasticityModel::KelvinVoigt` (note: the current implementation uses only
-   * the \f$\mu\f$ term for stiffness, without a \f$\lambda\f$ contribution):
+   * ElasticityModel::KelvinVoigt` (this path uses only the \f$\mu\f$ term for
+   * stiffness, without a \f$\lambda\f$ contribution):
    * \f[ A_{ij} \mathrel{+}= \int_\Omega
    * \mu\,\varepsilon(\varphi_i):\varepsilon(\varphi_j)\,dx. \f]
    *
@@ -385,7 +385,7 @@ namespace ImmersX
    * `source/elasticity.cc`, `assemble_coupling()`).
    *
    * @note In the stationary case (`initial_time == final_time`) with
-   * `pressure_coupling == true`, the current implementation computes
+   * `pressure_coupling == true`, the stationary path computes
    * \f$f_f=B^T\lambda\f$ but then solves \f$A u = f\f$ (i.e., \f$f_f\f$ is not
    * used in the stationary solve path).
    *
@@ -431,8 +431,8 @@ namespace ImmersX
    * - \f$A_n = C + \beta_N\Delta t^2 A\f$ (undamped)
    * - \f$A_n = C + \beta_N\Delta t^2 A + \gamma_N\Delta t\,D\f$ (damped)
    *
-   * In the current implementation these combinations are built as
-   * `LinearOperator` sums in `solve()` (not as explicit sparse matrices).
+   * These combinations are built as `LinearOperator` sums in `solve()` (not as
+   * explicit sparse matrices).
    */
   template <int dim, int spacedim = dim>
   class ElasticityProblem : public EnableObserverPointer
