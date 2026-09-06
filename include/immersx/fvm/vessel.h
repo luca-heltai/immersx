@@ -5,7 +5,7 @@
 #include <vector>
 #include <cmath>
 using namespace std;
-// This is the vessel prototype
+// Vessel data used by the one-dimensional solver.
 class vessel
 {
  public:
@@ -548,7 +548,6 @@ class vessel
 
   virtual void setParamAtEdge(const int& iM, const int& iMvar, double* q);
 };
-
 
 
 

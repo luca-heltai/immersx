@@ -116,7 +116,7 @@ namespace ImmersX
     std::vector<const VectorType *> fields_;
   };
 
-  /** Minimal term-level selection placeholder for future IMEX treatment. */
+  /** Term treatment selected for a residual evaluation. */
   enum class TermTreatment
   {
     all,

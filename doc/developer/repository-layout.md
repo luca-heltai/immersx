@@ -1,11 +1,18 @@
-# Repository Layout
+# Repository layout
 
-- `include/`, `source/`: library headers and implementations.
-- `apps/`: executable entry points.
-- `tests/`, `gtests/`: regression and unit/integration tests.
-- `doc/`: Doxygen and Sphinx source for the published documentation site.
-- `scripts/`: helper scripts, including `scripts/build_doc.sh`.
-- `prms/`: legacy and specialized parameter files.
-- `data/`: meshes and configured test fixtures.
-- `tutorials/`: canonical inputs used by the published tutorials.
-- `notebooks/`, `blender/`, `cgal_utilities/`: exploratory and geometry-processing helpers.
+The main source-tree areas are:
+
+- `include/immersx/` — public headers;
+- `source/` — compiled library sources;
+- `apps/` — application entry points;
+- `gtests/` — GoogleTest unit and integration tests;
+- `tests/` — deal.II-style regression tests;
+- `gtests/parameters/`, `tutorials/`, and `data/` — parameter files and input
+  data;
+- `doc/` — Sphinx/MyST documentation;
+- `scripts/` — build, formatting, and documentation utilities.
+
+Build directories and generated files belong outside the source tree. CMake
+configures `.in` inputs from `gtests/`, `tests/`, `data/`, and `tutorials/`
+into the build tree with the same relative path and the final `.in` suffix
+removed.

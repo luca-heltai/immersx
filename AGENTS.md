@@ -595,7 +595,7 @@ If a task reveals a broader architectural issue:
 - fix it when necessary for the requested vertical slice;
 - otherwise record it separately rather than expanding the current change.
 
-Avoid speculative support for future solvers, geometries, or discretizations
+Avoid speculative support for solver, geometry, or discretization variants
 unless the current application requires it.
 
 Prefer one documented way to use each current public concept over multiple
@@ -622,6 +622,6 @@ Before reporting a substantial task complete:
    - commits created;
    - files changed;
    - tests run and their results;
-   - known limitations or follow-up work.
+   - known limitations.
 7. Confirm that nothing was pushed and no pull request was opened unless the
    user explicitly requested it.

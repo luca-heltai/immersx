@@ -13,10 +13,11 @@ namespace ImmersX
   /**
    * Parse-once pointwise evaluator for one scalar symbolic expression.
    *
-   * The independent symbols are ordinary scalar variables. They have no
-   * finite-element or field semantics; those semantics belong to a future
-   * sampling layer. The reserved coordinate symbols are @c x, @c y, @c z,
-   * and @c t, with the same convention as SymbolicFieldEvaluator.
+   * The independent symbols are ordinary scalar variables. The evaluator
+   * operates at points supplied by the caller; any finite-element or field
+   * association is supplied by that caller. The reserved coordinate symbols are
+   * @c x, @c y, @c z, and @c t, with the same convention as
+   * SymbolicFieldEvaluator.
    *
    * When deal.II is built without SymEngine, the interface remains available
    * but initialization of a non-empty expression reports a clear runtime

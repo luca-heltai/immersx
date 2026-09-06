@@ -1,29 +1,35 @@
-# Unified weak-term constraints
+# Constraints and interactions
 
-An algebraic constraint is assembled from ordinary `Field` and `Observable`
-objects. A Lagrange multiplier is an algebraic `Field` on its own finite-
-element space; it is not a `Problem` and does not borrow a participant's
-DoFHandler.
+A `Constraint` expresses a relation between fields through weak terms. It
+owns the multiplier field and contributes the relation to the residual rows of
+the multiplier and its participants. An Interaction is the broader category
+for relation-specific terms that may also own geometry, search, transfer
+operators, or native-provider state.
 
-For example, two fields can be constrained through one independently chosen
-multiplier space:
+The multiplier is an algebraic field on an independently selected finite-
+element space. It does not borrow a participant's DoFHandler. All weak terms
+in one constraint use the same unregistered multiplier field:
 
-```{code-block} cpp
+```cpp
 auto lambda = multiplier_space.field("lambda");
-auto first  = weak_term(value(u1), test(lambda));
-auto second = weak_term(value(u2), test(lambda));
+auto first = weak_term(value(u), test(lambda));
+auto second = weak_term(value(v), test(lambda));
 auto constraint = make_constraint(first - second, rhs);
-
 auto fields = adapter.add(constraint, "continuity");
 ```
 
-The constraint contributes the signed weak-term sum minus `rhs` to the
-multiplier row. Each participant receives the corresponding transpose
-reaction. Scalar and vector constraints use the same API; the finite element
-and extractor determine the value type.
+The multiplier row receives the signed weak-term sum minus `rhs`. Participant
+rows receive the transpose reactions. The same construction handles scalar
+and vector fields; the FE extractor determines the value type.
 
-The target multiplier `Field` can use a different DoFHandler and finite
-element from every participant. When the geometries are shared, weak-term
-assembly uses the direct cell or paired-cell path. Only nonmatching geometry
-uses the cached particle backend. These choices are implementation details and
-are not part of application-level constraint construction.
+The weak-term backend chooses direct cell traversal, paired DoFHandler
+traversal, or nonmatching point search from the spaces and geometry. This
+choice does not change the constraint API. Distributed point ownership and
+search use deal.II's distributed particle facilities where the coupling
+requires them.
+
+`MetricFlowXVesselWallConstraint` is a domain-specific Interaction. It relates
+the MetricFlowX area field and the wall displacement observable, contributes
+the solid-side coupling terms, and maps the multiplier to the native
+MetricFlowX external-pressure operation. The application adds the native
+MetricFlowX provider and the solid Problem to the same `IDAAdapter`.

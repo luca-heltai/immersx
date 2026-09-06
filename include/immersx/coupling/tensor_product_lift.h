@@ -49,8 +49,8 @@ namespace ImmersX
     }
 
     /**
-     * Build the iterated reduced-domain quadrature rule shared by the legacy
-     * TensorProductSpace and the modern tensor-product lift.
+     * Build the iterated reduced-domain quadrature rule shared by
+     * TensorProductSpace and TensorProductLift.
      */
     template <int dim>
     dealii::Quadrature<dim>
@@ -69,8 +69,8 @@ namespace ImmersX
      * Expand one representative quadrature point into the lifted cross-section
      * points, weights, and selected-mode values.
      *
-     * Both the legacy TensorProductSpace and the modern TensorProductLift
-     * compute the actual lifting through this function, so the transformed
+     * TensorProductSpace and TensorProductLift compute the actual lifting
+     * through this function, so the transformed
      * cross-section quadrature, weight scaling, section measure, selected-mode
      * lookup, and representative/section indexing are defined once.
      */
@@ -422,7 +422,8 @@ namespace ImmersX
         representative_basis);
     }
 
-    /** Apply the common reference-section transformation to legacy users. */
+    /** Apply the common reference-section transformation to TensorProductSpace
+     * users. */
     static dealii::Quadrature<spacedim>
     transform_section(const Section                     &section,
                       const dealii::Point<spacedim>     &origin,

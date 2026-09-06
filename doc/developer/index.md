@@ -1,8 +1,8 @@
 # Developer documentation
 
-Developer pages describe how to work on ImmersX and how the current design is
-being developed. They are intentionally separate from the user-facing
-tutorials and concepts.
+This section covers contribution workflow, testing, documentation, repository
+layout, and the implementation details needed to extend the current public
+composition API.
 
 ```{toctree}
 :maxdepth: 2
@@ -11,9 +11,6 @@ contributing
 testing
 documentation
 repository-layout
-design/architecture-status
-design/current-implementation
-design/semidiscrete-contributors
 design/unified-constraints
 design/time-residual-sundials
 ```
