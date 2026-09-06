@@ -206,6 +206,6 @@ end
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 29.819214852051616, tol);
 }
 
-INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
+INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
                          Elasticity02TriangulationTypeTest,
                          ::testing::Values("distributed", "fullydistributed"));

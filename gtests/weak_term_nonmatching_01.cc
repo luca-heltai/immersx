@@ -71,7 +71,7 @@ namespace
     const auto before = detail::weak_term_nonmatching_preparations.load();
     const auto expected =
       before + static_cast<unsigned int>(expected_preparations);
-    weak_term(value(source), target).add(builder);
+    weak_term(value(source), test(target)).add(builder);
     EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), expected);
 
     Vector state;
@@ -142,7 +142,7 @@ namespace
 
     Model                               model;
     SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-    weak_term(value(source), target).add(builder);
+    weak_term(value(source), test(target)).add(builder);
 
     Vector state;
     state.reinit(source.locally_owned_dofs(), MPI_COMM_WORLD);
@@ -261,7 +261,7 @@ TEST(WeakTermNonmatching, NonmatchingScalarGradientUsesPointSearch)
 
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  weak_term(gradient(source), gradient(target)).add(builder);
+  weak_term(gradient(source), gradient(test(target))).add(builder);
 
   StateView<Vector>               state_view(layout, 0.);
   const EvaluationContext<Vector> context(0., state_view);
@@ -381,7 +381,7 @@ TEST(WeakTermNonmatching, MPI_ScaledPairing)
   const auto  base_target = target_view.field(base_layout, "base-target");
   Model       base_model;
   SemidiscreteBuilder<Vector, Matrix> base_builder(base_layout, base_model);
-  weak_term(value(base_source), base_target).add(base_builder);
+  weak_term(value(base_source), test(base_target)).add(base_builder);
 
   StateLayout scaled_layout;
   const auto  scaled_source = source_view.field(scaled_layout, "scaled-source");
@@ -389,7 +389,7 @@ TEST(WeakTermNonmatching, MPI_ScaledPairing)
   Model       scaled_model;
   SemidiscreteBuilder<Vector, Matrix> scaled_builder(scaled_layout,
                                                      scaled_model);
-  weak_term(2.0 * value(scaled_source), 3.0 * value(scaled_target))
+  weak_term(2.0 * value(scaled_source), 3.0 * test(scaled_target))
     .add(scaled_builder);
 
   Vector base_state;

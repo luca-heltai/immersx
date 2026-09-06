@@ -613,8 +613,8 @@ namespace ImmersX
       multiplier_space_storage->field("velocity_multiplier",
                                       dealii::FEValuesExtractors::Vector(0));
     const auto constraint =
-      make_constraint(weak_term(value(matrix_velocity), multiplier) -
-                      weak_term(value(fiber_velocity), multiplier));
+      make_constraint(weak_term(value(matrix_velocity), test(multiplier)) -
+                      weak_term(value(fiber_velocity), test(multiplier)));
     const auto coupling_fields = ida_storage->add(constraint, "fiber-coupling");
 
     matrix_fields_storage   = matrix_fields.fields();

@@ -1191,6 +1191,22 @@ namespace ImmersX
 
 
   template <int dim, int spacedim>
+  double
+  NavierStokesSolver<dim, spacedim>::viscosity() const
+  {
+    return par.viscosity;
+  }
+
+
+  template <int dim, int spacedim>
+  bool
+  NavierStokesSolver<dim, spacedim>::include_convective_term() const
+  {
+    return par.include_convective_term;
+  }
+
+
+  template <int dim, int spacedim>
   types::global_dof_index
   NavierStokesSolver<dim, spacedim>::velocity_block_size() const
   {

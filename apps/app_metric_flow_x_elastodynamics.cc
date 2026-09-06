@@ -159,7 +159,7 @@ namespace
     using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
     using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
     using SolidField = ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>;
-    using WallObservable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
+    using WallObservable = ImmersX::MetricFlowXVesselWallGeometry;
     using Interaction =
       ImmersX::MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
 
@@ -179,7 +179,6 @@ namespace
     wall_lift.section.selected_coefficients = {3u, 7u};
     wall_lift.section.n_q_points            = 8;
     wall_lift.representative_n_q_points     = 2;
-    ImmersX::ParticleCouplingParameters<3> search_parameters;
     ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
 
     const auto flow_bootstrap = write_metric_flow_bootstrap(parameter_file);
@@ -294,13 +293,30 @@ namespace
                                          flow_fields.fields().area,
                                          flow_fields.fields().area_components,
                                          wall_lift);
-    Interaction interaction(solid_field, wall_observable, search_parameters);
-    interaction.assemble();
-    const auto coupling_fields = adapter.add(interaction,
-                                             "vessel-wall",
-                                             solid_fields.fields().displacement,
-                                             solid_fields.fields().velocity,
-                                             flow_fields.fields().state);
+    Interaction          interaction(solid_field, wall_observable);
+    const auto           lambda_field = interaction.multiplier_field();
+    const auto wall_displacement = interaction.radial_displacement(wall_lift);
+    const auto radial_law        = wall_observable.radial_law();
+    const auto lambda_wall =
+      ImmersX::lift(ImmersX::value(lambda_field),
+                    wall_lift,
+                    ImmersX::SourceThicknessEvaluator<3>(
+                      [radial_law](const dealii::Point<3> &point,
+                                   const double            time,
+                                   const std::vector<double> &) {
+                        return std::sqrt(radial_law.resting_area(point, time) /
+                                         dealii::numbers::PI);
+                      }));
+    const auto kinematic_constraint = ImmersX::make_constraint(
+      ImmersX::weak_term(ImmersX::value(solid_field),
+                         ImmersX::test(lambda_wall)) -
+      ImmersX::weak_term(wall_displacement, ImmersX::test(lambda_field)));
+    const auto coupling_fields =
+      adapter.add(kinematic_constraint, "vessel-wall");
+    adapter.add(interaction,
+                "vessel-wall-pressure",
+                flow_fields.fields().state,
+                coupling_fields.fields().multiplier);
 
     const auto output = [&solid_problem,
                          &solid_parameters,
@@ -448,11 +464,10 @@ namespace
         multiplier = std::stod(static_multiplier_expression());
       else if (mms_case == "spatial" || mms_case == "transient")
         {
-          std::map<types::global_dof_index, Point<3>> support_points;
-          MappingQ1<1, 3>                             mapping;
-          DoFTools::map_dofs_to_support_points(mapping,
-                                               flow_problem.dof_handler(),
-                                               support_points);
+          MappingQ1<1, 3> mapping;
+          const auto      support_points =
+            DoFTools::map_dofs_to_support_points(mapping,
+                                                 flow_problem.dof_handler());
           for (const auto &point : wall_observable.points())
             for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
               {

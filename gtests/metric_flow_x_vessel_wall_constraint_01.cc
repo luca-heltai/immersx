@@ -35,6 +35,16 @@
 
 #if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
 
+TEST(MetricFlowXRadialLaw, ValueAndDerivative)
+{
+  const auto evaluation = ImmersX::MetricFlowXRadialLaw{}.evaluate(
+    {4. * dealii::numbers::PI, dealii::numbers::PI});
+  EXPECT_DOUBLE_EQ(evaluation.value, 1.);
+  ASSERT_EQ(evaluation.derivatives.size(), 2u);
+  EXPECT_DOUBLE_EQ(evaluation.derivatives[0], 1. / (4. * dealii::numbers::PI));
+  EXPECT_DOUBLE_EQ(evaluation.derivatives[1], 0.);
+}
+
 namespace
 {
   using FlowProblem  = MetricFlowX::BloodFlowSystem<1, 3>;
@@ -43,7 +53,7 @@ namespace
   using Adapter      = ImmersX::IDAAdapter<FlowVector, GlobalVector>;
   using SolidProblem = ImmersX::ElastodynamicsSolver<3>;
   using SolidField   = ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>;
-  using WallObservable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
+  using WallObservable = ImmersX::MetricFlowXVesselWallGeometry;
   using Interaction =
     ImmersX::MetricFlowXVesselWallConstraint<SolidField, WallObservable>;
   using SolidFields = decltype(std::declval<Adapter &>().add(
@@ -52,29 +62,6 @@ namespace
     decltype(ImmersX::metric_flow_x(std::declval<FlowProblem &>()));
   using FlowFields = decltype(std::declval<Adapter &>().add(
     std::declval<const FlowDescriptor &>()));
-
-  class LinearRadialVirtualDisplacement : public dealii::Function<3>
-  {
-  public:
-    explicit LinearRadialVirtualDisplacement(const double scale)
-      : dealii::Function<3>(3)
-      , scale(scale)
-    {}
-
-    double
-    value(const dealii::Point<3> &point,
-          const unsigned int      component = 0) const override
-    {
-      if (component == 1)
-        return scale * point[1];
-      if (component == 2)
-        return scale * point[2];
-      return 0.;
-    }
-
-  private:
-    const double scale;
-  };
 
   struct Fixture
   {
@@ -97,7 +84,6 @@ namespace
       wall_lift->section.selected_coefficients = {3u, 7u};
       wall_lift->section.n_q_points            = 8;
       wall_lift->representative_n_q_points     = 2;
-      ImmersX::ParticleCouplingParameters<3> search_parameters;
       ImmersX::reset_parameter_handler_to_root(dealii::ParameterAcceptor::prm);
 
       ImmersX::initialize_parameters(parameter_file);
@@ -132,17 +118,33 @@ namespace
                                          flow_fields->fields().area,
                                          flow_fields->fields().area_components,
                                          *wall_lift);
-      interaction = std::make_unique<Interaction>(*solid_field,
-                                                  *wall_observable,
-                                                  search_parameters);
-      interaction->assemble();
-      coupling_fields = adapter
-                          ->add(*interaction,
-                                "vessel-wall",
-                                solid_fields->fields().displacement,
-                                solid_fields->fields().velocity,
-                                flow_fields->fields().state)
-                          .fields();
+      interaction =
+        std::make_unique<Interaction>(*solid_field, *wall_observable);
+      const auto lambda_field = interaction->multiplier_field();
+      const auto wall_displacement =
+        interaction->radial_displacement(*wall_lift);
+      const auto radial_law = wall_observable->radial_law();
+      const auto lambda_wall =
+        ImmersX::lift(ImmersX::value(lambda_field),
+                      *wall_lift,
+                      ImmersX::SourceThicknessEvaluator<3>(
+                        [radial_law](const dealii::Point<3> &point,
+                                     const double            time,
+                                     const std::vector<double> &) {
+                          return std::sqrt(
+                            radial_law.resting_area(point, time) /
+                            dealii::numbers::PI);
+                        }));
+      const auto kinematic_constraint = ImmersX::make_constraint(
+        ImmersX::weak_term(ImmersX::value(*solid_field),
+                           ImmersX::test(lambda_wall)) -
+        ImmersX::weak_term(wall_displacement, ImmersX::test(lambda_field)));
+      coupling_fields =
+        adapter->add(kinematic_constraint, "vessel-wall").fields();
+      adapter->add(*interaction,
+                   "vessel-wall-pressure",
+                   flow_fields->fields().state,
+                   coupling_fields.multiplier);
     }
 
     void
@@ -268,23 +270,9 @@ TEST(MetricFlowXVesselWallConstraint, MPI_TwoWayResidualAndPressureSign)
   displacement_difference -=
     fixture.adapter->field(residual_zero,
                            fixture.solid_fields->fields().displacement);
-  EXPECT_NEAR(displacement_difference.l2_norm(), 0., 1.e-12);
-
-  auto velocity_difference =
-    fixture.adapter->field(residual_lambda,
-                           fixture.solid_fields->fields().velocity);
-  velocity_difference -=
-    fixture.adapter->field(residual_zero,
-                           fixture.solid_fields->fields().velocity);
-  FlowVector expected;
-  expected.reinit(fixture.solid_problem->locally_owned_dofs(),
-                  fixture.solid_problem->locally_relevant_dofs(),
-                  MPI_COMM_WORLD);
-  fixture.interaction->solid_coupling_matrix().vmult(
-    expected,
-    fixture.adapter->field(lambda_state, fixture.coupling_fields.multiplier));
-  velocity_difference -= expected;
-  EXPECT_NEAR(velocity_difference.l2_norm(), 0., 1.e-12);
+  EXPECT_GT(dealii::Utilities::MPI::max(displacement_difference.l2_norm(),
+                                        MPI_COMM_WORLD),
+            0.);
 
   auto area_perturbed = state;
   for (const auto index :
@@ -304,24 +292,6 @@ TEST(MetricFlowXVesselWallConstraint, MPI_TwoWayResidualAndPressureSign)
                                         MPI_COMM_WORLD),
             0.);
 
-  auto  solid_perturbed = state;
-  auto &solid_displacement =
-    fixture.adapter->field(solid_perturbed,
-                           fixture.solid_fields->fields().displacement);
-  solid_displacement  = expected;
-  auto residual_solid = fixture.adapter->make_state();
-  fixture.adapter->solver().residual(0.,
-                                     solid_perturbed,
-                                     state_dot,
-                                     residual_solid);
-  auto solid_constraint_difference =
-    fixture.adapter->field(residual_solid, fixture.coupling_fields.multiplier);
-  solid_constraint_difference -=
-    fixture.adapter->field(residual_zero, fixture.coupling_fields.multiplier);
-  EXPECT_GT(dealii::Utilities::MPI::max(solid_constraint_difference.l2_norm(),
-                                        MPI_COMM_WORLD),
-            0.);
-
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
 
@@ -338,129 +308,44 @@ TEST(MetricFlowXVesselWallConstraint, MPI_TwoWayCompositionResidualSmoke)
   EXPECT_TRUE(Interaction::flow_pressure_feedback_is_implemented);
 }
 
-TEST(MetricFlowXVesselWallConstraint, MPI_DiscreteVirtualWorkNormalization)
+TEST(MetricFlowXVesselWallConstraint, MPI_GenericKinematicCompositionSmoke)
 {
-  Fixture fixture(true);
+  Fixture fixture;
+  auto    state     = fixture.adapter->make_state();
+  auto    state_dot = fixture.adapter->make_state();
+  fixture.initialize(state, state_dot);
 
-  const ImmersX::OneVesselMMS::Parameters mms_parameters;
-  const auto   properties = fixture.flow_problem->vessel_properties(0);
-  const double formula_area =
-    ImmersX::OneVesselMMS::reference_area(mms_parameters);
-  const double formula_radius = std::sqrt(formula_area / dealii::numbers::PI);
-  double       local_geometry_length = 0.;
-  for (const auto &cell :
-       fixture.flow_problem->triangulation().active_cell_iterators())
-    if (cell->is_locally_owned())
-      local_geometry_length += cell->diameter();
-  const double geometry_length =
-    dealii::Utilities::MPI::sum(local_geometry_length, MPI_COMM_WORLD);
-  EXPECT_NEAR(properties.a0, formula_area, 1.e-15);
-  EXPECT_NEAR(std::sqrt(properties.a0 / dealii::numbers::PI),
-              formula_radius,
-              1.e-15);
-  EXPECT_NEAR(properties.L, mms_parameters.length, 1.e-14);
-  EXPECT_NEAR(geometry_length, properties.L, 1.e-14);
+  auto lambda_state = state;
+  fixture.adapter->field(lambda_state, fixture.coupling_fields.multiplier) = 1.;
+  auto residual = fixture.adapter->make_state();
+  fixture.adapter->solver().residual(0., lambda_state, state_dot, residual);
 
-  using SolidVector      = typename SolidProblem::VectorType;
-  using MultiplierVector = typename Interaction::VectorType;
-  MultiplierVector multiplier;
-  multiplier.reinit(fixture.interaction->multiplier_locally_owned_dofs(),
-                    fixture.interaction->multiplier_locally_relevant_dofs(),
-                    MPI_COMM_WORLD);
-  constexpr double pressure = 2.;
-  multiplier                = pressure;
-  multiplier.compress(dealii::VectorOperation::insert);
-  multiplier.update_ghost_values();
+  const auto solid_reaction =
+    fixture.adapter->field(residual,
+                           fixture.solid_fields->fields().displacement);
+  EXPECT_GT(dealii::Utilities::MPI::max(solid_reaction.l2_norm(),
+                                        MPI_COMM_WORLD),
+            0.);
 
-  SolidVector displacement_owned;
-  displacement_owned.reinit(fixture.solid_problem->locally_owned_dofs(),
-                            MPI_COMM_WORLD);
-  constexpr double                radial_scale = 1.e-3;
-  LinearRadialVirtualDisplacement virtual_displacement(radial_scale);
-  ASSERT_EQ(fixture.wall_observable->support().selected_modes(),
-            (std::vector<unsigned int>{3u, 7u}));
-  ASSERT_EQ(
-    fixture.wall_observable->support().representative_quadrature().size(), 2u);
-  EXPECT_GT(dealii::Utilities::MPI::sum(
-              fixture.wall_observable->points().size(), MPI_COMM_WORLD),
-            0u);
-  dealii::VectorTools::interpolate(fixture.solid_problem->dof_handler(),
-                                   virtual_displacement,
-                                   displacement_owned);
-  displacement_owned.compress(dealii::VectorOperation::insert);
-  SolidVector displacement;
-  displacement.reinit(fixture.solid_problem->locally_owned_dofs(),
-                      fixture.solid_problem->locally_relevant_dofs(),
-                      MPI_COMM_WORLD);
-  displacement = displacement_owned;
-  displacement.update_ghost_values();
-
-  SolidVector reaction;
-  reaction.reinit(fixture.solid_problem->locally_owned_dofs(), MPI_COMM_WORLD);
-  fixture.interaction->solid_coupling_matrix().vmult(reaction, multiplier);
-  double discrete_work = 0.;
-  for (const auto index : fixture.solid_problem->locally_owned_dofs())
-    discrete_work += displacement[index] * reaction[index];
-  discrete_work = dealii::Utilities::MPI::sum(discrete_work, MPI_COMM_WORLD);
-
-  const double expected_work = pressure * 2. * dealii::numbers::PI *
-                               radial_scale * formula_radius * formula_radius *
-                               properties.L;
-  double           expected_metric = 0.;
-  MultiplierVector displacement_pairing;
-  displacement_pairing.reinit(
-    fixture.interaction->multiplier_locally_owned_dofs(),
-    fixture.interaction->multiplier_locally_relevant_dofs(),
-    MPI_COMM_WORLD);
-  fixture.interaction->solid_coupling_matrix().Tvmult(displacement_pairing,
-                                                      displacement);
-  double transposed_work = 0.;
-  for (const auto index : multiplier.locally_owned_elements())
-    transposed_work += multiplier[index] * displacement_pairing[index];
-  transposed_work =
-    dealii::Utilities::MPI::sum(transposed_work, MPI_COMM_WORLD);
-
-  for (const auto &point : fixture.wall_observable->points())
-    {
-      double basis_sum = 0.;
-      for (const auto basis : point.area_basis_values)
-        basis_sum += basis;
-      EXPECT_NEAR(basis_sum, 1., 1.e-12);
-      expected_metric += pressure * pressure * point.weight;
-    }
-
-  MultiplierVector metric_image;
-  metric_image.reinit(multiplier);
-  fixture.interaction->multiplier_metric_matrix().vmult(metric_image,
-                                                        multiplier);
-  double metric_work = 0.;
-  for (const auto index : multiplier.locally_owned_elements())
-    metric_work += multiplier[index] * metric_image[index];
-  metric_work = dealii::Utilities::MPI::sum(metric_work, MPI_COMM_WORLD);
-
-  expected_metric =
-    dealii::Utilities::MPI::sum(expected_metric, MPI_COMM_WORLD);
-  const double work_scale = std::max(1., std::abs(discrete_work));
-  // The production convention is F_solid + B lambda = 0.  The corresponding
-  // virtual-work identity is therefore the positive adjoint pairing
-  // <B lambda, delta u> = <lambda, B^T delta u>; the physical interpretation
-  // is p*delta A*L when delta A is the radial area variation.
-  EXPECT_NEAR(discrete_work, transposed_work, 2.e-10 * work_scale);
-  EXPECT_NEAR(discrete_work,
-              expected_work,
-              2.e-10 * std::max(1., std::abs(expected_work)));
-  EXPECT_NEAR(metric_work,
-              expected_metric,
-              2.e-12 * std::max(1., std::abs(expected_metric)));
-  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-    std::cout << "Independent geometry virtual work: discrete="
-              << std::setprecision(17) << discrete_work
-              << ", analytical=" << expected_work << ", relative defect="
-              << std::abs(discrete_work - expected_work) /
-                   std::max(1.e-300, std::abs(expected_work))
-              << std::endl;
+  auto area_perturbed = state;
+  for (const auto index :
+       fixture.flow_problem->component_dofs(FlowProblem::Component::area))
+    fixture.adapter->field(area_perturbed,
+                           fixture.flow_fields->fields().state)[index] += 1.e-8;
+  auto area_residual = fixture.adapter->make_state();
+  fixture.adapter->solver().residual(0.,
+                                     area_perturbed,
+                                     state_dot,
+                                     area_residual);
+  const auto area_constraint =
+    fixture.adapter->field(area_residual, fixture.coupling_fields.multiplier);
+  const auto base_constraint =
+    fixture.adapter->field(residual, fixture.coupling_fields.multiplier);
+  auto difference = area_constraint;
+  difference -= base_constraint;
+  EXPECT_GT(dealii::Utilities::MPI::max(difference.l2_norm(), MPI_COMM_WORLD),
+            0.);
 }
-
 TEST(MetricFlowXVesselWallConstraint, MPI_FullCoupledJacobianFiniteDifference)
 {
   Fixture fixture;

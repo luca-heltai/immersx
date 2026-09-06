@@ -459,19 +459,23 @@ namespace ImmersX
     double
     thickness(const dealii::Point<spacedim> &point, const double time) const
     {
+      if (thickness_evaluator_)
+        {
+          const double value = thickness_evaluator_(point, time, {});
+          AssertThrow(std::isfinite(value) && value > 0.,
+                      dealii::ExcMessage(
+                        "Lift thickness must be finite and positive."));
+          return value;
+        }
       if (has_constant_thickness())
         return constant_thickness_value();
-      AssertThrow(thickness_evaluator_,
+      AssertThrow(false,
                   dealii::ExcMessage(
                     "The modern tensor-product lift thickness expression '" +
                     parameters_.thickness +
                     "' requires a source-property evaluator; install one with "
                     "set_thickness_evaluator() or use a constant thickness."));
-      const double value = thickness_evaluator_(point, time, {});
-      AssertThrow(std::isfinite(value) && value > 0.,
-                  dealii::ExcMessage(
-                    "Lift thickness must be finite and positive."));
-      return value;
+      return 0.;
     }
 
   private:

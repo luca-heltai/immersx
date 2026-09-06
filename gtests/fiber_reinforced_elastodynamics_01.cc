@@ -240,7 +240,7 @@ namespace
 #endif
 } // namespace
 
-TEST(FiberReinforcedElastodynamics, ZeroPreservation)
+TEST(FiberReinforcedElastodynamicsValidation, ZeroPreservation)
 {
   ParameterAcceptor::clear();
   FiberReinforcedElastodynamicsParameters<2> parameters;
@@ -257,7 +257,7 @@ TEST(FiberReinforcedElastodynamics, ZeroPreservation)
   EXPECT_LT(driver.residuals().velocity_constraint, 1.e-10);
 }
 
-TEST(FiberReinforcedElastodynamics, CoupledResidualAndExcessResponse)
+TEST(FiberReinforcedElastodynamicsValidation, CoupledResidualAndExcessResponse)
 {
   ParameterAcceptor::clear();
   FiberReinforcedElastodynamicsParameters<2> parameters;
@@ -276,7 +276,8 @@ TEST(FiberReinforcedElastodynamics, CoupledResidualAndExcessResponse)
 }
 
 #ifdef DEAL_II_WITH_SUNDIALS
-TEST(FiberReinforcedElastodynamics, Serial_IDAInitialDerivativeLifetime)
+TEST(FiberReinforcedElastodynamicsValidation,
+     Serial_IDAInitialDerivativeLifetime)
 {
   if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) != 1)
     GTEST_SKIP() << "Serial lifetime regression – skipped on multi-rank";
@@ -296,7 +297,7 @@ TEST(FiberReinforcedElastodynamics, Serial_IDAInitialDerivativeLifetime)
   EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
 }
 
-TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
+TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
 {
   ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
   ParameterAcceptor::clear();
@@ -363,8 +364,8 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
   const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #  endif
   const auto constraint =
-    make_constraint(weak_term(value(matrix_velocity), multiplier) -
-                    weak_term(value(fiber_velocity), multiplier));
+    make_constraint(weak_term(value(matrix_velocity), test(multiplier)) -
+                    weak_term(value(fiber_velocity), test(multiplier)));
   const auto coupling = ida.add(constraint, "fiber_coupling");
 #  ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
@@ -689,7 +690,7 @@ TEST(FiberReinforcedElastodynamics, MPI_FiveFieldFiberIDA)
 }
 #endif
 
-TEST(FiberReinforcedElastodynamics, MPI_CoupledTransient)
+TEST(FiberReinforcedElastodynamicsValidation, MPI_CoupledTransient)
 {
   ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
   ParameterAcceptor::clear();
@@ -703,7 +704,7 @@ TEST(FiberReinforcedElastodynamics, MPI_CoupledTransient)
   EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
 }
 
-TEST(FiberReinforcedElastodynamics, ThreeDimensionalSmoke)
+TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalSmoke)
 {
   ParameterAcceptor::clear();
   FiberReinforcedElastodynamicsParameters<3> parameters;

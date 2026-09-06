@@ -56,7 +56,7 @@ Here $Q$ is an interaction pairing matrix, not the fiber’s physical mass
 matrix. Fiber quadrature points are located in the distributed matrix mesh by
 the cached nonmatching weak-term backend. Vector basis values are evaluated by
 component, so an x basis function cannot couple to a y basis function. The
-application constructs the relation from `weak_term(value(...), lambda)`
+application constructs the relation from `weak_term(value(...), test(lambda))`
 terms; the search and matrix storage remain private to that implementation.
 The multiplier uses the fiber FE degree by default; set `Multiplier FE degree`
 to a positive value to choose an independent vector finite element degree.

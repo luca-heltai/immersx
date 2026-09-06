@@ -340,7 +340,7 @@ TEST(ElasticStaticProblem, FileMeshSetup)
   EXPECT_GT(problem.triangulation().n_global_active_cells(), 0U);
 }
 
-TEST(ElasticStaticProblem, LinearAdapterSolve)
+TEST(ElasticStaticProblemValidation, LinearAdapterSolve)
 {
   using Problem      = ImmersX::ElasticStaticProblem<3, 3>;
   using FieldVector  = typename Problem::VectorType;
@@ -705,22 +705,22 @@ TEST(ElasticStaticProblem, IndependentResidualOracle)
   EXPECT_LT(residual.l2_norm(), 1.e-8);
 }
 
-TEST(ElasticStaticProblem, DistributedRefinement)
+TEST(ElasticStaticProblemValidation, DistributedRefinement)
 {
   check_distributed_refinement();
 }
 
-TEST(ElasticStaticProblem, FullyDistributedRefinement)
+TEST(ElasticStaticProblemValidation, FullyDistributedRefinement)
 {
   check_fullydistributed_refinement();
 }
 
-TEST(ElasticStaticProblem, MPI_DistributedRefinement)
+TEST(ElasticStaticProblemValidation, MPI_DistributedRefinement)
 {
   check_distributed_refinement();
 }
 
-TEST(ElasticStaticProblem, MPI_FullyDistributedRefinement)
+TEST(ElasticStaticProblemValidation, MPI_FullyDistributedRefinement)
 {
   check_fullydistributed_refinement();
 }
@@ -780,7 +780,8 @@ TEST_P(ElasticStaticBackendTest, MPI_BackendSetupAndOutput)
     }
 }
 
-TEST(ElasticStaticProblem, MPI_DistributedOutputRecordsEveryRefinementCycle)
+TEST(ElasticStaticProblemValidation,
+     MPI_DistributedOutputRecordsEveryRefinementCycle)
 {
   using Parameters = ImmersX::ElasticStaticParameters<2>;
   using Problem    = ImmersX::ElasticStaticProblem<2>;
@@ -822,6 +823,6 @@ TEST(ElasticStaticProblem, MPI_DistributedOutputRecordsEveryRefinementCycle)
     }
 }
 
-INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
+INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
                          ElasticStaticBackendTest,
                          ::testing::Values("distributed", "fullydistributed"));

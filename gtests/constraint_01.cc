@@ -33,6 +33,22 @@ using namespace ImmersX;
 
 namespace
 {
+  struct SquareLawConstraint
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      AssertDimension(values.size(), 1);
+      return {values[0] * values[0], {2. * values[0]}};
+    }
+  };
+
   template <typename FiniteElement>
   struct Space
   {
@@ -95,8 +111,8 @@ namespace
 
     Model                               model;
     SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-    const auto                          c1 = weak_term(value(source_1), lambda);
-    const auto                          c2 = weak_term(value(source_2), lambda);
+    const auto c1 = weak_term(value(source_1), test(lambda));
+    const auto c2 = weak_term(value(source_2), test(lambda));
 #ifdef IMMERSX_WEAK_TERM_TESTING
     const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #endif
@@ -224,7 +240,7 @@ TEST(Constraint, SingleTerm)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto                          fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
   ASSERT_TRUE(fields.multiplier.is_valid());
   ASSERT_EQ(model.saddle_points().size(), 1u);
@@ -250,6 +266,102 @@ TEST(Constraint, SingleTerm)
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 }
 
+TEST(Constraint, NonlinearSquareLaw)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+
+  FE_Q<2>       source_fe(1);
+  FE_Q<2>       multiplier_fe(2);
+  DoFHandler<2> source_dh(tria);
+  DoFHandler<2> multiplier_dh(tria);
+  source_dh.distribute_dofs(source_fe);
+  multiplier_dh.distribute_dofs(multiplier_fe);
+  AffineConstraints<double> source_constraints;
+  AffineConstraints<double> multiplier_constraints;
+  source_constraints.close();
+  multiplier_constraints.close();
+
+  const auto source_view =
+    fe_space(source_dh, StaticMappingQ1<2>::mapping, source_constraints);
+  const auto  multiplier_view = fe_space(multiplier_dh,
+                                        StaticMappingQ1<2>::mapping,
+                                        multiplier_constraints);
+  StateLayout layout;
+  const auto  source = source_view.field(layout, "source");
+  const auto  lambda = multiplier_view.field("lambda");
+
+  using Vector = Vector<double>;
+  using Matrix = SparseMatrix<double>;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  const auto nonlinear = transform(value(source), SquareLawConstraint{});
+  const auto fields =
+    make_constraint(weak_term(nonlinear, test(lambda))).add(builder);
+
+  Vector source_state(source_dh.n_dofs());
+  Vector lambda_state(multiplier_dh.n_dofs());
+  for (unsigned int i = 0; i < source_state.size(); ++i)
+    source_state[i] = 1. + 0.1 * i;
+  lambda_state = 0.25;
+  StateView<Vector> state_view(layout, 0.);
+  state_view.bind(source.field_id(), source_state);
+  state_view.bind(fields.multiplier, lambda_state);
+  const EvaluationContext<Vector> context(0., state_view);
+
+  const auto constraint_jacobian =
+    model.state_operator(fields.multiplier, source.field_id(), context);
+  Vector constraint_residual(lambda_state.size());
+  model.evaluate_row(fields.multiplier, context, constraint_residual);
+  QGauss<2>   quadrature(3);
+  FEValues<2> source_values(StaticMappingQ1<2>::mapping,
+                            source_fe,
+                            quadrature,
+                            update_values | update_JxW_values);
+  FEValues<2> multiplier_values(StaticMappingQ1<2>::mapping,
+                                multiplier_fe,
+                                quadrature,
+                                update_values);
+  std::vector<types::global_dof_index> source_indices(
+    source_fe.n_dofs_per_cell());
+  std::vector<types::global_dof_index> multiplier_indices(
+    multiplier_fe.n_dofs_per_cell());
+  Vector expected_constraint(lambda_state.size());
+  for (const auto &source_cell : source_dh.active_cell_iterators())
+    {
+      const auto multiplier_cell =
+        source_cell->as_dof_handler_iterator(multiplier_dh);
+      source_values.reinit(source_cell);
+      multiplier_values.reinit(multiplier_cell);
+      source_cell->get_dof_indices(source_indices);
+      multiplier_cell->get_dof_indices(multiplier_indices);
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          double value = 0.;
+          for (unsigned int j = 0; j < source_indices.size(); ++j)
+            value +=
+              source_state[source_indices[j]] * source_values.shape_value(j, q);
+          for (unsigned int i = 0; i < multiplier_indices.size(); ++i)
+            expected_constraint[multiplier_indices[i]] +=
+              value * value * multiplier_values.shape_value(i, q) *
+              source_values.JxW(q);
+        }
+    }
+  constraint_residual -= expected_constraint;
+  EXPECT_LT(constraint_residual.l2_norm(), 1.e-12);
+
+  const auto participant_jacobian =
+    model.state_operator(source.field_id(), fields.multiplier, context);
+  Vector reaction(source_state.size());
+  participant_jacobian.vmult(reaction, lambda_state);
+  Vector participant_residual(source_state.size());
+  model.evaluate_row(source.field_id(), context, participant_residual);
+  participant_residual -= reaction;
+  EXPECT_LT(participant_residual.l2_norm(), 1.e-12);
+}
+
 TEST(Constraint, CombinesSignedSums)
 {
   Triangulation<2> tria;
@@ -265,10 +377,10 @@ TEST(Constraint, CombinesSignedSums)
   const auto source_4 = V.field(layout, "source-4");
   const auto lambda   = V.field("lambda");
 
-  const auto first_sum =
-    weak_term(value(source_1), lambda) + weak_term(value(source_2), lambda);
-  const auto second_sum =
-    weak_term(value(source_3), lambda) + weak_term(value(source_4), lambda);
+  const auto first_sum = weak_term(value(source_1), test(lambda)) +
+                         weak_term(value(source_2), test(lambda));
+  const auto second_sum = weak_term(value(source_3), test(lambda)) +
+                          weak_term(value(source_4), test(lambda));
   const auto combined = first_sum - second_sum;
 
   std::vector<double> coefficients;
@@ -329,8 +441,8 @@ TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
   using Model  = SemiDiscreteModel<Vector, Matrix>;
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
-  const auto                          c1 = weak_term(value(source), lambda);
-  const auto c2 = weak_term(value(second_source), lambda);
+  const auto c1 = weak_term(value(source), test(lambda));
+  const auto c2 = weak_term(value(second_source), test(lambda));
 #ifdef IMMERSX_WEAK_TERM_TESTING
   const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #endif
@@ -436,7 +548,7 @@ TEST(Constraint, MPI_NonmatchingDistributedReaction)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto                          fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
   Vector source_state(source_owned, MPI_COMM_WORLD);
   Vector lambda_state(multiplier_owned, MPI_COMM_WORLD);
@@ -526,7 +638,7 @@ TEST(Constraint, MPI_MixedDimensionalReverseNonmatching)
   Model                               model;
   SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
   const auto                          fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
   Vector source_state(bulk_owned, MPI_COMM_WORLD);
   Vector lambda_state(line_owned, MPI_COMM_WORLD);

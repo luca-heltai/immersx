@@ -92,7 +92,7 @@ TEST(LargeNetworks, TerminalNodes)
 }
 
 
-TEST(LargeNetworks, SolvePoisson)
+TEST(LargeNetworksValidation, SolvePoisson)
 {
   std::string vtk_filename =
     ImmersX::TestPaths::source_path("data/tests/mstree_1000.vtk").string();

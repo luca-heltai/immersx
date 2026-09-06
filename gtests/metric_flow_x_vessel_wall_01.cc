@@ -30,7 +30,7 @@ namespace
 {
   using Problem    = MetricFlowX::BloodFlowSystem<1, 3>;
   using State      = MetricFlowX::VectorType;
-  using Observable = ImmersX::MetricFlowXAreaRadialDisplacementObservable;
+  using Observable = ImmersX::MetricFlowXVesselWallGeometry;
   using Lift       = Observable::Lift;
 
   struct Fixture
@@ -66,7 +66,7 @@ namespace
       lift->section.selected_coefficients = {3u, 7u};
       lift->section.n_q_points            = 32;
       lift->representative_n_q_points     = 2;
-      representation =
+      geometry =
         std::make_unique<Observable>(*problem, *area, area_components, *lift);
     }
 
@@ -89,7 +89,7 @@ namespace
                                                        area;
     dealii::IndexSet                                   area_components;
     std::unique_ptr<Lift>                              lift;
-    std::unique_ptr<Observable>                        representation;
+    std::unique_ptr<Observable>                        geometry;
     std::unique_ptr<ImmersX::StateView<State>>         state_view;
     std::unique_ptr<ImmersX::EvaluationContext<State>> context;
   };
@@ -104,21 +104,31 @@ namespace
       result[index] = area;
     return result;
   }
+
+  double
+  radial_derivative(const double area)
+  {
+    return ImmersX::MetricFlowXRadialLaw{}
+      .evaluate({area, 1.})
+      .derivatives.front();
+  }
 } // namespace
 
-TEST(MetricFlowXVesselWallObservable, RestStateIsZero)
+TEST(MetricFlowXVesselWallGeometry, RestStateIsZero)
 {
   Fixture      fixture;
   const double a0    = fixture.problem->vessel_properties(0).a0;
   auto         state = state_with_constant_area(fixture, a0);
   fixture.bind(state);
-  const auto values = fixture.representation->evaluate(*fixture.context);
+
+  const auto lifted = fixture.geometry->radial_displacement(*fixture.lift);
+  const auto values = lifted.evaluate(*fixture.context);
   ASSERT_FALSE(values.empty());
   for (const auto &value : values)
     EXPECT_NEAR(value.norm(), 0., 2.e-12);
 }
 
-TEST(MetricFlowXVesselWallObservable, RadiusIncrementIsRadial)
+TEST(MetricFlowXVesselWallGeometry, RadiusIncrementIsRadial)
 {
   Fixture      fixture;
   const double a0 = fixture.problem->vessel_properties(0).a0;
@@ -128,20 +138,20 @@ TEST(MetricFlowXVesselWallObservable, RadiusIncrementIsRadial)
     state_with_constant_area(fixture,
                              dealii::numbers::PI * (r0 + dr) * (r0 + dr));
   fixture.bind(state);
-  const auto values = fixture.representation->evaluate(*fixture.context);
-  ASSERT_FALSE(values.empty());
+
+  const auto lifted = fixture.geometry->radial_displacement(*fixture.lift);
+  const auto values = lifted.evaluate(*fixture.context);
+  ASSERT_EQ(values.size(), lifted.lifted_points().size());
   for (std::size_t q = 0; q < values.size(); ++q)
     {
       EXPECT_NEAR(values[q].norm(), dr, 2.e-11);
-      EXPECT_NEAR(values[q] * fixture.representation->points()[q].normal,
+      EXPECT_NEAR(values[q] * lifted.lifted_points()[q].mode_vector,
                   dr,
                   2.e-11);
     }
-  EXPECT_DOUBLE_EQ(fixture.representation->mode_coefficients(dr)[0], dr);
-  EXPECT_DOUBLE_EQ(fixture.representation->mode_coefficients(dr)[1], dr);
 }
 
-TEST(MetricFlowXVesselWallObservable, AreaLinearizationAndTranspose)
+TEST(MetricFlowXVesselWallGeometry, AreaLinearizationAndTranspose)
 {
   Fixture      fixture;
   const double a0      = fixture.problem->vessel_properties(0).a0;
@@ -157,21 +167,26 @@ TEST(MetricFlowXVesselWallObservable, AreaLinearizationAndTranspose)
       plus[index] += epsilon;
       minus[index] -= epsilon;
     }
+
+  const auto lifted = fixture.geometry->radial_displacement(*fixture.lift);
   fixture.bind(state);
-  const auto derivative = fixture.representation->linearize(*fixture.context);
-  State      direction  = state;
-  direction             = 0.;
+  const auto derivative =
+    lifted.linearize(*fixture.context, fixture.area->field_id());
+
+  State direction = state;
+  direction       = 0.;
   for (const auto index :
        fixture.problem->component_dofs(Problem::Component::area))
     direction[index] = 1.;
+
   std::vector<dealii::Tensor<1, 3>> analytical;
   derivative.reinit_range_vector(analytical, false);
   derivative.vmult(analytical, direction);
 
   fixture.bind(plus);
-  const auto plus_values = fixture.representation->evaluate(*fixture.context);
+  const auto plus_values = lifted.evaluate(*fixture.context);
   fixture.bind(minus);
-  const auto minus_values = fixture.representation->evaluate(*fixture.context);
+  const auto minus_values = lifted.evaluate(*fixture.context);
   ASSERT_EQ(analytical.size(), plus_values.size());
   for (std::size_t q = 0; q < analytical.size(); ++q)
     {
@@ -182,33 +197,31 @@ TEST(MetricFlowXVesselWallObservable, AreaLinearizationAndTranspose)
     }
 
   fixture.bind(state);
-  const auto transpose = fixture.representation->linearize(*fixture.context);
-  std::vector<dealii::Tensor<1, 3>> values(analytical.size());
-  for (std::size_t q = 0; q < values.size(); ++q)
-    values[q] = fixture.representation->points()[q].normal;
+  std::vector<dealii::Tensor<1, 3>> test(analytical.size());
+  for (std::size_t q = 0; q < test.size(); ++q)
+    test[q] = lifted.lifted_points()[q].mode_vector;
   State transposed;
-  transpose.reinit_domain_vector(transposed, false);
-  transpose.Tvmult(transposed, values);
+  derivative.reinit_domain_vector(transposed, false);
+  derivative.Tvmult(transposed, test);
   double left = 0.;
   for (std::size_t q = 0; q < analytical.size(); ++q)
-    left += values[q] * analytical[q];
-  double right = transposed * direction;
+    left += test[q] * analytical[q];
+  const double right = transposed * direction;
   EXPECT_NEAR(left,
               right,
               2.e-9 * std::max(1., std::max(std::abs(left), std::abs(right))));
 }
 
-TEST(MetricFlowXVesselWallObservable, MPI_CompactMultiplierSpace)
+TEST(MetricFlowXVesselWallGeometry, MPI_CompactMultiplierSpace)
 {
   Fixture     fixture;
-  const auto &owned = fixture.representation->multiplier_locally_owned_dofs();
-  const auto &relevant =
-    fixture.representation->multiplier_locally_relevant_dofs();
-  const auto global_owned =
+  const auto &owned    = fixture.geometry->multiplier_locally_owned_dofs();
+  const auto &relevant = fixture.geometry->multiplier_locally_relevant_dofs();
+  const auto  global_owned =
     dealii::Utilities::MPI::sum(owned.n_elements(), MPI_COMM_WORLD);
   EXPECT_EQ(global_owned, owned.size());
   EXPECT_EQ(relevant.size(), owned.size());
-  for (const auto &point : fixture.representation->points())
+  for (const auto &point : fixture.geometry->points())
     {
       ASSERT_EQ(point.multiplier_dof_indices.size(),
                 point.area_basis_values.size());
@@ -217,18 +230,18 @@ TEST(MetricFlowXVesselWallObservable, MPI_CompactMultiplierSpace)
     }
 }
 
-TEST(MetricFlowXVesselWallObservable, MPI_ExternalPressureInterpolation)
+TEST(MetricFlowXVesselWallGeometry, MPI_ExternalPressureInterpolation)
 {
   Fixture fixture;
   State   multiplier;
-  multiplier.reinit(fixture.representation->multiplier_locally_owned_dofs(),
-                    fixture.representation->multiplier_locally_relevant_dofs(),
+  multiplier.reinit(fixture.geometry->multiplier_locally_owned_dofs(),
+                    fixture.geometry->multiplier_locally_relevant_dofs(),
                     MPI_COMM_WORLD);
   multiplier = 0.;
 
   std::map<dealii::types::global_dof_index, dealii::types::global_dof_index>
     area_to_multiplier;
-  for (const auto &point : fixture.representation->points())
+  for (const auto &point : fixture.geometry->points())
     for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
       area_to_multiplier.emplace(point.dof_indices[i],
                                  point.multiplier_dof_indices[i]);
@@ -262,13 +275,13 @@ TEST(MetricFlowXVesselWallObservable, MPI_ExternalPressureInterpolation)
   multiplier.compress(dealii::VectorOperation::insert);
 
   const auto provider =
-    fixture.representation->make_external_pressure_provider(multiplier);
-  ASSERT_GT(dealii::Utilities::MPI::max(fixture.representation->points().size(),
+    fixture.geometry->make_external_pressure_provider(multiplier);
+  ASSERT_GT(dealii::Utilities::MPI::max(fixture.geometry->points().size(),
                                         MPI_COMM_WORLD),
             0u);
   double local_min = std::numeric_limits<double>::max();
   double local_max = -std::numeric_limits<double>::max();
-  for (const auto &point : fixture.representation->points())
+  for (const auto &point : fixture.geometry->points())
     {
       const MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint
              evaluation{0., point.point, 0u, point.cell_id};
@@ -285,16 +298,16 @@ TEST(MetricFlowXVesselWallObservable, MPI_ExternalPressureInterpolation)
             1.e-8);
 }
 
-TEST(MetricFlowXVesselWallObservable, AreaPressureNormalization)
+TEST(MetricFlowXVesselWallGeometry, AreaPressureNormalization)
 {
   Fixture     fixture;
-  const auto &points = fixture.representation->points();
+  const auto &points = fixture.geometry->points();
   ASSERT_FALSE(points.empty());
 
   dealii::FEValues<1, 3> fe_values(
     dealii::StaticMappingQ1<1, 3>::mapping,
     fixture.problem->finite_element(),
-    fixture.representation->support().representative_quadrature(),
+    fixture.geometry->support().representative_quadrature(),
     dealii::update_JxW_values);
   for (const auto &cell :
        fixture.problem->dof_handler().active_cell_iterators())
@@ -312,31 +325,27 @@ TEST(MetricFlowXVesselWallObservable, AreaPressureNormalization)
                     std::sqrt(point.a0 / dealii::numbers::PI);
                   section_measure += point.weight;
                   EXPECT_NEAR(radius * 2. * dealii::numbers::PI *
-                                fixture.representation->radius_derivative(
-                                  point.a0),
+                                radial_derivative(point.a0),
                               1.,
                               2.e-14);
                 }
             const double normalized_measure =
               section_measure / fe_values.JxW(q);
-            EXPECT_NEAR(normalized_measure,
-                        fixture.representation->support()
-                          .reference_cross_section()
-                          .measure(
-                            std::sqrt(points.front().a0 / dealii::numbers::PI)),
-                        2.e-10);
+            EXPECT_NEAR(
+              normalized_measure,
+              fixture.geometry->support().reference_cross_section().measure(
+                std::sqrt(points.front().a0 / dealii::numbers::PI)),
+              2.e-10);
             // The TensorProduct quadrature integrates the circular
             // cross-section measure 2*pi*R.  Multiplying it by dR/dA must
             // produce one: this is the pressure-work normalization, not an
             // empirical circumference correction.
             EXPECT_NEAR(normalized_measure *
-                          fixture.representation->radius_derivative(
-                            points.front().a0),
+                          radial_derivative(points.front().a0),
                         1.,
                         5.e-4);
             EXPECT_NEAR(
-              normalized_measure *
-                fixture.representation->radius_derivative(points.front().a0),
+              normalized_measure * radial_derivative(points.front().a0),
               section_measure / fe_values.JxW(q) /
                 (2. * std::sqrt(dealii::numbers::PI * points.front().a0)),
               2.e-14);
@@ -346,7 +355,7 @@ TEST(MetricFlowXVesselWallObservable, AreaPressureNormalization)
 
 #else
 
-TEST(MetricFlowXVesselWallObservable, FeatureMacroIsEnabled)
+TEST(MetricFlowXVesselWallGeometry, FeatureMacroIsEnabled)
 {
   GTEST_SKIP() << "MetricFlowX or deal.II SUNDIALS support is unavailable.";
 }

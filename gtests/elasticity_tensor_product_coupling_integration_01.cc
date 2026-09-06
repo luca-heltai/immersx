@@ -74,7 +74,7 @@ TEST(ElasticityCouplingIntegration, AssemblyProducesTensorProductRhs)
   EXPECT_GT(problem.system_rhs.block(1).l2_norm(), 0.0);
 }
 
-TEST(ElasticityCouplingIntegration, StaticSolveCompletes)
+TEST(ElasticityCouplingIntegrationValidation, StaticSolveCompletes)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;

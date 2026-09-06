@@ -171,7 +171,7 @@ namespace
   }
 } // namespace
 
-TEST(ElastodynamicsExecution, NativeRunStandalone)
+TEST(ElastodynamicsExecutionValidation, NativeRunStandalone)
 {
   dealii::ParameterAcceptor::clear();
   ImmersX::ElastodynamicsParameters<1, 3> parameters;
@@ -191,42 +191,42 @@ TEST(ElastodynamicsExecution, NativeRunStandalone)
     "elastodynamics-dimension/elastodynamics_native_run.pvd")));
 }
 
-TEST(ElastodynamicsExecution, NativeNonzeroEmbeddedLine)
+TEST(ElastodynamicsExecutionValidation, NativeNonzeroEmbeddedLine)
 {
   check_native_case<1, 3>(2, true);
 }
 
-TEST(ElastodynamicsDimension, OneOneNative)
+TEST(ElastodynamicsDimensionValidation, OneOneNative)
 {
   check_native_case<1, 1>();
 }
 
-TEST(ElastodynamicsDimension, OneTwoNative)
+TEST(ElastodynamicsDimensionValidation, OneTwoNative)
 {
   check_native_case<1, 2>();
 }
 
-TEST(ElastodynamicsDimension, OneThreeNative)
+TEST(ElastodynamicsDimensionValidation, OneThreeNative)
 {
   check_native_case<1, 3>();
 }
 
-TEST(ElastodynamicsDimension, TwoTwoNative)
+TEST(ElastodynamicsDimensionValidation, TwoTwoNative)
 {
   check_native_case<2, 2>();
 }
 
-TEST(ElastodynamicsDimension, TwoThreeNative)
+TEST(ElastodynamicsDimensionValidation, TwoThreeNative)
 {
   check_native_case<2, 3>();
 }
 
-TEST(ElastodynamicsDimension, ThreeThreeNative)
+TEST(ElastodynamicsDimensionValidation, ThreeThreeNative)
 {
   check_native_case<3, 3>();
 }
 
-TEST(ElastodynamicsDimension, MPI_EmbeddedLineNative)
+TEST(ElastodynamicsDimensionValidation, MPI_EmbeddedLineNative)
 {
   check_native_case<1, 3>(2);
 }
@@ -314,49 +314,49 @@ namespace
   }
 } // namespace
 
-TEST(ElastodynamicsExecution, IDA_OneOne)
+TEST(ElastodynamicsExecutionValidation, IDA_OneOne)
 {
   check_ida_case<1, 1>();
 }
 
-TEST(ElastodynamicsExecution, IDA_OneTwo)
+TEST(ElastodynamicsExecutionValidation, IDA_OneTwo)
 {
   check_ida_case<1, 2>();
 }
 
-TEST(ElastodynamicsExecution, IDA_OneThree)
+TEST(ElastodynamicsExecutionValidation, IDA_OneThree)
 {
   check_ida_case<1, 3>();
 }
 
-TEST(ElastodynamicsExecution, IDA_TwoTwo)
+TEST(ElastodynamicsExecutionValidation, IDA_TwoTwo)
 {
   check_ida_case<2, 2>();
 }
 
-TEST(ElastodynamicsExecution, IDA_TwoThree)
+TEST(ElastodynamicsExecutionValidation, IDA_TwoThree)
 {
   check_ida_case<2, 3>();
 }
 
-TEST(ElastodynamicsExecution, IDA_ThreeThree)
+TEST(ElastodynamicsExecutionValidation, IDA_ThreeThree)
 {
   check_ida_case<3, 3>();
 }
 
-TEST(ElastodynamicsExecution, IDA_NonzeroEmbeddedLine)
+TEST(ElastodynamicsExecutionValidation, IDA_NonzeroEmbeddedLine)
 {
   check_ida_case<1, 3>(true);
 }
 
-TEST(ElastodynamicsExecution, MPI_IDA_EmbeddedLine)
+TEST(ElastodynamicsExecutionValidation, MPI_IDA_EmbeddedLine)
 {
   // At least one interval per MPI rank is required by the fully distributed
   // 1D triangulation before DoF boundary interpolation is valid.
   check_ida_case<1, 3>(false, 2);
 }
 #else
-TEST(ElastodynamicsExecution, IDA_DimensionsUnavailable)
+TEST(ElastodynamicsExecutionValidation, IDA_DimensionsUnavailable)
 {
   GTEST_SKIP() << "deal.II was configured without SUNDIALS support.";
 }

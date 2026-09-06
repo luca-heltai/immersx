@@ -280,7 +280,7 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
   run_tensor_product_case(par);
 }
 
-TEST(ElasticityTensorProductCoupling,
+TEST(ElasticityTensorProductCouplingValidation,
      DISABLED_DisplacementAlongVtkCenterlineWithSegmentClustering)
 {
   ParameterAcceptor::clear();
@@ -295,7 +295,7 @@ TEST(ElasticityTensorProductCoupling,
   run_tensor_product_case(par);
 }
 
-TEST(ElasticityTensorProductCoupling, ExactLambdaSingleSolve)
+TEST(ElasticityTensorProductCouplingValidation, ExactLambdaSingleSolve)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
@@ -332,7 +332,7 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
   run_tensor_product_case(par);
 }
 
-INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
+INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
                          ElasticityTensorProductCouplingTriangulationTypeTest,
                          ::testing::Values("distributed"));
 

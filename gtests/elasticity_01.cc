@@ -241,7 +241,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_DisplacementYScaled)
 /**
  * We need the data_file_1d.txt file to be present somewhere
  */
-TEST(ElasticityTest, DISABLED_CheckInclusionMatrix)
+TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 2;
@@ -510,7 +510,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D_wSegments)
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 48.097630240962374, tol);
 }
 
-TEST(ElasticityTest, DISABLED_Displacement3D_wSegments)
+TEST(ElasticityValidation, DISABLED_Displacement3D_wSegments)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 3;
@@ -585,7 +585,7 @@ TEST(ElasticityTest, DISABLED_Displacement3D_wSegments)
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 88.883923832715752, tol);
 }
 
-TEST(ElasticityTest, ExactLambda)
+TEST(ElasticityValidation, ExactLambda)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 2;
@@ -660,6 +660,6 @@ TEST(ElasticityTest, ExactLambda)
   ASSERT_NEAR(problem.solution.block(1)[0], theoretical_lambda, 1e-1);
 }
 
-INSTANTIATE_TEST_SUITE_P(TriangulationBackends,
+INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
                          Elasticity01TriangulationTypeTest,
                          ::testing::Values("distributed", "fullydistributed"));

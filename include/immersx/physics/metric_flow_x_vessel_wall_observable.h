@@ -25,6 +25,7 @@
 #  include <immersx/algebra/linear_algebra.h>
 #  include <immersx/core/fe_space.h>
 #  include <immersx/core/observable.h>
+#  include <immersx/core/observable_lift.h>
 #  include <immersx/core/state.h>
 #  include <immersx/coupling/detail/coupling_point.h>
 #  include <immersx/coupling/tensor_product_lift.h>
@@ -34,6 +35,7 @@
 #  include <array>
 #  include <cmath>
 #  include <cstdint>
+#  include <functional>
 #  include <limits>
 #  include <map>
 #  include <memory>
@@ -43,8 +45,49 @@
 
 namespace ImmersX
 {
+  /** Pointwise MetricFlowX area-to-radius increment and its derivative. */
+  struct MetricFlowXRadialLaw
+  {
+    using RestingAreaProvider =
+      std::function<double(const dealii::Point<3> &, double)>;
+
+    RestingAreaProvider resting_area;
+
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      AssertDimension(values.size(), 2);
+      AssertThrow(std::isfinite(values[0]) && values[0] > 0. &&
+                    std::isfinite(values[1]) && values[1] > 0.,
+                  dealii::ExcMessage(
+                    "MetricFlowX Areas must be finite and positive."));
+      return {std::sqrt(values[0] / dealii::numbers::PI) -
+                std::sqrt(values[1] / dealii::numbers::PI),
+              {1. / (2. * std::sqrt(dealii::numbers::PI * values[0])), 0.}};
+    }
+
+    Evaluation
+    evaluate(const dealii::Point<3>    &point,
+             const double               time,
+             const std::vector<double> &values) const
+    {
+      AssertThrow(resting_area != nullptr,
+                  dealii::ExcMessage(
+                    "A MetricFlowX radial law needs a resting-area "
+                    "provider for pointwise evaluation."));
+      AssertDimension(values.size(), 1);
+      return evaluate({values.front(), resting_area(point, time)});
+    }
+  };
+
   /**
-   * Nonlinear radial displacement observable for a MetricFlowX vessel wall.
+   * Geometry and native pressure data for a MetricFlowX vessel wall.
    *
    * The source is the existing mixed MetricFlowX state Field.  Its Area
    * component is sampled on the cells owned by the BloodFlowSystem and lifted
@@ -60,7 +103,7 @@ namespace ImmersX
    * centerline cell.  No second mesh, Area Field, or resting-area parameter is
    * owned here.
    */
-  class MetricFlowXAreaRadialDisplacementObservable
+  class MetricFlowXVesselWallGeometry
   {
   public:
     static constexpr unsigned int support_dimension        = 2;
@@ -69,18 +112,11 @@ namespace ImmersX
 
     using Problem           = ::MetricFlowX::BloodFlowSystem<1, 3>;
     using StateType         = ::MetricFlowX::VectorType;
-    using Value             = dealii::Tensor<1, 3>;
-    using value_type        = std::vector<Value>;
-    using state_type        = StateType;
-    using Operator          = dealii::LinearOperator<value_type, state_type>;
     using ExtractorType     = dealii::FEValuesExtractors::Scalar;
     using TriangulationType = dealii::parallel::TriangulationBase<1, 3>;
     using DoFHandlerType    = dealii::DoFHandler<1, 3>;
     using Lift              = TensorProductLift<1, 2, 3, 3>;
     using Support           = TensorProductLiftSupport<1, 2, 3, 3>;
-
-    struct ObservableEvaluationRequest
-    {};
 
     struct WallPoint : detail::CouplingPoint<3, double>
     {
@@ -93,7 +129,7 @@ namespace ImmersX
 
     using ExternalPressureProvider = typename Problem::ExternalPressureProvider;
 
-    MetricFlowXAreaRadialDisplacementObservable(
+    MetricFlowXVesselWallGeometry(
       const Problem                                         &problem,
       const Field<1, 3, dealii::FEValuesExtractors::Scalar> &area,
       const dealii::IndexSet                                &area_components,
@@ -126,28 +162,10 @@ namespace ImmersX
       build_points();
     }
 
-    FieldId
-    source() const
-    {
-      return area_.field_id();
-    }
-
-    std::vector<FieldId>
-    dependencies() const
-    {
-      return {source()};
-    }
-
     const Problem &
     problem() const
     {
       return problem_;
-    }
-
-    const Field<1, 3, dealii::FEValuesExtractors::Scalar> &
-    area_view() const
-    {
-      return area_;
     }
 
     const Support &
@@ -162,11 +180,44 @@ namespace ImmersX
       return points_;
     }
 
-    /** The two modal coefficients used for one scalar radius increment. */
-    std::array<double, 2>
-    mode_coefficients(const double delta_radius) const
+    /** Build the generic scalar radial-displacement Observable. */
+    auto
+    radial_displacement(const Lift &lift) const
     {
-      return {delta_radius, delta_radius};
+      const auto law = radial_law();
+      return ImmersX::lift(
+        ImmersX::transform(ImmersX::value(area_), law),
+        lift,
+        SourceThicknessEvaluator<3>([law](const dealii::Point<3> &point,
+                                          const double            time,
+                                          const std::vector<double> &) {
+          return std::sqrt(law.resting_area(point, time) / dealii::numbers::PI);
+        }));
+    }
+
+    /** Return the compact FE field used for the scalar wall multiplier. */
+    auto
+    multiplier_field() const
+    {
+      using FieldType = Field<1, 3, dealii::FEValuesExtractors::Scalar>;
+      std::vector<dealii::types::global_dof_index> indices(
+        problem_.dof_handler().n_dofs(),
+        std::numeric_limits<dealii::types::global_dof_index>::max());
+      for (const auto &[native, compact] : area_to_multiplier_)
+        indices[native] = compact;
+      return area_.reindexed("lambda",
+                             multiplier_owned_,
+                             multiplier_relevant_,
+                             std::move(indices));
+    }
+
+    MetricFlowXRadialLaw
+    radial_law() const
+    {
+      return MetricFlowXRadialLaw{
+        [this](const dealii::Point<3> &point, const double) {
+          return resting_area(point);
+        }};
     }
 
     /** Return the current multiplier as a native MetricFlowX pressure field.
@@ -264,147 +315,6 @@ namespace ImmersX
       return problem_.mpi_communicator();
     }
 
-    unsigned int
-    n_dofs_per_cell() const
-    {
-      return n_area_dofs_per_cell_;
-    }
-
-    /**
-     * Return the retained vessel-wall points and the vector basis
-     * `n * psi_A` used by both the nonlinear observable and its derivative.
-     */
-    const std::vector<WallPoint> &
-    locally_owned_quadrature_points(
-      const dealii::Quadrature<support_dimension> &) const
-    {
-      return points_;
-    }
-
-    value_type
-    evaluate(const EvaluationContext<state_type> &context,
-             const ObservableEvaluationRequest & = {}) const
-    {
-      const auto relevant = relevant_state(context.state(source()));
-      value_type result(points_.size());
-      for (std::size_t q = 0; q < points_.size(); ++q)
-        {
-          const double area = evaluate_stencil(relevant, points_[q]);
-          result[q] = points_[q].normal * delta_radius(area, points_[q].a0);
-        }
-      return result;
-    }
-
-    Operator
-    linearize(const EvaluationContext<state_type> &context,
-              const ObservableEvaluationRequest & = {}) const
-    {
-      return linearize(context, source());
-    }
-
-    Operator
-    linearize(const EvaluationContext<state_type> &context,
-              const FieldId                        field,
-              const ObservableEvaluationRequest & = {}) const
-    {
-      AssertThrow(field == source(),
-                  dealii::ExcMessage(
-                    "The requested field is not a vessel-wall dependency."));
-
-      const auto          reference    = context.state(source());
-      const auto          relevant     = problem_.locally_relevant_dofs();
-      const auto          owned        = problem_.locally_owned_dofs();
-      const auto          communicator = problem_.mpi_communicator();
-      std::vector<double> derivative(points_.size());
-      const auto          current = relevant_state(reference);
-      for (std::size_t q = 0; q < points_.size(); ++q)
-        {
-          const double area = evaluate_stencil(current, points_[q]);
-          derivative[q]     = radius_derivative(area);
-        }
-      const auto points = points_;
-
-      Operator result;
-      result.reinit_range_vector = [n = points.size()](value_type &vector,
-                                                       const bool) {
-        vector.resize(n);
-        for (auto &value : vector)
-          value = 0.;
-      };
-      result.reinit_domain_vector = [reference](state_type &vector,
-                                                const bool  omit) {
-        vector.reinit(reference, omit);
-      };
-      result.vmult = [points, derivative, owned, relevant, communicator](
-                       value_type &destination, const state_type &direction) {
-        const auto source =
-          make_relevant(direction, owned, relevant, communicator);
-        destination.resize(points.size());
-        for (std::size_t q = 0; q < points.size(); ++q)
-          destination[q] =
-            points[q].normal *
-            (derivative[q] * evaluate_stencil(source, points[q]));
-      };
-      result.vmult_add = [points, derivative, owned, relevant, communicator](
-                           value_type       &destination,
-                           const state_type &direction) {
-        const auto source =
-          make_relevant(direction, owned, relevant, communicator);
-        for (std::size_t q = 0; q < points.size(); ++q)
-          destination[q] +=
-            points[q].normal *
-            (derivative[q] * evaluate_stencil(source, points[q]));
-      };
-      result.Tvmult = [points, derivative](state_type       &destination,
-                                           const value_type &values) {
-        destination = 0.;
-        for (std::size_t q = 0; q < points.size(); ++q)
-          {
-            const double radial_value =
-              derivative[q] * (points[q].normal * values[q]);
-            for (unsigned int i = 0; i < points[q].dof_indices.size(); ++i)
-              destination[points[q].dof_indices[i]] +=
-                radial_value * points[q].area_basis_values[i];
-          }
-        destination.compress(dealii::VectorOperation::add);
-      };
-      result.Tvmult_add = [points, derivative](state_type       &destination,
-                                               const value_type &values) {
-        for (std::size_t q = 0; q < points.size(); ++q)
-          {
-            const double radial_value =
-              derivative[q] * (points[q].normal * values[q]);
-            for (unsigned int i = 0; i < points[q].dof_indices.size(); ++i)
-              destination[points[q].dof_indices[i]] +=
-                radial_value * points[q].area_basis_values[i];
-          }
-        destination.compress(dealii::VectorOperation::add);
-      };
-      return result;
-    }
-
-    double
-    delta_radius(const double area, const double a0) const
-    {
-      AssertThrow(std::isfinite(area) && area > 0.,
-                  dealii::ExcMessage(
-                    "MetricFlowX Area must be finite and positive."));
-      AssertThrow(std::isfinite(a0) && a0 > 0.,
-                  dealii::ExcMessage(
-                    "MetricFlowX resting Area must be finite and positive."));
-      return std::sqrt(area / dealii::numbers::PI) -
-             std::sqrt(a0 / dealii::numbers::PI);
-    }
-
-    double
-    radius_derivative(const double area) const
-    {
-      AssertThrow(std::isfinite(area) && area > 0.,
-                  dealii::ExcMessage(
-                    "MetricFlowX Area must be finite and positive."));
-      return 1. / (2. * std::sqrt(dealii::numbers::PI * area));
-    }
-
   private:
     struct CellData
     {
@@ -456,35 +366,34 @@ namespace ImmersX
       multiplier_relevant_.compress();
     }
 
-    static StateType
-    make_relevant(const StateType        &source,
-                  const dealii::IndexSet &owned,
-                  const dealii::IndexSet &relevant,
-                  const MPI_Comm          communicator)
+    double
+    resting_area(const dealii::Point<3> &point) const
     {
-      StateType result;
-      result.reinit(owned, relevant, communicator);
-      result = source;
-      result.update_ghost_values();
-      return result;
-    }
-
-    StateType
-    relevant_state(const StateType &source) const
-    {
-      return make_relevant(source,
-                           problem_.locally_owned_dofs(),
-                           problem_.locally_relevant_dofs(),
-                           problem_.mpi_communicator());
-    }
-
-    static double
-    evaluate_stencil(const StateType &state, const WallPoint &point)
-    {
-      double result = 0.;
-      for (unsigned int i = 0; i < point.dof_indices.size(); ++i)
-        result += point.area_basis_values[i] * state[point.dof_indices[i]];
-      return result;
+      for (const auto &[cell_id, data] : cell_data_)
+        {
+          const auto   tangent        = data.last_vertex - data.first_vertex;
+          const double length_squared = tangent * tangent;
+          if (length_squared == 0.)
+            continue;
+          const auto   displacement = point - data.first_vertex;
+          const double coordinate   = (displacement * tangent) / length_squared;
+          const auto   projected    = data.first_vertex + coordinate * tangent;
+          if ((point - projected).norm() <
+              1.e-10 * std::max(1., std::sqrt(length_squared)))
+            {
+              (void)cell_id;
+              for (const auto &candidate :
+                   problem_.dof_handler().active_cell_iterators())
+                if (candidate->id() == cell_id)
+                  return problem_.vessel_properties(candidate->material_id())
+                    .a0;
+            }
+        }
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "MetricFlowX could not resolve a resting area at a "
+                    "representative point."));
+      return 0.;
     }
 
     double
@@ -624,12 +533,6 @@ namespace ImmersX
                   }
               }
           }
-      const auto n_local_area_dofs =
-        points_.empty() ?
-          0u :
-          static_cast<unsigned int>(points_.front().dof_indices.size());
-      n_area_dofs_per_cell_ =
-        dealii::Utilities::MPI::max(n_local_area_dofs, mpi_communicator());
     }
 
     const Problem                                        &problem_;
@@ -646,7 +549,6 @@ namespace ImmersX
                                        area_to_multiplier_;
     std::map<dealii::CellId, CellData> cell_data_;
     std::vector<WallPoint>             points_;
-    unsigned int                       n_area_dofs_per_cell_ = 0;
   };
 } // namespace ImmersX
 

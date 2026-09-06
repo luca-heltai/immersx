@@ -133,7 +133,7 @@ TEST(Constraint, IndependentVectorMultiplierSharedGeometry)
   const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #endif
   const auto fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 #ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), preparations);
 #endif
@@ -196,7 +196,7 @@ TEST(Constraint, MPI_VectorNonmatchingGeometry)
   const auto preparations = detail::weak_term_nonmatching_preparations.load();
 #endif
   const auto fields =
-    make_constraint(weak_term(value(source), lambda)).add(builder);
+    make_constraint(weak_term(value(source), test(lambda))).add(builder);
 #ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
             preparations + 1);

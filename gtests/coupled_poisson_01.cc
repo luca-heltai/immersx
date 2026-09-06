@@ -182,8 +182,8 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
     embedded_view.field(embedded.fields().solution, "embedded_solution");
   const auto lambda = multiplier_view.field("lambda");
   const auto constraint =
-    make_constraint(weak_term(value(bulk_field), lambda) -
-                    weak_term(value(embedded_field), lambda));
+    make_constraint(weak_term(value(bulk_field), test(lambda)) -
+                    weak_term(value(embedded_field), test(lambda)));
   const auto coupling = adapter.add(constraint, "continuity");
 
   auto state = adapter.make_state();
@@ -306,8 +306,8 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
     embedded_view.field(embedded.fields().solution, "embedded_solution");
   const auto lambda = multiplier_view.field("lambda");
   const auto constraint =
-    make_constraint(weak_term(value(bulk_field), lambda) -
-                    weak_term(value(embedded_field), lambda));
+    make_constraint(weak_term(value(bulk_field), test(lambda)) -
+                    weak_term(value(embedded_field), test(lambda)));
   const auto coupling = linear.add(constraint, "continuity");
   auto       state    = linear.make_state();
   linear.solve(state);
@@ -375,9 +375,10 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
     embedded_view.field(augmented_embedded.fields().solution,
                         "embedded_solution");
   const auto augmented_lambda = multiplier_view.field("lambda");
-  augmented.add(make_constraint(
-                  weak_term(value(augmented_bulk_field), augmented_lambda) -
-                  weak_term(value(augmented_embedded_field), augmented_lambda)),
+  augmented.add(make_constraint(weak_term(value(augmented_bulk_field),
+                                          test(augmented_lambda)) -
+                                weak_term(value(augmented_embedded_field),
+                                          test(augmented_lambda))),
                 "continuity-al");
   auto augmented_state = augmented.make_state();
   augmented.solve(augmented_state);
@@ -396,8 +397,8 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
     embedded_view.field(direct_embedded.fields().solution, "embedded_solution");
   const auto direct_lambda = multiplier_view.field("lambda");
   direct.add(make_constraint(
-               weak_term(value(direct_bulk_field), direct_lambda) -
-               weak_term(value(direct_embedded_field), direct_lambda)),
+               weak_term(value(direct_bulk_field), test(direct_lambda)) -
+               weak_term(value(direct_embedded_field), test(direct_lambda))),
              "continuity-direct");
   auto direct_state = direct.make_state();
   EXPECT_TRUE(direct.can_materialize_matrix(direct_state));

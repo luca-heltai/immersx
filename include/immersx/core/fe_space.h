@@ -33,9 +33,11 @@
 
 #include <immersx/core/field.h>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ImmersX
 {
@@ -54,6 +56,8 @@ namespace ImmersX
   class Field
   {
   public:
+    using global_index = dealii::types::global_dof_index;
+
     using extractor_type = Extractor;
     using view_type  = dealii::FEValuesViews::View<dim, spacedim, Extractor>;
     using value_type = typename view_type::value_type;
@@ -88,7 +92,43 @@ namespace ImmersX
     Field
     with_id(const FieldId id) const
     {
-      return Field(space(), name_, extractor_, id);
+      Field result(space(), name_, extractor_, id);
+      result.execution_layout_ = execution_layout_;
+      return result;
+    }
+
+    /**
+     * Return a view of this FE field with a separate execution numbering.
+     *
+     * The FE space and extractor remain unchanged, while the returned field
+     * exposes the supplied compact vector layout.  This is useful for a
+     * component of a mixed native vector: FE shape functions still use the
+     * native DoFHandler, but an execution adapter can store the component in
+     * its own vector.  An empty mapping retains the ordinary FE numbering.
+     */
+    Field
+    reindexed(std::string               name,
+              const dealii::IndexSet   &locally_owned,
+              const dealii::IndexSet   &locally_relevant,
+              std::vector<global_index> execution_indices,
+              std::shared_ptr<const dealii::AffineConstraints<double>>
+                execution_constraints = {}) const
+    {
+      AssertDimension(execution_indices.size(), dof_handler().n_dofs());
+      if (execution_constraints == nullptr)
+        {
+          auto unconstrained =
+            std::make_shared<dealii::AffineConstraints<double>>();
+          unconstrained->close();
+          execution_constraints = std::move(unconstrained);
+        }
+      Field result(space(), std::move(name), extractor_, id_);
+      result.execution_layout_ = std::make_shared<ExecutionLayout>();
+      result.execution_layout_->locally_owned    = locally_owned;
+      result.execution_layout_->locally_relevant = locally_relevant;
+      result.execution_layout_->indices          = std::move(execution_indices);
+      result.execution_layout_->constraints = std::move(execution_constraints);
+      return result;
     }
 
     bool
@@ -160,19 +200,46 @@ namespace ImmersX
     const dealii::AffineConstraints<double> &
     constraints() const
     {
-      return space().constraints();
+      return execution_layout_ != nullptr ? *execution_layout_->constraints :
+                                            space().constraints();
     }
 
     const dealii::IndexSet &
     locally_owned_dofs() const
     {
-      return space().locally_owned_dofs();
+      return execution_layout_ != nullptr ? execution_layout_->locally_owned :
+                                            space().locally_owned_dofs();
     }
 
     const dealii::IndexSet &
     locally_relevant_dofs() const
     {
-      return space().locally_relevant_dofs();
+      return execution_layout_ != nullptr ?
+               execution_layout_->locally_relevant :
+               space().locally_relevant_dofs();
+    }
+
+    /** Map a native FE DoF number to the execution-vector DoF number. */
+    global_index
+    execution_index(const global_index native_index) const
+    {
+      if (execution_layout_ == nullptr)
+        return native_index;
+      AssertIndexRange(native_index, execution_layout_->indices.size());
+      return execution_layout_->indices[native_index];
+    }
+
+    bool
+    has_execution_index(const global_index native_index) const
+    {
+      return execution_index(native_index) !=
+             std::numeric_limits<global_index>::max();
+    }
+
+    bool
+    is_reindexed() const
+    {
+      return execution_layout_ != nullptr;
     }
 
     static constexpr unsigned int
@@ -200,10 +267,19 @@ namespace ImmersX
     }
 
   private:
-    const space_type *space_;
-    std::string       name_;
-    FieldId           id_;
-    Extractor         extractor_;
+    struct ExecutionLayout
+    {
+      dealii::IndexSet                                         locally_owned;
+      dealii::IndexSet                                         locally_relevant;
+      std::vector<global_index>                                indices;
+      std::shared_ptr<const dealii::AffineConstraints<double>> constraints;
+    };
+
+    const space_type                *space_;
+    std::string                      name_;
+    FieldId                          id_;
+    Extractor                        extractor_;
+    std::shared_ptr<ExecutionLayout> execution_layout_;
   };
 
   template <int dim, int spacedim, typename Extractor>
