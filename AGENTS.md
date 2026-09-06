@@ -98,10 +98,6 @@ An Observable is a typed physical quantity derived from one or more Fields. It
 may compose pointwise operations or a backend lift, but it does not introduce
 another hierarchy or own the physical coupling relation between Problems.
 
-`Representation` is no longer a current architectural concept. New extension
-points must use the Field, Observable, WeakTerm, and Constraint/Interaction
-boundaries described here.
-
 Lifting, point search, retained stencils, and redistribution are execution or
 backend details. They should be hidden behind the Observable or Interaction
 that needs them rather than exposed as a second architectural concept.
@@ -127,8 +123,8 @@ An Interaction may:
 
 An execution adapter owns solver and time-integration policy.
 
-Examples include IDA and, potentially, ARKode, KINSOL, or a linear execution
-path.
+The repository provides `LinearAdapter`, `IDAAdapter`, and, when deal.II is
+built with SUNDIALS, `KINSOLAdapter`.
 
 Execution adapters may internally own:
 
@@ -144,8 +140,8 @@ code.
 Prefer application syntax where Problems and Interactions are added directly to
 a single execution adapter.
 
-Do not introduce a separate user-visible `CoupledSystem` merely to hold this
-information unless a concrete future use case requires it.
+Applications add Problems and Interactions directly to one execution adapter.
+The execution adapter owns their semantic composition and execution storage.
 
 ## 4. Semidiscrete equations
 
@@ -182,21 +178,7 @@ Residual/Jacobian evaluation at a candidate state does not mean that state has
 been accepted. Do not update accepted history or previous-solution state merely
 because a nonlinear/time integrator evaluates a residual.
 
-## 5. API stability
-
-Interfaces introduced after PR #69 should currently be considered fluid.
-
-Do not retain, deprecate, wrap, or duplicate a post-PR-69 interface merely for
-backward compatibility. If a cleaner design requires changing or removing such
-an interface, do so and migrate its in-repository users.
-
-Prefer the smallest clean public API over compatibility with intermediate
-post-PR-69 designs.
-
-This rule should be revisited once the new composition/execution API is declared
-stable.
-
-## 6. Parallel and distributed code
+## 5. Parallel and distributed code
 
 Do not assume reduced-dimensional or zero-dimensional objects are inherently
 serial.
@@ -209,7 +191,7 @@ and search facilities where appropriate rather than ad-hoc serial ownership.
 Keep native Problem block numbering local to the Problem. Distributed execution
 block numbering belongs to the execution adapter.
 
-## 7. Git workflow and commits
+## 6. Git workflow and commits
 
 During implementation, create small, meaningful intermediate commits at logical
 milestones unless the task explicitly requests otherwise.
@@ -250,13 +232,19 @@ Do **not**:
 
 unless explicitly requested by the user.
 
+Before opening or updating a pull request, run `./scripts/build_doc.sh` from
+the repository root and require it to complete without errors. Fix
+documentation build errors before the pull request is opened or updated.
+This check is separate from, and does not replace, the requirement to run
+`./scripts/indent` before every commit.
+
 For parallel work, prefer separate git worktrees and separate branches. Do not
 have multiple workers modify the same branch or share a build directory.
 
 Integrate parallel work through meaningful commits and cherry-picks rather than
 copying untracked source trees manually.
 
-## 8. Local development resources
+## 7. Local development resources
 
 The following local resources may be used when available:
 
@@ -281,7 +269,7 @@ worktrees.
 Before using a worktree, inspect its current branch, HEAD, and local changes.
 Do not overwrite unrelated work.
 
-## 9. Build configuration
+## 8. Build configuration
 
 Always use an out-of-source CMake build.
 
@@ -309,7 +297,7 @@ Do not place generated build products in the source tree.
 Each parallel worktree must have its own build directory. Sharing the ccache is
 fine; sharing a CMake build directory is not.
 
-## 10. Test inputs and generated files
+## 9. Test inputs and generated files
 
 The top-level CMake configuration preprocesses every `.in` file below
 `gtests/`, `tests/`, and `data/`.
@@ -349,7 +337,7 @@ Do not introduce:
 GoogleTests should use `gtests/test_paths.h` for test data, generated parameter
 files, and output directories.
 
-## 11. GoogleTest conventions
+## 10. GoogleTest conventions
 
 CTest is the authoritative orchestration layer. Tests have one primary label
 from `unit`, `integration`, `validation`, or `application`. The `quick` label
@@ -397,7 +385,7 @@ mpirun -np 2 /path/to/build-debug/gtests/gtests_debug
 Use focused `--gtest_filter` runs while iterating, then run the relevant broader
 suite before finishing.
 
-## 12. deal.II-style regression tests
+## 11. deal.II-style regression tests
 
 The `tests/` tree uses the deal.II testsuite infrastructure.
 
@@ -412,7 +400,7 @@ Run relevant regression tests with `ctest`, for example:
 ctest --test-dir build-debug -V -R '<regex>'
 ```
 
-## 13. Validation expectations
+## 12. Validation expectations
 
 Use the smallest useful test while iterating, but finish a substantial change
 with validation appropriate to its scope.
@@ -438,7 +426,7 @@ When possible, separate:
 - execution-adapter correctness;
 - solver convergence/performance.
 
-## 14. CMake and installation
+## 13. CMake and installation
 
 Keep CMake targets relocatable and package-friendly.
 
@@ -471,7 +459,7 @@ in standard CMake/GNUInstallDirs-style locations.
 Tests and development-only fixtures should not accidentally become runtime
 dependencies of installed applications.
 
-## 15. Documentation
+## 14. Documentation
 
 Documentation sources live under `doc/`.
 
@@ -486,10 +474,117 @@ For reusable extension points, document both:
 2. how to implement a new Problem, Field-based FE expression/Observable,
    WeakTerm, or Constraint/Interaction.
 
-Do not document sealed legacy internals as recommended extension points. New
-extension APIs must not reintroduce the obsolete parallel hierarchy.
+Document the current public extension points. Do not present internal coupling
+or solver plumbing as a second application-facing hierarchy.
 
 Keep documented commands consistent with the actual CMake and test workflow.
+
+## 15. Writing and communication style
+
+Apply these rules to all natural-language text you produce, including
+explanations, summaries, plans, documentation, comments, commit messages,
+pull-request text, issue descriptions, and user-facing prose, unless the task
+explicitly requires a different style.
+
+Write like a competent human speaking plainly to another competent human.
+
+- Use clear, direct, everyday language.
+- Prefer short, concrete sentences.
+- Get to the point. Do not add introductory filler, scene-setting, or
+  unnecessary conclusions.
+- Prefer ordinary words over formal, corporate, academic, or fashionable
+  alternatives when they mean the same thing.
+- Avoid clichés, stock phrases, slogans, marketing language, canned
+  transitions, and AI-sounding prose.
+- Avoid inflated language. Do not make simple ideas sound important, profound,
+  strategic, or sophisticated.
+- Avoid vague abstractions when a concrete statement is possible.
+- Avoid repetition. Say something once unless repeating it materially improves
+  clarity.
+- Do not restate the user's request unless doing so resolves an ambiguity.
+- Do not announce obvious actions such as "I will now...", "Let's...", "Here
+  is...", or "The following..." unless the wording is genuinely useful.
+- Do not add praise, encouragement, enthusiasm, or conversational padding unless
+  the context calls for it.
+- Avoid rhetorical questions and fake quotations.
+- Do not use metaphors when a literal explanation is clearer.
+- Avoid unnecessary adjectives and adverbs.
+- Prefer active voice when it makes the sentence simpler.
+- Do not use jargon merely to sound technical. Use technical terminology when
+  it is the precise term the domain requires.
+- Assume the reader is intelligent. Explain what is necessary, not what is
+  obvious.
+
+Preserve precision.
+
+- Never simplify by removing facts, constraints, assumptions, qualifications,
+  edge cases, warnings, or instructions that matter.
+- Never invent facts or infer unsupported details.
+- Distinguish clearly between facts, assumptions, estimates, and
+  recommendations.
+- Preserve exact names, identifiers, numbers, mathematical notation, filenames,
+  paths, URLs, commands, API names, option names, and configuration keys.
+- Do not paraphrase code, command lines, literals, diagnostics, or text that
+  must remain exact.
+- Do not change the semantics of technical material merely to improve its
+  prose.
+
+Keep structure proportional to the content.
+
+- Do not create headings, sections, bullet lists, tables, summaries, or key
+  takeaways unless they make the answer easier to use.
+- Do not turn a short explanation into a framework.
+- Do not turn normal prose into a list by default.
+- Conversely, use a list when the content is genuinely a sequence or a set of
+  distinct items.
+- Avoid excessive Markdown and decorative formatting.
+- Do not bold words merely for emphasis.
+- Keep the response as short as possible while still being complete.
+
+For technical explanations:
+
+- State the relevant fact or conclusion first, then explain why.
+- Prefer concrete examples over abstract descriptions when an example
+  materially helps.
+- Explain cause and effect explicitly.
+- When describing a problem, say what is wrong, where it occurs, why it
+  matters, and what should change.
+- When proposing a change, explain its consequences and trade-offs without
+  overselling it.
+- Do not call something "robust", "clean", "elegant", "scalable",
+  "production-ready", "best practice", or similar unless you can state the
+  specific property that justifies the claim.
+- Prefer the specific property itself: for example, say "avoids an
+  allocation", "handles an empty input", or "keeps the public API unchanged".
+
+For code comments and documentation:
+
+- Explain information that is not obvious from the code.
+- Prefer explaining why something exists over narrating what the next line
+  does.
+- Do not add comments that merely translate code into English.
+- Keep terminology consistent with the codebase.
+- Match the existing project's tone and conventions when they are clear.
+
+Language:
+
+- Respond in the language requested by the user.
+- Preserve intentional mixtures of languages.
+- Do not translate technical names or established terminology merely for
+  stylistic consistency.
+
+When these style rules conflict with correctness, precision, explicit user
+requirements, or established project conventions, correctness and the task
+requirements take priority.
+
+Before finalizing natural-language output, silently check:
+
+1. Can any sentence be shorter without losing information?
+2. Is there jargon, filler, repetition, or an AI-style stock phrase that can be
+   removed?
+3. Did I introduce any claim that was not supported?
+4. Did simplification remove an important condition or qualification?
+5. Does the structure match the actual complexity of the content?
 
 ## 16. Scope discipline
 
@@ -503,8 +598,8 @@ If a task reveals a broader architectural issue:
 Avoid speculative support for future solvers, geometries, or discretizations
 unless the current application requires it.
 
-Prefer deleting obsolete post-PR-69 infrastructure over retaining multiple
-parallel ways to do the same thing.
+Prefer one documented way to use each current public concept over multiple
+parallel descriptions of the same behavior.
 
 ## 17. Final review
 
