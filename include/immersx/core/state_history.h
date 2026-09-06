@@ -126,8 +126,8 @@ namespace ImmersX
      * Return an accepted state or its deterministic linear interpolation.
      *
      * Queries outside the accepted interval are rejected.  Extrapolation is a
-     * separate policy decision and is intentionally not hidden in this first
-     * prototype.
+     * separate policy decision and is intentionally not hidden in this
+     * interpolation policy.
      */
     Value
     at(const double time) const

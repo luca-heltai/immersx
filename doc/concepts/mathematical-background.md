@@ -30,7 +30,7 @@ The mathematical problem is to transfer information between the bulk field on $\
 
 ### Scalar model
 
-The scalar case is represented by Poisson or diffusion-type problems. A prototype equation is
+The scalar case is represented by Poisson or diffusion-type problems. A model equation is
 
 $$
 -\nabla \cdot (\kappa \nabla u) = f \qquad \text{in } \Omega,
@@ -71,7 +71,7 @@ $$
 \varepsilon(u) = \frac{1}{2}\bigl(\nabla u + \nabla u^T\bigr)
 $$
 
-be the linearized strain tensor. A prototype strong form is
+be the linearized strain tensor. A representative strong form is
 
 $$
 -\nabla \cdot \sigma(u) = b \qquad \text{in } \Omega,
@@ -257,7 +257,7 @@ This is why the repository is not purely an elasticity code: the scalar case is 
 
 ## Typical Weak Form With Reduction
 
-A useful prototype for the repository is the following.
+A useful model for the repository is the following.
 
 Let $u$ be a bulk field, let $\lambda_{\mathrm{full}} \in Q_{\mathrm{full}}$ be the multiplier of the unreduced problem, and let $\lambda_{\mathrm{red}} \in Q_{\mathrm{red}}$ be the reduced multiplier. The reduced ansatz is
 
@@ -337,4 +337,7 @@ The papers in `doc/papers/` develop different parts of the mathematical picture 
 - {cite:p}`HeltaiZunino-2023-a` develops the abstract reduced Lagrange multiplier framework and its stability/error analysis.
 - {cite:p}`BelponerCaiazzoHeltai-2025-a` extends the reduced framework to mixed-dimensional vascular tissues and elasticity with more realistic coupling conditions.
 
-These papers are not separate from the repository: they describe, analyze, and motivate the reduced-coupling family that the code implements in different variants. The broader Field/residual/execution architecture is a design trajectory around those production paths, not a claim that every equation in the papers is already exposed through one common API.
+These papers describe and analyze the reduced-coupling formulations implemented
+by the repository. The Field/residual/execution architecture provides the common
+API used by the composable applications; individual physical models retain the
+formulations and parameters specific to their Problems.

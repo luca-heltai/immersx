@@ -1,6 +1,6 @@
 # Tutorial 01: area-to-wall kinematics
 
-This first step isolates the nonlinear geometric map used by the production
+This case isolates the nonlinear geometric map used by the
 vessel-wall interaction:
 
 $$
@@ -24,7 +24,7 @@ against a centered finite difference. The pressure-work factor is evaluated
 as `2*pi*R*dR/dA = 1`; this is the circumference normalization that gives the
 multiplier pressure units.
 
-Tutorial 01 runs the production executable with `MMS case = kinematics` in the
+The executable runs with `MMS case = kinematics` in the
 `MetricFlowX elastodynamics tutorial` subsection. It
 initializes a constant perturbed area and zero wall state, then evaluates the
 assembled two-way residual so that the `A -> delta R n` representation is

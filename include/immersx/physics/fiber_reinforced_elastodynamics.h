@@ -81,9 +81,9 @@ namespace ImmersX
    * Both Problems are `ElastodynamicsSolver<dim, dim>` objects on independent
    * full-dimensional meshes.  The fiber mesh is geometrically embedded in the
    * matrix mesh, but it is not a reduced `<1,3>` representation.  The driver
-   * owns the coupled time loop.  With SUNDIALS enabled, the serial execution
-   * path uses the public IDA execution adapter; distributed execution retains
-   * the explicit Schur-complement backward-Euler path.
+   * owns the coupled time loop. With SUNDIALS enabled, it uses the public IDA
+   * execution adapter; without SUNDIALS, it uses the explicit
+   * Schur-complement backward-Euler path.
    */
   template <int dim>
   class FiberReinforcedElastodynamics

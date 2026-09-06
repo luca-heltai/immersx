@@ -1,215 +1,90 @@
-# Time residual and SUNDIALS integration
+# Residual execution with IDA and KINSOL
 
-The time-residual path uses the canonical Field/State core. Semantic
-contributors receive `ImmersX::EvaluationContext` and register residual
-`dealii::PackagedOperation`s plus separate `dealii::LinearOperator` blocks for
-`dF/dy` and `dF/dydot`. The execution adapters share an internal semantic
-model for `F(t,y,ydot)=0`; its residual operations are applied immediately and
-are not retained after evaluation.
+The semantic execution model exposes a residual and its two state
+derivatives. A contributor adds residual operations to the shared
+`SemiDiscreteModel` and registers separate operators for
+`dF/dy` and `dF/dydot`. The execution adapter evaluates these operations for
+the supplied state; the evaluation context and its state views are not stored
+after the evaluation.
 
-`ImmersX::FieldId` identifies state and residual rows. Independent timelines
-are identified separately by `ImmersX::HistoryGroupId`, so several fields may
-share one history grid. The semantic core is now used by real distributed
-Elastodynamics and unsteady-Stokes contributors.
+## IDA
 
-The public IDA composition API is
-
-```cpp
-TimeParameters time_parameters;
-IDAAdapter<LA::MPI::Vector, LA::MPI::BlockVector> ida(time_parameters,
-                                                       MPI_COMM_WORLD);
-auto matrix = ida.add(matrix_problem, "matrix");
-auto fiber  = ida.add(fiber_problem, "fiber");
-auto coupling = ida.add(interaction, "fiber_coupling",
-                        matrix.fields().velocity,
-                        fiber.fields().velocity);
-auto state     = ida.make_state();
-auto state_dot = ida.make_state();
-```
-
-The adapter privately maps one automatically assigned IDA block directly to
-each semantic Field. Binding a block to a `StateView` therefore creates no
-scalar gather or scatter. The mapping is an execution/storage choice:
-`FieldId` is not a global block number, and native Problem block ordering
-remains local to the Problem. The adapter derives the IDA differential mask by
-offsetting and unioning each field's semantic `differential_components` mask.
-A mask has the field vector's global size and may describe a complete, empty,
-or mixed set of components.
-
-## Local deal.II/SUNDIALS contracts
-
-The local build uses deal.II 9.8.0-rc1 with `DEAL_II_WITH_SUNDIALS` enabled and
-SUNDIALS 6.7.0.  The installed deal.II wrappers expose `SUNDIALS::IDA`,
-`SUNDIALS::KINSOL`, and `SUNDIALS::ARKode`/`ARKStepper`.
-
-IDA exposes the first-order residual contract directly:
-
-```text
-residual(t, y, ydot, residual)
-setup_jacobian(t, y, ydot, alpha)
-solve_with_jacobian(rhs, dst, tolerance)
-differential_components() -> IndexSet
-```
-
-The Jacobian required by IDA is
-
-```text
-J = dF/dy + alpha * dF/dydot.
-```
-
-The differential-component callback is optional in deal.II and defaults to a
-complete `IndexSet`; a DAE adapter must provide the locally owned differential
-indices when algebraic variables are present.  The wrapper also accepts a
-vector reinitialization callback and optional restart/output callbacks.
-
-KINSOL exposes the time-independent nonlinear callbacks
-
-```text
-residual(current_u, residual)
-setup_jacobian(current_u, current_residual)
-solve_with_jacobian(rhs, dst, tolerance)
-```
-
-along with vector reinitialization, scaling, and optional custom setup.  It can
-use the same residual contributor and action types after the time terms have
-been removed or frozen by the caller.
-
-ARKode uses an `ARKStepper` with additive callbacks
-
-```text
-explicit_function(t, y, fE)
-implicit_function(t, y, fI)
-mass_times_vector(t, v, Mv)
-jacobian_times_vector(v, Jv, t, y, fI)
-solve_linearized_system(op, preconditioner, x, rhs, tolerance)
-```
-
-The linearized operator supplied to the custom solve path represents
-`M - gamma*J`.  The wrapper also provides setup and preconditioner callbacks.
-The installed deal.II wrapper does not define a dedicated `MRIStep` C++ class,
-but its `ARKodeStepper` interface is explicitly extensible; the underlying
-SUNDIALS installation provides `arkode/arkode_mristep.h`, including
-`MRIStepCreate`, inner-stepper callbacks, pre/post-inner hooks, and
-`MRIStepSetJacTimes`.  A future MRIStep adapter should therefore be a thin
-stepper wrapper using the same history query rather than a second residual
-model.
-
-## Mapping and Jacobian operators
-
-Contributors use deal.II's `LinearOperator` directly. Backend-specific
-payloads are erased only at the execution boundary by constructing a standard
-payload-free `LinearOperator` whose callbacks capture the native operator.
-The matrix wrapper is non-owning, matching deal.II's
-`linear_operator(matrix)` convention; the Problem that owns the matrix must
-outlive the contributor.
-
-`IDAAdapter` translates the callbacks and constructs each global block as
-`dF/dy + alpha*dF/dydot`. The caller-supplied linear solve policy consumes the
-resulting standard deal.II `LinearOperator`; contributors never receive IDA's
-`alpha`.
-
-The distributed tests exercise two MPI ranks with one block per Field:
-
-```text
-Elastodynamics: solid.displacement (differential), solid.velocity (differential)
-Stokes:         fluid.velocity (differential), fluid.pressure (algebraic)
-```
-
-The Elastodynamics contributor evaluates `M*d_dot-M*v` and
-`M*v_dot+K*d+D*v-f(t)` from external state views. The Stokes contributor uses
-`rho*M_u*u_dot + C_uu*u + C_up*p - rho*f(t)` and `C_pu*u`, where
-`C_up=continuous_operator.block(0,1)` and
-`C_pu=continuous_operator.block(1,0)` preserve the current weak-form signs
-(both pressure/divergence blocks are negative when `B` denotes the positive
-divergence coupling). The pressure metric block retained by the native
-Navier--Stokes preconditioner is not a time derivative term and is excluded
-from the semantic residual and differential mask. The tests compare residual
-and Jacobian actions with the native distributed operators and run short IDA
-solves. Their small linear solve policy uses FGMRES with an identity
-preconditioner; this is a validation strategy, not a performance claim.
-
-The current real IDA gates include unsteady Stokes
-(`include_convective_term=false`) and a distributed five-field fiber model:
-two Elastodynamics contributors and one generic `Constraint` over weak terms
-provide four differential fields plus one algebraic multiplier field. The
-five-field test uses a short ramp-forced IDA integration with FGMRES and an
-identity preconditioner; this validates composition and callback semantics,
-not scalability or production preconditioning. A fully implicit convection
-Jacobian and an ARKode/IMEX execution path remain follow-up work.
-
-The mixed-field DAE test uses one four-component semantic field with only its
-first two components marked differential. It checks the mask received by IDA,
-the residual `F = y + ydot`, and the corresponding `dF/dy + alpha*dF/dydot`
-Jacobian action.
-
-## Application-provided consistent initial conditions
-
-`IDAAdapter` supports an optional
-`set_compute_consistent_initial_conditions()` callback with the signature
-
-```cpp
-void(const double time, GlobalVector &state, GlobalVector &state_dot)
-```
-
-When `ic_type` is `use_y_diff`, the adapter calls this function before the
-initial `IDAInit()` and uses the resulting pair directly. The callback may
-modify both vectors: in particular, it may reconstruct algebraic components
-of `state` as well as differential components of `state_dot`. An exception
-from the callback is propagated to the application; it is not converted into
-an `IDACalcIC` fallback.
-
-If the callback is absent, the existing deal.II/SUNDIALS `IDACalcIC` path is
-unchanged. `ic_type = none` continues to perform no correction, and
-`use_y_dot` continues to use IDA's existing correction. The same callback is
-used after a restart when `reset_type = use_y_diff`. Configure the restart
-request through `set_solver_should_restart()` so the adapter can invoke the
-consistent-pair callback between mesh adaptation and IDA's reset. The
-following is a schematic workflow; the `Problem` methods shown are
-application-owned transfer and assembly routines:
+`IDAAdapter` connects the semantic model to deal.II's SUNDIALS IDA wrapper.
+The application registers contributors before solving, creates a state and a
+state derivative, and supplies accepted-state output when native data must be
+updated:
 
 ```cpp
 TimeParameters time_parameters;
-time_parameters.correction_type_at_initial_time = "use_y_diff";
-time_parameters.correction_type_after_restart   = "use_y_diff";
+IDAAdapter<FieldVector, GlobalVector> ida(time_parameters, MPI_COMM_WORLD);
+auto fields = ida.add(problem, "solid");
 
-Adapter ida(time_parameters, MPI_COMM_WORLD);
-auto fields = ida.add(problem, "fluid");
-
-ida.set_compute_consistent_initial_conditions(
-  [&problem, &ida, fields](const double time,
-                           GlobalVector &state,
-                           GlobalVector &state_dot) {
-    // Transfer/refine-aware application code. For example, solve
-    // M(y,t) * y_dot = f(y,t), then impose the algebraic constraints.
-    problem.compute_consistent_initial_conditions(
-      time,
+ida.set_output_step(
+  [&problem, &ida, fields](double time,
+                           const GlobalVector &state,
+                           const GlobalVector &state_dot,
+                           unsigned int step) {
+    problem.accept_state(
+      ida.field(state, fields.fields().displacement),
       ida.field(state, fields.fields().velocity),
-      ida.field(state, fields.fields().pressure),
-      ida.field(state_dot, fields.fields().velocity),
-      ida.field(state_dot, fields.fields().pressure));
-  });
-ida.set_solver_should_restart(
-  [&problem](const double time,
-            GlobalVector &state,
-            GlobalVector &state_dot) {
-    if (!problem.adapt_mesh(time))
-      return false;
-    problem.transfer_state(state, state_dot);
-    return true;
+      time,
+      step);
+    (void)state_dot;
   });
 
+auto state = ida.make_state();
+auto state_dot = ida.make_state();
 ida.solve(state, state_dot);
 ```
 
-The application remains responsible for updating Problem-owned matrices,
-constraints, and vector partitions during the transfer. The execution adapter
-keeps semantic field ordering stable while the state vectors supplied to the
-restart may be replaced by the adapted vectors. Navier--Stokes can use its
-velocity mass matrix, spatial operators, constraints, and block solvers to
-construct the initial derivative; MetricFlowX follows the same pattern when
-its finite-element space is transferred after refinement.
+The application fills the initial state and derivative before `solve()`. IDA
+receives a differential-component mask built from each field descriptor. A
+field can be fully differential, fully algebraic, or mixed by component.
 
-The default deal.II restart path retains the previous accepted IDA step size
-as the tentative new step. After a large mesh change this may be a poor choice
-for robustness or efficiency, so selecting a fresh initial step after
-adaptation is a follow-up issue rather than part of this callback change.
+IDA asks for the solver Jacobian
+
+```{math}
+J = \frac{\partial F}{\partial y}
+  + \alpha\frac{\partial F}{\partial \dot y}.
+```
+
+`alpha` belongs to IDA and is applied inside `IDAAdapter`. Contributors and
+Problems provide the two derivative operators separately. The adapter can
+use its built-in GMRES/FGMRES path or an application-supplied linear solve
+callback.
+
+`TimeParameters` owns the initial and final times, step policy, output
+frequency, IDA running parameters, error tolerances, differential/algebraic
+error handling, and initial-condition correction settings. It converts these
+values to deal.II's IDA `AdditionalData` through `ida_parameters()`.
+
+The optional
+`set_compute_consistent_initial_conditions(time, state, state_dot)` callback
+can update both vectors when the correction type is `use_y_diff`. The optional
+`set_solver_should_restart()` callback can transfer state after an application
+change and request an IDA restart. These callbacks operate on execution
+vectors; updating Problem-owned matrices, constraints, and accepted state is
+the application's responsibility.
+
+## KINSOL
+
+`KINSOLAdapter` connects the same semantic contributor model to deal.II's
+SUNDIALS KINSOL wrapper for a steady nonlinear problem:
+
+```cpp
+KINSOLAdapterParameters parameters;
+KINSOLAdapter<FieldVector, GlobalVector> kinsol(parameters, MPI_COMM_WORLD);
+auto fields = kinsol.add(problem, "steady");
+auto state = kinsol.make_state();
+kinsol.solve(state);
+```
+
+KINSOL requires `F(y)=0`; contributors with derivative terms are rejected.
+The adapter prepares the semantic Jacobian for each nonlinear solve and uses
+either the configured linear solve callback or its built-in GMRES path.
+`KINSOLAdapterParameters` selects `newton` or `linesearch` and sets the
+nonlinear stopping and Jacobian-setup controls.
+
+Both adapters use deal.II `LinearOperator` objects for Jacobian actions. A
+native matrix can be exposed through `SemidiscreteBuilder::matrix_operator()`;
+the Problem that owns the matrix must outlive the contributor.
