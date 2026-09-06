@@ -50,6 +50,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     LargeNetworks
     LegacyInclusions
     LinearAdapter
+    KINSOLAdapter
     TimeParameters
     ReducedCoupling
     TensorProductSpace
@@ -125,6 +126,7 @@ set(_immersx_expected_test_suites
     LargeNetworks
     LegacyInclusions
     LinearAdapter
+    KINSOLAdapter
     MaterialParameters
     BoundaryConditionParameters
     RhsParameters
