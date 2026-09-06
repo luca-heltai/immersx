@@ -102,7 +102,7 @@ add_test(NAME ImmersX.PublicHeaderSelfContainment
          COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
                  --target immersx_public_header_self_containment)
 set_tests_properties(ImmersX.PublicHeaderSelfContainment
-                     PROPERTIES LABELS "unit;quick")
+                     PROPERTIES LABELS "unit;quick" TIMEOUT 300)
 
 FOREACH(_build_type ${_d2_build_types})
   # Postfix to use everywhere
@@ -184,6 +184,7 @@ FOREACH(_build_type ${_d2_build_types})
     # CTest provides the user-facing category and process-count matrix.
     foreach(_category unit integration validation application)
       set(_category_quick FALSE)
+      set(_category_timeout 300)
       if(_category STREQUAL "unit")
         set(_category_filter "${_unit_filter}")
         set(_category_mpi_filter "${_unit_mpi_filter}")
@@ -195,9 +196,11 @@ FOREACH(_build_type ${_d2_build_types})
       elseif(_category STREQUAL "validation")
         set(_category_filter "${_validation_filter}")
         set(_category_mpi_filter "${_validation_mpi_filter}")
+        set(_category_timeout 1200)
       else()
         set(_category_filter "${_application_filter}")
         set(_category_mpi_filter "${_application_mpi_filter}")
+        set(_category_timeout 1200)
       endif()
 
       set(_serial_test "ImmersX.${_category}.Serial")
@@ -208,7 +211,9 @@ FOREACH(_build_type ${_d2_build_types})
       if(_category_quick)
         list(APPEND _labels quick)
       endif()
-      set_tests_properties(${_serial_test} PROPERTIES LABELS "${_labels}")
+      set_tests_properties(${_serial_test}
+                           PROPERTIES LABELS "${_labels}"
+                                      TIMEOUT ${_category_timeout})
 
       if(_immersx_mpiexec)
         set(_mpi_test "ImmersX.${_category}.MPI")
@@ -216,7 +221,9 @@ FOREACH(_build_type ${_d2_build_types})
                  COMMAND ${_immersx_mpiexec} -np 2
                          $<TARGET_FILE:${_exe}>
                          --gtest_filter=${_category_mpi_filter})
-        set_tests_properties(${_mpi_test} PROPERTIES LABELS "${_labels};mpi")
+        set_tests_properties(${_mpi_test}
+                             PROPERTIES LABELS "${_labels};mpi"
+                                        TIMEOUT ${_category_timeout})
       endif()
     endforeach()
     IF(IMMERSX_INSTALL_TESTS)
@@ -263,7 +270,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                COMMAND $<TARGET_FILE:${_metric_flow_x_test_target}>
                        --gtest_filter=MetricFlowX.*-*.MPI_*)
       set_tests_properties(ImmersX.integration.MetricFlowX.Serial
-                           PROPERTIES LABELS "integration;quick")
+                           PROPERTIES LABELS "integration;quick" TIMEOUT 300)
       find_program(_immersx_mpiexec NAMES mpirun mpiexec)
       if(_immersx_mpiexec)
         add_test(NAME ImmersX.integration.MetricFlowX.MPI
@@ -271,7 +278,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                          $<TARGET_FILE:${_metric_flow_x_test_target}>
                          --gtest_filter=MetricFlowX.MPI_*)
         set_tests_properties(ImmersX.integration.MetricFlowX.MPI
-                             PROPERTIES LABELS "integration;quick;mpi")
+                             PROPERTIES LABELS "integration;quick;mpi"
+                                        TIMEOUT 300)
       endif()
       list(APPEND IMMERSX_TEST_TARGETS ${_metric_flow_x_test_target})
       if(IMMERSX_INSTALL_TESTS)
@@ -323,7 +331,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                   $<TARGET_FILE:${_mms_gate_target}>
                   --gtest_filter=OneVesselMMS.*:OneVesselMMSDriver.MPI_ActualTwoWayTransientSolve:MetricFlowXVesselWallConstraint.MPI_TwoWayResidualAndPressureSign:MetricFlowXVesselWallConstraint.MPI_TwoWayCompositionResidualSmoke:MetricFlowXVesselWallConstraint.MPI_GenericKinematicCompositionSmoke:MetricFlowXVesselWallConstraint.MPI_FullCoupledJacobianFiniteDifference)
         set_tests_properties(metric_flow_x_elastodynamics_mms_verification
-                             PROPERTIES LABELS "validation;mpi")
+                             PROPERTIES LABELS "validation;mpi"
+                                        TIMEOUT 1200)
       endif()
     endif()
   endforeach()

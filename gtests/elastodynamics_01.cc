@@ -162,7 +162,7 @@ TEST(Elastodynamics, SetupAndOperatorSymmetry)
 }
 
 
-TEST(Elastodynamics, ZeroSolutionPreservation)
+TEST(ElastodynamicsValidation, ZeroSolutionPreservation)
 {
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
@@ -347,7 +347,7 @@ TEST(Elastodynamics, IDAResidualAndJacobianOracle)
 }
 #endif
 
-TEST(Elastodynamics, NontrivialTransient)
+TEST(ElastodynamicsValidation, NontrivialTransient)
 {
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
@@ -377,7 +377,7 @@ TEST(Elastodynamics, NontrivialTransient)
 }
 
 
-TEST(Elastodynamics, ThreeDimensionalSmoke)
+TEST(ElastodynamicsValidation, ThreeDimensionalSmoke)
 {
   ParameterAcceptor::clear();
   ElastodynamicsParameters<3> parameters;
@@ -399,7 +399,7 @@ TEST(Elastodynamics, ThreeDimensionalSmoke)
 }
 
 
-TEST(Elastodynamics, MPI_Transient)
+TEST(ElastodynamicsValidation, MPI_Transient)
 {
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;

@@ -35,19 +35,12 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ElasticStaticDimensions
     ElasticStaticExecution
     ElasticStaticProblem
-    ElasticityTest
     ElasticityCouplingParameters
     ElasticityCouplingConstruction
     ElasticityCouplingIntegration
     ElasticityCouplingParticleOutput
-    ElasticityTensorProductCoupling
-    TriangulationBackends/*
     Elastodynamics
-    ElastodynamicsExecution
-    ElastodynamicsDimension
-    FiberReinforcedElastodynamics
     ImportedFiniteElementFields
-    LargeNetworks
     LegacyInclusions
     LinearAdapter
     TimeParameters
@@ -60,6 +53,16 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     WeakTerm)
 
 set(IMMERSX_VALIDATION_TEST_SUITES
+    ElasticStaticProblemValidation
+    ElasticityValidation
+    ElasticityTensorProductCouplingValidation
+    TriangulationBackendsValidation/*
+    ElastodynamicsValidation
+    ElastodynamicsExecutionValidation
+    ElastodynamicsDimensionValidation
+    FiberReinforcedElastodynamicsValidation
+    LargeNetworksValidation
+    ElasticityCouplingIntegrationValidation
     OneVesselMMS
     OneVesselMMSDriver
     MetricFlowXVesselWallGeometry
@@ -103,26 +106,29 @@ set(_immersx_expected_test_suites
     ElasticStaticDimensions
     ElasticStaticExecution
     ElasticStaticProblem
-    ElasticityTest
+    ElasticStaticProblemValidation
+    ElasticityValidation
     ElasticityCouplingParameters
     ElasticityCouplingConstruction
     ElasticityCouplingIntegration
     ElasticityCouplingParticleOutput
-    ElasticityTensorProductCoupling
-    TriangulationBackends/*
+    ElasticityCouplingIntegrationValidation
+    ElasticityTensorProductCouplingValidation
+    TriangulationBackendsValidation/*
     WeakTermNonmatching
     Elastodynamics
-    ElastodynamicsExecution
-    ElastodynamicsDimension
+    ElastodynamicsValidation
+    ElastodynamicsExecutionValidation
+    ElastodynamicsDimensionValidation
     FESpace
     TimeParameters
-    FiberReinforcedElastodynamics
+    FiberReinforcedElastodynamicsValidation
     ImportedFiniteElementFields
     InclusionsBasis2
     CCO
     Constraint
     InputFieldSelector
-    LargeNetworks
+    LargeNetworksValidation
     LegacyInclusions
     LinearAdapter
     MaterialParameters
