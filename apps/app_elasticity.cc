@@ -45,7 +45,9 @@ main(int argc, char *argv[])
   try
     {
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-      std::string                      prm_file;
+      deallog.depth_console(
+        Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0 ? 1 : 0);
+      std::string prm_file;
       if (argc > 1)
         prm_file = argv[1];
       else
