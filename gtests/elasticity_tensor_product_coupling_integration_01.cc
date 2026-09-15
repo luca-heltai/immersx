@@ -106,10 +106,10 @@ TEST(ElasticityCouplingIntegrationValidation,
   par.output_directory =
     TestPaths::output_directory("elasticity-issue-203-diagnostics");
   std::filesystem::create_directories(par.output_directory);
-  par.time_parameters.initial_time = 0.;
-  par.time_parameters.final_time   = 2.e-3;
-  par.time_parameters.time_step    = 1.e-3;
-  par.default_material_properties.rho     = 1.;
+  par.time_parameters.initial_time                                = 0.;
+  par.time_parameters.final_time                                  = 2.e-3;
+  par.time_parameters.time_step                                   = 1.e-3;
+  par.default_material_properties.rho                             = 1.;
   par.tensor_product_coupling_parameters.coupling_rhs_expressions = {
     "sin(2*pi*t)", "sin(2*pi*t)", "sin(2*pi*t)"};
   par.check_model_consistency();

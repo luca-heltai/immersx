@@ -1691,15 +1691,14 @@ namespace ImmersX
     acceleration_rhs.reinit(f);
     acceleration_rhs = f;
 
-    const double displacement_tolerance = std::max(
-      par.displacement_solver_control.tolerance(),
-      par.displacement_solver_control.reduction() *
-        acceleration_rhs.l2_norm());
-    SolverControl solver_control(
-      par.displacement_solver_control.max_steps(),
-      displacement_tolerance,
-      par.displacement_solver_control.log_history(),
-      par.displacement_solver_control.log_result());
+    const double displacement_tolerance =
+      std::max(par.displacement_solver_control.tolerance(),
+               par.displacement_solver_control.reduction() *
+                 acceleration_rhs.l2_norm());
+    SolverControl solver_control(par.displacement_solver_control.max_steps(),
+                                 displacement_tolerance,
+                                 par.displacement_solver_control.log_history(),
+                                 par.displacement_solver_control.log_result());
     SolverFGMRES<LA::MPI::Vector> solver_stiffness(solver_control);
 
     const auto log_newmark_diagnostics = [&]() {
@@ -1713,8 +1712,7 @@ namespace ImmersX
       pcout << "   Newmark diagnostics: ||rhs||_2 = "
             << acceleration_rhs.l2_norm() << ", ||a||_2 = " << a.l2_norm()
             << ", ||residual||_2 = " << residual.l2_norm()
-            << ", iterations = "
-            << solver_control.last_step() << std::endl;
+            << ", iterations = " << solver_control.last_step() << std::endl;
     };
 
     if (par.elasticity_model == ElasticityModel::LinearElasticity ||
@@ -1725,10 +1723,10 @@ namespace ImmersX
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
             acceleration_constraints.distribute(acceleration_rhs);
-            solver_control.set_tolerance(std::max(
-              par.displacement_solver_control.tolerance(),
-              par.displacement_solver_control.reduction() *
-                acceleration_rhs.l2_norm()));
+            solver_control.set_tolerance(
+              std::max(par.displacement_solver_control.tolerance(),
+                       par.displacement_solver_control.reduction() *
+                         acceleration_rhs.l2_norm()));
             solver_stiffness.solve(newmark_matrix,
                                    a,
                                    acceleration_rhs,
@@ -1759,10 +1757,10 @@ namespace ImmersX
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
             acceleration_constraints.distribute(acceleration_rhs);
-            solver_control.set_tolerance(std::max(
-              par.displacement_solver_control.tolerance(),
-              par.displacement_solver_control.reduction() *
-                acceleration_rhs.l2_norm()));
+            solver_control.set_tolerance(
+              std::max(par.displacement_solver_control.tolerance(),
+                       par.displacement_solver_control.reduction() *
+                         acceleration_rhs.l2_norm()));
             solver_stiffness.solve(newmark_matrix,
                                    a,
                                    acceleration_rhs,
@@ -2601,8 +2599,8 @@ namespace ImmersX
           auto rhs = system_rhs.block(0);
 
           AffineConstraints<double> initial_acceleration_constraints;
-          make_newmark_acceleration_constraints(u,
-                                                initial_acceleration_constraints);
+          make_newmark_acceleration_constraints(
+            u, initial_acceleration_constraints);
 
           if (n_multiplier_dofs() == 0)
             {
@@ -2628,10 +2626,11 @@ namespace ImmersX
             }
 
           initial_acceleration_constraints.distribute(rhs);
-          const auto                amgC = linear_operator(C, prec_C);
-          const double mass_tolerance = std::max(
-            par.displacement_solver_control.tolerance(),
-            par.displacement_solver_control.reduction() * rhs.l2_norm());
+          const auto   amgC = linear_operator(C, prec_C);
+          const double mass_tolerance =
+            std::max(par.displacement_solver_control.tolerance(),
+                     par.displacement_solver_control.reduction() *
+                       rhs.l2_norm());
           SolverControl mass_solver_control(
             par.displacement_solver_control.max_steps(),
             mass_tolerance,
@@ -2639,7 +2638,7 @@ namespace ImmersX
             par.displacement_solver_control.log_result());
           SolverFGMRES<LA::MPI::Vector> solver_mass(mass_solver_control);
           const auto invC = inverse_operator(C, solver_mass, amgC);
-          a                              = invC * rhs;
+          a               = invC * rhs;
 
           if (par.displacement_solver_control.log_result())
             {
@@ -2650,8 +2649,7 @@ namespace ImmersX
               pcout << "   Initial acceleration diagnostics: ||rhs||_2 = "
                     << rhs.l2_norm() << ", ||a||_2 = " << a.l2_norm()
                     << ", ||residual||_2 = " << residual.l2_norm()
-                    << ", iterations = "
-                    << mass_solver_control.last_step()
+                    << ", iterations = " << mass_solver_control.last_step()
                     << std::endl;
             }
         }
