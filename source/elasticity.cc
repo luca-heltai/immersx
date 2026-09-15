@@ -831,6 +831,24 @@ namespace ImmersX
         mass_matrix.compress(VectorOperation::add);
         damping_matrix.compress(VectorOperation::add);
         newmark_matrix.compress(VectorOperation::add);
+
+        // The row-only distribution above deliberately leaves constrained
+        // columns in the dynamic operators. Its rectangular-constraint
+        // overload does not add diagonal entries for constrained rows, so
+        // make those rows identity rows before using the operators in a
+        // linear solve.
+        for (const auto dof : owned_dofs[0])
+          if (constraints.is_constrained(dof))
+            {
+              mass_matrix.set(dof, dof, 1.);
+              damping_matrix.set(dof, dof, 1.);
+              newmark_matrix.set(dof, dof, 1.);
+              stiffness_matrix.set(dof, dof, 1.);
+            }
+        mass_matrix.compress(VectorOperation::insert);
+        damping_matrix.compress(VectorOperation::insert);
+        newmark_matrix.compress(VectorOperation::insert);
+        stiffness_matrix.compress(VectorOperation::insert);
       }
 
     system_rhs.compress(VectorOperation::add);
@@ -1652,8 +1670,6 @@ namespace ImmersX
     if (!uses_tensor_product_coupling())
       inclusion_constraints.distribute(lambda);
 
-    SolverCG<LA::MPI::Vector> cg_stiffness(par.displacement_solver_control);
-
     const double beta  = par.time_parameters.newmark_beta;
     const double gamma = par.time_parameters.newmark_gamma;
 
@@ -1675,6 +1691,32 @@ namespace ImmersX
     acceleration_rhs.reinit(f);
     acceleration_rhs = f;
 
+    const double displacement_tolerance = std::max(
+      par.displacement_solver_control.tolerance(),
+      par.displacement_solver_control.reduction() *
+        acceleration_rhs.l2_norm());
+    SolverControl solver_control(
+      par.displacement_solver_control.max_steps(),
+      displacement_tolerance,
+      par.displacement_solver_control.log_history(),
+      par.displacement_solver_control.log_result());
+    SolverFGMRES<LA::MPI::Vector> solver_stiffness(solver_control);
+
+    const auto log_newmark_diagnostics = [&]() {
+      if (!par.displacement_solver_control.log_result())
+        return;
+
+      LA::MPI::Vector residual;
+      residual.reinit(a);
+      newmark_matrix.vmult(residual, a);
+      residual -= acceleration_rhs;
+      pcout << "   Newmark diagnostics: ||rhs||_2 = "
+            << acceleration_rhs.l2_norm() << ", ||a||_2 = " << a.l2_norm()
+            << ", ||residual||_2 = " << residual.l2_norm()
+            << ", iterations = "
+            << solver_control.last_step() << std::endl;
+    };
+
     if (par.elasticity_model == ElasticityModel::LinearElasticity ||
         par.elasticity_model == ElasticityModel::KelvinVoigt)
       {
@@ -1682,10 +1724,16 @@ namespace ImmersX
           {
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
-            cg_stiffness.solve(newmark_matrix,
-                               a,
-                               acceleration_rhs,
-                               prec_newmark);
+            acceleration_constraints.distribute(acceleration_rhs);
+            solver_control.set_tolerance(std::max(
+              par.displacement_solver_control.tolerance(),
+              par.displacement_solver_control.reduction() *
+                acceleration_rhs.l2_norm()));
+            solver_stiffness.solve(newmark_matrix,
+                                   a,
+                                   acceleration_rhs,
+                                   prec_newmark);
+            log_newmark_diagnostics();
           }
         else
           {
@@ -1707,14 +1755,19 @@ namespace ImmersX
             pcout << "   Inner mass iterations for lambda = "
                   << par.reduced_mass_solver_control.last_step() << std::endl;
 
-            const auto f_inclusions = Bt * lambda;
-            acceleration_rhs += f_inclusions;
+            acceleration_rhs += Bt * lambda;
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
-            cg_stiffness.solve(newmark_matrix,
-                               a,
-                               acceleration_rhs,
-                               prec_newmark);
+            acceleration_constraints.distribute(acceleration_rhs);
+            solver_control.set_tolerance(std::max(
+              par.displacement_solver_control.tolerance(),
+              par.displacement_solver_control.reduction() *
+                acceleration_rhs.l2_norm()));
+            solver_stiffness.solve(newmark_matrix,
+                                   a,
+                                   acceleration_rhs,
+                                   prec_newmark);
+            log_newmark_diagnostics();
           }
       }
     else
@@ -2547,6 +2600,10 @@ namespace ImmersX
 
           auto rhs = system_rhs.block(0);
 
+          AffineConstraints<double> initial_acceleration_constraints;
+          make_newmark_acceleration_constraints(u,
+                                                initial_acceleration_constraints);
+
           if (n_multiplier_dofs() == 0)
             {
               rhs -= D * v;
@@ -2570,10 +2627,33 @@ namespace ImmersX
               rhs -= A * u;
             }
 
+          initial_acceleration_constraints.distribute(rhs);
           const auto                amgC = linear_operator(C, prec_C);
-          SolverCG<LA::MPI::Vector> cg_mass(par.displacement_solver_control);
-          const auto                invC = inverse_operator(C, cg_mass, amgC);
+          const double mass_tolerance = std::max(
+            par.displacement_solver_control.tolerance(),
+            par.displacement_solver_control.reduction() * rhs.l2_norm());
+          SolverControl mass_solver_control(
+            par.displacement_solver_control.max_steps(),
+            mass_tolerance,
+            par.displacement_solver_control.log_history(),
+            par.displacement_solver_control.log_result());
+          SolverFGMRES<LA::MPI::Vector> solver_mass(mass_solver_control);
+          const auto invC = inverse_operator(C, solver_mass, amgC);
           a                              = invC * rhs;
+
+          if (par.displacement_solver_control.log_result())
+            {
+              LA::MPI::Vector residual;
+              residual.reinit(a);
+              mass_matrix.vmult(residual, a);
+              residual -= rhs;
+              pcout << "   Initial acceleration diagnostics: ||rhs||_2 = "
+                    << rhs.l2_norm() << ", ||a||_2 = " << a.l2_norm()
+                    << ", ||residual||_2 = " << residual.l2_norm()
+                    << ", iterations = "
+                    << mass_solver_control.last_step()
+                    << std::endl;
+            }
         }
 
         locally_relevant_solution = solution;
@@ -2716,7 +2796,7 @@ namespace ImmersX
       }
 #ifdef DEAL_II_WITH_VTK
     else
-      tensor_product_coupling->set_time(current_time);
+      tensor_product_coupling->set_time(evaluation_time);
 #endif
     assemble_coupling();
 

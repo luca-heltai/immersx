@@ -2,6 +2,7 @@
 #include <immersx/physics/elasticity.h>
 
 #include <cmath>
+#include <filesystem>
 
 using namespace ImmersX;
 #include "test_paths.h"
@@ -16,6 +17,9 @@ namespace
     initialize_parameters();
     ParameterAcceptor::prm.parse_input_from_string(R"(
       subsection Functions
+        subsection Dirichlet boundary conditions
+          set Function expression = 0; 0; 0.01*sin(2*pi*50*t)
+        end
         subsection Right hand side
           set Function expression = 0; 0; 0
         end
@@ -90,4 +94,30 @@ TEST(ElasticityCouplingIntegrationValidation, StaticSolveCompletes)
 
   EXPECT_TRUE(std::isfinite(problem.solution.block(0).l2_norm()));
   EXPECT_TRUE(std::isfinite(problem.solution.block(1).l2_norm()));
+}
+
+TEST(ElasticityCouplingIntegrationValidation,
+     DynamicStrongConstraintsRemainFinite)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<2, 3> par;
+  configure_tensor_product_parameters(par);
+
+  par.output_directory =
+    TestPaths::output_directory("elasticity-issue-203-diagnostics");
+  std::filesystem::create_directories(par.output_directory);
+  par.time_parameters.initial_time = 0.;
+  par.time_parameters.final_time   = 2.e-3;
+  par.time_parameters.time_step    = 1.e-3;
+  par.default_material_properties.rho     = 1.;
+  par.tensor_product_coupling_parameters.coupling_rhs_expressions = {
+    "sin(2*pi*t)", "sin(2*pi*t)", "sin(2*pi*t)"};
+  par.check_model_consistency();
+
+  ElasticityProblem<2, 3> problem(par);
+  ASSERT_NO_THROW(problem.run());
+
+  EXPECT_TRUE(std::isfinite(problem.solution.block(0).l2_norm()));
+  EXPECT_TRUE(std::isfinite(problem.solution.block(1).l2_norm()));
+  EXPECT_LT(problem.solution.block(0).linfty_norm(), 1.e3);
 }
