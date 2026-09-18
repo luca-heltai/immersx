@@ -470,6 +470,14 @@ namespace ImmersX
     void
     assemble_elasticity_system();
     /**
+     * Add inhomogeneous constraint corrections to a dynamic right-hand side.
+     */
+    void
+    add_dynamic_constraint_rhs(
+      const AffineConstraints<double> &predictor_constraints,
+      const AffineConstraints<double> &acceleration_constraints,
+      LA::MPI::Vector                 &rhs) const;
+    /**
      * Assemble external forcing terms only.
      */
     void

@@ -876,6 +876,161 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
+  ElasticityProblem<dim, spacedim>::add_dynamic_constraint_rhs(
+    const AffineConstraints<double> &predictor_constraints,
+    const AffineConstraints<double> &acceleration_constraints,
+    LA::MPI::Vector                 &rhs) const
+  {
+    Assert(par.time_mode == TimeMode::Dynamic, ExcInternalError());
+
+    FEValues<spacedim> fe_values(
+      *fe, *quadrature, update_values | update_gradients | update_JxW_values);
+    FEFaceValues<spacedim> fe_face_values(*fe,
+                                          *face_quadrature_formula,
+                                          update_values | update_gradients |
+                                            update_JxW_values |
+                                            update_normal_vectors);
+
+    const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
+    const unsigned int n_q_points    = quadrature->size();
+
+    FullMatrix<double> cell_value(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_grad(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_div(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_penalty_value(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_penalty_grad(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_penalty_div(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_damping(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_stiffness(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_newmark(dofs_per_cell, dofs_per_cell);
+    Vector<double>     zero_local_rhs(dofs_per_cell);
+
+    std::vector<Tensor<2, spacedim>>     grad_phi_u(dofs_per_cell);
+    std::vector<double>                  div_phi_u(dofs_per_cell);
+    std::vector<Tensor<1, spacedim>>     phi_u(dofs_per_cell);
+    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          const auto &mp     = par.get_material_properties(cell->material_id());
+          cell_value         = 0;
+          cell_grad          = 0;
+          cell_div           = 0;
+          cell_penalty_value = 0;
+          cell_penalty_grad  = 0;
+          cell_penalty_div   = 0;
+          cell_damping       = 0;
+          cell_stiffness     = 0;
+          cell_newmark       = 0;
+          zero_local_rhs     = 0;
+
+          fe_values.reinit(cell);
+          for (unsigned int q = 0; q < n_q_points; ++q)
+            {
+              for (unsigned int k = 0; k < dofs_per_cell; ++k)
+                {
+                  grad_phi_u[k] =
+                    fe_values[displacement].symmetric_gradient(k, q);
+                  div_phi_u[k] = fe_values[displacement].divergence(k, q);
+                  phi_u[k]     = fe_values[displacement].value(k, q);
+                }
+              for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                  {
+                    cell_grad(i, j) +=
+                      scalar_product(grad_phi_u[i], grad_phi_u[j]) *
+                      fe_values.JxW(q);
+                    cell_div(i, j) +=
+                      div_phi_u[i] * div_phi_u[j] * fe_values.JxW(q);
+                    cell_value(i, j) += phi_u[i] * phi_u[j] * fe_values.JxW(q);
+                  }
+            }
+
+          for (const auto &f : cell->face_indices())
+            if (cell->face(f)->at_boundary() &&
+                par.weak_dirichlet_ids.find(cell->face(f)->boundary_id()) !=
+                  par.weak_dirichlet_ids.end())
+              {
+                fe_face_values.reinit(cell, f);
+                const auto cell_diameter = cell->diameter();
+                for (unsigned int q = 0; q < fe_face_values.n_quadrature_points;
+                     ++q)
+                  {
+                    const auto n = fe_face_values.normal_vector(q);
+                    for (unsigned int k = 0; k < dofs_per_cell; ++k)
+                      {
+                        phi_u[k] = fe_face_values[displacement].value(k, q);
+                        grad_phi_u[k] =
+                          fe_face_values[displacement].symmetric_gradient(k, q);
+                        div_phi_u[k] =
+                          fe_face_values[displacement].divergence(k, q);
+                      }
+                    for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                      for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                        {
+                          cell_penalty_value(i, j) +=
+                            par.penalty_term / cell_diameter * phi_u[i] *
+                            phi_u[j] * fe_face_values.JxW(q);
+                          cell_penalty_grad(i, j) +=
+                            (-grad_phi_u[j] * n * phi_u[i] -
+                             grad_phi_u[i] * n * phi_u[j]) *
+                            fe_face_values.JxW(q);
+                          cell_penalty_div(i, j) +=
+                            (-div_phi_u[j] * (n * phi_u[i]) -
+                             div_phi_u[i] * (n * phi_u[j])) *
+                            fe_face_values.JxW(q);
+                        }
+                  }
+              }
+
+          cell->get_dof_indices(local_dof_indices);
+          cell_stiffness.equ(2 * mp.Lame_mu,
+                             cell_grad,
+                             mp.Lame_lambda,
+                             cell_div,
+                             1.0,
+                             cell_penalty_value);
+          cell_damping.equ(mp.rayleigh_beta,
+                           cell_stiffness,
+                           mp.rayleigh_alpha,
+                           cell_value,
+                           mp.neta,
+                           cell_grad);
+          cell_stiffness.add(2 * mp.Lame_mu,
+                             cell_penalty_grad,
+                             mp.Lame_lambda,
+                             cell_penalty_div);
+          cell_newmark.equ(mp.rho,
+                           cell_value,
+                           par.time_parameters.newmark_beta *
+                             par.time_parameters.time_step *
+                             par.time_parameters.time_step,
+                           cell_stiffness,
+                           par.time_parameters.newmark_gamma *
+                             par.time_parameters.time_step,
+                           cell_damping);
+
+          predictor_constraints.distribute_local_to_global(zero_local_rhs,
+                                                           local_dof_indices,
+                                                           rhs,
+                                                           cell_damping);
+          predictor_constraints.distribute_local_to_global(zero_local_rhs,
+                                                           local_dof_indices,
+                                                           rhs,
+                                                           cell_stiffness);
+          acceleration_constraints.distribute_local_to_global(zero_local_rhs,
+                                                              local_dof_indices,
+                                                              rhs,
+                                                              cell_newmark);
+        }
+
+    rhs.compress(VectorOperation::add);
+  }
+
+
+  template <int dim, int spacedim>
+  void
   ElasticityProblem<dim, spacedim>::assemble_forcing_terms()
   {
     assemble_forcing_terms(current_time + par.time_parameters.time_step);
@@ -1625,6 +1780,8 @@ namespace ImmersX
 
     par.set_boundary_condition_times(current_time);
     setup_constraints();
+    AffineConstraints<double> predictor_constraints;
+    predictor_constraints.copy_from(constraints);
     constraints.distribute(u);
     if (!uses_tensor_product_coupling())
       inclusion_constraints.distribute(lambda);
@@ -1673,7 +1830,6 @@ namespace ImmersX
           {
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
-            set_acceleration_constraint_rhs();
             // Start from a vector satisfying the same time-dependent
             // constraints as the acceleration right-hand side.
             acceleration_constraints.distribute(a);
@@ -1707,7 +1863,6 @@ namespace ImmersX
                   << par.reduced_mass_solver_control.last_step() << std::endl;
 
             acceleration_rhs += Bt * lambda - D * v_pred - A * u_pred;
-            set_acceleration_constraint_rhs();
             // Start from a vector satisfying the same time-dependent
             // constraints as the acceleration right-hand side.
             acceleration_constraints.distribute(a);
@@ -1726,6 +1881,10 @@ namespace ImmersX
         AssertThrow(false, ExcInternalError());
       }
 
+    add_dynamic_constraint_rhs(predictor_constraints,
+                               acceleration_constraints,
+                               acceleration_rhs);
+    set_acceleration_constraint_rhs();
     acceleration_constraints.distribute(a);
 
     // corrector step
@@ -2575,6 +2734,9 @@ namespace ImmersX
             }
 
           initial_acceleration_constraints.distribute(rhs);
+          add_dynamic_constraint_rhs(constraints,
+                                     initial_acceleration_constraints,
+                                     rhs);
           for (const auto &line : initial_acceleration_constraints.get_lines())
             if (rhs.in_local_range(line.index))
               rhs[line.index] = line.inhomogeneity;
