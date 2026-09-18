@@ -437,29 +437,20 @@ namespace ImmersX
 
     {
       DynamicSparsityPattern dsp(relevant_dofs[0]);
-      // Static and quasi-static solves distribute cell matrices with the
-      // constraints applied to rows and columns, so the sparsity pattern must
-      // contain the constraint graph in addition to the cell couplings.
-      // Dynamic solves distribute with row-only constraints: for a constrained
-      // dof with entries, the resolved constraint row is written into the rows
-      // of its master dofs, which need not share a cell with the constrained
-      // dof. Add those entries as well, since make_sparsity_pattern() does not
-      // couple a master dof with the cells of the dofs it constrains.
+      // Constraint elimination can couple master DoFs that do not share a
+      // cell with the constrained DoF. Add the complete constraint graph to
+      // the sparsity pattern before assembling either static or dynamic
+      // matrices.
       DoFTools::make_sparsity_pattern(dh, dsp, constraints, true);
       std::vector<types::global_dof_index> cell_dofs(fe->n_dofs_per_cell());
       for (const auto &cell : dh.active_cell_iterators())
         if (cell->is_locally_owned())
           {
             cell->get_dof_indices(cell_dofs);
-            for (const auto i : cell_dofs)
-              if (constraints.is_constrained(i))
-                {
-                  const auto *entries = constraints.get_constraint_entries(i);
-                  if (entries != nullptr)
-                    for (const auto &entry : *entries)
-                      for (const auto j : cell_dofs)
-                        dsp.add(entry.first, j);
-                }
+            constraints.add_entries_local_to_global(cell_dofs,
+                                                    constraints,
+                                                    cell_dofs,
+                                                    dsp);
           }
       SparsityTools::distribute_sparsity_pattern(dsp,
                                                  owned_dofs[0],
@@ -545,9 +536,6 @@ namespace ImmersX
 
     par.rhs.set_time(current_time);
     par.set_boundary_condition_times(current_time);
-    AffineConstraints<double> no_column_constraints;
-    no_column_constraints.close();
-
     FEValues<spacedim>     fe_values(*fe,
                                  *quadrature,
                                  update_values | update_gradients |
@@ -755,13 +743,9 @@ namespace ImmersX
 
               constraints.distribute_local_to_global(cell_mass,
                                                      local_dof_indices,
-                                                     no_column_constraints,
-                                                     local_dof_indices,
                                                      mass_matrix);
 
               constraints.distribute_local_to_global(cell_damping,
-                                                     local_dof_indices,
-                                                     no_column_constraints,
                                                      local_dof_indices,
                                                      damping_matrix);
             }
@@ -784,10 +768,7 @@ namespace ImmersX
             {
               // Static and quasi-static solves operate on the fully constrained
               // system: constrained rows become identity rows and constrained
-              // columns are eliminated into the right hand side. The dynamic
-              // solve keeps the row-only distribution below so that the
-              // acceleration boundary conditions can be imposed after the
-              // solve.
+              // columns are eliminated into the right hand side.
               constraints.distribute_local_to_global(cell_stiffness,
                                                      cell_rhs,
                                                      local_dof_indices,
@@ -797,8 +778,6 @@ namespace ImmersX
           else
             {
               constraints.distribute_local_to_global(cell_stiffness,
-                                                     local_dof_indices,
-                                                     no_column_constraints,
                                                      local_dof_indices,
                                                      stiffness_matrix);
               constraints.distribute_local_to_global(cell_rhs,
@@ -820,8 +799,6 @@ namespace ImmersX
 
               constraints.distribute_local_to_global(cell_newmark,
                                                      local_dof_indices,
-                                                     no_column_constraints,
-                                                     local_dof_indices,
                                                      newmark_matrix);
             }
         }
@@ -831,24 +808,6 @@ namespace ImmersX
         mass_matrix.compress(VectorOperation::add);
         damping_matrix.compress(VectorOperation::add);
         newmark_matrix.compress(VectorOperation::add);
-
-        // The row-only distribution above deliberately leaves constrained
-        // columns in the dynamic operators. Its rectangular-constraint
-        // overload does not add diagonal entries for constrained rows, so
-        // make those rows identity rows before using the operators in a
-        // linear solve.
-        for (const auto dof : owned_dofs[0])
-          if (constraints.is_constrained(dof))
-            {
-              mass_matrix.set(dof, dof, 1.);
-              damping_matrix.set(dof, dof, 1.);
-              newmark_matrix.set(dof, dof, 1.);
-              stiffness_matrix.set(dof, dof, 1.);
-            }
-        mass_matrix.compress(VectorOperation::insert);
-        damping_matrix.compress(VectorOperation::insert);
-        newmark_matrix.compress(VectorOperation::insert);
-        stiffness_matrix.compress(VectorOperation::insert);
       }
 
     system_rhs.compress(VectorOperation::add);
@@ -1699,20 +1658,12 @@ namespace ImmersX
                                  displacement_tolerance,
                                  par.displacement_solver_control.log_history(),
                                  par.displacement_solver_control.log_result());
-    SolverFGMRES<LA::MPI::Vector> solver_stiffness(solver_control);
+    SolverCG<LA::MPI::Vector> solver_stiffness(solver_control);
 
-    const auto log_newmark_diagnostics = [&]() {
-      if (!par.displacement_solver_control.log_result())
-        return;
-
-      LA::MPI::Vector residual;
-      residual.reinit(a);
-      newmark_matrix.vmult(residual, a);
-      residual -= acceleration_rhs;
-      pcout << "   Newmark diagnostics: ||rhs||_2 = "
-            << acceleration_rhs.l2_norm() << ", ||a||_2 = " << a.l2_norm()
-            << ", ||residual||_2 = " << residual.l2_norm()
-            << ", iterations = " << solver_control.last_step() << std::endl;
+    const auto set_acceleration_constraint_rhs = [&]() {
+      for (const auto &line : acceleration_constraints.get_lines())
+        if (acceleration_rhs.in_local_range(line.index))
+          acceleration_rhs[line.index] = line.inhomogeneity;
     };
 
     if (par.elasticity_model == ElasticityModel::LinearElasticity ||
@@ -1722,7 +1673,10 @@ namespace ImmersX
           {
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
-            acceleration_constraints.distribute(acceleration_rhs);
+            set_acceleration_constraint_rhs();
+            // Start from a vector satisfying the same time-dependent
+            // constraints as the acceleration right-hand side.
+            acceleration_constraints.distribute(a);
             solver_control.set_tolerance(
               std::max(par.displacement_solver_control.tolerance(),
                        par.displacement_solver_control.reduction() *
@@ -1731,7 +1685,6 @@ namespace ImmersX
                                    a,
                                    acceleration_rhs,
                                    prec_newmark);
-            log_newmark_diagnostics();
           }
         else
           {
@@ -1753,10 +1706,11 @@ namespace ImmersX
             pcout << "   Inner mass iterations for lambda = "
                   << par.reduced_mass_solver_control.last_step() << std::endl;
 
-            acceleration_rhs += Bt * lambda;
-            acceleration_rhs -= D * v_pred;
-            acceleration_rhs -= A * u_pred;
-            acceleration_constraints.distribute(acceleration_rhs);
+            acceleration_rhs += Bt * lambda - D * v_pred - A * u_pred;
+            set_acceleration_constraint_rhs();
+            // Start from a vector satisfying the same time-dependent
+            // constraints as the acceleration right-hand side.
+            acceleration_constraints.distribute(a);
             solver_control.set_tolerance(
               std::max(par.displacement_solver_control.tolerance(),
                        par.displacement_solver_control.reduction() *
@@ -1765,7 +1719,6 @@ namespace ImmersX
                                    a,
                                    acceleration_rhs,
                                    prec_newmark);
-            log_newmark_diagnostics();
           }
       }
     else
@@ -1780,12 +1733,8 @@ namespace ImmersX
                    beta * a;
     v = v_pred + par.time_parameters.time_step * gamma * a;
 
-    pcout << "   Inner displacement iterations for u = "
-          << par.displacement_solver_control.last_step() << std::endl;
-
-    pcout << "   u max: " << u.max() << std::endl;
-
     constraints.distribute(u);
+    constraints.distribute(v);
     distribute_multiplier_solution(lambda);
     locally_relevant_solution = solution;
   }
@@ -2626,6 +2575,9 @@ namespace ImmersX
             }
 
           initial_acceleration_constraints.distribute(rhs);
+          for (const auto &line : initial_acceleration_constraints.get_lines())
+            if (rhs.in_local_range(line.index))
+              rhs[line.index] = line.inhomogeneity;
           const auto   amgC = linear_operator(C, prec_C);
           const double mass_tolerance =
             std::max(par.displacement_solver_control.tolerance(),
@@ -2639,19 +2591,6 @@ namespace ImmersX
           SolverFGMRES<LA::MPI::Vector> solver_mass(mass_solver_control);
           const auto invC = inverse_operator(C, solver_mass, amgC);
           a               = invC * rhs;
-
-          if (par.displacement_solver_control.log_result())
-            {
-              LA::MPI::Vector residual;
-              residual.reinit(a);
-              mass_matrix.vmult(residual, a);
-              residual -= rhs;
-              pcout << "   Initial acceleration diagnostics: ||rhs||_2 = "
-                    << rhs.l2_norm() << ", ||a||_2 = " << a.l2_norm()
-                    << ", ||residual||_2 = " << residual.l2_norm()
-                    << ", iterations = " << mass_solver_control.last_step()
-                    << std::endl;
-            }
         }
 
         locally_relevant_solution = solution;
@@ -2667,41 +2606,6 @@ namespace ImmersX
           parameter_list_newmark.set("coarse: type", "Amesos-KLU");
           parameter_list_newmark.set("coarse: max size", 2000);
           parameter_list_newmark.set("aggregation: threshold", 0.02);
-
-#if DEAL_II_VERSION_GTE(9, 7, 0)
-          using RigidBodyVectorType = std::vector<double>;
-
-          MappingQ1<spacedim>              mapping;
-          std::vector<std::vector<double>> rigid_body_modes =
-            DoFTools::extract_rigid_body_modes(mapping, dh);
-#else
-          using RigidBodyVectorType =
-            LinearAlgebra::distributed::Vector<double>;
-
-          std::vector<RigidBodyVectorType> rigid_body_modes(spacedim == 3 ? 6 :
-                                                                            3);
-
-          const auto locally_relevant_dofs =
-            DoFTools::extract_locally_relevant_dofs(dh);
-
-          for (unsigned int i = 0; i < rigid_body_modes.size(); ++i)
-            {
-              rigid_body_modes[i].reinit(dh.locally_owned_dofs(),
-                                         locally_relevant_dofs,
-                                         mpi_communicator);
-
-              RigidBodyMotion<spacedim> rbm(i);
-              VectorTools::interpolate(dh, rbm, rigid_body_modes[i]);
-            }
-#endif
-
-          std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
-
-          UtilitiesAL::set_null_space<spacedim, RigidBodyVectorType>(
-            parameter_list_newmark,
-            ptr_operator_modes,
-            newmark_matrix.trilinos_matrix(),
-            rigid_body_modes);
 
           prec_newmark.clear();
           prec_newmark.initialize(newmark_matrix, parameter_list_newmark);
