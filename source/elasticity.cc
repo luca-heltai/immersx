@@ -2588,7 +2588,7 @@ namespace ImmersX
             mass_tolerance,
             par.displacement_solver_control.log_history(),
             par.displacement_solver_control.log_result());
-          SolverFGMRES<LA::MPI::Vector> solver_mass(mass_solver_control);
+          SolverCG<LA::MPI::Vector> solver_mass(mass_solver_control);
           const auto invC = inverse_operator(C, solver_mass, amgC);
           a               = invC * rhs;
         }
