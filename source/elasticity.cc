@@ -913,6 +913,19 @@ namespace ImmersX
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          bool has_strong_dirichlet_face = false;
+          for (const auto &f : cell->face_indices())
+            if (cell->face(f)->at_boundary() &&
+                par.dirichlet_ids.find(cell->face(f)->boundary_id()) !=
+                  par.dirichlet_ids.end())
+              {
+                has_strong_dirichlet_face = true;
+                break;
+              }
+
+          if (!has_strong_dirichlet_face)
+            continue;
+
           const auto &mp     = par.get_material_properties(cell->material_id());
           cell_value         = 0;
           cell_grad          = 0;
