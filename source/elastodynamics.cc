@@ -797,6 +797,11 @@ namespace ImmersX
     damping_matrix_storage.vmult(work, velocity_storage);
     rhs -= work;
 
+    // The constrained mass matrix below has its constrained columns removed.
+    // Move the corresponding inhomogeneous acceleration values to the right
+    // hand side before solving the unconstrained rows.
+    add_initial_acceleration_constraint_rhs(rhs);
+
     for (const auto index : velocity_storage.locally_owned_elements())
       if (velocity_constraints_storage.is_constrained(index))
         rhs(index) = 0.;
@@ -829,6 +834,50 @@ namespace ImmersX
     SolverGMRES<VectorType> solver(control);
     solver.solve(constrained_mass, acceleration, rhs, preconditioner);
     velocity_constraints_storage.distribute(acceleration);
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::add_initial_acceleration_constraint_rhs(
+    VectorType &rhs) const
+  {
+    FEValues<dim, spacedim>          fe_values(*fe_storage,
+                                      *quadrature,
+                                      update_values | update_JxW_values);
+    const FEValuesExtractors::Vector vector_field(0);
+    const unsigned int dofs_per_cell = fe_storage->n_dofs_per_cell();
+    const unsigned int n_q_points    = quadrature->size();
+
+    FullMatrix<double>               cell_mass(dofs_per_cell, dofs_per_cell);
+    Vector<double>                   zero_local_rhs(dofs_per_cell);
+    std::vector<Tensor<1, spacedim>> values(dofs_per_cell);
+    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell_mass      = 0.;
+          zero_local_rhs = 0.;
+          fe_values.reinit(cell);
+
+          for (unsigned int q = 0; q < n_q_points; ++q)
+            {
+              for (unsigned int k = 0; k < dofs_per_cell; ++k)
+                values[k] = fe_values[vector_field].value(k, q);
+
+              for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                  cell_mass(i, j) +=
+                    par.density * (values[i] * values[j]) * fe_values.JxW(q);
+            }
+
+          cell->get_dof_indices(local_dof_indices);
+          velocity_constraints_storage.distribute_local_to_global(
+            zero_local_rhs, local_dof_indices, rhs, cell_mass);
+        }
+
+    rhs.compress(VectorOperation::add);
   }
 
 
