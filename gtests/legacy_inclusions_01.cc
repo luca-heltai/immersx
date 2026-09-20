@@ -144,15 +144,8 @@ check_segment_3d_measure()
   EXPECT_NEAR(global_measure, expected_measure, 1e-2);
 }
 
-TEST(LegacyInclusions, Segment3DMeasureUsesCellJacobian)
+TEST(LegacyInclusions, BOTH_Segment3DMeasureUsesCellJacobian)
 {
-  check_segment_3d_measure();
-}
-
-TEST(LegacyInclusions, MPI_Segment3DMeasureUsesCellJacobian)
-{
-  if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1)
-    return;
   check_segment_3d_measure();
 }
 

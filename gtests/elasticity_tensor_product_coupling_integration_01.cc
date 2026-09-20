@@ -12,22 +12,25 @@ using namespace dealii;
 namespace
 {
   void
-  configure_tensor_product_parameters(ElasticityProblemParameters<2, 3> &par)
+  configure_tensor_product_parameters(
+    ElasticityProblemParameters<2, 3> &par,
+    const std::string &dirichlet_expression = "0; 0; 0.01*sin(2*pi*50*t)")
   {
     initialize_parameters();
-    ParameterAcceptor::prm.parse_input_from_string(R"(
-      subsection Functions
-        subsection Dirichlet boundary conditions
-          set Function expression = 0; 0; 0.01*sin(2*pi*50*t)
-        end
-        subsection Right hand side
-          set Function expression = 0; 0; 0
-        end
-        subsection Exact solution
-          set Function expression = 0; 0; 0
-        end
-      end
-    )");
+    ParameterAcceptor::prm.parse_input_from_string(
+      "subsection Functions\n"
+      "  subsection Dirichlet boundary conditions\n"
+      "    set Function expression = " +
+      dirichlet_expression +
+      "\n"
+      "  end\n"
+      "  subsection Right hand side\n"
+      "    set Function expression = 0; 0; 0\n"
+      "  end\n"
+      "  subsection Exact solution\n"
+      "    set Function expression = 0; 0; 0\n"
+      "  end\n"
+      "end\n");
     ParameterAcceptor::parse_all_parameters();
 
     par.coupling_type                           = CouplingType::TensorProduct;
@@ -119,5 +122,39 @@ TEST(ElasticityCouplingIntegrationValidation,
 
   EXPECT_TRUE(std::isfinite(problem.solution.block(0).l2_norm()));
   EXPECT_TRUE(std::isfinite(problem.solution.block(1).l2_norm()));
+  EXPECT_LT(problem.solution.block(0).linfty_norm(), 1.e3);
+}
+
+
+TEST(ElasticityCouplingIntegrationValidation,
+     BOTH_DynamicStrongConstraintsWithLocalRefinementRemainFinite)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<2, 3> par;
+  configure_tensor_product_parameters(par, "0; 0; 0");
+
+  par.output_directory =
+    TestPaths::output_directory("elasticity-issue-203-small");
+  std::filesystem::create_directories(par.output_directory);
+  par.time_parameters.initial_time    = 0.;
+  par.time_parameters.final_time      = 2.e-2;
+  par.time_parameters.time_step       = 1.e-3;
+  par.default_material_properties.rho = 1.;
+  par.tensor_product_coupling_parameters.refinement_parameters
+    .refinement_strategy = "space";
+  // On this small fixture, level two is the smallest cap that creates a
+  // locally refined background mesh and therefore hanging-node constraints.
+  par.tensor_product_coupling_parameters.refinement_parameters
+    .max_refinement_level                                         = 2;
+  par.tensor_product_coupling_parameters.coupling_rhs_expressions = {
+    "sin(2*pi*t)", "sin(2*pi*t)", "sin(2*pi*t)"};
+  par.check_model_consistency();
+
+  ElasticityProblem<2, 3> problem(par);
+  ASSERT_NO_THROW(problem.run());
+
+  EXPECT_TRUE(std::isfinite(problem.solution.block(0).l2_norm()));
+  EXPECT_TRUE(std::isfinite(problem.solution.block(1).l2_norm()));
+  EXPECT_GT(problem.solution.block(0).linfty_norm(), 1.e-12);
   EXPECT_LT(problem.solution.block(0).linfty_norm(), 1.e3);
 }

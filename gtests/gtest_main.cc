@@ -36,19 +36,22 @@ main(int argc, char *argv[])
       if (filter.empty() || filter == "*")
         filter = "*-" + std::string(mpi_test_pattern);
       else if (filter.find("-*.MPI_*") == std::string::npos &&
-               filter.find("MPI_") == std::string::npos)
+               filter.find("MPI_") == std::string::npos &&
+               filter.find("BOTH_") == std::string::npos)
         filter += "-" + std::string(mpi_test_pattern);
 
       ::testing::GTEST_FLAG(filter) = filter;
     }
   else
     {
-      constexpr const char *mpi_test_pattern = "*.MPI_*";
-      std::string           filter           = ::testing::GTEST_FLAG(filter);
+      constexpr const char *mpi_test_pattern  = "*.MPI_*";
+      constexpr const char *both_test_pattern = "*.BOTH_*";
+      std::string           filter            = ::testing::GTEST_FLAG(filter);
 
       if (filter.empty() || filter == "*")
-        filter = mpi_test_pattern;
-      else if (filter.find("MPI_") == std::string::npos)
+        filter = std::string(mpi_test_pattern) + ":" + both_test_pattern;
+      else if (filter.find("MPI_") == std::string::npos &&
+               filter.find("BOTH_") == std::string::npos)
         filter += ":" + std::string(mpi_test_pattern);
 
       ::testing::GTEST_FLAG(filter) = filter;

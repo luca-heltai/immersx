@@ -109,11 +109,11 @@ background_tria.get_mpi_communicator()
 
     const unsigned int n_mode_values =
       this->get_reference_cross_section().n_selected_basis() * n_components;
-    ParticleCoupling<spacedim>::initialize_particle_handler(
-      *this->background_tria, mapping, 1 + n_mode_values);
 
     if constexpr (reduced_dim == 0)
       {
+        ParticleCoupling<spacedim>::initialize_particle_handler(
+          *this->background_tria, mapping, 1 + n_mode_values);
         if (!prepared_for_refinement)
           this->prepare();
         this->initialize_representative_particle_handler(
@@ -121,8 +121,16 @@ background_tria.get_mpi_communicator()
         this->compute_points_and_weights();
       }
     else
-      TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
-        initialize();
+      {
+        // Repartition the reduced mesh before constructing the background
+        // particle handler. The repartitioning establishes the distributed
+        // ownership state used to build the background bounding boxes.
+        TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+          initialize();
+
+        ParticleCoupling<spacedim>::initialize_particle_handler(
+          *this->background_tria, mapping, 1 + n_mode_values);
+      }
 
     // Initialize lifted particles only after representative ownership has been
     // established. Their quadrature weights remain particle properties; the 0D
