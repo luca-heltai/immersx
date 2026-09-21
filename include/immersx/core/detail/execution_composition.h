@@ -15,6 +15,7 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/linear_operator_tools.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/vector_memory.h>
 
@@ -32,6 +33,17 @@
 
 namespace ImmersX::detail
 {
+  /** Transfer values between distributed vectors with different ownership. */
+  template <typename VectorType>
+  void
+  copy_vector_values(VectorType &destination, const VectorType &source)
+  {
+    dealii::LinearAlgebra::ReadWriteVector<typename VectorType::value_type>
+      transferred(destination.locally_owned_elements());
+    transferred.import_elements(source, dealii::VectorOperation::insert);
+    destination.import_elements(transferred, dealii::VectorOperation::insert);
+  }
+
   /** Internal semantic-field to distributed-block mapping. */
   template <typename FieldVectorType, typename GlobalBlockVectorType>
   class BlockFieldLayout
@@ -649,7 +661,13 @@ namespace ImmersX::detail
         derivative_context.emplace(0., state_view, nullptr);
       const auto &context = *derivative_context;
 
-      std::vector<LocalOperator> terms;
+      struct SchurTerm
+      {
+        LocalOperator coupling;
+        LocalOperator transpose_coupling;
+        LocalOperator inverse;
+      };
+      std::vector<SchurTerm> terms;
       terms.reserve(metadata->participants.size());
       for (const auto participant : metadata->participants)
         {
@@ -659,16 +677,87 @@ namespace ImmersX::detail
                       dealii::ExcMessage(
                         "Schur construction requires a local inverse for "
                         "every participant field."));
-          const auto to_multiplier =
-            model_.state_operator(multiplier, participant, context);
-          const auto from_multiplier =
-            model_.state_operator(participant, multiplier, context);
-          terms.push_back(to_multiplier * *inverse * from_multiplier);
+          terms.push_back(
+            {model_.state_operator(multiplier, participant, context),
+             model_.state_operator(participant, multiplier, context),
+             *inverse});
         }
 
-      LocalOperator result = terms.front();
-      for (std::size_t i = 1; i < terms.size(); ++i)
-        result += terms[i];
+      const auto multiplier_owned = layout_.field(multiplier).locally_owned;
+      const auto communicator     = communicator_;
+      auto       vector_memory =
+        std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
+      LocalOperator result;
+      result.reinit_range_vector =
+        [multiplier_owned, communicator](FieldVectorType &vector, const bool) {
+          vector.reinit(multiplier_owned, communicator);
+        };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      auto apply = [terms, vector_memory](FieldVectorType       &dst,
+                                          const FieldVectorType &src,
+                                          const bool             transpose) {
+        dst = 0.;
+        for (const auto &term : terms)
+          {
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_rhs(*vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer inverse_rhs(
+              *vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              participant_solution(*vector_memory);
+            typename dealii::VectorMemory<FieldVectorType>::Pointer
+              coupling_solution(*vector_memory);
+            if (!transpose)
+              {
+                term.transpose_coupling.reinit_range_vector(*participant_rhs,
+                                                            false);
+                term.transpose_coupling.vmult(*participant_rhs, src);
+                term.inverse.reinit_domain_vector(*inverse_rhs, false);
+                copy_vector_values(*inverse_rhs, *participant_rhs);
+                term.inverse.reinit_range_vector(*participant_solution, false);
+                term.inverse.vmult(*participant_solution, *inverse_rhs);
+                term.coupling.reinit_domain_vector(*coupling_solution, false);
+                copy_vector_values(*coupling_solution, *participant_solution);
+                term.coupling.vmult_add(dst, *coupling_solution);
+              }
+            else
+              {
+                term.coupling.reinit_domain_vector(*participant_rhs, false);
+                term.coupling.Tvmult(*participant_rhs, src);
+                term.inverse.reinit_range_vector(*inverse_rhs, false);
+                copy_vector_values(*inverse_rhs, *participant_rhs);
+                term.inverse.reinit_domain_vector(*participant_solution, false);
+                term.inverse.Tvmult(*participant_solution, *inverse_rhs);
+                term.transpose_coupling.reinit_range_vector(*coupling_solution,
+                                                            false);
+                copy_vector_values(*coupling_solution, *participant_solution);
+                term.transpose_coupling.Tvmult_add(dst, *coupling_solution);
+              }
+          }
+      };
+      result.vmult = [apply](FieldVectorType &dst, const FieldVectorType &src) {
+        apply(dst, src, false);
+      };
+      result.vmult_add = [apply, vector_memory](FieldVectorType       &dst,
+                                                const FieldVectorType &src) {
+        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, false);
+        dst += *contribution;
+      };
+      result.Tvmult = [apply](FieldVectorType       &dst,
+                              const FieldVectorType &src) {
+        apply(dst, src, true);
+      };
+      result.Tvmult_add = [apply, vector_memory](FieldVectorType       &dst,
+                                                 const FieldVectorType &src) {
+        typename dealii::VectorMemory<FieldVectorType>::Pointer contribution(
+          *vector_memory);
+        contribution->reinit(dst);
+        apply(*contribution, src, true);
+        dst += *contribution;
+      };
       return result;
     }
 
