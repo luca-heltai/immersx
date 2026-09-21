@@ -20,3 +20,12 @@ repository.
 
 Older merged pull requests should be added as one dated entry per coherent
 change, rather than as a mechanically generated commit dump.
+
+```{toctree}
+:hidden:
+
+2026-09-17-lheltai-issue-203
+2026-09-15-pr-204-transient-time
+2026-09-14-pr-202-elastodynamics-mms
+2026-09-11-pr-201-debugrelease
+```
