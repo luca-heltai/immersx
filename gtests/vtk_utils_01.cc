@@ -127,7 +127,7 @@ TEST(VTKUtils, ReadPointDataScalar)
   EXPECT_EQ(output_vector.size(), 10);
 }
 
-TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
+TEST(VTKUtils, Serial_ReadPointDataScalarAndIndexIt)
 {
   std::string vtk_filename =
     ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");
@@ -151,7 +151,7 @@ TEST(VTKUtils, ReadPointDataScalarAndIndexIt)
                 << std::endl;
 }
 
-TEST(VTKUtils, MPI_ReadPointDataScalarAndIndexIt)
+TEST(VTKUtils, MPI_MapDistributedPointDataScalarAndIndexIt)
 {
   std::string vtk_filename =
     ImmersX::TestPaths::data_filename("tests/mstree_10.vtk");

@@ -255,25 +255,13 @@ namespace
   }
 } // namespace
 
-TEST(ImportedFiniteElementFields, DistributedRefinementTransfersPointData)
+TEST(ImportedFiniteElementFields, BOTH_DistributedRefinementTransfersPointData)
 {
   check_distributed_refinement();
 }
 
-TEST(ImportedFiniteElementFields, MPI_DistributedRefinementTransfersPointData)
+TEST(ImportedFiniteElementFields, BOTH_DistributedRefinementTransfersCellData)
 {
-  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
-  check_distributed_refinement();
-}
-
-TEST(ImportedFiniteElementFields, DistributedRefinementTransfersCellData)
-{
-  check_cell_data_refinement();
-}
-
-TEST(ImportedFiniteElementFields, MPI_DistributedRefinementTransfersCellData)
-{
-  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
   check_cell_data_refinement();
 }
 #endif

@@ -373,6 +373,9 @@ namespace ImmersX
     assemble_body_force(double time);
 
     void
+    add_initial_acceleration_constraint_rhs(VectorType &rhs) const;
+
+    void
     assemble_backward_euler_system(const VectorType &previous_displacement,
                                    const VectorType &previous_velocity,
                                    double            dt);

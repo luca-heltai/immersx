@@ -88,13 +88,7 @@ namespace
   }
 } // namespace
 
-TEST(ReducedCoupling, FieldDependentRhsUsesInterpolatedFields)
-{
-  ParameterAcceptor::clear();
-  check_field_dependent_reduced_rhs();
-}
-
-TEST(ReducedCoupling, MPI_FieldDependentRhsUsesInterpolatedFields)
+TEST(ReducedCoupling, BOTH_FieldDependentRhsUsesInterpolatedFields)
 {
   ParameterAcceptor::clear();
   check_field_dependent_reduced_rhs();

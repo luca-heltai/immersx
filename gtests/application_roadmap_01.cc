@@ -471,14 +471,8 @@ check_p1g2_embedded_source()
   EXPECT_GT(problem.solution().l2_norm(), 1.e-12);
 }
 
-TEST(ApplicationRoadmap, P1G2UsesFrozenEmbeddedSourceForBulkForcing)
+TEST(ApplicationRoadmap, BOTH_P1G2UsesFrozenEmbeddedSourceForBulkForcing)
 {
-  check_p1g2_embedded_source();
-}
-
-TEST(ApplicationRoadmap, MPI_P1G2UsesFrozenEmbeddedSourceForBulkForcing)
-{
-  ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
   check_p1g2_embedded_source();
 }
 
@@ -804,14 +798,9 @@ check_p3g2_mixed_dimensional_fiber(const std::string &output_prefix)
   EXPECT_TRUE(output_has_field(interaction_directory, "multiplier_0"));
 }
 
-TEST(ApplicationRoadmap, P3G2UsesMixedDimensionalFiberElastodynamics)
+TEST(ApplicationRoadmap, BOTH_P3G2UsesMixedDimensionalFiberElastodynamics)
 {
   check_p3g2_mixed_dimensional_fiber("p3-g2");
-}
-
-TEST(ApplicationRoadmap, MPI_P3G2UsesMixedDimensionalFiberElastodynamics)
-{
-  check_p3g2_mixed_dimensional_fiber("p3-g2-mpi");
 }
 #endif
 
@@ -999,12 +988,7 @@ check_p3g1_tied_elasticity(const std::string &output_prefix)
     output_has_field(second_parameters.output_directory, "multiplier_0"));
 }
 
-TEST(ApplicationRoadmap, P3G1UsesNonmatchingTiedElasticity)
+TEST(ApplicationRoadmap, BOTH_P3G1UsesNonmatchingTiedElasticity)
 {
   check_p3g1_tied_elasticity("p3-g1");
-}
-
-TEST(ApplicationRoadmap, MPI_P3G1UsesNonmatchingTiedElasticity)
-{
-  check_p3g1_tied_elasticity("p3-g1-mpi");
 }

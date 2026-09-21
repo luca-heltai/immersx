@@ -32,5 +32,6 @@ tutorials/index
 concepts/index
 reference/index
 developer/index
+changes/index
 about/index
 ```

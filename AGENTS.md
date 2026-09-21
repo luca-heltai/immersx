@@ -350,10 +350,26 @@ is applied to all unit and integration tests, and `mpi` is orthogonal. Pull
 requests run `ctest -L quick`; pushes to `master` run the full CTest manifest.
 CI must not rerun the aggregate GoogleTest executable outside CTest.
 
-A GoogleTest intended for MPI execution must contain `MPI_` in the test name.
+A GoogleTest intended only for MPI execution must contain `MPI_` in the test
+name. A GoogleTest intended to run in both serial and MPI modes must contain
+`BOTH_` in the test name. Tests without either marker are serial-only.
 
-The common test driver uses this naming convention to select serial versus MPI
-tests.
+The common test driver uses these markers to select tests:
+
+- serial execution runs serial-only and `BOTH_` tests, but excludes `MPI_`
+  tests;
+- MPI execution runs `MPI_` and `BOTH_` tests, but excludes unmarked
+  serial-only tests.
+
+Use `BOTH_` when the test body and expected behavior are identical in serial
+and MPI. Use separate tests when the serial and MPI cases need different setup,
+assertions, or execution paths.
+
+The marker belongs in the GoogleTest name component, not only in the suite
+name. A test that is expected to pass in both modes must therefore be named,
+for example, `BOTH_TransientConstraintSolve`, even if it uses a distributed
+triangulation internally. A test that requires multiple ranks must be named
+`MPI_...` and should assert the required rank count when applicable.
 
 Examples:
 
@@ -367,7 +383,38 @@ and
 TEST(MyFeature, MPI_DistributedBehavior)
 ```
 
+and
+
+```cpp
+TEST(MyFeature, BOTH_SerialAndDistributedBehavior)
+```
+
 Tests must not depend on their working directory.
+
+For focused runs, prefer the `GTEST_FILTER` environment variable:
+
+```bash
+GTEST_FILTER='SuiteName.TestName' \
+  /path/to/build-debug/gtests/gtests_debug
+
+mpirun -np 2 \
+  -x GTEST_FILTER='SuiteName.MPI_TestName' \
+  /path/to/build-debug/gtests/gtests_debug
+```
+
+This avoids passing `--gtest_filter` through deal.II's `ParameterHandler`,
+which otherwise reports the GoogleTest option as an unused database option.
+The driver applies its serial/MPI marker filter automatically for default
+runs. With an explicit filter, name the desired `MPI_` or `BOTH_` test
+explicitly; do not use a broad suite filter when the distinction between
+serial-only and MPI tests matters.
+
+Tests for constrained time-dependent problems must include nonzero forcing or
+nonzero time-dependent boundary data. A zero-forcing test can remain exactly
+zero and does not exercise the constrained right-hand-side assembly. When the
+regression concerns hanging-node constraints, the fixture must also use local
+refinement or another mesh with hanging nodes, and should be marked `BOTH_` if
+the same assertions apply in serial and MPI.
 
 When relevant, validate the GoogleTest executable from:
 

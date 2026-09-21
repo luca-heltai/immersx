@@ -149,7 +149,7 @@ namespace
   }
 } // namespace
 
-TEST(ElasticStaticDimensions, AllSupportedCombinations)
+TEST(ElasticStaticDimensions, Serial_FullyDistributedBackendAllCombinations)
 {
   check_static_problem<1, 1>(false);
   check_static_problem<1, 2>(false);
@@ -159,7 +159,7 @@ TEST(ElasticStaticDimensions, AllSupportedCombinations)
   check_static_problem<3, 3>(false);
 }
 
-TEST(ElasticStaticDimensions, MPI_AllSupportedCombinations)
+TEST(ElasticStaticDimensions, MPI_DistributedBackendAllCombinations)
 {
   check_static_problem<1, 1>(true);
   check_static_problem<1, 2>(true);
