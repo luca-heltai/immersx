@@ -357,6 +357,31 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
+  ElasticityProblem<dim, spacedim>::make_newmark_value_constraints(
+    const LA::MPI::Vector           &values,
+    const AffineConstraints<double> &reference_constraints,
+    AffineConstraints<double>       &value_constraints) const
+  {
+    LA::MPI::Vector locally_relevant_values;
+    locally_relevant_values.reinit(owned_dofs[0],
+                                   relevant_dofs[0],
+                                   mpi_communicator);
+    locally_relevant_values = values;
+    locally_relevant_values.update_ghost_values();
+
+    value_constraints.copy_from(reference_constraints);
+    for (const auto &line : value_constraints.get_lines())
+      {
+        double inhomogeneity = locally_relevant_values(line.index);
+        for (const auto &entry : line.entries)
+          inhomogeneity -= entry.second * locally_relevant_values(entry.first);
+        value_constraints.set_inhomogeneity(line.index, inhomogeneity);
+      }
+  }
+
+
+  template <int dim, int spacedim>
+  void
   ElasticityProblem<dim, spacedim>::make_newmark_acceleration_constraints(
     const LA::MPI::Vector     &displacement_predictor,
     AffineConstraints<double> &acceleration_constraints) const
@@ -877,7 +902,8 @@ namespace ImmersX
   template <int dim, int spacedim>
   void
   ElasticityProblem<dim, spacedim>::add_dynamic_constraint_rhs(
-    const AffineConstraints<double> &predictor_constraints,
+    const AffineConstraints<double> &displacement_predictor_constraints,
+    const AffineConstraints<double> &velocity_predictor_constraints,
     const AffineConstraints<double> &acceleration_constraints,
     LA::MPI::Vector                 &rhs) const
   {
@@ -1024,14 +1050,10 @@ namespace ImmersX
                              par.time_parameters.time_step,
                            cell_damping);
 
-          predictor_constraints.distribute_local_to_global(zero_local_rhs,
-                                                           local_dof_indices,
-                                                           rhs,
-                                                           cell_damping);
-          predictor_constraints.distribute_local_to_global(zero_local_rhs,
-                                                           local_dof_indices,
-                                                           rhs,
-                                                           cell_stiffness);
+          velocity_predictor_constraints.distribute_local_to_global(
+            zero_local_rhs, local_dof_indices, rhs, cell_damping);
+          displacement_predictor_constraints.distribute_local_to_global(
+            zero_local_rhs, local_dof_indices, rhs, cell_stiffness);
           acceleration_constraints.distribute_local_to_global(zero_local_rhs,
                                                               local_dof_indices,
                                                               rhs,
@@ -1809,6 +1831,15 @@ namespace ImmersX
         (1 - 2 * beta) * a;
     v_pred = v + par.time_parameters.time_step * (1 - gamma) * a;
 
+    AffineConstraints<double> displacement_predictor_constraints;
+    AffineConstraints<double> velocity_predictor_constraints;
+    make_newmark_value_constraints(u_pred,
+                                   predictor_constraints,
+                                   displacement_predictor_constraints);
+    make_newmark_value_constraints(v_pred,
+                                   predictor_constraints,
+                                   velocity_predictor_constraints);
+
     par.set_boundary_condition_times(current_time +
                                      par.time_parameters.time_step);
     setup_constraints();
@@ -1843,17 +1874,6 @@ namespace ImmersX
           {
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
-            // Start from a vector satisfying the same time-dependent
-            // constraints as the acceleration right-hand side.
-            acceleration_constraints.distribute(a);
-            solver_control.set_tolerance(
-              std::max(par.displacement_solver_control.tolerance(),
-                       par.displacement_solver_control.reduction() *
-                         acceleration_rhs.l2_norm()));
-            solver_stiffness.solve(newmark_matrix,
-                                   a,
-                                   acceleration_rhs,
-                                   prec_newmark);
           }
         else
           {
@@ -1876,17 +1896,6 @@ namespace ImmersX
                   << par.reduced_mass_solver_control.last_step() << std::endl;
 
             acceleration_rhs += Bt * lambda - D * v_pred - A * u_pred;
-            // Start from a vector satisfying the same time-dependent
-            // constraints as the acceleration right-hand side.
-            acceleration_constraints.distribute(a);
-            solver_control.set_tolerance(
-              std::max(par.displacement_solver_control.tolerance(),
-                       par.displacement_solver_control.reduction() *
-                         acceleration_rhs.l2_norm()));
-            solver_stiffness.solve(newmark_matrix,
-                                   a,
-                                   acceleration_rhs,
-                                   prec_newmark);
           }
       }
     else
@@ -1894,10 +1903,19 @@ namespace ImmersX
         AssertThrow(false, ExcInternalError());
       }
 
-    add_dynamic_constraint_rhs(predictor_constraints,
+    add_dynamic_constraint_rhs(displacement_predictor_constraints,
+                               velocity_predictor_constraints,
                                acceleration_constraints,
                                acceleration_rhs);
     set_acceleration_constraint_rhs();
+    // Start from a vector satisfying the same time-dependent constraints as
+    // the acceleration right-hand side.
+    acceleration_constraints.distribute(a);
+    solver_control.set_tolerance(
+      std::max(par.displacement_solver_control.tolerance(),
+               par.displacement_solver_control.reduction() *
+                 acceleration_rhs.l2_norm()));
+    solver_stiffness.solve(newmark_matrix, a, acceleration_rhs, prec_newmark);
     acceleration_constraints.distribute(a);
 
     // corrector step
@@ -1906,7 +1924,6 @@ namespace ImmersX
     v = v_pred + par.time_parameters.time_step * gamma * a;
 
     constraints.distribute(u);
-    constraints.distribute(v);
     distribute_multiplier_solution(lambda);
     locally_relevant_solution = solution;
   }
@@ -2722,6 +2739,14 @@ namespace ImmersX
           AffineConstraints<double> initial_acceleration_constraints;
           make_newmark_acceleration_constraints(
             u, initial_acceleration_constraints);
+          AffineConstraints<double> initial_displacement_constraints;
+          AffineConstraints<double> initial_velocity_constraints;
+          make_newmark_value_constraints(u,
+                                         constraints,
+                                         initial_displacement_constraints);
+          make_newmark_value_constraints(v,
+                                         constraints,
+                                         initial_velocity_constraints);
 
           if (n_multiplier_dofs() == 0)
             {
@@ -2746,8 +2771,8 @@ namespace ImmersX
               rhs -= A * u;
             }
 
-          initial_acceleration_constraints.distribute(rhs);
-          add_dynamic_constraint_rhs(constraints,
+          add_dynamic_constraint_rhs(initial_displacement_constraints,
+                                     initial_velocity_constraints,
                                      initial_acceleration_constraints,
                                      rhs);
           for (const auto &line : initial_acceleration_constraints.get_lines())
