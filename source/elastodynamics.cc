@@ -458,6 +458,46 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
+  ElastodynamicsSolver<dim, spacedim>::update_trapezoidal_velocity_constraints(
+    const AffineConstraints<double> &previous_displacement,
+    const AffineConstraints<double> &previous_velocity,
+    const double                     previous_time,
+    const double                     current_time) const
+  {
+    const double dt = current_time - previous_time;
+    AssertThrow(dt > 0., ExcMessage("Time must increase between steps."));
+
+    velocity_constraints_storage.clear();
+    velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
+
+    for (const auto &line : displacement_constraints_storage.get_lines())
+      {
+        velocity_constraints_storage.add_line(line.index);
+        for (const auto &entry : line.entries)
+          velocity_constraints_storage.add_entry(line.index,
+                                                 entry.first,
+                                                 entry.second);
+
+        const double previous_displacement_value =
+          previous_displacement.is_constrained(line.index) ?
+            previous_displacement.get_inhomogeneity(line.index) :
+            0.;
+        const double previous_velocity_value =
+          previous_velocity.is_constrained(line.index) ?
+            previous_velocity.get_inhomogeneity(line.index) :
+            0.;
+        velocity_constraints_storage.set_inhomogeneity(
+          line.index,
+          2. * (line.inhomogeneity - previous_displacement_value) / dt -
+            previous_velocity_value);
+      }
+    velocity_constraints_storage.close();
+    rebuild_combined_constraints();
+  }
+
+
+  template <int dim, int spacedim>
+  void
   ElastodynamicsSolver<dim, spacedim>::update_constraints(
     const double time) const
   {
@@ -1065,9 +1105,142 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
-  ElastodynamicsSolver<dim, spacedim>::solve_backward_euler_system()
+  ElastodynamicsSolver<dim, spacedim>::assemble_trapezoidal_system(
+    const VectorType &previous_displacement,
+    const VectorType &previous_velocity,
+    const VectorType &previous_body_force,
+    const double      dt)
   {
-    TimerOutput::Scope t(computing_timer, "Solve backward-Euler system");
+    TimerOutput::Scope t(computing_timer, "Assemble trapezoidal system");
+    system_matrix_storage = 0.;
+    system_rhs_storage    = 0.;
+
+    locally_relevant_displacement = previous_displacement;
+    locally_relevant_displacement.update_ghost_values();
+    locally_relevant_velocity = previous_velocity;
+    locally_relevant_velocity.update_ghost_values();
+
+    FEValues<dim, spacedim>          fe_values(*fe_storage,
+                                      *quadrature,
+                                      update_values | update_gradients |
+                                        update_JxW_values);
+    const FEValuesExtractors::Vector vector_field(0);
+    const unsigned int dofs_per_cell  = fe_storage->n_dofs_per_cell();
+    const unsigned int n_q_points     = quadrature->size();
+    const auto         n_spatial_dofs = dh.n_dofs();
+
+    FullMatrix<double> cell_mass(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_stiffness(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_damping(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_matrix(2 * dofs_per_cell, 2 * dofs_per_cell);
+    Vector<double>     cell_rhs(2 * dofs_per_cell);
+    std::vector<Tensor<2, spacedim>>     symmetric_gradients(dofs_per_cell);
+    std::vector<double>                  divergences(dofs_per_cell);
+    std::vector<Tensor<1, spacedim>>     values(dofs_per_cell);
+    std::vector<types::global_dof_index> spatial_indices(dofs_per_cell);
+    std::vector<types::global_dof_index> combined_indices(2 * dofs_per_cell);
+
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell_mass      = 0.;
+          cell_stiffness = 0.;
+          cell_damping   = 0.;
+          cell_matrix    = 0.;
+          cell_rhs       = 0.;
+          fe_values.reinit(cell);
+
+          for (unsigned int q = 0; q < n_q_points; ++q)
+            {
+              for (unsigned int k = 0; k < dofs_per_cell; ++k)
+                {
+                  symmetric_gradients[k] =
+                    fe_values[vector_field].symmetric_gradient(k, q);
+                  divergences[k] = fe_values[vector_field].divergence(k, q);
+                  values[k]      = fe_values[vector_field].value(k, q);
+                }
+              for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                  {
+                    const auto jxw = fe_values.JxW(q);
+                    cell_mass(i, j) +=
+                      par.density * (values[i] * values[j]) * jxw;
+                    cell_stiffness(i, j) +=
+                      (2. * par.lame_mu *
+                         scalar_product(symmetric_gradients[i],
+                                        symmetric_gradients[j]) +
+                       par.lame_lambda * divergences[i] * divergences[j]) *
+                      jxw;
+                    cell_damping(i, j) +=
+                      (2. * par.damping_shear *
+                         scalar_product(symmetric_gradients[i],
+                                        symmetric_gradients[j]) +
+                       par.damping_bulk * divergences[i] * divergences[j]) *
+                      jxw;
+                  }
+            }
+
+          cell->get_dof_indices(spatial_indices);
+          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            {
+              combined_indices[i] = spatial_indices[i];
+              combined_indices[dofs_per_cell + i] =
+                n_spatial_dofs + spatial_indices[i];
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                {
+                  // (d^{n+1} - d^n) / dt = (v^n + v^{n+1}) / 2.
+                  cell_matrix(i, j) += cell_mass(i, j) / dt;
+                  cell_matrix(i, dofs_per_cell + j) -= 0.5 * cell_mass(i, j);
+                  cell_rhs(i) +=
+                    cell_mass(i, j) / dt *
+                      locally_relevant_displacement(spatial_indices[j]) +
+                    0.5 * cell_mass(i, j) *
+                      locally_relevant_velocity(spatial_indices[j]);
+
+                  // M (v^{n+1} - v^n) / dt + D (v^n + v^{n+1}) / 2
+                  // + K (d^n + d^{n+1}) / 2 = (f^n + f^{n+1}) / 2.
+                  cell_matrix(dofs_per_cell + i, j) +=
+                    0.5 * cell_stiffness(i, j);
+                  cell_matrix(dofs_per_cell + i, dofs_per_cell + j) +=
+                    cell_mass(i, j) / dt + 0.5 * cell_damping(i, j);
+                  cell_rhs(dofs_per_cell + i) +=
+                    cell_mass(i, j) / dt *
+                      locally_relevant_velocity(spatial_indices[j]) -
+                    0.5 * cell_damping(i, j) *
+                      locally_relevant_velocity(spatial_indices[j]) -
+                    0.5 * cell_stiffness(i, j) *
+                      locally_relevant_displacement(spatial_indices[j]);
+                }
+            }
+
+          combined_constraints_storage.distribute_local_to_global(
+            cell_matrix,
+            cell_rhs,
+            combined_indices,
+            system_matrix_storage,
+            system_rhs_storage,
+            true);
+        }
+
+    system_matrix_storage.compress(VectorOperation::add);
+    system_rhs_storage.compress(VectorOperation::add);
+
+    // The external load has already been assembled globally, including its
+    // volume and Neumann contributions. Add it once to the unconstrained
+    // velocity rows rather than once per cell.
+    for (const auto index : owned_dofs)
+      if (!velocity_constraints_storage.is_constrained(index))
+        system_rhs_storage(n_spatial_dofs + index) +=
+          0.5 * (previous_body_force(index) + body_force_storage(index));
+    system_rhs_storage.compress(VectorOperation::add);
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::solve_time_integration_system()
+  {
+    TimerOutput::Scope t(computing_timer, "Solve time-integration system");
 
     const auto n_spatial_dofs = dh.n_dofs();
     VectorType combined_solution;
@@ -1122,19 +1295,34 @@ namespace ImmersX
 
     const auto previous_displacement = displacement_storage;
     const auto previous_velocity     = velocity_storage;
+    const auto previous_body_force   = body_force_storage;
     const AffineConstraints<double> previous_constraints(
       displacement_constraints_storage);
+    const AffineConstraints<double> previous_velocity_constraints(
+      velocity_constraints_storage);
     const auto next_time = current_time_storage + dt;
 
     update_constraints(next_time);
-    update_discrete_velocity_constraints(previous_constraints,
-                                         current_time_storage,
-                                         next_time);
+    if (par.fixed_step_parameters.time_step_strategy == "trapezoidal")
+      update_trapezoidal_velocity_constraints(previous_constraints,
+                                              previous_velocity_constraints,
+                                              current_time_storage,
+                                              next_time);
+    else
+      update_discrete_velocity_constraints(previous_constraints,
+                                           current_time_storage,
+                                           next_time);
     assemble_body_force(next_time);
-    assemble_backward_euler_system(previous_displacement,
-                                   previous_velocity,
-                                   dt);
-    solve_backward_euler_system();
+    if (par.fixed_step_parameters.time_step_strategy == "trapezoidal")
+      assemble_trapezoidal_system(previous_displacement,
+                                  previous_velocity,
+                                  previous_body_force,
+                                  dt);
+    else
+      assemble_backward_euler_system(previous_displacement,
+                                     previous_velocity,
+                                     dt);
+    solve_time_integration_system();
 
     current_time_storage += dt;
     current_time_step = dt;
@@ -1272,8 +1460,9 @@ namespace ImmersX
       }
 
     pcout << "   Time integration cycle " << refinement_cycle_storage + 1 << "/"
-          << par.n_refinement_cycles << ": backward Euler, policy = "
-          << par.fixed_step_parameters.time_step_policy
+          << par.n_refinement_cycles << ": "
+          << par.fixed_step_parameters.time_step_strategy
+          << ", policy = " << par.fixed_step_parameters.time_step_policy
           << ", steps = " << n_steps << ", nominal dt = " << nominal_time_step
           << ", interval = [" << initial_time << ", " << final_time << "]"
           << std::endl;
@@ -1307,7 +1496,8 @@ namespace ImmersX
     ensure_output_directory(par.output_directory);
     pcout << "Running ElastodynamicsSolver<"
           << Utilities::dim_string(dim, spacedim) << ">." << std::endl;
-    pcout << "   Time integration: backward Euler" << std::endl
+    pcout << "   Time integration: "
+          << par.fixed_step_parameters.time_step_strategy << std::endl
           << "      policy: " << par.fixed_step_parameters.time_step_policy
           << std::endl
           << "      configured time step: "

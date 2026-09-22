@@ -135,9 +135,9 @@ namespace ImmersX
     /**
      * Optional explicit velocity data for the semidiscrete adapter.
      *
-     * The standalone backward-Euler driver derives the velocity constraint
-     * from the displacement boundary values at the two ends of each time
-     * step, so a velocity boundary subsection is not required there.
+     * The standalone time integrator derives the velocity constraint from
+     * displacement boundary values and the selected time-stepping rule, so a
+     * velocity boundary subsection is not required there.
      */
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
@@ -171,8 +171,8 @@ namespace ImmersX
    * vector-valued `FESystem<dim>(FE_Q<dim>, spacedim)`, represented by
    * one DoFHandler. Displacement and velocity are separate algebraic vectors on
    * that same space. The solver exposes separate mass, stiffness, and optional
-   * damping operators and advances the state with a standalone backward-Euler
-   * driver.
+   * damping operators and advances the state with the configured standalone
+   * time-stepping strategy.
    *
    * Coupling, particles, multipliers, moving geometry, nonlinear materials,
    * and SUNDIALS policy belong outside this class.
@@ -218,11 +218,11 @@ namespace ImmersX
     void
     initial_acceleration(VectorType &acceleration) const;
 
-    /** Advance one backward-Euler step using the configured time step. */
+    /** Advance one configured time-integration step. */
     void
     advance_one_timestep();
 
-    /** Alias for one standalone backward-Euler solve step. */
+    /** Alias for one standalone time-integration solve step. */
     void
     solve();
 
@@ -234,8 +234,7 @@ namespace ImmersX
     void
     compute_error() const;
 
-    /** Run setup, initialization, and the configured backward-Euler time loop.
-     */
+    /** Run setup, initialization, and the configured time loop. */
     void
     run();
 
@@ -255,7 +254,7 @@ namespace ImmersX
      * problem time and accepted-step counter together with displacement and
      * velocity, then reapplies the current homogeneous/inhomogeneous
      * constraints and ghost values. It does not assemble or solve a standalone
-     * backward-Euler system.
+     * time-integration system.
      */
     void
     accept_state(const VectorType &new_displacement,
@@ -327,11 +326,11 @@ namespace ImmersX
     void
     update_constraints(double time) const;
 
-    /** Return the internal backward-Euler matrix from the last step. */
+    /** Return the internal time-integration matrix from the last step. */
     const MatrixType &
     system_matrix() const;
 
-    /** Return the right-hand side from the last backward-Euler step. */
+    /** Return the right-hand side from the last time-integration step. */
     const VectorType &
     system_rhs() const;
 
@@ -351,7 +350,7 @@ namespace ImmersX
     double
     time_step() const;
 
-    /** Return the number of accepted backward-Euler steps. */
+    /** Return the number of accepted time-integration steps. */
     unsigned int
     time_step_number() const;
 
@@ -381,10 +380,16 @@ namespace ImmersX
                                    double            dt);
 
     void
+    assemble_trapezoidal_system(const VectorType &previous_displacement,
+                                const VectorType &previous_velocity,
+                                const VectorType &previous_body_force,
+                                double            dt);
+
+    void
     advance_one_timestep(double dt);
 
     void
-    solve_backward_euler_system();
+    solve_time_integration_system();
 
     void
     update_locally_relevant_state();
@@ -403,6 +408,13 @@ namespace ImmersX
     void
     update_discrete_velocity_constraints(
       const dealii::AffineConstraints<double> &previous_displacement,
+      double                                   previous_time,
+      double                                   current_time) const;
+
+    void
+    update_trapezoidal_velocity_constraints(
+      const dealii::AffineConstraints<double> &previous_displacement,
+      const dealii::AffineConstraints<double> &previous_velocity,
       double                                   previous_time,
       double                                   current_time) const;
 
