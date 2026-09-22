@@ -47,10 +47,10 @@ namespace
                     MPI_COMM_WORLD);
     const auto fields = adapter.add(problem, "navier-stokes");
     adapter.set_output_step(
-      [&problem, &adapter, fields, &parameters](const double        time,
-                                                const GlobalVector &state,
-                                                const GlobalVector &state_dot,
-                                                const unsigned int  step) {
+      [&problem, &adapter, fields](const double        time,
+                                   const GlobalVector &state,
+                                   const GlobalVector &state_dot,
+                                   const unsigned int  step) {
         problem.accept_state(adapter.field(state, fields.fields().velocity),
                              adapter.field(state, fields.fields().pressure),
                              time,
