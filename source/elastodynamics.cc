@@ -407,6 +407,56 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
+  ElastodynamicsSolver<dim, spacedim>::rebuild_combined_constraints() const
+  {
+    combined_constraints_storage.clear();
+    combined_constraints_storage.reinit(combined_owned_dofs,
+                                        combined_relevant_dofs);
+    copy_constraints(displacement_constraints_storage,
+                     combined_constraints_storage,
+                     0);
+    copy_constraints(velocity_constraints_storage,
+                     combined_constraints_storage,
+                     dh.n_dofs());
+    combined_constraints_storage.close();
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::update_discrete_velocity_constraints(
+    const AffineConstraints<double> &previous_displacement,
+    const double                     previous_time,
+    const double                     current_time) const
+  {
+    const double dt = current_time - previous_time;
+    AssertThrow(dt > 0., ExcMessage("Time must increase between steps."));
+
+    velocity_constraints_storage.clear();
+    velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
+
+    for (const auto &line : displacement_constraints_storage.get_lines())
+      {
+        velocity_constraints_storage.add_line(line.index);
+        for (const auto &entry : line.entries)
+          velocity_constraints_storage.add_entry(line.index,
+                                                 entry.first,
+                                                 entry.second);
+
+        const double previous_value =
+          previous_displacement.is_constrained(line.index) ?
+            previous_displacement.get_inhomogeneity(line.index) :
+            0.;
+        velocity_constraints_storage.set_inhomogeneity(
+          line.index, (line.inhomogeneity - previous_value) / dt);
+      }
+    velocity_constraints_storage.close();
+    rebuild_combined_constraints();
+  }
+
+
+  template <int dim, int spacedim>
+  void
   ElastodynamicsSolver<dim, spacedim>::update_constraints(
     const double time) const
   {
@@ -431,16 +481,7 @@ namespace ImmersX
                                                velocity_constraints_storage);
     velocity_constraints_storage.close();
 
-    combined_constraints_storage.clear();
-    combined_constraints_storage.reinit(combined_owned_dofs,
-                                        combined_relevant_dofs);
-    copy_constraints(displacement_constraints_storage,
-                     combined_constraints_storage,
-                     0);
-    copy_constraints(velocity_constraints_storage,
-                     combined_constraints_storage,
-                     dh.n_dofs());
-    combined_constraints_storage.close();
+    rebuild_combined_constraints();
   }
 
 
@@ -758,6 +799,21 @@ namespace ImmersX
                              par.initial_displacement,
                              displacement_storage);
     VectorTools::interpolate(dh, par.initial_velocity, velocity_storage);
+
+    // The initial velocity is the value of the initial condition, not an
+    // independently prescribed boundary datum.  In particular, do not impose
+    // the default zero velocity boundary on a moving displacement boundary.
+    velocity_constraints_storage.clear();
+    velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
+    DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
+    for (const auto id : par.dirichlet_ids)
+      VectorTools::interpolate_boundary_values(dh,
+                                               id,
+                                               par.initial_velocity,
+                                               velocity_constraints_storage);
+    velocity_constraints_storage.close();
+    rebuild_combined_constraints();
+
     displacement_constraints_storage.distribute(displacement_storage);
     velocity_constraints_storage.distribute(velocity_storage);
     update_locally_relevant_state();
@@ -779,7 +835,6 @@ namespace ImmersX
     dh.clear();
     std::get<DistributedTriangulation>(triangulation_storage).refine_global(1);
     cycles_and_solutions.clear();
-    ++refinement_cycle_storage;
   }
 
 
@@ -1066,9 +1121,14 @@ namespace ImmersX
 
     const auto previous_displacement = displacement_storage;
     const auto previous_velocity     = velocity_storage;
-    const auto next_time             = current_time_storage + dt;
+    const AffineConstraints<double> previous_constraints(
+      displacement_constraints_storage);
+    const auto next_time = current_time_storage + dt;
 
     update_constraints(next_time);
+    update_discrete_velocity_constraints(previous_constraints,
+                                         current_time_storage,
+                                         next_time);
     assemble_body_force(next_time);
     assemble_backward_euler_system(previous_displacement,
                                    previous_velocity,

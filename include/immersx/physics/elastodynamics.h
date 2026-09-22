@@ -132,6 +132,13 @@ namespace ImmersX
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       neumann_boundary;
+    /**
+     * Optional explicit velocity data for the semidiscrete adapter.
+     *
+     * The standalone backward-Euler driver derives the velocity constraint
+     * from the displacement boundary values at the two ends of each time
+     * step, so a velocity boundary subsection is not required there.
+     */
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       velocity_boundary;
@@ -284,14 +291,7 @@ namespace ImmersX
     const dealii::AffineConstraints<double> &
     constraints() const;
 
-    /**
-     * Return velocity constraints, including its explicit velocity boundary.
-     *
-     * The displacement and velocity boundary functions are independent parsed
-     * functions. The solver does not numerically differentiate displacement
-     * data: callers prescribing a moving boundary should provide consistent
-     * values in both subsections.
-     */
+    /** Return the current velocity constraints, including hanging nodes. */
     const dealii::AffineConstraints<double> &
     velocity_constraints() const;
 
@@ -396,6 +396,15 @@ namespace ImmersX
     copy_constraints(const dealii::AffineConstraints<double> &source,
                      dealii::AffineConstraints<double>       &target,
                      dealii::types::global_dof_index          shift);
+
+    void
+    rebuild_combined_constraints() const;
+
+    void
+    update_discrete_velocity_constraints(
+      const dealii::AffineConstraints<double> &previous_displacement,
+      double                                   previous_time,
+      double                                   current_time) const;
 
     const ElastodynamicsParameters<dim, spacedim> &par;
 

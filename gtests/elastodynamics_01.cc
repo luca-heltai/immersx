@@ -189,6 +189,96 @@ TEST(ElastodynamicsValidation, ZeroSolutionPreservation)
 }
 
 
+TEST(ElastodynamicsValidation, BOTH_MovingBoundaryDerivesVelocityConstraint)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  initialize_parameters_from_string(R"(
+    subsection Elastodynamics
+      set Initial refinement = 1
+      set Dirichlet boundary ids = 0
+      subsection Fixed step
+        set Time step = 0.01
+        set Number of time steps = 1
+        set Policy = number_of_steps
+      end
+      subsection Functions
+        subsection Body force
+          set Function expression = 0; 0
+        end
+        subsection Displacement boundary
+          set Function expression = t; 0
+        end
+        subsection Initial displacement
+          set Function expression = 0; 0
+        end
+        subsection Initial velocity
+          set Function expression = 1; 0
+        end
+      end
+    end
+  )");
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.make_grid();
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+  problem.set_initial_conditions();
+
+  unsigned int boundary_lines = 0;
+  unsigned int unit_lines     = 0;
+  for (const auto &line : problem.velocity_constraints().get_lines())
+    if (line.entries.empty())
+      {
+        ++boundary_lines;
+        const auto value =
+          problem.velocity_constraints().get_inhomogeneity(line.index);
+        EXPECT_TRUE(value == 0. || value == 1.);
+        unit_lines += value == 1.;
+      }
+  EXPECT_GT(boundary_lines, 0u);
+  EXPECT_GT(unit_lines, 0u);
+
+  problem.advance_one_timestep();
+
+  for (const auto &line : problem.velocity_constraints().get_lines())
+    if (line.entries.empty())
+      {
+        const auto value =
+          problem.velocity_constraints().get_inhomogeneity(line.index);
+        EXPECT_TRUE(value == 0. || value == 1.);
+      }
+}
+
+
+TEST(ElastodynamicsValidation, BOTH_RefinementCyclesAdvanceSequentially)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_small_problem(parameters);
+  parameters.initial_refinement  = 0;
+  parameters.n_refinement_cycles = 4;
+  parameters.output_directory    = (std::filesystem::temp_directory_path() /
+                                 "immersx_elastodynamics_refinement_cycles")
+                                  .string();
+  parameters.output_name                           = "refinement_cycles";
+  parameters.time_parameters.output_time_interval  = 1.e-2;
+  parameters.fixed_step_parameters.number_of_steps = 1;
+  initialize_configured_parameters();
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.run();
+
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
+         ++cycle)
+      EXPECT_TRUE(std::filesystem::exists(
+        std::filesystem::path(parameters.output_directory) /
+        (parameters.output_name + "_cycle_" + std::to_string(cycle) + ".pvd")));
+}
+
+
 TEST(Elastodynamics, FirstOrderResiduals)
 {
   ParameterAcceptor::clear();
