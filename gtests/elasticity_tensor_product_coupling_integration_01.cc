@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -28,6 +29,12 @@ namespace
       "    set Function expression = 0; 0; 0\n"
       "  end\n"
       "  subsection Exact solution\n"
+      "    set Function expression = 0; 0; 0\n"
+      "  end\n"
+      "  subsection Initial displacement\n"
+      "    set Function expression = 0; 0; 0\n"
+      "  end\n"
+      "  subsection Initial velocity\n"
       "    set Function expression = 0; 0; 0\n"
       "  end\n"
       "end\n");
@@ -157,4 +164,60 @@ TEST(ElasticityCouplingIntegrationValidation,
   EXPECT_TRUE(std::isfinite(problem.solution.block(1).l2_norm()));
   EXPECT_GT(problem.solution.block(0).linfty_norm(), 1.e-12);
   EXPECT_LT(problem.solution.block(0).linfty_norm(), 1.e3);
+}
+
+
+TEST(ElasticityCouplingIntegrationValidation,
+     BOTH_NewmarkUsesDiscreteVelocityBoundaryData)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<2, 3> par;
+  configure_tensor_product_parameters(par, "0; 0; t");
+  ParameterAcceptor::prm.parse_input_from_string(R"(
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 0; 0; 0
+      end
+      subsection Initial velocity
+        set Function expression = 0; 0; 1
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters();
+
+  par.output_directory =
+    TestPaths::output_directory("elasticity-newmark-discrete-bc");
+  std::filesystem::create_directories(par.output_directory);
+  par.time_parameters.initial_time                                = 0.;
+  par.time_parameters.final_time                                  = 3.e-2;
+  par.time_parameters.time_step                                   = 1.e-3;
+  par.default_material_properties.rho                             = 1.;
+  par.default_material_properties.rayleigh_alpha                  = 0.;
+  par.tensor_product_coupling_parameters.coupling_rhs_expressions = {"0",
+                                                                     "0",
+                                                                     "0"};
+  par.check_model_consistency();
+
+  ElasticityProblem<2, 3> problem(par);
+  ASSERT_NO_THROW(problem.run());
+
+  EXPECT_TRUE(std::isfinite(problem.velocity.block(0).l2_norm()));
+  EXPECT_TRUE(std::isfinite(problem.solution.block(0).l2_norm()));
+  EXPECT_LT(problem.velocity.block(0).linfty_norm(), 2.);
+  EXPECT_LT(problem.solution.block(0).linfty_norm(), 1.e-1);
+
+  double       boundary_velocity_error = 0.;
+  unsigned int nonzero_boundary_lines  = 0;
+  for (const auto &line : problem.constraints.get_lines())
+    if (line.inhomogeneity > 1.e-12 &&
+        problem.velocity.block(0).in_local_range(line.index))
+      {
+        ++nonzero_boundary_lines;
+        boundary_velocity_error =
+          std::max(boundary_velocity_error,
+                   std::abs(problem.velocity.block(0)[line.index] - 1.));
+      }
+
+  ASSERT_GT(nonzero_boundary_lines, 0u);
+  EXPECT_LT(boundary_velocity_error, 1.e-3);
 }

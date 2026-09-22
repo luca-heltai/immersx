@@ -474,7 +474,8 @@ namespace ImmersX
      */
     void
     add_dynamic_constraint_rhs(
-      const AffineConstraints<double> &predictor_constraints,
+      const AffineConstraints<double> &displacement_predictor_constraints,
+      const AffineConstraints<double> &velocity_predictor_constraints,
       const AffineConstraints<double> &acceleration_constraints,
       LA::MPI::Vector                 &rhs) const;
     /**
@@ -492,7 +493,16 @@ namespace ImmersX
     void
     compute_system_rhs(const double evaluation_time);
     /**
-     * Build constraints for the Newmark acceleration correction.
+     * Represent a vector of Newmark predictor values with the constraint graph.
+     */
+    void
+    make_newmark_value_constraints(
+      const LA::MPI::Vector           &values,
+      const AffineConstraints<double> &reference_constraints,
+      AffineConstraints<double>       &value_constraints) const;
+    /**
+     * Build constraints for the Newmark acceleration correction from the
+     * prescribed displacement at the next time.
      */
     void
     make_newmark_acceleration_constraints(
