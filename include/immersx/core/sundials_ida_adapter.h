@@ -14,6 +14,7 @@
 
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/timer.h>
 
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_gmres.h>
@@ -72,6 +73,10 @@ namespace ImmersX
       , ida_parameters_(ida_parameters)
       , pcout(std::cout,
               dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
+      , computing_timer(communicator,
+                        pcout,
+                        dealii::TimerOutput::summary,
+                        dealii::TimerOutput::wall_times)
     {}
 
     const AdditionalData &
@@ -136,7 +141,8 @@ namespace ImmersX
       finalize();
       pcout << "IDAAdapter: starting DAE solve with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
-      const auto n_steps = ida_->solve_dae(state, state_dot);
+      dealii::TimerOutput::Scope timer(computing_timer, "Solve DAE");
+      const auto                 n_steps = ida_->solve_dae(state, state_dot);
       pcout << "IDAAdapter: DAE solve finished after " << n_steps
             << " accepted step(s)." << std::endl;
       return n_steps;
@@ -325,6 +331,7 @@ namespace ImmersX
                               const GlobalVectorType &state,
                               const GlobalVectorType &state_dot,
                               GlobalVectorType       &residual) {
+        dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
         composition_.evaluate_residual(time, state, &state_dot, residual);
       };
       ida_->setup_jacobian = [this](const double            time,
@@ -336,6 +343,7 @@ namespace ImmersX
       ida_->solve_with_jacobian = [this](const GlobalVectorType &rhs,
                                          GlobalVectorType       &dst,
                                          const double            tolerance) {
+        dealii::TimerOutput::Scope timer(computing_timer, "Linear solve");
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
                                        "current Jacobian."));
@@ -435,6 +443,7 @@ namespace ImmersX
                      const GlobalVectorType &state_dot,
                      const double            alpha)
     {
+      dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
       const auto snapshot = composition_.make_snapshot(time, state, state_dot);
       const auto operator_view =
         composition_.jacobian(snapshot->context, alpha);
@@ -541,6 +550,7 @@ namespace ImmersX
     mutable std::optional<AdditionalData>                    additional_data_;
     std::unique_ptr<dealii::SUNDIALS::IDA<GlobalVectorType>> ida_;
     mutable dealii::ConditionalOStream                       pcout;
+    mutable dealii::TimerOutput                              computing_timer;
     std::optional<Operator>                                  current_jacobian_;
     std::optional<Operator>             current_preconditioner_;
     OutputFunction                      output_;

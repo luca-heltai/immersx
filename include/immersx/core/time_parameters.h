@@ -68,10 +68,11 @@ namespace ImmersX
       : dealii::ParameterAcceptor(subsection)
     {}
 
-    double       time_step        = 1.e-2;
-    unsigned int number_of_steps  = 0;
-    std::string  time_step_policy = "number_of_steps";
-    bool         refine_time_step = false;
+    double       time_step          = 1.e-2;
+    unsigned int number_of_steps    = 0;
+    std::string  time_step_policy   = "number_of_steps";
+    std::string  time_step_strategy = "backward_euler";
+    bool         refine_time_step   = false;
 
     void
     declare_parameters(dealii::ParameterHandler &prm) override
@@ -86,6 +87,11 @@ namespace ImmersX
                         "Use number_of_steps to divide the interval, or fixed "
                         "to use the configured time step",
                         dealii::Patterns::Selection("number_of_steps|fixed"));
+      prm.add_parameter(
+        "Strategy",
+        time_step_strategy,
+        "Time integration strategy used by the standalone solver",
+        dealii::Patterns::Selection("backward_euler|trapezoidal"));
       prm.add_parameter("Refine time step", refine_time_step);
     }
   };

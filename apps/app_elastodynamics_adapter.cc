@@ -61,20 +61,20 @@ namespace
                         parameters.ida_parameters,
                         MPI_COMM_WORLD);
         const auto fields = adapter.add(problem, "elastodynamics");
-        adapter.set_output_step([&problem, &adapter, fields, &parameters](
-                                  const double        time,
-                                  const GlobalVector &state,
-                                  const GlobalVector &state_dot,
-                                  const unsigned int  step) {
-          problem.accept_state(adapter.field(state,
-                                             fields.fields().displacement),
-                               adapter.field(state, fields.fields().velocity),
-                               time,
-                               step);
-          problem.output_results();
-          (void)step;
-          (void)state_dot;
-        });
+        adapter.set_output_step(
+          [&problem, &adapter, fields](const double        time,
+                                       const GlobalVector &state,
+                                       const GlobalVector &state_dot,
+                                       const unsigned int  step) {
+            problem.accept_state(adapter.field(state,
+                                               fields.fields().displacement),
+                                 adapter.field(state, fields.fields().velocity),
+                                 time,
+                                 step);
+            problem.output_results();
+            (void)step;
+            (void)state_dot;
+          });
 
         auto state     = adapter.make_state();
         auto state_dot = adapter.make_state();

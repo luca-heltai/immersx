@@ -11,9 +11,11 @@
 
 #include <gtest/gtest.h>
 #include <immersx/core/sundials_ida_adapter.h>
+#include <immersx/physics/elasticity.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/elastodynamics_semidiscrete.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -186,6 +188,286 @@ TEST(ElastodynamicsValidation, ZeroSolutionPreservation)
       EXPECT_NEAR(problem.displacement().l2_norm(), 0.0, 1.e-11);
       EXPECT_NEAR(problem.velocity().l2_norm(), 0.0, 1.e-11);
     }
+}
+
+
+TEST(ElastodynamicsValidation, BOTH_MovingBoundaryDerivesVelocityConstraint)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  initialize_parameters_from_string(R"(
+    subsection Elastodynamics
+      set Initial refinement = 1
+      set Dirichlet boundary ids = 0
+      subsection Fixed step
+        set Time step = 0.01
+        set Number of time steps = 1
+        set Policy = number_of_steps
+      end
+      subsection Functions
+        subsection Body force
+          set Function expression = 0; 0
+        end
+        subsection Displacement boundary
+          set Function expression = t; 0
+        end
+        subsection Initial displacement
+          set Function expression = 0; 0
+        end
+        subsection Initial velocity
+          set Function expression = 1; 0
+        end
+      end
+    end
+  )");
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.make_grid();
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+  problem.set_initial_conditions();
+
+  unsigned int boundary_lines = 0;
+  unsigned int unit_lines     = 0;
+  for (const auto &line : problem.velocity_constraints().get_lines())
+    if (line.entries.empty())
+      {
+        ++boundary_lines;
+        const auto value =
+          problem.velocity_constraints().get_inhomogeneity(line.index);
+        EXPECT_TRUE(value == 0. || value == 1.);
+        unit_lines += value == 1.;
+      }
+  EXPECT_GT(boundary_lines, 0u);
+  EXPECT_GT(unit_lines, 0u);
+
+  problem.advance_one_timestep();
+
+  for (const auto &line : problem.velocity_constraints().get_lines())
+    if (line.entries.empty())
+      {
+        const auto value =
+          problem.velocity_constraints().get_inhomogeneity(line.index);
+        EXPECT_TRUE(value == 0. || value == 1.);
+      }
+}
+
+
+TEST(ElastodynamicsValidation, BOTH_RefinementCyclesAdvanceSequentially)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_small_problem(parameters);
+  parameters.initial_refinement  = 0;
+  parameters.n_refinement_cycles = 4;
+  parameters.output_directory    = (std::filesystem::temp_directory_path() /
+                                 "immersx_elastodynamics_refinement_cycles")
+                                  .string();
+  parameters.output_name                           = "refinement_cycles";
+  parameters.time_parameters.output_time_interval  = 1.e-2;
+  parameters.fixed_step_parameters.number_of_steps = 1;
+  initialize_configured_parameters();
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.run();
+
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
+         ++cycle)
+      EXPECT_TRUE(std::filesystem::exists(
+        std::filesystem::path(parameters.output_directory) /
+        (parameters.output_name + "_cycle_" + std::to_string(cycle) + ".pvd")));
+}
+
+
+TEST(ElastodynamicsValidation, BOTH_RefineTimeStepPerCycle)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_small_problem(parameters);
+  parameters.initial_refinement                     = 0;
+  parameters.n_refinement_cycles                    = 2;
+  parameters.time_parameters.final_time             = 2.e-2;
+  parameters.time_parameters.output_time_interval   = 2.e-2;
+  parameters.fixed_step_parameters.time_step        = 1.e-2;
+  parameters.fixed_step_parameters.number_of_steps  = 2;
+  parameters.fixed_step_parameters.time_step_policy = "number_of_steps";
+  parameters.fixed_step_parameters.refine_time_step = true;
+  initialize_configured_parameters();
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.run();
+
+  EXPECT_EQ(problem.time_step_number(), 4u);
+  EXPECT_NEAR(problem.time_step(), 5.e-3, 1.e-14);
+  EXPECT_NEAR(problem.current_time(), 2.e-2, 1.e-14);
+}
+
+
+TEST(ElastodynamicsValidation, BOTH_TrapezoidalMatchesNewmarkMMS)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2>    trapezoidal_parameters;
+  ElasticityProblemParameters<2> newmark_parameters;
+  initialize_parameters_from_string(R"(
+    subsection Elastodynamics
+      set FE degree = 1
+      set Initial refinement = 1
+      set Number of refinement cycles = 1
+      set Dirichlet boundary ids = 0,1,2,3
+      subsection Grid generation
+        set Grid generator = hyper_cube
+        set Grid generator arguments = 0: 1: true
+      end
+      subsection Material
+        set Density = 1
+        set Lame mu = 1
+        set Lame lambda = 2
+        set Damping shear = 0
+        set Damping bulk = 0
+      end
+      subsection Time interval
+        set Initial time = 0
+        set Final time = 0.02
+        set Output time interval = 0.02
+      end
+      subsection Fixed step
+        set Time step = 0.01
+        set Number of time steps = 2
+        set Policy = number_of_steps
+        set Strategy = trapezoidal
+      end
+      subsection Functions
+        subsection Body force
+          set Function expression = 4*pi^2*sin(pi*x)*sin(pi*y)*cos(pi*t); -3*pi^2*cos(pi*x)*cos(pi*y)*cos(pi*t)
+          set Variable names = x,y,t
+        end
+        subsection Displacement boundary
+          set Function expression = 0; 0
+          set Variable names = x,y,t
+        end
+        subsection Initial displacement
+          set Function expression = sin(pi*x)*sin(pi*y); 0
+          set Variable names = x,y,t
+        end
+        subsection Initial velocity
+          set Function expression = 0; 0
+          set Variable names = x,y,t
+        end
+        subsection Exact solution
+          set Function expression = sin(pi*x)*sin(pi*y)*cos(pi*t); 0
+          set Variable names = x,y,t
+        end
+      end
+      subsection Solver
+        subsection Control
+          set Max steps = 1000
+          set Reduction = 1.e-12
+          set Tolerance = 1.e-12
+        end
+      end
+    end
+
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = 0; 0
+        set Variable names = x,y,t
+      end
+      subsection Neumann boundary conditions
+        set Function expression = 0; 0
+        set Variable names = x,y,t
+      end
+      subsection Initial displacement
+        set Function expression = sin(pi*x)*sin(pi*y); 0
+        set Variable names = x,y,t
+      end
+      subsection Initial velocity
+        set Function expression = 0; 0
+        set Variable names = x,y,t
+      end
+      subsection Exact solution
+        set Function expression = sin(pi*x)*sin(pi*y)*cos(pi*t); 0
+        set Variable names = x,y,t
+      end
+      subsection Right hand side
+        set Function expression = 4*pi^2*sin(pi*x)*sin(pi*y)*cos(pi*t); -3*pi^2*cos(pi*x)*cos(pi*y)*cos(pi*t)
+        set Variable names = x,y,t
+      end
+    end
+
+    subsection Immersed Problem
+      set FE degree = 1
+      set Initial refinement = 1
+      set Dirichlet boundary ids = 0,1,2,3
+      set Output results also before solving = false
+      subsection Grid generation
+        set Domain type = generate
+        set Grid generator = hyper_cube
+        set Grid generator arguments = 0: 1: true
+        set Triangulation type = distributed
+      end
+      subsection Refinement and remeshing
+        set Strategy = global
+        set Number of refinement cycles = 1
+      end
+      subsection Material properties
+        subsection default
+          set Density = 1
+          set Lame lambda = 2
+          set Lame mu = 1
+          set Rayleigh alpha = 0
+          set Rayleigh beta = 0
+          set Viscosity eta = 0
+        end
+      end
+      subsection Time parameters
+        set Initial time = 0
+        set Final time = 0.02
+        set Time step = 0.01
+        set Newmark beta = 0.25
+        set Newmark gamma = 0.5
+      end
+    end
+  )");
+
+  const auto output_root = (std::filesystem::temp_directory_path() /
+                            "immersx_trapezoidal_newmark_equivalence")
+                             .string();
+  trapezoidal_parameters.output_directory = output_root + "/trapezoidal";
+  trapezoidal_parameters.output_name      = "trapezoidal";
+  newmark_parameters.output_directory     = output_root + "/newmark";
+  newmark_parameters.output_name          = "newmark";
+  std::filesystem::create_directories(trapezoidal_parameters.output_directory);
+  std::filesystem::create_directories(newmark_parameters.output_directory);
+
+  ElastodynamicsSolver<2> trapezoidal_solver(trapezoidal_parameters);
+  ElasticityProblem<2>    newmark_solver(newmark_parameters);
+  trapezoidal_solver.run();
+  newmark_solver.run();
+
+  double displacement_difference = 0.;
+  double velocity_difference     = 0.;
+  for (const auto index : trapezoidal_solver.locally_owned_dofs())
+    {
+      displacement_difference =
+        std::max(displacement_difference,
+                 std::abs(
+                   trapezoidal_solver.displacement()(index) -
+                   newmark_solver.locally_relevant_solution.block(0)(index)));
+      velocity_difference =
+        std::max(velocity_difference,
+                 std::abs(trapezoidal_solver.velocity()(index) -
+                          newmark_solver.velocity.block(0)(index)));
+    }
+
+  displacement_difference =
+    Utilities::MPI::max(displacement_difference, MPI_COMM_WORLD);
+  velocity_difference =
+    Utilities::MPI::max(velocity_difference, MPI_COMM_WORLD);
+
+  EXPECT_NEAR(displacement_difference, 0., 1.e-10);
+  EXPECT_NEAR(velocity_difference, 0., 1.e-10);
 }
 
 
