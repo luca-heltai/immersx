@@ -35,6 +35,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 
@@ -1232,21 +1233,61 @@ namespace ImmersX
     if (par.time_parameters.output_time_interval > 0)
       output_results();
 
-    double next_output_time = par.time_parameters.initial_time +
-                              par.time_parameters.output_time_interval;
-    unsigned int n_steps = par.fixed_step_parameters.number_of_steps;
-    if (n_steps == 0 &&
-        par.time_parameters.final_time > par.time_parameters.initial_time)
-      n_steps = static_cast<unsigned int>(std::ceil(
-        (par.time_parameters.final_time - par.time_parameters.initial_time) /
-        par.fixed_step_parameters.time_step));
+    const double initial_time     = par.time_parameters.initial_time;
+    const double final_time       = par.time_parameters.final_time;
+    const double time_interval    = final_time - initial_time;
+    const bool   refine_time_step = par.fixed_step_parameters.refine_time_step;
+
+    unsigned int n_steps           = 0;
+    double       nominal_time_step = 0.;
+    if (par.fixed_step_parameters.time_step_policy == "number_of_steps")
+      {
+        n_steps = par.fixed_step_parameters.number_of_steps;
+        AssertThrow(time_interval <= 0. || n_steps > 0,
+                    ExcMessage("Number of time steps must be positive."));
+        for (unsigned int refinement = 0;
+             refinement < (refine_time_step ? refinement_cycle_storage : 0);
+             ++refinement)
+          {
+            AssertThrow(n_steps <= std::numeric_limits<unsigned int>::max() / 2,
+                        ExcMessage(
+                          "The refined number of time steps overflows."));
+            n_steps *= 2;
+          }
+        nominal_time_step = n_steps > 0 ? time_interval / n_steps : 0.;
+      }
+    else
+      {
+        nominal_time_step = par.fixed_step_parameters.time_step;
+        for (unsigned int refinement = 0;
+             refinement < (refine_time_step ? refinement_cycle_storage : 0);
+             ++refinement)
+          nominal_time_step *= 0.5;
+
+        AssertThrow(time_interval <= 0. || nominal_time_step > 0.,
+                    ExcMessage("The fixed time step must be positive."));
+        if (time_interval > 0.)
+          n_steps = static_cast<unsigned int>(
+            std::ceil(time_interval / nominal_time_step));
+      }
+
+    pcout << "   Time integration cycle " << refinement_cycle_storage + 1 << "/"
+          << par.n_refinement_cycles << ": backward Euler, policy = "
+          << par.fixed_step_parameters.time_step_policy
+          << ", steps = " << n_steps << ", nominal dt = " << nominal_time_step
+          << ", interval = [" << initial_time << ", " << final_time << "]"
+          << std::endl;
+
+    double next_output_time =
+      initial_time + par.time_parameters.output_time_interval;
 
     for (unsigned int step = 0; step < n_steps; ++step)
       {
-        double dt = par.fixed_step_parameters.time_step;
-        if (par.fixed_step_parameters.number_of_steps == 0)
-          dt =
-            std::min(dt, par.time_parameters.final_time - current_time_storage);
+        const double dt =
+          std::min(nominal_time_step, final_time - current_time_storage);
+        pcout << "      step " << step + 1 << "/" << n_steps
+              << ": t = " << current_time_storage << " -> "
+              << current_time_storage + dt << ", dt = " << dt << std::endl;
         advance_one_timestep(dt);
         if (par.time_parameters.output_time_interval > 0 &&
             (current_time_storage >= next_output_time || step + 1 == n_steps))
@@ -1266,6 +1307,23 @@ namespace ImmersX
     ensure_output_directory(par.output_directory);
     pcout << "Running ElastodynamicsSolver<"
           << Utilities::dim_string(dim, spacedim) << ">." << std::endl;
+    pcout << "   Time integration: backward Euler" << std::endl
+          << "      policy: " << par.fixed_step_parameters.time_step_policy
+          << std::endl
+          << "      configured time step: "
+          << par.fixed_step_parameters.time_step << std::endl
+          << "      configured number of steps: "
+          << par.fixed_step_parameters.number_of_steps << std::endl
+          << "      refine time step per cycle: "
+          << (par.fixed_step_parameters.refine_time_step ? "true" : "false")
+          << std::endl
+          << "      time interval: [" << par.time_parameters.initial_time
+          << ", " << par.time_parameters.final_time << "]" << std::endl
+          << "      output interval: "
+          << par.time_parameters.output_time_interval << std::endl
+          << "      linear solver: GMRES/Jacobi, max steps = "
+          << par.solver_control.max_steps()
+          << ", tolerance = " << par.solver_control.tolerance() << std::endl;
     par.prm.print_parameters(par.output_directory + "/used_parameters_" +
                                std::to_string(dim) + std::to_string(spacedim) +
                                ".prm",

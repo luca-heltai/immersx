@@ -279,6 +279,30 @@ TEST(ElastodynamicsValidation, BOTH_RefinementCyclesAdvanceSequentially)
 }
 
 
+TEST(ElastodynamicsValidation, BOTH_RefineTimeStepPerCycle)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_small_problem(parameters);
+  parameters.initial_refinement                     = 0;
+  parameters.n_refinement_cycles                    = 2;
+  parameters.time_parameters.final_time             = 2.e-2;
+  parameters.time_parameters.output_time_interval   = 2.e-2;
+  parameters.fixed_step_parameters.time_step        = 1.e-2;
+  parameters.fixed_step_parameters.number_of_steps  = 2;
+  parameters.fixed_step_parameters.time_step_policy = "number_of_steps";
+  parameters.fixed_step_parameters.refine_time_step = true;
+  initialize_configured_parameters();
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.run();
+
+  EXPECT_EQ(problem.time_step_number(), 4u);
+  EXPECT_NEAR(problem.time_step(), 5.e-3, 1.e-14);
+  EXPECT_NEAR(problem.current_time(), 2.e-2, 1.e-14);
+}
+
+
 TEST(Elastodynamics, FirstOrderResiduals)
 {
   ParameterAcceptor::clear();
