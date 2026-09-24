@@ -17,6 +17,7 @@
 #include <coral_log.h>
 #include <coral_network.h>
 #include <coral_plugin.h>
+#include <immersx/coral/coupled_poisson.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/poisson.h>
@@ -140,6 +141,28 @@ namespace ImmersX::Coral
     ImmersX::ElastodynamicsSolver<dim, spacedim> &problem)
   {
     problem.output_results();
+  }
+
+  inline double
+  coupled_poisson_residual_norm(const CoupledPoisson2D &workflow)
+  {
+    return workflow.residual_norm();
+  }
+
+  inline void
+  register_coupled_poisson_types()
+  {
+    using Workflow         = CoupledPoisson2D;
+    const std::string name = "ImmersX::CoupledPoisson<2>";
+    coral::detail::set_type_alias<Workflow>(name);
+    coral::NodeObject::register_type<Workflow, const std::string &>(
+      "parameter_file");
+    coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
+                                                       {name + "::run",
+                                                        "workflow"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(&coupled_poisson_residual_norm),
+      {name + "::residual_norm", "workflow", "residual"});
   }
 
   template <int dim, int spacedim>
@@ -302,6 +325,8 @@ namespace ImmersX::Coral
         register_poisson_types<2, spacedim>();
         register_elastic_static_types<2, spacedim>();
         register_elastodynamics_types<2, spacedim>();
+        if constexpr (spacedim == 2)
+          register_coupled_poisson_types();
       }
     if constexpr (spacedim >= 3)
       {
