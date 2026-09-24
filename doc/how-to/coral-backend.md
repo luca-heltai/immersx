@@ -104,6 +104,17 @@ directory. Therefore the example command is run from the directory containing
 the installed graph and parameter file. Output remains controlled by the
 parameter file.
 
+The same pass-through lifecycle is used by the checked-in static-elasticity
+and standalone-elastodynamics graphs:
+
+```text
+elastic_static_2d.json       elastic_static_2d.prm
+elastodynamics_2d.json       elastodynamics_2d.prm
+```
+
+They use the 2D plugin and expose the parameter bundle, problem construction,
+and ordered mutating operations as separate nodes.
+
 The 2D plugin also exposes the existing bulk/embedded Poisson workflow as the
 graph-facing `ImmersX::CoupledPoisson<2>` façade. Its example is:
 
@@ -129,8 +140,8 @@ ctest --test-dir build-coral -R 'ImmersX.Coral.Registry' \
   --output-on-failure
 ```
 
-The numerical Poisson graph test is opt-in because it needs a working MPI
-runtime in addition to the Coral package:
+The numerical graph tests are opt-in because they need a working MPI runtime
+in addition to the Coral package:
 
 ```bash
 cmake -S . -B build-coral \
@@ -141,8 +152,8 @@ ctest --test-dir build-coral -R 'ImmersX.Coral.Graph' \
   --output-on-failure
 ```
 
-The tests check the generated graphviz files and the Poisson or coupled
-multiplier `.pvd` output.
+The tests check the generated graphviz files and the configured native output
+for Poisson, static elasticity, elastodynamics, or coupled Poisson.
 
 The registry tests do not replace numerical application tests. Graph execution
 also requires a working MPI runtime because the current distributed ImmersX

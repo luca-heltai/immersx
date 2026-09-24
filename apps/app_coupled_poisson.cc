@@ -113,8 +113,7 @@ namespace
       embedded_view.field(embedded.fields().solution, "embedded_solution");
     const auto multiplier = multiplier_view.field("lambda");
     const auto constraint =
-      make_constraint(weak_term(value(bulk_field), test(multiplier)) -
-                      weak_term(value(embedded_field), test(multiplier)));
+      make_continuity_constraint(bulk_field, embedded_field, multiplier);
     const auto coupling = adapter.add(constraint, "continuity");
 
     auto state = adapter.make_state();
