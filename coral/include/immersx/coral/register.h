@@ -19,6 +19,7 @@
 #include <coral_plugin.h>
 #include <immersx/coral/coupled_poisson.h>
 #include <immersx/coral/coupled_poisson_elasticity.h>
+#include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/poisson.h>
@@ -212,6 +213,41 @@ namespace ImmersX::Coral
       {name + "::traction_balance_error", "workflow", "diagnostic"});
   }
 
+#ifdef DEAL_II_WITH_SUNDIALS
+  inline bool
+  ida_elastodynamics_state_is_finite(const IDAElastodynamics2D &workflow)
+  {
+    return workflow.state_is_finite();
+  }
+
+  inline double
+  ida_elastodynamics_current_time(const IDAElastodynamics2D &workflow)
+  {
+    return workflow.current_time();
+  }
+
+  inline void
+  register_ida_elastodynamics_types()
+  {
+    using Workflow         = IDAElastodynamics2D;
+    const std::string name = "ImmersX::IDAElastodynamics<2,2>";
+    coral::detail::set_type_alias<Workflow>(name);
+    coral::NodeObject::register_type<Workflow, const std::string &>(
+      "parameter_file");
+    coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
+                                                       {name + "::run",
+                                                        "workflow"});
+    coral::NodeObject::register_function(std::function<bool(const Workflow &)>(
+                                           &ida_elastodynamics_state_is_finite),
+                                         {name + "::state_is_finite",
+                                          "workflow",
+                                          "is_finite"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(&ida_elastodynamics_current_time),
+      {name + "::current_time", "workflow", "time"});
+  }
+#endif
+
   template <int dim, int spacedim>
   void
   register_poisson_types()
@@ -373,7 +409,12 @@ namespace ImmersX::Coral
         register_elastic_static_types<2, spacedim>();
         register_elastodynamics_types<2, spacedim>();
         if constexpr (spacedim == 2)
-          register_coupled_poisson_types();
+          {
+            register_coupled_poisson_types();
+#ifdef DEAL_II_WITH_SUNDIALS
+            register_ida_elastodynamics_types();
+#endif
+          }
       }
     if constexpr (spacedim >= 3)
       {
