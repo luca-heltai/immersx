@@ -55,6 +55,10 @@ option(IMMERSX_INSTALL_TESTS
   "Install test executables, fixtures, and test sources." ON)
 option(IMMERSX_USE_CCACHE
   "Use ccache when it is available." ON)
+option(IMMERSX_BUILD_CORAL_PLUGINS
+  "Build Coral plugins when a compatible Coral package is available." ON)
+option(IMMERSX_ENABLE_CORAL_GRAPH_TESTS
+  "Enable numerical Coral graph integration tests." OFF)
 
 set(IMMERSX_INSTALL_DOCDIR "${CMAKE_INSTALL_DATADIR}/doc/immersx"
   CACHE PATH "Installation directory for ImmersX documentation")
@@ -189,6 +193,55 @@ else()
     "Could not determine an ImmersX build variant from CMAKE_BUILD_TYPE "
     "\"${CMAKE_BUILD_TYPE}\". ImmersX supports Debug, Release, and "
     "DebugRelease.")
+endif()
+
+# Coral is an optional plugin host. Keep it out of the ordinary ImmersX
+# library and package dependency graph: only the plugin targets link to the
+# Coral runtime.
+set(IMMERSX_WITH_CORAL OFF)
+if(IMMERSX_BUILD_CORAL_PLUGINS)
+  find_package(coral CONFIG QUIET)
+  if(TARGET coral::core)
+    get_target_property(_coral_core_type coral::core TYPE)
+    get_target_property(_coral_core_configs
+      coral::core IMPORTED_CONFIGURATIONS)
+    set(_coral_compatible TRUE)
+    if(NOT _coral_core_type STREQUAL "SHARED_LIBRARY")
+      set(_coral_compatible FALSE)
+      message(WARNING
+        "Coral was found, but coral::core is not a shared library; "
+        "disabling ImmersX Coral plugins.")
+    endif()
+    if(_coral_compatible AND _coral_core_configs AND
+       NOT _coral_core_configs MATCHES "-NOTFOUND$")
+      foreach(_build_type IN LISTS IMMERSX_REQUESTED_BUILD_TYPES)
+        string(TOUPPER "${_build_type}" _build_type_upper)
+        if(NOT _build_type_upper IN_LIST _coral_core_configs)
+          set(_coral_compatible FALSE)
+        endif()
+      endforeach()
+      if(NOT _coral_compatible)
+        message(WARNING
+          "Coral was found, but coral::core does not provide all requested "
+          "${IMMERSX_REQUESTED_BUILD_TYPES} configurations "
+          "(${_coral_core_configs}); disabling ImmersX Coral plugins to "
+          "avoid a Debug/Release ABI mismatch.")
+      endif()
+    endif()
+    if(_coral_compatible)
+      set(IMMERSX_WITH_CORAL ON)
+      message(STATUS "ImmersX Coral plugins enabled")
+    endif()
+  elseif(coral_FOUND)
+    message(WARNING
+      "Coral was found, but its package does not provide coral::core; "
+      "disabling ImmersX Coral plugins.")
+  else()
+    message(STATUS
+      "ImmersX Coral plugins disabled (Coral package not found)")
+  endif()
+else()
+  message(STATUS "ImmersX Coral plugins disabled by configuration")
 endif()
 
 foreach(_build_type IN LISTS IMMERSX_REQUESTED_BUILD_TYPES)
@@ -525,6 +578,10 @@ ENDIF()
 # Register CTest before adding test subdirectories so their add_test() calls
 # are included in the top-level test manifest.
 ENABLE_TESTING()
+
+if(IMMERSX_WITH_CORAL)
+  add_subdirectory(coral)
+endif()
 
 # Deal.II style testing
 IF(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests AND ENABLE_DEAL_II_APP_TESTING)

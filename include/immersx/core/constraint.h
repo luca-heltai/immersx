@@ -424,6 +424,21 @@ namespace ImmersX
     return make_constraint(std::move(terms), std::forward<Rhs>(rhs));
   }
 
+  /** Build the standard equality constraint between two active fields.
+   *
+   * The multiplier field is supplied by the caller so that its finite-element
+   * space and ownership remain an explicit part of the coupling setup.
+   */
+  template <typename LhsField, typename RhsField, typename MultiplierField>
+  auto
+  make_continuity_constraint(const LhsField        &lhs,
+                             const RhsField        &rhs,
+                             const MultiplierField &multiplier)
+  {
+    return make_constraint(weak_term(value(lhs), test(multiplier)) -
+                           weak_term(value(rhs), test(multiplier)));
+  }
+
   template <typename Builder, typename Term, typename Rhs>
   ConstraintFields
   contribute(Builder &builder, const Constraint<Term, Rhs> &constraint)

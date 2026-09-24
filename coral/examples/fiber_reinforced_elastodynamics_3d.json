@@ -1,0 +1,58 @@
+{
+  "plugin": {
+    "MPI": {
+      "enabled": true,
+      "max_num_threads": 1
+    }
+  },
+  "workflow": {
+    "nodes": {
+      "0": {"type": "std::string", "value": "fiber_reinforced_elastodynamics_3d.prm", "position": {"x": 40, "y": 120}, "qualified_id": "fiber_parameter_file"},
+      "1": {"type": "ImmersX::FiberReinforcedElastodynamicsGraph<3>", "position": {"x": 300, "y": 120}, "qualified_id": "fiber_graph"},
+      "2": {"type": "ImmersX::FiberMatrixProblem<3>", "position": {"x": 560, "y": 20}, "qualified_id": "matrix_problem"},
+      "3": {"type": "ImmersX::FiberEmbeddedProblem<3>", "position": {"x": 560, "y": 120}, "qualified_id": "embedded_problem"},
+      "4": {"type": "ImmersX::FiberVelocityContinuity<3>", "position": {"x": 560, "y": 220}, "qualified_id": "velocity_continuity"},
+      "5": {"type": "ImmersX::FiberExecutionAdapter<3>", "position": {"x": 560, "y": 340}, "qualified_id": "execution_adapter"},
+      "6": {"type": "ImmersX::FiberReinforcedElastodynamicsGraph<3>::matrix_problem", "position": {"x": 820, "y": 20}, "qualified_id": "connect_matrix_problem"},
+      "7": {"type": "ImmersX::FiberReinforcedElastodynamicsGraph<3>::embedded_problem", "position": {"x": 820, "y": 120}, "qualified_id": "connect_embedded_problem"},
+      "8": {"type": "ImmersX::FiberReinforcedElastodynamicsGraph<3>::velocity_continuity", "position": {"x": 820, "y": 220}, "qualified_id": "connect_velocity_continuity"},
+      "9": {"type": "ImmersX::FiberReinforcedElastodynamicsGraph<3>::execution_adapter", "position": {"x": 820, "y": 340}, "qualified_id": "connect_execution_adapter"},
+      "10": {"type": "ImmersX::FiberMatrixProblem<3>::prepare", "position": {"x": 1080, "y": 20}, "qualified_id": "prepare_matrix"},
+      "11": {"type": "ImmersX::FiberEmbeddedProblem<3>::prepare", "position": {"x": 1080, "y": 120}, "qualified_id": "prepare_fiber"},
+      "12": {"type": "ImmersX::FiberVelocityContinuity<3>::prepare", "position": {"x": 1340, "y": 220}, "qualified_id": "prepare_velocity_continuity"},
+      "13": {"type": "ImmersX::FiberExecutionAdapter<3>::run", "position": {"x": 1600, "y": 220}, "qualified_id": "run_fiber_ida"},
+      "14": {"type": "ImmersX::FiberExecutionAdapter<3>::state_is_finite", "position": {"x": 1860, "y": 120}, "qualified_id": "fiber_finite"},
+      "15": {"type": "ImmersX::FiberExecutionAdapter<3>::matrix_velocity_residual", "position": {"x": 1860, "y": 180}, "qualified_id": "matrix_velocity_residual"},
+      "16": {"type": "ImmersX::FiberExecutionAdapter<3>::fiber_velocity_residual", "position": {"x": 1860, "y": 240}, "qualified_id": "fiber_velocity_residual"},
+      "17": {"type": "ImmersX::FiberExecutionAdapter<3>::velocity_constraint_residual", "position": {"x": 1860, "y": 300}, "qualified_id": "velocity_constraint_residual"},
+      "18": {"type": "ImmersX::FiberExecutionAdapter<3>::displacement_compatibility", "position": {"x": 1860, "y": 360}, "qualified_id": "displacement_compatibility"}
+    },
+    "edges": {
+      "0": {"source": 0, "source_output": 0, "target": 1, "target_input": 0},
+      "1": {"source": 2, "source_output": 0, "target": 6, "target_input": 0},
+      "2": {"source": 1, "source_output": 0, "target": 6, "target_input": 1},
+      "3": {"source": 3, "source_output": 0, "target": 7, "target_input": 0},
+      "4": {"source": 1, "source_output": 0, "target": 7, "target_input": 1},
+      "5": {"source": 4, "source_output": 0, "target": 8, "target_input": 0},
+      "6": {"source": 1, "source_output": 0, "target": 8, "target_input": 1},
+      "7": {"source": 5, "source_output": 0, "target": 9, "target_input": 0},
+      "8": {"source": 1, "source_output": 0, "target": 9, "target_input": 1},
+      "9": {"source": 6, "source_output": 0, "target": 10, "target_input": 0},
+      "10": {"source": 7, "source_output": 0, "target": 11, "target_input": 0},
+      "11": {"source": 8, "source_output": 0, "target": 12, "target_input": 0},
+      "12": {"source": 10, "source_output": 0, "target": 12, "target_input": 1},
+      "13": {"source": 11, "source_output": 0, "target": 12, "target_input": 2},
+      "14": {"source": 9, "source_output": 0, "target": 13, "target_input": 0},
+      "15": {"source": 10, "source_output": 0, "target": 13, "target_input": 1},
+      "16": {"source": 11, "source_output": 0, "target": 13, "target_input": 2},
+      "17": {"source": 12, "source_output": 0, "target": 13, "target_input": 3},
+      "18": {"source": 13, "source_output": 0, "target": 14, "target_input": 0},
+      "19": {"source": 13, "source_output": 0, "target": 15, "target_input": 0},
+      "20": {"source": 13, "source_output": 0, "target": 16, "target_input": 0},
+      "21": {"source": 13, "source_output": 0, "target": 17, "target_input": 0},
+      "22": {"source": 13, "source_output": 0, "target": 18, "target_input": 0}
+    }
+  },
+  "version": 1,
+  "author": "ImmersX"
+}
