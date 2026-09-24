@@ -22,6 +22,7 @@
 #include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
+#include <immersx/physics/fiber_reinforced_elastodynamics.h>
 #include <immersx/physics/poisson.h>
 #include <nlohmann/json.hpp>
 
@@ -248,6 +249,103 @@ namespace ImmersX::Coral
   }
 #endif
 
+  template <int dim>
+  std::string
+  fiber_reinforced_name()
+  {
+    return "ImmersX::FiberReinforcedElastodynamics<" + std::to_string(dim) +
+           ">";
+  }
+
+  template <int dim>
+  bool
+  fiber_reinforced_state_is_finite(
+    const ImmersX::FiberReinforcedElastodynamics<dim> &workflow)
+  {
+    return workflow.matrix_problem().state_is_finite() &&
+           workflow.fiber_problem().state_is_finite();
+  }
+
+  template <int dim>
+  double
+  fiber_reinforced_matrix_velocity_residual(
+    const ImmersX::FiberReinforcedElastodynamics<dim> &workflow)
+  {
+    return workflow.residuals().matrix_velocity;
+  }
+
+  template <int dim>
+  double
+  fiber_reinforced_fiber_velocity_residual(
+    const ImmersX::FiberReinforcedElastodynamics<dim> &workflow)
+  {
+    return workflow.residuals().fiber_velocity;
+  }
+
+  template <int dim>
+  double
+  fiber_reinforced_constraint_residual(
+    const ImmersX::FiberReinforcedElastodynamics<dim> &workflow)
+  {
+    return workflow.residuals().velocity_constraint;
+  }
+
+  template <int dim>
+  double
+  fiber_reinforced_displacement_residual(
+    const ImmersX::FiberReinforcedElastodynamics<dim> &workflow)
+  {
+    return workflow.residuals().displacement_compatibility;
+  }
+
+  template <int dim>
+  void
+  register_fiber_reinforced_types()
+  {
+    using Parameters = ImmersX::FiberReinforcedElastodynamicsParameters<dim>;
+    using Workflow   = ImmersX::FiberReinforcedElastodynamics<dim>;
+    const auto name  = fiber_reinforced_name<dim>();
+
+    coral::detail::set_type_alias<Parameters>(
+      "ImmersX::FiberReinforcedElastodynamicsParameters<" +
+      std::to_string(dim) + ">");
+    coral::detail::set_type_alias<Workflow>(name);
+    coral::NodeObject::register_type<Parameters, const std::string &>(
+      "subsection");
+    coral::NodeObject::register_function(
+      std::function<void(Parameters &, const std::string &)>(
+        &load_parameters<Parameters>),
+      {"ImmersX::LoadFiberReinforcedElastodynamicsParameters<" +
+         std::to_string(dim) + ">",
+       "parameters",
+       "parameter_file"});
+    coral::NodeObject::register_type<Workflow, const Parameters &>(
+      "parameters");
+    coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
+                                                       {name + "::run",
+                                                        "workflow"});
+    coral::NodeObject::register_function(
+      std::function<bool(const Workflow &)>(
+        &fiber_reinforced_state_is_finite<dim>),
+      {name + "::state_is_finite", "workflow", "is_finite"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &fiber_reinforced_matrix_velocity_residual<dim>),
+      {name + "::matrix_velocity_residual", "workflow", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &fiber_reinforced_fiber_velocity_residual<dim>),
+      {name + "::fiber_velocity_residual", "workflow", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &fiber_reinforced_constraint_residual<dim>),
+      {name + "::velocity_constraint_residual", "workflow", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &fiber_reinforced_displacement_residual<dim>),
+      {name + "::displacement_compatibility", "workflow", "diagnostic"});
+  }
+
   template <int dim, int spacedim>
   void
   register_poisson_types()
@@ -411,6 +509,7 @@ namespace ImmersX::Coral
         if constexpr (spacedim == 2)
           {
             register_coupled_poisson_types();
+            register_fiber_reinforced_types<2>();
 #ifdef DEAL_II_WITH_SUNDIALS
             register_ida_elastodynamics_types();
 #endif
@@ -422,7 +521,10 @@ namespace ImmersX::Coral
         register_elastic_static_types<3, spacedim>();
         register_elastodynamics_types<3, spacedim>();
         if constexpr (spacedim == 3)
-          register_coupled_poisson_elasticity_types();
+          {
+            register_coupled_poisson_elasticity_types();
+            register_fiber_reinforced_types<3>();
+          }
       }
   }
 
