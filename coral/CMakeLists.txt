@@ -31,6 +31,9 @@ foreach(_build_type ${_d2_build_types})
       source/plugin_${_spacedim}d.cc)
     if(_spacedim EQUAL 2)
       target_sources(${_plugin} PRIVATE source/coupled_poisson_2d.cc)
+    elseif(_spacedim EQUAL 3)
+      target_sources(${_plugin}
+        PRIVATE source/coupled_poisson_elasticity_3d.cc)
     endif()
 
     target_compile_features(${_plugin} PRIVATE cxx_std_17)
@@ -38,6 +41,7 @@ foreach(_build_type ${_d2_build_types})
       PRIVATE
         "${_immersx_coral_include_dir}"
         "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/apps"
         "${CMAKE_BINARY_DIR}/include")
     target_link_libraries(${_plugin}
       ${_immersx_library}
@@ -144,6 +148,26 @@ foreach(_build_type ${_d2_build_types})
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.CoupledPoisson2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+      endif()
+
+      if(IMMERSX_ENABLE_CORAL_GRAPH_TESTS AND _spacedim EQUAL 3)
+        set(_coupled_elasticity_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_coupled_poisson_elasticity_3d${_postfix}")
+        add_test(
+          NAME "ImmersX.Coral.Graph.CoupledPoissonElasticity3D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/coupled_poisson_elasticity_3d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/coupled_poisson_elasticity_3d.prm
+                  -DWORKING_DIRECTORY=${_coupled_elasticity_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/coupled_poisson_elasticity_diagnostics.txt
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.CoupledPoissonElasticity3D${_postfix}"
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
       endif()

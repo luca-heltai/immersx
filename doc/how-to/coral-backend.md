@@ -129,6 +129,18 @@ the workflow lifecycle and can query `ImmersX::CoupledPoisson<2>::residual_norm`
 after `run`. It is a first vertical coupling path; the lower-level Problems
 and Interaction objects are still assembled by the existing ImmersX code.
 
+The 3D plugin provides the corresponding Poisson-to-elasticity example:
+
+```text
+coupled_poisson_elasticity_3d.json
+coupled_poisson_elasticity_3d.prm
+```
+
+`ImmersX::CoupledPoissonElasticity<3>` uses the existing `value`, scaled
+`TensorProductLift`, `normal`, `weak_term`, and `LinearAdapter` components.
+Its graph exposes the coupled residual, pressure-scale, and traction-balance
+diagnostics after the native Poisson and elasticity outputs are written.
+
 ## Tests
 
 When the Coral executable target is available, CTest registers one registry
