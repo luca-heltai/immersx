@@ -68,3 +68,18 @@ elseif(SPACEDIM EQUAL 1 OR SPACEDIM EQUAL 3)
       "${SPACEDIM}D registry contains the 2D coupled Poisson façade.")
   endif()
 endif()
+
+if(SPACEDIM EQUAL 3)
+  string(FIND "${_registry}" "ImmersX::CoupledPoissonElasticity<3>" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR
+      "3D registry is missing the coupled Poisson-elasticity façade.")
+  endif()
+else()
+  string(FIND "${_registry}" "ImmersX::CoupledPoissonElasticity<3>" _found)
+  if(NOT _found EQUAL -1)
+    message(FATAL_ERROR
+      "${SPACEDIM}D registry contains the 3D coupled Poisson-elasticity "
+      "façade.")
+  endif()
+endif()

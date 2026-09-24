@@ -18,6 +18,7 @@
 #include <coral_network.h>
 #include <coral_plugin.h>
 #include <immersx/coral/coupled_poisson.h>
+#include <immersx/coral/coupled_poisson_elasticity.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/poisson.h>
@@ -163,6 +164,52 @@ namespace ImmersX::Coral
     coral::NodeObject::register_function(
       std::function<double(const Workflow &)>(&coupled_poisson_residual_norm),
       {name + "::residual_norm", "workflow", "residual"});
+  }
+
+  inline double
+  coupled_poisson_elasticity_residual_norm(
+    const CoupledPoissonElasticity3D &workflow)
+  {
+    return workflow.residual_norm();
+  }
+
+  inline double
+  coupled_poisson_elasticity_pressure_scale_error(
+    const CoupledPoissonElasticity3D &workflow)
+  {
+    return workflow.pressure_scale_error();
+  }
+
+  inline double
+  coupled_poisson_elasticity_traction_balance_error(
+    const CoupledPoissonElasticity3D &workflow)
+  {
+    return workflow.traction_balance_error();
+  }
+
+  inline void
+  register_coupled_poisson_elasticity_types()
+  {
+    using Workflow         = CoupledPoissonElasticity3D;
+    const std::string name = "ImmersX::CoupledPoissonElasticity<3>";
+    coral::detail::set_type_alias<Workflow>(name);
+    coral::NodeObject::register_type<Workflow, const std::string &>(
+      "parameter_file");
+    coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
+                                                       {name + "::run",
+                                                        "workflow"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &coupled_poisson_elasticity_residual_norm),
+      {name + "::residual_norm", "workflow", "residual"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &coupled_poisson_elasticity_pressure_scale_error),
+      {name + "::pressure_scale_error", "workflow", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &coupled_poisson_elasticity_traction_balance_error),
+      {name + "::traction_balance_error", "workflow", "diagnostic"});
   }
 
   template <int dim, int spacedim>
@@ -333,6 +380,8 @@ namespace ImmersX::Coral
         register_poisson_types<3, spacedim>();
         register_elastic_static_types<3, spacedim>();
         register_elastodynamics_types<3, spacedim>();
+        if constexpr (spacedim == 3)
+          register_coupled_poisson_elasticity_types();
       }
   }
 
