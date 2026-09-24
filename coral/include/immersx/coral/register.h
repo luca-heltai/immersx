@@ -19,6 +19,7 @@
 #include <coral_plugin.h>
 #include <immersx/coral/coupled_poisson.h>
 #include <immersx/coral/coupled_poisson_elasticity.h>
+#include <immersx/coral/fiber_reinforced_elastodynamics.h>
 #include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/coral/reduced_poisson.h>
 #include <immersx/physics/elastic_static.h>
@@ -383,6 +384,98 @@ namespace ImmersX::Coral
       {name + "::displacement_compatibility", "workflow", "diagnostic"});
   }
 
+  template <int dim>
+  void
+  register_fiber_reinforced_composition_types()
+  {
+    using Graph       = ImmersX::Coral::FiberReinforcedElastodynamicsGraph<dim>;
+    using Matrix      = ImmersX::Coral::FiberMatrixProblem<dim>;
+    using Fiber       = ImmersX::Coral::FiberEmbeddedProblem<dim>;
+    using Interaction = ImmersX::Coral::FiberVelocityContinuity<dim>;
+    using Adapter     = ImmersX::Coral::FiberExecutionAdapter<dim>;
+
+    const auto graph_name = "ImmersX::FiberReinforcedElastodynamicsGraph<" +
+                            std::to_string(dim) + ">";
+    const auto matrix_name =
+      "ImmersX::FiberMatrixProblem<" + std::to_string(dim) + ">";
+    const auto fiber_name =
+      "ImmersX::FiberEmbeddedProblem<" + std::to_string(dim) + ">";
+    const auto interaction_name =
+      "ImmersX::FiberVelocityContinuity<" + std::to_string(dim) + ">";
+    const auto adapter_name =
+      "ImmersX::FiberExecutionAdapter<" + std::to_string(dim) + ">";
+
+    coral::detail::set_type_alias<Graph>(graph_name);
+    coral::detail::set_type_alias<Matrix>(matrix_name);
+    coral::detail::set_type_alias<Fiber>(fiber_name);
+    coral::detail::set_type_alias<Interaction>(interaction_name);
+    coral::detail::set_type_alias<Adapter>(adapter_name);
+
+    coral::NodeObject::register_type<Graph, const std::string &>(
+      "parameter_file");
+    coral::NodeObject::register_type<Matrix>();
+    coral::NodeObject::register_type<Fiber>();
+    coral::NodeObject::register_type<Interaction>();
+    coral::NodeObject::register_type<Adapter>();
+
+    coral::NodeObject::register_function(
+      std::function<Matrix(const Graph &)>(
+        [](const Graph &graph) { return graph.matrix_problem(); }),
+      {graph_name + "::matrix_problem", "problem", "graph"});
+    coral::NodeObject::register_function(
+      std::function<Fiber(const Graph &)>(
+        [](const Graph &graph) { return graph.embedded_problem(); }),
+      {graph_name + "::embedded_problem", "problem", "graph"});
+    coral::NodeObject::register_function(
+      std::function<Interaction(const Graph &)>(
+        [](const Graph &graph) { return graph.velocity_continuity(); }),
+      {graph_name + "::velocity_continuity", "interaction", "graph"});
+    coral::NodeObject::register_function(
+      std::function<Adapter(const Graph &)>(
+        [](const Graph &graph) { return graph.execution_adapter(); }),
+      {graph_name + "::execution_adapter", "adapter", "graph"});
+
+    coral::NodeObject::register_method<Matrix, void>(&Matrix::prepare,
+                                                     {matrix_name + "::prepare",
+                                                      "problem"});
+    coral::NodeObject::register_method<Fiber, void>(&Fiber::prepare,
+                                                    {fiber_name + "::prepare",
+                                                     "problem"});
+    coral::NodeObject::register_method<Interaction, void>(
+      &Interaction::prepare,
+      {interaction_name + "::prepare", "interaction", "matrix", "fiber"});
+    coral::NodeObject::register_method<Adapter, void>(
+      &Adapter::run,
+      {adapter_name + "::run", "adapter", "matrix", "fiber", "interaction"});
+
+    coral::NodeObject::register_function(
+      std::function<bool(const Adapter &)>(
+        [](const Adapter &adapter) { return adapter.state_is_finite(); }),
+      {adapter_name + "::state_is_finite", "adapter", "is_finite"});
+    coral::NodeObject::register_function(
+      std::function<double(const Adapter &)>([](const Adapter &adapter) {
+        return adapter.matrix_velocity_residual();
+      }),
+      {adapter_name + "::matrix_velocity_residual", "adapter", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Adapter &)>([](const Adapter &adapter) {
+        return adapter.fiber_velocity_residual();
+      }),
+      {adapter_name + "::fiber_velocity_residual", "adapter", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Adapter &)>([](const Adapter &adapter) {
+        return adapter.velocity_constraint_residual();
+      }),
+      {adapter_name + "::velocity_constraint_residual",
+       "adapter",
+       "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Adapter &)>([](const Adapter &adapter) {
+        return adapter.displacement_compatibility();
+      }),
+      {adapter_name + "::displacement_compatibility", "adapter", "diagnostic"});
+  }
+
   template <int dim, int spacedim>
   void
   register_poisson_types()
@@ -547,6 +640,7 @@ namespace ImmersX::Coral
           {
             register_coupled_poisson_types();
             register_fiber_reinforced_types<2>();
+            register_fiber_reinforced_composition_types<2>();
 #ifdef DEAL_II_WITH_SUNDIALS
             register_ida_elastodynamics_types();
 #endif
@@ -561,6 +655,7 @@ namespace ImmersX::Coral
           {
             register_coupled_poisson_elasticity_types();
             register_fiber_reinforced_types<3>();
+            register_fiber_reinforced_composition_types<3>();
             register_reduced_poisson_types();
           }
       }

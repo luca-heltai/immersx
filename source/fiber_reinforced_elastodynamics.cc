@@ -224,20 +224,46 @@ namespace ImmersX
 
   template <int dim>
   void
-  FiberReinforcedElastodynamics<dim>::setup()
+  FiberReinforcedElastodynamics<dim>::prepare_matrix_problem()
   {
-    AssertThrow(!setup_complete,
-                ExcMessage("The fiber-reinforced driver was already set up."));
+    AssertThrow(!matrix_setup_complete,
+                ExcMessage("The matrix Problem was already prepared."));
 
     matrix_problem_storage.make_grid();
     matrix_problem_storage.setup_fe();
     matrix_problem_storage.setup_system();
     matrix_problem_storage.assemble_operators();
 
+    matrix_setup_complete = true;
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::prepare_fiber_problem()
+  {
+    AssertThrow(!fiber_setup_complete,
+                ExcMessage("The fiber Problem was already prepared."));
+
     fiber_problem_storage.make_grid();
     fiber_problem_storage.setup_fe();
     fiber_problem_storage.setup_system();
     fiber_problem_storage.assemble_operators();
+
+    fiber_setup_complete = true;
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::prepare_velocity_continuity()
+  {
+    AssertThrow(matrix_setup_complete && fiber_setup_complete,
+                ExcMessage("Both Problems must be prepared before the "
+                           "velocity-continuity interaction."));
+    AssertThrow(!coupling_setup_complete,
+                ExcMessage("The velocity-continuity interaction was already "
+                           "prepared."));
 
     matrix_space_storage = std::make_unique<FESpaceView<dim, dim>>(
       fe_space(matrix_problem_storage.dof_handler(),
@@ -282,7 +308,20 @@ namespace ImmersX
       multiplier_dof_handler_storage->locally_owned_dofs(), MPI_COMM_WORLD);
     multiplier_storage = 0.;
 
-    setup_complete = true;
+    coupling_setup_complete = true;
+    setup_complete          = true;
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::setup()
+  {
+    AssertThrow(!setup_complete,
+                ExcMessage("The fiber-reinforced driver was already set up."));
+    prepare_matrix_problem();
+    prepare_fiber_problem();
+    prepare_velocity_continuity();
   }
 
 
@@ -305,8 +344,9 @@ namespace ImmersX
   void
   FiberReinforcedElastodynamics<dim>::set_initial_conditions()
   {
-    AssertThrow(setup_complete,
-                ExcMessage("setup() must precede initial conditions."));
+    AssertThrow(coupling_setup_complete,
+                ExcMessage("Problem and velocity-continuity preparation must "
+                           "precede initial conditions."));
 
     if (!matrix_to_multiplier_storage)
       assemble_coupling_matrices();
@@ -803,16 +843,28 @@ namespace ImmersX
     ida_storage->solve(state, state_dot);
     matrix_only_displacement_storage = matrix_problem_storage.displacement();
   }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::run_ida_execution()
+  {
+    AssertThrow(coupling_setup_complete,
+                ExcMessage("Prepare the matrix Problem, fiber Problem, and "
+                           "velocity-continuity interaction before IDA."));
+    if (!initial_conditions_set)
+      set_initial_conditions();
+    run_with_ida();
+  }
 #endif
 
 
   template <int dim>
   void
-  FiberReinforcedElastodynamics<dim>::run()
+  FiberReinforcedElastodynamics<dim>::run_execution()
   {
-    setup();
 #ifdef DEAL_II_WITH_SUNDIALS
-    run_with_ida();
+    run_ida_execution();
     return;
 #endif
 
@@ -842,6 +894,15 @@ namespace ImmersX
                 parameters.time_parameters.output_time_interval;
           }
       }
+  }
+
+
+  template <int dim>
+  void
+  FiberReinforcedElastodynamics<dim>::run()
+  {
+    setup();
+    run_execution();
   }
 
 

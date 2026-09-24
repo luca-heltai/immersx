@@ -103,6 +103,18 @@ namespace ImmersX
 
     explicit FiberReinforcedElastodynamics(const Parameters &parameters);
 
+    /** Prepare only the matrix Elastodynamics Problem. */
+    void
+    prepare_matrix_problem();
+
+    /** Prepare only the embedded fiber Elastodynamics Problem. */
+    void
+    prepare_fiber_problem();
+
+    /** Prepare the multiplier space and velocity-continuity coupling. */
+    void
+    prepare_velocity_continuity();
+
     /** Create both meshes and assemble both Problems.
      *
      * The coupling is prepared by initialization or by the execution adapter.
@@ -122,6 +134,16 @@ namespace ImmersX
     /** Run setup, initialization, output, and the coupled time loop. */
     void
     run();
+
+    /** Run a composition whose Problems and interaction were prepared first. */
+    void
+    run_execution();
+
+#ifdef DEAL_II_WITH_SUNDIALS
+    /** Run the prepared matrix/fiber/interaction composition through IDA. */
+    void
+    run_ida_execution();
+#endif
 
     const MatrixProblem &
     matrix_problem() const
@@ -245,6 +267,9 @@ namespace ImmersX
     double       current_time_storage     = 0.;
     unsigned int time_step_number_storage = 0;
     bool         setup_complete           = false;
+    bool         matrix_setup_complete    = false;
+    bool         fiber_setup_complete     = false;
+    bool         coupling_setup_complete  = false;
     bool         initial_conditions_set   = false;
     bool         effective_matrices_valid = false;
     double       effective_time_step      = 0.;

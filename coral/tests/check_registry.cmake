@@ -98,11 +98,33 @@ if(SPACEDIM EQUAL 2)
   if(_found EQUAL -1)
     message(FATAL_ERROR "2D registry is missing fiber elastodynamics.")
   endif()
+  foreach(_type
+      "ImmersX::FiberReinforcedElastodynamicsGraph<2>"
+      "ImmersX::FiberMatrixProblem<2>"
+      "ImmersX::FiberEmbeddedProblem<2>"
+      "ImmersX::FiberVelocityContinuity<2>"
+      "ImmersX::FiberExecutionAdapter<2>")
+    string(FIND "${_registry}" "${_type}" _found)
+    if(_found EQUAL -1)
+      message(FATAL_ERROR "2D registry is missing compositional fiber type '${_type}'.")
+    endif()
+  endforeach()
 elseif(SPACEDIM EQUAL 3)
   string(FIND "${_registry}" "ImmersX::FiberReinforcedElastodynamics<3>" _found)
   if(_found EQUAL -1)
     message(FATAL_ERROR "3D registry is missing fiber elastodynamics.")
   endif()
+  foreach(_type
+      "ImmersX::FiberReinforcedElastodynamicsGraph<3>"
+      "ImmersX::FiberMatrixProblem<3>"
+      "ImmersX::FiberEmbeddedProblem<3>"
+      "ImmersX::FiberVelocityContinuity<3>"
+      "ImmersX::FiberExecutionAdapter<3>")
+    string(FIND "${_registry}" "${_type}" _found)
+    if(_found EQUAL -1)
+      message(FATAL_ERROR "3D registry is missing compositional fiber type '${_type}'.")
+    endif()
+  endforeach()
 else()
   foreach(_fiber_dim 2 3)
     string(FIND "${_registry}"
