@@ -104,6 +104,20 @@ directory. Therefore the example command is run from the directory containing
 the installed graph and parameter file. Output remains controlled by the
 parameter file.
 
+The 2D plugin also exposes the existing bulk/embedded Poisson workflow as the
+graph-facing `ImmersX::CoupledPoisson<2>` façade. Its example is:
+
+```text
+coupled_poisson_2d.json
+coupled_poisson_2d.prm
+```
+
+The façade owns the two existing `PoissonSolver` problems, the multiplier
+finite-element space, and the `LinearAdapter`. The graph therefore controls
+the workflow lifecycle and can query `ImmersX::CoupledPoisson<2>::residual_norm`
+after `run`. It is a first vertical coupling path; the lower-level Problems
+and Interaction objects are still assembled by the existing ImmersX code.
+
 ## Tests
 
 When the Coral executable target is available, CTest registers one registry
@@ -127,7 +141,8 @@ ctest --test-dir build-coral -R 'ImmersX.Coral.Graph' \
   --output-on-failure
 ```
 
-The test checks the generated graphviz file and the Poisson `.pvd` output.
+The tests check the generated graphviz files and the Poisson or coupled
+multiplier `.pvd` output.
 
 The registry tests do not replace numerical application tests. Graph execution
 also requires a working MPI runtime because the current distributed ImmersX

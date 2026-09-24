@@ -29,6 +29,9 @@ foreach(_build_type ${_d2_build_types})
     set(_plugin "coral_backend_immersx_${_spacedim}${_postfix}")
     add_library(${_plugin} MODULE
       source/plugin_${_spacedim}d.cc)
+    if(_spacedim EQUAL 2)
+      target_sources(${_plugin} PRIVATE source/coupled_poisson_2d.cc)
+    endif()
 
     target_compile_features(${_plugin} PRIVATE cxx_std_17)
     target_include_directories(${_plugin}
@@ -90,6 +93,23 @@ foreach(_build_type ${_d2_build_types})
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.Poisson2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
+        set(_coupled_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_coupled_poisson_2d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.CoupledPoisson2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/coupled_poisson_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/coupled_poisson_2d.prm
+                  -DWORKING_DIRECTORY=${_coupled_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/coupled_multiplier.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.CoupledPoisson2D${_postfix}"
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
       endif()
