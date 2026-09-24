@@ -1,0 +1,50 @@
+if(NOT DEFINED CORAL_EXECUTABLE OR NOT DEFINED PLUGIN OR
+   NOT DEFINED REGISTRY OR NOT DEFINED SPACEDIM)
+  message(FATAL_ERROR "Coral registry test requires executable, plugin, registry, and spacedim.")
+endif()
+
+execute_process(
+  COMMAND "${CORAL_EXECUTABLE}" -p "${PLUGIN}" register
+          --registry-path "${REGISTRY}"
+  RESULT_VARIABLE _result
+  OUTPUT_VARIABLE _stdout
+  ERROR_VARIABLE _stderr)
+if(NOT _result EQUAL 0)
+  message(FATAL_ERROR
+    "Coral registry generation failed with ${_result}.\n${_stdout}\n${_stderr}")
+endif()
+
+if(NOT EXISTS "${REGISTRY}")
+  message(FATAL_ERROR "Coral did not produce registry '${REGISTRY}'.")
+endif()
+file(READ "${REGISTRY}" _registry)
+
+foreach(_dim RANGE 1 ${SPACEDIM})
+  string(FIND "${_registry}" "ImmersX::Poisson<${_dim},${SPACEDIM}>" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d does not contain Poisson<${_dim},${SPACEDIM}>.")
+  endif()
+endforeach()
+
+foreach(_wrong_spacedim RANGE 1 3)
+  if(NOT _wrong_spacedim EQUAL SPACEDIM)
+    string(FIND "${_registry}" "ImmersX::Poisson<1,${_wrong_spacedim}>" _found)
+    if(NOT _found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d contains a Poisson node for spacedim=${_wrong_spacedim}.")
+    endif()
+  endif()
+endforeach()
+
+foreach(_type "std::string" "bool" "int" "unsigned int" "double")
+  string(FIND "${_registry}" "\"${_type}\"" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR "Registry is missing elementary type '${_type}'.")
+  endif()
+endforeach()
+
+string(FIND "${_registry}" "ImmersX::PoissonParameters<1,${SPACEDIM}>" _found)
+if(_found EQUAL -1)
+  message(FATAL_ERROR "Registry is missing stable Poisson parameter type name.")
+endif()

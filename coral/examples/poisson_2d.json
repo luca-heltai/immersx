@@ -1,0 +1,111 @@
+{
+  "plugin": {
+    "MPI": {
+      "enabled": true,
+      "max_num_threads": 1
+    }
+  },
+  "workflow": {
+    "nodes": {
+      "0": {
+        "type": "std::string",
+        "value": "/ImmersX Coral Poisson/"
+      },
+      "1": {
+        "type": "ImmersX::PoissonParameters<2,2>"
+      },
+      "2": {
+        "type": "std::string",
+        "value": "poisson_2d.prm"
+      },
+      "3": {
+        "type": "ImmersX::LoadPoissonParameters<2,2>"
+      },
+      "4": {
+        "type": "ImmersX::Poisson<2,2>"
+      },
+      "5": {
+        "type": "ImmersX::Poisson<2,2>::make_grid"
+      },
+      "6": {
+        "type": "ImmersX::Poisson<2,2>::setup_fe"
+      },
+      "7": {
+        "type": "ImmersX::Poisson<2,2>::setup_system"
+      },
+      "8": {
+        "type": "ImmersX::Poisson<2,2>::assemble_system"
+      },
+      "9": {
+        "type": "ImmersX::Poisson<2,2>::solve"
+      },
+      "10": {
+        "type": "ImmersX::Poisson<2,2>::output_results"
+      }
+    },
+    "edges": {
+      "0": {
+        "source": 0,
+        "source_output": 0,
+        "target": 1,
+        "target_input": 0
+      },
+      "1": {
+        "source": 1,
+        "source_output": 0,
+        "target": 3,
+        "target_input": 0
+      },
+      "2": {
+        "source": 2,
+        "source_output": 0,
+        "target": 3,
+        "target_input": 1
+      },
+      "3": {
+        "source": 3,
+        "source_output": 0,
+        "target": 4,
+        "target_input": 0
+      },
+      "4": {
+        "source": 4,
+        "source_output": 0,
+        "target": 5,
+        "target_input": 0
+      },
+      "5": {
+        "source": 5,
+        "source_output": 0,
+        "target": 6,
+        "target_input": 0
+      },
+      "6": {
+        "source": 6,
+        "source_output": 0,
+        "target": 7,
+        "target_input": 0
+      },
+      "7": {
+        "source": 7,
+        "source_output": 0,
+        "target": 8,
+        "target_input": 0
+      },
+      "8": {
+        "source": 8,
+        "source_output": 0,
+        "target": 9,
+        "target_input": 0
+      },
+      "9": {
+        "source": 9,
+        "source_output": 0,
+        "target": 10,
+        "target_input": 0
+      }
+    }
+  },
+  "version": 1,
+  "author": "ImmersX"
+}

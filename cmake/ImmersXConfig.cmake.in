@@ -12,6 +12,12 @@ if(ImmersX_WITH_METRIC_FLOW_X)
   find_dependency(MetricFlowX CONFIG)
 endif()
 
+set(ImmersX_WITH_CORAL @IMMERSX_WITH_CORAL@)
+if(ImmersX_WITH_CORAL)
+  set(ImmersX_CORAL_PLUGIN_DIR
+      "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/immersx/coral")
+endif()
+
 if(@IMMERSX_BUILD_BOTH_VARIANTS@)
   # A DebugRelease build exports both concrete libraries with the build tree's
   # single configuration. Map ordinary downstream single-config builds to
