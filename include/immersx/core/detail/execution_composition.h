@@ -680,7 +680,7 @@ namespace ImmersX::detail
                          const GlobalVectorType *state_dot          = nullptr,
                          const double            alpha              = 0.,
                          const unsigned int      maximum_iterations = 1000,
-                         const double            tolerance = 1.e-10) const
+                         const double            tolerance = 1.e-9) const
     {
       finalize();
       validate_state(state);
@@ -776,8 +776,18 @@ namespace ImmersX::detail
                                tolerance](FieldVectorType       &solution,
                                           const FieldVectorType &rhs,
                                           const bool             transpose) {
+        // The Schur complement can reach a lucky breakdown: an Arnoldi vector
+        // becomes exactly zero after the exact solution has been found.
+        // deal.II's default delayed classical Gram-Schmidt divides by a zero
+        // norm in that case, while modified Gram-Schmidt stops. The default
+        // tolerance of 1e-9 is sufficient because this solve only builds a
+        // preconditioner and a tighter value stagnates just above the
+        // tolerance on nearly singular Schur complements.
         dealii::SolverControl control(maximum_iterations, tolerance);
-        dealii::SolverGMRES<FieldVectorType> solver(control);
+        typename dealii::SolverGMRES<FieldVectorType>::AdditionalData data;
+        data.orthogonalization_strategy = dealii::LinearAlgebra::
+          OrthogonalizationStrategy::modified_gram_schmidt;
+        dealii::SolverGMRES<FieldVectorType> solver(control, data);
         if (transpose)
           solver.solve(schur_transpose,
                        solution,
