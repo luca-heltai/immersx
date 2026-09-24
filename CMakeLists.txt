@@ -57,6 +57,8 @@ option(IMMERSX_USE_CCACHE
   "Use ccache when it is available." ON)
 option(IMMERSX_BUILD_CORAL_PLUGINS
   "Build Coral plugins when a compatible Coral package is available." ON)
+option(IMMERSX_ENABLE_CORAL_GRAPH_TESTS
+  "Enable numerical Coral graph integration tests." OFF)
 
 set(IMMERSX_INSTALL_DOCDIR "${CMAKE_INSTALL_DATADIR}/doc/immersx"
   CACHE PATH "Installation directory for ImmersX documentation")

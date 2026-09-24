@@ -75,6 +75,24 @@ foreach(_build_type ${_d2_build_types})
         PROPERTIES LABELS "unit;quick"
                    TIMEOUT 120
                    ENVIRONMENT "${_coral_test_environment}")
+
+      if(IMMERSX_ENABLE_CORAL_GRAPH_TESTS AND _spacedim EQUAL 2)
+        set(_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_2d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.Poisson2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.prm
+                  -DWORKING_DIRECTORY=${_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.Poisson2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+      endif()
     endif()
   endforeach()
 endforeach()

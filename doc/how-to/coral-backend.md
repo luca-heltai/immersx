@@ -115,6 +115,20 @@ ctest --test-dir build-coral -R 'ImmersX.Coral.Registry' \
   --output-on-failure
 ```
 
+The numerical Poisson graph test is opt-in because it needs a working MPI
+runtime in addition to the Coral package:
+
+```bash
+cmake -S . -B build-coral \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -Dcoral_DIR=/Users/heltai/dualistic/coral/inst/lib/cmake/coral \
+  -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=ON
+ctest --test-dir build-coral -R 'ImmersX.Coral.Graph' \
+  --output-on-failure
+```
+
+The test checks the generated graphviz file and the Poisson `.pvd` output.
+
 The registry tests do not replace numerical application tests. Graph execution
 also requires a working MPI runtime because the current distributed ImmersX
 problems use `MPI_COMM_WORLD` during construction.
