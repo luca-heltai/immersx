@@ -35,7 +35,8 @@ foreach(_build_type ${_d2_build_types})
                 source/ida_elastodynamics_2d.cc)
     elseif(_spacedim EQUAL 3)
       target_sources(${_plugin}
-        PRIVATE source/coupled_poisson_elasticity_3d.cc)
+        PRIVATE source/coupled_poisson_elasticity_3d.cc
+                source/reduced_poisson_3d.cc)
     endif()
 
     target_compile_features(${_plugin} PRIVATE cxx_std_17)
@@ -225,6 +226,23 @@ foreach(_build_type ${_d2_build_types})
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.FiberReinforcedElastodynamics3D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
+        set(_reduced_poisson_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_reduced_poisson_3d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.ReducedPoisson3D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/reduced_poisson_3d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/reduced_poisson_3d.prm
+                  -DWORKING_DIRECTORY=${_reduced_poisson_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/reduced_poisson.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.ReducedPoisson3D${_postfix}"
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
       endif()

@@ -32,3 +32,7 @@ built from their source files, but their functional code is enabled only when
 All other executables are part of the normal application target set. The
 [running applications guide](../how-to/running-applications) explains the
 parameter-file command format.
+
+When Coral is installed, equivalent graph examples are installed under
+`share/immersx/coral/examples`. See the [Coral backend guide](../how-to/coral-backend)
+for plugin selection, graph execution, and conditional coupled workflows.
