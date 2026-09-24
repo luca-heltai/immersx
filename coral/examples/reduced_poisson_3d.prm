@@ -1,0 +1,78 @@
+subsection Reduced Poisson
+  set Assemble full AL system            = false
+  set Dirichlet boundary ids             = 0,1,2,3,4,5
+  set Estimate condition number          = false
+  set FE degree                          = 1
+  set Output directory                   = output
+  set Output name                        = reduced_poisson
+  set Output results also before solving = false
+  set Solver type                        = AL
+  subsection Dirichlet boundary conditions
+    set Function constants  =
+    set Function expression = 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Refinement and remeshing
+    set Coarsening fraction         = 0
+    set Maximum number of cells     = 1000
+    set Number of refinement cycles = 1
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_fraction
+  end
+  subsection Right hand side
+    set Function constants  =
+    set Function expression = 1
+    set Variable names      = x,y,z,t
+  end
+  subsection Solver
+    subsection Inner control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = false
+      set Max steps     = 100
+      set Reduction     = 1.e-8
+      set Tolerance     = 1.e-10
+    end
+    subsection Outer control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = false
+      set Max steps     = 100
+      set Reduction     = 1.e-8
+      set Tolerance     = 1.e-8
+    end
+  end
+end
+subsection Tensor product coupling
+  subsection Cross section
+    set Inclusion type           = hyper_ball
+    set Maximum inclusion degree = 0
+    set Refinement level         = 1
+    set Selected indices         = 0
+  end
+  subsection Local refinement parameters
+    set Embedded post-refinement cycles = 0
+    set Embedded pre-refinement cycles  = 0
+    set Max refinement level            = 2
+    set Refinement factor               = 1
+    set Refinement strategy             = space
+    set Space post-refinement cycles    = 0
+    set Space pre-refinement cycles     = 0
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Finite element degree            = 1
+    set Number of quadrature points     = 2
+    set Number of quadrature repetitions = 1
+    set Quadrature type                  = gauss
+    set Reduced grid name                =
+    set Reduced right hand side          = 1
+    set Thickness                        = 0.1
+  end
+end

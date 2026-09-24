@@ -75,12 +75,21 @@ if(SPACEDIM EQUAL 3)
     message(FATAL_ERROR
       "3D registry is missing the coupled Poisson-elasticity façade.")
   endif()
+  string(FIND "${_registry}" "ImmersX::ReducedPoissonWorkflow<3>" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR "3D registry is missing the ReducedPoisson workflow.")
+  endif()
 else()
   string(FIND "${_registry}" "ImmersX::CoupledPoissonElasticity<3>" _found)
   if(NOT _found EQUAL -1)
     message(FATAL_ERROR
       "${SPACEDIM}D registry contains the 3D coupled Poisson-elasticity "
       "façade.")
+  endif()
+  string(FIND "${_registry}" "ImmersX::ReducedPoissonWorkflow<3>" _found)
+  if(NOT _found EQUAL -1)
+    message(FATAL_ERROR
+      "${SPACEDIM}D registry contains the 3D ReducedPoisson workflow.")
   endif()
 endif()
 

@@ -20,6 +20,7 @@
 #include <immersx/coral/coupled_poisson.h>
 #include <immersx/coral/coupled_poisson_elasticity.h>
 #include <immersx/coral/ida_elastodynamics.h>
+#include <immersx/coral/reduced_poisson.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
@@ -212,6 +213,42 @@ namespace ImmersX::Coral
       std::function<double(const Workflow &)>(
         &coupled_poisson_elasticity_traction_balance_error),
       {name + "::traction_balance_error", "workflow", "diagnostic"});
+  }
+
+  inline bool
+  reduced_poisson_state_is_finite(const ReducedPoisson3D &workflow)
+  {
+    return workflow.state_is_finite();
+  }
+
+  inline void
+  register_reduced_poisson_types()
+  {
+    using Workflow         = ReducedPoisson3D;
+    const std::string name = "ImmersX::ReducedPoissonWorkflow<3>";
+    coral::detail::set_type_alias<Workflow>(name);
+    coral::NodeObject::register_type<Workflow, const std::string &>(
+      "parameter_file");
+    coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
+                                                       {name + "::run",
+                                                        "workflow"});
+    coral::NodeObject::register_function(
+      std::function<bool(const Workflow &)>(&reduced_poisson_state_is_finite),
+      {name + "::state_is_finite", "workflow", "is_finite"});
+    coral::NodeObject::register_function(
+      std::function<unsigned int(const Workflow &)>(&Workflow::n_reduced_dofs),
+      {name + "::n_reduced_dofs", "workflow", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &Workflow::coupling_matrix_frobenius_norm),
+      {name + "::coupling_matrix_frobenius_norm", "workflow", "diagnostic"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(&Workflow::bulk_solution_l2_norm),
+      {name + "::bulk_solution_l2_norm", "workflow", "norm"});
+    coral::NodeObject::register_function(
+      std::function<double(const Workflow &)>(
+        &Workflow::multiplier_solution_l2_norm),
+      {name + "::multiplier_solution_l2_norm", "workflow", "norm"});
   }
 
 #ifdef DEAL_II_WITH_SUNDIALS
@@ -524,6 +561,7 @@ namespace ImmersX::Coral
           {
             register_coupled_poisson_elasticity_types();
             register_fiber_reinforced_types<3>();
+            register_reduced_poisson_types();
           }
       }
   }

@@ -158,6 +158,26 @@ coupled_poisson_elasticity_3d.prm
 Its graph exposes the coupled residual, pressure-scale, and traction-balance
 diagnostics after the native Poisson and elasticity outputs are written.
 
+The 3D plugin also provides a point-backed ReducedPoisson example:
+
+```text
+reduced_poisson_3d.json       reduced_poisson_3d.prm
+```
+
+`ImmersX::ReducedPoissonWorkflow<3>` delegates to the existing
+`ReducedPoisson<3,3,0,3>` implementation. The binding supplies one
+representative point at `(0.5, 0.5, 0.5)`, so the installed graph does not
+depend on a source-tree VTK point-cloud file. It exposes the reduced DoF count,
+coupling-matrix norm, solution norms, and a finiteness check after `run`.
+
+The graph-facing fiber workflow currently keeps the existing coupled driver as
+the execution owner. That driver is internally assembled from separate matrix
+and fiber `ElastodynamicsSolver` Problems, a reusable velocity-continuity
+constraint, and the IDA adapter when SUNDIALS is available; the graph still
+exposes it as one orchestration node. A future Coral-side editor can split
+those already-separated contributors into visible nodes without changing the
+underlying physical assembly.
+
 ## Tests
 
 When the Coral executable target is available, CTest registers one registry
@@ -182,7 +202,8 @@ ctest --test-dir build-coral -R 'ImmersX.Coral.Graph' \
 ```
 
 The tests check the generated graphviz files and the configured native output
-for Poisson, static elasticity, elastodynamics, or coupled Poisson.
+for Poisson, static elasticity, elastodynamics, both coupled workflows, fiber
+reinforcement, and ReducedPoisson.
 
 The registry tests do not replace numerical application tests. Graph execution
 also requires a working MPI runtime because the current distributed ImmersX
