@@ -288,14 +288,11 @@ is not a CMake multi-config generator.
 
 Set `DEAL_II_DIR` when required by the local installation.
 
-Use ccache when available:
-
-```bash
-export CCACHE_DIR="$HOME/.ccache"
-cmake -S . -B build-debug \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-```
+CMake detects ccache when it is available and configures a shared cache for
+all worktrees. The default cache is `$HOME/.ccache`; set `CCACHE_DIR` before
+configuration to select another shared cache. The compiler maps source and
+build paths to stable fake prefixes so ccache keys and debug information do not
+contain worktree-specific paths. Use `-DIMMERSX_USE_CCACHE=OFF` to disable it.
 
 Do not place generated build products in the source tree.
 

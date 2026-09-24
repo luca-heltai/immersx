@@ -53,9 +53,92 @@ option(IMMERSX_PORTABLE
   "Request statically linked executables for portable deployment." OFF)
 option(IMMERSX_INSTALL_TESTS
   "Install test executables, fixtures, and test sources." ON)
+option(IMMERSX_USE_CCACHE
+  "Use ccache when it is available." ON)
 
 set(IMMERSX_INSTALL_DOCDIR "${CMAKE_INSTALL_DATADIR}/doc/immersx"
   CACHE PATH "Installation directory for ImmersX documentation")
+
+# Keep compiler and debugger paths independent of the worktree in which a
+# build was configured.  The prefixes are deliberately absolute fake paths:
+# they are stable ccache keys and are translated back by the VS Code debugger.
+set(IMMERSX_DEBUG_SOURCE_PREFIX "/immersx/source" CACHE STRING
+  "Prefix used for source paths in compiler debug information")
+set(IMMERSX_DEBUG_BINARY_PREFIX "/immersx/build" CACHE STRING
+  "Prefix used for generated-source paths in compiler debug information")
+
+if(IMMERSX_USE_CCACHE)
+  find_program(IMMERSX_CCACHE_PROGRAM NAMES ccache)
+  if(IMMERSX_CCACHE_PROGRAM)
+    # CCACHE_BASEDIR makes source names relative to this worktree before they
+    # are hashed.  CCACHE_HASHDIR prevents the build directory from becoming a
+    # second worktree-specific hash input.  The wrapper also preserves an
+    # explicitly configured CCACHE_DIR; otherwise all worktrees for this user
+    # use the conventional shared cache directory.
+    if(DEFINED ENV{CCACHE_DIR} AND NOT "$ENV{CCACHE_DIR}" STREQUAL "")
+      set(_immersx_ccache_dir "$ENV{CCACHE_DIR}")
+    elseif(DEFINED ENV{HOME} AND NOT "$ENV{HOME}" STREQUAL "")
+      set(_immersx_ccache_dir "$ENV{HOME}/.ccache")
+    else()
+      set(_immersx_ccache_dir "")
+    endif()
+
+    if(_immersx_ccache_dir)
+      set(_immersx_ccache_dir_assignment
+        "  export CCACHE_DIR=\"${_immersx_ccache_dir}\"\n")
+    else()
+      set(_immersx_ccache_dir_assignment "")
+    endif()
+
+    set(_immersx_ccache_launcher
+      "${CMAKE_CURRENT_BINARY_DIR}/immersx-ccache-launcher")
+    configure_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ccache-launcher.in"
+      "${_immersx_ccache_launcher}" @ONLY)
+
+    if(NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER OR
+       CMAKE_CXX_COMPILER_LAUNCHER STREQUAL "" OR
+       CMAKE_CXX_COMPILER_LAUNCHER STREQUAL "ccache" OR
+       CMAKE_CXX_COMPILER_LAUNCHER STREQUAL "${_immersx_ccache_launcher}")
+      set(CMAKE_CXX_COMPILER_LAUNCHER "${_immersx_ccache_launcher}"
+        CACHE STRING "Compiler launcher used for C++ compilation" FORCE)
+      set(IMMERSX_CCACHE_LAUNCHER_CONFIGURED ON CACHE INTERNAL
+        "Whether ImmersX configured the ccache launcher")
+    else()
+      unset(IMMERSX_CCACHE_LAUNCHER_CONFIGURED CACHE)
+    endif()
+    message(STATUS "ccache found: ${IMMERSX_CCACHE_PROGRAM}")
+    message(STATUS "ccache cache directory: ${_immersx_ccache_dir}")
+  else()
+    message(STATUS "ccache not found; compiler caching is disabled")
+  endif()
+endif()
+
+if((NOT IMMERSX_USE_CCACHE OR NOT IMMERSX_CCACHE_PROGRAM) AND
+   IMMERSX_CCACHE_LAUNCHER_CONFIGURED)
+  unset(CMAKE_CXX_COMPILER_LAUNCHER CACHE)
+  unset(IMMERSX_CCACHE_LAUNCHER_CONFIGURED CACHE)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+  # Put the source-tree mapping first and the binary-tree mapping last.  The
+  # compiler uses the last matching prefix, so generated files below an
+  # in-tree build are mapped to the binary prefix rather than the source
+  # prefix.
+  add_compile_options(
+    "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-fdebug-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-fmacro-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=${IMMERSX_DEBUG_BINARY_PREFIX}"
+    "-fdebug-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=${IMMERSX_DEBUG_BINARY_PREFIX}"
+    "-fmacro-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=${IMMERSX_DEBUG_BINARY_PREFIX}")
+  message(STATUS
+    "Compiler path mapping: ${CMAKE_CURRENT_SOURCE_DIR} -> "
+    "${IMMERSX_DEBUG_SOURCE_PREFIX}")
+  message(STATUS
+    "Compiler path mapping: ${CMAKE_CURRENT_BINARY_DIR} -> "
+    "${IMMERSX_DEBUG_BINARY_PREFIX}")
+endif()
 
 if(IMMERSX_PORTABLE)
   if(NOT IMMERSX_BUILD_STATIC)
@@ -243,6 +326,28 @@ SET(IMMERSX_BINARY_DIR "${CMAKE_BINARY_DIR}")
 SET(TEST_DATA_DIR "${IMMERSX_BINARY_DIR}/data")
 SET(TEST_OUTPUT_DIR "${IMMERSX_BINARY_DIR}/test_output")
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  set(IMMERSX_VSCODE_MI_MODE "lldb")
+else()
+  set(IMMERSX_VSCODE_MI_MODE "gdb")
+endif()
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vscode")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/vscode-launch.json.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch.json"
+  @ONLY)
+# This target intentionally updates the workspace file only when requested.
+# It avoids overwriting a user's VS Code settings during an ordinary build.
+add_custom_target(vscode
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+          "${CMAKE_CURRENT_SOURCE_DIR}/.vscode"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch.json"
+          "${CMAKE_CURRENT_SOURCE_DIR}/.vscode/launch.json"
+  DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch.json"
+  COMMENT "Updating VS Code launch configuration"
+  VERBATIM)
+
 # Keep the input convention in one place. Every template below gtests/, tests/,
 # data/, or tutorials/ is emitted at the same relative path below the build
 # tree, with only the final .in suffix removed. @ONLY is intentional: parameter
@@ -311,9 +416,6 @@ FOREACH(_build_type ${_d2_build_types})
           $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
       #ADD_LIBRARY( STATIC )
-      # Keep the source path private: exporting it would make the installed
-      # package depend on this build tree's absolute path.
-      TARGET_COMPILE_DEFINITIONS(${_lib} PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
       IF(ENABLE_COUPLED_PROBLEMS)
         TARGET_COMPILE_DEFINITIONS(${_lib} PRIVATE ENABLE_COUPLED_PROBLEMS)
       ENDIF()
@@ -355,8 +457,6 @@ FOREACH(_build_type ${_d2_build_types})
         ADD_EXECUTABLE(${_exe} ${_main})
         LIST(APPEND IMMERSX_APPLICATION_TARGETS ${_exe})
         # TARGET_LINK_LIBRARIES(${_exe} ${_lib} 1dsolver)      
-        TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-        
         IF(ENABLE_COUPLED_PROBLEMS)
           TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
           TARGET_INCLUDE_DIRECTORIES(${_exe} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

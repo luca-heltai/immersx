@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ImmersX (CMake target)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "sourceFileMap": {
+        "/immersx/source": "${workspaceFolder}",
+        "/immersx/build": "${command:cmake.buildDirectory}"
+      }
+    }
+  ]
+}
