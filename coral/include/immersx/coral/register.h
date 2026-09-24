@@ -17,6 +17,8 @@
 #include <coral_log.h>
 #include <coral_network.h>
 #include <coral_plugin.h>
+#include <immersx/physics/elastic_static.h>
+#include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/poisson.h>
 #include <nlohmann/json.hpp>
 
@@ -96,6 +98,50 @@ namespace ImmersX::Coral
     return problem.solution_is_finite();
   }
 
+  template <typename Parameters>
+  void
+  load_parameters(Parameters &parameters, const std::string &file_name)
+  {
+    (void)parameters;
+    std::ifstream input(file_name);
+    AssertThrow(input.good(),
+                dealii::ExcMessage("Could not open Coral parameter file '" +
+                                   file_name + "'."));
+    dealii::ParameterAcceptor::initialize(input);
+  }
+
+  template <int dim, int spacedim>
+  void
+  write_elastic_static_output(
+    ImmersX::ElasticStaticProblem<dim, spacedim> &problem)
+  {
+    problem.output_results(0);
+  }
+
+  template <int dim, int spacedim>
+  bool
+  elastodynamics_state_is_finite(
+    const ImmersX::ElastodynamicsSolver<dim, spacedim> &problem)
+  {
+    return problem.state_is_finite();
+  }
+
+  template <int dim, int spacedim>
+  double
+  elastodynamics_current_time(
+    const ImmersX::ElastodynamicsSolver<dim, spacedim> &problem)
+  {
+    return problem.current_time();
+  }
+
+  template <int dim, int spacedim>
+  void
+  write_elastodynamics_output(
+    ImmersX::ElastodynamicsSolver<dim, spacedim> &problem)
+  {
+    problem.output_results();
+  }
+
   template <int dim, int spacedim>
   void
   register_poisson_types()
@@ -145,16 +191,124 @@ namespace ImmersX::Coral
       {name + "::solution_is_finite", "problem", "is_finite"});
   }
 
+  template <int dim, int spacedim>
+  void
+  register_elastic_static_types()
+  {
+    using Parameters = ImmersX::ElasticStaticParameters<dim, spacedim>;
+    using Problem    = ImmersX::ElasticStaticProblem<dim, spacedim>;
+    const auto name =
+      "ImmersX::ElasticStatic<" + dimensions(dim, spacedim) + ">";
+
+    coral::detail::set_type_alias<Parameters>(
+      "ImmersX::ElasticStaticParameters<" + dimensions(dim, spacedim) + ">");
+    coral::detail::set_type_alias<Problem>(name);
+
+    coral::NodeObject::register_type<Parameters, const std::string &>(
+      "subsection");
+    coral::NodeObject::register_function(
+      std::function<void(Parameters &, const std::string &)>(
+        &load_parameters<Parameters>),
+      {"ImmersX::LoadElasticStaticParameters<" + dimensions(dim, spacedim) +
+         ">",
+       "parameters",
+       "parameter_file"});
+    coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
+    coral::NodeObject::register_method<Problem, void>(&Problem::setup,
+                                                      {name + "::setup",
+                                                       "problem"});
+    coral::NodeObject::register_method<Problem, void>(&Problem::solve,
+                                                      {name + "::solve",
+                                                       "problem"});
+    coral::NodeObject::register_method<Problem, void>(&Problem::run,
+                                                      {name + "::run",
+                                                       "problem"});
+    coral::NodeObject::register_function(
+      std::function<void(Problem &)>(
+        &write_elastic_static_output<dim, spacedim>),
+      {name + "::output_results", "problem"});
+  }
+
+  template <int dim, int spacedim>
+  void
+  register_elastodynamics_types()
+  {
+    using Parameters = ImmersX::ElastodynamicsParameters<dim, spacedim>;
+    using Problem    = ImmersX::ElastodynamicsSolver<dim, spacedim>;
+    const auto name =
+      "ImmersX::Elastodynamics<" + dimensions(dim, spacedim) + ">";
+
+    coral::detail::set_type_alias<Parameters>(
+      "ImmersX::ElastodynamicsParameters<" + dimensions(dim, spacedim) + ">");
+    coral::detail::set_type_alias<Problem>(name);
+
+    coral::NodeObject::register_type<Parameters, const std::string &>(
+      "subsection");
+    coral::NodeObject::register_function(
+      std::function<void(Parameters &, const std::string &)>(
+        &load_parameters<Parameters>),
+      {"ImmersX::LoadElastodynamicsParameters<" + dimensions(dim, spacedim) +
+         ">",
+       "parameters",
+       "parameter_file"});
+    coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
+    coral::NodeObject::register_method<Problem, void>(&Problem::make_grid,
+                                                      {name + "::make_grid",
+                                                       "problem"});
+    coral::NodeObject::register_method<Problem, void>(&Problem::setup_fe,
+                                                      {name + "::setup_fe",
+                                                       "problem"});
+    coral::NodeObject::register_method<Problem, void>(&Problem::setup_system,
+                                                      {name + "::setup_system",
+                                                       "problem"});
+    coral::NodeObject::register_method<Problem, void>(
+      &Problem::assemble_operators, {name + "::assemble_operators", "problem"});
+    coral::NodeObject::register_method<Problem, void>(
+      &Problem::set_initial_conditions,
+      {name + "::set_initial_conditions", "problem"});
+    coral::NodeObject::register_method<Problem, void>(
+      &Problem::advance_one_timestep,
+      {name + "::advance_one_timestep", "problem"});
+    coral::NodeObject::register_method<Problem, void>(&Problem::solve,
+                                                      {name + "::solve",
+                                                       "problem"});
+    coral::NodeObject::register_method<Problem, void>(&Problem::run,
+                                                      {name + "::run",
+                                                       "problem"});
+    coral::NodeObject::register_function(
+      std::function<void(Problem &)>(
+        &write_elastodynamics_output<dim, spacedim>),
+      {name + "::output_results", "problem"});
+    coral::NodeObject::register_function(
+      std::function<bool(const Problem &)>(
+        &elastodynamics_state_is_finite<dim, spacedim>),
+      {name + "::state_is_finite", "problem", "is_finite"});
+    coral::NodeObject::register_function(
+      std::function<double(const Problem &)>(
+        &elastodynamics_current_time<dim, spacedim>),
+      {name + "::current_time", "problem", "time"});
+  }
+
   template <int spacedim>
   void
   register_immersx_types()
   {
     register_common_types();
     register_poisson_types<1, spacedim>();
+    register_elastic_static_types<1, spacedim>();
+    register_elastodynamics_types<1, spacedim>();
     if constexpr (spacedim >= 2)
-      register_poisson_types<2, spacedim>();
+      {
+        register_poisson_types<2, spacedim>();
+        register_elastic_static_types<2, spacedim>();
+        register_elastodynamics_types<2, spacedim>();
+      }
     if constexpr (spacedim >= 3)
-      register_poisson_types<3, spacedim>();
+      {
+        register_poisson_types<3, spacedim>();
+        register_elastic_static_types<3, spacedim>();
+        register_elastodynamics_types<3, spacedim>();
+      }
   }
 
   template <int spacedim>
