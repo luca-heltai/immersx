@@ -85,18 +85,37 @@ carry the `_debug` suffix.
 
 ### ccache
 
-ccache is recommended for local development:
+CMake detects `ccache` automatically. When it is installed, the project uses a
+small launcher that sets a shared cache directory, removes the worktree from
+ccache's directory hash, and treats the current worktree as `CCACHE_BASEDIR`.
+The default cache is `$HOME/.ccache`; set `CCACHE_DIR` before configuring to use
+another shared cache.
+
+The compiler also maps source and generated-file paths to `/immersx/source` and
+`/immersx/build`. This keeps debug information and ccache keys independent of
+the worktree name. The prefixes can be changed with
+`IMMERSX_DEBUG_SOURCE_PREFIX` and `IMMERSX_DEBUG_BINARY_PREFIX`.
+
+Disable the automatic setup with:
 
 ```bash
-export CCACHE_DIR="$HOME/.ccache"
-
 cmake -S . -B build-debug \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  -DIMMERSX_USE_CCACHE=OFF
 ```
 
 Parallel git worktrees may share the same ccache, but each worktree must use a
-separate CMake build directory.
+separate CMake build directory. To generate the debugger mapping for the
+current worktree, run:
+
+```bash
+cmake --build build-debug --target vscode
+```
+
+This appends the ImmersX configuration to `.vscode/launch.json` without
+replacing existing configurations or other VS Code settings. The launch
+configuration maps the fake compiler paths back to the current workspace and
+build directory.
 
 ## Parameter and fixture preprocessing
 

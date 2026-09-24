@@ -1,0 +1,5 @@
+#!/bin/sh
+# Keep ccache keys independent of the absolute worktree and build directory.
+export CCACHE_BASEDIR="@CMAKE_CURRENT_SOURCE_DIR@"
+export CCACHE_NOHASHDIR=true
+@_immersx_ccache_dir_assignment@exec "@IMMERSX_CCACHE_PROGRAM@" "$@"
