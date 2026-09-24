@@ -115,6 +115,17 @@ elastodynamics_2d.json       elastodynamics_2d.prm
 They use the 2D plugin and expose the parameter bundle, problem construction,
 and ordered mutating operations as separate nodes.
 
+When deal.II has SUNDIALS support, the 2D plugin also provides an IDA-backed
+execution seam:
+
+```text
+ida_elastodynamics_2d.json       ida_elastodynamics_2d.prm
+```
+
+`ImmersX::IDAElastodynamics<2,2>` keeps IDA state initialization, accepted
+state handoff, and output callbacks inside the binding. The graph exposes only
+`run`, finiteness, and current-time nodes.
+
 The 2D plugin also exposes the existing bulk/embedded Poisson workflow as the
 graph-facing `ImmersX::CoupledPoisson<2>` façade. Its example is:
 
