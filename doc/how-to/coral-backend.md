@@ -126,6 +126,12 @@ ida_elastodynamics_2d.json       ida_elastodynamics_2d.prm
 state handoff, and output callbacks inside the binding. The graph exposes only
 `run`, finiteness, and current-time nodes.
 
+The 2D and 3D fiber examples are also installed and expose the existing
+`FiberReinforcedElastodynamics<dim>` driver together with its coupling
+diagnostics. This is the current compatibility bridge; a later decomposition
+can replace that façade with separate matrix, fiber, velocity-interaction, and
+IDA nodes without changing the stable diagnostic names.
+
 The 2D plugin also exposes the existing bulk/embedded Poisson workflow as the
 graph-facing `ImmersX::CoupledPoisson<2>` façade. Its example is:
 

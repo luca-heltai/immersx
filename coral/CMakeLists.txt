@@ -171,6 +171,24 @@ foreach(_build_type ${_d2_build_types})
           "ImmersX.Coral.Graph.CoupledPoisson2D${_postfix}"
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
+
+        set(_fiber_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_fiber_reinforced_elastodynamics_2d${_postfix}")
+        add_test(
+          NAME "ImmersX.Coral.Graph.FiberReinforcedElastodynamics2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/fiber_reinforced_elastodynamics_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/fiber_reinforced_elastodynamics_2d.prm
+                  -DWORKING_DIRECTORY=${_fiber_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/velocity_multiplier.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.FiberReinforcedElastodynamics2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
       endif()
 
       if(IMMERSX_ENABLE_CORAL_GRAPH_TESTS AND _spacedim EQUAL 3)
@@ -189,6 +207,24 @@ foreach(_build_type ${_d2_build_types})
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.CoupledPoissonElasticity3D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
+        set(_fiber_3d_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_fiber_reinforced_elastodynamics_3d${_postfix}")
+        add_test(
+          NAME "ImmersX.Coral.Graph.FiberReinforcedElastodynamics3D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/fiber_reinforced_elastodynamics_3d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/fiber_reinforced_elastodynamics_3d.prm
+                  -DWORKING_DIRECTORY=${_fiber_3d_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/velocity_multiplier.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.FiberReinforcedElastodynamics3D${_postfix}"
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
       endif()
