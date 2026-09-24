@@ -1,0 +1,52 @@
+subsection Elastodynamics
+  set FE degree              = 1
+  set Output directory       = output
+  set Output name            = elastodynamics
+  set Initial refinement     = 0
+  set Number of refinement cycles = 1
+  set Dirichlet boundary ids = 0,1,2,3
+  subsection Grid generation
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = 0: 1: true
+    set Triangulation type       = distributed
+  end
+  subsection Material
+    set Density       = 1.0
+    set Lame mu       = 1.0
+    set Lame lambda   = 2.0
+    set Damping shear = 0.0
+    set Damping bulk  = 0.0
+  end
+  subsection Time interval
+    set Initial time         = 0.0
+    set Final time           = 0.01
+    set Output time interval = 0.01
+  end
+  subsection Fixed step
+    set Time step          = 0.01
+    set Number of time steps = 1
+    set Policy             = number_of_steps
+  end
+  subsection Functions
+    subsection Body force
+      set Function expression = 0; 1
+      set Variable names      = x,y,t
+    end
+    subsection Displacement boundary
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Velocity boundary
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Initial displacement
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+    subsection Initial velocity
+      set Function expression = 0; 0
+      set Variable names      = x,y,t
+    end
+  end
+end
