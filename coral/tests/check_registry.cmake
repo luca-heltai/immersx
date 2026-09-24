@@ -20,20 +20,27 @@ endif()
 file(READ "${REGISTRY}" _registry)
 
 foreach(_dim RANGE 1 ${SPACEDIM})
-  string(FIND "${_registry}" "ImmersX::Poisson<${_dim},${SPACEDIM}>" _found)
-  if(_found EQUAL -1)
-    message(FATAL_ERROR
-      "Registry ${SPACEDIM}d does not contain Poisson<${_dim},${SPACEDIM}>.")
-  endif()
+  foreach(_family Poisson ElasticStatic Elastodynamics)
+    string(FIND "${_registry}"
+      "ImmersX::${_family}<${_dim},${SPACEDIM}>" _found)
+    if(_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not contain ${_family}<${_dim},${SPACEDIM}>.")
+    endif()
+  endforeach()
 endforeach()
 
 foreach(_wrong_spacedim RANGE 1 3)
   if(NOT _wrong_spacedim EQUAL SPACEDIM)
-    string(FIND "${_registry}" "ImmersX::Poisson<1,${_wrong_spacedim}>" _found)
-    if(NOT _found EQUAL -1)
-      message(FATAL_ERROR
-        "Registry ${SPACEDIM}d contains a Poisson node for spacedim=${_wrong_spacedim}.")
-    endif()
+    foreach(_family Poisson ElasticStatic Elastodynamics)
+      string(FIND "${_registry}"
+        "ImmersX::${_family}<1,${_wrong_spacedim}>" _found)
+      if(NOT _found EQUAL -1)
+        message(FATAL_ERROR
+          "Registry ${SPACEDIM}d contains a ${_family} node for "
+          "spacedim=${_wrong_spacedim}.")
+      endif()
+    endforeach()
   endif()
 endforeach()
 
