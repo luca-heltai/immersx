@@ -112,9 +112,10 @@ current worktree, run:
 cmake --build build-debug --target vscode
 ```
 
-This updates `.vscode/launch.json` without replacing other VS Code settings.
-The launch configuration maps the fake compiler paths back to the current
-workspace and build directory.
+This appends the ImmersX configuration to `.vscode/launch.json` without
+replacing existing configurations or other VS Code settings. The launch
+configuration maps the fake compiler paths back to the current workspace and
+build directory.
 
 ## Parameter and fixture preprocessing
 

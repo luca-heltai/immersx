@@ -334,19 +334,32 @@ endif()
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vscode")
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/vscode-launch.json.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch.json"
+  "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch-configuration.json"
   @ONLY)
-# This target intentionally updates the workspace file only when requested.
-# It avoids overwriting a user's VS Code settings during an ordinary build.
-add_custom_target(vscode
-  COMMAND ${CMAKE_COMMAND} -E make_directory
-          "${CMAKE_CURRENT_SOURCE_DIR}/.vscode"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch.json"
-          "${CMAKE_CURRENT_SOURCE_DIR}/.vscode/launch.json"
-  DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch.json"
-  COMMENT "Updating VS Code launch configuration"
-  VERBATIM)
+find_program(IMMERSX_PYTHON_EXECUTABLE NAMES python3 python)
+if(IMMERSX_PYTHON_EXECUTABLE)
+  # Append the generated configuration to an existing launch.json.  The
+  # updater preserves existing configurations and VS Code JSON comments.
+  add_custom_target(vscode
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/.vscode"
+    COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/update-vscode-launch.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/.vscode/launch.json"
+            "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch-configuration.json"
+    DEPENDS
+      "${CMAKE_CURRENT_BINARY_DIR}/vscode/launch-configuration.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/update-vscode-launch.py"
+    COMMENT "Appending the ImmersX configuration to VS Code launch.json"
+    VERBATIM)
+else()
+  add_custom_target(vscode
+    COMMAND ${CMAKE_COMMAND} -E echo
+            "The vscode target requires python3 or python"
+    COMMAND ${CMAKE_COMMAND} -E false
+    COMMENT "Unable to update VS Code launch configuration"
+    VERBATIM)
+endif()
 
 # Keep the input convention in one place. Every template below gtests/, tests/,
 # data/, or tutorials/ is emitted at the same relative path below the build
