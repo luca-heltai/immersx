@@ -184,7 +184,7 @@ foreach(_build_type ${_d2_build_types})
                   -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/fiber_reinforced_elastodynamics_2d.prm
                   -DWORKING_DIRECTORY=${_fiber_graph_working_directory}
                   -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
-                  -DOUTPUT_FILE=output/velocity_multiplier.pvd
+                  -DOUTPUT_FILE=output/interaction/velocity_multiplier.pvd
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.FiberReinforcedElastodynamics2D${_postfix}"
@@ -222,7 +222,7 @@ foreach(_build_type ${_d2_build_types})
                   -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/fiber_reinforced_elastodynamics_3d.prm
                   -DWORKING_DIRECTORY=${_fiber_3d_graph_working_directory}
                   -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
-                  -DOUTPUT_FILE=output/velocity_multiplier.pvd
+                  -DOUTPUT_FILE=output/interaction/velocity_multiplier.pvd
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.FiberReinforcedElastodynamics3D${_postfix}"
