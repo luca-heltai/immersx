@@ -42,7 +42,8 @@ foreach(_build_type ${_d2_build_types})
     DEAL_II_SETUP_TARGET(${_plugin} ${_build_type_upper})
 
     set_target_properties(${_plugin} PROPERTIES
-      OUTPUT_NAME "coral_backend_immersx_${_spacedim}${_postfix}")
+      OUTPUT_NAME "coral_backend_immersx_${_spacedim}${_postfix}"
+      INSTALL_RPATH_USE_LINK_PATH TRUE)
     if(APPLE)
       set_property(TARGET ${_plugin} APPEND PROPERTY
         BUILD_RPATH "$<TARGET_FILE_DIR:${_immersx_library}>")
