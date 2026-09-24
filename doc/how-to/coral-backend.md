@@ -126,11 +126,28 @@ ida_elastodynamics_2d.json       ida_elastodynamics_2d.prm
 state handoff, and output callbacks inside the binding. The graph exposes only
 `run`, finiteness, and current-time nodes.
 
-The 2D and 3D fiber examples are also installed and expose the existing
-`FiberReinforcedElastodynamics<dim>` driver together with its coupling
-diagnostics. This is the current compatibility bridge; a later decomposition
-can replace that façade with separate matrix, fiber, velocity-interaction, and
-IDA nodes without changing the stable diagnostic names.
+The 2D and 3D fiber examples are also installed. Their graph exposes the
+composition explicitly:
+
+```text
+FiberReinforcedElastodynamicsGraph
+        |
+        +--> matrix Problem ------+
+        |                         |
+        +--> embedded fiber ------+--> velocity-continuity Interaction
+        |                                               |
+        +--> Fiber execution adapter -------------------+
+                                                        |
+                                                       IDA
+```
+
+The graph-facing `FiberMatrixProblem<dim>`, `FiberEmbeddedProblem<dim>`, and
+`FiberVelocityContinuity<dim>` nodes are small Coral façades over the existing
+ImmersX Problems and `make_continuity_constraint()` helper. The execution
+adapter owns the IDA state and accepted-state output; when SUNDIALS is not
+available, it uses the existing fixed-step fallback. The driver remains the
+native owner of the physical assembly and writes matrix, fiber, and multiplier
+outputs under the configured output directory.
 
 The 2D plugin also exposes the existing bulk/embedded Poisson workflow as the
 graph-facing `ImmersX::CoupledPoisson<2>` façade. Its example is:
@@ -169,14 +186,6 @@ reduced_poisson_3d.json       reduced_poisson_3d.prm
 representative point at `(0.5, 0.5, 0.5)`, so the installed graph does not
 depend on a source-tree VTK point-cloud file. It exposes the reduced DoF count,
 coupling-matrix norm, solution norms, and a finiteness check after `run`.
-
-The graph-facing fiber workflow currently keeps the existing coupled driver as
-the execution owner. That driver is internally assembled from separate matrix
-and fiber `ElastodynamicsSolver` Problems, a reusable velocity-continuity
-constraint, and the IDA adapter when SUNDIALS is available; the graph still
-exposes it as one orchestration node. A future Coral-side editor can split
-those already-separated contributors into visible nodes without changing the
-underlying physical assembly.
 
 ## Tests
 
