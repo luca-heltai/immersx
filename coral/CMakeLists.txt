@@ -103,6 +103,23 @@ foreach(_build_type ${_d2_build_types})
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
 
+        set(_serial_initialization_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_2d_serial${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.Poisson2DSerial${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.prm
+                  -DWORKING_DIRECTORY=${_serial_initialization_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DSTRIP_PLUGIN_CONFIGURATION=ON
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.Poisson2DSerial${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
         set(_static_graph_working_directory
           "${CMAKE_CURRENT_BINARY_DIR}/graph_elastic_static_2d${_postfix}")
         add_test(NAME "ImmersX.Coral.Graph.ElasticStatic2D${_postfix}"

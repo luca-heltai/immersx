@@ -682,7 +682,6 @@ namespace ImmersX::Coral
     coral_active_logger      = logger;
     coral_active_plugin_name = coral_plugin_name();
 
-    bool         mpi_enabled     = false;
     unsigned int max_num_threads = dealii::numbers::invalid_unsigned_int;
     std::vector<std::string> args;
 
@@ -694,7 +693,6 @@ namespace ImmersX::Coral
             if (init.contains("MPI"))
               {
                 const auto &mpi = init.at("MPI");
-                mpi_enabled     = mpi.value("enabled", mpi_enabled);
                 max_num_threads = mpi.value("max_num_threads", max_num_threads);
                 args            = mpi.value("args", args);
               }
@@ -707,7 +705,12 @@ namespace ImmersX::Coral
           }
       }
 
-    if (mpi_enabled)
+    // ImmersX uses MPI-backed deal.II data structures even for a one-rank
+    // local run.  The platform-level MPI setting controls whether the host
+    // is launched with multiple ranks, not whether the MPI runtime exists.
+    // Initialize it here when the host has not already done so, before Coral
+    // creates its worker threads or constructs any workflow node.
+    if (!dealii::Utilities::MPI::job_supports_mpi())
       {
         std::vector<char *> argv;
         argv.reserve(args.size());

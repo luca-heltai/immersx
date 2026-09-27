@@ -26,6 +26,20 @@ execute_process(
 if(NOT _copy_graph_result EQUAL 0)
   message(FATAL_ERROR "Could not copy the Coral graph")
 endif()
+
+if(DEFINED STRIP_PLUGIN_CONFIGURATION AND STRIP_PLUGIN_CONFIGURATION)
+  file(READ "${WORKING_DIRECTORY}/${_graph_name}" _graph)
+  string(FIND "${_graph}" "\"workflow\"" _workflow_position)
+  if(_workflow_position LESS 0)
+    message(FATAL_ERROR "The Coral graph does not contain a workflow")
+  endif()
+  string(LENGTH "${_graph}" _graph_length)
+  math(EXPR _workflow_length "${_graph_length} - ${_workflow_position}")
+  string(SUBSTRING "${_graph}" ${_workflow_position} ${_workflow_length}
+                 _workflow)
+  file(WRITE "${WORKING_DIRECTORY}/${_graph_name}" "{${_workflow}")
+endif()
+
 execute_process(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${PARAMETERS_SOURCE}" "${WORKING_DIRECTORY}/${_parameters_name}"
