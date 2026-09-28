@@ -28,6 +28,14 @@ foreach(_dim RANGE 1 ${SPACEDIM})
         "Registry ${SPACEDIM}d does not contain ${_family}<${_dim},${SPACEDIM}>.")
     endif()
   endforeach()
+
+  set(_space_type "ImmersX::FiniteElementSpaceView<${_dim},${SPACEDIM}>")
+  string(JSON _space_node_type ERROR_VARIABLE _space_error
+    GET "${_registry}" "${_space_type}" node_type)
+  if(_space_error OR NOT _space_node_type STREQUAL "output_only")
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d does not register ${_space_type} as output-only.")
+  endif()
 endforeach()
 
 foreach(_wrong_spacedim RANGE 1 3)
