@@ -37,6 +37,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
@@ -201,6 +202,10 @@ namespace ImmersX
     /** Return the finite-element DoFHandler used by this problem. */
     const dealii::DoFHandler<dim, spacedim> &
     dof_handler() const;
+
+    /** Return the Q1 mapping used by this problem's FE evaluations. */
+    const dealii::Mapping<dim, spacedim> &
+    mapping() const;
 
     /** Return the homogeneous and inhomogeneous algebraic constraints. */
     const dealii::AffineConstraints<double> &

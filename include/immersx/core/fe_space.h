@@ -42,7 +42,7 @@
 namespace ImmersX
 {
   template <int dim, int spacedim>
-  class FESpaceView;
+  class FiniteElementSpaceView;
 
   /** A named semantic field attached to a non-owning FE-space view.
    *
@@ -61,7 +61,7 @@ namespace ImmersX
     using extractor_type = Extractor;
     using view_type  = dealii::FEValuesViews::View<dim, spacedim, Extractor>;
     using value_type = typename view_type::value_type;
-    using space_type = FESpaceView<dim, spacedim>;
+    using space_type = FiniteElementSpaceView<dim, spacedim>;
 
     Field(const space_type &space,
           std::string       name,
@@ -283,13 +283,14 @@ namespace ImmersX
   };
 
   template <int dim, int spacedim, typename Extractor>
-  class FESubspaceView
+  class FiniteElementSubspaceView
   {
   public:
-    using space_type = FESpaceView<dim, spacedim>;
+    using space_type = FiniteElementSpaceView<dim, spacedim>;
     using field_type = Field<dim, spacedim, Extractor>;
 
-    FESubspaceView(const space_type &space, const Extractor &extractor)
+    FiniteElementSubspaceView(const space_type &space,
+                              const Extractor  &extractor)
       : space_(&space)
       , extractor_(extractor)
     {}
@@ -336,16 +337,16 @@ namespace ImmersX
 
   /** A thin, non-owning view of an existing deal.II finite-element space. */
   template <int dim, int spacedim = dim>
-  class FESpaceView
+  class FiniteElementSpaceView
   {
   public:
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
     using MappingType    = dealii::Mapping<dim, spacedim>;
 
-    FESpaceView(const DoFHandlerType                    &dof_handler,
-                const MappingType                       &mapping,
-                const dealii::AffineConstraints<double> &constraints,
-                const dealii::IndexSet *locally_relevant = nullptr)
+    FiniteElementSpaceView(const DoFHandlerType                    &dof_handler,
+                           const MappingType                       &mapping,
+                           const dealii::AffineConstraints<double> &constraints,
+                           const dealii::IndexSet *locally_relevant = nullptr)
       : dof_handler_(&dof_handler)
       , mapping_(&mapping)
       , constraints_(&constraints)
@@ -440,7 +441,7 @@ namespace ImmersX
     }
 
     template <typename Extractor>
-    FESubspaceView<dim, spacedim, Extractor>
+    FiniteElementSubspaceView<dim, spacedim, Extractor>
     operator[](const Extractor &extractor) const
     {
       return {*this, extractor};
@@ -465,15 +466,15 @@ namespace ImmersX
 
   /** An owning finite-element discretization with a non-owning view API. */
   template <int dim, int spacedim = dim>
-  class OwnedFESpace
+  class FiniteElementSpace
   {
   public:
     using TriangulationType =
       dealii::parallel::TriangulationBase<dim, spacedim>;
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
 
-    OwnedFESpace(const TriangulationType &triangulation,
-                 std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe)
+    FiniteElementSpace(const TriangulationType &triangulation,
+                       std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe)
       : triangulation_(&triangulation)
       , dof_handler_(const_cast<TriangulationType &>(triangulation))
       , finite_element_(std::move(fe))
@@ -532,13 +533,13 @@ namespace ImmersX
     }
 
     template <typename Mapping>
-    FESpaceView<dim, spacedim>
+    FiniteElementSpaceView<dim, spacedim>
     view(const Mapping &mapping) const
     {
-      return FESpaceView<dim, spacedim>(dof_handler_,
-                                        mapping,
-                                        constraints_,
-                                        &locally_relevant_dofs_);
+      return FiniteElementSpaceView<dim, spacedim>(dof_handler_,
+                                                   mapping,
+                                                   constraints_,
+                                                   &locally_relevant_dofs_);
     }
 
   private:
@@ -551,29 +552,77 @@ namespace ImmersX
   };
 
   template <int dim, int spacedim = dim>
-  FESpaceView<dim, spacedim>
+  FiniteElementSpaceView<dim, spacedim>
+  finite_element_space_view(
+    const dealii::DoFHandler<dim, spacedim> &dof_handler,
+    const dealii::Mapping<dim, spacedim>    &mapping,
+    const dealii::AffineConstraints<double> &constraints,
+    const dealii::IndexSet                  *locally_relevant = nullptr)
+  {
+    return FiniteElementSpaceView<dim, spacedim>(dof_handler,
+                                                 mapping,
+                                                 constraints,
+                                                 locally_relevant);
+  }
+
+  template <int dim, int spacedim = dim>
+  FiniteElementSpaceView<dim, spacedim>
+  finite_element_space_view(
+    const dealii::DoFHandler<dim, spacedim> &dof_handler,
+    const dealii::Mapping<dim, spacedim>    &mapping,
+    const dealii::AffineConstraints<double> &constraints,
+    const dealii::IndexSet                  &locally_relevant)
+  {
+    return finite_element_space_view(dof_handler,
+                                     mapping,
+                                     constraints,
+                                     &locally_relevant);
+  }
+
+  /**
+   * Adapt a Problem exposing the FE-space capability structurally.
+   *
+   * No base class is required: a Problem only needs const accessors for its
+   * DoFHandler, mapping, constraints, and locally relevant DoFs.
+   */
+  template <typename Problem>
+  auto
+  finite_element_space_view(const Problem &problem)
+    -> decltype(finite_element_space_view(problem.dof_handler(),
+                                          problem.mapping(),
+                                          problem.constraints(),
+                                          problem.locally_relevant_dofs()))
+  {
+    return finite_element_space_view(problem.dof_handler(),
+                                     problem.mapping(),
+                                     problem.constraints(),
+                                     problem.locally_relevant_dofs());
+  }
+
+  template <int dim, int spacedim = dim>
+  FiniteElementSpaceView<dim, spacedim>
   fe_space(const dealii::DoFHandler<dim, spacedim> &dof_handler,
            const dealii::Mapping<dim, spacedim>    &mapping,
            const dealii::AffineConstraints<double> &constraints,
            const dealii::IndexSet                  *locally_relevant = nullptr)
   {
-    return FESpaceView<dim, spacedim>(dof_handler,
-                                      mapping,
-                                      constraints,
-                                      locally_relevant);
+    return finite_element_space_view(dof_handler,
+                                     mapping,
+                                     constraints,
+                                     locally_relevant);
   }
 
   template <int dim, int spacedim = dim>
-  FESpaceView<dim, spacedim>
+  FiniteElementSpaceView<dim, spacedim>
   fe_space(const dealii::DoFHandler<dim, spacedim> &dof_handler,
            const dealii::Mapping<dim, spacedim>    &mapping,
            const dealii::AffineConstraints<double> &constraints,
            const dealii::IndexSet                  &locally_relevant)
   {
-    return FESpaceView<dim, spacedim>(dof_handler,
-                                      mapping,
-                                      constraints,
-                                      &locally_relevant);
+    return finite_element_space_view(dof_handler,
+                                     mapping,
+                                     constraints,
+                                     locally_relevant);
   }
 } // namespace ImmersX
 

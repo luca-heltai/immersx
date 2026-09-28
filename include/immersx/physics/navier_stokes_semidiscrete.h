@@ -27,15 +27,15 @@ namespace ImmersX
     template <int dim, int spacedim, typename Extractor>
     Field<dim, spacedim, Extractor>
     make_block_field(
-      const FESpaceView<dim, spacedim>        &space,
-      const FieldId                            id,
-      const std::string                       &name,
-      const Extractor                         &extractor,
-      const dealii::types::global_dof_index    block_offset,
-      const dealii::types::global_dof_index    block_size,
-      const dealii::IndexSet                  &owned,
-      const dealii::IndexSet                  &relevant,
-      const dealii::AffineConstraints<double> &native_constraints)
+      const FiniteElementSpaceView<dim, spacedim> &space,
+      const FieldId                                id,
+      const std::string                           &name,
+      const Extractor                             &extractor,
+      const dealii::types::global_dof_index        block_offset,
+      const dealii::types::global_dof_index        block_size,
+      const dealii::IndexSet                      &owned,
+      const dealii::IndexSet                      &relevant,
+      const dealii::AffineConstraints<double>     &native_constraints)
     {
       using GlobalIndex               = dealii::types::global_dof_index;
       const auto               n_dofs = space.dof_handler().n_dofs();
@@ -71,9 +71,9 @@ namespace ImmersX
   template <int dim, int spacedim = dim>
   struct NavierStokesFields
   {
-    FieldId                                           velocity;
-    FieldId                                           pressure;
-    std::shared_ptr<const FESpaceView<dim, spacedim>> space;
+    FieldId                                                      velocity;
+    FieldId                                                      pressure;
+    std::shared_ptr<const FiniteElementSpaceView<dim, spacedim>> space;
   };
 
   template <typename Builder, int dim, int spacedim = dim>
@@ -111,7 +111,7 @@ namespace ImmersX
                                problem.pressure_metric_matrix(), prototype);
                            });
 
-    auto space = std::make_shared<FESpaceView<dim, spacedim>>(
+    auto space = std::make_shared<FiniteElementSpaceView<dim, spacedim>>(
       problem.dof_handler(),
       problem.mapping(),
       problem.constraints(),

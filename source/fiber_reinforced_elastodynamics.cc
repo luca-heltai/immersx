@@ -42,12 +42,12 @@ namespace ImmersX
     template <int matrix_dim, int fiber_dim, int spacedim>
     void
     assemble_fiber_constraint_matrices(
-      const FESpaceView<matrix_dim, spacedim>       &matrix_space,
-      const FESpaceView<fiber_dim, spacedim>        &fiber_space,
-      const FESpaceView<fiber_dim, spacedim>        &multiplier_space,
-      std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &matrix_to_multiplier,
-      std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &fiber_to_multiplier,
-      std::shared_ptr<ImmersXLA::MPI::SparseMatrix> &matrix_coupling)
+      const FiniteElementSpaceView<matrix_dim, spacedim> &matrix_space,
+      const FiniteElementSpaceView<fiber_dim, spacedim>  &fiber_space,
+      const FiniteElementSpaceView<fiber_dim, spacedim>  &multiplier_space,
+      std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &matrix_to_multiplier,
+      std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &fiber_to_multiplier,
+      std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &matrix_coupling)
     {
       const auto matrix_velocity =
         matrix_space.field(FieldId(0),
@@ -265,12 +265,12 @@ namespace ImmersX
                 ExcMessage("The velocity-continuity interaction was already "
                            "prepared."));
 
-    matrix_space_storage = std::make_unique<FESpaceView<dim, dim>>(
+    matrix_space_storage = std::make_unique<FiniteElementSpaceView<dim, dim>>(
       fe_space(matrix_problem_storage.dof_handler(),
                matrix_problem_storage.mapping(),
                matrix_problem_storage.velocity_constraints(),
                &matrix_problem_storage.locally_relevant_dofs()));
-    fiber_space_storage = std::make_unique<FESpaceView<1, dim>>(
+    fiber_space_storage = std::make_unique<FiniteElementSpaceView<1, dim>>(
       fe_space(fiber_problem_storage.dof_handler(),
                fiber_problem_storage.mapping(),
                fiber_problem_storage.velocity_constraints(),
@@ -298,7 +298,7 @@ namespace ImmersX
     multiplier_relevant_storage = std::make_unique<dealii::IndexSet>(
       dealii::DoFTools::extract_locally_relevant_dofs(
         *multiplier_dof_handler_storage));
-    multiplier_space_storage = std::make_unique<FESpaceView<1, dim>>(
+    multiplier_space_storage = std::make_unique<FiniteElementSpaceView<1, dim>>(
       fe_space(*multiplier_dof_handler_storage,
                fiber_problem_storage.mapping(),
                *multiplier_constraints_storage,

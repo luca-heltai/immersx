@@ -22,6 +22,7 @@
 #include <immersx/coral/fiber_reinforced_elastodynamics.h>
 #include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/coral/reduced_poisson.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
@@ -499,6 +500,16 @@ namespace ImmersX::Coral
     coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
 
     const auto name = poisson_name<dim, spacedim>();
+    using Space     = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    coral::detail::set_type_alias<Space>("ImmersX::FiniteElementSpaceView<" +
+                                         dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_function(
+      std::function<Space(const Problem &)>([](const Problem &problem) {
+        return ImmersX::finite_element_space_view(problem);
+      }),
+      {name + "::finite_element_space_view",
+       "Finite element space",
+       "problem"});
     coral::NodeObject::register_method<Problem, void>(&Problem::make_grid,
                                                       {name + "::make_grid",
                                                        "problem"});
@@ -548,6 +559,16 @@ namespace ImmersX::Coral
        "parameters",
        "parameter_file"});
     coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
+    using Space = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    coral::detail::set_type_alias<Space>("ImmersX::FiniteElementSpaceView<" +
+                                         dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_function(
+      std::function<Space(const Problem &)>([](const Problem &problem) {
+        return ImmersX::finite_element_space_view(problem);
+      }),
+      {name + "::finite_element_space_view",
+       "Finite element space",
+       "problem"});
     coral::NodeObject::register_method<Problem, void>(&Problem::setup,
                                                       {name + "::setup",
                                                        "problem"});
@@ -586,6 +607,16 @@ namespace ImmersX::Coral
        "parameters",
        "parameter_file"});
     coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
+    using Space = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    coral::detail::set_type_alias<Space>("ImmersX::FiniteElementSpaceView<" +
+                                         dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_function(
+      std::function<Space(const Problem &)>([](const Problem &problem) {
+        return ImmersX::finite_element_space_view(problem);
+      }),
+      {name + "::finite_element_space_view",
+       "Finite element space",
+       "problem"});
     coral::NodeObject::register_method<Problem, void>(&Problem::make_grid,
                                                       {name + "::make_grid",
                                                        "problem"});

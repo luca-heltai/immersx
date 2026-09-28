@@ -18,7 +18,7 @@ const auto frozen_path = ImmersX::frozen(
 The imported space is separate from the execution adapter. It owns its
 DoFHandler, finite element, constraints, locally relevant indices, and
 coefficients, but it does not own a Problem, solver vector, or execution block.
-`FESpaceView` remains a non-owning view, so the same FE-space vocabulary is
+`FiniteElementSpaceView` remains a non-owning view, so the same FE-space vocabulary is
 used for native and imported data.
 
 PointData uses a continuous `FE_Q` field and CellData uses a discontinuous

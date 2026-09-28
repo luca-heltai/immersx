@@ -385,13 +385,11 @@ TEST(FESpace, WrapsAnExistingProblemFromTheOutside)
   problem.make_grid();
   problem.setup_fe();
 
-  const auto V        = ImmersX::fe_space(problem.dof_handler(),
-                                   StaticMappingQ1<2>::mapping,
-                                   problem.constraints(),
-                                   problem.locally_relevant_dofs());
+  const auto V        = ImmersX::finite_element_space_view(problem);
   const auto pressure = V.field("pressure");
 
   EXPECT_EQ(&pressure.dof_handler(), &problem.dof_handler());
+  EXPECT_EQ(&V.mapping(), &StaticMappingQ1<2>::mapping);
   EXPECT_EQ(pressure.name(), "pressure");
   EXPECT_FALSE(pressure.is_registered());
 }

@@ -51,6 +51,11 @@ foreach(_type "std::string" "bool" "int" "unsigned int" "double")
   endif()
 endforeach()
 
+string(FIND "${_registry}" "Finite element space" _found)
+if(_found EQUAL -1)
+  message(FATAL_ERROR "Registry is missing the finite-element-space operation.")
+endif()
+
 string(FIND "${_registry}" "ImmersX::PoissonParameters<1,${SPACEDIM}>" _found)
 if(_found EQUAL -1)
   message(FATAL_ERROR "Registry is missing stable Poisson parameter type name.")

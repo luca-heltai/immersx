@@ -27,7 +27,7 @@ state derivative to contributors.
 
 ## FE expressions and Observables
 
-`FESpaceView` is a non-owning view of a deal.II DoFHandler, mapping, affine
+`FiniteElementSpaceView` is a non-owning view of a deal.II DoFHandler, mapping, affine
 constraints, and locally relevant indices. Its `field()` methods create named
 fields with a deal.II `FEValuesExtractor`.
 

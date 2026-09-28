@@ -146,7 +146,7 @@ namespace ImmersX
                        storage->catalog);
     assert_same_mesh(serial_triangulation, triangulation);
 
-    storage->space = std::make_unique<OwnedFESpace<dim, spacedim>>(
+    storage->space = std::make_unique<FiniteElementSpace<dim, spacedim>>(
       triangulation, serial_dof_handler.get_fe().clone());
     storage->space_view = std::make_unique<
       typename ImportedFiniteElementFields<dim, spacedim>::SpaceView>(

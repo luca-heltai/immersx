@@ -51,7 +51,7 @@ namespace ImmersX
     using TriangulationType =
       dealii::parallel::TriangulationBase<dim, spacedim>;
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
-    using SpaceView      = FESpaceView<dim, spacedim>;
+    using SpaceView      = FiniteElementSpaceView<dim, spacedim>;
     using FieldType = Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
 
   private:
@@ -93,16 +93,16 @@ namespace ImmersX
       void
       complete_refinement();
 
-      const TriangulationType                     *triangulation;
-      std::unique_ptr<OwnedFESpace<dim, spacedim>> space;
-      std::unique_ptr<SpaceView>                   space_view;
-      std::shared_ptr<VectorType>                  coefficients;
-      FieldCatalog                                 catalog;
-      MPI_Comm                                     communicator;
-      std::shared_ptr<VectorType>                  refinement_input;
-      std::shared_ptr<SolutionTransferType>        refinement_transfer;
-      boost::signals2::scoped_connection           pre_refinement_connection;
-      boost::signals2::scoped_connection           post_refinement_connection;
+      const TriangulationType                           *triangulation;
+      std::unique_ptr<FiniteElementSpace<dim, spacedim>> space;
+      std::unique_ptr<SpaceView>                         space_view;
+      std::shared_ptr<VectorType>                        coefficients;
+      FieldCatalog                                       catalog;
+      MPI_Comm                                           communicator;
+      std::shared_ptr<VectorType>                        refinement_input;
+      std::shared_ptr<SolutionTransferType>              refinement_transfer;
+      boost::signals2::scoped_connection pre_refinement_connection;
+      boost::signals2::scoped_connection post_refinement_connection;
     };
 
   public:

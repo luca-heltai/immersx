@@ -241,14 +241,14 @@ namespace ImmersX
     std::unique_ptr<dealii::DoFHandler<1, dim>> multiplier_dof_handler_storage;
     std::unique_ptr<dealii::IndexSet>           multiplier_relevant_storage;
     std::unique_ptr<dealii::AffineConstraints<double>>
-                                           multiplier_constraints_storage;
-    std::unique_ptr<FESpaceView<dim, dim>> matrix_space_storage;
-    std::unique_ptr<FESpaceView<1, dim>>   fiber_space_storage;
-    std::unique_ptr<FESpaceView<1, dim>>   multiplier_space_storage;
-    std::shared_ptr<MatrixType>            matrix_to_multiplier_storage;
-    std::shared_ptr<MatrixType>            fiber_to_multiplier_storage;
-    std::shared_ptr<MatrixType>            matrix_coupling_storage;
-    std::unique_ptr<SchurSolver>           schur_solver;
+      multiplier_constraints_storage;
+    std::unique_ptr<FiniteElementSpaceView<dim, dim>> matrix_space_storage;
+    std::unique_ptr<FiniteElementSpaceView<1, dim>>   fiber_space_storage;
+    std::unique_ptr<FiniteElementSpaceView<1, dim>>   multiplier_space_storage;
+    std::shared_ptr<MatrixType>  matrix_to_multiplier_storage;
+    std::shared_ptr<MatrixType>  fiber_to_multiplier_storage;
+    std::shared_ptr<MatrixType>  matrix_coupling_storage;
+    std::unique_ptr<SchurSolver> schur_solver;
 #ifdef DEAL_II_WITH_SUNDIALS
     std::unique_ptr<IDAAdapterType> ida_storage;
 
