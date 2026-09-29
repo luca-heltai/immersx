@@ -1922,9 +1922,8 @@ namespace ImmersX::dealii_9_8_compat
         // ReferenceCells::max_n_vertices<dim>() >
         // ReferenceCells::max_n_vertices<dim - 1>(), we can use this vector for
         // cell, face, and line vertices.
-        std_cxx26::inplace_vector<unsigned int,
-                                  ReferenceCells::max_n_vertices<dim>()>
-          vertices_for_this_element(n_vertices_per_element);
+        std::vector<unsigned int> vertices_for_this_element(
+          n_vertices_per_element);
         for (unsigned int e = 0; e < n_elements; ++e)
           {
             AssertThrow(whole_file.fail() == false, ExcIO());
@@ -2145,10 +2144,8 @@ namespace ImmersX::dealii_9_8_compat
                     // In 3d, we need to look things up in the boundary_quads
                     // structure (which also stores boundary triangles) as well
                     // as for the edges
-                    std_cxx26::inplace_vector<
-                      unsigned int,
-                      ReferenceCells::max_n_vertices<2>()>
-                      face_vertex_indices(face->n_vertices());
+                    std::vector<unsigned int> face_vertex_indices(
+                      face->n_vertices());
                     for (unsigned int v = 0; v < face->n_vertices(); ++v)
                       face_vertex_indices[v] = face->vertex_index(v);
                     std::sort(face_vertex_indices.begin(),
@@ -2983,12 +2980,14 @@ namespace ImmersX::dealii_9_8_compat
     // 1 or codim 2.
     std::map<unsigned int, unsigned int> vertex_counts;
 
-#    if DEAL_II_GMSH_WITH_API_VERSION_GTE(4, 9, 4)
+#    ifdef DEAL_II_GMSH_WITH_API_VERSION_GTE
+#      if DEAL_II_GMSH_WITH_API_VERSION_GTE(4, 9, 4)
     AssertThrow(gmsh::isInitialized() == 1,
                 ExcMessage("The GMSH API may only be called after GMSH is "
                            "initialized, e.g., via the InitFinalize or "
                            "MPI_InitFinalize classes or the gmsh::initialize() "
                            "function."));
+#      endif
 #    endif
     gmsh::option::setNumber("General.Verbosity", 0);
     gmsh::clear();
@@ -3258,12 +3257,14 @@ namespace ImmersX::dealii_9_8_compat
        {0, 1, 2, 3, 4, 5},
        {0, 1, 3, 2, 4, 5, 7, 6}}};
 
-#    if DEAL_II_GMSH_WITH_API_VERSION_GTE(4, 9, 4)
+#    ifdef DEAL_II_GMSH_WITH_API_VERSION_GTE
+#      if DEAL_II_GMSH_WITH_API_VERSION_GTE(4, 9, 4)
     AssertThrow(gmsh::isInitialized() == 1,
                 ExcMessage("The GMSH API may only be called after GMSH is "
                            "initialized, e.g., via the InitFinalize or "
                            "MPI_InitFinalize classes or the gmsh::initialize() "
                            "function."));
+#      endif
 #    endif
     gmsh::option::setNumber("General.Verbosity", 0);
     gmsh::clear();
@@ -3476,9 +3477,8 @@ namespace ImmersX::dealii_9_8_compat
                     if constexpr (dim > 0)
                       {
                         // Determine reference cell type from number of vertices
-                        const ReferenceCell<dim> ref_cell =
-                          ReferenceCells::n_vertices_to_reference_cell<dim>(
-                            n_vertices);
+                        const ReferenceCell ref_cell =
+                          ReferenceCell::n_vertices_to_type(dim, n_vertices);
 
                         // Number of faces for this reference cell
                         const unsigned int n_faces = ref_cell.n_faces();
@@ -4408,9 +4408,9 @@ namespace ImmersX::dealii_9_8_compat
   {
     // Convert ExodusII strings to cell types. Use the number of nodes per
     // element to disambiguate some cases. If the conversion fails then a
-    // ReferenceCells::Invalid<dim> is returned.
+    // ReferenceCells::Invalid is returned.
     template <int dim>
-    ReferenceCell<dim>
+    ReferenceCell
     exodusii_name_to_type(const std::string &type_name,
                           const int          n_nodes_per_element)
     {
@@ -4638,8 +4638,7 @@ namespace ImmersX::dealii_9_8_compat
               const CellData<dim> &cell =
                 cells[face_id / ReferenceCells::max_n_faces<dim>()];
               const auto reference_cell =
-                ReferenceCells::n_vertices_to_reference_cell<dim>(
-                  cell.vertices.size());
+                ReferenceCell::n_vertices_to_type(dim, cell.vertices.size());
               const unsigned int deal_face_n =
                 reference_cell.exodusii_face_to_deal_face(local_face_n);
               const auto face_reference_cell =
@@ -4799,11 +4798,11 @@ namespace ImmersX::dealii_9_8_compat
         AssertThrowExodusII(ierr);
         const auto type =
           exodusii_name_to_type<dim>(string_temp.data(), n_nodes_per_element);
-        AssertThrow(type != ReferenceCells::Invalid<dim>,
+        AssertThrow(type != ReferenceCells::Invalid,
                     ExcMessage(
                       "The ExodusII block " + std::to_string(element_block_id) +
                       " with element type " + std::string(string_temp.data()) +
-                      " does not have a corresponding ReferenceCell<dim> with a"
+                      " does not have a corresponding ReferenceCell with a"
                       " dimension matching the topological mesh dimension " +
                       std::to_string(dim) + "."));
 

@@ -24,7 +24,11 @@
 #  include <deal.II/grid/tria_description.h>
 #  include <deal.II/grid/tria_iterator.h>
 
-#  include <deal.II/vtk/utilities.h>
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+#    include <deal.II/vtk/utilities.h>
+#  else
+#    include <immersx/compatibility/dealii_9_8/vtk/utilities.h>
+#  endif
 #  include <vtkCell.h>
 #  include <vtkCellData.h>
 #  include <vtkDataArray.h>
@@ -302,7 +306,11 @@ namespace ImmersX
              Triangulation<dim, spacedim> &tria,
              const bool                    cleanup)
     {
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
       dealii::VTKWrappers::read_tria(vtk_filename, tria, cleanup);
+#  else
+      ImmersX::VTKWrappers::read_tria(vtk_filename, tria, cleanup);
+#  endif
     }
 
     void
@@ -312,11 +320,19 @@ namespace ImmersX
                    const bool         cleanup,
                    const double       relative_tolerance)
     {
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
       dealii::VTKWrappers::read_cell_data(vtk_filename,
                                           cell_data_name,
                                           output_vector,
                                           cleanup,
                                           relative_tolerance);
+#  else
+      ImmersX::VTKWrappers::read_cell_data(vtk_filename,
+                                           cell_data_name,
+                                           output_vector,
+                                           cleanup,
+                                           relative_tolerance);
+#  endif
     }
 
     void
@@ -326,11 +342,19 @@ namespace ImmersX
                      const bool         cleanup,
                      const double       relative_tolerance)
     {
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
       dealii::VTKWrappers::read_vertex_data(vtk_filename,
                                             point_data_name,
                                             output_vector,
                                             cleanup,
                                             relative_tolerance);
+#  else
+      ImmersX::VTKWrappers::read_vertex_data(vtk_filename,
+                                             point_data_name,
+                                             output_vector,
+                                             cleanup,
+                                             relative_tolerance);
+#  endif
     }
 
     void

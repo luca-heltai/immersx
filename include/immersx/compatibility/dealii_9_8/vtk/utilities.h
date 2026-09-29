@@ -27,6 +27,8 @@
 
 #include <deal.II/lac/vector.h>
 
+#include <algorithm>
+
 #ifdef DEAL_II_WITH_VTK
 
 #  include <vtkDataObject.h>
@@ -493,6 +495,37 @@ namespace ImmersX
 #  ifndef DOXYGEN
     // Template implementations
 
+    // deal.II 9.8 provides this mapping through GridTools. Older versions do
+    // not, but a fully distributed triangulation copied from the serial one
+    // has the same vertex coordinates. Keep the compatibility implementation
+    // local to this fallback instead of adding an API to deal.II's namespace.
+    template <int dim, int spacedim>
+    std::vector<types::global_dof_index>
+    serial_vertex_indices(const Triangulation<dim, spacedim> &serial_tria,
+                          const Triangulation<dim, spacedim> &parallel_tria)
+    {
+      const auto &serial_vertices   = serial_tria.get_vertices();
+      const auto &parallel_vertices = parallel_tria.get_vertices();
+
+      std::vector<types::global_dof_index> result(
+        parallel_tria.n_vertices(), numbers::invalid_unsigned_int);
+
+      for (types::global_dof_index parallel_vertex = 0;
+           parallel_vertex < parallel_tria.n_vertices();
+           ++parallel_vertex)
+        {
+          const auto serial_vertex =
+            std::find(serial_vertices.begin(),
+                      serial_vertices.end(),
+                      parallel_vertices[parallel_vertex]);
+          if (serial_vertex != serial_vertices.end())
+            result[parallel_vertex] =
+              std::distance(serial_vertices.begin(), serial_vertex);
+        }
+
+      return result;
+    }
+
     template <int dim>
     inline vtkSmartPointer<vtkDoubleArray>
     dealii_point_to_vtk_array(const dealii::Point<dim> &p)
@@ -522,8 +555,7 @@ namespace ImmersX
       const auto &fe = dh.get_fe();
 
       const auto dist_to_serial_vertices =
-        GridTools::parallel_to_serial_vertex_indices(serial_tria,
-                                                     dh.get_triangulation());
+        serial_vertex_indices(serial_tria, dh.get_triangulation());
 
       const auto &locally_owned_dofs = dh.locally_owned_dofs();
 
