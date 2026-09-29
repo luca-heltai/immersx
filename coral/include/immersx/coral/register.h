@@ -145,11 +145,16 @@ namespace ImmersX::Coral
 
   template <int dim, int spacedim>
   inline void
+  register_expression_algebra();
+
+  template <int dim, int spacedim>
+  inline void
   register_field_types()
   {
     register_scalar_field_types<dim, spacedim>();
     register_vector_field_types<dim, spacedim>();
     register_field_observable_operations<dim, spacedim>();
+    register_expression_algebra<dim, spacedim>();
   }
 
   inline coral::RegistryMetadata
@@ -168,6 +173,23 @@ namespace ImmersX::Coral
       metadata.variant_name += " in " + std::to_string(spacedim) + "D";
     metadata.description =
       "Apply " + observable_kind + " to a generic " + field_kind + " field.";
+    return metadata;
+  }
+
+  inline coral::RegistryMetadata
+  expression_metadata(const std::string &operation,
+                      const std::string &variant_name,
+                      const std::string &description,
+                      const int          dim,
+                      const int          spacedim)
+  {
+    coral::RegistryMetadata metadata;
+    metadata.operation    = operation;
+    metadata.display_name = operation;
+    metadata.variant_name = variant_name + ". " + std::to_string(dim) + "D";
+    if (dim != spacedim)
+      metadata.variant_name += " in " + std::to_string(spacedim) + "D";
+    metadata.description = description;
     return metadata;
   }
 
@@ -242,6 +264,92 @@ namespace ImmersX::Coral
                                          dealii::FEValuesExtractors::Vector>(
       "Vector");
     register_vector_field_observable_operations<dim, spacedim>();
+  }
+
+  template <typename Expression>
+  inline void
+  register_scaled_expression(const std::string &variant_name,
+                             const std::string &description,
+                             const int          dim,
+                             const int          spacedim)
+  {
+    using Scaled = std::decay_t<decltype(std::declval<double>() *
+                                         std::declval<const Expression &>())>;
+    coral::NodeObject::register_function(
+      std::function<Scaled(double, const Expression &)>(
+        [](const double coefficient, const Expression &expression) {
+          return coefficient * expression;
+        }),
+      {"coefficient", "term"},
+      expression_metadata(
+        "Scale term", variant_name, description, dim, spacedim));
+  }
+
+  template <int dim, int spacedim, typename Extractor>
+  inline void
+  register_nonlinear_product_operation(const std::string &field_kind)
+  {
+    using Field = ImmersX::Field<dim, spacedim, Extractor>;
+    using Gradient =
+      std::decay_t<decltype(ImmersX::gradient(std::declval<const Field &>()))>;
+    using Product = std::decay_t<decltype(std::declval<const Gradient &>() *
+                                          std::declval<const Field &>())>;
+
+    const auto variant_name = field_kind + " gradient times field";
+    coral::detail::set_type_alias<Product>("ImmersX::NonlinearProduct<" +
+                                           dimensions(dim, spacedim) + "," +
+                                           field_kind + ">");
+    coral::NodeObject::register_output_type<Product>();
+    coral::NodeObject::register_function(
+      std::function<Product(const Gradient &, const Field &)>(
+        [](const Gradient &gradient, const Field &field) {
+          return gradient * field;
+        }),
+      {"gradient", "field"},
+      expression_metadata(
+        "Nonlinear product",
+        variant_name,
+        "Build the nonlinear gradient-times-field term used by convection.",
+        dim,
+        spacedim));
+    register_scaled_expression<Product>(
+      variant_name,
+      "Scale the nonlinear gradient-times-field term.",
+      dim,
+      spacedim);
+  }
+
+  template <int dim, int spacedim, typename Extractor>
+  inline void
+  register_expression_algebra(const std::string &field_kind)
+  {
+    using Field = ImmersX::Field<dim, spacedim, Extractor>;
+    using Value =
+      std::decay_t<decltype(ImmersX::value(std::declval<const Field &>()))>;
+    using Gradient =
+      std::decay_t<decltype(ImmersX::gradient(std::declval<const Field &>()))>;
+
+    register_scaled_expression<Value>(field_kind + " value",
+                                      "Scale a field value expression.",
+                                      dim,
+                                      spacedim);
+    register_scaled_expression<Gradient>(field_kind + " gradient",
+                                         "Scale a field gradient expression.",
+                                         dim,
+                                         spacedim);
+    register_nonlinear_product_operation<dim, spacedim, Extractor>(field_kind);
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_expression_algebra()
+  {
+    register_expression_algebra<dim,
+                                spacedim,
+                                dealii::FEValuesExtractors::Scalar>("Scalar");
+    register_expression_algebra<dim,
+                                spacedim,
+                                dealii::FEValuesExtractors::Vector>("Vector");
   }
 
   inline void

@@ -127,6 +127,14 @@ foreach(_observable_operation
   endif()
 endforeach()
 
+foreach(_expression_operation "Scale term" "Nonlinear product")
+  string(FIND "${_registry}" "${_expression_operation}" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry is missing the '${_expression_operation}' operation family.")
+  endif()
+endforeach()
+
 if(SPACEDIM GREATER 1)
   string(FIND "${_registry}" "Field curl" _found)
   if(_found EQUAL -1)

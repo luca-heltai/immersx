@@ -120,6 +120,23 @@ foreach(_build_type ${_d2_build_types})
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
 
+        set(_weak_terms_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_weak_terms_2d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.PoissonWeakTerms2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_weak_terms_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.prm
+                  -DWORKING_DIRECTORY=${_weak_terms_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/poisson_2d.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.PoissonWeakTerms2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
         set(_static_graph_working_directory
           "${CMAKE_CURRENT_BINARY_DIR}/graph_elastic_static_2d${_postfix}")
         add_test(NAME "ImmersX.Coral.Graph.ElasticStatic2D${_postfix}"
