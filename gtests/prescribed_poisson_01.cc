@@ -84,9 +84,9 @@ TEST(PrescribedPoisson, MPI_UnifiedConstraintReplacement) // NOLINT
   initialize_parameters_from_string(R"(
     subsection Bulk Poisson
       set FE degree                   = 1
-      set Initial refinement          = 2
       set Dirichlet boundary ids      = 0
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement          = 2
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -203,9 +203,9 @@ TEST(PrescribedPoisson,
   initialize_parameters_from_string(R"(
     subsection Unified Bulk Poisson
       set FE degree                   = 1
-      set Initial refinement          = 2
       set Dirichlet boundary ids      = 0
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement          = 2
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end

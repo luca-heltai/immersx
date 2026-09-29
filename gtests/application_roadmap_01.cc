@@ -99,13 +99,13 @@ namespace
   {
     parameters.output_directory =
       TestPaths::output_directory("application-roadmap/" + subsection);
-    parameters.output_name        = subsection;
-    parameters.fe_degree          = 1;
-    parameters.initial_refinement = 1;
-    parameters.dirichlet_ids      = {0};
-    parameters.name_of_grid       = "hyper_cube";
-    parameters.arguments_for_grid = "-1: 1: false";
-    parameters.triangulation_type = "distributed";
+    parameters.output_name                          = subsection;
+    parameters.fe_degree                            = 1;
+    parameters.domain_parameters.initial_refinement = 1;
+    parameters.dirichlet_ids                        = {0};
+    parameters.domain_parameters.name_of_grid       = "hyper_cube";
+    parameters.domain_parameters.arguments_for_grid = "-1: 1: false";
+    parameters.domain_parameters.triangulation_type = "distributed";
   }
 
   void
@@ -482,13 +482,13 @@ TEST(ApplicationRoadmap, P1G3UsesOneWayLiftedTubeLoading)
   ElasticStaticParameters<3> parameters("/P1 G3 solid/");
   parameters.output_directory =
     TestPaths::output_directory("application-roadmap/p1-g3");
-  parameters.output_name        = "p1-g3";
-  parameters.fe_degree          = 1;
-  parameters.initial_refinement = 1;
-  parameters.dirichlet_ids      = {0, 2, 4};
-  parameters.name_of_grid       = "hyper_cube";
-  parameters.arguments_for_grid = "-1: 1: false";
-  parameters.triangulation_type = "distributed";
+  parameters.output_name                          = "p1-g3";
+  parameters.fe_degree                            = 1;
+  parameters.domain_parameters.initial_refinement = 1;
+  parameters.dirichlet_ids                        = {0, 2, 4};
+  parameters.domain_parameters.name_of_grid       = "hyper_cube";
+  parameters.domain_parameters.arguments_for_grid = "-1: 1: false";
+  parameters.domain_parameters.triangulation_type = "distributed";
 
   ElasticStaticProblem<3> problem(parameters);
   problem.setup();
@@ -559,13 +559,13 @@ TEST(ApplicationRoadmap, P2G3UsesPrescribedLiftedLineMotion)
   ElasticStaticParameters<3> parameters("/P2 G3 solid/");
   parameters.output_directory =
     TestPaths::output_directory("application-roadmap/p2-g3");
-  parameters.output_name        = "p2-g3";
-  parameters.fe_degree          = 1;
-  parameters.initial_refinement = 1;
-  parameters.dirichlet_ids      = {0, 2, 4};
-  parameters.name_of_grid       = "hyper_cube";
-  parameters.arguments_for_grid = "-1: 1: false";
-  parameters.triangulation_type = "distributed";
+  parameters.output_name                          = "p2-g3";
+  parameters.fe_degree                            = 1;
+  parameters.domain_parameters.initial_refinement = 1;
+  parameters.dirichlet_ids                        = {0, 2, 4};
+  parameters.domain_parameters.name_of_grid       = "hyper_cube";
+  parameters.domain_parameters.arguments_for_grid = "-1: 1: false";
+  parameters.domain_parameters.triangulation_type = "distributed";
 
   ElasticStaticProblem<3> problem(parameters);
   problem.setup();
@@ -671,16 +671,16 @@ check_p3g2_mixed_dimensional_fiber(const std::string &output_prefix)
     "application-roadmap/" + output_prefix + "/matrix");
   fiber_parameters.output_directory = TestPaths::output_directory(
     "application-roadmap/" + output_prefix + "/fiber");
-  matrix_parameters.output_name        = "matrix";
-  fiber_parameters.output_name         = "fiber";
-  matrix_parameters.initial_refinement = 1;
-  fiber_parameters.initial_refinement  = 1;
+  matrix_parameters.output_name                          = "matrix";
+  fiber_parameters.output_name                           = "fiber";
+  matrix_parameters.domain_parameters.initial_refinement = 1;
+  fiber_parameters.domain_parameters.initial_refinement  = 1;
   matrix_parameters.dirichlet_ids.clear();
   fiber_parameters.dirichlet_ids.clear();
-  matrix_parameters.name_of_grid       = "hyper_cube";
-  matrix_parameters.arguments_for_grid = "-1: 1: false";
-  fiber_parameters.name_of_grid        = "hyper_cube";
-  fiber_parameters.arguments_for_grid  = "-0.6: 0.6: false";
+  matrix_parameters.domain_parameters.name_of_grid       = "hyper_cube";
+  matrix_parameters.domain_parameters.arguments_for_grid = "-1: 1: false";
+  fiber_parameters.domain_parameters.name_of_grid        = "hyper_cube";
+  fiber_parameters.domain_parameters.arguments_for_grid  = "-0.6: 0.6: false";
 
   ElastodynamicsSolver<2>    matrix_problem(matrix_parameters);
   ElastodynamicsSolver<1, 2> fiber_problem(fiber_parameters);
@@ -902,18 +902,18 @@ check_p3g1_tied_elasticity(const std::string &output_prefix)
                                                 const std::string &subsection) {
     parameters.output_directory =
       TestPaths::output_directory("application-roadmap/" + subsection);
-    parameters.output_name        = subsection;
-    parameters.fe_degree          = 1;
-    parameters.initial_refinement = 2;
-    parameters.dirichlet_ids      = {0, 1, 2, 3};
-    parameters.name_of_grid       = "hyper_cube";
-    parameters.arguments_for_grid = "-1: 1: false";
-    parameters.triangulation_type = "distributed";
+    parameters.output_name                          = subsection;
+    parameters.fe_degree                            = 1;
+    parameters.domain_parameters.initial_refinement = 2;
+    parameters.dirichlet_ids                        = {0, 1, 2, 3};
+    parameters.domain_parameters.name_of_grid       = "hyper_cube";
+    parameters.domain_parameters.arguments_for_grid = "-1: 1: false";
+    parameters.domain_parameters.triangulation_type = "distributed";
   };
 
   initialize_elastic_parameters(first_parameters, output_prefix + "-first");
   initialize_elastic_parameters(second_parameters, output_prefix + "-second");
-  second_parameters.arguments_for_grid = "-0.5: 1.5: false";
+  second_parameters.domain_parameters.arguments_for_grid = "-0.5: 1.5: false";
 
   ElasticStaticProblem<2> first(first_parameters);
   ElasticStaticProblem<2> second(second_parameters);

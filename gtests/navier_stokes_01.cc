@@ -33,13 +33,13 @@ namespace
 {
   const std::string two_dimensional_parameters = R"(
     subsection Navier-Stokes
-      set Initial refinement  = 1
       set Dirichlet boundary ids = 0
       subsection Finite element spaces
         set Velocity degree = 2
         set Pressure degree = 1
       end
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement  = 1
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -86,13 +86,13 @@ namespace
 
   const std::string convective_parameters = R"(
     subsection Navier-Stokes
-      set Initial refinement = 1
       set Dirichlet boundary ids = 0
       subsection Finite element spaces
         set Velocity degree = 2
         set Pressure degree = 1
       end
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement = 1
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -414,7 +414,9 @@ TEST(NavierStokes, MPI_ThreeDimensionalSmoke)
   NavierStokesParameters<3> parameters;
   initialize_parameters_from_string(R"(
     subsection Navier-Stokes
-      set Initial refinement = 0
+      subsection Domain
+        set Initial refinement = 0
+      end
       set Dirichlet boundary ids = 0
       subsection Time interval
         set Final time           = 0.02

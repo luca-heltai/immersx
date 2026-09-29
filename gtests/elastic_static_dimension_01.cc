@@ -26,9 +26,9 @@ namespace
   {
     return "subsection " + section +
            "\n"
-           "  set Initial refinement = 1\n"
            "  set Dirichlet boundary ids = 0, 1, 2, 3, 4, 5\n"
-           "  subsection Grid generation\n"
+           "  subsection Domain\n"
+           "    set Initial refinement = 1\n"
            "    set Grid generator = hyper_cube\n"
            "    set Grid generator arguments = 0: 1: true\n"
            "    set Triangulation type = distributed\n"
@@ -55,7 +55,7 @@ namespace
     initialize_parameters_from_string(
       parameter_text<dim, spacedim>("Elastic static"));
     if (!use_distributed_backend)
-      parameters.triangulation_type = "fullydistributed";
+      parameters.domain_parameters.triangulation_type = "fullydistributed";
 
     ElasticStaticProblem<dim, spacedim> problem(parameters);
     problem.setup();

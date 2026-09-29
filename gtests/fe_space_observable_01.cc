@@ -379,8 +379,8 @@ TEST(FESpace, WrapsAnExistingProblemFromTheOutside)
 {
   ParameterAcceptor::clear();
   ImmersX::PoissonParameters<2> parameters;
-  parameters.initial_refinement  = 0;
-  parameters.n_refinement_cycles = 1;
+  parameters.domain_parameters.initial_refinement = 0;
+  parameters.n_refinement_cycles                  = 1;
   ImmersX::PoissonSolver<2> problem(parameters);
   problem.make_grid();
   problem.setup_fe();

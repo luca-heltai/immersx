@@ -62,10 +62,10 @@ TEST(Poisson, MPI_OneCycleSolve)
   initialize_parameters_from_string(R"(
     subsection Poisson
       set FE degree                   = 1
-      set Initial refinement          = 1
       set Dirichlet boundary ids      = 0
       set Output name                 = poisson_01
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement          = 1
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -111,9 +111,9 @@ TEST(Poisson, MPI_EmbeddedOneDimensionalSolve)
   initialize_parameters_from_string(R"(
     subsection Poisson
       set FE degree                   = 1
-      set Initial refinement          = 1
       set Dirichlet boundary ids      = 0,1
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement          = 1
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end

@@ -7,7 +7,9 @@ end
 
 subsection Elastodynamics
   set Output name = spatial_mms
-  set Initial refinement = 2
+  subsection Domain
+    set Initial refinement = 2
+  end
 end
 
 subsection MetricFlowX elastodynamics tutorial

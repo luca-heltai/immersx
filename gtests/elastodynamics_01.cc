@@ -35,7 +35,7 @@ namespace
       (std::filesystem::temp_directory_path() / "immersx_elastodynamics")
         .string();
     par.time_parameters.output_time_interval  = 1.e-2;
-    par.initial_refinement                    = 1;
+    par.domain_parameters.initial_refinement  = 1;
     par.fixed_step_parameters.time_step       = 1.e-2;
     par.time_parameters.final_time            = 1.e-2;
     par.fixed_step_parameters.number_of_steps = 1;
@@ -92,7 +92,6 @@ TEST(Elastodynamics, ParameterParsing)
   initialize_parameters_from_string(R"(
     subsection Elastodynamics
       set FE degree             = 2
-      set Initial refinement    = 1
       set Dirichlet boundary ids = 0
       subsection Material
         set Density       = 2.5
@@ -197,7 +196,6 @@ TEST(ElastodynamicsValidation, BOTH_MovingBoundaryDerivesVelocityConstraint)
   ElastodynamicsParameters<2> parameters;
   initialize_parameters_from_string(R"(
     subsection Elastodynamics
-      set Initial refinement = 1
       set Dirichlet boundary ids = 0
       subsection Fixed step
         set Time step = 0.01
@@ -259,9 +257,9 @@ TEST(ElastodynamicsValidation, BOTH_RefinementCyclesAdvanceSequentially)
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
   configure_small_problem(parameters);
-  parameters.initial_refinement  = 0;
-  parameters.n_refinement_cycles = 4;
-  parameters.output_directory    = (std::filesystem::temp_directory_path() /
+  parameters.domain_parameters.initial_refinement = 0;
+  parameters.n_refinement_cycles                  = 4;
+  parameters.output_directory = (std::filesystem::temp_directory_path() /
                                  "immersx_elastodynamics_refinement_cycles")
                                   .string();
   parameters.output_name                           = "refinement_cycles";
@@ -286,7 +284,7 @@ TEST(ElastodynamicsValidation, BOTH_RefineTimeStepPerCycle)
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
   configure_small_problem(parameters);
-  parameters.initial_refinement                     = 0;
+  parameters.domain_parameters.initial_refinement   = 0;
   parameters.n_refinement_cycles                    = 2;
   parameters.time_parameters.final_time             = 2.e-2;
   parameters.time_parameters.output_time_interval   = 2.e-2;
@@ -313,10 +311,10 @@ TEST(ElastodynamicsValidation, BOTH_TrapezoidalMatchesNewmarkMMS)
   initialize_parameters_from_string(R"(
     subsection Elastodynamics
       set FE degree = 1
-      set Initial refinement = 1
       set Number of refinement cycles = 1
       set Dirichlet boundary ids = 0,1,2,3
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement = 1
         set Grid generator = hyper_cube
         set Grid generator arguments = 0: 1: true
       end
@@ -682,7 +680,7 @@ TEST(ElastodynamicsValidation, ThreeDimensionalSmoke)
   ParameterAcceptor::clear();
   ElastodynamicsParameters<3> parameters;
   configure_small_problem(parameters);
-  parameters.initial_refinement                    = 0;
+  parameters.domain_parameters.initial_refinement  = 0;
   parameters.fixed_step_parameters.number_of_steps = 1;
   initialize_configured_parameters();
 
@@ -704,7 +702,7 @@ TEST(ElastodynamicsValidation, MPI_Transient)
   ParameterAcceptor::clear();
   ElastodynamicsParameters<2> parameters;
   configure_small_problem(parameters);
-  parameters.initial_refinement                    = 1;
+  parameters.domain_parameters.initial_refinement  = 1;
   parameters.fixed_step_parameters.number_of_steps = 1;
   initialize_configured_parameters();
 

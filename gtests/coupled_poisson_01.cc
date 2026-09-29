@@ -75,9 +75,9 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
   initialize_parameters_from_string(R"(
     subsection Bulk Poisson
       set FE degree                   = 1
-      set Initial refinement          = 2
       set Dirichlet boundary ids      = 0
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement          = 2
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -100,9 +100,9 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
     end
     subsection Embedded Poisson
       set FE degree                   = 1
-      set Initial refinement          = 2
       set Dirichlet boundary ids      = 0,1
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement          = 2
         set Grid generator           = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -221,9 +221,9 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   initialize_parameters_from_string(R"(
     subsection Adapter Bulk
       set FE degree = 1
-      set Initial refinement = 2
       set Dirichlet boundary ids = 0
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement = 2
         set Grid generator = hyper_cube
         set Grid generator arguments = -1: 1: false
       end
@@ -238,9 +238,9 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
     end
     subsection Adapter Embedded
       set FE degree = 1
-      set Initial refinement = 1
       set Dirichlet boundary ids = 0,1
-      subsection Grid generation
+      subsection Domain
+        set Initial refinement = 1
         set Grid generator = hyper_cube
         set Grid generator arguments = -1: 1: false
       end

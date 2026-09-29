@@ -1,7 +1,6 @@
 subsection Poisson
   set Dirichlet boundary ids             = 0,1,2,3
   set FE degree                          = 1
-  set Initial refinement                 = 3
   set Output directory                   = @TEST_OUTPUT_DIR@/tutorial-output/poisson-2d
   set Output name                        = poisson_2d
   set Output results also before solving = false
@@ -10,7 +9,8 @@ subsection Poisson
     set Function expression = 0
     set Variable names      = x,y,t
   end
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement                 = 3
     set Grid generator           = hyper_cube
     set Grid generator arguments = -1: 1: false
     set Triangulation type       = distributed

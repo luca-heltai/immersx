@@ -15,7 +15,6 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0,1,2,3,4,5,6
   set FE degree                          = 1
-  set Initial refinement                 = 4
   set Neumann boundary ids               = 
   set Normal flux boundary ids           = 
   set Output directory                   = ./
@@ -32,10 +31,10 @@ subsection Immersed Problem
     set Variable names      = x,y,z,t
     set Weight expression   = 
   end
-  subsection Grid generation
-    set Domain type              = generate
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = 0:2:true
+    set Initial refinement = 4
   end
   subsection Immersed inclusions
     set Bounding boxes extraction level     = 1

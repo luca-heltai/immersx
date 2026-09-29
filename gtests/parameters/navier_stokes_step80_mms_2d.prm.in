@@ -8,7 +8,6 @@ set space dimension = 2
 subsection Navier-Stokes
   set Output directory      = @TEST_OUTPUT_DIR@/gtests/parameters/navier_stokes_step80_mms_2d
   set Output name           = step80_mms
-  set Initial refinement    = 2
   set Dirichlet boundary ids = 0
 
   subsection Finite element spaces
@@ -16,7 +15,8 @@ subsection Navier-Stokes
     set Pressure degree = 1
   end
 
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement    = 2
     set Grid generator           = hyper_cube
     set Grid generator arguments = -1: 1: false
     set Triangulation type       = distributed

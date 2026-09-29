@@ -4,7 +4,6 @@ set space dimension = 2
 subsection Navier-Stokes
   set Output directory    = navier_stokes_app_output
   set Output name         = navier_stokes
-  set Initial refinement  = 5
   set Dirichlet boundary ids = 0
 
   subsection Finite element spaces
@@ -12,9 +11,10 @@ subsection Navier-Stokes
     set Pressure degree = 1
   end
 
-  subsection Grid generation
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = 0: 1: true
+    set Initial refinement       = 5
   end
 
   subsection Physical properties

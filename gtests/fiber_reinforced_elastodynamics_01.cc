@@ -82,9 +82,9 @@ namespace
             set Number of time steps = 2
           end
           subsection Matrix Elastodynamics
-            set Initial refinement = 1
             set Dirichlet boundary ids = 0,1,2,3
-            subsection Grid generation
+            subsection Domain
+              set Initial refinement = 1
               set Grid generator           = hyper_cube
               set Grid generator arguments = -1: 1: false
             end
@@ -114,9 +114,9 @@ namespace
             end
           end
           subsection Fiber Elastodynamics
-            set Initial refinement = 1
             set Dirichlet boundary ids =
-            subsection Grid generation
+            subsection Domain
+              set Initial refinement = 1
               set Grid generator           = hyper_cube
               set Grid generator arguments = -0.6: 0.6: false
             end
@@ -720,10 +720,10 @@ TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalSmoke)
   FiberReinforcedElastodynamicsParameters<3> parameters;
   parameters.output_directory =
     TestPaths::output_directory("fiber-reinforced-3d");
-  parameters.time_parameters.output_time_interval = 0.01;
-  parameters.matrix_parameters.initial_refinement = 0;
-  parameters.matrix_parameters.dirichlet_ids      = {0, 1, 2, 3, 4, 5};
-  parameters.fiber_parameters.initial_refinement  = 0;
+  parameters.time_parameters.output_time_interval                   = 0.01;
+  parameters.matrix_parameters.domain_parameters.initial_refinement = 0;
+  parameters.matrix_parameters.dirichlet_ids = {0, 1, 2, 3, 4, 5};
+  parameters.fiber_parameters.domain_parameters.initial_refinement = 0;
   parameters.fiber_parameters.dirichlet_ids.clear();
 
   initialize_parameters_from_string(R"(
@@ -740,13 +740,13 @@ TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalSmoke)
         set Number of time steps = 1
       end
       subsection Matrix Elastodynamics
-        subsection Grid generation
+        subsection Domain
           set Grid generator           = hyper_cube
           set Grid generator arguments = -1: 1: false
         end
       end
       subsection Fiber Elastodynamics
-        subsection Grid generation
+        subsection Domain
           set Grid generator           = hyper_cube
           set Grid generator arguments = -0.6: 0.6: false
         end

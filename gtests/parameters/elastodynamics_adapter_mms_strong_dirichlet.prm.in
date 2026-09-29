@@ -5,11 +5,11 @@ subsection Elastodynamics
   set FE degree = 1
   set Output directory = @TEST_OUTPUT_DIR@/elastodynamics-adapter-mms/strong-dirichlet
   set Output name = strong_dirichlet
-  set Initial refinement = 2
   set Number of refinement cycles = 3
   set Dirichlet boundary ids = 0, 1, 2, 3
 
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement = 2
     set Grid generator = hyper_cube
     set Grid generator arguments = 0: 1: true
     set Triangulation type = distributed

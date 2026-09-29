@@ -58,7 +58,7 @@ namespace
     ElastodynamicsParameters<2> parameters;
     Problem                     problem(parameters);
     initialize_parameters(parameter_file);
-    parameters.initial_refinement = refinement;
+    parameters.domain_parameters.initial_refinement = refinement;
 
     problem.make_grid();
     problem.setup_fe();

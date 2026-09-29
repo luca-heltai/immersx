@@ -1,7 +1,6 @@
 subsection Poisson
   set Dirichlet boundary ids             = 0,1
   set FE degree                          = 1
-  set Initial refinement                 = 2
   set Output directory                   = ./output/poisson_12d
   set Output name                        = poisson_12d
   set Output results also before solving = false
@@ -10,9 +9,10 @@ subsection Poisson
     set Function expression = 0
     set Variable names      = x,y,t
   end
-  subsection Grid generation
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = -1: 1: false
+    set Initial refinement       = 2
     set Triangulation type       = distributed
   end
   subsection Refinement and remeshing
