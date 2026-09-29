@@ -16,10 +16,6 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
-#include <deal.II/dofs/dof_tools.h>
-
-#include <deal.II/fe/fe_dgq.h>
-
 #include <deal.II/numerics/data_out.h>
 
 #include <gtest/gtest.h>
@@ -69,8 +65,10 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
 {
   ParameterAcceptor::clear();
 
-  PoissonParameters<2>    bulk_parameters("/Bulk Poisson/");
-  PoissonParameters<1, 2> embedded_parameters("/Embedded Poisson/");
+  PoissonParameters<2>               bulk_parameters("/Bulk Poisson/");
+  PoissonParameters<1, 2>            embedded_parameters("/Embedded Poisson/");
+  FiniteElementSpaceParameters<1, 2> multiplier_parameters{
+    "/Multiplier finite element space/", "FE_DGQ<1>(0)"};
 
   initialize_parameters_from_string(R"(
     subsection Bulk Poisson
@@ -155,28 +153,12 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
   const auto             bulk     = adapter.add(bulk_problem, "bulk");
   const auto             embedded = adapter.add(embedded_problem, "embedded");
 
-  const auto       bulk_view     = fe_space(bulk_problem.dof_handler(),
-                                  StaticMappingQ1<2>::mapping,
-                                  bulk_problem.constraints(),
-                                  bulk_problem.locally_relevant_dofs());
-  const auto       embedded_view = fe_space(embedded_problem.dof_handler(),
-                                      StaticMappingQ1<1, 2>::mapping,
-                                      embedded_problem.constraints(),
-                                      embedded_problem.locally_relevant_dofs());
-  FE_DGQ<1, 2>     multiplier_fe(0);
-  DoFHandler<1, 2> multiplier_dh(embedded_problem.triangulation());
-  multiplier_dh.distribute_dofs(multiplier_fe);
-  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
-  const auto multiplier_relevant =
-    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
-  AffineConstraints<double> multiplier_constraints;
-  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
-  multiplier_constraints.close();
-  const auto multiplier_view = fe_space(multiplier_dh,
-                                        StaticMappingQ1<1, 2>::mapping,
-                                        multiplier_constraints,
-                                        multiplier_relevant);
-  const auto bulk_field =
+  const auto bulk_view     = finite_element_space_view(bulk_problem);
+  const auto embedded_view = finite_element_space_view(embedded_problem);
+  FiniteElementSpace<1, 2> multiplier_space(embedded_problem.triangulation(),
+                                            multiplier_parameters);
+  const auto               multiplier_view = multiplier_space.view();
+  const auto               bulk_field =
     bulk_view.field(bulk.fields().solution, "bulk_solution");
   const auto embedded_field =
     embedded_view.field(embedded.fields().solution, "embedded_solution");
@@ -195,7 +177,7 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
   ASSERT_EQ(adapter.saddle_points().size(), 1u);
   EXPECT_EQ(adapter.saddle_points().front().participants.size(), 2u);
   EXPECT_EQ(adapter.field(state, coupling.fields().multiplier).size(),
-            multiplier_dh.n_dofs());
+            multiplier_space.dof_handler().n_dofs());
   EXPECT_TRUE(std::isfinite(
     adapter.field(state, coupling.fields().multiplier).l2_norm()));
   EXPECT_TRUE(bulk_problem.solution_is_finite());
@@ -216,8 +198,10 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
 {
   ParameterAcceptor::clear();
 
-  PoissonParameters<2>    bulk_parameters("/Adapter Bulk/");
-  PoissonParameters<1, 2> embedded_parameters("/Adapter Embedded/");
+  PoissonParameters<2>               bulk_parameters("/Adapter Bulk/");
+  PoissonParameters<1, 2>            embedded_parameters("/Adapter Embedded/");
+  FiniteElementSpaceParameters<1, 2> multiplier_parameters{
+    "/Adapter multiplier finite element space/", "FE_DGQ<1>(0)"};
   initialize_parameters_from_string(R"(
     subsection Adapter Bulk
       set FE degree = 1
@@ -279,28 +263,12 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   const auto                      bulk = linear.add(bulk_problem, "bulk");
   const auto embedded = linear.add(embedded_problem, "embedded");
 
-  const auto       bulk_view     = fe_space(bulk_problem.dof_handler(),
-                                  StaticMappingQ1<2>::mapping,
-                                  bulk_problem.constraints(),
-                                  bulk_problem.locally_relevant_dofs());
-  const auto       embedded_view = fe_space(embedded_problem.dof_handler(),
-                                      StaticMappingQ1<1, 2>::mapping,
-                                      embedded_problem.constraints(),
-                                      embedded_problem.locally_relevant_dofs());
-  FE_DGQ<1, 2>     multiplier_fe(0);
-  DoFHandler<1, 2> multiplier_dh(embedded_problem.triangulation());
-  multiplier_dh.distribute_dofs(multiplier_fe);
-  const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
-  const auto multiplier_relevant =
-    DoFTools::extract_locally_relevant_dofs(multiplier_dh);
-  AffineConstraints<double> multiplier_constraints;
-  multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
-  multiplier_constraints.close();
-  const auto multiplier_view = fe_space(multiplier_dh,
-                                        StaticMappingQ1<1, 2>::mapping,
-                                        multiplier_constraints,
-                                        multiplier_relevant);
-  const auto bulk_field =
+  const auto bulk_view     = finite_element_space_view(bulk_problem);
+  const auto embedded_view = finite_element_space_view(embedded_problem);
+  FiniteElementSpace<1, 2> multiplier_space(embedded_problem.triangulation(),
+                                            multiplier_parameters);
+  const auto               multiplier_view = multiplier_space.view();
+  const auto               bulk_field =
     bulk_view.field(bulk.fields().solution, "bulk_solution");
   const auto embedded_field =
     embedded_view.field(embedded.fields().solution, "embedded_solution");
@@ -322,7 +290,7 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   std::filesystem::create_directories(multiplier_output);
   const auto    rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
   DataOut<1, 2> multiplier_data;
-  multiplier_data.attach_dof_handler(multiplier_dh);
+  multiplier_data.attach_dof_handler(multiplier_space.dof_handler());
   multiplier_data.add_data_vector(linear.field(state,
                                                coupling.fields().multiplier),
                                   "scalar_multiplier",
@@ -402,9 +370,10 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
              "continuity-direct");
   auto direct_state = direct.make_state();
   EXPECT_TRUE(direct.can_materialize_matrix(direct_state));
-  const auto direct_matrix = direct.monolithic_matrix(direct_state);
-  const auto expected_system_size =
-    bulk_problem.n_dofs() + embedded_problem.n_dofs() + multiplier_dh.n_dofs();
+  const auto direct_matrix        = direct.monolithic_matrix(direct_state);
+  const auto expected_system_size = bulk_problem.n_dofs() +
+                                    embedded_problem.n_dofs() +
+                                    multiplier_space.dof_handler().n_dofs();
   EXPECT_EQ(direct_matrix.m(), expected_system_size);
   EXPECT_EQ(direct_matrix.n(), expected_system_size);
 

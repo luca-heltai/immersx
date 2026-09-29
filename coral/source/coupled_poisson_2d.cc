@@ -9,10 +9,6 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
-#include <deal.II/dofs/dof_tools.h>
-
-#include <deal.II/fe/fe_dgq.h>
-
 #include <deal.II/numerics/data_out.h>
 
 #include <immersx/coral/coupled_poisson.h>
@@ -86,31 +82,11 @@ namespace ImmersX::Coral
       const auto bulk     = adapter.add(bulk_problem, "bulk");
       const auto embedded = adapter.add(embedded_problem, "embedded");
 
-      const auto bulk_view = fe_space(bulk_problem.dof_handler(),
-                                      dealii::StaticMappingQ1<2>::mapping,
-                                      bulk_problem.constraints(),
-                                      bulk_problem.locally_relevant_dofs());
-      const auto embedded_view =
-        fe_space(embedded_problem.dof_handler(),
-                 dealii::StaticMappingQ1<1, 2>::mapping,
-                 embedded_problem.constraints(),
-                 embedded_problem.locally_relevant_dofs());
-
-      dealii::FE_DGQ<1, 2>     multiplier_fe(0);
-      dealii::DoFHandler<1, 2> multiplier_dh(embedded_problem.triangulation());
-      multiplier_dh.distribute_dofs(multiplier_fe);
-      const auto multiplier_owned = multiplier_dh.locally_owned_dofs();
-      const auto multiplier_relevant =
-        DoFTools::extract_locally_relevant_dofs(multiplier_dh);
-      dealii::AffineConstraints<double> multiplier_constraints;
-      multiplier_constraints.reinit(multiplier_owned, multiplier_relevant);
-      multiplier_constraints.close();
-
-      const auto multiplier_view =
-        fe_space(multiplier_dh,
-                 dealii::StaticMappingQ1<1, 2>::mapping,
-                 multiplier_constraints,
-                 multiplier_relevant);
+      const auto bulk_view     = finite_element_space_view(bulk_problem);
+      const auto embedded_view = finite_element_space_view(embedded_problem);
+      FiniteElementSpace<1, 2> multiplier_space(
+        embedded_problem.triangulation(), multiplier_parameters);
+      const auto multiplier_view = multiplier_space.view();
       const auto bulk_field =
         bulk_view.field(bulk.fields().solution, "bulk_solution");
       const auto embedded_field =
@@ -129,7 +105,7 @@ namespace ImmersX::Coral
       bulk_problem.output_results();
       embedded_problem.output_results();
 
-      write_multiplier_output(multiplier_dh,
+      write_multiplier_output(multiplier_space.dof_handler(),
                               adapter.field(state,
                                             coupling.fields().multiplier));
 
@@ -179,13 +155,16 @@ namespace ImmersX::Coral
         }
     }
 
-    ApplicationParameters   application_parameters;
-    PoissonParameters<2>    bulk_parameters;
-    PoissonParameters<1, 2> embedded_parameters;
-    LinearSolverParameters  adapter_parameters;
-    PoissonSolver<2>        bulk_problem;
-    PoissonSolver<1, 2>     embedded_problem;
-    Adapter                 adapter;
+    ApplicationParameters              application_parameters;
+    PoissonParameters<2>               bulk_parameters;
+    PoissonParameters<1, 2>            embedded_parameters;
+    FiniteElementSpaceParameters<1, 2> multiplier_parameters{
+      "/Coupled Poisson/Multiplier finite element space/",
+      "FE_DGQ<1>(0)"};
+    LinearSolverParameters adapter_parameters;
+    PoissonSolver<2>       bulk_problem;
+    PoissonSolver<1, 2>    embedded_problem;
+    Adapter                adapter;
     double residual_norm_storage = std::numeric_limits<double>::quiet_NaN();
   };
 

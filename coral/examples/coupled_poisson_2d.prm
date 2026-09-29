@@ -1,6 +1,9 @@
 subsection Coupled Poisson
   set Output directory       = output
   set Multiplier output name = coupled_multiplier
+  subsection Multiplier finite element space
+    set Finite element = FE_DGQ<1>(0)
+  end
 end
 
 subsection Poisson
