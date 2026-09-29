@@ -78,7 +78,7 @@ poisson_2d.prm
 The graph makes the mutable lifecycle explicit:
 
 ```text
-parameters -> load -> Poisson -> make_grid -> setup_fe
+parameters -> initialize -> Poisson -> make_grid -> setup_fe
                                       -> setup_system -> assemble -> solve -> output
 ```
 

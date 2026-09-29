@@ -35,13 +35,6 @@ foreach(_dim RANGE 1 ${SPACEDIM})
         "Registry ${SPACEDIM}d is missing ${_family} parameter type.")
     endif()
 
-    string(FIND "${_registry}"
-      "Load parameters::std::function<void (ImmersX::${_family}Parameters<${_dim}, ${SPACEDIM}> &"
-      _loader_found)
-    if(_loader_found EQUAL -1)
-      message(FATAL_ERROR
-        "Registry ${SPACEDIM}d is missing the generic ${_family} parameter loader.")
-    endif()
   endforeach()
 
   set(_space_type "ImmersX::FiniteElementSpaceView<${_dim},${SPACEDIM}>")
@@ -96,6 +89,127 @@ foreach(_dim RANGE 1 ${SPACEDIM})
   endif()
 endforeach()
 
+set(_parameter_acceptor_type "dealii::ParameterAcceptor")
+string(JSON _parameter_acceptor_node_type ERROR_VARIABLE _parameter_acceptor_error
+  GET "${_registry}" "${_parameter_acceptor_type}" node_type)
+if(_parameter_acceptor_error OR
+   NOT _parameter_acceptor_node_type STREQUAL "abstract")
+  message(FATAL_ERROR
+    "Registry ${SPACEDIM}d does not expose the abstract ParameterAcceptor type.")
+endif()
+
+string(JSON _parameter_acceptor_hash
+  GET "${_registry}" "${_parameter_acceptor_type}" type)
+string(JSON _parameter_acceptor_derived_count ERROR_VARIABLE _derived_error
+  LENGTH "${_registry}" "${_parameter_acceptor_type}" derived)
+if(_derived_error OR _parameter_acceptor_derived_count LESS 1)
+  message(FATAL_ERROR
+    "Registry ${SPACEDIM}d does not expose ParameterAcceptor derived types.")
+endif()
+
+foreach(_arity RANGE 1 8)
+  if(_arity EQUAL 1)
+    set(_variant "1 parameter object")
+  else()
+    set(_variant "${_arity} parameter objects")
+  endif()
+  string(FIND "${_registry}" "\"variant_name\": \"${_variant}\"" _variant_found)
+  if(_variant_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d is missing the ${_variant} initialization operation.")
+  endif()
+endforeach()
+
+foreach(_dim RANGE 1 ${SPACEDIM})
+  foreach(_family Poisson ElasticStatic Elastodynamics)
+    set(_parameter_type
+      "ImmersX::${_family}Parameters<${_dim},${SPACEDIM}>")
+    string(JSON _parameter_base ERROR_VARIABLE _parameter_base_error
+      GET "${_registry}" "${_parameter_type}" base)
+    if(_parameter_base_error OR
+       NOT _parameter_base STREQUAL "${_parameter_acceptor_hash}")
+      message(FATAL_ERROR
+        "${_parameter_type} is not registered as a ParameterAcceptor derived type.")
+    endif()
+  endforeach()
+endforeach()
+
+if(SPACEDIM EQUAL 2)
+  foreach(_parameter_type
+      "ImmersX::FiniteElementSpaceParameters<1,2>"
+      "ImmersX::LinearAdapterParameters")
+    string(JSON _parameter_base ERROR_VARIABLE _parameter_base_error
+      GET "${_registry}" "${_parameter_type}" base)
+    if(_parameter_base_error OR
+       NOT _parameter_base STREQUAL "${_parameter_acceptor_hash}")
+      message(FATAL_ERROR
+        "${_parameter_type} is not registered as a ParameterAcceptor derived type.")
+    endif()
+  endforeach()
+endif()
+
+set(_initialize_arity4_found FALSE)
+string(JSON _registry_size LENGTH "${_registry}")
+math(EXPR _registry_last_index "${_registry_size} - 1")
+foreach(_registry_index RANGE 0 ${_registry_last_index})
+  string(JSON _registry_key MEMBER "${_registry}" ${_registry_index})
+  string(JSON _operation ERROR_VARIABLE _operation_error
+    GET "${_registry}" "${_registry_key}" operation)
+  if(NOT _operation_error AND _operation STREQUAL "Initialize parameters")
+    string(JSON _variant ERROR_VARIABLE _variant_error
+      GET "${_registry}" "${_registry_key}" variant_name)
+    if(NOT _variant_error AND _variant STREQUAL "4 parameter objects")
+      set(_initialize_arity4_found TRUE)
+      string(JSON _argument_count LENGTH
+        "${_registry}" "${_registry_key}" arguments)
+      if(NOT _argument_count EQUAL 5)
+        message(FATAL_ERROR
+          "The 4-parameter Initialize parameters node has the wrong arity.")
+      endif()
+      foreach(_parameter_argument RANGE 0 3)
+        string(JSON _connection_type GET
+          "${_registry}" "${_registry_key}" arguments ${_parameter_argument}
+          connection_type)
+        if(NOT _connection_type STREQUAL "pass_through")
+          message(FATAL_ERROR
+            "Initialize parameters must pass through ParameterAcceptor arguments.")
+        endif()
+        string(JSON _argument_type GET
+          "${_registry}" "${_registry_key}" arguments ${_parameter_argument} type)
+        if(NOT _argument_type STREQUAL "${_parameter_acceptor_type}")
+          message(FATAL_ERROR
+            "Initialize parameters must accept ParameterAcceptor references.")
+        endif()
+        string(JSON _output_index GET
+          "${_registry}" "${_registry_key}" outputs ${_parameter_argument})
+        if(NOT _output_index EQUAL _parameter_argument)
+          message(FATAL_ERROR
+            "Initialize parameters must expose each ParameterAcceptor pass-through output.")
+        endif()
+      endforeach()
+      string(JSON _file_connection_type GET
+        "${_registry}" "${_registry_key}" arguments 4 connection_type)
+      if(NOT _file_connection_type STREQUAL "input")
+        message(FATAL_ERROR
+          "Initialize parameters must consume the parameter file as input.")
+      endif()
+    endif()
+  endif()
+endforeach()
+if(NOT _initialize_arity4_found)
+  message(FATAL_ERROR
+    "Registry ${SPACEDIM}d is missing the generic four-parameter initialization operation.")
+endif()
+
+string(FIND "${_registry}" "Multiple parameter objects" _multiple_parameter_objects)
+if(NOT _multiple_parameter_objects EQUAL -1)
+  message(FATAL_ERROR "Registry still contains Multiple parameter objects.")
+endif()
+string(FIND "${_registry}" "Load parameters" _legacy_parameter_loaders)
+if(NOT _legacy_parameter_loaders EQUAL -1)
+  message(FATAL_ERROR "Registry still contains legacy Load parameters operations.")
+endif()
+
 if(SPACEDIM GREATER 1)
   set(_fiber_type
     "ImmersX::FiberReinforcedElastodynamicsParameters<${SPACEDIM}>")
@@ -103,14 +217,6 @@ if(SPACEDIM GREATER 1)
   if(_fiber_parameters_found EQUAL -1)
     message(FATAL_ERROR
       "Registry ${SPACEDIM}d is missing ${_fiber_type}.")
-  endif()
-
-  string(FIND "${_registry}"
-    "Load parameters::std::function<void (ImmersX::FiberReinforcedElastodynamicsParameters<${SPACEDIM}> &"
-    _fiber_loader_found)
-  if(_fiber_loader_found EQUAL -1)
-    message(FATAL_ERROR
-      "Registry ${SPACEDIM}d is missing the generic fiber parameter loader.")
   endif()
 endif()
 

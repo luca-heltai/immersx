@@ -25,9 +25,9 @@
         "qualified_id": "elastodynamics_parameter_file"
       },
       "3": {
-        "type": "Load parameters::std::function<void (ImmersX::ElastodynamicsParameters<2, 2> &, const std::string &)>",
+        "type": "Initialize parameters::std::function<void (dealii::ParameterAcceptor &, const std::string &)>",
         "position": {"x": 520, "y": 80},
-        "qualified_id": "elastodynamics_load_parameters"
+        "qualified_id": "elastodynamics_initialize_parameters"
       },
       "4": {
         "type": "ImmersX::Elastodynamics<2,2>",

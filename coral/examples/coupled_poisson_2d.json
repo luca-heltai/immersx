@@ -16,7 +16,7 @@
       "6": {"type": "std::string", "value": "/Linear adapter/"},
       "7": {"type": "ImmersX::LinearAdapterParameters"},
       "8": {"type": "std::string", "value": "coupled_poisson_2d.prm"},
-      "9": {"type": "Load parameters::std::function<void (ImmersX::PoissonParameters<2, 2> &, ImmersX::PoissonParameters<1, 2> &, ImmersX::FiniteElementSpaceParameters<1, 2> &, ImmersX::LinearAdapterParameters &, const std::string &)>"},
+      "9": {"type": "Initialize parameters::std::function<void (dealii::ParameterAcceptor &, dealii::ParameterAcceptor &, dealii::ParameterAcceptor &, dealii::ParameterAcceptor &, const std::string &)>"},
       "10": {"type": "ImmersX::Poisson<2,2>"},
       "11": {"type": "ImmersX::Poisson<2,2>::make_grid"},
       "12": {"type": "ImmersX::Poisson<2,2>::setup_fe"},

@@ -25,9 +25,9 @@
         "qualified_id": "elastic_static_parameter_file"
       },
       "3": {
-        "type": "Load parameters::std::function<void (ImmersX::ElasticStaticParameters<2, 2> &, const std::string &)>",
+        "type": "Initialize parameters::std::function<void (dealii::ParameterAcceptor &, const std::string &)>",
         "position": {"x": 520, "y": 80},
-        "qualified_id": "elastic_static_load_parameters"
+        "qualified_id": "elastic_static_initialize_parameters"
       },
       "4": {
         "type": "ImmersX::ElasticStatic<2,2>",

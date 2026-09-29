@@ -34,6 +34,7 @@
 #include <immersx/physics/poisson_residual.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -379,12 +380,20 @@ namespace ImmersX::Coral
                                 dealii::FEValuesExtractors::Vector>("Vector");
   }
 
+  inline auto
+  parameter_acceptor_derived_types() -> std::vector<std::string> &;
+
   inline void
   register_common_types()
   {
     coral::detail::set_type_alias<unsigned int>("unsigned int");
     coral::detail::set_type_alias<std::string>("std::string");
     coral::detail::set_type_alias<ImmersX::FieldId>("ImmersX::FieldId");
+    coral::detail::set_type_alias<dealii::ParameterAcceptor>(
+      "dealii::ParameterAcceptor");
+
+    parameter_acceptor_derived_types().clear();
+    coral::NodeObject::register_abstract_type<dealii::ParameterAcceptor>();
 
     coral::NodeObject::register_elementary_type<std::string>();
     coral::NodeObject::register_elementary_type<bool>();
@@ -424,11 +433,16 @@ namespace ImmersX::Coral
     return problem.solution_is_finite();
   }
 
-  template <typename Parameters>
-  void
-  load_parameters(Parameters &parameters, const std::string &file_name)
+  inline auto
+  parameter_acceptor_derived_types() -> std::vector<std::string> &
   {
-    (void)parameters;
+    static std::vector<std::string> types;
+    return types;
+  }
+
+  inline void
+  initialize_parameter_file(const std::string &file_name)
+  {
     const std::ifstream input(file_name);
     AssertThrow(input.good(),
                 dealii::ExcMessage("Could not open Coral parameter file '" +
@@ -436,44 +450,80 @@ namespace ImmersX::Coral
     dealii::ParameterAcceptor::initialize(file_name);
   }
 
-  /** Register the constructor and file loader for one parameter object.
-   *
-   * The parameter object is deliberately a pass-through output of the loader.
-   * ParameterAcceptor registers callbacks against the live object, and some
-   * parameter classes own non-copyable state, so returning a second object
-   * from the loader would break that ownership and registration model.
-   */
+  template <std::size_t>
+  using parameter_acceptor_reference = dealii::ParameterAcceptor &;
+
+  template <std::size_t... I>
+  void
+  register_initialize_parameters(std::index_sequence<I...>)
+  {
+    using Function = std::function<void(parameter_acceptor_reference<I>...,
+                                        const std::string &)>;
+
+    Function function = [](parameter_acceptor_reference<I>... parameters,
+                           const std::string &file_name) {
+      (static_cast<void>(parameters), ...);
+      initialize_parameter_file(file_name);
+    };
+
+    std::vector<std::string> argument_names;
+    argument_names.reserve(sizeof...(I) + 1);
+    (argument_names.push_back("parameter_" + std::to_string(I + 1)), ...);
+    argument_names.emplace_back("parameter_file");
+
+    coral::RegistryMetadata metadata;
+    metadata.operation    = "Initialize parameters";
+    metadata.display_name = "Initialize parameters";
+    metadata.variant_name =
+      std::to_string(sizeof...(I)) +
+      (sizeof...(I) == 1 ? " parameter object" : " parameter objects");
+    metadata.description =
+      "Initialize all live ParameterAcceptor objects from a parameter file.";
+
+    coral::NodeObject::register_function(function, argument_names, metadata);
+  }
+
+  template <std::size_t... Arity>
+  void
+  register_initialize_parameter_families(std::index_sequence<Arity...>)
+  {
+    (register_initialize_parameters(std::make_index_sequence<Arity + 1>{}),
+     ...);
+  }
+
+  inline void
+  register_initialize_parameter_types()
+  {
+    register_initialize_parameter_families(std::make_index_sequence<8>{});
+  }
+
   template <typename Parameters>
   void
   register_parameter_type(const std::string &type_name)
   {
+    static_assert(std::is_base_of_v<dealii::ParameterAcceptor, Parameters>,
+                  "Coral parameter types must derive from ParameterAcceptor.");
+
     coral::detail::set_type_alias<Parameters>(type_name);
-    coral::NodeObject::register_type<Parameters, const std::string &>(
-      "subsection");
+    auto &initializer =
+      coral::NodeObject::register_derived_type<dealii::ParameterAcceptor,
+                                               Parameters,
+                                               const std::string &>(
+        "subsection");
 
-    coral::RegistryMetadata metadata;
-    metadata.operation    = "Load parameters";
-    metadata.display_name = "Load parameters";
-    metadata.variant_name = type_name;
-    metadata.description  = "Load a parameter file into the parameter object.";
-    coral::NodeObject::register_function(
-      std::function<void(Parameters &, const std::string &)>(
-        &load_parameters<Parameters>),
-      {"parameters", "parameter_file"},
-      metadata);
-  }
+    const auto derived_type =
+      initializer.json_serializer.at("type").template get<std::string>();
+    auto &known_derived_types = parameter_acceptor_derived_types();
+    // Coral reinitializes the abstract base when registering a derived type.
+    // Restore the complete derived-type list after each registration.
+    if (std::find(known_derived_types.begin(),
+                  known_derived_types.end(),
+                  derived_type) == known_derived_types.end())
+      known_derived_types.push_back(derived_type);
 
-  template <typename... Parameters>
-  void
-  load_parameter_objects(const std::string &file_name,
-                         Parameters &...parameters)
-  {
-    (static_cast<void>(parameters), ...);
-    const std::ifstream input(file_name);
-    AssertThrow(input.good(),
-                dealii::ExcMessage("Could not open Coral parameter file '" +
-                                   file_name + "'."));
-    dealii::ParameterAcceptor::initialize(file_name);
+    auto &base_initializer =
+      coral::NodeObject::register_abstract_type<dealii::ParameterAcceptor>();
+    base_initializer.json_serializer["derived"] = known_derived_types;
   }
 
   template <int dim, int spacedim>
@@ -635,12 +685,8 @@ namespace ImmersX::Coral
   inline void
   register_linear_execution_types()
   {
-    constexpr int spacedim = 2;
-    using Adapter          = LinearAdapterFor<2, spacedim>;
-    using BulkParameters   = ImmersX::PoissonParameters<2, spacedim>;
-    using LineParameters   = ImmersX::PoissonParameters<1, spacedim>;
-    using MultiplierParameters =
-      ImmersX::FiniteElementSpaceParameters<1, spacedim>;
+    constexpr int spacedim  = 2;
+    using Adapter           = LinearAdapterFor<2, spacedim>;
     using AdapterParameters = ImmersX::LinearAdapterParameters;
     using FieldVector       = ImmersXLA::MPI::Vector;
     using GlobalVector      = ImmersXLA::MPI::BlockVector;
@@ -674,32 +720,6 @@ namespace ImmersX::Coral
 
     register_parameter_type<AdapterParameters>(
       "ImmersX::LinearAdapterParameters");
-
-    coral::RegistryMetadata load_metadata;
-    load_metadata.operation    = "Load parameters";
-    load_metadata.display_name = "Load parameters";
-    load_metadata.variant_name = "Multiple parameter objects";
-    load_metadata.description =
-      "Load one parameter file into all connected ParameterAcceptor objects.";
-    coral::NodeObject::register_function(
-      std::function<void(BulkParameters &,
-                         LineParameters &,
-                         MultiplierParameters &,
-                         AdapterParameters &,
-                         const std::string &)>(
-        [](BulkParameters       &bulk,
-           LineParameters       &line,
-           MultiplierParameters &multiplier,
-           AdapterParameters    &adapter,
-           const std::string    &file_name) {
-          load_parameter_objects(file_name, bulk, line, multiplier, adapter);
-        }),
-      {"bulk_parameters",
-       "line_parameters",
-       "multiplier_parameters",
-       "adapter_parameters",
-       "parameter_file"},
-      load_metadata);
 
     coral::RegistryMetadata adapter_metadata;
     adapter_metadata.operation    = "Create linear execution";
@@ -1324,6 +1344,7 @@ namespace ImmersX::Coral
   register_immersx_types()
   {
     register_common_types();
+    register_initialize_parameter_types();
     register_field_types<1, spacedim>();
     register_poisson_types<1, spacedim>();
     register_elastic_static_types<1, spacedim>();

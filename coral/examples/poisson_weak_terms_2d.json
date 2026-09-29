@@ -25,9 +25,9 @@
         "qualified_id": "poisson_parameter_file"
       },
       "3": {
-        "type": "Load parameters::std::function<void (ImmersX::PoissonParameters<2, 2> &, const std::string &)>",
+        "type": "Initialize parameters::std::function<void (dealii::ParameterAcceptor &, const std::string &)>",
         "position": {"x": 500, "y": 80},
-        "qualified_id": "poisson_load_parameters"
+        "qualified_id": "poisson_initialize_parameters"
       },
       "4": {
         "type": "ImmersX::Poisson<2,2>",
