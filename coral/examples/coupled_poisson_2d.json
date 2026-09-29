@@ -61,7 +61,7 @@
       "51": {"type": "Create linear state::std::function<dealii::TrilinosWrappers::MPI::BlockVector (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &)>"},
       "52": {"type": "Evaluate linear residual::std::function<void (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, dealii::TrilinosWrappers::MPI::BlockVector &)>"},
       "53": {"type": "Linear state norm::std::function<double (const dealii::TrilinosWrappers::MPI::BlockVector &)>"},
-      "54": {"type": "double", "value": "1.e-7"},
+      "54": {"type": "double", "value": "1.0e-7"},
       "55": {"type": "Assert finite below::std::function<void (const double &, const double &)>"},
       "56": {"type": "std::string", "value": "output/coupled_multiplier.pvd"},
       "57": {"type": "std::string", "value": "lagrange_multiplier"}
