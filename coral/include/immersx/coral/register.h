@@ -381,23 +381,6 @@ namespace ImmersX::Coral
   }
 
   template <int dim, int spacedim>
-  void
-  load_poisson_parameters(ImmersX::PoissonParameters<dim, spacedim> &parameters,
-                          const std::string                         &file_name)
-  {
-    (void)parameters;
-    std::ifstream input(file_name);
-    AssertThrow(input.good(),
-                dealii::ExcMessage("Could not open Coral parameter file '" +
-                                   file_name + "'."));
-
-    // ParameterAcceptor owns the declaration and parsing callbacks used by
-    // the existing Problem parameter classes. A graph should keep one
-    // parameter bundle alive and load it before constructing its Problem.
-    dealii::ParameterAcceptor::initialize(input);
-  }
-
-  template <int dim, int spacedim>
   double
   poisson_solution_l2_norm(const ImmersX::PoissonSolver<dim, spacedim> &problem)
   {
@@ -422,6 +405,33 @@ namespace ImmersX::Coral
                 dealii::ExcMessage("Could not open Coral parameter file '" +
                                    file_name + "'."));
     dealii::ParameterAcceptor::initialize(input);
+  }
+
+  /** Register the constructor and file loader for one parameter object.
+   *
+   * The parameter object is deliberately a pass-through output of the loader.
+   * ParameterAcceptor registers callbacks against the live object, and some
+   * parameter classes own non-copyable state, so returning a second object
+   * from the loader would break that ownership and registration model.
+   */
+  template <typename Parameters>
+  void
+  register_parameter_type(const std::string &type_name)
+  {
+    coral::detail::set_type_alias<Parameters>(type_name);
+    coral::NodeObject::register_type<Parameters, const std::string &>(
+      "subsection");
+
+    coral::RegistryMetadata metadata;
+    metadata.operation    = "Load parameters";
+    metadata.display_name = "Load parameters";
+    metadata.variant_name = type_name;
+    metadata.description  = "Load a parameter file into the parameter object.";
+    coral::NodeObject::register_function(
+      std::function<void(Parameters &, const std::string &)>(
+        &load_parameters<Parameters>),
+      {"parameters", "parameter_file"},
+      metadata);
   }
 
   template <int dim, int spacedim>
@@ -652,19 +662,10 @@ namespace ImmersX::Coral
     using Workflow   = ImmersX::FiberReinforcedElastodynamics<dim>;
     const auto name  = fiber_reinforced_name<dim>();
 
-    coral::detail::set_type_alias<Parameters>(
+    coral::detail::set_type_alias<Workflow>(name);
+    register_parameter_type<Parameters>(
       "ImmersX::FiberReinforcedElastodynamicsParameters<" +
       std::to_string(dim) + ">");
-    coral::detail::set_type_alias<Workflow>(name);
-    coral::NodeObject::register_type<Parameters, const std::string &>(
-      "subsection");
-    coral::NodeObject::register_function(
-      std::function<void(Parameters &, const std::string &)>(
-        &load_parameters<Parameters>),
-      {"ImmersX::LoadFiberReinforcedElastodynamicsParameters<" +
-         std::to_string(dim) + ">",
-       "parameters",
-       "parameter_file"});
     coral::NodeObject::register_type<Workflow, const Parameters &>(
       "parameters");
     coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
@@ -791,18 +792,9 @@ namespace ImmersX::Coral
     using Parameters = ImmersX::PoissonParameters<dim, spacedim>;
     using Problem    = ImmersX::PoissonSolver<dim, spacedim>;
 
-    coral::detail::set_type_alias<Parameters>(
-      poisson_parameters_name<dim, spacedim>());
     coral::detail::set_type_alias<Problem>(poisson_name<dim, spacedim>());
-
-    coral::NodeObject::register_type<Parameters, const std::string &>(
-      "subsection");
-    coral::NodeObject::register_function(
-      std::function<void(Parameters &, const std::string &)>(
-        &load_poisson_parameters<dim, spacedim>),
-      {"ImmersX::LoadPoissonParameters<" + dimensions(dim, spacedim) + ">",
-       "parameters",
-       "parameter_file"});
+    register_parameter_type<Parameters>(
+      poisson_parameters_name<dim, spacedim>());
 
     coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
 
@@ -850,19 +842,9 @@ namespace ImmersX::Coral
     const auto name =
       "ImmersX::ElasticStatic<" + dimensions(dim, spacedim) + ">";
 
-    coral::detail::set_type_alias<Parameters>(
-      "ImmersX::ElasticStaticParameters<" + dimensions(dim, spacedim) + ">");
     coral::detail::set_type_alias<Problem>(name);
-
-    coral::NodeObject::register_type<Parameters, const std::string &>(
-      "subsection");
-    coral::NodeObject::register_function(
-      std::function<void(Parameters &, const std::string &)>(
-        &load_parameters<Parameters>),
-      {"ImmersX::LoadElasticStaticParameters<" + dimensions(dim, spacedim) +
-         ">",
-       "parameters",
-       "parameter_file"});
+    register_parameter_type<Parameters>("ImmersX::ElasticStaticParameters<" +
+                                        dimensions(dim, spacedim) + ">");
     coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
     using Space = ImmersX::FiniteElementSpaceView<dim, spacedim>;
     register_finite_element_space_type<dim, spacedim>();
@@ -896,19 +878,9 @@ namespace ImmersX::Coral
     const auto name =
       "ImmersX::Elastodynamics<" + dimensions(dim, spacedim) + ">";
 
-    coral::detail::set_type_alias<Parameters>(
-      "ImmersX::ElastodynamicsParameters<" + dimensions(dim, spacedim) + ">");
     coral::detail::set_type_alias<Problem>(name);
-
-    coral::NodeObject::register_type<Parameters, const std::string &>(
-      "subsection");
-    coral::NodeObject::register_function(
-      std::function<void(Parameters &, const std::string &)>(
-        &load_parameters<Parameters>),
-      {"ImmersX::LoadElastodynamicsParameters<" + dimensions(dim, spacedim) +
-         ">",
-       "parameters",
-       "parameter_file"});
+    register_parameter_type<Parameters>("ImmersX::ElastodynamicsParameters<" +
+                                        dimensions(dim, spacedim) + ">");
     coral::NodeObject::register_type<Problem, const Parameters &>("parameters");
     using Space = ImmersX::FiniteElementSpaceView<dim, spacedim>;
     register_finite_element_space_type<dim, spacedim>();

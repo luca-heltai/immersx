@@ -25,7 +25,7 @@
         "qualified_id": "elastic_static_parameter_file"
       },
       "3": {
-        "type": "ImmersX::LoadElasticStaticParameters<2,2>",
+        "type": "Load parameters::std::function<void (ImmersX::ElasticStaticParameters<2, 2> &, const std::string &)>",
         "position": {"x": 520, "y": 80},
         "qualified_id": "elastic_static_load_parameters"
       },

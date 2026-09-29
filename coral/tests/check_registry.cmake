@@ -27,6 +27,21 @@ foreach(_dim RANGE 1 ${SPACEDIM})
       message(FATAL_ERROR
         "Registry ${SPACEDIM}d does not contain ${_family}<${_dim},${SPACEDIM}>.")
     endif()
+
+    string(FIND "${_registry}"
+      "ImmersX::${_family}Parameters<${_dim},${SPACEDIM}>" _parameters_found)
+    if(_parameters_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d is missing ${_family} parameter type.")
+    endif()
+
+    string(FIND "${_registry}"
+      "Load parameters::std::function<void (ImmersX::${_family}Parameters<${_dim}, ${SPACEDIM}> &"
+      _loader_found)
+    if(_loader_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d is missing the generic ${_family} parameter loader.")
+    endif()
   endforeach()
 
   set(_space_type "ImmersX::FiniteElementSpaceView<${_dim},${SPACEDIM}>")
@@ -80,6 +95,24 @@ foreach(_dim RANGE 1 ${SPACEDIM})
     endif()
   endif()
 endforeach()
+
+if(SPACEDIM GREATER 1)
+  set(_fiber_type
+    "ImmersX::FiberReinforcedElastodynamicsParameters<${SPACEDIM}>")
+  string(FIND "${_registry}" "${_fiber_type}" _fiber_parameters_found)
+  if(_fiber_parameters_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d is missing ${_fiber_type}.")
+  endif()
+
+  string(FIND "${_registry}"
+    "Load parameters::std::function<void (ImmersX::FiberReinforcedElastodynamicsParameters<${SPACEDIM}> &"
+    _fiber_loader_found)
+  if(_fiber_loader_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d is missing the generic fiber parameter loader.")
+  endif()
+endif()
 
 foreach(_wrong_spacedim RANGE 1 3)
   if(NOT _wrong_spacedim EQUAL SPACEDIM)
