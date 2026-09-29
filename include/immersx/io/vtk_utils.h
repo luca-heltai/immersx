@@ -130,7 +130,9 @@ namespace ImmersX
     void
     read_cell_data(const std::string &vtk_filename,
                    const std::string &cell_data_name,
-                   Vector<double>    &output_vector);
+                   Vector<double>    &output_vector,
+                   const bool         cleanup            = true,
+                   const double       relative_tolerance = 0.0);
 
     /**
      * @brief Read vertex data from a VTK file and store it in the output vector.
@@ -145,7 +147,9 @@ namespace ImmersX
     void
     read_vertex_data(const std::string &vtk_filename,
                      const std::string &vertex_data_name,
-                     Vector<double>    &output_vector);
+                     Vector<double>    &output_vector,
+                     const bool         cleanup            = true,
+                     const double       relative_tolerance = 0.0);
 
 
     /**
@@ -171,7 +175,10 @@ namespace ImmersX
      * @param output_vector The vector to store the vertex data values.
      */
     void
-    read_data(const std::string &vtk_filename, Vector<double> &output_vector);
+    read_data(const std::string &vtk_filename,
+              Vector<double>    &output_vector,
+              const bool         cleanup            = true,
+              const double       relative_tolerance = 0.0);
 
     /**
      * Map vtk fields to a FiniteElement object.
