@@ -23,6 +23,7 @@
 #include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/coral/reduced_poisson.h>
 #include <immersx/core/fe_space.h>
+#include <immersx/core/observable.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
@@ -33,6 +34,8 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace ImmersX::Coral
@@ -45,6 +48,22 @@ namespace ImmersX::Coral
     return std::to_string(dim) + "," + std::to_string(spacedim);
   }
 
+  inline coral::RegistryMetadata
+  finite_element_space_metadata(const std::string &problem_name,
+                                const int          dim,
+                                const int          spacedim)
+  {
+    coral::RegistryMetadata metadata;
+    metadata.operation    = "Finite element space";
+    metadata.display_name = "Finite element space";
+    metadata.variant_name = problem_name + ". " + std::to_string(dim) + "D";
+    if (dim != spacedim)
+      metadata.variant_name += " in " + std::to_string(spacedim) + "D";
+    metadata.description =
+      "Extract the finite element space from the " + problem_name + " problem.";
+    return metadata;
+  }
+
   template <int dim, int spacedim>
   inline void
   register_finite_element_space_type()
@@ -53,6 +72,176 @@ namespace ImmersX::Coral
     coral::detail::set_type_alias<Space>("ImmersX::FiniteElementSpaceView<" +
                                          dimensions(dim, spacedim) + ">");
     coral::NodeObject::register_output_type<Space>();
+  }
+
+  inline coral::RegistryMetadata
+  field_metadata(const std::string &operation,
+                 const std::string &field_kind,
+                 const int          dim,
+                 const int          spacedim)
+  {
+    coral::RegistryMetadata metadata;
+    metadata.operation    = operation;
+    metadata.display_name = field_kind;
+    metadata.variant_name = field_kind + ". " + std::to_string(dim) + "D";
+    if (dim != spacedim)
+      metadata.variant_name += " in " + std::to_string(spacedim) + "D";
+    metadata.description =
+      "Describe a generic " + field_kind + " over the finite element space.";
+    return metadata;
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_scalar_field_types()
+  {
+    using Space = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    using Field =
+      ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
+
+    register_finite_element_space_type<dim, spacedim>();
+    coral::detail::set_type_alias<Field>(
+      "ImmersX::Field<" + dimensions(dim, spacedim) + ",Scalar>");
+    coral::NodeObject::register_output_type<Field>();
+
+    const auto metadata =
+      field_metadata("Scalar field", "Scalar field", dim, spacedim);
+    coral::NodeObject::register_function(
+      std::function<Field(const Space &, const std::string &)>(
+        [](const Space &space, const std::string &name) {
+          return ImmersX::scalar_field(space, name);
+        }),
+      {"space", "name"},
+      metadata);
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_vector_field_types()
+  {
+    using Space = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    using Field =
+      ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+
+    register_finite_element_space_type<dim, spacedim>();
+    coral::detail::set_type_alias<Field>(
+      "ImmersX::Field<" + dimensions(dim, spacedim) + ",Vector>");
+    coral::NodeObject::register_output_type<Field>();
+
+    const auto metadata =
+      field_metadata("Vector field", "Vector field", dim, spacedim);
+    coral::NodeObject::register_function(
+      std::function<Field(const Space &, const std::string &)>(
+        [](const Space &space, const std::string &name) {
+          return ImmersX::vector_field(space, name);
+        }),
+      {"space", "name"},
+      metadata);
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_field_observable_operations();
+
+  template <int dim, int spacedim>
+  inline void
+  register_field_types()
+  {
+    register_scalar_field_types<dim, spacedim>();
+    register_vector_field_types<dim, spacedim>();
+    register_field_observable_operations<dim, spacedim>();
+  }
+
+  inline coral::RegistryMetadata
+  field_observable_metadata(const std::string &operation,
+                            const std::string &field_kind,
+                            const std::string &observable_kind,
+                            const int          dim,
+                            const int          spacedim)
+  {
+    coral::RegistryMetadata metadata;
+    metadata.operation    = operation;
+    metadata.display_name = operation;
+    metadata.variant_name =
+      field_kind + " field · " + std::to_string(dim) + "D";
+    if (dim != spacedim)
+      metadata.variant_name += " in " + std::to_string(spacedim) + "D";
+    metadata.description =
+      "Apply " + observable_kind + " to a generic " + field_kind + " field.";
+    return metadata;
+  }
+
+  template <int dim, int spacedim, typename Extractor, typename Function>
+  inline void
+  register_field_observable_operation(const std::string &field_kind,
+                                      const std::string &operation,
+                                      const std::string &observable_kind,
+                                      Function           function)
+  {
+    using Field = ImmersX::Field<dim, spacedim, Extractor>;
+
+    using Observable =
+      std::decay_t<decltype(function(std::declval<const Field &>()))>;
+    coral::detail::set_type_alias<Observable>(
+      "ImmersX::Observable<" + dimensions(dim, spacedim) + "," + field_kind +
+      "," + observable_kind + ">");
+    coral::NodeObject::register_output_type<Observable>();
+    coral::NodeObject::register_function(
+      std::function<Observable(const Field &)>(function),
+      {"field"},
+      field_observable_metadata(
+        operation, field_kind, observable_kind, dim, spacedim));
+  }
+
+  template <int dim, int spacedim, typename Extractor>
+  inline void
+  register_field_observable_operations(const std::string &field_kind)
+  {
+    register_field_observable_operation<dim, spacedim, Extractor>(
+      field_kind, "Field value", "value", [](const auto &field) {
+        return ImmersX::value(field);
+      });
+    register_field_observable_operation<dim, spacedim, Extractor>(
+      field_kind, "Field gradient", "gradient", [](const auto &field) {
+        return ImmersX::gradient(field);
+      });
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_vector_field_observable_operations()
+  {
+    using Extractor = dealii::FEValuesExtractors::Vector;
+
+    register_field_observable_operation<dim, spacedim, Extractor>(
+      "Vector", "Field divergence", "divergence", [](const auto &field) {
+        return ImmersX::divergence(field);
+      });
+    register_field_observable_operation<dim, spacedim, Extractor>(
+      "Vector",
+      "Field symmetric gradient",
+      "symmetric gradient",
+      [](const auto &field) { return ImmersX::symmetric_gradient(field); });
+    if constexpr (spacedim > 1)
+      register_field_observable_operation<dim, spacedim, Extractor>(
+        "Vector", "Field curl", "curl", [](const auto &field) {
+          return ImmersX::curl(field);
+        });
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_field_observable_operations()
+  {
+    register_field_observable_operations<dim,
+                                         spacedim,
+                                         dealii::FEValuesExtractors::Scalar>(
+      "Scalar");
+    register_field_observable_operations<dim,
+                                         spacedim,
+                                         dealii::FEValuesExtractors::Vector>(
+      "Vector");
+    register_vector_field_observable_operations<dim, spacedim>();
   }
 
   inline void
@@ -517,7 +706,7 @@ namespace ImmersX::Coral
         return ImmersX::finite_element_space_view(problem);
       }),
       {"problem"},
-      {"Finite element space", "Finite element space"});
+      finite_element_space_metadata("Poisson", dim, spacedim));
     coral::NodeObject::register_method<Problem, void>(&Problem::make_grid,
                                                       {name + "::make_grid",
                                                        "problem"});
@@ -574,7 +763,7 @@ namespace ImmersX::Coral
         return ImmersX::finite_element_space_view(problem);
       }),
       {"problem"},
-      {"Finite element space", "Finite element space"});
+      finite_element_space_metadata("Elastic static", dim, spacedim));
     coral::NodeObject::register_method<Problem, void>(&Problem::setup,
                                                       {name + "::setup",
                                                        "problem"});
@@ -620,7 +809,7 @@ namespace ImmersX::Coral
         return ImmersX::finite_element_space_view(problem);
       }),
       {"problem"},
-      {"Finite element space", "Finite element space"});
+      finite_element_space_metadata("Elastodynamics", dim, spacedim));
     coral::NodeObject::register_method<Problem, void>(&Problem::make_grid,
                                                       {name + "::make_grid",
                                                        "problem"});
@@ -663,11 +852,13 @@ namespace ImmersX::Coral
   register_immersx_types()
   {
     register_common_types();
+    register_field_types<1, spacedim>();
     register_poisson_types<1, spacedim>();
     register_elastic_static_types<1, spacedim>();
     register_elastodynamics_types<1, spacedim>();
     if constexpr (spacedim >= 2)
       {
+        register_field_types<2, spacedim>();
         register_poisson_types<2, spacedim>();
         register_elastic_static_types<2, spacedim>();
         register_elastodynamics_types<2, spacedim>();
@@ -683,6 +874,7 @@ namespace ImmersX::Coral
       }
     if constexpr (spacedim >= 3)
       {
+        register_field_types<3, spacedim>();
         register_poisson_types<3, spacedim>();
         register_elastic_static_types<3, spacedim>();
         register_elastodynamics_types<3, spacedim>();

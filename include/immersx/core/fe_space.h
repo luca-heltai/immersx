@@ -19,15 +19,18 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/index_set.h>
+#include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values_extractors.h>
 #include <deal.II/fe/fe_values_views.h>
 #include <deal.II/fe/mapping.h>
+#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/lac/affine_constraints.h>
 
@@ -41,6 +44,31 @@
 
 namespace ImmersX
 {
+  /** Parameters used to construct an owning finite-element space.
+   *
+   * The finite element is selected by the same name understood by
+   * dealii::FETools::get_fe_by_name(), for example <tt>FE_Q<2>(1)</tt> or
+   * <tt>FE_DGQ<1>(0)</tt>.  The space owns the resulting finite element and
+   * distributes its DoFs on the supplied triangulation.
+   */
+  template <int dim, int spacedim = dim>
+  class FiniteElementSpaceParameters : public dealii::ParameterAcceptor
+  {
+  public:
+    explicit FiniteElementSpaceParameters(
+      const std::string &subsection             = "/Finite element space/",
+      const std::string &default_finite_element = "")
+      : ParameterAcceptor(subsection)
+      , finite_element(default_finite_element.empty() ?
+                         "FE_Q<" + std::to_string(dim) + ">(1)" :
+                         default_finite_element)
+    {
+      add_parameter("Finite element", finite_element);
+    }
+
+    std::string finite_element;
+  };
+
   template <int dim, int spacedim>
   class FiniteElementSpaceView;
 
@@ -485,6 +513,14 @@ namespace ImmersX
       distribute_dofs();
     }
 
+    FiniteElementSpace(
+      const TriangulationType                           &triangulation,
+      const FiniteElementSpaceParameters<dim, spacedim> &parameters)
+      : FiniteElementSpace(triangulation,
+                           dealii::FETools::get_fe_by_name<dim, spacedim>(
+                             parameters.finite_element))
+    {}
+
     void
     distribute_dofs()
     {
@@ -540,6 +576,13 @@ namespace ImmersX
                                                    mapping,
                                                    constraints_,
                                                    &locally_relevant_dofs_);
+    }
+
+    /** Return a view using deal.II's static Q1 mapping. */
+    FiniteElementSpaceView<dim, spacedim>
+    view() const
+    {
+      return view(dealii::StaticMappingQ1<dim, spacedim>::mapping);
     }
 
   private:
@@ -623,6 +666,52 @@ namespace ImmersX
                                      mapping,
                                      constraints,
                                      locally_relevant);
+  }
+
+  /** Describe a scalar field on an existing finite-element space.
+   *
+   * The field name is semantic metadata local to the execution layout.  The
+   * FE structure is determined exclusively by the deal.II extractor.
+   */
+  template <int dim, int spacedim = dim>
+  Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>
+  scalar_field(const FiniteElementSpaceView<dim, spacedim> &space,
+               const std::string                           &name)
+  {
+    return space.field(name, dealii::FEValuesExtractors::Scalar(0));
+  }
+
+  /** Describe a registered scalar field on an existing finite-element space. */
+  template <int dim, int spacedim = dim>
+  Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>
+  scalar_field(const FiniteElementSpaceView<dim, spacedim> &space,
+               StateLayout                                 &layout,
+               const std::string                           &name)
+  {
+    return space.field(layout, name, dealii::FEValuesExtractors::Scalar(0));
+  }
+
+  /** Describe a vector field on an existing finite-element space.
+   *
+   * The vector extractor follows deal.II's convention and starts at the
+   * first vector component of the finite element.
+   */
+  template <int dim, int spacedim = dim>
+  Field<dim, spacedim, dealii::FEValuesExtractors::Vector>
+  vector_field(const FiniteElementSpaceView<dim, spacedim> &space,
+               const std::string                           &name)
+  {
+    return space.field(name, dealii::FEValuesExtractors::Vector(0));
+  }
+
+  /** Describe a registered vector field on an existing finite-element space. */
+  template <int dim, int spacedim = dim>
+  Field<dim, spacedim, dealii::FEValuesExtractors::Vector>
+  vector_field(const FiniteElementSpaceView<dim, spacedim> &space,
+               StateLayout                                 &layout,
+               const std::string                           &name)
+  {
+    return space.field(layout, name, dealii::FEValuesExtractors::Vector(0));
   }
 } // namespace ImmersX
 

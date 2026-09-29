@@ -36,6 +36,49 @@ foreach(_dim RANGE 1 ${SPACEDIM})
     message(FATAL_ERROR
       "Registry ${SPACEDIM}d does not register ${_space_type} as output-only.")
   endif()
+
+  foreach(_field_kind Scalar Vector)
+    set(_field_type "ImmersX::Field<${_dim},${SPACEDIM},${_field_kind}>")
+    string(JSON _field_node_type ERROR_VARIABLE _field_error
+      GET "${_registry}" "${_field_type}" node_type)
+    if(_field_error OR NOT _field_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_field_type} as output-only.")
+    endif()
+
+    foreach(_observable_kind value gradient)
+      set(_observable_type
+        "ImmersX::Observable<${_dim},${SPACEDIM},${_field_kind},${_observable_kind}>")
+      string(JSON _observable_node_type ERROR_VARIABLE _observable_error
+        GET "${_registry}" "${_observable_type}" node_type)
+      if(_observable_error OR NOT _observable_node_type STREQUAL "output_only")
+        message(FATAL_ERROR
+          "Registry ${SPACEDIM}d does not register ${_observable_type} as output-only.")
+      endif()
+    endforeach()
+  endforeach()
+
+  foreach(_observable_kind divergence "symmetric gradient")
+    set(_observable_type
+      "ImmersX::Observable<${_dim},${SPACEDIM},Vector,${_observable_kind}>")
+    string(JSON _observable_node_type ERROR_VARIABLE _observable_error
+      GET "${_registry}" "${_observable_type}" node_type)
+    if(_observable_error OR NOT _observable_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_observable_type} as output-only.")
+    endif()
+  endforeach()
+
+  if(SPACEDIM GREATER 1)
+    set(_observable_type
+      "ImmersX::Observable<${_dim},${SPACEDIM},Vector,curl>")
+    string(JSON _observable_node_type ERROR_VARIABLE _observable_error
+      GET "${_registry}" "${_observable_type}" node_type)
+    if(_observable_error OR NOT _observable_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_observable_type} as output-only.")
+    endif()
+  endif()
 endforeach()
 
 foreach(_wrong_spacedim RANGE 1 3)
@@ -62,6 +105,38 @@ endforeach()
 string(FIND "${_registry}" "Finite element space" _found)
 if(_found EQUAL -1)
   message(FATAL_ERROR "Registry is missing the finite-element-space operation.")
+endif()
+
+foreach(_field_operation "Scalar field" "Vector field")
+  string(FIND "${_registry}" "${_field_operation}" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry is missing the '${_field_operation}' operation family.")
+  endif()
+endforeach()
+
+foreach(_observable_operation
+    "Field value"
+    "Field gradient"
+    "Field divergence"
+    "Field symmetric gradient")
+  string(FIND "${_registry}" "${_observable_operation}" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry is missing the '${_observable_operation}' operation family.")
+  endif()
+endforeach()
+
+if(SPACEDIM GREATER 1)
+  string(FIND "${_registry}" "Field curl" _found)
+  if(_found EQUAL -1)
+    message(FATAL_ERROR "Registry is missing the 'Field curl' operation family.")
+  endif()
+else()
+  string(FIND "${_registry}" "Field curl" _found)
+  if(NOT _found EQUAL -1)
+    message(FATAL_ERROR "1D registry must not expose the unsupported Field curl operation.")
+  endif()
 endif()
 
 string(FIND "${_registry}" "ImmersX::PoissonParameters<1,${SPACEDIM}>" _found)
