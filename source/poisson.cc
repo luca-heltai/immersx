@@ -48,26 +48,6 @@ namespace ImmersX
       return normalized;
     }
 
-    template <int dim, int spacedim>
-    void
-    read_poisson_grid(const std::string            &grid_file_name,
-                      const std::string            &ids_and_cad_file_names,
-                      Triangulation<dim, spacedim> &tria)
-    {
-      if constexpr (dim == 1)
-        {
-          // The distributed 1D path is intentionally independent of the CAD
-          // manifold helper, whose deal.II link-time instantiations are only
-          // available for the volume/surface cases used by the main solvers.
-          GridIn<dim, spacedim> grid_in;
-          grid_in.attach_triangulation(tria);
-          grid_in.read(grid_file_name);
-          (void)ids_and_cad_file_names;
-        }
-      else
-        read_grid_and_cad_files(grid_file_name, ids_and_cad_file_names, tria);
-    }
-
     void
     ensure_output_directory(const std::string &directory)
     {
@@ -85,32 +65,22 @@ namespace ImmersX
   PoissonParameters<dim, spacedim>::PoissonParameters(
     const std::string &subsection)
     : ParameterAcceptor(normalize_poisson_subsection(subsection))
+    , domain_parameters(
+        domain_subsection(normalize_poisson_subsection(subsection)))
     , rhs(normalize_poisson_subsection(subsection) + "Right hand side")
     , bc(normalize_poisson_subsection(subsection) +
          "Dirichlet boundary conditions")
     , solver_control(normalize_poisson_subsection(subsection) +
                      "Solver/Control")
   {
+    domain_parameters.initial_refinement = 5;
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
     add_parameter("Output results also before solving",
                   output_results_before_solving);
     add_parameter("Estimate condition number", estimate_condition_number);
-    add_parameter("Initial refinement", initial_refinement);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
-
-    enter_subsection("Grid generation");
-    {
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-      add_parameter("Triangulation type",
-                    triangulation_type,
-                    "",
-                    this->prm,
-                    Patterns::Selection("distributed|fullydistributed"));
-    }
-    leave_subsection();
 
     enter_subsection("Refinement and remeshing");
     {
@@ -145,146 +115,25 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , triangulation_storage(make_triangulation_storage(mpi_communicator))
-    , tria(&std::visit(
-        [](
-          auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-          return selected_tria;
-        },
-        triangulation_storage))
+    , domain(par.domain_parameters, mpi_communicator)
+    , tria(&domain.triangulation())
     , dh()
   {}
 
-
-  template <int dim, int spacedim>
-  typename PoissonSolver<dim, spacedim>::TriangulationVariant
-  PoissonSolver<dim, spacedim>::make_triangulation_storage(
-    MPI_Comm mpi_communicator)
-  {
-    if constexpr (dim == 1)
-      return TriangulationVariant(
-        std::in_place_type<FullyDistributedTriangulation>, mpi_communicator);
-    else
-      return TriangulationVariant(
-        std::in_place_type<DistributedTriangulation>,
-        mpi_communicator,
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening),
-        parallel::distributed::Triangulation<dim, spacedim>::
-          construct_multigrid_hierarchy);
-  }
-
-
-  template <int dim, int spacedim>
-  bool
-  PoissonSolver<dim, spacedim>::uses_fully_distributed_triangulation() const
-  {
-    return std::holds_alternative<FullyDistributedTriangulation>(
-      triangulation_storage);
-  }
 
   template <int dim, int spacedim>
   void
   PoissonSolver<dim, spacedim>::make_grid()
   {
     TimerOutput::Scope t(computing_timer, "Make grid");
-
-    const bool need_fully_distributed =
-      (dim == 1 || par.triangulation_type == "fullydistributed");
-
-    if (need_fully_distributed && !uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<FullyDistributedTriangulation>(
-        mpi_communicator);
-    else if (!need_fully_distributed && uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<DistributedTriangulation>(
-        mpi_communicator,
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening),
-        parallel::distributed::Triangulation<dim, spacedim>::
-          construct_multigrid_hierarchy);
-
-    tria = &std::visit(
-      [](auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-        return selected_tria;
-      },
-      triangulation_storage);
+    domain.make_grid();
+    tria = &domain.triangulation();
     dh.reinit(*tria);
-
-    if (!uses_fully_distributed_triangulation())
-      {
-        auto &distributed_tria =
-          std::get<DistributedTriangulation>(triangulation_storage);
-
-        try
-          {
-            GridGenerator::generate_from_name_and_arguments(
-              distributed_tria, par.name_of_grid, par.arguments_for_grid);
-          }
-        catch (...)
-          {
-            pcout << "Generating from name and arguments failed.\n"
-                  << "Trying to read the grid from a file." << std::endl;
-            read_poisson_grid(par.name_of_grid,
-                              par.arguments_for_grid,
-                              distributed_tria);
-          }
-
-        distributed_tria.refine_global(par.initial_refinement);
-        pcout << "   Triangulation backend: distributed" << std::endl
-              << "   Number of active cells: " << tria->n_active_cells()
-              << std::endl;
-        return;
-      }
-
-    Triangulation<dim, spacedim> serial_tria(
-      typename Triangulation<dim, spacedim>::MeshSmoothing(
-        Triangulation<dim, spacedim>::smoothing_on_refinement |
-        Triangulation<dim, spacedim>::smoothing_on_coarsening));
-
-    try
-      {
-        GridGenerator::generate_from_name_and_arguments(serial_tria,
-                                                        par.name_of_grid,
-                                                        par.arguments_for_grid);
-      }
-    catch (...)
-      {
-        pcout << "Generating from name and arguments failed.\n"
-              << "Trying to read the grid from a file." << std::endl;
-        read_poisson_grid(par.name_of_grid,
-                          par.arguments_for_grid,
-                          serial_tria);
-      }
-
-    serial_tria.refine_global(par.initial_refinement);
-    auto &fully_distributed_tria =
-      std::get<FullyDistributedTriangulation>(triangulation_storage);
-
-    if constexpr (dim == 1)
-      {
-        // The default fully distributed partitioner keeps children of one
-        // coarse cell together. For a once-refined interval this can leave a
-        // rank without cells and invalid local DoF indices at the boundary.
-        fully_distributed_tria.set_partitioner(
-          [](Triangulation<dim, spacedim> &serial_tria,
-             const unsigned int            n_partitions) {
-            GridTools::partition_triangulation_zorder(n_partitions,
-                                                      serial_tria,
-                                                      false);
-          },
-          TriangulationDescription::Settings::default_setting);
-      }
-
-    for (const auto manifold_id : serial_tria.get_manifold_ids())
-      if (manifold_id != numbers::flat_manifold_id)
-        fully_distributed_tria.set_manifold(
-          manifold_id, serial_tria.get_manifold(manifold_id));
-    fully_distributed_tria.copy_triangulation(serial_tria);
-
-    pcout << "   Triangulation backend: fullydistributed"
-          << (dim == 1 ? " (forced for dim=1)" : "") << std::endl;
+    pcout << "   Triangulation backend: "
+          << (domain.uses_fully_distributed_triangulation() ?
+                "fullydistributed" :
+                "distributed")
+          << std::endl;
     pcout << "   Number of active cells: " << tria->n_active_cells()
           << std::endl;
   }
@@ -518,7 +367,7 @@ namespace ImmersX
     else
       {
         AssertThrow(
-          !uses_fully_distributed_triangulation(),
+          !domain.uses_fully_distributed_triangulation(),
           ExcMessage(
             "Adaptive refinement is not implemented with "
             "parallel::fullydistributed::Triangulation in PoissonSolver. "

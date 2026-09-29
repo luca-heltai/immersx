@@ -35,12 +35,13 @@ namespace
       parameters.solver_control.max_steps();
     adapter_parameters.tolerance = parameters.solver_control.tolerance();
 
-    AssertThrow(
-      (dim != 1 && parameters.triangulation_type != "fullydistributed") ||
-        parameters.n_refinement_cycles <= 1,
-      ExcMessage("parallel::fullydistributed::Triangulation supports only "
-                 "one static refinement cycle because its mesh is immutable "
-                 "after copy_triangulation()."));
+    AssertThrow((dim != 1 && parameters.domain_parameters.triangulation_type !=
+                               "fullydistributed") ||
+                  parameters.n_refinement_cycles <= 1,
+                ExcMessage(
+                  "parallel::fullydistributed::Triangulation supports only "
+                  "one static refinement cycle because its mesh is immutable "
+                  "after copy_triangulation()."));
 
     Problem problem(parameters);
     problem.setup();

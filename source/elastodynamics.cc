@@ -112,6 +112,8 @@ namespace ImmersX
           std::make_unique<IDAParameters>(
             normalize_elastodynamics_subsection(subsection) + "IDA/") :
           nullptr)
+    , domain_parameters(
+        domain_subsection(normalize_elastodynamics_subsection(subsection)))
     , time_parameters(shared_time_parameters != nullptr ?
                         *shared_time_parameters :
                         *owned_time_parameters)
@@ -145,25 +147,15 @@ namespace ImmersX
                      "Solver/Control")
     , convergence_table(std::vector<std::string>(spacedim, "d"))
   {
+    domain_parameters.initial_refinement = 2;
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
-    add_parameter("Initial refinement", initial_refinement);
     add_parameter("Number of refinement cycles", n_refinement_cycles);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
     add_parameter("Neumann boundary ids", neumann_ids);
 
-    enter_subsection("Grid generation");
-    {
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-      add_parameter("Triangulation type",
-                    triangulation_type,
-                    "",
-                    this->prm,
-                    Patterns::Selection("distributed|fullydistributed"));
-    }
-    leave_subsection();
+
 
     enter_subsection("Material");
     {
@@ -229,46 +221,11 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , triangulation_storage(make_triangulation_storage(mpi_communicator))
-    , tria(&std::visit(
-        [](
-          auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-          return selected_tria;
-        },
-        triangulation_storage))
+    , domain(par.domain_parameters, mpi_communicator)
+    , tria(&domain.triangulation())
     , dh()
     , current_time_storage(par.time_parameters.initial_time)
   {}
-
-
-  template <int dim, int spacedim>
-  typename ElastodynamicsSolver<dim, spacedim>::TriangulationVariant
-  ElastodynamicsSolver<dim, spacedim>::make_triangulation_storage(
-    MPI_Comm mpi_communicator)
-  {
-    if constexpr (dim == 1)
-      return TriangulationVariant(
-        std::in_place_type<FullyDistributedTriangulation>, mpi_communicator);
-    else
-      return TriangulationVariant(
-        std::in_place_type<DistributedTriangulation>,
-        mpi_communicator,
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening),
-        parallel::distributed::Triangulation<dim, spacedim>::
-          construct_multigrid_hierarchy);
-  }
-
-
-  template <int dim, int spacedim>
-  bool
-  ElastodynamicsSolver<dim, spacedim>::uses_fully_distributed_triangulation()
-    const
-  {
-    return std::holds_alternative<FullyDistributedTriangulation>(
-      triangulation_storage);
-  }
 
 
   template <int dim, int spacedim>
@@ -276,101 +233,14 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::make_grid()
   {
     TimerOutput::Scope t(computing_timer, "Make grid");
-
-    // deal.II's p4est-backed distributed triangulation is not available for
-    // one-dimensional meshes.  Match PoissonSolver's policy and use the
-    // fully-distributed representation for every 1D problem, irrespective of
-    // the parameter-file selection.
-    const bool need_fully_distributed =
-      dim == 1 || par.triangulation_type == "fullydistributed";
-
-    if (need_fully_distributed && !uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<FullyDistributedTriangulation>(
-        mpi_communicator);
-    else if (!need_fully_distributed && uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<DistributedTriangulation>(
-        mpi_communicator,
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening),
-        parallel::distributed::Triangulation<dim, spacedim>::
-          construct_multigrid_hierarchy);
-
-    tria = &std::visit(
-      [](auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-        return selected_tria;
-      },
-      triangulation_storage);
+    domain.make_grid();
+    tria = &domain.triangulation();
     dh.reinit(*tria);
-
-    if (!uses_fully_distributed_triangulation())
-      {
-        auto &distributed_tria =
-          std::get<DistributedTriangulation>(triangulation_storage);
-        try
-          {
-            GridGenerator::generate_from_name_and_arguments(
-              distributed_tria, par.name_of_grid, par.arguments_for_grid);
-          }
-        catch (...)
-          {
-            pcout << "Generating from name and arguments failed.\n"
-                  << "Trying to read the grid from a file." << std::endl;
-            read_elastodynamics_grid(par.name_of_grid,
-                                     par.arguments_for_grid,
-                                     distributed_tria);
-          }
-
-        distributed_tria.refine_global(par.initial_refinement);
-        pcout << "   Triangulation backend: distributed\n"
-              << "   Number of active cells: " << tria->n_active_cells()
-              << std::endl;
-        return;
-      }
-
-    Triangulation<dim, spacedim> serial_tria(
-      typename Triangulation<dim, spacedim>::MeshSmoothing(
-        Triangulation<dim, spacedim>::smoothing_on_refinement |
-        Triangulation<dim, spacedim>::smoothing_on_coarsening));
-    try
-      {
-        GridGenerator::generate_from_name_and_arguments(serial_tria,
-                                                        par.name_of_grid,
-                                                        par.arguments_for_grid);
-      }
-    catch (...)
-      {
-        pcout << "Generating from name and arguments failed.\n"
-              << "Trying to read the grid from a file." << std::endl;
-        read_elastodynamics_grid(par.name_of_grid,
-                                 par.arguments_for_grid,
-                                 serial_tria);
-      }
-
-    serial_tria.refine_global(par.initial_refinement);
-    auto &fully_distributed_tria =
-      std::get<FullyDistributedTriangulation>(triangulation_storage);
-    if constexpr (dim == 1)
-      {
-        // Keep children of an interval distributed across ranks.  The default
-        // partitioner may leave a rank without cells after refinement, which
-        // in turn produces invalid local DoF indices at the endpoints.
-        fully_distributed_tria.set_partitioner(
-          [](Triangulation<dim, spacedim> &serial_tria,
-             const unsigned int            n_partitions) {
-            GridTools::partition_triangulation_zorder(n_partitions,
-                                                      serial_tria,
-                                                      false);
-          },
-          TriangulationDescription::Settings::default_setting);
-      }
-    for (const auto manifold_id : serial_tria.get_manifold_ids())
-      if (manifold_id != numbers::flat_manifold_id)
-        fully_distributed_tria.set_manifold(
-          manifold_id, serial_tria.get_manifold(manifold_id));
-    fully_distributed_tria.copy_triangulation(serial_tria);
-
-    pcout << "   Triangulation backend: fullydistributed\n"
+    pcout << "   Triangulation backend: "
+          << (domain.uses_fully_distributed_triangulation() ?
+                "fullydistributed" :
+                "distributed")
+          << "\n"
           << "   Number of active cells: " << tria->n_active_cells()
           << std::endl;
   }
@@ -866,7 +736,7 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::refine_global()
   {
-    AssertThrow(!uses_fully_distributed_triangulation(),
+    AssertThrow(!domain.uses_fully_distributed_triangulation(),
                 ExcMessage(
                   "ElastodynamicsSolver::refine_global() is unavailable for "
                   "parallel::fullydistributed::Triangulation."));
@@ -874,7 +744,9 @@ namespace ImmersX
                 ExcMessage("Call setup_system() before refining the mesh."));
 
     dh.clear();
-    std::get<DistributedTriangulation>(triangulation_storage).refine_global(1);
+    dynamic_cast<parallel::distributed::Triangulation<dim, spacedim> &>(
+      domain.triangulation())
+      .refine_global(1);
     cycles_and_solutions.clear();
   }
 
@@ -1521,7 +1393,8 @@ namespace ImmersX
 
     make_grid();
     AssertThrow(
-      !uses_fully_distributed_triangulation() || par.n_refinement_cycles <= 1,
+      !domain.uses_fully_distributed_triangulation() ||
+        par.n_refinement_cycles <= 1,
       ExcMessage(
         "Refinement cycles are not available with the immutable "
         "parallel::fullydistributed::Triangulation in ElastodynamicsSolver."));

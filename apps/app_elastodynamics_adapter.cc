@@ -39,7 +39,8 @@ namespace
     problem.make_grid();
     problem.setup_fe();
 
-    AssertThrow(parameters.triangulation_type != "fullydistributed" ||
+    AssertThrow(parameters.domain_parameters.triangulation_type !=
+                    "fullydistributed" ||
                   parameters.n_refinement_cycles <= 1,
                 ExcMessage(
                   "parallel::fullydistributed::Triangulation supports only one "

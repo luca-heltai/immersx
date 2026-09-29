@@ -85,6 +85,8 @@ namespace ImmersX
     , fixed_step_parameters(normalize_navier_stokes_subsection(subsection) +
                             "Fixed step/")
     , ida_parameters(normalize_navier_stokes_subsection(subsection) + "IDA/")
+    , domain_parameters(
+        domain_subsection(normalize_navier_stokes_subsection(subsection)))
     , convergence_table(navier_stokes_error_component_names<dim>(),
                         navier_stokes_error_norms<dim>())
     , rhs(normalize_navier_stokes_subsection(subsection) + "Right hand side",
@@ -119,20 +121,7 @@ namespace ImmersX
     }
     leave_subsection();
 
-    add_parameter("Initial refinement", initial_refinement);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
-
-    enter_subsection("Grid generation");
-    {
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-      add_parameter("Triangulation type",
-                    triangulation_type,
-                    "Distributed backend used for the fluid mesh",
-                    this->prm,
-                    Patterns::Selection("distributed|fullydistributed"));
-    }
-    leave_subsection();
 
     enter_subsection("Physical properties");
     {
@@ -209,13 +198,8 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , triangulation_storage(make_triangulation_storage(mpi_communicator))
-    , tria(&std::visit(
-        [](
-          auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-          return selected_tria;
-        },
-        triangulation_storage))
+    , domain(par.domain_parameters, mpi_communicator)
+    , tria(&domain.triangulation())
     , dh()
     , velocity(0)
     , pressure(dim)
@@ -224,102 +208,17 @@ namespace ImmersX
 
 
   template <int dim, int spacedim>
-  typename NavierStokesSolver<dim, spacedim>::TriangulationVariant
-  NavierStokesSolver<dim, spacedim>::make_triangulation_storage(
-    MPI_Comm mpi_communicator)
-  {
-    return TriangulationVariant(
-      std::in_place_type<DistributedTriangulation>,
-      mpi_communicator,
-      typename Triangulation<dim, spacedim>::MeshSmoothing(
-        Triangulation<dim, spacedim>::smoothing_on_refinement |
-        Triangulation<dim, spacedim>::smoothing_on_coarsening),
-      parallel::distributed::Triangulation<dim, spacedim>::
-        construct_multigrid_hierarchy);
-  }
-
-
-  template <int dim, int spacedim>
-  bool
-  NavierStokesSolver<dim, spacedim>::uses_fully_distributed_triangulation()
-    const
-  {
-    return std::holds_alternative<FullyDistributedTriangulation>(
-      triangulation_storage);
-  }
-
-
-  template <int dim, int spacedim>
   void
   NavierStokesSolver<dim, spacedim>::make_grid()
   {
     TimerOutput::Scope t(computing_timer, "Make grid");
-
-    const bool need_fully_distributed =
-      par.triangulation_type == "fullydistributed";
-    if (need_fully_distributed && !uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<FullyDistributedTriangulation>(
-        mpi_communicator);
-    else if (!need_fully_distributed && uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<DistributedTriangulation>(
-        mpi_communicator,
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening),
-        parallel::distributed::Triangulation<dim, spacedim>::
-          construct_multigrid_hierarchy);
-
-    tria = &std::visit(
-      [](auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-        return selected_tria;
-      },
-      triangulation_storage);
+    domain.make_grid();
+    tria = &domain.triangulation();
     dh.reinit(*tria);
-
-    if (!uses_fully_distributed_triangulation())
-      {
-        auto &distributed_tria =
-          std::get<DistributedTriangulation>(triangulation_storage);
-        try
-          {
-            GridGenerator::generate_from_name_and_arguments(
-              distributed_tria, par.name_of_grid, par.arguments_for_grid);
-          }
-        catch (...)
-          {
-            AssertThrow(false,
-                        ExcMessage(
-                          "Could not generate the Navier-Stokes grid from '" +
-                          par.name_of_grid + "' and its arguments."));
-          }
-        distributed_tria.refine_global(par.initial_refinement);
-      }
-    else
-      {
-        Triangulation<dim, spacedim> serial_tria(
-          typename Triangulation<dim, spacedim>::MeshSmoothing(
-            Triangulation<dim, spacedim>::smoothing_on_refinement |
-            Triangulation<dim, spacedim>::smoothing_on_coarsening));
-        try
-          {
-            GridGenerator::generate_from_name_and_arguments(
-              serial_tria, par.name_of_grid, par.arguments_for_grid);
-          }
-        catch (...)
-          {
-            AssertThrow(false,
-                        ExcMessage(
-                          "Could not generate the Navier-Stokes grid from '" +
-                          par.name_of_grid + "' and its arguments."));
-          }
-        serial_tria.refine_global(par.initial_refinement);
-        std::get<FullyDistributedTriangulation>(triangulation_storage)
-          .copy_triangulation(serial_tria);
-      }
-
     pcout << "   Number of active cells: " << tria->n_active_cells() << " ("
-          << (uses_fully_distributed_triangulation() ? "fullydistributed" :
-                                                       "distributed")
+          << (domain.uses_fully_distributed_triangulation() ?
+                "fullydistributed" :
+                "distributed")
           << ")" << std::endl;
   }
 

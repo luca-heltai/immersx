@@ -90,6 +90,7 @@
 #include <deal.II/opencascade/utilities.h>
 
 #include <immersx/algebra/matrix_free_utils.h>
+#include <immersx/core/domain.h>
 #include <immersx/coupling/inclusions.h>
 
 
@@ -133,14 +134,12 @@ namespace ImmersX
      * Output, mesh, discretization, and boundary-condition settings.
      */
     /// @{
-    std::string  output_directory   = ".";          ///< Output folder.
-    std::string  output_name        = "solution";   ///< Output stem.
-    unsigned int fe_degree          = 1;            ///< FE degree.
-    unsigned int initial_refinement = 5;            ///< Global refinements.
+    std::string                   output_directory = ".";   ///< Output folder.
+    std::string                   output_name = "solution"; ///< Output stem.
+    unsigned int                  fe_degree   = 1;          ///< FE degree.
+    DomainParameters<spacedim>    domain_parameters;
     std::list<types::boundary_id> dirichlet_ids{0}; ///< Dirichlet boundary ids.
-    std::string name_of_grid = "hyper_cube"; ///< Grid generator/input name.
-    std::string arguments_for_grid = "-1: 1: false"; ///< Grid arguments.
-    std::string refinement_strategy =
+    std::string                   refinement_strategy =
       "fixed_fraction";                       ///< Adaptivity strategy.
     double       coarsening_fraction = 0.0;   ///< Coarsening fraction.
     double       refinement_fraction = 0.3;   ///< Refinement fraction.
@@ -178,25 +177,20 @@ namespace ImmersX
   template <int dim, int spacedim>
   ProblemParameters<dim, spacedim>::ProblemParameters()
     : ParameterAcceptor("/Immersed Problem/")
+    , domain_parameters("/Immersed Problem/Domain/")
     , rhs("/Immersed Problem/Right hand side")
     , bc("/Immersed Problem/Dirichlet boundary conditions")
     , inner_control("/Immersed Problem/Solver/Inner control")
     , outer_control("/Immersed Problem/Solver/Outer control")
   {
+    domain_parameters.initial_refinement = 5;
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
     add_parameter("Output results also before solving",
                   output_results_before_solving);
     add_parameter("Estimate condition number", estimate_condition_number);
-    add_parameter("Initial refinement", initial_refinement);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
-    enter_subsection("Grid generation");
-    {
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-    }
-    leave_subsection();
     enter_subsection("Refinement and remeshing");
     {
       add_parameter("Strategy",
@@ -324,7 +318,8 @@ namespace ImmersX
     /**
      * Distributed bulk triangulation.
      */
-    parallel::distributed::Triangulation<spacedim> tria;
+    Domain<spacedim>                                domain;
+    parallel::distributed::Triangulation<spacedim> &tria;
     /**
      * Finite element used for the background field.
      */
