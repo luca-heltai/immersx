@@ -27,10 +27,8 @@
 #include <deal.II/base/timer.h>
 #include <deal.II/base/utilities.h>
 
-#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/grid_refinement.h>
 #include <deal.II/distributed/solution_transfer.h>
-#include <deal.II/distributed/tria.h>
 #include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
@@ -39,12 +37,6 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
-
-#include <deal.II/grid/grid_generator.h>
-#include <deal.II/grid/grid_in.h>
-#include <deal.II/grid/grid_tools.h>
-#include <deal.II/grid/tria.h>
-#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
@@ -59,12 +51,12 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/domain.h>
 
 #include <list>
 #include <memory>
 #include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 
@@ -99,14 +91,12 @@ namespace ImmersX
      */
     explicit PoissonParameters(const std::string &subsection = "/Poisson/");
 
-    std::string                           output_directory   = ".";
-    std::string                           output_name        = "solution";
-    unsigned int                          fe_degree          = 1;
-    unsigned int                          initial_refinement = 5;
+    std::string                     output_directory = ".";
+    std::string                     output_name      = "solution";
+    unsigned int                    fe_degree        = 1;
+    DomainParameters<dim, spacedim> domain_parameters;
+
     std::list<dealii::types::boundary_id> dirichlet_ids{0};
-    std::string                           name_of_grid       = "hyper_cube";
-    std::string                           arguments_for_grid = "-1: 1: false";
-    std::string                           triangulation_type = "distributed";
 
     std::string  refinement_strategy = "fixed_fraction";
     double       coarsening_fraction = 0.0;
@@ -149,7 +139,8 @@ namespace ImmersX
    * discretization.
    *
    * The triangulation backend is selected by
-   * `PoissonParameters::triangulation_type`. The usual distributed backend is
+   * `PoissonParameters::domain_parameters.triangulation_type`. The usual
+   * distributed backend is
    * used by default for dimensions 2 and 3. The fully distributed backend can
    * be selected for any supported pair and is forced for `dim == 1`, where
    * deal.II does not provide a distributed 1D triangulation. Fully distributed
@@ -246,19 +237,6 @@ namespace ImmersX
     set_solution(const VectorType &new_solution);
 
   private:
-    using DistributedTriangulation =
-      dealii::parallel::distributed::Triangulation<dim, spacedim>;
-    using FullyDistributedTriangulation =
-      dealii::parallel::fullydistributed::Triangulation<dim, spacedim>;
-    using TriangulationVariant =
-      std::variant<DistributedTriangulation, FullyDistributedTriangulation>;
-
-    static TriangulationVariant
-    make_triangulation_storage(MPI_Comm mpi_communicator);
-
-    bool
-    uses_fully_distributed_triangulation() const;
-
     void
     update_locally_relevant_solution();
 
@@ -268,7 +246,7 @@ namespace ImmersX
     dealii::ConditionalOStream  pcout;
     mutable dealii::TimerOutput computing_timer;
 
-    TriangulationVariant                                  triangulation_storage;
+    Domain<dim, spacedim>                                 domain;
     dealii::parallel::TriangulationBase<dim, spacedim>   *tria;
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe;
     std::unique_ptr<dealii::Quadrature<dim>>              quadrature;

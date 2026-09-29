@@ -42,8 +42,8 @@ namespace
     Parameters parameters;
     ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 0
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement = 0
     set Triangulation type = distributed
   end
 end
@@ -87,8 +87,8 @@ end
     Parameters parameters;
     ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 0
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement = 0
     set Triangulation type = fullydistributed
   end
 end
@@ -181,12 +181,12 @@ TEST(ElasticStaticProblem, ParsesGeneratedConvergenceParameterFixture)
     ImmersX::TestPaths::parameter_path("gtests/parameters/elastic_static.prm"));
 
   const dealii::Point<2> point(0.25, 0.5);
-  EXPECT_EQ(parameters.initial_refinement, 0U);
+  EXPECT_EQ(parameters.domain_parameters.initial_refinement, 0U);
   EXPECT_EQ(parameters.n_refinement_cycles, 2U);
   EXPECT_EQ(parameters.dirichlet_ids,
             (std::set<dealii::types::boundary_id>{0, 2, 3}));
   EXPECT_EQ(parameters.neumann_ids, (std::set<dealii::types::boundary_id>{1}));
-  EXPECT_EQ(parameters.triangulation_type, "distributed");
+  EXPECT_EQ(parameters.domain_parameters.triangulation_type, "distributed");
   EXPECT_EQ(parameters.get_dirichlet_bc(0).value(point, 0), 0.25);
   EXPECT_EQ(parameters.get_dirichlet_bc(2).value(point, 1), 0.5);
   EXPECT_EQ(parameters.get_neumann_bc(1).value(point, 1), 1.);
@@ -206,7 +206,6 @@ TEST(ElasticStaticProblem, ExactSolutionAndErrorObservation)
   Parameters other_parameters("/Other elastic static/");
   ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 1
   set Dirichlet boundary ids =
   subsection Functions
     subsection Exact solution
@@ -321,11 +320,10 @@ TEST(ElasticStaticProblem, FileMeshSetup)
     "data/elasticity/geometry/circle_1hole.msh");
   ImmersX::initialize_parameters_from_string(
     "subsection Elastic static\n"
-    "  set Initial refinement = 0\n"
     "  set Dirichlet boundary ids =\n"
     "  set Neumann boundary ids =\n"
-    "  subsection Grid generation\n"
-    "    set Domain type = file\n"
+    "  subsection Domain\n"
+    "    set Initial refinement = 0\n"
     "    set Grid generator = " +
     grid_file.string() +
     "\n"
@@ -395,7 +393,6 @@ TEST(ElasticStaticProblem, ParsedBodyForceAndNonzeroDirichlet)
   Parameters parameters;
   ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 1
   set Dirichlet boundary ids = 0
   subsection Functions
     subsection Right hand side
@@ -428,7 +425,6 @@ TEST(ElasticStaticProblem, ParsedNeumannTraction)
   Parameters parameters;
   ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 1
   set Dirichlet boundary ids =
   set Neumann boundary ids = 0
   subsection Functions
@@ -468,9 +464,9 @@ TEST(ElasticStaticProblem, BoundarySpecificDirichletConstraints)
   Parameters parameters;
   ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 1
   set Dirichlet boundary ids = 0, 3
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement = 1
     set Grid generator arguments = 0: 1: true
   end
   subsection Functions
@@ -540,10 +536,10 @@ TEST(ElasticStaticProblem, BoundarySpecificNeumannOracle)
   Parameters parameters;
   ImmersX::initialize_parameters_from_string(R"(
 subsection Elastic static
-  set Initial refinement = 1
   set Dirichlet boundary ids =
   set Neumann boundary ids = 1, 3
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement = 1
     set Grid generator arguments = 0: 1: true
   end
   subsection Functions
@@ -600,12 +596,11 @@ TEST(ElasticStaticProblem, MaterialSpecificRHS)
     "data/tests/elastic_static_two_materials.msh");
   ImmersX::initialize_parameters_from_string(
     "subsection Elastic static\n"
-    "  set Initial refinement = 0\n"
     "  set Dirichlet boundary ids =\n"
     "  set Neumann boundary ids =\n"
     "  set Rhs material ids = 0, 1\n"
-    "  subsection Grid generation\n"
-    "    set Domain type = file\n"
+    "  subsection Domain\n"
+    "    set Initial refinement = 0\n"
     "    set Grid generator = " +
     mesh_file.string() +
     "\n"
@@ -738,11 +733,11 @@ TEST_P(ElasticStaticBackendTest, MPI_BackendSetupAndOutput)
   const auto output_directory =
     ImmersX::TestPaths::output_directory("elastic-static/" + GetParam());
   ImmersX::initialize_parameters_from_string("subsection Elastic static\n"
-                                             "  set Initial refinement = 1\n"
                                              "  set Output directory = " +
                                              output_directory +
                                              "\n"
-                                             "  subsection Grid generation\n"
+                                             "  subsection Domain\n"
+                                             "    set Initial refinement = 1\n"
                                              "    set Triangulation type = " +
                                              GetParam() +
                                              "\n"
@@ -792,11 +787,11 @@ TEST(ElasticStaticProblemValidation,
     ImmersX::TestPaths::output_directory("elastic-static/distributed-cycles");
   ImmersX::initialize_parameters_from_string(
     "subsection Elastic static\n"
-    "  set Initial refinement = 0\n"
     "  set Output directory = " +
     output_directory +
     "\n"
-    "  subsection Grid generation\n"
+    "  subsection Domain\n"
+    "    set Initial refinement = 0\n"
     "    set Triangulation type = distributed\n"
     "  end\n"
     "end\n");

@@ -47,6 +47,7 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
+#include <immersx/core/domain.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
@@ -60,7 +61,6 @@
 #include <sstream>
 #include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace ImmersX
@@ -94,6 +94,7 @@ namespace ImmersX
       : ParameterAcceptor(
           elastic_static_detail::normalize_subsection(subsection))
       , subsection_(elastic_static_detail::normalize_subsection(subsection))
+      , domain_parameters(domain_subsection(subsection_))
       , default_material_properties("default",
                                     elastic_static_detail::normalize_subsection(
                                       subsection) +
@@ -114,34 +115,21 @@ namespace ImmersX
                        "Solver/Control")
       , convergence_table(std::vector<std::string>(spacedim, "u"))
     {
+      domain_parameters.initial_refinement = 2;
+      domain_parameters.arguments_for_grid = "0: 1: false";
       add_parameter(
         "FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
-      add_parameter("Initial refinement", initial_refinement);
       add_parameter("Dirichlet boundary ids", dirichlet_ids);
       add_parameter("Neumann boundary ids", neumann_ids);
       add_parameter("Rhs material ids", rhs_material_ids);
       add_parameter("Output directory", output_directory);
       add_parameter("Output name", output_name);
 
+
       enter_subsection("Refinement");
       add_parameter("Number of refinement cycles", n_refinement_cycles);
       leave_subsection();
 
-      enter_subsection("Grid generation");
-      add_parameter("Domain type",
-                    domain_type,
-                    "",
-                    this->prm,
-                    Patterns::Selection("generate|file"));
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-      add_parameter("Grid scale", grid_scale);
-      add_parameter("Triangulation type",
-                    triangulation_type,
-                    "",
-                    this->prm,
-                    Patterns::Selection("distributed|fullydistributed"));
-      leave_subsection();
 
       enter_subsection("Material properties");
       add_parameter("Material tags by material id",
@@ -311,19 +299,14 @@ namespace ImmersX
     std::string output_directory = ".";
     std::string output_name      = "elastic_static";
 
-    unsigned int fe_degree           = 1;
-    unsigned int initial_refinement  = 2;
-    unsigned int n_refinement_cycles = 1;
+    unsigned int                    fe_degree = 1;
+    DomainParameters<dim, spacedim> domain_parameters;
+    unsigned int                    n_refinement_cycles = 1;
 
     std::set<types::boundary_id> dirichlet_ids{0};
     std::set<types::boundary_id> neumann_ids{};
     std::set<types::material_id> rhs_material_ids{};
 
-    std::string domain_type        = "generate";
-    std::string name_of_grid       = "hyper_cube";
-    std::string arguments_for_grid = "0: 1: false";
-    double      grid_scale         = 1.0;
-    std::string triangulation_type = "distributed";
 
     std::map<types::material_id, std::string> material_tags_by_material_id;
     MaterialProperties                        default_material_properties;
@@ -365,26 +348,16 @@ namespace ImmersX
     using VectorType = ImmersXLA::MPI::Vector;
     using MatrixType = ImmersXLA::MPI::SparseMatrix;
 
-    using DistributedTriangulation =
-      parallel::distributed::Triangulation<dim, spacedim>;
-    using FullyDistributedTriangulation =
-      parallel::fullydistributed::Triangulation<dim, spacedim>;
-    using TriangulationVariant =
-      std::variant<DistributedTriangulation, FullyDistributedTriangulation>;
-
     explicit ElasticStaticProblem(
       const ElasticStaticParameters<dim, spacedim> &parameters,
       const MPI_Comm communicator = MPI_COMM_WORLD)
       : parameters_(parameters)
       , communicator_(communicator)
-      , triangulation_storage_(
-          make_triangulation_storage(communicator_,
-                                     parameters_.triangulation_type ==
-                                       "fullydistributed"))
-      , tria_(nullptr)
+      , domain_(parameters_.domain_parameters, communicator_)
+      , tria_(&domain_.triangulation())
       , fe_(FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim)
     {
-      reset_triangulation();
+      dof_handler_ = std::make_unique<DoFHandler<dim, spacedim>>(*tria_);
     }
 
     /** Create the mesh, DoFs, constraints, stiffness matrix, and vectors. */
@@ -413,15 +386,15 @@ namespace ImmersX
         dof_handler_->n_dofs() != 0,
         ExcMessage("Call setup() before refining the static elasticity mesh."));
       AssertThrow(
-        std::holds_alternative<DistributedTriangulation>(
-          triangulation_storage_),
+        !domain_.uses_fully_distributed_triangulation(),
         ExcMessage(
           "ElasticStaticProblem::refine_global() is unavailable for "
           "parallel::fullydistributed::Triangulation because its mesh is "
           "immutable after copy_triangulation()."));
 
       dof_handler_->clear();
-      std::get<DistributedTriangulation>(triangulation_storage_)
+      dynamic_cast<parallel::distributed::Triangulation<dim, spacedim> &>(
+        domain_.triangulation())
         .refine_global(1);
       setup_system();
       assemble_system(nullptr);
@@ -519,8 +492,7 @@ namespace ImmersX
     run()
     {
       AssertThrow(
-        std::holds_alternative<DistributedTriangulation>(
-          triangulation_storage_) ||
+        !domain_.uses_fully_distributed_triangulation() ||
           parameters_.n_refinement_cycles <= 1,
         ExcMessage(
           "parallel::fullydistributed::Triangulation supports only one static "
@@ -608,97 +580,11 @@ namespace ImmersX
     }
 
   private:
-    static TriangulationVariant
-    make_triangulation_storage(const MPI_Comm communicator,
-                               const bool     fully_distributed)
-    {
-      if constexpr (dim == 1)
-        {
-          (void)fully_distributed;
-          return TriangulationVariant(
-            std::in_place_type<FullyDistributedTriangulation>, communicator);
-        }
-      else if (fully_distributed)
-        return TriangulationVariant(
-          std::in_place_type<FullyDistributedTriangulation>, communicator);
-
-      return TriangulationVariant(
-        std::in_place_type<DistributedTriangulation>,
-        communicator,
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening),
-        DistributedTriangulation::construct_multigrid_hierarchy);
-    }
-
-    void
-    reset_triangulation()
-    {
-      tria_ = &std::visit(
-        [](
-          auto &selected_tria) -> parallel::TriangulationBase<dim, spacedim> & {
-          return selected_tria;
-        },
-        triangulation_storage_);
-      dof_handler_ = std::make_unique<DoFHandler<dim, spacedim>>(*tria_);
-    }
-
-    template <typename TriangulationType>
-    void
-    make_grid_in(TriangulationType &tria)
-    {
-      if (parameters_.domain_type == "generate")
-        {
-          GridGenerator::generate_from_name_and_arguments(
-            tria, parameters_.name_of_grid, parameters_.arguments_for_grid);
-        }
-      else
-        {
-          if constexpr (dim == 1)
-            {
-              GridIn<dim, spacedim> grid_in;
-              grid_in.attach_triangulation(tria);
-              grid_in.read(parameters_.name_of_grid);
-            }
-          else
-            read_grid_and_cad_files(parameters_.name_of_grid,
-                                    parameters_.arguments_for_grid,
-                                    tria);
-        }
-
-      if (parameters_.grid_scale != 1.)
-        GridTools::scale(parameters_.grid_scale, tria);
-      tria.refine_global(parameters_.initial_refinement);
-    }
-
     void
     make_grid()
     {
-      if (std::holds_alternative<DistributedTriangulation>(
-            triangulation_storage_))
-        {
-          make_grid_in(
-            std::get<DistributedTriangulation>(triangulation_storage_));
-          return;
-        }
-
-      Triangulation<dim, spacedim> serial_tria(
-        typename Triangulation<dim, spacedim>::MeshSmoothing(
-          Triangulation<dim, spacedim>::smoothing_on_refinement |
-          Triangulation<dim, spacedim>::smoothing_on_coarsening));
-      make_grid_in(serial_tria);
-      if constexpr (dim == 1)
-        std::get<FullyDistributedTriangulation>(triangulation_storage_)
-          .set_partitioner(
-            [](Triangulation<dim, spacedim> &serial_mesh,
-               const unsigned int            n_partitions) {
-              GridTools::partition_triangulation_zorder(n_partitions,
-                                                        serial_mesh,
-                                                        false);
-            },
-            TriangulationDescription::Settings::default_setting);
-      std::get<FullyDistributedTriangulation>(triangulation_storage_)
-        .copy_triangulation(serial_tria);
+      domain_.make_grid();
+      tria_ = &domain_.triangulation();
     }
 
     void
@@ -883,7 +769,7 @@ namespace ImmersX
 
     const ElasticStaticParameters<dim, spacedim> &parameters_;
     MPI_Comm                                      communicator_;
-    TriangulationVariant                          triangulation_storage_;
+    Domain<dim, spacedim>                         domain_;
     parallel::TriangulationBase<dim, spacedim>   *tria_;
     std::unique_ptr<DoFHandler<dim, spacedim>>    dof_handler_;
     FESystem<dim, spacedim>                       fe_;

@@ -123,11 +123,10 @@ TEST(ImportedFiniteElementFields, MPI_SharedStorageAndCellData)
 TEST(ImportedFiniteElementFields, ElasticityConsumer)
 {
   ElasticStaticParameters<3> parameters;
-  parameters.domain_type        = "generate";
-  parameters.name_of_grid       = "hyper_cube";
-  parameters.arguments_for_grid = "0: 1: false";
-  parameters.initial_refinement = 0;
-  parameters.triangulation_type = "fullydistributed";
+  parameters.domain_parameters.name_of_grid       = "hyper_cube";
+  parameters.domain_parameters.arguments_for_grid = "0: 1: false";
+  parameters.domain_parameters.initial_refinement = 0;
+  parameters.domain_parameters.triangulation_type = "fullydistributed";
   ElasticStaticProblem<3> problem(parameters);
   problem.setup();
 
@@ -145,11 +144,10 @@ TEST(ImportedFiniteElementFields, ElasticityConsumer)
 TEST(ImportedFiniteElementFields, FieldViewSurvivesParentHandle)
 {
   ElasticStaticParameters<3> parameters;
-  parameters.domain_type        = "generate";
-  parameters.name_of_grid       = "hyper_cube";
-  parameters.arguments_for_grid = "0: 1: false";
-  parameters.initial_refinement = 0;
-  parameters.triangulation_type = "fullydistributed";
+  parameters.domain_parameters.name_of_grid       = "hyper_cube";
+  parameters.domain_parameters.arguments_for_grid = "0: 1: false";
+  parameters.domain_parameters.initial_refinement = 0;
+  parameters.domain_parameters.triangulation_type = "fullydistributed";
   ElasticStaticProblem<3> problem(parameters);
   problem.setup();
 
@@ -168,11 +166,10 @@ TEST(ImportedFiniteElementFields, FieldViewSurvivesParentHandle)
 TEST(ImportedFiniteElementFields, SharedInstanceViewsUseSharedStorage)
 {
   ElasticStaticParameters<3> parameters;
-  parameters.domain_type        = "generate";
-  parameters.name_of_grid       = "hyper_cube";
-  parameters.arguments_for_grid = "0: 1: false";
-  parameters.initial_refinement = 0;
-  parameters.triangulation_type = "fullydistributed";
+  parameters.domain_parameters.name_of_grid       = "hyper_cube";
+  parameters.domain_parameters.arguments_for_grid = "0: 1: false";
+  parameters.domain_parameters.initial_refinement = 0;
+  parameters.domain_parameters.triangulation_type = "fullydistributed";
   ElasticStaticProblem<3> problem(parameters);
   problem.setup();
 
@@ -195,11 +192,10 @@ namespace
   check_distributed_refinement()
   {
     ElasticStaticParameters<3> parameters;
-    parameters.domain_type        = "generate";
-    parameters.name_of_grid       = "hyper_cube";
-    parameters.arguments_for_grid = "0: 1: false";
-    parameters.initial_refinement = 0;
-    parameters.triangulation_type = "distributed";
+    parameters.domain_parameters.name_of_grid       = "hyper_cube";
+    parameters.domain_parameters.arguments_for_grid = "0: 1: false";
+    parameters.domain_parameters.initial_refinement = 0;
+    parameters.domain_parameters.triangulation_type = "distributed";
     ElasticStaticProblem<3> problem(parameters);
     problem.setup();
 
@@ -226,11 +222,10 @@ namespace
   check_cell_data_refinement()
   {
     ElasticStaticParameters<3> parameters;
-    parameters.domain_type        = "generate";
-    parameters.name_of_grid       = "hyper_cube";
-    parameters.arguments_for_grid = "0: 1: false";
-    parameters.initial_refinement = 0;
-    parameters.triangulation_type = "distributed";
+    parameters.domain_parameters.name_of_grid       = "hyper_cube";
+    parameters.domain_parameters.arguments_for_grid = "0: 1: false";
+    parameters.domain_parameters.initial_refinement = 0;
+    parameters.domain_parameters.triangulation_type = "distributed";
     ElasticStaticProblem<3> problem(parameters);
     problem.setup();
 

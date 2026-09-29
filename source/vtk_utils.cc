@@ -24,6 +24,11 @@
 #  include <deal.II/grid/tria_description.h>
 #  include <deal.II/grid/tria_iterator.h>
 
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+#    include <deal.II/vtk/utilities.h>
+#  else
+#    include <immersx/compatibility/dealii_9_8/vtk/utilities.h>
+#  endif
 #  include <vtkCell.h>
 #  include <vtkCellData.h>
 #  include <vtkDataArray.h>
@@ -299,246 +304,89 @@ namespace ImmersX
     void
     read_vtk(const std::string            &vtk_filename,
              Triangulation<dim, spacedim> &tria,
-             const bool)
+             const bool                    cleanup)
     {
-      auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-      reader->SetFileName(vtk_filename.c_str());
-      reader->Update();
-      vtkUnstructuredGrid *grid = reader->GetOutput();
-      AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
-
-      // Read points
-      vtkPoints                   *vtk_points = grid->GetPoints();
-      const vtkIdType              n_points   = vtk_points->GetNumberOfPoints();
-      std::vector<Point<spacedim>> points(n_points);
-      for (vtkIdType i = 0; i < n_points; ++i)
-        {
-          std::array<double, 3> coords = {{0, 0, 0}};
-          vtk_points->GetPoint(i, coords.data());
-          for (unsigned int d = 0; d < spacedim; ++d)
-            points[i][d] = coords[d];
-        }
-
-      // Read cells
-      std::vector<CellData<dim>> cells;
-      const vtkIdType            n_cells = grid->GetNumberOfCells();
-      for (vtkIdType i = 0; i < n_cells; ++i)
-        {
-          vtkCell *cell = grid->GetCell(i);
-          if constexpr (dim == 1)
-            {
-              if (cell->GetCellType() != VTK_LINE)
-                AssertThrow(false,
-                            ExcMessage(
-                              "Unsupported cell type in 1D VTK file: only "
-                              "VTK_LINE is supported."));
-              AssertThrow(cell->GetNumberOfPoints() == 2,
-                          ExcMessage(
-                            "Only line cells with 2 points are supported."));
-              CellData<1> cell_data;
-              for (unsigned int j = 0; j < 2; ++j)
-                cell_data.vertices[j] = cell->GetPointId(j);
-              cell_data.material_id = 0;
-              cells.push_back(cell_data);
-            }
-          else if constexpr (dim == 2)
-            {
-              if (cell->GetCellType() == VTK_QUAD)
-                {
-                  AssertThrow(
-                    cell->GetNumberOfPoints() == 4,
-                    ExcMessage("Only quad cells with 4 points are supported."));
-                  CellData<2> cell_data;
-                  for (unsigned int j = 0; j < 4; ++j)
-                    cell_data.vertices[j] = cell->GetPointId(j);
-                  cell_data.material_id = 0;
-                  cells.push_back(cell_data);
-                }
-              else if (cell->GetCellType() == VTK_TRIANGLE)
-                {
-                  AssertThrow(
-                    cell->GetNumberOfPoints() == 3,
-                    ExcMessage(
-                      "Only triangle cells with 3 points are supported."));
-                  CellData<2> cell_data;
-                  for (unsigned int j = 0; j < 3; ++j)
-                    cell_data.vertices[j] = cell->GetPointId(j);
-                  cell_data.material_id = 0;
-                  cells.push_back(cell_data);
-                }
-              else
-                AssertThrow(false,
-                            ExcMessage(
-                              "Unsupported cell type in 2D VTK file: only "
-                              "VTK_QUAD and VTK_TRIANGLE are supported."));
-            }
-          else if constexpr (dim == 3)
-            {
-              if (cell->GetCellType() == VTK_HEXAHEDRON)
-                {
-                  AssertThrow(cell->GetNumberOfPoints() == 8,
-                              ExcMessage(
-                                "Only hex cells with 8 points are supported."));
-                  CellData<3> cell_data;
-                  for (unsigned int j = 0; j < 8; ++j)
-                    cell_data.vertices[j] = cell->GetPointId(j);
-                  cell_data.material_id = 0;
-                  // Numbering of vertices in VTK files is different from
-                  // deal.II
-                  std::swap(cell_data.vertices[2], cell_data.vertices[3]);
-                  std::swap(cell_data.vertices[6], cell_data.vertices[7]);
-                  cells.push_back(cell_data);
-                }
-              else if (cell->GetCellType() == VTK_TETRA)
-                {
-                  AssertThrow(
-                    cell->GetNumberOfPoints() == 4,
-                    ExcMessage(
-                      "Only tetrahedron cells with 4 points are supported."));
-                  CellData<3> cell_data;
-                  for (unsigned int j = 0; j < 4; ++j)
-                    cell_data.vertices[j] = cell->GetPointId(j);
-                  cell_data.material_id = 0;
-                  cells.push_back(cell_data);
-                }
-              else if (cell->GetCellType() == VTK_WEDGE)
-                {
-                  AssertThrow(
-                    cell->GetNumberOfPoints() == 6,
-                    ExcMessage(
-                      "Only prism cells with 6 points are supported."));
-                  CellData<3> cell_data;
-                  for (unsigned int j = 0; j < 6; ++j)
-                    cell_data.vertices[j] = cell->GetPointId(j);
-                  cell_data.material_id = 0;
-                  cells.push_back(cell_data);
-                }
-              else if (cell->GetCellType() == VTK_PYRAMID)
-                {
-                  AssertThrow(
-                    cell->GetNumberOfPoints() == 5,
-                    ExcMessage(
-                      "Only pyramid cells with 5 points are supported."));
-                  CellData<3> cell_data;
-                  for (unsigned int j = 0; j < 5; ++j)
-                    cell_data.vertices[j] = cell->GetPointId(j);
-                  cell_data.material_id = 0;
-                  cells.push_back(cell_data);
-                }
-              else
-                AssertThrow(
-                  false,
-                  ExcMessage(
-                    "Unsupported cell type in 3D VTK file: only "
-                    "VTK_HEXAHEDRON, VTK_TETRA, VTK_WEDGE, and VTK_PYRAMID are supported."));
-            }
-          else
-            {
-              AssertThrow(false, ExcMessage("Unsupported dimension."));
-            }
-        }
-
-      // Create triangulation
-      tria.create_triangulation(points, cells, SubCellData());
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+      dealii::VTKWrappers::read_tria(vtk_filename, tria, cleanup);
+#  else
+      ImmersX::VTKWrappers::read_tria(vtk_filename, tria, cleanup);
+#  endif
     }
 
     void
     read_cell_data(const std::string &vtk_filename,
                    const std::string &cell_data_name,
-                   Vector<double>    &output_vector)
+                   Vector<double>    &output_vector,
+                   const bool         cleanup,
+                   const double       relative_tolerance)
     {
-      auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-      reader->SetFileName(vtk_filename.c_str());
-      reader->ReadAllScalarsOn();
-      reader->Update();
-      vtkUnstructuredGrid *grid = reader->GetOutput();
-      AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
-      vtkDataArray *data_array =
-        grid->GetCellData()->GetArray(cell_data_name.c_str());
-      AssertThrow(data_array,
-                  ExcMessage("Cell data array '" + cell_data_name +
-                             "' not found in VTK file: " + vtk_filename));
-      vtkIdType n_tuples     = data_array->GetNumberOfTuples();
-      int       n_components = data_array->GetNumberOfComponents();
-      output_vector.reinit(n_tuples * n_components);
-      for (vtkIdType i = 0; i < n_tuples; ++i)
-        for (int j = 0; j < n_components; ++j)
-          output_vector[i * n_components + j] = data_array->GetComponent(i, j);
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+      dealii::VTKWrappers::read_cell_data(vtk_filename,
+                                          cell_data_name,
+                                          output_vector,
+                                          cleanup,
+                                          relative_tolerance);
+#  else
+      ImmersX::VTKWrappers::read_cell_data(vtk_filename,
+                                           cell_data_name,
+                                           output_vector,
+                                           cleanup,
+                                           relative_tolerance);
+#  endif
     }
 
     void
     read_vertex_data(const std::string &vtk_filename,
                      const std::string &point_data_name,
-                     Vector<double>    &output_vector)
+                     Vector<double>    &output_vector,
+                     const bool         cleanup,
+                     const double       relative_tolerance)
     {
-      auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-      reader->SetFileName(vtk_filename.c_str());
-      reader->ReadAllScalarsOn();
-      reader->Update();
-      vtkUnstructuredGrid *grid = reader->GetOutput();
-      AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
-      vtkDataArray *data_array =
-        grid->GetPointData()->GetArray(point_data_name.c_str());
-      AssertThrow(data_array,
-                  ExcMessage("Point data array '" + point_data_name +
-                             "' not found in VTK file: " + vtk_filename));
-      vtkIdType n_tuples     = data_array->GetNumberOfTuples();
-      int       n_components = data_array->GetNumberOfComponents();
-      output_vector.reinit(n_tuples * n_components);
-      for (vtkIdType i = 0; i < n_tuples; ++i)
-        for (int j = 0; j < n_components; ++j)
-          output_vector[i * n_components + j] = data_array->GetComponent(i, j);
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+      dealii::VTKWrappers::read_vertex_data(vtk_filename,
+                                            point_data_name,
+                                            output_vector,
+                                            cleanup,
+                                            relative_tolerance);
+#  else
+      ImmersX::VTKWrappers::read_vertex_data(vtk_filename,
+                                             point_data_name,
+                                             output_vector,
+                                             cleanup,
+                                             relative_tolerance);
+#  endif
     }
 
     void
-    read_data(const std::string &vtk_filename, Vector<double> &output_vector)
+    read_data(const std::string &vtk_filename,
+              Vector<double>    &output_vector,
+              const bool         cleanup,
+              const double       relative_tolerance)
     {
-      auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-      reader->SetFileName(vtk_filename.c_str());
-      reader->ReadAllScalarsOn();
-      reader->Update();
-      vtkUnstructuredGrid *grid = reader->GetOutput();
-      AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
-
+      (void)cleanup;
+      (void)relative_tolerance;
+      const auto          grid = read_unstructured_grid(vtk_filename);
       std::vector<double> data;
+      auto                append = [&data](vtkDataArray *array) {
+        if (array == nullptr)
+          return;
+        const vtkIdType n_tuples = array->GetNumberOfTuples();
+        const int       n_components = array->GetNumberOfComponents();
+        const auto      offset = data.size();
+        data.resize(offset + n_tuples * n_components);
+        for (vtkIdType tuple = 0; tuple < n_tuples; ++tuple)
+          for (int component = 0; component < n_components; ++component)
+            data[offset + tuple * n_components + component] =
+              array->GetComponent(tuple, component);
+      };
 
-      vtkPointData *point_data = grid->GetPointData();
-      if (point_data)
-        {
-          for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
-            {
-              vtkDataArray *data_array = point_data->GetArray(i);
-              if (!data_array)
-                continue;
-              vtkIdType    n_tuples     = data_array->GetNumberOfTuples();
-              int          n_components = data_array->GetNumberOfComponents();
-              unsigned int current_size = data.size();
-              data.resize(current_size + n_tuples * n_components, 0.0);
-              for (vtkIdType tuple_idx = 0; tuple_idx < n_tuples; ++tuple_idx)
-                for (int comp_idx = 0; comp_idx < n_components; ++comp_idx)
-                  data[current_size + tuple_idx * n_components + comp_idx] =
-                    data_array->GetComponent(tuple_idx, comp_idx);
-            }
-        }
+      if (auto *point_data = grid->GetPointData())
+        for (int i = 0; i < point_data->GetNumberOfArrays(); ++i)
+          append(point_data->GetArray(i));
+      if (auto *cell_data = grid->GetCellData())
+        for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
+          append(cell_data->GetArray(i));
 
-      vtkCellData *cell_data = grid->GetCellData();
-      if (cell_data)
-        {
-          for (int i = 0; i < cell_data->GetNumberOfArrays(); ++i)
-            {
-              vtkDataArray *data_array = cell_data->GetArray(i);
-              if (!data_array)
-                continue;
-              vtkIdType    n_tuples     = data_array->GetNumberOfTuples();
-              int          n_components = data_array->GetNumberOfComponents();
-              unsigned int current_size = data.size();
-              data.resize(current_size + n_tuples * n_components, true);
-              for (vtkIdType tuple_idx = 0; tuple_idx < n_tuples; ++tuple_idx)
-                for (int comp_idx = 0; comp_idx < n_components; ++comp_idx)
-                  data[current_size + tuple_idx * n_components + comp_idx] =
-                    data_array->GetComponent(tuple_idx, comp_idx);
-            }
-        }
       output_vector.reinit(data.size());
       std::copy(data.begin(), data.end(), output_vector.begin());
     }

@@ -39,7 +39,7 @@ TEST(NavierStokes, Step80ManufacturedSolutionConvergence)
 
   for (const unsigned int level : levels)
     {
-      parameters.initial_refinement = level;
+      parameters.domain_parameters.initial_refinement = level;
 
       NavierStokesSolver<dim, spacedim> problem(parameters);
       problem.run();

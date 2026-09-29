@@ -25,7 +25,7 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
   parameters.output_directory =
     ImmersX::TestPaths::output_directory("contributor-physics");
   parameters.time_parameters.output_time_interval  = 0.01;
-  parameters.initial_refinement                    = 0;
+  parameters.domain_parameters.initial_refinement  = 0;
   parameters.fixed_step_parameters.number_of_steps = 1;
   parameters.fixed_step_parameters.time_step       = 0.01;
   parameters.time_parameters.final_time            = 0.01;
@@ -77,7 +77,7 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
   parameters.output_directory =
     ImmersX::TestPaths::output_directory("contributor-stokes");
   parameters.time_parameters.output_time_interval = 0.01;
-  parameters.initial_refinement                   = 0;
+  parameters.domain_parameters.initial_refinement = 0;
   parameters.include_convective_term              = false;
   ImmersX::initialize_parameters();
   dealii::ParameterAcceptor::parse_all_parameters();

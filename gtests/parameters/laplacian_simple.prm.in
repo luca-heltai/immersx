@@ -11,7 +11,6 @@ end
 subsection Immersed Problem
   set Dirichlet boundary ids             = 0
   set FE degree                          = 1
-  set Initial refinement                 = 1
   set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/laplacian_simple
   set Output name                        = app_laplacian
   set Output results also before solving = false
@@ -20,7 +19,8 @@ subsection Immersed Problem
     set Function expression = 0
     set Variable names      = x,y,t
   end
-  subsection Grid generation
+  subsection Domain
+    set Initial refinement                 = 1
     set Grid generator           = hyper_cube
     set Grid generator arguments = 0: 1: true
   end

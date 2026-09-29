@@ -8,13 +8,13 @@ subsection Elastodynamics
   set FE degree                  = 1
   set Output directory            = ./output/elastodynamics_convergence/kelvin_voigt
   set Output name                 = kelvin_voigt
-  set Initial refinement          = 1
   set Number of refinement cycles = 5
   set Dirichlet boundary ids      = 0,1,2,3
 
-  subsection Grid generation
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = 0: 1: true
+    set Initial refinement        = 1
     set Triangulation type       = distributed
   end
 

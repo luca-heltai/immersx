@@ -37,9 +37,9 @@ namespace
   {
     parameters.output_directory =
       ImmersX::TestPaths::output_directory("elastodynamics-dimension");
-    parameters.output_name         = "elastodynamics_dimension_test";
-    parameters.initial_refinement  = refinement;
-    parameters.n_refinement_cycles = 1;
+    parameters.output_name = "elastodynamics_dimension_test";
+    parameters.domain_parameters.initial_refinement = refinement;
+    parameters.n_refinement_cycles                  = 1;
     (void)nonzero_force;
     parameters.dirichlet_ids.clear();
     for (unsigned int boundary = 0; boundary < 2 * dim; ++boundary)

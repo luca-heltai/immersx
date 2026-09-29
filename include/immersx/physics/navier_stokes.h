@@ -19,8 +19,6 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/timer.h>
 
-#include <deal.II/distributed/fully_distributed_tria.h>
-#include <deal.II/distributed/tria.h>
 #include <deal.II/distributed/tria_base.h>
 
 #include <deal.II/dofs/dof_handler.h>
@@ -31,12 +29,6 @@
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_q1.h>
-
-#include <deal.II/grid/grid_generator.h>
-#include <deal.II/grid/grid_in.h>
-#include <deal.II/grid/grid_tools.h>
-#include <deal.II/grid/tria.h>
-#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/block_sparse_matrix.h>
@@ -51,13 +43,13 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/domain.h>
 #include <immersx/core/time_parameters.h>
 
 #include <list>
 #include <memory>
 #include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace ImmersX
@@ -97,14 +89,10 @@ namespace ImmersX
     FixedStepParameters    fixed_step_parameters;
     IDAParameters          ida_parameters;
 
-    unsigned int                          velocity_degree    = 2;
-    unsigned int                          pressure_degree    = 1;
-    unsigned int                          initial_refinement = 1;
+    unsigned int                          velocity_degree = 2;
+    unsigned int                          pressure_degree = 1;
+    DomainParameters<dim, spacedim>       domain_parameters;
     std::list<dealii::types::boundary_id> dirichlet_ids{0};
-
-    std::string name_of_grid       = "hyper_cube";
-    std::string arguments_for_grid = "-1: 1: false";
-    std::string triangulation_type = "distributed";
 
     double density                 = 1.0;
     double viscosity               = 1.0;
@@ -328,19 +316,6 @@ namespace ImmersX
     set_solution(const BlockVectorType &new_solution);
 
   private:
-    using DistributedTriangulation =
-      dealii::parallel::distributed::Triangulation<dim, spacedim>;
-    using FullyDistributedTriangulation =
-      dealii::parallel::fullydistributed::Triangulation<dim, spacedim>;
-    using TriangulationVariant =
-      std::variant<DistributedTriangulation, FullyDistributedTriangulation>;
-
-    static TriangulationVariant
-    make_triangulation_storage(MPI_Comm mpi_communicator);
-
-    bool
-    uses_fully_distributed_triangulation() const;
-
     void
     update_constraints();
 
@@ -359,7 +334,7 @@ namespace ImmersX
     dealii::ConditionalOStream  pcout;
     mutable dealii::TimerOutput computing_timer;
 
-    TriangulationVariant                                  triangulation_storage;
+    Domain<dim, spacedim>                                 domain;
     dealii::parallel::TriangulationBase<dim, spacedim>   *tria;
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe;
     std::unique_ptr<dealii::Quadrature<dim>>              quadrature;

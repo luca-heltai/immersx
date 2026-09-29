@@ -29,13 +29,13 @@ namespace
     return "subsection " + section +
            "\n"
            "  set FE degree = 1\n"
-           "  set Initial refinement = 1\n"
            "  set Dirichlet boundary ids = 0, 1\n"
            "  set Output directory = " +
            output +
            "\n"
            "  set Output name = solution\n"
-           "  subsection Grid generation\n"
+           "  subsection Domain\n"
+           "    set Initial refinement = 1\n"
            "    set Grid generator = hyper_cube\n"
            "    set Grid generator arguments = -1: 1: false\n"
            "    set Triangulation type = distributed\n"

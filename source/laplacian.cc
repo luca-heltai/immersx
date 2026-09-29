@@ -55,12 +55,9 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , tria(mpi_communicator,
-           typename Triangulation<spacedim>::MeshSmoothing(
-             Triangulation<spacedim>::smoothing_on_refinement |
-             Triangulation<spacedim>::smoothing_on_coarsening),
-           parallel::distributed::Triangulation<
-             spacedim>::construct_multigrid_hierarchy)
+    , domain(par.domain_parameters, mpi_communicator)
+    , tria(dynamic_cast<parallel::distributed::Triangulation<spacedim> &>(
+        domain.triangulation()))
     , dh(tria)
     , mapping(1)
   {}
@@ -70,19 +67,7 @@ namespace ImmersX
   void
   PoissonProblem<dim, spacedim>::make_grid()
   {
-    try
-      {
-        GridGenerator::generate_from_name_and_arguments(tria,
-                                                        par.name_of_grid,
-                                                        par.arguments_for_grid);
-      }
-    catch (...)
-      {
-        pcout << "Generating from name and argument failed." << std::endl
-              << "Trying to read from file name." << std::endl;
-        read_grid_and_cad_files(par.name_of_grid, par.arguments_for_grid, tria);
-      }
-    tria.refine_global(par.initial_refinement);
+    domain.make_grid();
   }
 
 

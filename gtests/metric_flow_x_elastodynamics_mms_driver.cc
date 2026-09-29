@@ -447,10 +447,10 @@ namespace
       flow_ida->relative_tolerance = study ? 1.e-8 : 1.e-2;
       flow_ida->ls_norm_factor     = 1.e-2;
 
-      solid_parameters->initial_refinement =
+      solid_parameters->domain_parameters.initial_refinement =
         solid_level == numbers::invalid_unsigned_int ? flow_level : solid_level;
-      solid_parameters->name_of_grid = "subdivided_cylinder";
-      solid_parameters->arguments_for_grid =
+      solid_parameters->domain_parameters.name_of_grid = "subdivided_cylinder";
+      solid_parameters->domain_parameters.arguments_for_grid =
         "4:" + std::to_string(par.outer_r) + ":" +
         std::to_string(par.length / 2.);
       solid_parameters->density       = par.solid_density;

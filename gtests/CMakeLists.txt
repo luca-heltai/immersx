@@ -28,6 +28,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 set(_public_headers
     immersx/core/constraint.h
     immersx/core/contributor.h
+    immersx/core/domain.h
     immersx/core/fe_space.h
     immersx/core/field.h
     immersx/core/input_field_selector.h
