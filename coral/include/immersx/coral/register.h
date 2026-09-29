@@ -13,23 +13,29 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/numerics/data_out.h>
+
 #include <coral.h>
 #include <coral_log.h>
 #include <coral_network.h>
 #include <coral_plugin.h>
-#include <immersx/coral/coupled_poisson.h>
 #include <immersx/coral/coupled_poisson_elasticity.h>
 #include <immersx/coral/fiber_reinforced_elastodynamics.h>
 #include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/coral/reduced_poisson.h>
+#include <immersx/core/constraint.h>
 #include <immersx/core/fe_space.h>
+#include <immersx/core/linear_adapter.h>
 #include <immersx/core/observable.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
 #include <immersx/physics/poisson.h>
+#include <immersx/physics/poisson_residual.h>
 #include <nlohmann/json.hpp>
 
+#include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -113,6 +119,27 @@ namespace ImmersX::Coral
         }),
       {"space", "name"},
       metadata);
+
+    coral::RegistryMetadata registered_metadata;
+    registered_metadata.operation    = "Registered scalar field";
+    registered_metadata.display_name = "Registered scalar field";
+    registered_metadata.variant_name =
+      "Scalar field with semantic id. " + std::to_string(dim) + "D";
+    if (dim != spacedim)
+      registered_metadata.variant_name +=
+        " in " + std::to_string(spacedim) + "D";
+    registered_metadata.description =
+      "Bind a semantic FieldId to a scalar field description.";
+    coral::NodeObject::register_function(
+      std::function<
+        Field(const Space &, const ImmersX::FieldId &, const std::string &)>(
+        [](const Space            &space,
+           const ImmersX::FieldId &id,
+           const std::string      &name) {
+          return space.field(id, name, dealii::FEValuesExtractors::Scalar(0));
+        }),
+      {"space", "field", "name"},
+      registered_metadata);
   }
 
   template <int dim, int spacedim>
@@ -357,12 +384,14 @@ namespace ImmersX::Coral
   {
     coral::detail::set_type_alias<unsigned int>("unsigned int");
     coral::detail::set_type_alias<std::string>("std::string");
+    coral::detail::set_type_alias<ImmersX::FieldId>("ImmersX::FieldId");
 
     coral::NodeObject::register_elementary_type<std::string>();
     coral::NodeObject::register_elementary_type<bool>();
     coral::NodeObject::register_elementary_type<int>();
     coral::NodeObject::register_elementary_type<unsigned int>();
     coral::NodeObject::register_elementary_type<double>();
+    coral::NodeObject::register_output_type<ImmersX::FieldId>();
     coral::Network::register_node();
   }
 
@@ -400,11 +429,11 @@ namespace ImmersX::Coral
   load_parameters(Parameters &parameters, const std::string &file_name)
   {
     (void)parameters;
-    std::ifstream input(file_name);
+    const std::ifstream input(file_name);
     AssertThrow(input.good(),
                 dealii::ExcMessage("Could not open Coral parameter file '" +
                                    file_name + "'."));
-    dealii::ParameterAcceptor::initialize(input);
+    dealii::ParameterAcceptor::initialize(file_name);
   }
 
   /** Register the constructor and file loader for one parameter object.
@@ -432,6 +461,391 @@ namespace ImmersX::Coral
         &load_parameters<Parameters>),
       {"parameters", "parameter_file"},
       metadata);
+  }
+
+  template <typename... Parameters>
+  void
+  load_parameter_objects(const std::string &file_name,
+                         Parameters &...parameters)
+  {
+    (static_cast<void>(parameters), ...);
+    const std::ifstream input(file_name);
+    AssertThrow(input.good(),
+                dealii::ExcMessage("Could not open Coral parameter file '" +
+                                   file_name + "'."));
+    dealii::ParameterAcceptor::initialize(file_name);
+  }
+
+  template <int dim, int spacedim>
+  void
+  write_scalar_field(
+    const ImmersX::FiniteElementSpaceView<dim, spacedim> &space,
+    const ImmersXLA::MPI::Vector                         &field,
+    const std::string                                    &output_file,
+    const std::string                                    &field_name)
+  {
+    const std::filesystem::path pvd_path(output_file);
+    if (!pvd_path.parent_path().empty())
+      std::filesystem::create_directories(pvd_path.parent_path());
+
+    dealii::DataOut<dim, spacedim> data_out;
+    data_out.attach_dof_handler(space.dof_handler());
+    data_out.add_data_vector(field,
+                             field_name,
+                             dealii::DataOut<dim, spacedim>::type_dof_data);
+    data_out.build_patches();
+
+    const auto rank =
+      dealii::Utilities::MPI::this_mpi_process(space.mpi_communicator());
+    const auto vtu_name =
+      pvd_path.stem().string() + "-0." + std::to_string(rank) + ".vtu";
+    std::ofstream vtu_file(pvd_path.parent_path() / vtu_name);
+    data_out.write_vtu(vtu_file);
+
+    MPI_Barrier(space.mpi_communicator());
+    if (rank == 0)
+      {
+        std::ofstream pvd_file(pvd_path);
+        dealii::DataOutBase::write_pvd_record(pvd_file, {{0., vtu_name}});
+      }
+  }
+
+  inline void
+  assert_finite_below(const double value, const double limit)
+  {
+    AssertThrow(std::isfinite(value) && value < limit,
+                dealii::ExcMessage("The supplied residual is not below the "
+                                   "requested finite limit."));
+  }
+
+  template <int dim, int spacedim>
+  void
+  register_owned_finite_element_space_types()
+  {
+    using Parameters = ImmersX::FiniteElementSpaceParameters<dim, spacedim>;
+    using Space      = ImmersX::FiniteElementSpace<dim, spacedim>;
+    using View       = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    using OwnedSpace = std::shared_ptr<Space>;
+
+    const auto parameter_name = "ImmersX::FiniteElementSpaceParameters<" +
+                                dimensions(dim, spacedim) + ">";
+    register_parameter_type<Parameters>(parameter_name);
+
+    const auto space_name =
+      "ImmersX::FiniteElementSpace<" + dimensions(dim, spacedim) + ">";
+    coral::detail::set_type_alias<Space>(space_name);
+    coral::detail::set_type_alias<OwnedSpace>(
+      "ImmersX::OwnedFiniteElementSpace<" + dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_output_type<OwnedSpace>();
+
+    coral::RegistryMetadata create_metadata;
+    create_metadata.operation    = "Create finite element space";
+    create_metadata.display_name = "Create finite element space";
+    create_metadata.variant_name =
+      "From finite element space view. " + dimensions(dim, spacedim);
+    create_metadata.description =
+      "Create an owning finite element space on an existing geometry.";
+    coral::NodeObject::register_function(
+      std::function<OwnedSpace(const View &, const Parameters &)>(
+        [](const View &view, const Parameters &parameters) {
+          return std::make_shared<Space>(view.distributed_triangulation(),
+                                         parameters);
+        }),
+      {"source", "parameters"},
+      create_metadata);
+
+    coral::RegistryMetadata view_metadata;
+    view_metadata.operation    = "Finite element space";
+    view_metadata.display_name = "Finite element space";
+    view_metadata.variant_name =
+      "Owning space view. " + dimensions(dim, spacedim);
+    view_metadata.description =
+      "Expose the non-owning view of an owning finite element space.";
+    coral::NodeObject::register_function(
+      std::function<View(const OwnedSpace &)>(
+        [](const OwnedSpace &space) { return space->view(); }),
+      {"space"},
+      view_metadata);
+  }
+
+  template <int dim, int spacedim>
+  using LinearAdapterFor =
+    ImmersX::LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector>;
+
+  template <int dim, int spacedim>
+  void
+  register_linear_problem_operations()
+  {
+    using Adapter           = LinearAdapterFor<dim, spacedim>;
+    using Problem           = ImmersX::PoissonSolver<dim, spacedim>;
+    using Fields            = ImmersX::PoissonFields<dim, spacedim>;
+    using ProblemHandleType = ImmersX::ProblemHandle<Adapter, Fields>;
+    using AdapterHandle     = std::shared_ptr<Adapter>;
+    using Vector            = ImmersXLA::MPI::Vector;
+
+    coral::detail::set_type_alias<Adapter>("ImmersX::LinearAdapter<2>");
+    coral::detail::set_type_alias<AdapterHandle>("ImmersX::LinearExecution");
+    coral::detail::set_type_alias<Vector>("ImmersX::LinearFieldVector");
+    coral::NodeObject::register_output_type<AdapterHandle>();
+    coral::NodeObject::register_output_type<Vector>();
+    const auto handle_name =
+      "ImmersX::LinearProblemHandle<" + dimensions(dim, spacedim) + ">";
+    coral::detail::set_type_alias<ProblemHandleType>(handle_name);
+    coral::NodeObject::register_output_type<ProblemHandleType>();
+
+    coral::RegistryMetadata add_metadata;
+    add_metadata.operation    = "Add problem to linear execution";
+    add_metadata.display_name = "Add problem";
+    add_metadata.variant_name = "Poisson problem. " + dimensions(dim, spacedim);
+    add_metadata.description =
+      "Add a generic assembled Problem to a LinearAdapter.";
+    coral::NodeObject::register_function(
+      std::function<ProblemHandleType(
+        AdapterHandle &, const Problem &, const std::string &)>(
+        [](AdapterHandle     &adapter,
+           const Problem     &problem,
+           const std::string &prefix) {
+          return (*adapter).add(problem, prefix);
+        }),
+      {"adapter", "problem", "prefix"},
+      add_metadata);
+
+    coral::RegistryMetadata field_metadata;
+    field_metadata.operation    = "Problem solution field";
+    field_metadata.display_name = "Problem solution field";
+    field_metadata.variant_name =
+      "Poisson solution. " + dimensions(dim, spacedim);
+    field_metadata.description =
+      "Return the semantic solution field registered by a Problem handle.";
+    coral::NodeObject::register_function(
+      std::function<ImmersX::FieldId(const ProblemHandleType &)>(
+        [](const ProblemHandleType &handle) {
+          return handle.fields().solution;
+        }),
+      {"handle"},
+      field_metadata);
+
+    coral::NodeObject::register_method<Problem, void, const Vector &>(
+      &Problem::set_solution,
+      {poisson_name<dim, spacedim>() + "::set_solution",
+       "problem",
+       "solution"});
+  }
+
+  inline void
+  register_linear_execution_types()
+  {
+    constexpr int spacedim = 2;
+    using Adapter          = LinearAdapterFor<2, spacedim>;
+    using BulkParameters   = ImmersX::PoissonParameters<2, spacedim>;
+    using LineParameters   = ImmersX::PoissonParameters<1, spacedim>;
+    using MultiplierParameters =
+      ImmersX::FiniteElementSpaceParameters<1, spacedim>;
+    using AdapterParameters = ImmersX::LinearAdapterParameters;
+    using FieldVector       = ImmersXLA::MPI::Vector;
+    using GlobalVector      = ImmersXLA::MPI::BlockVector;
+    using AdapterHandle     = std::shared_ptr<Adapter>;
+    using BulkField =
+      ImmersX::Field<2, spacedim, dealii::FEValuesExtractors::Scalar>;
+    using LineField =
+      ImmersX::Field<1, spacedim, dealii::FEValuesExtractors::Scalar>;
+    using Constraint =
+      std::decay_t<decltype(ImmersX::make_continuity_constraint(
+        std::declval<const BulkField &>(),
+        std::declval<const LineField &>(),
+        std::declval<const LineField &>()))>;
+    using ConstraintFields = ImmersX::ConstraintFields;
+    using ConstraintHandle = ImmersX::ProblemHandle<Adapter, ConstraintFields>;
+    using View             = ImmersX::FiniteElementSpaceView<1, spacedim>;
+
+    coral::detail::set_type_alias<Adapter>("ImmersX::LinearAdapter<2>");
+    coral::detail::set_type_alias<AdapterHandle>("ImmersX::LinearExecution");
+    coral::detail::set_type_alias<FieldVector>("ImmersX::LinearFieldVector");
+    coral::detail::set_type_alias<GlobalVector>("ImmersX::LinearState");
+    coral::detail::set_type_alias<Constraint>(
+      "ImmersX::ContinuityConstraint<2>");
+    coral::detail::set_type_alias<ConstraintHandle>(
+      "ImmersX::LinearConstraintHandle");
+    coral::NodeObject::register_output_type<AdapterHandle>();
+    coral::NodeObject::register_output_type<FieldVector>();
+    coral::NodeObject::register_output_type<GlobalVector>();
+    coral::NodeObject::register_output_type<Constraint>();
+    coral::NodeObject::register_output_type<ConstraintHandle>();
+
+    register_parameter_type<AdapterParameters>(
+      "ImmersX::LinearAdapterParameters");
+
+    coral::RegistryMetadata load_metadata;
+    load_metadata.operation    = "Load parameters";
+    load_metadata.display_name = "Load parameters";
+    load_metadata.variant_name = "Multiple parameter objects";
+    load_metadata.description =
+      "Load one parameter file into all connected ParameterAcceptor objects.";
+    coral::NodeObject::register_function(
+      std::function<void(BulkParameters &,
+                         LineParameters &,
+                         MultiplierParameters &,
+                         AdapterParameters &,
+                         const std::string &)>(
+        [](BulkParameters       &bulk,
+           LineParameters       &line,
+           MultiplierParameters &multiplier,
+           AdapterParameters    &adapter,
+           const std::string    &file_name) {
+          load_parameter_objects(file_name, bulk, line, multiplier, adapter);
+        }),
+      {"bulk_parameters",
+       "line_parameters",
+       "multiplier_parameters",
+       "adapter_parameters",
+       "parameter_file"},
+      load_metadata);
+
+    coral::RegistryMetadata adapter_metadata;
+    adapter_metadata.operation    = "Create linear execution";
+    adapter_metadata.display_name = "Linear execution";
+    adapter_metadata.variant_name = "LinearAdapter";
+    adapter_metadata.description =
+      "Create the generic execution adapter for a composed linear system.";
+    coral::NodeObject::register_function(
+      std::function<AdapterHandle(const AdapterParameters &)>(
+        [](const AdapterParameters &parameters) {
+          return std::make_shared<Adapter>(parameters, MPI_COMM_WORLD);
+        }),
+      {"parameters"},
+      adapter_metadata);
+
+    coral::RegistryMetadata constraint_metadata;
+    constraint_metadata.operation    = "Continuity constraint";
+    constraint_metadata.display_name = "Continuity constraint";
+    constraint_metadata.variant_name = "Scalar fields";
+    constraint_metadata.description =
+      "Build a generic Lagrange-multiplier continuity Constraint.";
+    coral::NodeObject::register_function(
+      std::function<
+        Constraint(const BulkField &, const LineField &, const LineField &)>(
+        [](const BulkField &bulk,
+           const LineField &line,
+           const LineField &multiplier) {
+          return ImmersX::make_continuity_constraint(bulk, line, multiplier);
+        }),
+      {"left_field", "right_field", "multiplier_field"},
+      constraint_metadata);
+
+    coral::RegistryMetadata constraint_add_metadata;
+    constraint_add_metadata.operation    = "Add constraint to linear execution";
+    constraint_add_metadata.display_name = "Add constraint";
+    constraint_add_metadata.variant_name = "Lagrange-multiplier Constraint";
+    constraint_add_metadata.description =
+      "Add an Interaction or Constraint to a LinearAdapter.";
+    coral::NodeObject::register_function(
+      std::function<ConstraintHandle(
+        AdapterHandle &, const Constraint &, const std::string &)>(
+        [](AdapterHandle     &adapter,
+           const Constraint  &constraint,
+           const std::string &prefix) {
+          return (*adapter).add(constraint, prefix);
+        }),
+      {"adapter", "constraint", "prefix"},
+      constraint_add_metadata);
+
+    coral::RegistryMetadata multiplier_metadata;
+    multiplier_metadata.operation    = "Constraint multiplier field";
+    multiplier_metadata.display_name = "Constraint multiplier field";
+    multiplier_metadata.variant_name = "Lagrange multiplier";
+    multiplier_metadata.description =
+      "Return the semantic multiplier field registered by a Constraint.";
+    coral::NodeObject::register_function(
+      std::function<ImmersX::FieldId(const ConstraintHandle &)>(
+        [](const ConstraintHandle &handle) {
+          return handle.fields().multiplier;
+        }),
+      {"handle"},
+      multiplier_metadata);
+
+    coral::RegistryMetadata state_metadata;
+    state_metadata.operation    = "Create linear state";
+    state_metadata.display_name = "Linear state";
+    state_metadata.variant_name = "Global block vector";
+    state_metadata.description =
+      "Allocate the execution state owned by a LinearAdapter.";
+    coral::NodeObject::register_function(
+      std::function<GlobalVector(const AdapterHandle &)>(
+        [](const AdapterHandle &adapter) { return adapter->make_state(); }),
+      {"adapter"},
+      state_metadata);
+
+    coral::RegistryMetadata field_value_metadata;
+    field_value_metadata.operation    = "Linear state field";
+    field_value_metadata.display_name = "Linear state field";
+    field_value_metadata.variant_name = "Distributed field vector";
+    field_value_metadata.description =
+      "Extract one semantic field vector from an execution state.";
+    coral::NodeObject::register_function(
+      std::function<FieldVector(
+        const AdapterHandle &, const GlobalVector &, const ImmersX::FieldId &)>(
+        [](const AdapterHandle    &adapter,
+           const GlobalVector     &state,
+           const ImmersX::FieldId &field) {
+          return adapter->field(state, field);
+        }),
+      {"adapter", "state", "field"},
+      field_value_metadata);
+
+    coral::NodeObject::register_function(
+      std::function<void(const AdapterHandle &, GlobalVector &)>(
+        [](const AdapterHandle &adapter, GlobalVector &state) {
+          adapter->solve(state);
+        }),
+      {"adapter", "state"},
+      coral::RegistryMetadata{"Solve linear state",
+                              "Solve",
+                              "LinearAdapter",
+                              "Solve the composed linear system."});
+
+    coral::NodeObject::register_function(
+      std::function<
+        void(const AdapterHandle &, const GlobalVector &, GlobalVector &)>(
+        [](const AdapterHandle &adapter,
+           const GlobalVector  &state,
+           GlobalVector        &residual) {
+          adapter->evaluate_residual(state, residual);
+        }),
+      {"adapter", "state", "residual"},
+      coral::RegistryMetadata{"Evaluate linear residual",
+                              "Evaluate residual",
+                              "LinearAdapter",
+                              "Evaluate the residual of a composed state."});
+
+    coral::NodeObject::register_function(
+      std::function<double(const GlobalVector &)>(
+        [](const GlobalVector &vector) { return vector.l2_norm(); }),
+      {"vector"},
+      coral::RegistryMetadata{"Linear state norm",
+                              "State norm",
+                              "Global block vector",
+                              "Compute a distributed execution-state norm."});
+
+    coral::NodeObject::register_function(
+      std::function<void(const double &, const double &)>(&assert_finite_below),
+      {"value", "limit"},
+      coral::RegistryMetadata{
+        "Assert finite below",
+        "Assert finite below",
+        "Scalar diagnostic",
+        "Require a finite scalar below a prescribed limit."});
+
+    coral::NodeObject::register_function(
+      std::function<void(const View &,
+                         const FieldVector &,
+                         const std::string &,
+                         const std::string &)>(
+        &write_scalar_field<1, spacedim>),
+      {"space", "field", "output_file", "field_name"},
+      coral::RegistryMetadata{"Write scalar field",
+                              "Write scalar field",
+                              "Finite element space",
+                              "Write a scalar field and its PVD record."});
   }
 
   template <int dim, int spacedim>
@@ -464,28 +878,6 @@ namespace ImmersX::Coral
     ImmersX::ElastodynamicsSolver<dim, spacedim> &problem)
   {
     problem.output_results();
-  }
-
-  inline double
-  coupled_poisson_residual_norm(const CoupledPoisson2D &workflow)
-  {
-    return workflow.residual_norm();
-  }
-
-  inline void
-  register_coupled_poisson_types()
-  {
-    using Workflow         = CoupledPoisson2D;
-    const std::string name = "ImmersX::CoupledPoisson<2>";
-    coral::detail::set_type_alias<Workflow>(name);
-    coral::NodeObject::register_type<Workflow, const std::string &>(
-      "parameter_file");
-    coral::NodeObject::register_method<Workflow, void>(&Workflow::run,
-                                                       {name + "::run",
-                                                        "workflow"});
-    coral::NodeObject::register_function(
-      std::function<double(const Workflow &)>(&coupled_poisson_residual_norm),
-      {name + "::residual_norm", "workflow", "residual"});
   }
 
   inline double
@@ -944,7 +1336,10 @@ namespace ImmersX::Coral
         register_elastodynamics_types<2, spacedim>();
         if constexpr (spacedim == 2)
           {
-            register_coupled_poisson_types();
+            register_owned_finite_element_space_types<1, spacedim>();
+            register_linear_problem_operations<1, spacedim>();
+            register_linear_problem_operations<2, spacedim>();
+            register_linear_execution_types();
             register_fiber_reinforced_types<2>();
             register_fiber_reinforced_composition_types<2>();
 #ifdef DEAL_II_WITH_SUNDIALS

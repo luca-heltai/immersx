@@ -187,9 +187,30 @@ endif()
 
 if(SPACEDIM EQUAL 2)
   string(FIND "${_registry}" "ImmersX::CoupledPoisson<2>" _found)
-  if(_found EQUAL -1)
-    message(FATAL_ERROR "2D registry is missing the coupled Poisson façade.")
+  if(NOT _found EQUAL -1)
+    message(FATAL_ERROR "2D registry still contains the coupled Poisson façade.")
   endif()
+  foreach(_operation
+      "Create finite element space"
+      "Registered scalar field"
+      "Create linear execution"
+      "Add problem to linear execution"
+      "Problem solution field"
+      "Continuity constraint"
+      "Add constraint to linear execution"
+      "Constraint multiplier field"
+      "Create linear state"
+      "Solve linear state"
+      "Evaluate linear residual"
+      "Linear state norm"
+      "Assert finite below"
+      "Write scalar field")
+    string(FIND "${_registry}" "${_operation}" _operation_found)
+    if(_operation_found EQUAL -1)
+      message(FATAL_ERROR
+        "2D registry is missing the generic operation '${_operation}'.")
+    endif()
+  endforeach()
 elseif(SPACEDIM EQUAL 1 OR SPACEDIM EQUAL 3)
   string(FIND "${_registry}" "ImmersX::CoupledPoisson<2>" _found)
   if(NOT _found EQUAL -1)

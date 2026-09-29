@@ -1,20 +1,25 @@
-subsection Coupled Poisson
-  set Output directory       = output
-  set Multiplier output name = coupled_multiplier
-  subsection Multiplier finite element space
-    set Finite element = FE_DGQ<1>(0)
-  end
+subsection Multiplier finite element space
+  set Finite element = FE_DGQ<1>(0)
+end
+
+subsection Linear adapter
+  set Solver                         = automatic
+  set Preconditioner                 = automatic
+  set Maximum iterations             = 1000
+  set Tolerance                      = 1.e-12
+  set Augmented Lagrangian parameter = 1.e1
 end
 
 subsection Poisson
   set FE degree              = 1
-  set Initial refinement     = 1
   set Output directory       = output
   set Output name            = bulk_solution
   set Dirichlet boundary ids = 0
-  subsection Grid generation
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = -1: 1: false
+    set Initial refinement        = 1
+    set Triangulation type        = distributed
   end
   subsection Right hand side
     set Function expression = 0
@@ -36,13 +41,14 @@ end
 
 subsection Embedded Poisson
   set FE degree              = 1
-  set Initial refinement     = 1
   set Output directory       = output
   set Output name            = embedded_solution
   set Dirichlet boundary ids = 0,1
-  subsection Grid generation
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = -1: 1: false
+    set Initial refinement        = 1
+    set Triangulation type        = distributed
   end
   subsection Right hand side
     set Function expression = 1

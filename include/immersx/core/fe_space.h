@@ -424,6 +424,19 @@ namespace ImmersX
       return dof_handler().get_triangulation().get_mpi_communicator();
     }
 
+    /** Return the distributed triangulation behind this FE-space view. */
+    const dealii::parallel::TriangulationBase<dim, spacedim> &
+    distributed_triangulation() const
+    {
+      const auto *distributed = dynamic_cast<
+        const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+        &dof_handler().get_triangulation());
+      AssertThrow(distributed != nullptr,
+                  dealii::ExcMessage(
+                    "This operation requires a distributed triangulation."));
+      return *distributed;
+    }
+
     auto
     field(const std::string &name) const
     {

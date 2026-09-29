@@ -31,8 +31,7 @@ foreach(_build_type ${_d2_build_types})
       source/plugin_${_spacedim}d.cc)
     if(_spacedim EQUAL 2)
       target_sources(${_plugin}
-        PRIVATE source/coupled_poisson_2d.cc
-                source/ida_elastodynamics_2d.cc)
+        PRIVATE source/ida_elastodynamics_2d.cc)
     elseif(_spacedim EQUAL 3)
       target_sources(${_plugin}
         PRIVATE source/coupled_poisson_elasticity_3d.cc
@@ -200,7 +199,7 @@ foreach(_build_type ${_d2_build_types})
                   -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/coupled_poisson_2d.prm
                   -DWORKING_DIRECTORY=${_coupled_graph_working_directory}
                   -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
-                  -DOUTPUT_FILE=output/coupled_multiplier.pvd
+                  -DEXPECTED_OUTPUTS=output/bulk_solution.pvd,output/embedded_solution.pvd,output/coupled_multiplier.pvd
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
         set_tests_properties(
           "ImmersX.Coral.Graph.CoupledPoisson2D${_postfix}"

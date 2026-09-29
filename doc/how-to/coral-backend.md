@@ -149,19 +149,21 @@ available, it uses the existing fixed-step fallback. The driver remains the
 native owner of the physical assembly and writes matrix, fiber, and multiplier
 outputs under the configured output directory.
 
-The 2D plugin also exposes the existing bulk/embedded Poisson workflow as the
-graph-facing `ImmersX::CoupledPoisson<2>` façade. Its example is:
+The 2D plugin also exposes the bulk/embedded Poisson workflow through generic
+Problem, finite-element-space, Constraint, and LinearAdapter nodes. Its example
+is:
 
 ```text
 coupled_poisson_2d.json
 coupled_poisson_2d.prm
 ```
 
-The façade owns the two existing `PoissonSolver` problems, the multiplier
-finite-element space, and the `LinearAdapter`. The graph therefore controls
-the workflow lifecycle and can query `ImmersX::CoupledPoisson<2>::residual_norm`
-after `run`. It is a first vertical coupling path; the lower-level Problems
-and Interaction objects are still assembled by the existing ImmersX code.
+The graph constructs two existing `PoissonSolver` Problems, creates the
+multiplier finite-element space on the embedded mesh, adds both Problems and a
+continuity Constraint to one `LinearAdapter`, transfers the solved fields back
+to the Problems, writes bulk, embedded, and multiplier output, and checks the
+composed residual. The old standalone `ImmersX::CoupledPoisson<2>` façade is
+not part of the 2D registry.
 
 The 3D plugin provides the corresponding Poisson-to-elasticity example:
 
