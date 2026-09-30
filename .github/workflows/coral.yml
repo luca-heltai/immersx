@@ -1,0 +1,168 @@
+name: Coral integration
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    container:
+      image: dealii/dealii:v9.7.1-noble
+      options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.job }}-coral-dealii-9.7.1-noble
+          max-size: 1G
+          append-timestamp: false
+          update-package-index: true
+          install: detect
+          verbose: 1
+
+      - name: Checkout Coral
+        uses: actions/checkout@v4
+        with:
+          repository: 2listic/coral
+          ref: installable-plugin-sdk
+          path: coral-upstream
+          submodules: recursive
+
+      - name: Install Coral
+        run: |
+          rm -rf coral-build-debug coral-install-debug
+          cmake -S coral-upstream -B coral-build-debug -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/coral-install-debug" \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCORAL_BUILD_BACKEND_DEALII=OFF \
+            -DCORAL_BUILD_SHARED_CORE=ON \
+            -DCORAL_BUILD_TESTS=OFF \
+            -DCORAL_INSTALL=ON
+          cmake --build coral-build-debug --parallel
+          cmake --install coral-build-debug
+          test -f "$GITHUB_WORKSPACE/coral-install-debug/lib/cmake/coral/coralConfig.cmake"
+
+      - name: Configure ImmersX with Coral
+        run: |
+          rm -rf build_coral_debug
+          cmake -S . -B build_coral_debug -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS=-fopenmp \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -Dcoral_DIR="$GITHUB_WORKSPACE/coral-install-debug/lib/cmake/coral" \
+            -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
+            -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=ON \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
+            -DENABLE_GOOGLE_TESTING=OFF \
+            -DENABLE_DEAL_II_APP_TESTING=OFF 2>&1 | tee coral-configure-debug.log
+          grep -Fq "ImmersX Coral plugins enabled" coral-configure-debug.log
+
+      - name: Build ImmersX Coral plugins
+        run: |
+          cmake --build build_coral_debug --target \
+            coral_backend_immersx_1_debug \
+            coral_backend_immersx_2_debug \
+            coral_backend_immersx_3_debug \
+            --parallel
+          test -f build_coral_debug/coral/libcoral_backend_immersx_1_debug.so
+          test -f build_coral_debug/coral/libcoral_backend_immersx_2_debug.so
+          test -f build_coral_debug/coral/libcoral_backend_immersx_3_debug.so
+
+      - name: Run Coral tests
+        run: |
+          ctest --test-dir build_coral_debug -N -R '^ImmersX\\.Coral\\.'
+          ctest --test-dir build_coral_debug -R '^ImmersX\\.Coral\\.' --output-on-failure
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    container:
+      image: dealii/dealii:v9.7.1-noble
+      options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.job }}-coral-dealii-9.7.1-noble
+          max-size: 1G
+          append-timestamp: false
+          update-package-index: true
+          install: detect
+          verbose: 1
+
+      - name: Checkout Coral
+        uses: actions/checkout@v4
+        with:
+          repository: 2listic/coral
+          ref: installable-plugin-sdk
+          path: coral-upstream
+          submodules: recursive
+
+      - name: Install Coral
+        run: |
+          rm -rf coral-build-release coral-install-release
+          cmake -S coral-upstream -B coral-build-release -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/coral-install-release" \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCORAL_BUILD_BACKEND_DEALII=OFF \
+            -DCORAL_BUILD_SHARED_CORE=ON \
+            -DCORAL_BUILD_TESTS=OFF \
+            -DCORAL_INSTALL=ON
+          cmake --build coral-build-release --parallel
+          cmake --install coral-build-release
+          test -f "$GITHUB_WORKSPACE/coral-install-release/lib/cmake/coral/coralConfig.cmake"
+
+      - name: Configure ImmersX with Coral
+        run: |
+          rm -rf build_coral_release
+          cmake -S . -B build_coral_release -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS=-fopenmp \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -Dcoral_DIR="$GITHUB_WORKSPACE/coral-install-release/lib/cmake/coral" \
+            -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
+            -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=ON \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
+            -DENABLE_GOOGLE_TESTING=OFF \
+            -DENABLE_DEAL_II_APP_TESTING=OFF 2>&1 | tee coral-configure-release.log
+          grep -Fq "ImmersX Coral plugins enabled" coral-configure-release.log
+
+      - name: Build ImmersX Coral plugins
+        run: |
+          cmake --build build_coral_release --target \
+            coral_backend_immersx_1 \
+            coral_backend_immersx_2 \
+            coral_backend_immersx_3 \
+            --parallel
+          test -f build_coral_release/coral/libcoral_backend_immersx_1.so
+          test -f build_coral_release/coral/libcoral_backend_immersx_2.so
+          test -f build_coral_release/coral/libcoral_backend_immersx_3.so
+
+      - name: Run Coral tests
+        run: |
+          ctest --test-dir build_coral_release -N -R '^ImmersX\\.Coral\\.'
+          ctest --test-dir build_coral_release -R '^ImmersX\\.Coral\\.' --output-on-failure
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
