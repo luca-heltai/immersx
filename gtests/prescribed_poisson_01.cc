@@ -148,19 +148,14 @@ TEST(PrescribedPoisson, MPI_UnifiedConstraintReplacement) // NOLINT
   using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
-  const auto             bulk      = adapter.add(bulk_problem, "bulk");
-  const auto             bulk_view = fe_space(bulk_problem.dof_handler(),
-                                  StaticMappingQ1<2>::mapping,
-                                  bulk_problem.constraints(),
-                                  bulk_problem.locally_relevant_dofs());
-  const auto             line_view = fe_space(line_dh,
+  const auto             bulk       = adapter.add(bulk_problem, "bulk");
+  const auto             line_view  = fe_space(line_dh,
                                   StaticMappingQ1<1, 2>::mapping,
                                   line_constraints,
                                   line_relevant);
-  const auto             bulk_field =
-    bulk_view.field(bulk.fields().solution, "bulk_solution");
-  const auto  lambda = line_view.field("lambda");
-  FieldVector prescribed(line_owned, MPI_COMM_WORLD);
+  const auto             bulk_field = bulk.fields().solution;
+  const auto             lambda     = line_view.field("lambda");
+  FieldVector            prescribed(line_owned, MPI_COMM_WORLD);
   prescribed = 1.;
   prescribed.compress(VectorOperation::insert);
   const auto coupling =
@@ -251,18 +246,13 @@ TEST(PrescribedPoisson,
   using Adapter      = LinearAdapter<FieldVector, GlobalVector>;
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
-  const auto             bulk      = adapter.add(bulk_problem, "bulk");
-  const auto             bulk_view = fe_space(bulk_problem.dof_handler(),
-                                  StaticMappingQ1<2>::mapping,
-                                  bulk_problem.constraints(),
-                                  bulk_problem.locally_relevant_dofs());
-  const auto             line_view = fe_space(line_dh,
+  const auto             bulk       = adapter.add(bulk_problem, "bulk");
+  const auto             line_view  = fe_space(line_dh,
                                   StaticMappingQ1<1, 2>::mapping,
                                   line_constraints,
                                   line_relevant);
-  const auto             bulk_field =
-    bulk_view.field(bulk.fields().solution, "bulk_solution");
-  const auto lambda = line_view.field("lambda");
+  const auto             bulk_field = bulk.fields().solution;
+  const auto             lambda     = line_view.field("lambda");
 
   FieldVector prescribed(line_owned, MPI_COMM_WORLD);
   prescribed = 1.;

@@ -284,15 +284,7 @@ namespace
     const auto flow_fields =
       adapter.add(ImmersX::metric_flow_x(flow_problem), "blood-flow");
 
-    const auto solid_space =
-      ImmersX::fe_space(solid_problem.dof_handler(),
-                        solid_problem.mapping(),
-                        solid_problem.constraints(),
-                        solid_problem.locally_relevant_dofs());
-    const SolidField solid_field =
-      solid_space.field(solid_fields.fields().displacement,
-                        "displacement",
-                        dealii::FEValuesExtractors::Vector(0));
+    const SolidField     solid_field = solid_fields.fields().displacement;
     const WallObservable wall_observable(flow_problem,
                                          flow_fields.fields().area,
                                          flow_fields.fields().area_components,

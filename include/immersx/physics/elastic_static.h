@@ -49,6 +49,7 @@
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/domain.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
@@ -795,34 +796,49 @@ namespace ImmersX
     FEValuesExtractors::Vector displacement_{0};
   };
 
+  template <int dim, int spacedim = dim>
   struct ElasticStaticFields
   {
-    FieldId displacement;
+    using Space = FiniteElementSpaceView<dim, spacedim>;
+    using VectorField =
+      Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+
+    VectorField                  displacement;
+    std::shared_ptr<const Space> space;
   };
 
   /** Register the static elasticity residual with an execution adapter. */
   template <typename Builder, int dim, int spacedim>
-  ElasticStaticFields
+  ElasticStaticFields<dim, spacedim>
   contribute(Builder                                   &builder,
              const ElasticStaticProblem<dim, spacedim> &problem)
   {
     using VectorType = typename ElasticStaticProblem<dim, spacedim>::VectorType;
-    const auto displacement =
+    const auto displacement_id =
       builder.algebraic_field("displacement",
                               problem.locally_owned_dofs(),
                               problem.locally_relevant_dofs());
+    using Space      = typename ElasticStaticFields<dim, spacedim>::Space;
+    auto       space = std::make_shared<Space>(problem.dof_handler(),
+                                         problem.mapping(),
+                                         problem.constraints(),
+                                         &problem.locally_relevant_dofs());
+    const auto displacement =
+      space->field(displacement_id,
+                   "displacement",
+                   dealii::FEValuesExtractors::Vector(0));
     const auto stiffness =
       builder.matrix_operator(problem.stiffness_operator());
-    builder.preconditioner(displacement,
+    builder.preconditioner(displacement_id,
                            [](const auto &linearized_matrix,
                               const auto &reinit_vector) {
                              return make_amg_preconditioner(linearized_matrix,
                                                             reinit_vector);
                            });
 
-    builder.term(displacement, "elastic-static")
-      .residual([displacement, &problem](const auto &context) {
-        const auto &state = context.state(displacement);
+    builder.term(displacement_id, "elastic-static")
+      .residual([displacement_id, &problem](const auto &context) {
+        const auto &state = context.state(displacement_id);
         dealii::PackagedOperation<VectorType> result;
         result.reinit_vector = [state](VectorType &vector, const bool omit) {
           vector.reinit(state, omit);
@@ -840,9 +856,9 @@ namespace ImmersX
         };
         return result;
       })
-      .state(displacement, stiffness);
+      .state(displacement_id, stiffness);
 
-    return {displacement};
+    return {displacement, std::move(space)};
   }
 } // namespace ImmersX
 

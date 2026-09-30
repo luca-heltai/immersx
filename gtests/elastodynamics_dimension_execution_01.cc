@@ -256,8 +256,8 @@ namespace
                     parameters.ida_parameters,
                     MPI_COMM_WORLD);
     const auto fields = adapter.add(problem, "elastodynamics");
-    EXPECT_TRUE(fields.fields().displacement.is_valid());
-    EXPECT_TRUE(fields.fields().velocity.is_valid());
+    EXPECT_TRUE(fields.fields().displacement.is_registered());
+    EXPECT_TRUE(fields.fields().velocity.is_registered());
 
     auto state                                         = adapter.make_state();
     auto state_dot                                     = adapter.make_state();

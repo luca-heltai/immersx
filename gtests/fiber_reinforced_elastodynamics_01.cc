@@ -346,28 +346,14 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
               ida_parameters,
               MPI_COMM_WORLD,
               solve_global_operator);
-  const auto matrix = ida.add(driver.matrix_problem(), "matrix");
-  const auto fiber  = ida.add(driver.fiber_problem(), "fiber");
-  const auto matrix_view =
-    fe_space(driver.matrix_problem().dof_handler(),
-             driver.matrix_problem().mapping(),
-             driver.matrix_problem().velocity_constraints(),
-             &driver.matrix_problem().locally_relevant_dofs());
-  const auto fiber_view =
-    fe_space(driver.fiber_problem().dof_handler(),
-             driver.fiber_problem().mapping(),
-             driver.fiber_problem().velocity_constraints(),
-             &driver.fiber_problem().locally_relevant_dofs());
+  const auto matrix          = ida.add(driver.matrix_problem(), "matrix");
+  const auto fiber           = ida.add(driver.fiber_problem(), "fiber");
   const auto multiplier_view = fe_space(multiplier_dh,
                                         driver.fiber_problem().mapping(),
                                         multiplier_constraints,
                                         &multiplier_relevant);
-  const auto matrix_velocity = matrix_view.field(matrix.fields().velocity,
-                                                 "matrix_velocity",
-                                                 FEValuesExtractors::Vector(0));
-  const auto fiber_velocity  = fiber_view.field(fiber.fields().velocity,
-                                               "fiber_velocity",
-                                               FEValuesExtractors::Vector(0));
+  const auto matrix_velocity = matrix.fields().velocity;
+  const auto fiber_velocity  = fiber.fields().velocity;
   const auto multiplier =
     multiplier_view.field("velocity_multiplier", FEValuesExtractors::Vector(0));
 #  ifdef IMMERSX_WEAK_TERM_TESTING
@@ -388,13 +374,13 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
     ida
       .state_matrix_operator(coupling_state,
                              coupling.fields().multiplier,
-                             matrix.fields().velocity)
+                             matrix.fields().velocity.id())
       ->matrix();
   const auto negative_fiber_pairing =
     ida
       .state_matrix_operator(coupling_state,
                              coupling.fields().multiplier,
-                             fiber.fields().velocity)
+                             fiber.fields().velocity.id())
       ->matrix();
   auto fiber_pairing = std::make_shared<MatrixType>();
   fiber_pairing->copy_from(*negative_fiber_pairing);
@@ -402,7 +388,7 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
   const auto matrix_coupling =
     ida
       .state_matrix_operator(coupling_state,
-                             matrix.fields().velocity,
+                             matrix.fields().velocity.id(),
                              coupling.fields().multiplier)
       ->matrix();
 #  ifdef IMMERSX_WEAK_TERM_TESTING

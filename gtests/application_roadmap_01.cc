@@ -185,8 +185,7 @@ TEST(ApplicationRoadmap, P1G0UsesFrozenForcingWithoutMultiplier)
   prescribed.compress(VectorOperation::insert);
 
   adapter.add(weak_term(frozen(prescribed_field, prescribed),
-                        test(
-                          space.field(fields.fields().solution, "solution"))),
+                        test(fields.fields().solution)),
               "prescribed-forcing");
 
   auto state = adapter.make_state();
@@ -223,10 +222,6 @@ TEST(ApplicationRoadmap, P2G0UsesPrescribedConstraintAndReaction)
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto             fields = adapter.add(problem, "poisson");
-  const auto             space  = fe_space(problem.dof_handler(),
-                              StaticMappingQ1<2>::mapping,
-                              problem.constraints(),
-                              problem.locally_relevant_dofs());
   FE_Q<2>                multiplier_fe(1);
   DoFHandler<2>          multiplier_dh(problem.triangulation());
   multiplier_dh.distribute_dofs(multiplier_fe);
@@ -235,8 +230,8 @@ TEST(ApplicationRoadmap, P2G0UsesPrescribedConstraintAndReaction)
   const auto  multiplier_space = fe_space(multiplier_dh,
                                          StaticMappingQ1<2>::mapping,
                                          multiplier_constraints);
-  const auto  solution = space.field(fields.fields().solution, "solution");
-  const auto  lambda   = multiplier_space.field("lambda");
+  const auto  solution         = fields.fields().solution;
+  const auto  lambda           = multiplier_space.field("lambda");
   FieldVector prescribed(multiplier_dh.locally_owned_dofs(), MPI_COMM_WORLD);
   prescribed = 0.25;
   prescribed.compress(VectorOperation::insert);
@@ -299,17 +294,12 @@ TEST(ApplicationRoadmap, P1G1UsesFrozenForcingOnAnIndependentMesh)
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto             fields       = adapter.add(problem, "poisson");
-  const auto             target_space = fe_space(problem.dof_handler(),
-                                     StaticMappingQ1<2>::mapping,
-                                     problem.constraints(),
-                                     problem.locally_relevant_dofs());
   const auto             source_space = fe_space(source_dh,
                                      StaticMappingQ1<2>::mapping,
                                      source_constraints,
                                      source_relevant);
-  const auto prescribed_field         = source_space.field("prescribed_source");
-  const auto solution =
-    target_space.field(fields.fields().solution, "solution");
+  const auto  prescribed_field        = source_space.field("prescribed_source");
+  const auto  solution                = fields.fields().solution;
   FieldVector prescribed(source_owned, MPI_COMM_WORLD);
   prescribed = 1.;
   prescribed.compress(VectorOperation::insert);
@@ -363,18 +353,13 @@ TEST(ApplicationRoadmap, P2G1UsesPrescribedConstraintOnAnIndependentMesh)
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto             fields           = adapter.add(problem, "poisson");
-  const auto             target_space     = fe_space(problem.dof_handler(),
-                                     StaticMappingQ1<2>::mapping,
-                                     problem.constraints(),
-                                     problem.locally_relevant_dofs());
   const auto             multiplier_space = fe_space(multiplier_dh,
                                          StaticMappingQ1<2>::mapping,
                                          multiplier_constraints,
                                          multiplier_relevant);
-  const auto             solution =
-    target_space.field(fields.fields().solution, "solution");
-  const auto  lambda = multiplier_space.field("lambda");
-  FieldVector prescribed(multiplier_owned, MPI_COMM_WORLD);
+  const auto             solution         = fields.fields().solution;
+  const auto             lambda           = multiplier_space.field("lambda");
+  FieldVector            prescribed(multiplier_owned, MPI_COMM_WORLD);
   prescribed = 0.25;
   prescribed.compress(VectorOperation::insert);
   const auto coupling =
@@ -448,14 +433,9 @@ check_p1g2_embedded_source()
                                      StaticMappingQ1<1, 2>::mapping,
                                      source_constraints,
                                      source_relevant);
-  const auto             target_space = fe_space(problem.dof_handler(),
-                                     StaticMappingQ1<2>::mapping,
-                                     problem.constraints(),
-                                     problem.locally_relevant_dofs());
   const auto             source       = source_space.field("prescribed_source");
-  const auto             solution =
-    target_space.field(fields.fields().solution, "solution");
-  FieldVector prescribed(source_owned, MPI_COMM_WORLD);
+  const auto             solution     = fields.fields().solution;
+  FieldVector            prescribed(source_owned, MPI_COMM_WORLD);
   prescribed = 1.;
   prescribed.compress(VectorOperation::insert);
   adapter.add(weak_term(frozen(source, prescribed), test(solution)),
@@ -514,20 +494,14 @@ TEST(ApplicationRoadmap, P1G3UsesOneWayLiftedTubeLoading)
 
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
-  const auto             fields      = adapter.add(problem, "solid");
-  const auto             solid_space = fe_space(problem.dof_handler(),
-                                    StaticMappingQ1<3>::mapping,
-                                    problem.constraints(),
-                                    problem.locally_relevant_dofs());
-  const auto             line_space  = fe_space(line_dh,
+  const auto             fields       = adapter.add(problem, "solid");
+  const auto             line_space   = fe_space(line_dh,
                                    StaticMappingQ1<1, 3>::mapping,
                                    line_constraints,
                                    line_relevant);
-  const auto  displacement = solid_space.field(fields.fields().displacement,
-                                              "displacement",
-                                              FEValuesExtractors::Vector(0));
-  const auto  source       = line_space.field("prescribed_pressure");
-  FieldVector prescribed(line_owned, MPI_COMM_WORLD);
+  const auto             displacement = fields.fields().displacement;
+  const auto             source       = line_space.field("prescribed_pressure");
+  FieldVector            prescribed(line_owned, MPI_COMM_WORLD);
   prescribed = 1.;
   prescribed.compress(VectorOperation::insert);
 
@@ -591,19 +565,13 @@ TEST(ApplicationRoadmap, P2G3UsesPrescribedLiftedLineMotion)
 
   LinearSolverParameters adapter_parameters;
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
-  const auto             fields      = adapter.add(problem, "solid");
-  const auto             solid_space = fe_space(problem.dof_handler(),
-                                    StaticMappingQ1<3>::mapping,
-                                    problem.constraints(),
-                                    problem.locally_relevant_dofs());
-  const auto             line_space  = fe_space(line_dh,
+  const auto             fields       = adapter.add(problem, "solid");
+  const auto             line_space   = fe_space(line_dh,
                                    StaticMappingQ1<1, 3>::mapping,
                                    line_constraints,
                                    line_relevant);
-  const auto displacement = solid_space.field(fields.fields().displacement,
-                                              "displacement",
-                                              FEValuesExtractors::Vector(0));
-  const auto lambda       = line_space.field("lambda");
+  const auto             displacement = fields.fields().displacement;
+  const auto             lambda       = line_space.field("lambda");
 
   TensorProductLift<1, 2, 3, 3> lift_descriptor("/P2 G3 lift/");
   lift_descriptor.section.selected_coefficients = {0u};
@@ -714,22 +682,13 @@ check_p3g2_mixed_dimensional_fiber(const std::string &output_prefix)
   const auto matrix_fields = adapter.add(matrix_problem, "matrix");
   const auto fiber_fields  = adapter.add(fiber_problem, "fiber");
 
-  const auto matrix_space = fe_space(matrix_problem.dof_handler(),
-                                     matrix_problem.mapping(),
-                                     matrix_problem.velocity_constraints(),
-                                     matrix_problem.locally_relevant_dofs());
-  const auto fiber_space  = fe_space(fiber_problem.dof_handler(),
+  const auto matrix_velocity = matrix_fields.fields().velocity;
+  const auto fiber_velocity  = fiber_fields.fields().velocity;
+  const auto fiber_space     = fe_space(fiber_problem.dof_handler(),
                                     fiber_problem.mapping(),
                                     fiber_problem.velocity_constraints(),
                                     fiber_problem.locally_relevant_dofs());
-  const auto matrix_velocity =
-    matrix_space.field(matrix_fields.fields().velocity,
-                       "matrix_velocity",
-                       FEValuesExtractors::Vector(0));
-  const auto fiber_velocity = fiber_space.field(fiber_fields.fields().velocity,
-                                                "fiber_velocity",
-                                                FEValuesExtractors::Vector(0));
-  const auto multiplier     = fiber_space.field("fiber_velocity_multiplier",
+  const auto multiplier      = fiber_space.field("fiber_velocity_multiplier",
                                             FEValuesExtractors::Vector(0));
   const auto coupling =
     adapter.add(make_constraint(
@@ -843,14 +802,6 @@ TEST(ApplicationRoadmap, P3G0UsesTwoLiveProblemsAndParticipantReactions)
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto             first_fields  = adapter.add(first, "first");
   const auto             second_fields = adapter.add(second, "second");
-  const auto             first_space   = fe_space(first.dof_handler(),
-                                    StaticMappingQ1<2>::mapping,
-                                    first.constraints(),
-                                    first.locally_relevant_dofs());
-  const auto             second_space  = fe_space(second.dof_handler(),
-                                     StaticMappingQ1<2>::mapping,
-                                     second.constraints(),
-                                     second.locally_relevant_dofs());
   FE_Q<2>                multiplier_fe(1);
   DoFHandler<2>          multiplier_dh(second.triangulation());
   multiplier_dh.distribute_dofs(multiplier_fe);
@@ -859,11 +810,9 @@ TEST(ApplicationRoadmap, P3G0UsesTwoLiveProblemsAndParticipantReactions)
   const auto multiplier_space = fe_space(multiplier_dh,
                                          StaticMappingQ1<2>::mapping,
                                          multiplier_constraints);
-  const auto first_solution =
-    first_space.field(first_fields.fields().solution, "first_solution");
-  const auto second_solution =
-    second_space.field(second_fields.fields().solution, "second_solution");
-  const auto lambda = multiplier_space.field("lambda");
+  const auto first_solution   = first_fields.fields().solution;
+  const auto second_solution  = second_fields.fields().solution;
+  const auto lambda           = multiplier_space.field("lambda");
   const auto coupling =
     adapter.add(make_constraint(
                   weak_term(value(first_solution), test(lambda)) -
@@ -926,30 +875,16 @@ check_p3g1_tied_elasticity(const std::string &output_prefix)
   Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
   const auto             first_fields  = adapter.add(first, "first");
   const auto             second_fields = adapter.add(second, "second");
-  const auto             first_space   = fe_space(first.dof_handler(),
-                                    StaticMappingQ1<2>::mapping,
-                                    first.constraints(),
-                                    first.locally_relevant_dofs());
-  const auto             second_space  = fe_space(second.dof_handler(),
-                                     StaticMappingQ1<2>::mapping,
-                                     second.constraints(),
-                                     second.locally_relevant_dofs());
   FESystem<2>            multiplier_fe(FE_Q<2>(1), 2);
   DoFHandler<2>          multiplier_dh(second.triangulation());
   multiplier_dh.distribute_dofs(multiplier_fe);
   AffineConstraints<double> multiplier_constraints;
   multiplier_constraints.close();
-  const auto multiplier_space = fe_space(multiplier_dh,
+  const auto multiplier_space    = fe_space(multiplier_dh,
                                          StaticMappingQ1<2>::mapping,
                                          multiplier_constraints);
-  const auto first_displacement =
-    first_space.field(first_fields.fields().displacement,
-                      "first_displacement",
-                      FEValuesExtractors::Vector(0));
-  const auto second_displacement =
-    second_space.field(second_fields.fields().displacement,
-                       "second_displacement",
-                       FEValuesExtractors::Vector(0));
+  const auto first_displacement  = first_fields.fields().displacement;
+  const auto second_displacement = second_fields.fields().displacement;
   const auto lambda =
     multiplier_space.field("lambda", FEValuesExtractors::Vector(0));
   const auto coupling =

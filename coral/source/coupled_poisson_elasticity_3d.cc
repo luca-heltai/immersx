@@ -66,25 +66,8 @@ namespace ImmersX::Coral
       const auto poisson_fields = adapter.add(poisson_problem, "pressure");
       const auto elastic_fields = adapter.add(elasticity_problem, "elastic");
 
-      const auto elastic_space =
-        fe_space(elasticity_problem.dof_handler(),
-                 dealii::StaticMappingQ1<3, 3>::mapping,
-                 elasticity_problem.constraints(),
-                 elasticity_problem.locally_relevant_dofs());
-      const auto displacement =
-        elastic_space.field(elastic_fields.fields().displacement,
-                            "displacement",
-                            dealii::FEValuesExtractors::Vector(0));
-
-      const auto poisson_space =
-        fe_space(poisson_problem.dof_handler(),
-                 dealii::StaticMappingQ1<1, 3>::mapping,
-                 poisson_problem.constraints(),
-                 poisson_problem.locally_relevant_dofs());
-      const auto poisson_field =
-        poisson_space.field(poisson_fields.fields().solution,
-                            "pressure",
-                            dealii::FEValuesExtractors::Scalar(0));
+      const auto displacement  = elastic_fields.fields().displacement;
+      const auto poisson_field = poisson_fields.fields().solution;
 
       const auto pressure =
         ImmersX::make_lift(CoupledPoissonElasticity::Pressure{}.factor *
