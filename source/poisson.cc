@@ -496,6 +496,14 @@ namespace ImmersX
 
 
   template <int dim, int spacedim>
+  const Mapping<dim, spacedim> &
+  PoissonSolver<dim, spacedim>::mapping() const
+  {
+    return StaticMappingQ1<dim, spacedim>::mapping;
+  }
+
+
+  template <int dim, int spacedim>
   const AffineConstraints<double> &
   PoissonSolver<dim, spacedim>::constraints() const
   {

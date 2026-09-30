@@ -54,6 +54,7 @@ set(_public_headers
     immersx/algebra/linear_algebra.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
+    immersx/io/output_handler.h
     immersx/physics/elastodynamics.h
     immersx/physics/elastodynamics_semidiscrete.h
     immersx/physics/fiber_reinforced_elastodynamics.h

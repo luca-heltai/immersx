@@ -42,7 +42,7 @@ namespace ImmersX
   /** Semantic fields and native component views for one BloodFlowSystem. */
   struct MetricFlowXFields
   {
-    using Space       = FESpaceView<1, 3>;
+    using Space       = FiniteElementSpaceView<1, 3>;
     using ScalarField = Field<1, 3, dealii::FEValuesExtractors::Scalar>;
 
     FieldId                      state;

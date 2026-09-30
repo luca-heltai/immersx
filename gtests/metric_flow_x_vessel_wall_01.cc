@@ -52,7 +52,7 @@ namespace
       descriptor.locally_owned    = problem->locally_owned_dofs();
       descriptor.locally_relevant = problem->locally_relevant_dofs();
       field                       = layout.add_field(std::move(descriptor));
-      space = std::make_shared<ImmersX::FESpaceView<1, 3>>(
+      space = std::make_shared<ImmersX::FiniteElementSpaceView<1, 3>>(
         problem->dof_handler(),
         dealii::StaticMappingQ1<1, 3>::mapping,
         problem->constraints(),
@@ -82,12 +82,12 @@ namespace
                                                                     nullptr);
     }
 
-    std::unique_ptr<ImmersX::TimeIntervalParameters>  time_parameters;
-    std::unique_ptr<ImmersX::IDAParameters>           ida_parameters;
-    std::unique_ptr<Problem>                          problem;
-    ImmersX::StateLayout                              layout;
-    ImmersX::FieldId                                  field;
-    std::shared_ptr<const ImmersX::FESpaceView<1, 3>> space;
+    std::unique_ptr<ImmersX::TimeIntervalParameters> time_parameters;
+    std::unique_ptr<ImmersX::IDAParameters>          ida_parameters;
+    std::unique_ptr<Problem>                         problem;
+    ImmersX::StateLayout                             layout;
+    ImmersX::FieldId                                 field;
+    std::shared_ptr<const ImmersX::FiniteElementSpaceView<1, 3>> space;
     std::unique_ptr<ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>>
                                                        area;
     dealii::IndexSet                                   area_components;

@@ -448,6 +448,62 @@ TEST(WeakTerm, SameDoFHandlerGradientMatchesMatrixCreator)
       EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
 }
 
+TEST(WeakTerm, PoissonLaplaceFormUsesTrialAndTestGradient)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(1);
+  FE_Q<2>     fe(1);
+  ScalarSpace space(tria, fe);
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto u = V.field(layout, "u");
+
+  using Vector = Vector<double>;
+  using Matrix = SparseMatrix<double>;
+  using Model  = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+
+  // This is the weak form of the scalar Poisson operator.  In particular,
+  // the test expression is derived from the same field as the trial
+  // expression, so no solver-specific facade is required.
+  weak_term(gradient(u), gradient(test(u))).add(builder);
+
+  StateView<Vector>               state_view(layout, 0.);
+  const EvaluationContext<Vector> context(0., state_view);
+  const auto                      actual =
+    model.state_matrix_operator(u.field_id(), u.field_id(), context);
+  ASSERT_TRUE(actual.has_value());
+  ASSERT_TRUE(actual->is_materializable());
+
+  DynamicSparsityPattern dynamic_sparsity(space.dof_handler.n_dofs(),
+                                          space.dof_handler.n_dofs());
+  DoFTools::make_sparsity_pattern(space.dof_handler,
+                                  dynamic_sparsity,
+                                  space.constraints,
+                                  false);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic_sparsity);
+  Matrix reference(sparsity);
+  MatrixCreator::create_laplace_matrix(StaticMappingQ1<2>::mapping,
+                                       space.dof_handler,
+                                       QGauss<2>(fe.degree + 1),
+                                       reference,
+                                       static_cast<const Function<2> *>(
+                                         nullptr),
+                                       space.constraints);
+
+  const auto actual_matrix = actual->matrix();
+  ASSERT_EQ(actual_matrix->m(), reference.m());
+  ASSERT_EQ(actual_matrix->n(), reference.n());
+  for (unsigned int i = 0; i < reference.m(); ++i)
+    for (unsigned int j = 0; j < reference.n(); ++j)
+      EXPECT_NEAR(actual_matrix->el(i, j), reference.el(i, j), 1.e-12);
+}
+
 TEST(WeakTerm, SameDoFHandlerVectorGradientUsesScalarProduct)
 {
   Triangulation<2> tria;

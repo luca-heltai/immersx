@@ -53,7 +53,8 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ReducedCoupling0D
     WeakTermNonmatching
     Constraint
-    WeakTerm)
+    WeakTerm
+    OutputHandler)
 
 set(IMMERSX_VALIDATION_TEST_SUITES
     ElasticStaticProblemValidation
@@ -171,7 +172,8 @@ set(_immersx_expected_test_suites
     ReducedPoisson0D
     FieldCatalog
     VTKUtils
-    WeakTerm)
+    WeakTerm
+    OutputHandler)
 list(SORT _immersx_expected_test_suites)
 set(_immersx_actual_test_suites ${_immersx_category_suites})
 list(SORT _immersx_actual_test_suites)

@@ -27,6 +27,7 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -422,6 +423,13 @@ namespace ImmersX
     dof_handler() const
     {
       return *dof_handler_;
+    }
+
+    /** Return the Q1 mapping used by this problem's FE evaluations. */
+    const dealii::Mapping<dim, spacedim> &
+    mapping() const
+    {
+      return StaticMappingQ1<dim, spacedim>::mapping;
     }
 
     const dealii::AffineConstraints<double> &

@@ -1,0 +1,98 @@
+subsection Fiber Reinforced Elastodynamics
+  set Output directory       = output
+  set Multiplier output name = velocity_multiplier
+  subsection Time interval
+    set Initial time         = 0.0
+    set Final time           = 0.001
+    set Output time interval = 0.001
+  end
+  subsection Fixed step
+    set Time step          = 0.001
+    set Number of time steps = 1
+    set Policy             = number_of_steps
+  end
+  subsection Coupling solver
+    set Maximum steps                 = 200
+    set Tolerance                     = 1.e-10
+    set Block tolerance               = 1.e-12
+    set Initial compatibility tolerance = 1.e-10
+  end
+  subsection Matrix Elastodynamics
+    set FE degree              = 1
+    set Initial refinement     = 0
+    set Dirichlet boundary ids = 0,1,2,3
+    subsection Grid generation
+      set Grid generator           = hyper_cube
+      set Grid generator arguments = -1: 1: false
+      set Triangulation type       = distributed
+    end
+    subsection Material
+      set Density       = 1.0
+      set Lame mu       = 1.0
+      set Lame lambda   = 1.0
+      set Damping shear = 0.0
+      set Damping bulk  = 0.0
+    end
+    subsection Functions
+      subsection Body force
+        set Function expression = 0; 1
+        set Variable names      = x,y,t
+      end
+      subsection Displacement boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Velocity boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial displacement
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial velocity
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+    end
+  end
+  subsection Fiber Elastodynamics
+    set FE degree              = 1
+    set Initial refinement     = 0
+    set Dirichlet boundary ids =
+    subsection Grid generation
+      set Grid generator           = hyper_cube
+      set Grid generator arguments = -0.5: 0.5: false
+      set Triangulation type       = distributed
+    end
+    subsection Material
+      set Density       = 1.0
+      set Lame mu       = 1.0
+      set Lame lambda   = 1.0
+      set Damping shear = 0.0
+      set Damping bulk  = 0.0
+    end
+    subsection Functions
+      subsection Body force
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Displacement boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Velocity boundary
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial displacement
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+      subsection Initial velocity
+        set Function expression = 0; 0
+        set Variable names      = x,y,t
+      end
+    end
+  end
+end

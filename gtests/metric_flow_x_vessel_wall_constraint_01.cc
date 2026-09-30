@@ -110,7 +110,7 @@ namespace
       solid_fields.emplace(adapter->add(*solid_problem, "elastodynamics"));
       flow_fields.emplace(
         adapter->add(ImmersX::metric_flow_x(*flow_problem), "blood-flow"));
-      solid_space = std::make_unique<ImmersX::FESpaceView<3, 3>>(
+      solid_space = std::make_unique<ImmersX::FiniteElementSpaceView<3, 3>>(
         solid_problem->dof_handler(),
         solid_problem->mapping(),
         solid_problem->constraints(),
@@ -172,21 +172,21 @@ namespace
       adapter->field(state_dot, coupling_fields.multiplier) = 0.;
     }
 
-    std::unique_ptr<FlowProblem>                          flow_problem;
-    std::unique_ptr<ImmersX::TimeIntervalParameters>      flow_time;
-    std::unique_ptr<ImmersX::FixedStepParameters>         flow_fixed_step;
-    std::unique_ptr<ImmersX::IDAParameters>               flow_ida;
-    std::unique_ptr<ImmersX::ElastodynamicsParameters<3>> solid_parameters;
-    std::unique_ptr<SolidProblem>                         solid_problem;
-    std::unique_ptr<WallObservable::Lift>                 wall_lift;
-    std::unique_ptr<ImmersX::FESpaceView<3, 3>>           solid_space;
-    std::unique_ptr<SolidField>                           solid_field;
-    std::unique_ptr<WallObservable>                       wall_observable;
-    std::unique_ptr<Interaction>                          interaction;
-    std::unique_ptr<Adapter>                              adapter;
-    std::optional<SolidFields>                            solid_fields;
-    std::optional<FlowFields>                             flow_fields;
-    ImmersX::ConstraintFields                             coupling_fields;
+    std::unique_ptr<FlowProblem>                           flow_problem;
+    std::unique_ptr<ImmersX::TimeIntervalParameters>       flow_time;
+    std::unique_ptr<ImmersX::FixedStepParameters>          flow_fixed_step;
+    std::unique_ptr<ImmersX::IDAParameters>                flow_ida;
+    std::unique_ptr<ImmersX::ElastodynamicsParameters<3>>  solid_parameters;
+    std::unique_ptr<SolidProblem>                          solid_problem;
+    std::unique_ptr<WallObservable::Lift>                  wall_lift;
+    std::unique_ptr<ImmersX::FiniteElementSpaceView<3, 3>> solid_space;
+    std::unique_ptr<SolidField>                            solid_field;
+    std::unique_ptr<WallObservable>                        wall_observable;
+    std::unique_ptr<Interaction>                           interaction;
+    std::unique_ptr<Adapter>                               adapter;
+    std::optional<SolidFields>                             solid_fields;
+    std::optional<FlowFields>                              flow_fields;
+    ImmersX::ConstraintFields                              coupling_fields;
   };
 } // namespace
 

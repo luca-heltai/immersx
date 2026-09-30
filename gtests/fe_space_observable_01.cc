@@ -7,8 +7,11 @@
 //
 // ---------------------------------------------------------------------
 
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/dofs/dof_handler.h>
 
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values_extractors.h>
@@ -24,6 +27,7 @@
 #include <immersx/core/observable_lift.h>
 #include <immersx/core/state.h>
 #include <immersx/core/symbolic_expression_kernel.h>
+#include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
 
 #include <type_traits>
@@ -76,6 +80,40 @@ TEST(FESpace, IsANonOwningViewAndSupportsSubspaces)
   EXPECT_FALSE(displacement_again.is_registered());
   EXPECT_EQ(&displacement.dof_handler(), &system.dof_handler);
   EXPECT_EQ(displacement.extractor().first_vector_component, 0u);
+}
+
+TEST(FESpace, ScalarAndVectorFieldCPOsUseDealIIExtractors)
+{
+  ExternalFESystem     system;
+  ImmersX::StateLayout layout;
+  const auto           V = ImmersX::fe_space(system.dof_handler,
+                                   system.mapping,
+                                   system.constraints,
+                                   system.relevant);
+
+  const auto scalar = ImmersX::scalar_field(V, "temperature");
+  const auto vector = ImmersX::vector_field(V, "velocity");
+  const auto registered_scalar =
+    ImmersX::scalar_field(V, layout, "registered-temperature");
+  const auto registered_vector =
+    ImmersX::vector_field(V, layout, "registered-velocity");
+
+  using ScalarField = ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>;
+  using VectorField = ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>;
+  static_assert(
+    std::is_same_v<std::remove_cv_t<decltype(scalar)>, ScalarField>);
+  static_assert(
+    std::is_same_v<std::remove_cv_t<decltype(vector)>, VectorField>);
+
+  EXPECT_EQ(scalar.name(), "temperature");
+  EXPECT_EQ(scalar.extractor().component, 0u);
+  EXPECT_EQ(vector.name(), "velocity");
+  EXPECT_EQ(vector.extractor().first_vector_component, 0u);
+  EXPECT_FALSE(scalar.is_registered());
+  EXPECT_FALSE(vector.is_registered());
+  EXPECT_TRUE(registered_scalar.is_registered());
+  EXPECT_TRUE(registered_vector.is_registered());
+  EXPECT_NE(registered_scalar.field_id(), registered_vector.field_id());
 }
 
 TEST(FESpace, ValueAndGradientExposeTypedDependencies)
@@ -385,13 +423,33 @@ TEST(FESpace, WrapsAnExistingProblemFromTheOutside)
   problem.make_grid();
   problem.setup_fe();
 
-  const auto V        = ImmersX::fe_space(problem.dof_handler(),
-                                   StaticMappingQ1<2>::mapping,
-                                   problem.constraints(),
-                                   problem.locally_relevant_dofs());
+  const auto V        = ImmersX::finite_element_space_view(problem);
   const auto pressure = V.field("pressure");
 
   EXPECT_EQ(&pressure.dof_handler(), &problem.dof_handler());
+  EXPECT_EQ(&V.mapping(), &StaticMappingQ1<2>::mapping);
   EXPECT_EQ(pressure.name(), "pressure");
   EXPECT_FALSE(pressure.is_registered());
+}
+
+TEST(FESpace, ParametersSelectFiniteElementByName)
+{
+  ParameterAcceptor::clear();
+  ImmersX::FiniteElementSpaceParameters<2> parameters("/Finite element space/");
+  ImmersX::initialize_parameters_from_string(R"(
+    subsection Finite element space
+      set Finite element = FE_DGQ<2>(2)
+    end
+  )");
+
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(triangulation);
+  triangulation.refine_global(1);
+  ImmersX::FiniteElementSpace<2> space(triangulation, parameters);
+
+  EXPECT_NE(dynamic_cast<const FE_DGQ<2> *>(&space.finite_element()), nullptr);
+  EXPECT_EQ(space.dof_handler().n_dofs(), 36u);
+  const auto view = space.view();
+  EXPECT_EQ(&view.dof_handler(), &space.dof_handler());
+  EXPECT_EQ(&view.mapping(), &StaticMappingQ1<2>::mapping);
 }

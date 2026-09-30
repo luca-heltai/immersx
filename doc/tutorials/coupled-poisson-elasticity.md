@@ -19,7 +19,7 @@ The executable is `coupled_poisson_elasticity`, from
 :language: ini
 ```
 
-The application creates `FESpaceView`s for the two native DoFHandlers, names
+The application creates `FiniteElementSpaceView`s for the two native DoFHandlers, names
 the solution fields, constructs the lift and the surface normal, and adds a
 `weak_term` to a `LinearAdapter`. The adapter owns the execution vector and
 the coupled solve. Each Problem receives its accepted solution before native

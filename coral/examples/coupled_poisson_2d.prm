@@ -1,0 +1,73 @@
+subsection Multiplier finite element space
+  set Finite element = FE_DGQ<1>(0)
+end
+
+subsection Linear adapter
+  set Solver                         = automatic
+  set Preconditioner                 = automatic
+  set Maximum iterations             = 1000
+  set Tolerance                      = 1.e-12
+  set Augmented Lagrangian parameter = 1.e1
+end
+
+subsection Output
+  set Output directory = output
+end
+
+subsection Poisson
+  set FE degree              = 1
+  set Output directory       = output
+  set Output name            = bulk_solution
+  set Dirichlet boundary ids = 0
+  subsection Domain
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Initial refinement        = 1
+    set Triangulation type        = distributed
+  end
+  subsection Right hand side
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Control
+      set Max steps = 500
+      set Reduction = 1.e-12
+      set Tolerance = 1.e-12
+      set Log result = false
+    end
+  end
+end
+
+subsection Embedded Poisson
+  set FE degree              = 1
+  set Output directory       = output
+  set Output name            = embedded_solution
+  set Dirichlet boundary ids = 0,1
+  subsection Domain
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Initial refinement        = 1
+    set Triangulation type        = distributed
+  end
+  subsection Right hand side
+    set Function expression = 1
+    set Variable names      = x,y,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names      = x,y,t
+  end
+  subsection Solver
+    subsection Control
+      set Max steps = 500
+      set Reduction = 1.e-12
+      set Tolerance = 1.e-12
+      set Log result = false
+    end
+  end
+end
