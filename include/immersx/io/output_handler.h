@@ -14,6 +14,8 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/fe/fe_values_extractors.h>
 
 #include <deal.II/numerics/data_out.h>
@@ -121,11 +123,22 @@ namespace ImmersX
                     space_.locally_relevant_dofs(),
                     space_.mpi_communicator());
       native = 0.;
+      std::vector<dealii::IndexSet> component_dofs(n_components);
+      for (unsigned int component = 0; component < n_components; ++component)
+        component_dofs[component] = dealii::DoFTools::extract_dofs(
+          space_.dof_handler(),
+          space_.finite_element().component_mask(
+            dealii::FEValuesExtractors::Scalar(component)));
+
       for (const auto native_index : space_.locally_owned_dofs())
         {
-          const auto component = space_.finite_element()
-                                   .system_to_component_index(native_index)
-                                   .first;
+          unsigned int component = 0;
+          while (component < n_components &&
+                 !component_dofs[component].is_element(native_index))
+            ++component;
+          AssertThrow(component < n_components,
+                      dealii::ExcMessage(
+                        "A native DoF has no finite-element component."));
           const auto &field = *component_fields[component];
           AssertThrow(field.has_execution_index(native_index),
                       dealii::ExcMessage(

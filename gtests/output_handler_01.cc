@@ -7,7 +7,6 @@
 //
 // ---------------------------------------------------------------------
 
-#include <deal.II/base/function_parser.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/tria.h>
@@ -57,11 +56,17 @@ namespace
   configure_navier_stokes_parameters(
     ImmersX::NavierStokesParameters<2> &parameters)
   {
-    const auto variables =
-      dealii::FunctionParser<2>::default_variable_names() + ",t";
-    parameters.rhs.initialize(variables, "0; 0; 0");
-    parameters.bc.initialize(variables, "0; 0; 0");
-    parameters.initial_condition.initialize(variables, "0; 0; 0");
+    using ParsedFunction  = dealii::Functions::ParsedFunction<2>;
+    const auto initialize = [](ParsedFunction &function) {
+      dealii::ParameterHandler prm;
+      ParsedFunction::declare_parameters(prm, 3);
+      prm.set("Variable names", "x,y,t");
+      prm.set("Function expression", "0; 0; 0");
+      function.parse_parameters(prm);
+    };
+    initialize(static_cast<ParsedFunction &>(parameters.rhs));
+    initialize(static_cast<ParsedFunction &>(parameters.bc));
+    initialize(static_cast<ParsedFunction &>(parameters.initial_condition));
     parameters.domain_parameters.initial_refinement = 0;
     parameters.include_convective_term              = false;
     parameters.dirichlet_ids                        = {0};
@@ -82,11 +87,12 @@ TEST(OutputHandler, BOTH_ScalarField)
   dof_handler.distribute_dofs(finite_element);
   AffineConstraints<double> constraints;
   constraints.close();
-  const auto space =
-    ImmersX::fe_space(dof_handler,
-                      StaticMappingQ1<2>::mapping,
-                      constraints,
-                      DoFTools::extract_locally_relevant_dofs(dof_handler));
+  const auto locally_relevant =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
+  const auto space = ImmersX::fe_space(dof_handler,
+                                       StaticMappingQ1<2>::mapping,
+                                       constraints,
+                                       locally_relevant);
 
   ImmersX::StateLayout layout;
   const auto           temperature = space.field(layout, "temperature");
