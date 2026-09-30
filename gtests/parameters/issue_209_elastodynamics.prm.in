@@ -1,0 +1,56 @@
+set dimension       = 2
+set space dimension = 2
+
+subsection Elastodynamics
+  set Dirichlet boundary ids      = 0
+  set FE degree                   = 1
+  set Number of refinement cycles = 1
+  set Output directory            = @TEST_OUTPUT_DIR@/gtests/parameters/issue_209/elastodynamics
+  set Output name                 = solution_elastodynamics
+  subsection Domain
+    set Initial refinement        = 6
+    set Grid generator            = hyper_cube
+    set Grid generator arguments  = 0:0.1:true
+    set Triangulation type        = distributed
+  end
+  subsection Material
+    set Density       = 1000
+    set Lame mu       = 1000
+    set Lame lambda   = 0
+    # Legacy Viscosity eta=25 is eta*epsilon:epsilon. The standalone form is
+    # 2*damping_shear*epsilon:epsilon, hence damping_shear=12.5.
+    set Damping shear = 12.5
+    set Damping bulk  = 0
+  end
+  subsection Fixed step
+    set Number of time steps = 0
+    set Policy               = fixed
+    set Strategy             = trapezoidal
+    set Refine time step     = false
+    set Time step            = 0.0025
+  end
+  subsection Time interval
+    set Initial time         = 0.0
+    set Final time           = 0.02
+    set Output time interval = 0.0025
+  end
+  subsection Functions
+    subsection Displacement boundary
+      set Function expression  = sin(2*pi*50*t); 0
+      set Variable names       = x,y,t
+    end
+  end
+  subsection Solver
+    subsection Control
+      set Max steps = 1000
+    set Reduction = 1.e-14
+    set Tolerance = 1.e-14
+    end
+  end
+end
+
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  = @TEST_OUTPUT_DIR@/gtests/parameters/issue_209/elastodynamics/errors.txt
+  set Error precision                  = 8
+end
