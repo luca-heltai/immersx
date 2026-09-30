@@ -13,8 +13,6 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 
-#include <deal.II/numerics/data_out.h>
-
 #include <coral.h>
 #include <coral_log.h>
 #include <coral_network.h>
@@ -27,6 +25,7 @@
 #include <immersx/core/fe_space.h>
 #include <immersx/core/linear_adapter.h>
 #include <immersx/core/observable.h>
+#include <immersx/io/output_handler.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
@@ -36,7 +35,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -526,40 +524,6 @@ namespace ImmersX::Coral
     base_initializer.json_serializer["derived"] = known_derived_types;
   }
 
-  template <int dim, int spacedim>
-  void
-  write_scalar_field(
-    const ImmersX::FiniteElementSpaceView<dim, spacedim> &space,
-    const ImmersXLA::MPI::Vector                         &field,
-    const std::string                                    &output_file,
-    const std::string                                    &field_name)
-  {
-    const std::filesystem::path pvd_path(output_file);
-    if (!pvd_path.parent_path().empty())
-      std::filesystem::create_directories(pvd_path.parent_path());
-
-    dealii::DataOut<dim, spacedim> data_out;
-    data_out.attach_dof_handler(space.dof_handler());
-    data_out.add_data_vector(field,
-                             field_name,
-                             dealii::DataOut<dim, spacedim>::type_dof_data);
-    data_out.build_patches();
-
-    const auto rank =
-      dealii::Utilities::MPI::this_mpi_process(space.mpi_communicator());
-    const auto vtu_name =
-      pvd_path.stem().string() + "-0." + std::to_string(rank) + ".vtu";
-    std::ofstream vtu_file(pvd_path.parent_path() / vtu_name);
-    data_out.write_vtu(vtu_file);
-
-    MPI_Barrier(space.mpi_communicator());
-    if (rank == 0)
-      {
-        std::ofstream pvd_file(pvd_path);
-        dealii::DataOutBase::write_pvd_record(pvd_file, {{0., vtu_name}});
-      }
-  }
-
   inline void
   assert_finite_below(const double value, const double limit)
   {
@@ -621,6 +585,115 @@ namespace ImmersX::Coral
   template <int dim, int spacedim>
   using LinearAdapterFor =
     ImmersX::LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector>;
+
+  template <typename Adapter, typename GlobalVector, typename FieldVector>
+  class LinearStateAccessor : public ImmersX::StateAccessor<FieldVector>
+  {
+  public:
+    LinearStateAccessor(const Adapter &adapter, const GlobalVector &state)
+      : adapter_(adapter)
+      , state_(state)
+    {}
+
+    const FieldVector &
+    field(const ImmersX::FieldId field_id, const double) const override
+    {
+      return adapter_.field(state_, field_id);
+    }
+
+  private:
+    const Adapter      &adapter_;
+    const GlobalVector &state_;
+  };
+
+  template <int dim, int spacedim>
+  void
+  write_linear_output(
+    const std::shared_ptr<
+      ImmersX::OutputHandler<dim, spacedim, ImmersXLA::MPI::Vector>> &output,
+    const std::shared_ptr<LinearAdapterFor<dim, spacedim>>           &adapter,
+    const ImmersXLA::MPI::BlockVector                                &state,
+    const double                                                      time)
+  {
+    LinearStateAccessor<LinearAdapterFor<dim, spacedim>,
+                        ImmersXLA::MPI::BlockVector,
+                        ImmersXLA::MPI::Vector>
+      accessor(*adapter, state);
+    output->write(accessor, time);
+  }
+
+  template <int dim, int spacedim>
+  void
+  register_linear_output_handler_types()
+  {
+    using Adapter       = LinearAdapterFor<dim, spacedim>;
+    using AdapterHandle = std::shared_ptr<Adapter>;
+    using FieldVector   = ImmersXLA::MPI::Vector;
+    using GlobalVector  = ImmersXLA::MPI::BlockVector;
+    using Parameters    = ImmersX::OutputHandlerParameters;
+    using Handler       = ImmersX::OutputHandler<dim, spacedim, FieldVector>;
+    using HandlerHandle = std::shared_ptr<Handler>;
+    using Space         = ImmersX::FiniteElementSpaceView<dim, spacedim>;
+    using ScalarField =
+      ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
+    using VectorField =
+      ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+
+    coral::detail::set_type_alias<Handler>("ImmersX::OutputHandler<" +
+                                           dimensions(dim, spacedim) + ">");
+    coral::detail::set_type_alias<HandlerHandle>(
+      "ImmersX::OutputHandlerHandle<" + dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_output_type<HandlerHandle>();
+
+    const auto create_metadata = coral::RegistryMetadata{
+      "Create output handler",
+      "Output handler",
+      "Semantic FE output. " + dimensions(dim, spacedim),
+      "Create an output handler for one semantic finite-element space."};
+    coral::NodeObject::register_function(
+      std::function<
+        HandlerHandle(const Space &, const Parameters &, const std::string &)>(
+        [](const Space       &space,
+           const Parameters  &parameters,
+           const std::string &basename) {
+          return std::make_shared<Handler>(space, parameters, basename);
+        }),
+      {"space", "parameters", "basename"},
+      create_metadata);
+
+    coral::NodeObject::register_function(
+      std::function<void(HandlerHandle &, const ScalarField &)>(
+        [](HandlerHandle &output, const ScalarField &field) {
+          output->add_field(field);
+        }),
+      {"output", "field"},
+      coral::RegistryMetadata{"Add scalar field",
+                              "Add scalar field",
+                              "Output handler",
+                              "Register a scalar semantic field."});
+
+    coral::NodeObject::register_function(
+      std::function<void(HandlerHandle &, const VectorField &)>(
+        [](HandlerHandle &output, const VectorField &field) {
+          output->add_field(field);
+        }),
+      {"output", "field"},
+      coral::RegistryMetadata{"Add vector field",
+                              "Add vector field",
+                              "Output handler",
+                              "Register a vector semantic field."});
+
+    coral::NodeObject::register_function(
+      std::function<void(const HandlerHandle &,
+                         const AdapterHandle &,
+                         const GlobalVector &,
+                         const double &)>(&write_linear_output<dim, spacedim>),
+      {"output", "adapter", "state", "time"},
+      coral::RegistryMetadata{"Write output",
+                              "Write output",
+                              "Output handler",
+                              "Write semantic fields at one time."});
+  }
 
   template <int dim, int spacedim>
   void
@@ -702,7 +775,6 @@ namespace ImmersX::Coral
         std::declval<const LineField &>()))>;
     using ConstraintFields = ImmersX::ConstraintFields;
     using ConstraintHandle = ImmersX::ProblemHandle<Adapter, ConstraintFields>;
-    using View             = ImmersX::FiniteElementSpaceView<1, spacedim>;
 
     coral::detail::set_type_alias<Adapter>("ImmersX::LinearAdapter<2>");
     coral::detail::set_type_alias<AdapterHandle>("ImmersX::LinearExecution");
@@ -720,6 +792,10 @@ namespace ImmersX::Coral
 
     register_parameter_type<AdapterParameters>(
       "ImmersX::LinearAdapterParameters");
+    register_parameter_type<ImmersX::OutputHandlerParameters>(
+      "ImmersX::OutputHandlerParameters");
+    register_linear_output_handler_types<1, spacedim>();
+    register_linear_output_handler_types<2, spacedim>();
 
     coral::RegistryMetadata adapter_metadata;
     adapter_metadata.operation    = "Create linear execution";
@@ -854,18 +930,6 @@ namespace ImmersX::Coral
         "Assert finite below",
         "Scalar diagnostic",
         "Require a finite scalar below a prescribed limit."});
-
-    coral::NodeObject::register_function(
-      std::function<void(const View &,
-                         const FieldVector &,
-                         const std::string &,
-                         const std::string &)>(
-        &write_scalar_field<1, spacedim>),
-      {"space", "field", "output_file", "field_name"},
-      coral::RegistryMetadata{"Write scalar field",
-                              "Write scalar field",
-                              "Finite element space",
-                              "Write a scalar field and its PVD record."});
   }
 
   template <int dim, int spacedim>

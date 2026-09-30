@@ -137,7 +137,8 @@ endforeach()
 if(SPACEDIM EQUAL 2)
   foreach(_parameter_type
       "ImmersX::FiniteElementSpaceParameters<1,2>"
-      "ImmersX::LinearAdapterParameters")
+      "ImmersX::LinearAdapterParameters"
+      "ImmersX::OutputHandlerParameters")
     string(JSON _parameter_base ERROR_VARIABLE _parameter_base_error
       GET "${_registry}" "${_parameter_type}" base)
     if(_parameter_base_error OR
@@ -305,12 +306,15 @@ if(SPACEDIM EQUAL 2)
       "Continuity constraint"
       "Add constraint to linear execution"
       "Constraint multiplier field"
+      "Create output handler"
+      "Add scalar field"
+      "Add vector field"
+      "Write output"
       "Create linear state"
       "Solve linear state"
       "Evaluate linear residual"
       "Linear state norm"
-      "Assert finite below"
-      "Write scalar field")
+      "Assert finite below")
     string(FIND "${_registry}" "${_operation}" _operation_found)
     if(_operation_found EQUAL -1)
       message(FATAL_ERROR

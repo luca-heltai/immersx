@@ -10,6 +10,10 @@ subsection Linear adapter
   set Augmented Lagrangian parameter = 1.e1
 end
 
+subsection Output
+  set Output directory = output
+end
+
 subsection Poisson
   set FE degree              = 1
   set Output directory       = output
