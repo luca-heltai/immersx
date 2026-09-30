@@ -81,7 +81,7 @@
       "5": {"source": 3, "source_output": 0, "target": 9, "target_input": 1},
       "6": {"source": 5, "source_output": 0, "target": 9, "target_input": 2},
       "7": {"source": 7, "source_output": 0, "target": 9, "target_input": 3},
-      "8": {"source": 8, "source_output": 0, "target": 9, "target_input": 4},
+      "8": {"source": 8, "source_output": 0, "target": 9, "target_input": 5},
       "9": {"source": 9, "source_output": 0, "target": 10, "target_input": 0},
       "10": {"source": 10, "source_output": 0, "target": 11, "target_input": 0},
       "11": {"source": 11, "source_output": 0, "target": 12, "target_input": 0},
