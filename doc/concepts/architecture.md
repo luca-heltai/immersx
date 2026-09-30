@@ -141,3 +141,19 @@ select the Newton or line-search strategy and nonlinear stopping controls.
 `ProblemHandle` connects an adapter to the fields returned by a contributor.
 It is the application's typed way to access semantic field identities while
 the adapter keeps execution storage private.
+
+## Output
+
+`Problem::output_results()` is legacy/native Problem-owned output of an
+accepted state. It remains useful when a Problem owns the output lifecycle.
+`OutputHandler` is solver-neutral output of semantic execution `Field`s. It
+reads fields through `StateAccessor`, so it can be used by a linear, IDA, or
+KINSOL execution without adding solver knowledge to the output code.
+
+An `OutputHandler` reconstructs the native FE vector from the registered
+fields. This matters for a mixed Stokes space: velocity and pressure are
+separate semantic fields with separate execution vectors, but both refer to
+one native mixed `DoFHandler`. The velocity and pressure `Field`s retain their
+native-to-execution mappings, so output can write one dataset with a vector
+`velocity` and scalar `pressure` without exposing execution block numbers to
+the handler.
