@@ -857,9 +857,10 @@ namespace
     std::optional<decltype(std::declval<Adapter &>().add(
       std::declval<const decltype(metric_flow_x(
         std::declval<FlowProblem &>())) &>()))>
-                     flow_fields;
-    ConstraintFields coupling_fields;
-    bool             spatial_case = false;
+      flow_fields;
+    using MultiplierField = Field<1, 3, dealii::FEValuesExtractors::Scalar>;
+    ConstraintFields<MultiplierField> coupling_fields;
+    bool                              spatial_case = false;
   };
 
   ErrorRecord

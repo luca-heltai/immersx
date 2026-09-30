@@ -186,7 +186,9 @@ namespace
     std::unique_ptr<Adapter>                               adapter;
     std::optional<SolidFields>                             solid_fields;
     std::optional<FlowFields>                              flow_fields;
-    ImmersX::ConstraintFields                              coupling_fields;
+    using MultiplierField =
+      ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>;
+    ImmersX::ConstraintFields<MultiplierField> coupling_fields;
   };
 } // namespace
 

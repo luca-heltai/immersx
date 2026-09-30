@@ -373,13 +373,13 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
   const auto matrix_pairing =
     ida
       .state_matrix_operator(coupling_state,
-                             coupling.fields().multiplier,
+                             coupling.fields().multiplier.id(),
                              matrix.fields().velocity.id())
       ->matrix();
   const auto negative_fiber_pairing =
     ida
       .state_matrix_operator(coupling_state,
-                             coupling.fields().multiplier,
+                             coupling.fields().multiplier.id(),
                              fiber.fields().velocity.id())
       ->matrix();
   auto fiber_pairing = std::make_shared<MatrixType>();
@@ -389,7 +389,7 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
     ida
       .state_matrix_operator(coupling_state,
                              matrix.fields().velocity.id(),
-                             coupling.fields().multiplier)
+                             coupling.fields().multiplier.id())
       ->matrix();
 #  ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
