@@ -635,7 +635,7 @@ namespace ImmersX
                                      &locally_relevant);
   }
 
-  /**
+  /** \cond IMMERSX_INTERNAL
    * Adapt a Problem exposing the FE-space capability structurally.
    *
    * No base class is required: a Problem only needs const accessors for its
@@ -654,6 +654,7 @@ namespace ImmersX
                                      problem.constraints(),
                                      problem.locally_relevant_dofs());
   }
+  /** \endcond */
 
   template <int dim, int spacedim = dim>
   FiniteElementSpaceView<dim, spacedim>
