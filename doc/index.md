@@ -31,6 +31,7 @@ how-to/index
 tutorials/index
 concepts/index
 reference/index
+dealiiX-platform/index
 developer/index
 changes/index
 about/index

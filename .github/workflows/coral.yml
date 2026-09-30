@@ -39,6 +39,10 @@ jobs:
           path: coral-upstream
           submodules: recursive
 
+      - name: Prepare Coral plugin SDK
+        run: |
+          base64 -d "$GITHUB_WORKSPACE/.github/coral/coral-api.patch.gz.b64" | gzip -d | git -C coral-upstream apply
+
       - name: Install Coral
         run: |
           rm -rf coral-build-debug coral-install-debug
@@ -116,6 +120,10 @@ jobs:
           ref: installable-plugin-sdk
           path: coral-upstream
           submodules: recursive
+
+      - name: Prepare Coral plugin SDK
+        run: |
+          base64 -d "$GITHUB_WORKSPACE/.github/coral/coral-api.patch.gz.b64" | gzip -d | git -C coral-upstream apply
 
       - name: Install Coral
         run: |
