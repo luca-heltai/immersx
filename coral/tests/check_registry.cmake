@@ -135,6 +135,38 @@ foreach(_dim RANGE 1 ${SPACEDIM})
 endforeach()
 
 if(SPACEDIM EQUAL 2)
+  foreach(_primitive_type
+      "ImmersX::DomainParameters<2,2>"
+      "ImmersX::OwnedDomain<2,2>"
+      "ImmersX::OwnedFiniteElementSpace<2,2>"
+      "ImmersX::TestExpression<2,2,Scalar>"
+      "ImmersX::TestGradient<2,2>"
+      "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestGradient>")
+    string(FIND "${_registry}" "${_primitive_type}" _primitive_found)
+    if(_primitive_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry 2d is missing generic primitive type ${_primitive_type}.")
+    endif()
+  endforeach()
+
+  foreach(_primitive_operation
+      "Create domain"
+      "Generate domain"
+      "Create finite element space"
+      "Set constant Dirichlet boundary condition"
+      "Test field"
+      "Test gradient"
+      "Register algebraic field"
+      "Weak term"
+      "Add weak term to linear execution")
+    string(FIND "${_registry}" "\"operation\": \"${_primitive_operation}\""
+      _primitive_operation_found)
+    if(_primitive_operation_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry 2d is missing generic primitive operation '${_primitive_operation}'.")
+    endif()
+  endforeach()
+
   foreach(_parameter_type
       "ImmersX::FiniteElementSpaceParameters<1,2>"
       "ImmersX::LinearAdapterParameters"

@@ -1404,6 +1404,10 @@ namespace ImmersX::Coral
       {name + "::current_time", "problem", "time"});
   }
 
+  template <int dim, int spacedim>
+  inline void
+  register_primitive_types();
+
   template <int spacedim>
   void
   register_immersx_types()
@@ -1426,6 +1430,7 @@ namespace ImmersX::Coral
             register_linear_problem_operations<1, spacedim>();
             register_linear_problem_operations<2, spacedim>();
             register_linear_execution_types();
+            register_primitive_types<2, spacedim>();
             register_fiber_reinforced_types<2>();
             register_fiber_reinforced_composition_types<2>();
 #ifdef DEAL_II_WITH_SUNDIALS
@@ -1522,5 +1527,7 @@ namespace ImmersX::Coral
     PluginState<spacedim>::mpi_session.reset();
   }
 } // namespace ImmersX::Coral
+
+#include <immersx/coral/register_primitives.h>
 
 #endif // immersx_coral_register_h

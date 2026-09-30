@@ -1,0 +1,21 @@
+subsection Primitive domain
+  set Grid generator           = hyper_cube
+  set Grid generator arguments = -1: 1: false
+  set Initial refinement       = 1
+  set Triangulation type       = distributed
+end
+
+subsection Primitive space
+  set Finite element = FE_Q<2>(1)
+end
+
+subsection Primitive adapter
+  set Solver         = iterative
+  set Preconditioner = none
+  set Maximum iterations = 1000
+  set Tolerance      = 1.e-12
+end
+
+subsection Primitive output
+  set Output directory = output
+end
