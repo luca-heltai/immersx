@@ -7,6 +7,7 @@
 //
 // ---------------------------------------------------------------------
 
+#include <deal.II/base/function_parser.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/distributed/tria.h>
@@ -56,6 +57,11 @@ namespace
   configure_navier_stokes_parameters(
     ImmersX::NavierStokesParameters<2> &parameters)
   {
+    const auto variables =
+      dealii::FunctionParser<2>::default_variable_names() + ",t";
+    parameters.rhs.initialize(variables, "0; 0; 0");
+    parameters.bc.initialize(variables, "0; 0; 0");
+    parameters.initial_condition.initialize(variables, "0; 0; 0");
     parameters.domain_parameters.initial_refinement = 0;
     parameters.include_convective_term              = false;
     parameters.dirichlet_ids                        = {0};
@@ -92,15 +98,19 @@ TEST(OutputHandler, BOTH_ScalarField)
   ImmersX::OutputHandler<2, 2, FieldVector> output(space, parameters, "scalar");
   output.add_field(temperature);
   ASSERT_NO_THROW(output.write(state, 0.));
+  MPI_Barrier(MPI_COMM_WORLD);
 
-  const auto directory = std::filesystem::path(parameters.output_directory);
-  EXPECT_TRUE(std::filesystem::exists(directory / "scalar.pvd"));
-  bool has_vtu = false;
-  for (const auto &entry : std::filesystem::directory_iterator(directory))
-    has_vtu = has_vtu || entry.path().extension() == ".vtu";
-  EXPECT_TRUE(has_vtu);
-  EXPECT_NE(output_text(parameters.output_directory).find("temperature"),
-            std::string::npos);
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      const auto directory = std::filesystem::path(parameters.output_directory);
+      EXPECT_TRUE(std::filesystem::exists(directory / "scalar.pvd"));
+      bool has_vtu = false;
+      for (const auto &entry : std::filesystem::directory_iterator(directory))
+        has_vtu = has_vtu || entry.path().extension() == ".vtu";
+      EXPECT_TRUE(has_vtu);
+      EXPECT_NE(output_text(parameters.output_directory).find("temperature"),
+                std::string::npos);
+    }
 }
 
 TEST(OutputHandler, BOTH_ReindexedNavierStokesFields)
@@ -179,12 +189,18 @@ TEST(OutputHandler, BOTH_ReindexedNavierStokesFields)
   output.add_field(velocity);
   output.add_field(pressure);
   ASSERT_NO_THROW(output.write(state, 0.));
+  MPI_Barrier(MPI_COMM_WORLD);
 
-  const auto directory =
-    std::filesystem::path(output_parameters.output_directory);
-  EXPECT_TRUE(std::filesystem::exists(directory / "stokes.pvd"));
-  EXPECT_NE(output_text(output_parameters.output_directory).find("velocity"),
-            std::string::npos);
-  EXPECT_NE(output_text(output_parameters.output_directory).find("pressure"),
-            std::string::npos);
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      const auto directory =
+        std::filesystem::path(output_parameters.output_directory);
+      EXPECT_TRUE(std::filesystem::exists(directory / "stokes.pvd"));
+      EXPECT_NE(
+        output_text(output_parameters.output_directory).find("velocity"),
+        std::string::npos);
+      EXPECT_NE(
+        output_text(output_parameters.output_directory).find("pressure"),
+        std::string::npos);
+    }
 }

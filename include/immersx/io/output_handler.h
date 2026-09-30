@@ -185,6 +185,7 @@ namespace ImmersX
           std::ofstream pvd(output_directory / (basename_ + ".pvd"));
           dealii::DataOutBase::write_pvd_record(pvd, output_records_);
         }
+      MPI_Barrier(communicator);
       ++output_cycle_;
     }
 
