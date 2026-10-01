@@ -16,13 +16,11 @@
 #include <coral.h>
 #include <immersx/core/boundary_conditions.h>
 #include <immersx/core/field_contributor.h>
-#include <immersx/core/problem_handle.h>
 
 #include <functional>
 #include <memory>
 #include <string>
 #include <type_traits>
-#include <utility>
 
 namespace ImmersX::Coral
 {

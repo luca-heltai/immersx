@@ -93,7 +93,7 @@ TEST(PoissonPrimitives, BOTH_SolveFromGenericPrimitives)
   auto state = adapter.make_state();
   adapter.solve(state);
 
-  const auto &solution = adapter.field(state, u.field_id());
+  const auto &solution = adapter.field(state, u);
   ASSERT_TRUE(std::isfinite(solution.l2_norm()));
   double local_maximum_error = 0.;
   for (const auto index : solution.locally_owned_elements())
