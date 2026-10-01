@@ -3140,18 +3140,18 @@ namespace ImmersX
               using AffineData =
                 typename Assembly::template AffineData<VectorType, MatrixType>;
               std::shared_ptr<AffineData> affine_data;
-              const auto storage = [&] {
+              const auto                  storage = [&] {
                 if (region.kind == WeakTermRegion::Kind::boundary)
                   {
                     AssertThrow(!detail::is_lifted_observable<
                                   std::decay_t<Target>>::value,
                                 dealii::ExcMessage(
                                   "Boundary weak terms do not support lifted "
-                                  "targets."));
+                                                   "targets."));
                     return Assembly::template assemble_boundary<VectorType,
                                                                 MatrixType>(
                       observable_, target, region.boundary_ids);
-                }
+                  }
                 return Assembly::template assemble<VectorType, MatrixType>(
                   observable_, target, &result.affine_rhs, &affine_data);
               }();
@@ -3174,7 +3174,7 @@ namespace ImmersX
 
     TrialExpression             observable_;
     TestExpression              target_;
-    WeakTermRegion               region_;
+    WeakTermRegion              region_;
     std::function<void(double)> context_update_;
   };
 
