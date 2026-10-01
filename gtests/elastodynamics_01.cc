@@ -19,6 +19,8 @@
 #include <cmath>
 #include <filesystem>
 
+#include "test_paths.h"
+
 using namespace ImmersX;
 #include <immersx/io/utils.h>
 
@@ -466,6 +468,68 @@ TEST(ElastodynamicsValidation, BOTH_TrapezoidalMatchesNewmarkMMS)
 
   EXPECT_NEAR(displacement_difference, 0., 1.e-10);
   EXPECT_NEAR(velocity_difference, 0., 1.e-10);
+}
+
+
+TEST(ElastodynamicsValidation, BOTH_Issue209MixedBoundaryMatchesNewmark)
+{
+  using VectorType = ElastodynamicsSolver<2>::VectorType;
+
+  const auto elasticity_input =
+    TestPaths::parameter_path("gtests/parameters/issue_209_elasticity.prm");
+  const auto elastodynamics_input =
+    TestPaths::parameter_path("gtests/parameters/issue_209_elastodynamics.prm");
+  ASSERT_TRUE(std::filesystem::is_regular_file(elasticity_input));
+  ASSERT_TRUE(std::filesystem::is_regular_file(elastodynamics_input));
+
+  VectorType reference_displacement;
+  VectorType reference_velocity;
+  {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<2> parameters;
+    initialize_parameters(elasticity_input);
+
+    ElasticityProblem<2> problem(parameters);
+    problem.run();
+
+    reference_displacement.reinit(problem.owned_dofs[0], MPI_COMM_WORLD);
+    reference_velocity.reinit(problem.owned_dofs[0], MPI_COMM_WORLD);
+    for (const auto index : problem.owned_dofs[0])
+      {
+        reference_displacement(index) = problem.solution.block(0)(index);
+        reference_velocity(index)     = problem.velocity.block(0)(index);
+      }
+  }
+
+  {
+    ParameterAcceptor::clear();
+    ElastodynamicsParameters<2> parameters;
+    initialize_parameters(elastodynamics_input);
+
+    ElastodynamicsSolver<2> problem(parameters);
+    problem.run();
+
+    double displacement_difference = 0.;
+    double velocity_difference     = 0.;
+    for (const auto index : problem.locally_owned_dofs())
+      {
+        displacement_difference =
+          std::max(displacement_difference,
+                   std::abs(problem.displacement()(index) -
+                            reference_displacement(index)));
+        velocity_difference = std::max(velocity_difference,
+                                       std::abs(problem.velocity()(index) -
+                                                reference_velocity(index)));
+      }
+
+    displacement_difference =
+      Utilities::MPI::max(displacement_difference, MPI_COMM_WORLD);
+    velocity_difference =
+      Utilities::MPI::max(velocity_difference, MPI_COMM_WORLD);
+
+    EXPECT_NEAR(displacement_difference, 0., 1.e-8);
+    EXPECT_NEAR(velocity_difference, 0., 1.e-7);
+  }
 }
 
 
