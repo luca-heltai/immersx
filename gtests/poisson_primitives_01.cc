@@ -74,7 +74,8 @@ TEST(PoissonPrimitives, BOTH_SolveFromGenericPrimitives)
   FiniteElementSpace<2> space(domain.triangulation(), space_parameters);
   set_constant_dirichlet_boundary_condition(space, 0, 1.);
 
-  const auto unregistered = space.view().field("u");
+  const auto view         = space.view();
+  const auto unregistered = view.field("u");
 
   LinearAdapterParameters adapter_parameters("/Primitive adapter/");
   adapter_parameters.solver         = LinearSolver::iterative;
