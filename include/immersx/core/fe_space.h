@@ -569,6 +569,12 @@ namespace ImmersX
       return constraints_;
     }
 
+    dealii::AffineConstraints<double> &
+    constraints()
+    {
+      return constraints_;
+    }
+
     const dealii::IndexSet &
     locally_owned_dofs() const
     {

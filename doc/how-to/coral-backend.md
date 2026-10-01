@@ -165,6 +165,42 @@ to the Problems, writes bulk, embedded, and multiplier output, and checks the
 composed residual. The old standalone `ImmersX::CoupledPoisson<2>` façade is
 not part of the 2D registry.
 
+## Primitive scalar solve
+
+The 2D plugin also exposes the lower-level generic path. The checked-in example
+`poisson_primitives_2d.json` creates an owning `Domain`, creates an owning
+`FiniteElementSpace` directly from that domain, applies a constant Dirichlet
+condition, registers the space field as an algebraic execution field, and adds
+the weak term
+
+```cpp
+weak_term(gradient(u), gradient(test(u)))
+```
+
+to one `LinearAdapter`. The same path is available directly in C++:
+
+```cpp
+Domain<2> domain(domain_parameters);
+domain.make_grid();
+FiniteElementSpace<2> space(domain.triangulation(), space_parameters);
+set_constant_dirichlet_boundary_condition(space, 0, 1.0);
+
+const auto unregistered = space.view().field("u");
+const auto registration =
+  adapter.add(algebraic_field(unregistered), "solution");
+const auto u = registration.fields();
+adapter.add(weak_term(gradient(u), gradient(test(u))), "laplace");
+
+auto state = adapter.make_state();
+adapter.solve(state);
+```
+
+The boundary helper rebuilds hanging-node and Dirichlet constraints on the
+owning space. For an inhomogeneous boundary, the linear weak-term assembly
+includes the corresponding affine contribution in the residual. Output uses
+the generic `OutputHandler` and the semantic field name; the example writes
+`output/solution.pvd`.
+
 The 3D plugin provides the corresponding Poisson-to-elasticity example:
 
 ```text

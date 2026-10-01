@@ -45,6 +45,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ImportedFiniteElementFields
     LegacyInclusions
     LinearAdapter
+    PoissonPrimitives
     KINSOLAdapter
     TimeIntervalParameters
     ReducedCoupling
@@ -139,6 +140,7 @@ set(_immersx_expected_test_suites
     LargeNetworksValidation
     LegacyInclusions
     LinearAdapter
+    PoissonPrimitives
     KINSOLAdapter
     MaterialParameters
     BoundaryConditionParameters
