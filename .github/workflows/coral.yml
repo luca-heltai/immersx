@@ -86,8 +86,8 @@ jobs:
 
       - name: Run Coral tests
         run: |
-          ctest --test-dir build_coral_debug -N -R '^ImmersX\\.Coral\\.'
-          ctest --test-dir build_coral_debug -R '^ImmersX\\.Coral\\.' --output-on-failure
+          ctest --test-dir build_coral_debug -N -R '^ImmersX\.Coral\.'
+          ctest --test-dir build_coral_debug -R '^ImmersX\.Coral\.' --output-on-failure
 
       - name: Show ccache statistics
         if: always()
@@ -168,8 +168,8 @@ jobs:
 
       - name: Run Coral tests
         run: |
-          ctest --test-dir build_coral_release -N -R '^ImmersX\\.Coral\\.'
-          ctest --test-dir build_coral_release -R '^ImmersX\\.Coral\\.' --output-on-failure
+          ctest --test-dir build_coral_release -N -R '^ImmersX\.Coral\.'
+          ctest --test-dir build_coral_release -R '^ImmersX\.Coral\.' --output-on-failure
 
       - name: Show ccache statistics
         if: always()
