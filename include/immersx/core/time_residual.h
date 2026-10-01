@@ -61,12 +61,13 @@ namespace ImmersX
   class SemiDiscreteModel
   {
   public:
-    using Context         = EvaluationContext<VectorType>;
-    using Operation       = dealii::PackagedOperation<VectorType>;
-    using Operator        = dealii::LinearOperator<VectorType, VectorType>;
-    using MatrixOperator  = MaterializedOperator<VectorType, MatrixType>;
-    using ResidualFactory = std::function<Operation(const Context &)>;
-    using OperatorFactory = std::function<Operator(const Context &)>;
+    using Context              = EvaluationContext<VectorType>;
+    using Operation            = dealii::PackagedOperation<VectorType>;
+    using Operator             = dealii::LinearOperator<VectorType, VectorType>;
+    using MatrixOperator       = MaterializedOperator<VectorType, MatrixType>;
+    using ResidualFactory      = std::function<Operation(const Context &)>;
+    using ContextUpdateFactory = std::function<void(const Context &)>;
+    using OperatorFactory      = std::function<Operator(const Context &)>;
     using MatrixOperatorFactory =
       std::function<MatrixOperator(const Context &)>;
     using SaddlePointMetadata =
@@ -74,6 +75,13 @@ namespace ImmersX
     using VectorReinitializer = std::function<void(VectorType &, bool)>;
     using PreconditionerFactory =
       std::function<Operator(const MatrixType &, const VectorReinitializer &)>;
+
+    void
+    update_context(const Context &context) const
+    {
+      for (const auto &factory : context_updates_)
+        factory(context);
+    }
 
     void
     evaluate_row(const FieldId  row,
@@ -215,6 +223,15 @@ namespace ImmersX
       AssertThrow(factory,
                   dealii::ExcMessage("A residual factory cannot be empty."));
       residuals_[row].push_back({std::move(term), std::move(factory)});
+    }
+
+    void
+    add_context_update(ContextUpdateFactory factory)
+    {
+      AssertThrow(factory,
+                  dealii::ExcMessage(
+                    "A context update factory cannot be empty."));
+      context_updates_.push_back(std::move(factory));
     }
 
     void
@@ -466,6 +483,7 @@ namespace ImmersX
     std::map<FieldId, PreconditionerFactory>       preconditioners_;
     std::map<FieldId, MatrixOperatorFactory>       multiplier_metrics_;
     std::vector<SaddlePointMetadata>               saddle_points_;
+    std::vector<ContextUpdateFactory>              context_updates_;
   };
 } // namespace ImmersX
 

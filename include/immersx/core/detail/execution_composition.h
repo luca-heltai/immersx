@@ -317,6 +317,8 @@ namespace ImmersX::detail
           context = &*derivative_context;
         }
 
+      model_.update_context(*context);
+
       // The execution layout fixes the number and ordering of semantic
       // fields, but an adaptive Problem may replace the vector behind a field
       // during a solver restart. Keep the residual storage conforming to the
@@ -353,6 +355,7 @@ namespace ImmersX::detail
         }
       else
         context.emplace(time, state_view, nullptr, terms);
+      model_.update_context(*context);
       return make_global_operator(*context, alpha);
     }
 
@@ -419,6 +422,7 @@ namespace ImmersX::detail
              const double                              alpha) const
     {
       finalize();
+      model_.update_context(context);
       return make_global_operator(context, alpha);
     }
 
