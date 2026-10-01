@@ -278,7 +278,7 @@ namespace ImmersX
   };
 
   template <typename Builder, typename SolidField, typename WallObservable>
-  ConstraintFields
+  auto
   contribute(Builder &builder,
              const MetricFlowXVesselWallConstraint<SolidField, WallObservable>
                           &interaction,
@@ -306,7 +306,10 @@ namespace ImmersX
                                                            flow_state,
                                                            multiplier);
                }));
-    return {multiplier};
+    using MultiplierField =
+      std::decay_t<decltype(interaction.multiplier_field())>;
+    return ConstraintFields<MultiplierField>{
+      interaction.multiplier_field().with_id(multiplier)};
   }
 } // namespace ImmersX
 

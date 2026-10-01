@@ -12,19 +12,26 @@
 
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/physics/elastodynamics.h>
 
 namespace ImmersX
 {
+  template <int dim, int spacedim = dim>
   struct ElastodynamicsFields
   {
-    FieldId displacement;
-    FieldId velocity;
+    using Space = FiniteElementSpaceView<dim, spacedim>;
+    using VectorField =
+      Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+
+    VectorField                  displacement;
+    VectorField                  velocity;
+    std::shared_ptr<const Space> space;
   };
 
   template <typename Builder, int dim, int spacedim = dim>
-  ElastodynamicsFields
+  ElastodynamicsFields<dim, spacedim>
   contribute(Builder                                   &builder,
              const ElastodynamicsSolver<dim, spacedim> &problem)
   {
@@ -41,13 +48,13 @@ namespace ImmersX
         return result;
       };
 
-    const auto displacement =
+    const auto displacement_id =
       builder.field("displacement",
                     problem.locally_owned_dofs(),
                     problem.locally_relevant_dofs(),
                     free_components(problem.locally_owned_dofs(),
                                     problem.constraints()));
-    const auto velocity =
+    const auto velocity_id =
       builder.field("velocity",
                     problem.locally_owned_dofs(),
                     problem.locally_relevant_dofs(),
@@ -60,73 +67,91 @@ namespace ImmersX
       ImmersX::matrix_operator<VectorType>(problem.stiffness_matrix());
     const auto damping =
       ImmersX::matrix_operator<VectorType>(problem.damping_matrix());
+    builder.preconditioner(displacement_id,
+                           [](const auto &linearized_matrix,
+                              const auto &prototype) {
+                             return make_amg_preconditioner(linearized_matrix,
+                                                            prototype);
+                           });
     builder.preconditioner(
-      displacement, [](const auto &linearized_matrix, const auto &prototype) {
-        return make_amg_preconditioner(linearized_matrix, prototype);
-      });
-    builder.preconditioner(
-      velocity, [](const auto &linearized_matrix, const auto &prototype) {
+      velocity_id, [](const auto &linearized_matrix, const auto &prototype) {
         return make_amg_preconditioner(linearized_matrix, prototype);
       });
 
-    auto kinematic = builder.term(displacement, "kinematic");
+    using Space      = typename ElastodynamicsFields<dim, spacedim>::Space;
+    auto       space = std::make_shared<Space>(problem.dof_handler(),
+                                         problem.mapping(),
+                                         problem.constraints(),
+                                         &problem.locally_relevant_dofs());
+    const auto displacement =
+      space->field(displacement_id,
+                   "displacement",
+                   dealii::FEValuesExtractors::Vector(0));
+    const auto velocity = space->field(velocity_id,
+                                       "velocity",
+                                       dealii::FEValuesExtractors::Vector(0));
+
+    auto kinematic = builder.term(displacement_id, "kinematic");
     kinematic
-      .residual([displacement, velocity, &problem, mass](const auto &context) {
-        problem.update_constraints(context.time());
-        return semidiscrete_detail::constrained_residual(
-          mass.view * context.derivative(displacement) -
-            mass.view * context.state(velocity),
-          context.state(displacement),
-          problem.constraints());
-      })
-      .state(velocity,
+      .residual(
+        [displacement_id, velocity_id, &problem, mass](const auto &context) {
+          problem.update_constraints(context.time());
+          return semidiscrete_detail::constrained_residual(
+            mass.view * context.derivative(displacement_id) -
+              mass.view * context.state(velocity_id),
+            context.state(displacement_id),
+            problem.constraints());
+        })
+      .state(velocity_id,
              semidiscrete_detail::constrained_matrix_operator(
                -1. * mass, problem.constraints()))
-      .state(displacement,
+      .state(displacement_id,
              semidiscrete_detail::constrained_matrix_identity_operator(
                mass, problem.constraints()))
-      .derivative(displacement,
+      .derivative(displacement_id,
                   semidiscrete_detail::constrained_matrix_operator(
                     mass, problem.constraints()));
 
-    auto dynamics = builder.term(velocity, "dynamics");
+    auto dynamics = builder.term(velocity_id, "dynamics");
     dynamics
-      .residual([velocity, displacement, &problem, mass, stiffness, damping](
-                  const auto &context) {
-        problem.update_constraints(context.time());
-        const auto &v_dot  = context.derivative(velocity);
-        auto        result = mass.view * v_dot +
-                      stiffness.view * context.state(displacement) +
-                      damping.view * context.state(velocity);
-        typename SemiDiscreteModel<VectorType>::Operation forcing;
-        forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
-          vector.reinit(v_dot, omit);
-        };
-        forcing.apply = [&problem, time = context.time()](VectorType &vector) {
-          problem.body_force_at_time(time, vector);
-        };
-        forcing.apply_add = [&problem,
-                             time = context.time()](VectorType &vector) {
-          VectorType force;
-          problem.body_force_at_time(time, force);
-          vector += force;
-        };
-        return semidiscrete_detail::constrained_residual(
-          result - forcing,
-          context.state(velocity),
-          problem.velocity_constraints());
-      })
-      .state(displacement,
+      .residual(
+        [velocity_id, displacement_id, &problem, mass, stiffness, damping](
+          const auto &context) {
+          problem.update_constraints(context.time());
+          const auto &v_dot  = context.derivative(velocity_id);
+          auto        result = mass.view * v_dot +
+                        stiffness.view * context.state(displacement_id) +
+                        damping.view * context.state(velocity_id);
+          typename SemiDiscreteModel<VectorType>::Operation forcing;
+          forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
+            vector.reinit(v_dot, omit);
+          };
+          forcing.apply = [&problem,
+                           time = context.time()](VectorType &vector) {
+            problem.body_force_at_time(time, vector);
+          };
+          forcing.apply_add = [&problem,
+                               time = context.time()](VectorType &vector) {
+            VectorType force;
+            problem.body_force_at_time(time, force);
+            vector += force;
+          };
+          return semidiscrete_detail::constrained_residual(
+            result - forcing,
+            context.state(velocity_id),
+            problem.velocity_constraints());
+        })
+      .state(displacement_id,
              semidiscrete_detail::constrained_matrix_operator(
                stiffness, problem.velocity_constraints()))
-      .state(velocity,
+      .state(velocity_id,
              semidiscrete_detail::constrained_matrix_operator_with_identity(
                damping, problem.velocity_constraints()))
-      .derivative(velocity,
+      .derivative(velocity_id,
                   semidiscrete_detail::constrained_matrix_operator(
                     mass, problem.velocity_constraints()));
 
-    return {displacement, velocity};
+    return {displacement, velocity, std::move(space)};
   }
 
   /** Initialize the two-field adapter state from the problem state. */

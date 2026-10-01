@@ -646,14 +646,8 @@ namespace ImmersX
     const auto matrix_fields =
       ida_storage->add(matrix_problem_storage, "matrix");
     const auto fiber_fields = ida_storage->add(fiber_problem_storage, "fiber");
-    const auto matrix_velocity =
-      matrix_space_storage->field(matrix_fields.fields().velocity,
-                                  "matrix_velocity",
-                                  dealii::FEValuesExtractors::Vector(0));
-    const auto fiber_velocity =
-      fiber_space_storage->field(fiber_fields.fields().velocity,
-                                 "fiber_velocity",
-                                 dealii::FEValuesExtractors::Vector(0));
+    const auto matrix_velocity = matrix_fields.fields().velocity;
+    const auto fiber_velocity  = fiber_fields.fields().velocity;
     const auto multiplier =
       multiplier_space_storage->field("velocity_multiplier",
                                       dealii::FEValuesExtractors::Vector(0));
@@ -661,23 +655,28 @@ namespace ImmersX
       make_continuity_constraint(matrix_velocity, fiber_velocity, multiplier);
     const auto coupling_fields = ida_storage->add(constraint, "fiber-coupling");
 
-    matrix_fields_storage   = matrix_fields.fields();
-    fiber_fields_storage    = fiber_fields.fields();
-    coupling_fields_storage = coupling_fields.fields();
+    matrix_fields_storage =
+      std::make_unique<ElastodynamicsFields<dim, dim>>(matrix_fields.fields());
+    fiber_fields_storage =
+      std::make_unique<ElastodynamicsFields<1, dim>>(fiber_fields.fields());
+    coupling_fields_storage =
+      std::make_unique<ConstraintFields<MultiplierField>>(
+        coupling_fields.fields());
 
-    const auto state = ida_storage->make_state();
-    const auto matrix_to_multiplier =
-      ida_storage->state_matrix_operator(state,
-                                         coupling_fields_storage.multiplier,
-                                         matrix_fields_storage.velocity);
+    const auto state                = ida_storage->make_state();
+    const auto matrix_to_multiplier = ida_storage->state_matrix_operator(
+      state,
+      coupling_fields_storage->multiplier.id(),
+      matrix_fields_storage->velocity.id());
     const auto negative_fiber_to_multiplier =
-      ida_storage->state_matrix_operator(state,
-                                         coupling_fields_storage.multiplier,
-                                         fiber_fields_storage.velocity);
-    const auto matrix_coupling =
-      ida_storage->state_matrix_operator(state,
-                                         matrix_fields_storage.velocity,
-                                         coupling_fields_storage.multiplier);
+      ida_storage->state_matrix_operator(
+        state,
+        coupling_fields_storage->multiplier.id(),
+        fiber_fields_storage->velocity.id());
+    const auto matrix_coupling = ida_storage->state_matrix_operator(
+      state,
+      matrix_fields_storage->velocity.id(),
+      coupling_fields_storage->multiplier.id());
     AssertThrow(
       matrix_to_multiplier.has_value() &&
         negative_fiber_to_multiplier.has_value() && matrix_coupling.has_value(),
@@ -713,24 +712,24 @@ namespace ImmersX
     time_step_number_storage = step;
 
     matrix_problem_storage.accept_state(
-      ida_storage->field(state, matrix_fields_storage.displacement),
-      ida_storage->field(state, matrix_fields_storage.velocity),
+      ida_storage->field(state, matrix_fields_storage->displacement),
+      ida_storage->field(state, matrix_fields_storage->velocity),
       time,
       step);
     fiber_problem_storage.accept_state(
-      ida_storage->field(state, fiber_fields_storage.displacement),
-      ida_storage->field(state, fiber_fields_storage.velocity),
+      ida_storage->field(state, fiber_fields_storage->displacement),
+      ida_storage->field(state, fiber_fields_storage->velocity),
       time,
       step);
     multiplier_storage =
-      ida_storage->field(state, coupling_fields_storage.multiplier);
+      ida_storage->field(state, coupling_fields_storage->multiplier);
 
     auto residual = ida_storage->make_state();
     ida_storage->solver().residual(time, state, state_dot, residual);
     residuals_storage.matrix_velocity =
-      ida_storage->field(residual, matrix_fields_storage.velocity).l2_norm();
+      ida_storage->field(residual, matrix_fields_storage->velocity).l2_norm();
     residuals_storage.fiber_velocity =
-      ida_storage->field(residual, fiber_fields_storage.velocity).l2_norm();
+      ida_storage->field(residual, fiber_fields_storage->velocity).l2_norm();
 
     VectorType velocity_constraint;
     VectorType fiber_constraint;
@@ -805,11 +804,11 @@ namespace ImmersX
                          multiplier,
                          matrix_rhs,
                          fiber_rhs);
-    ida_storage->field(state_dot, matrix_fields_storage.velocity) =
+    ida_storage->field(state_dot, matrix_fields_storage->velocity) =
       matrix_acceleration;
-    ida_storage->field(state_dot, fiber_fields_storage.velocity) =
+    ida_storage->field(state_dot, fiber_fields_storage->velocity) =
       fiber_acceleration;
-    ida_storage->field(state_dot, coupling_fields_storage.multiplier) = 0.;
+    ida_storage->field(state_dot, coupling_fields_storage->multiplier) = 0.;
   }
 
 
@@ -821,23 +820,23 @@ namespace ImmersX
 
     auto state     = ida_storage->make_state();
     auto state_dot = ida_storage->make_state();
-    ida_storage->field(state, matrix_fields_storage.displacement) =
+    ida_storage->field(state, matrix_fields_storage->displacement) =
       matrix_problem_storage.displacement();
-    ida_storage->field(state, matrix_fields_storage.velocity) =
+    ida_storage->field(state, matrix_fields_storage->velocity) =
       matrix_problem_storage.velocity();
-    ida_storage->field(state, fiber_fields_storage.displacement) =
+    ida_storage->field(state, fiber_fields_storage->displacement) =
       fiber_problem_storage.displacement();
-    ida_storage->field(state, fiber_fields_storage.velocity) =
+    ida_storage->field(state, fiber_fields_storage->velocity) =
       fiber_problem_storage.velocity();
-    ida_storage->field(state, coupling_fields_storage.multiplier) = 0.;
+    ida_storage->field(state, coupling_fields_storage->multiplier) = 0.;
 
-    ida_storage->field(state_dot, matrix_fields_storage.displacement) =
+    ida_storage->field(state_dot, matrix_fields_storage->displacement) =
       matrix_problem_storage.velocity();
-    ida_storage->field(state_dot, matrix_fields_storage.velocity) = 0.;
-    ida_storage->field(state_dot, fiber_fields_storage.displacement) =
+    ida_storage->field(state_dot, matrix_fields_storage->velocity) = 0.;
+    ida_storage->field(state_dot, fiber_fields_storage->displacement) =
       fiber_problem_storage.velocity();
-    ida_storage->field(state_dot, fiber_fields_storage.velocity)      = 0.;
-    ida_storage->field(state_dot, coupling_fields_storage.multiplier) = 0.;
+    ida_storage->field(state_dot, fiber_fields_storage->velocity)      = 0.;
+    ida_storage->field(state_dot, coupling_fields_storage->multiplier) = 0.;
     initialize_ida_derivative(state_dot);
 
     ida_storage->solve(state, state_dot);

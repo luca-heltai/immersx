@@ -71,8 +71,13 @@ namespace ImmersX
   template <int dim, int spacedim = dim>
   struct NavierStokesFields
   {
-    FieldId                                                      velocity;
-    FieldId                                                      pressure;
+    using VectorField =
+      Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+    using ScalarField =
+      Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
+
+    VectorField                                                  velocity;
+    ScalarField                                                  pressure;
     std::shared_ptr<const FiniteElementSpaceView<dim, spacedim>> space;
   };
 
@@ -176,7 +181,7 @@ namespace ImmersX
     if (problem.include_convective_term())
       weak_term(problem.density() * (gradient(u) * u), v).add(builder);
 
-    return {velocity_id, pressure_id, std::move(space)};
+    return {u, p, std::move(space)};
   }
 } // namespace ImmersX
 

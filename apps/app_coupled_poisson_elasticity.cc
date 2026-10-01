@@ -59,26 +59,10 @@ main(int argc, char *argv[])
 
       Adapter adapter(adapter_parameters, MPI_COMM_WORLD);
 
-      const auto poisson = adapter.add(poisson_problem);
-      const auto elastic = adapter.add(elasticity_problem);
-      const auto elastic_space =
-        fe_space(elasticity_problem.dof_handler(),
-                 dealii::StaticMappingQ1<3, 3>::mapping,
-                 elasticity_problem.constraints(),
-                 elasticity_problem.locally_relevant_dofs());
-      const auto displacement =
-        elastic_space.field(elastic.fields().displacement,
-                            "displacement",
-                            dealii::FEValuesExtractors::Vector(0));
-      const auto poisson_space =
-        fe_space(poisson_problem.dof_handler(),
-                 dealii::StaticMappingQ1<1, 3>::mapping,
-                 poisson_problem.constraints(),
-                 poisson_problem.locally_relevant_dofs());
-      const auto poisson_field =
-        poisson_space.field(poisson.fields().solution,
-                            "pressure",
-                            dealii::FEValuesExtractors::Scalar(0));
+      const auto poisson       = adapter.add(poisson_problem);
+      const auto elastic       = adapter.add(elasticity_problem);
+      const auto displacement  = elastic.fields().displacement;
+      const auto poisson_field = poisson.fields().solution;
       const auto pressure =
         ImmersX::make_lift(CoupledPoissonElasticity::Pressure{}.factor *
                              ImmersX::value(poisson_field),

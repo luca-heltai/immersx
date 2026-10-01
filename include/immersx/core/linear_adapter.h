@@ -31,6 +31,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace ImmersX
@@ -197,6 +198,25 @@ namespace ImmersX
     field(const GlobalVectorType &state, const FieldId id) const
     {
       return composition_.field(state, id);
+    }
+
+    template <typename SemanticField,
+              typename = std::void_t<
+                decltype(std::declval<const SemanticField &>().id())>>
+    FieldVectorType &
+    field(GlobalVectorType &state, const SemanticField &semantic_field) const
+    {
+      return field(state, semantic_field.id());
+    }
+
+    template <typename SemanticField,
+              typename = std::void_t<
+                decltype(std::declval<const SemanticField &>().id())>>
+    const FieldVectorType &
+    field(const GlobalVectorType &state,
+          const SemanticField    &semantic_field) const
+    {
+      return field(state, semantic_field.id());
     }
 
     void

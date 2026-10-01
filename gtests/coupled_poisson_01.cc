@@ -153,17 +153,13 @@ TEST(CoupledPoisson, MPI_UnifiedConstraintSolve) // NOLINT
   const auto             bulk     = adapter.add(bulk_problem, "bulk");
   const auto             embedded = adapter.add(embedded_problem, "embedded");
 
-  const auto bulk_view     = finite_element_space_view(bulk_problem);
-  const auto embedded_view = finite_element_space_view(embedded_problem);
   FiniteElementSpace<1, 2> multiplier_space(embedded_problem.triangulation(),
                                             multiplier_parameters);
   const auto               multiplier_view = multiplier_space.view();
-  const auto               bulk_field =
-    bulk_view.field(bulk.fields().solution, "bulk_solution");
-  const auto embedded_field =
-    embedded_view.field(embedded.fields().solution, "embedded_solution");
-  const auto lambda = multiplier_view.field("lambda");
-  const auto constraint =
+  const auto               bulk_field      = bulk.fields().solution;
+  const auto               embedded_field  = embedded.fields().solution;
+  const auto               lambda          = multiplier_view.field("lambda");
+  const auto               constraint =
     make_constraint(weak_term(value(bulk_field), test(lambda)) -
                     weak_term(value(embedded_field), test(lambda)));
   const auto coupling = adapter.add(constraint, "continuity");
@@ -263,17 +259,13 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   const auto                      bulk = linear.add(bulk_problem, "bulk");
   const auto embedded = linear.add(embedded_problem, "embedded");
 
-  const auto bulk_view     = finite_element_space_view(bulk_problem);
-  const auto embedded_view = finite_element_space_view(embedded_problem);
   FiniteElementSpace<1, 2> multiplier_space(embedded_problem.triangulation(),
                                             multiplier_parameters);
   const auto               multiplier_view = multiplier_space.view();
-  const auto               bulk_field =
-    bulk_view.field(bulk.fields().solution, "bulk_solution");
-  const auto embedded_field =
-    embedded_view.field(embedded.fields().solution, "embedded_solution");
-  const auto lambda = multiplier_view.field("lambda");
-  const auto constraint =
+  const auto               bulk_field      = bulk.fields().solution;
+  const auto               embedded_field  = embedded.fields().solution;
+  const auto               lambda          = multiplier_view.field("lambda");
+  const auto               constraint =
     make_constraint(weak_term(value(bulk_field), test(lambda)) -
                     weak_term(value(embedded_field), test(lambda)));
   const auto coupling = linear.add(constraint, "continuity");
@@ -337,12 +329,9 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   const auto augmented_bulk = augmented.add(bulk_problem, "bulk-al");
   const auto augmented_embedded =
     augmented.add(embedded_problem, "embedded-al");
-  const auto augmented_bulk_field =
-    bulk_view.field(augmented_bulk.fields().solution, "bulk_solution");
-  const auto augmented_embedded_field =
-    embedded_view.field(augmented_embedded.fields().solution,
-                        "embedded_solution");
-  const auto augmented_lambda = multiplier_view.field("lambda");
+  const auto augmented_bulk_field     = augmented_bulk.fields().solution;
+  const auto augmented_embedded_field = augmented_embedded.fields().solution;
+  const auto augmented_lambda         = multiplier_view.field("lambda");
   augmented.add(make_constraint(weak_term(value(augmented_bulk_field),
                                           test(augmented_lambda)) -
                                 weak_term(value(augmented_embedded_field),
@@ -359,11 +348,9 @@ TEST(CoupledPoisson, MPI_LinearAdapterComposesStandaloneProblems) // NOLINT
   Adapter    direct(direct_options, MPI_COMM_WORLD);
   const auto direct_bulk     = direct.add(bulk_problem, "bulk-direct");
   const auto direct_embedded = direct.add(embedded_problem, "embedded-direct");
-  const auto direct_bulk_field =
-    bulk_view.field(direct_bulk.fields().solution, "bulk_solution");
-  const auto direct_embedded_field =
-    embedded_view.field(direct_embedded.fields().solution, "embedded_solution");
-  const auto direct_lambda = multiplier_view.field("lambda");
+  const auto direct_bulk_field     = direct_bulk.fields().solution;
+  const auto direct_embedded_field = direct_embedded.fields().solution;
+  const auto direct_lambda         = multiplier_view.field("lambda");
   direct.add(make_constraint(
                weak_term(value(direct_bulk_field), test(direct_lambda)) -
                weak_term(value(direct_embedded_field), test(direct_lambda))),

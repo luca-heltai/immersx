@@ -21,9 +21,10 @@
 
 namespace ImmersX
 {
+  template <typename MultiplierField>
   struct ConstraintFields
   {
-    FieldId multiplier;
+    MultiplierField multiplier;
   };
 
   namespace detail
@@ -333,7 +334,7 @@ namespace ImmersX
     }
 
     template <typename Builder>
-    ConstraintFields
+    auto
     add(Builder &builder) const
     {
       const auto &multiplier_field = multiplier();
@@ -380,7 +381,8 @@ namespace ImmersX
             });
         }
 
-      return {multiplier_id};
+      return ConstraintFields<std::decay_t<decltype(multiplier_field)>>{
+        multiplier_field.with_id(multiplier_id)};
     }
 
   private:
@@ -440,7 +442,7 @@ namespace ImmersX
   }
 
   template <typename Builder, typename Term, typename Rhs>
-  ConstraintFields
+  auto
   contribute(Builder &builder, const Constraint<Term, Rhs> &constraint)
   {
     return constraint.add(builder);

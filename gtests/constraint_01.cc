@@ -129,13 +129,13 @@ namespace
     EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), preparations);
 #endif
 
-    EXPECT_TRUE(fields.multiplier.is_valid());
-    EXPECT_EQ(layout.field(fields.multiplier).locally_owned.size(),
+    EXPECT_TRUE(fields.multiplier.is_registered());
+    EXPECT_EQ(layout.field(fields.multiplier.id()).locally_owned.size(),
               multiplier_space.dof_handler.n_dofs());
     ASSERT_EQ(model.saddle_points().size(), 1u);
-    EXPECT_EQ(model.saddle_points().front().multiplier, fields.multiplier);
+    EXPECT_EQ(model.saddle_points().front().multiplier, fields.multiplier.id());
     EXPECT_EQ(model.saddle_points().front().participants.size(), 2u);
-    EXPECT_TRUE(model.has_multiplier_metric(fields.multiplier));
+    EXPECT_TRUE(model.has_multiplier_metric(fields.multiplier.id()));
 
     Vector u1(source_space_1.dof_handler.n_dofs());
     Vector u2(source_space_2.dof_handler.n_dofs());
@@ -150,17 +150,18 @@ namespace
     StateView<Vector> state_view(layout, 0.);
     state_view.bind(source_1.field_id(), u1);
     state_view.bind(source_2.field_id(), u2);
-    state_view.bind(fields.multiplier, l);
+    state_view.bind(fields.multiplier.id(), l);
     const EvaluationContext<Vector> context(0., state_view);
-    const auto metric = model.multiplier_metric(fields.multiplier, context);
+    const auto                      metric =
+      model.multiplier_metric(fields.multiplier.id(), context);
     ASSERT_TRUE(metric.has_value());
     ASSERT_TRUE(metric->is_materializable());
     EXPECT_GT(metric->matrix()->frobenius_norm(), 1.e-12);
 
-    const auto b1 = model.state_matrix_operator(fields.multiplier,
+    const auto b1 = model.state_matrix_operator(fields.multiplier.id(),
                                                 source_1.field_id(),
                                                 context);
-    const auto b2 = model.state_matrix_operator(fields.multiplier,
+    const auto b2 = model.state_matrix_operator(fields.multiplier.id(),
                                                 source_2.field_id(),
                                                 context);
     ASSERT_TRUE(b1.has_value());
@@ -175,12 +176,12 @@ namespace
       expected_constraint -= prescribed;
 
     Vector constraint_residual(l.size());
-    model.evaluate_row(fields.multiplier, context, constraint_residual);
+    model.evaluate_row(fields.multiplier.id(), context, constraint_residual);
     constraint_residual -= expected_constraint;
     EXPECT_LT(constraint_residual.l2_norm(), 1.e-12);
 
     const auto reaction = model.state_matrix_operator(source_1.field_id(),
-                                                      fields.multiplier,
+                                                      fields.multiplier.id(),
                                                       context);
     ASSERT_TRUE(reaction.has_value());
     Vector expected_reaction(u1.size());
@@ -242,7 +243,7 @@ TEST(Constraint, SingleTerm)
   const auto                          fields =
     make_constraint(weak_term(value(source), test(lambda))).add(builder);
 
-  ASSERT_TRUE(fields.multiplier.is_valid());
+  ASSERT_TRUE(fields.multiplier.is_registered());
   ASSERT_EQ(model.saddle_points().size(), 1u);
   ASSERT_EQ(model.saddle_points().front().participants.size(), 1u);
 
@@ -252,16 +253,17 @@ TEST(Constraint, SingleTerm)
   lambda_state = 0.25;
   StateView<Vector> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<Vector> context(0., state_view);
 
-  const auto pairing =
-    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  const auto pairing = model.state_matrix_operator(fields.multiplier.id(),
+                                                   source.field_id(),
+                                                   context);
   ASSERT_TRUE(pairing.has_value());
   Vector expected(lambda_state.size());
   pairing->view.vmult(expected, source_state);
   Vector residual(lambda_state.size());
-  model.evaluate_row(fields.multiplier, context, residual);
+  model.evaluate_row(fields.multiplier.id(), context, residual);
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 }
@@ -308,13 +310,13 @@ TEST(Constraint, NonlinearSquareLaw)
   lambda_state = 0.25;
   StateView<Vector> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<Vector> context(0., state_view);
 
   const auto constraint_jacobian =
-    model.state_operator(fields.multiplier, source.field_id(), context);
+    model.state_operator(fields.multiplier.id(), source.field_id(), context);
   Vector constraint_residual(lambda_state.size());
-  model.evaluate_row(fields.multiplier, context, constraint_residual);
+  model.evaluate_row(fields.multiplier.id(), context, constraint_residual);
   QGauss<2>   quadrature(3);
   FEValues<2> source_values(StaticMappingQ1<2>::mapping,
                             source_fe,
@@ -353,7 +355,7 @@ TEST(Constraint, NonlinearSquareLaw)
   EXPECT_LT(constraint_residual.l2_norm(), 1.e-12);
 
   const auto participant_jacobian =
-    model.state_operator(source.field_id(), fields.multiplier, context);
+    model.state_operator(source.field_id(), fields.multiplier.id(), context);
   Vector reaction(source_state.size());
   participant_jacobian.vmult(reaction, lambda_state);
   Vector participant_residual(source_state.size());
@@ -469,20 +471,22 @@ TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
   StateView<Vector> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
   state_view.bind(second_source.field_id(), second_source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<Vector> context(0., state_view);
   Vector                          residual;
   residual.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
-  model.evaluate_row(fields.multiplier, context, residual);
+  model.evaluate_row(fields.multiplier.id(), context, residual);
   Vector repeated_residual;
   repeated_residual.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
-  model.evaluate_row(fields.multiplier, context, repeated_residual);
+  model.evaluate_row(fields.multiplier.id(), context, repeated_residual);
   repeated_residual -= residual;
   EXPECT_LT(repeated_residual.l2_norm(), 1.e-12);
-  const auto pairing =
-    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
-  const auto reaction =
-    model.state_matrix_operator(source.field_id(), fields.multiplier, context);
+  const auto pairing  = model.state_matrix_operator(fields.multiplier.id(),
+                                                   source.field_id(),
+                                                   context);
+  const auto reaction = model.state_matrix_operator(source.field_id(),
+                                                    fields.multiplier.id(),
+                                                    context);
   ASSERT_TRUE(pairing.has_value());
   ASSERT_TRUE(reaction.has_value());
   Vector expected_reaction;
@@ -558,14 +562,15 @@ TEST(Constraint, MPI_NonmatchingDistributedReaction)
   lambda_state.compress(VectorOperation::insert);
   StateView<Vector> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<Vector> context(0., state_view);
 
   Vector residual;
   residual.reinit(multiplier_owned, MPI_COMM_WORLD);
-  model.evaluate_row(fields.multiplier, context, residual);
-  const auto pairing =
-    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  model.evaluate_row(fields.multiplier.id(), context, residual);
+  const auto pairing = model.state_matrix_operator(fields.multiplier.id(),
+                                                   source.field_id(),
+                                                   context);
   ASSERT_TRUE(pairing.has_value());
   Vector expected;
   expected.reinit(multiplier_owned, MPI_COMM_WORLD);
@@ -648,14 +653,15 @@ TEST(Constraint, MPI_MixedDimensionalReverseNonmatching)
   lambda_state.compress(VectorOperation::insert);
   StateView<Vector> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<Vector> context(0., state_view);
 
   Vector residual;
   residual.reinit(line_owned, MPI_COMM_WORLD);
-  model.evaluate_row(fields.multiplier, context, residual);
-  const auto pairing =
-    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+  model.evaluate_row(fields.multiplier.id(), context, residual);
+  const auto pairing = model.state_matrix_operator(fields.multiplier.id(),
+                                                   source.field_id(),
+                                                   context);
   ASSERT_TRUE(pairing.has_value());
   Vector expected;
   expected.reinit(line_owned, MPI_COMM_WORLD);

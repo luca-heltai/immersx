@@ -52,8 +52,8 @@ TEST(ContributorPhysics, ElastodynamicsCanPopulateIDAAdapter)
                     FAIL() << "The test only checks composition.";
                   });
   const auto fields = adapter.add(problem, "solid");
-  EXPECT_TRUE(fields.fields().displacement.is_valid());
-  EXPECT_TRUE(fields.fields().velocity.is_valid());
+  EXPECT_TRUE(fields.fields().displacement.is_registered());
+  EXPECT_TRUE(fields.fields().velocity.is_registered());
 
   GlobalVector state;
   GlobalVector state_dot;
@@ -104,8 +104,8 @@ TEST(ContributorPhysics, StokesCanPopulateIDAAdapter)
                      GlobalVector &,
                      double) {});
   const auto fields = adapter.add(problem, "fluid");
-  EXPECT_TRUE(fields.fields().velocity.is_valid());
-  EXPECT_TRUE(fields.fields().pressure.is_valid());
+  EXPECT_TRUE(fields.fields().velocity.is_registered());
+  EXPECT_TRUE(fields.fields().pressure.is_registered());
 }
 
 TEST(ContributorPhysics, TimeIntervalParametersDerivesIDAConfiguration)

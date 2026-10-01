@@ -500,15 +500,8 @@ namespace
       solid_fields.emplace(adapter->add(*solid_problem, "elastodynamics"));
       flow_fields.emplace(
         adapter->add(metric_flow_x(*flow_problem), "blood-flow"));
-      solid_space = std::make_unique<FiniteElementSpaceView<3, 3>>(
-        solid_problem->dof_handler(),
-        solid_problem->mapping(),
-        solid_problem->constraints(),
-        &solid_problem->locally_relevant_dofs());
-      solid_field = std::make_unique<SolidField>(
-        solid_space->field(solid_fields->fields().displacement,
-                           "displacement",
-                           FEValuesExtractors::Vector(0)));
+      solid_field =
+        std::make_unique<SolidField>(solid_fields->fields().displacement);
       wall_observable =
         std::make_unique<WallObservable>(*flow_problem,
                                          flow_fields->fields().area,
@@ -839,27 +832,27 @@ namespace
       multiplier.update_ghost_values();
     }
 
-    std::unique_ptr<FlowProblem>                  flow_problem;
-    std::unique_ptr<TimeIntervalParameters>       flow_time;
-    std::unique_ptr<FixedStepParameters>          flow_fixed_step;
-    std::unique_ptr<IDAParameters>                flow_ida;
-    std::unique_ptr<ElastodynamicsParameters<3>>  solid_parameters;
-    std::unique_ptr<SolidProblem>                 solid_problem;
-    std::unique_ptr<WallObservable::Lift>         wall_lift;
-    std::unique_ptr<FiniteElementSpaceView<3, 3>> solid_space;
-    std::unique_ptr<SolidField>                   solid_field;
-    std::unique_ptr<WallObservable>               wall_observable;
-    std::unique_ptr<Interaction>                  interaction;
-    std::unique_ptr<Adapter>                      adapter;
+    std::unique_ptr<FlowProblem>                 flow_problem;
+    std::unique_ptr<TimeIntervalParameters>      flow_time;
+    std::unique_ptr<FixedStepParameters>         flow_fixed_step;
+    std::unique_ptr<IDAParameters>               flow_ida;
+    std::unique_ptr<ElastodynamicsParameters<3>> solid_parameters;
+    std::unique_ptr<SolidProblem>                solid_problem;
+    std::unique_ptr<WallObservable::Lift>        wall_lift;
+    std::unique_ptr<SolidField>                  solid_field;
+    std::unique_ptr<WallObservable>              wall_observable;
+    std::unique_ptr<Interaction>                 interaction;
+    std::unique_ptr<Adapter>                     adapter;
     std::optional<decltype(std::declval<Adapter &>().add(
       std::declval<const SolidProblem &>()))>
       solid_fields;
     std::optional<decltype(std::declval<Adapter &>().add(
       std::declval<const decltype(metric_flow_x(
         std::declval<FlowProblem &>())) &>()))>
-                     flow_fields;
-    ConstraintFields coupling_fields;
-    bool             spatial_case = false;
+      flow_fields;
+    using MultiplierField = Field<1, 3, dealii::FEValuesExtractors::Scalar>;
+    ConstraintFields<MultiplierField> coupling_fields;
+    bool                              spatial_case = false;
   };
 
   ErrorRecord

@@ -252,9 +252,10 @@ namespace ImmersX
 #ifdef DEAL_II_WITH_SUNDIALS
     std::unique_ptr<IDAAdapterType> ida_storage;
 
-    ElastodynamicsFields matrix_fields_storage;
-    ElastodynamicsFields fiber_fields_storage;
-    ConstraintFields     coupling_fields_storage;
+    std::unique_ptr<ElastodynamicsFields<dim, dim>> matrix_fields_storage;
+    std::unique_ptr<ElastodynamicsFields<1, dim>>   fiber_fields_storage;
+    using MultiplierField = Field<1, dim, dealii::FEValuesExtractors::Vector>;
+    std::unique_ptr<ConstraintFields<MultiplierField>> coupling_fields_storage;
 #endif
 
     MatrixType matrix_effective_matrix;

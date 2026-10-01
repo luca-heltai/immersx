@@ -702,6 +702,7 @@ namespace ImmersX::Coral
     using Adapter           = LinearAdapterFor<dim, spacedim>;
     using Problem           = ImmersX::PoissonSolver<dim, spacedim>;
     using Fields            = ImmersX::PoissonFields<dim, spacedim>;
+    using SolutionField     = typename Fields::ScalarField;
     using ProblemHandleType = ImmersX::ProblemHandle<Adapter, Fields>;
     using AdapterHandle     = std::shared_ptr<Adapter>;
     using Vector            = ImmersXLA::MPI::Vector;
@@ -741,7 +742,7 @@ namespace ImmersX::Coral
     field_metadata.description =
       "Return the semantic solution field registered by a Problem handle.";
     coral::NodeObject::register_function(
-      std::function<ImmersX::FieldId(const ProblemHandleType &)>(
+      std::function<SolutionField(const ProblemHandleType &)>(
         [](const ProblemHandleType &handle) {
           return handle.fields().solution;
         }),
@@ -773,7 +774,7 @@ namespace ImmersX::Coral
         std::declval<const BulkField &>(),
         std::declval<const LineField &>(),
         std::declval<const LineField &>()))>;
-    using ConstraintFields = ImmersX::ConstraintFields;
+    using ConstraintFields = ImmersX::ConstraintFields<LineField>;
     using ConstraintHandle = ImmersX::ProblemHandle<Adapter, ConstraintFields>;
 
     coral::detail::set_type_alias<Adapter>("ImmersX::LinearAdapter<2>");
@@ -852,7 +853,7 @@ namespace ImmersX::Coral
     multiplier_metadata.description =
       "Return the semantic multiplier field registered by a Constraint.";
     coral::NodeObject::register_function(
-      std::function<ImmersX::FieldId(const ConstraintHandle &)>(
+      std::function<LineField(const ConstraintHandle &)>(
         [](const ConstraintHandle &handle) {
           return handle.fields().multiplier;
         }),

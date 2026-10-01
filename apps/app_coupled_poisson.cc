@@ -80,16 +80,6 @@ namespace
     const auto bulk     = adapter.add(bulk_problem, "bulk");
     const auto embedded = adapter.add(embedded_problem, "embedded");
 
-    const auto bulk_view = fe_space(bulk_problem.dof_handler(),
-                                    StaticMappingQ1<2>::mapping,
-                                    bulk_problem.constraints(),
-                                    bulk_problem.locally_relevant_dofs());
-    const auto embedded_view =
-      fe_space(embedded_problem.dof_handler(),
-               StaticMappingQ1<1, 2>::mapping,
-               embedded_problem.constraints(),
-               embedded_problem.locally_relevant_dofs());
-
     // The multiplier has its own FE/DoFHandler, while sharing the embedded
     // geometry with the line problem.  This deliberately exercises the
     // paired-DoFHandler weak-term path rather than particle search.
@@ -107,11 +97,9 @@ namespace
                                           StaticMappingQ1<1, 2>::mapping,
                                           multiplier_constraints,
                                           multiplier_relevant);
-    const auto bulk_field =
-      bulk_view.field(bulk.fields().solution, "bulk_solution");
-    const auto embedded_field =
-      embedded_view.field(embedded.fields().solution, "embedded_solution");
-    const auto multiplier = multiplier_view.field("lambda");
+    const auto bulk_field      = bulk.fields().solution;
+    const auto embedded_field  = embedded.fields().solution;
+    const auto multiplier      = multiplier_view.field("lambda");
     const auto constraint =
       make_continuity_constraint(bulk_field, embedded_field, multiplier);
     const auto coupling = adapter.add(constraint, "continuity");

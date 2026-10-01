@@ -145,13 +145,16 @@ TEST(Constraint, IndependentVectorMultiplierSharedGeometry)
 
   StateView<VectorType> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<VectorType> context(0., state_view);
 
   const auto multiplier_block =
-    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
-  const auto source_block =
-    model.state_matrix_operator(source.field_id(), fields.multiplier, context);
+    model.state_matrix_operator(fields.multiplier.id(),
+                                source.field_id(),
+                                context);
+  const auto source_block = model.state_matrix_operator(source.field_id(),
+                                                        fields.multiplier.id(),
+                                                        context);
   ASSERT_TRUE(multiplier_block.has_value());
   ASSERT_TRUE(source_block.has_value());
   ASSERT_EQ(multiplier_block->matrix()->m(), multiplier_dh.n_dofs());
@@ -210,11 +213,13 @@ TEST(Constraint, MPI_VectorNonmatchingGeometry)
   lambda_state.compress(VectorOperation::insert);
   StateView<VectorType> state_view(layout, 0.);
   state_view.bind(source.field_id(), source_state);
-  state_view.bind(fields.multiplier, lambda_state);
+  state_view.bind(fields.multiplier.id(), lambda_state);
   const EvaluationContext<VectorType> context(0., state_view);
 
   const auto multiplier_block =
-    model.state_matrix_operator(fields.multiplier, source.field_id(), context);
+    model.state_matrix_operator(fields.multiplier.id(),
+                                source.field_id(),
+                                context);
   ASSERT_TRUE(multiplier_block.has_value());
   EXPECT_EQ(multiplier_block->matrix()->m(),
             multiplier_space.dof_handler.n_dofs());

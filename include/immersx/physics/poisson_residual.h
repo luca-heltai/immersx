@@ -19,15 +19,22 @@
 
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
+#include <immersx/core/fe_space.h>
 #include <immersx/physics/poisson.h>
+
+#include <memory>
 
 namespace ImmersX
 {
   template <int dim, int spacedim = dim>
   struct PoissonFields
   {
-    FieldId                             solution;
-    const PoissonSolver<dim, spacedim> *problem = nullptr;
+    using Space = FiniteElementSpaceView<dim, spacedim>;
+    using ScalarField =
+      Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
+
+    ScalarField                  solution;
+    std::shared_ptr<const Space> space;
   };
 
   /** Register an assembled Poisson problem directly with an execution adapter.
@@ -37,19 +44,29 @@ namespace ImmersX
   contribute(Builder &builder, const PoissonSolver<dim, spacedim> &problem)
   {
     using VectorType = typename PoissonSolver<dim, spacedim>::VectorType;
-    const auto solution =
+    const auto solution_id =
       builder.algebraic_field("solution",
                               problem.locally_owned_dofs(),
                               problem.locally_relevant_dofs());
-    const auto matrix = builder.matrix_operator(problem.system_matrix());
-    builder.preconditioner(
-      solution, [](const auto &linearized_matrix, const auto &reinit_vector) {
-        return make_amg_preconditioner(linearized_matrix, reinit_vector);
-      });
+    using Space         = typename PoissonFields<dim, spacedim>::Space;
+    auto       space    = std::make_shared<Space>(problem.dof_handler(),
+                                         problem.mapping(),
+                                         problem.constraints(),
+                                         &problem.locally_relevant_dofs());
+    const auto solution = space->field(solution_id,
+                                       "solution",
+                                       dealii::FEValuesExtractors::Scalar(0));
+    const auto matrix   = builder.matrix_operator(problem.system_matrix());
+    builder.preconditioner(solution_id,
+                           [](const auto &linearized_matrix,
+                              const auto &reinit_vector) {
+                             return make_amg_preconditioner(linearized_matrix,
+                                                            reinit_vector);
+                           });
 
-    builder.term(solution, "poisson")
-      .residual([solution, &problem](const auto &context) {
-        const auto                           &state = context.state(solution);
+    builder.term(solution_id, "poisson")
+      .residual([solution_id, &problem](const auto &context) {
+        const auto &state = context.state(solution_id);
         dealii::PackagedOperation<VectorType> result;
         result.reinit_vector = [state](VectorType &vector, const bool omit) {
           vector.reinit(state, omit);
@@ -67,9 +84,9 @@ namespace ImmersX
         };
         return result;
       })
-      .state(solution, matrix);
+      .state(solution_id, matrix);
 
-    return {solution, &problem};
+    return {solution, std::move(space)};
   }
 
 } // namespace ImmersX
