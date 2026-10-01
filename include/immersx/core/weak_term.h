@@ -565,7 +565,7 @@ namespace ImmersX
                         source.constraints(),
                         source_indices,
                         sparsity,
-                        false);
+                        true);
                     }
               }
             else
@@ -591,7 +591,7 @@ namespace ImmersX
                     source.constraints(),
                     execution_source_indices,
                     sparsity,
-                    false);
+                    true);
                 }
 
             auto matrix = std::make_shared<MatrixType>();
@@ -1526,7 +1526,7 @@ namespace ImmersX
                 column_source.constraints(),
                 column_execution_indices,
                 sparsity,
-                false);
+                true);
             }
 
         MatrixStorage<MatrixType> result;
@@ -1839,7 +1839,7 @@ namespace ImmersX
                 column_source.constraints(),
                 column_indices,
                 sparsity,
-                false);
+                true);
             }
 
         MatrixStorage<MatrixType> result;
