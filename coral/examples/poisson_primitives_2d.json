@@ -45,7 +45,7 @@
         "type": "Test field::std::function<ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
       },
       "19": {
-        "type": "Test gradient::std::function<ImmersX::Observable<ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>, ImmersX::detail::GradientOperation> (const ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> &)>"
+        "type": "Test gradient::std::function<ImmersX::Observable<ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>, ImmersX::detail::GradientOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
       },
       "20": {
         "type": "Create linear execution::std::function<std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> (const ImmersX::LinearAdapterParameters &)>"
@@ -99,7 +99,7 @@
       "15": {"source": 15, "source_output": 0, "target": 16, "target_input": 1},
       "16": {"source": 16, "source_output": 0, "target": 17, "target_input": 0},
       "17": {"source": 16, "source_output": 0, "target": 18, "target_input": 0},
-      "18": {"source": 18, "source_output": 0, "target": 19, "target_input": 0},
+      "18": {"source": 16, "source_output": 0, "target": 19, "target_input": 0},
       "19": {"source": 5, "source_output": 0, "target": 20, "target_input": 0},
       "20": {"source": 20, "source_output": 0, "target": 22, "target_input": 0},
       "21": {"source": 16, "source_output": 0, "target": 22, "target_input": 1},

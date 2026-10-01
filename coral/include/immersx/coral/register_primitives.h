@@ -139,9 +139,11 @@ namespace ImmersX::Coral
         "Create the residual test expression for a scalar field."});
 
     coral::NodeObject::register_function(
-      std::function<TestGradient(const TestField &)>(
-        [](const TestField &field) { return ImmersX::gradient(field); }),
-      {"test_field"},
+      std::function<TestGradient(const ScalarField &)>(
+        [](const ScalarField &field) {
+          return ImmersX::gradient(ImmersX::test(field));
+        }),
+      {"field"},
       coral::RegistryMetadata{
         "Test gradient",
         "Test gradient",

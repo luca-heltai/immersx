@@ -283,6 +283,50 @@ namespace ImmersX
       using SourceField = typename ObservableType::source_field_type;
       using TargetField = typename TargetExpression::source_field_type;
 
+      struct AffineContribution
+      {
+        dealii::FullMatrix<double>                   matrix;
+        std::vector<dealii::types::global_dof_index> indices;
+      };
+
+      template <typename VectorType, typename MatrixType>
+      struct AffineData
+      {
+        const dealii::AffineConstraints<double> *constraints = nullptr;
+        dealii::IndexSet                         locally_owned;
+        MPI_Comm                                 communicator;
+        std::shared_ptr<MatrixType>              sink_matrix;
+        std::shared_ptr<dealii::SparsityPattern> sink_sparsity;
+        std::vector<AffineContribution>          contributions;
+
+        void
+        refresh(VectorType &rhs) const
+        {
+          AssertThrow(constraints != nullptr,
+                      dealii::ExcMessage(
+                        "An affine refresh needs active constraints."));
+          initialize_weak_vector(rhs, locally_owned, communicator);
+          rhs = 0.;
+          AssertThrow(sink_matrix != nullptr,
+                      dealii::ExcMessage(
+                        "An affine refresh needs a matrix sink."));
+          *sink_matrix = 0.;
+          for (const auto &contribution : contributions)
+            {
+              dealii::Vector<double> local_rhs(contribution.matrix.m());
+              local_rhs = 0.;
+              constraints->distribute_local_to_global(contribution.matrix,
+                                                      local_rhs,
+                                                      contribution.indices,
+                                                      *sink_matrix,
+                                                      rhs,
+                                                      true);
+            }
+          compress_weak_matrix(*sink_matrix);
+          compress_weak_vector(rhs);
+        }
+      };
+
       template <typename MatrixType>
       struct MatrixStorage
       {
@@ -334,7 +378,9 @@ namespace ImmersX
       static MatrixStorage<MatrixType>
       assemble(const ObservableType        &observable,
                const TargetExpression      &target,
-               std::shared_ptr<VectorType> *affine_rhs = nullptr)
+               std::shared_ptr<VectorType> *affine_rhs = nullptr,
+               std::shared_ptr<AffineData<VectorType, MatrixType>>
+                 *affine_data = nullptr)
       {
         const auto &target_field = target.source();
         AssertThrow(target_field.field_id().is_valid(),
@@ -352,7 +398,7 @@ namespace ImmersX
                       "dimension and use a supported direct pairing."));
 
         return assemble_from_source<SourceField, VectorType, MatrixType>(
-          observable, observable.source(), target, affine_rhs);
+          observable, observable.source(), target, affine_rhs, affine_data);
       }
 
       static bool
@@ -512,7 +558,9 @@ namespace ImmersX
       assemble_from_source(const ObservableType        &observable,
                            const SourceField           &source,
                            const TargetExpression      &target,
-                           std::shared_ptr<VectorType> *affine_rhs = nullptr)
+                           std::shared_ptr<VectorType> *affine_rhs = nullptr,
+                           std::shared_ptr<AffineData<VectorType, MatrixType>>
+                             *affine_data = nullptr)
       {
         const auto target_field = target.source();
         if constexpr (SourceField::dimension() != dim)
@@ -603,6 +651,25 @@ namespace ImmersX
                                      sparsity,
                                      target_field.space().mpi_communicator());
 
+            if (affine_data != nullptr &&
+                &source.dof_handler() == &target_field.dof_handler())
+              {
+                *affine_data =
+                  std::make_shared<AffineData<VectorType, MatrixType>>();
+                (*affine_data)->constraints = &target_field.constraints();
+                (*affine_data)->locally_owned =
+                  target_field.locally_owned_dofs();
+                (*affine_data)->communicator =
+                  target_field.space().mpi_communicator();
+                (*affine_data)->sink_matrix   = std::make_shared<MatrixType>();
+                (*affine_data)->sink_sparsity = initialize_weak_matrix(
+                  *(*affine_data)->sink_matrix,
+                  target_field.locally_owned_dofs(),
+                  source.locally_owned_dofs(),
+                  sparsity,
+                  target_field.space().mpi_communicator());
+              }
+
             if (affine_rhs != nullptr &&
                 target_field.constraints().has_inhomogeneities() &&
                 &source.dof_handler() == &target_field.dof_handler())
@@ -636,7 +703,11 @@ namespace ImmersX
                                               cell,
                                               quadrature,
                                               *matrix,
-                                              affine_rhs);
+                                              affine_rhs,
+                                              affine_data != nullptr &&
+                                                  *affine_data != nullptr ?
+                                                affine_data->get() :
+                                                nullptr);
                   }
               }
             else
@@ -661,16 +732,19 @@ namespace ImmersX
                       continue;
                     source_values.reinit(source_cell);
                     target_values.reinit(target_cell);
-                    assemble_cell<VectorType>(observable,
-                                              source,
-                                              source_values,
-                                              target,
-                                              target_values,
-                                              source_cell,
-                                              target_cell,
-                                              quadrature,
-                                              *matrix,
-                                              nullptr);
+                    assemble_cell<VectorType>(
+                      observable,
+                      source,
+                      source_values,
+                      target,
+                      target_values,
+                      source_cell,
+                      target_cell,
+                      quadrature,
+                      *matrix,
+                      nullptr,
+                      static_cast<AffineData<VectorType, MatrixType> *>(
+                        nullptr));
                   }
               }
             if (affine_rhs != nullptr && *affine_rhs != nullptr)
@@ -1245,16 +1319,17 @@ namespace ImmersX
                 typename TargetCell,
                 typename MatrixType>
       static void
-      assemble_cell(const ObservableType          &observable,
-                    const SourceField             &source,
-                    const SourceValues            &source_values,
-                    const TargetExpression        &target,
-                    const TargetValues            &target_values,
-                    const SourceCell              &source_cell,
-                    const TargetCell              &target_cell,
-                    const dealii::Quadrature<dim> &quadrature,
-                    MatrixType                    &matrix,
-                    std::shared_ptr<VectorType>   *affine_rhs)
+      assemble_cell(const ObservableType               &observable,
+                    const SourceField                  &source,
+                    const SourceValues                 &source_values,
+                    const TargetExpression             &target,
+                    const TargetValues                 &target_values,
+                    const SourceCell                   &source_cell,
+                    const TargetCell                   &target_cell,
+                    const dealii::Quadrature<dim>      &quadrature,
+                    MatrixType                         &matrix,
+                    std::shared_ptr<VectorType>        *affine_rhs,
+                    AffineData<VectorType, MatrixType> *affine_data)
       {
         const auto &target_field = target.source();
         std::vector<dealii::types::global_dof_index> source_indices(
@@ -1296,6 +1371,12 @@ namespace ImmersX
                   observable.operation()(trial_view, source_positions[j], q),
                   target.operation()(test_view, target_positions[i], q)) *
                 target_values.JxW(q);
+
+        if (affine_data != nullptr &&
+            &source.constraints() == &target_field.constraints() &&
+            source_execution_indices.size() == target_execution_indices.size())
+          affine_data->contributions.push_back(
+            {local, target_execution_indices});
 
         if (affine_rhs != nullptr && *affine_rhs != nullptr &&
             &source.constraints() == &target_field.constraints() &&
@@ -2710,6 +2791,10 @@ namespace ImmersX
     FieldId
     add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
     {
+      if (context_update_)
+        builder.context_update([update = context_update_](const auto &context) {
+          update(context.time());
+        });
       using Model          = SemiDiscreteModel<VectorType, MatrixType>;
       const auto target_id = target_.source().field_id();
       auto       term      = builder.term(target_id, "weak_term");
@@ -2782,22 +2867,27 @@ namespace ImmersX
             };
           term
             .residual([pairing, source_id](const auto &ctx) {
-              if (pairing.affine_rhs == nullptr)
+              const auto affine_rhs = pairing.affine_rhs_factory ?
+                                        pairing.affine_rhs_factory() :
+                                        pairing.affine_rhs;
+              if (affine_rhs == nullptr)
                 return pairing.operator_with_matrix.view * ctx.state(source_id);
 
               typename Model::Operation result;
               const auto               *state = &ctx.state(source_id);
               result.reinit_vector =
                 pairing.operator_with_matrix.view.reinit_range_vector;
-              result.apply = [pairing, state](VectorType &destination) {
-                pairing.operator_with_matrix.view.vmult(destination, *state);
-                destination -= *pairing.affine_rhs;
-              };
-              result.apply_add = [pairing, state](VectorType &destination) {
-                pairing.operator_with_matrix.view.vmult_add(destination,
-                                                            *state);
-                destination -= *pairing.affine_rhs;
-              };
+              result.apply =
+                [pairing, state, affine_rhs](VectorType &destination) {
+                  pairing.operator_with_matrix.view.vmult(destination, *state);
+                  destination -= *affine_rhs;
+                };
+              result.apply_add =
+                [pairing, state, affine_rhs](VectorType &destination) {
+                  pairing.operator_with_matrix.view.vmult_add(destination,
+                                                              *state);
+                  destination -= *affine_rhs;
+                };
               return result;
             })
             .state(source_id, std::move(state_factory));
@@ -2968,6 +3058,16 @@ namespace ImmersX
       return add(builder);
     }
 
+    /** Return this term with a callback run before each evaluation context. */
+    template <typename Callback>
+    WeakTerm
+    with_context_update(Callback callback) const
+    {
+      WeakTerm result        = *this;
+      result.context_update_ = std::function<void(double)>(std::move(callback));
+      return result;
+    }
+
     const TrialExpression &
     observable() const
     {
@@ -2986,12 +3086,13 @@ namespace ImmersX
     {
       using Model = SemiDiscreteModel<VectorType, MatrixType>;
 
-      std::shared_ptr<MatrixType>              matrix;
-      std::shared_ptr<dealii::SparsityPattern> sparsity;
-      std::shared_ptr<VectorType>              affine_rhs;
-      typename Model::MatrixOperator           operator_with_matrix;
-      FieldId                                  source_id;
-      FieldId                                  target_id;
+      std::shared_ptr<MatrixType>                  matrix;
+      std::shared_ptr<dealii::SparsityPattern>     sparsity;
+      std::shared_ptr<VectorType>                  affine_rhs;
+      std::function<std::shared_ptr<VectorType>()> affine_rhs_factory;
+      typename Model::MatrixOperator               operator_with_matrix;
+      FieldId                                      source_id;
+      FieldId                                      target_id;
     };
 
     template <typename VectorType, typename MatrixType, typename Target>
@@ -3036,23 +3137,32 @@ namespace ImmersX
             }
           else
             {
-              const auto storage = [&] {
+              using AffineData =
+                typename Assembly::template AffineData<VectorType, MatrixType>;
+              std::shared_ptr<AffineData> affine_data;
+              const auto                  storage = [&] {
                 if (region.kind == WeakTermRegion::Kind::boundary)
                   {
                     AssertThrow(!detail::is_lifted_observable<
                                   std::decay_t<Target>>::value,
                                 dealii::ExcMessage(
                                   "Boundary weak terms do not support lifted "
-                                  "targets."));
+                                                   "targets."));
                     return Assembly::template assemble_boundary<VectorType,
                                                                 MatrixType>(
                       observable_, target, region.boundary_ids);
                   }
                 return Assembly::template assemble<VectorType, MatrixType>(
-                  observable_, target, &result.affine_rhs);
+                  observable_, target, &result.affine_rhs, &affine_data);
               }();
               result.matrix   = storage.matrix;
               result.sparsity = storage.sparsity;
+              if (affine_data != nullptr)
+                result.affine_rhs_factory = [affine_data] {
+                  auto result = std::make_shared<VectorType>();
+                  affine_data->refresh(*result);
+                  return result;
+                };
               result.operator_with_matrix =
                 builder.matrix_operator(*result.matrix);
             }
@@ -3062,9 +3172,10 @@ namespace ImmersX
       return result;
     }
 
-    TrialExpression observable_;
-    TestExpression  target_;
-    WeakTermRegion  region_;
+    TrialExpression             observable_;
+    TestExpression              target_;
+    WeakTermRegion              region_;
+    std::function<void(double)> context_update_;
   };
 
   /** \cond deduction_guide */
