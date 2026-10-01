@@ -110,9 +110,7 @@ TEST(PoissonPrimitives, BOTH_SolveFromGenericPrimitives)
   OutputHandlerParameters output_parameters("/Primitive output/");
   output_parameters.output_directory =
     TestPaths::output_directory("poisson-primitives");
-  OutputHandler<2, 2, FieldVector> output(space.view(),
-                                          output_parameters,
-                                          "solution");
+  OutputHandler<2, 2, FieldVector> output(view, output_parameters, "solution");
   output.add_field(u);
   SingleFieldState output_state(u.field_id(), solution);
   ASSERT_NO_THROW(output.write(output_state, 0.));
