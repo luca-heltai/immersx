@@ -19,11 +19,11 @@ subsection Fiber Reinforced Elastodynamics
   end
   subsection Matrix Elastodynamics
     set FE degree              = 1
-    set Initial refinement     = 0
     set Dirichlet boundary ids = 0,1,2,3
-    subsection Grid generation
+    subsection Domain
       set Grid generator           = hyper_cube
       set Grid generator arguments = -1: 1: false
+      set Initial refinement       = 0
       set Triangulation type       = distributed
     end
     subsection Material
@@ -58,11 +58,11 @@ subsection Fiber Reinforced Elastodynamics
   end
   subsection Fiber Elastodynamics
     set FE degree              = 1
-    set Initial refinement     = 0
     set Dirichlet boundary ids =
-    subsection Grid generation
+    subsection Domain
       set Grid generator           = hyper_cube
       set Grid generator arguments = -0.5: 0.5: false
+      set Initial refinement       = 0
       set Triangulation type       = distributed
     end
     subsection Material

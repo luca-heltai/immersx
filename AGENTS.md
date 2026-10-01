@@ -299,6 +299,63 @@ Do not place generated build products in the source tree.
 Each parallel worktree must have its own build directory. Sharing the ccache is
 fine; sharing a CMake build directory is not.
 
+### Coral and dealiiX-platform
+
+Coral plugin work requires an installed Coral package before ImmersX is
+configured. Coral contains the `entt` submodule, so check it out recursively:
+
+```bash
+git clone --recurse-submodules https://github.com/2listic/coral.git coral
+```
+
+The current remote `installable-plugin-sdk` branch predates the registry API
+used by ImmersX. Apply the checked-in compatibility patch until Coral publishes
+that API on the branch:
+
+```bash
+git -C coral checkout installable-plugin-sdk
+base64 -d /path/to/immersx/.github/coral/coral-api.patch.gz.b64 | \
+  gzip -d | git -C coral apply
+```
+
+Build Coral with a shared core and install its CMake package. Use the
+`installable-plugin-sdk` branch when working against a Coral checkout that has
+not merged the installable package changes:
+
+```bash
+cmake -S coral -B coral-build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_INSTALL_PREFIX="$HOME/.local/coral" \
+  -DCORAL_BUILD_BACKEND_DEALII=OFF \
+  -DCORAL_BUILD_SHARED_CORE=ON \
+  -DCORAL_BUILD_TESTS=OFF \
+  -DCORAL_INSTALL=ON
+cmake --build coral-build -j
+cmake --install coral-build
+```
+
+Configure ImmersX with the installed package and enable the plugin targets:
+
+```bash
+cmake -S . -B build-coral \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -Dcoral_DIR="$HOME/.local/coral/lib/cmake/coral" \
+  -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
+  -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=ON
+cmake --build build-coral -j
+```
+
+The configure output must contain `ImmersX Coral plugins enabled`. Run the
+Coral registry and graph tests through CTest:
+
+```bash
+ctest --test-dir build-coral -R '^ImmersX\.Coral\.' \
+  --output-on-failure
+```
+
+The complete Coral workflow and dealiiX-platform instructions are documented
+in `doc/how-to/coral-backend.md` and `doc/dealiiX-platform/index.md`.
+
 ## 9. Test inputs and generated files
 
 The top-level CMake configuration preprocesses every `.in` file below

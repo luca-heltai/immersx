@@ -1,15 +1,14 @@
 subsection Elastic static
   set FE degree              = 1
-  set Initial refinement     = 0
   set Dirichlet boundary ids = 0,1,2,3
   set Neumann boundary ids   =
   set Output directory       = output
   set Output name            = elastic_static
-  subsection Grid generation
-    set Domain type              = generate
+  subsection Domain
     set Grid generator           = hyper_cube
     set Grid generator arguments = 0: 1: true
     set Grid scale               = 1
+    set Initial refinement        = 0
     set Triangulation type       = distributed
   end
   subsection Functions
@@ -25,6 +24,9 @@ subsection Elastic static
       set Function expression = 0; 0
       set Variable names      = x,y,t
     end
+  end
+  subsection Refinement
+    set Number of refinement cycles = 1
   end
   subsection Material properties
     subsection default
