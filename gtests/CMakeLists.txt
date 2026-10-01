@@ -34,6 +34,7 @@ set(_public_headers
     immersx/core/field.h
     immersx/core/field_contributor.h
     immersx/core/input_field_selector.h
+    immersx/core/known_term.h
     immersx/core/reduced_field_catalog.h
     immersx/core/reduced_field_utils.h
     immersx/core/reduced_field_values.h

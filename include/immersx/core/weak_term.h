@@ -38,6 +38,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -679,6 +680,104 @@ namespace ImmersX
           }
       }
 
+    public:
+      /** Assemble a linear pairing on selected boundary faces. */
+      template <typename VectorType, typename MatrixType>
+      static MatrixStorage<MatrixType>
+      assemble_boundary(
+        const ObservableType                       &observable,
+        const TargetExpression                     &target,
+        const std::set<dealii::types::boundary_id> &boundary_ids)
+      {
+        if constexpr (SourceField::dimension() != dim)
+          {
+            AssertThrow(false,
+                        dealii::ExcMessage(
+                          "Boundary weak terms require equal-dimensional "
+                          "source and target fields."));
+            return {};
+          }
+        else
+          {
+            const auto &source       = observable.source();
+            const auto &target_field = target.source();
+            AssertThrow(
+              !boundary_ids.empty(),
+              dealii::ExcMessage(
+                "A boundary weak term needs at least one boundary id."));
+            AssertThrow(&source.dof_handler() == &target_field.dof_handler(),
+                        dealii::ExcMessage(
+                          "Boundary weak terms currently require a shared "
+                          "source and target DoFHandler."));
+            AssertThrow(
+              &source.mapping() == &target_field.mapping(),
+              dealii::ExcMessage(
+                "A boundary weak term requires compatible mappings."));
+
+            const unsigned int degree =
+              std::max(source.space().finite_element().degree,
+                       target_field.space().finite_element().degree);
+            const dealii::QGauss<dim - 1> quadrature(degree + 1);
+            const auto                    flags =
+              dealii::update_JxW_values | dealii::update_quadrature_points |
+              dealii::update_normal_vectors | observable.update_flags() |
+              target.update_flags();
+
+            dealii::DynamicSparsityPattern sparsity(
+              target_field.locally_owned_dofs().size(),
+              source.locally_owned_dofs().size(),
+              target_field.locally_owned_dofs());
+            for (const auto &cell :
+                 target_field.dof_handler().active_cell_iterators())
+              if (cell->is_locally_owned())
+                {
+                  std::vector<dealii::types::global_dof_index> indices(
+                    cell->get_fe().n_dofs_per_cell());
+                  cell->get_dof_indices(indices);
+                  target_field.constraints().add_entries_local_to_global(
+                    execution_indices(target_field, indices),
+                    source.constraints(),
+                    execution_indices(source, indices),
+                    sparsity,
+                    true);
+                }
+
+            auto matrix = std::make_shared<MatrixType>();
+            auto matrix_sparsity =
+              initialize_weak_matrix(*matrix,
+                                     target_field.locally_owned_dofs(),
+                                     source.locally_owned_dofs(),
+                                     sparsity,
+                                     target_field.space().mpi_communicator());
+            dealii::FEFaceValues<dim, spacedim> values(
+              target_field.mapping(),
+              target_field.space().finite_element(),
+              quadrature,
+              flags);
+            for (const auto &cell :
+                 target_field.dof_handler().active_cell_iterators())
+              if (cell->is_locally_owned())
+                for (const auto face : cell->face_indices())
+                  if (cell->face(face)->at_boundary() &&
+                      boundary_ids.count(cell->face(face)->boundary_id()))
+                    {
+                      values.reinit(cell, face);
+                      assemble_face_cell(observable,
+                                         source,
+                                         values,
+                                         target,
+                                         values,
+                                         cell,
+                                         cell,
+                                         quadrature,
+                                         *matrix);
+                    }
+            compress_weak_matrix(*matrix);
+            return {std::move(matrix), std::move(matrix_sparsity)};
+          }
+      }
+
+    private:
       template <typename SourceField, typename VectorType, typename MatrixType>
       static MatrixStorage<MatrixType>
       assemble_nonmatching(const ObservableType   &observable,
@@ -1219,6 +1318,72 @@ namespace ImmersX
             source.constraints(),
             source_execution_indices,
             matrix);
+      }
+
+      template <typename SourceField,
+                typename SourceValues,
+                typename TargetValues,
+                typename SourceCell,
+                typename TargetCell,
+                typename MatrixType>
+      static void
+      assemble_face_cell(const ObservableType              &observable,
+                         const SourceField                 &source,
+                         const SourceValues                &source_values,
+                         const TargetExpression            &target,
+                         const TargetValues                &target_values,
+                         const SourceCell                  &source_cell,
+                         const TargetCell                  &target_cell,
+                         const dealii::Quadrature<dim - 1> &quadrature,
+                         MatrixType                        &matrix)
+      {
+        const auto &target_field = target.source();
+        std::vector<dealii::types::global_dof_index> source_indices(
+          source_cell->get_fe().n_dofs_per_cell());
+        std::vector<dealii::types::global_dof_index> target_indices(
+          target_cell->get_fe().n_dofs_per_cell());
+        source_cell->get_dof_indices(source_indices);
+        target_cell->get_dof_indices(target_indices);
+
+        std::vector<unsigned int>                    source_positions;
+        std::vector<unsigned int>                    target_positions;
+        std::vector<dealii::types::global_dof_index> source_execution_indices;
+        std::vector<dealii::types::global_dof_index> target_execution_indices;
+        for (unsigned int j = 0; j < source_indices.size(); ++j)
+          if (source.has_execution_index(source_indices[j]))
+            {
+              source_positions.push_back(j);
+              source_execution_indices.push_back(
+                source.execution_index(source_indices[j]));
+            }
+        for (unsigned int i = 0; i < target_indices.size(); ++i)
+          if (target_field.has_execution_index(target_indices[i]))
+            {
+              target_positions.push_back(i);
+              target_execution_indices.push_back(
+                target_field.execution_index(target_indices[i]));
+            }
+
+        const auto &trial_view = source_values[source.extractor()];
+        const auto &test_view  = target_values[target_field.extractor()];
+        dealii::FullMatrix<double> local(target_positions.size(),
+                                         source_positions.size());
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          for (unsigned int i = 0; i < target_positions.size(); ++i)
+            for (unsigned int j = 0; j < source_positions.size(); ++j)
+              local(i, j) +=
+                observable.scale() * target.scale() *
+                detail::natural_pairing(
+                  observable.operation()(trial_view, source_positions[j], q),
+                  target.operation()(test_view, target_positions[i], q)) *
+                target_values.JxW(q);
+
+        target_field.constraints().distribute_local_to_global(
+          local,
+          target_execution_indices,
+          source.constraints(),
+          source_execution_indices,
+          matrix);
       }
     };
 
@@ -2492,6 +2657,19 @@ namespace ImmersX
     TargetField                       target_;
   };
 
+  /** Region used by a solver-neutral FE weak term. */
+  struct WeakTermRegion
+  {
+    enum class Kind
+    {
+      volume,
+      boundary
+    };
+
+    Kind                                 kind = Kind::volume;
+    std::set<dealii::types::boundary_id> boundary_ids;
+  };
+
   /** A solver-neutral FE weak term contributed to a residual row. */
   template <typename TrialExpression, typename TestExpression>
   class WeakTerm
@@ -2504,6 +2682,30 @@ namespace ImmersX
       , target_(std::move(target))
     {}
 
+    WeakTerm
+    on_boundary(const dealii::types::boundary_id id) const
+    {
+      return on_boundary(std::set<dealii::types::boundary_id>{id});
+    }
+
+    WeakTerm
+    on_boundary(const std::set<dealii::types::boundary_id> &boundary_ids) const
+    {
+      auto result                 = *this;
+      result.region_.kind         = WeakTermRegion::Kind::boundary;
+      result.region_.boundary_ids = boundary_ids;
+      return result;
+    }
+
+    WeakTerm
+    in_volume() const
+    {
+      auto result         = *this;
+      result.region_.kind = WeakTermRegion::Kind::volume;
+      result.region_.boundary_ids.clear();
+      return result;
+    }
+
     template <typename VectorType, typename MatrixType>
     FieldId
     add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
@@ -2513,6 +2715,10 @@ namespace ImmersX
       auto       term      = builder.term(target_id, "weak_term");
       if constexpr (!detail::is_linear_observable<TrialExpression>::value)
         {
+          AssertThrow(region_.kind == WeakTermRegion::Kind::volume,
+                      dealii::ExcMessage(
+                        "Boundary regions currently require linear weak "
+                        "terms."));
           using Assembly = std::conditional_t<
             detail::is_lifted_observable<TrialExpression>::value,
             detail::LiftedWeakAssembly<TrialExpression, TestExpression>,
@@ -2549,7 +2755,7 @@ namespace ImmersX
         }
       else if (observable_.is_frozen())
         {
-          const auto pairing = make_pairing(builder, target_);
+          const auto pairing = make_pairing(builder, target_, region_);
           const auto frozen  = observable_.template frozen_values<VectorType>();
           term.residual([pairing, frozen](const auto &) {
             typename Model::Operation result;
@@ -2566,7 +2772,7 @@ namespace ImmersX
         }
       else
         {
-          const auto pairing   = make_pairing(builder, target_);
+          const auto pairing   = make_pairing(builder, target_, region_);
           const auto source_id = pairing.source_id;
           typename Model::MatrixOperatorFactory state_factory =
             [pairing](const typename Model::Context &) {
@@ -2735,7 +2941,8 @@ namespace ImmersX
         }
       else
         {
-          const auto pairing = make_pairing(builder, multiplier_expression);
+          const auto pairing =
+            make_pairing(builder, multiplier_expression, region_);
           const auto reaction =
             ImmersX::transpose_operator(pairing.operator_with_matrix);
           const auto source_id = pairing.source_id;
@@ -2790,7 +2997,8 @@ namespace ImmersX
     template <typename VectorType, typename MatrixType, typename Target>
     Pairing<VectorType, MatrixType>
     make_pairing(SemidiscreteBuilder<VectorType, MatrixType> &builder,
-                 const Target                                &target) const
+                 const Target                                &target,
+                 const WeakTermRegion                        &region) const
     {
       Pairing<VectorType, MatrixType> result;
       if constexpr (detail::is_lifted_observable<std::decay_t<Target>>::value)
@@ -2809,6 +3017,11 @@ namespace ImmersX
           using Assembly = detail::WeakAssembly<TrialExpression, Target>;
           const bool nonmatching_geometry =
             Assembly::geometry_is_nonmatching(observable_, target);
+          AssertThrow(region.kind != WeakTermRegion::Kind::boundary ||
+                        !nonmatching_geometry,
+                      dealii::ExcMessage(
+                        "Boundary weak terms require matching source and "
+                        "target geometry."));
           if (nonmatching_geometry)
             {
               const auto prepared =
@@ -2823,9 +3036,21 @@ namespace ImmersX
             }
           else
             {
-              const auto storage =
-                Assembly::template assemble<VectorType, MatrixType>(
+              const auto storage = [&] {
+                if (region.kind == WeakTermRegion::Kind::boundary)
+                  {
+                    AssertThrow(!detail::is_lifted_observable<
+                                  std::decay_t<Target>>::value,
+                                dealii::ExcMessage(
+                                  "Boundary weak terms do not support lifted "
+                                  "targets."));
+                    return Assembly::template assemble_boundary<VectorType,
+                                                                MatrixType>(
+                      observable_, target, region.boundary_ids);
+                  }
+                return Assembly::template assemble<VectorType, MatrixType>(
                   observable_, target, &result.affine_rhs);
+              }();
               result.matrix   = storage.matrix;
               result.sparsity = storage.sparsity;
               result.operator_with_matrix =
@@ -2839,6 +3064,7 @@ namespace ImmersX
 
     TrialExpression observable_;
     TestExpression  target_;
+    WeakTermRegion  region_;
   };
 
   /** \cond deduction_guide */
