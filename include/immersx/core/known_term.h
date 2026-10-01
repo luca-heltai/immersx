@@ -621,9 +621,6 @@ namespace ImmersX
     KnownTermRegion region_;
   };
 
-  template <typename Source, typename TestExpression>
-  KnownTerm(Source, TestExpression) -> KnownTerm<Source, TestExpression>;
-
   template <typename Value, int spacedim, typename TestExpression>
   auto
   known_term(const KnownSource<Value, spacedim> &source,
