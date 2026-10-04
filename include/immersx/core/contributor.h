@@ -42,6 +42,7 @@ namespace ImmersX
     using MatrixOperatorFactory = typename Model::MatrixOperatorFactory;
     using ResidualFactory       = typename Model::ResidualFactory;
     using OperatorFactory       = typename Model::OperatorFactory;
+    using ContextUpdateFactory  = typename Model::ContextUpdateFactory;
 
     SemidiscreteTerm(Model &model, const FieldId row, std::string name)
       : model_(&model)
@@ -54,6 +55,14 @@ namespace ImmersX
     residual(Factory factory)
     {
       model_->add_residual(row_, name_, ResidualFactory(std::move(factory)));
+      return *this;
+    }
+
+    template <typename Factory>
+    SemidiscreteTerm &
+    context_update(Factory factory)
+    {
+      model_->add_context_update(ContextUpdateFactory(std::move(factory)));
       return *this;
     }
 
@@ -197,6 +206,14 @@ namespace ImmersX
       const auto qualified_name =
         prefix_.empty() ? local_name : prefix_ + "." + local_name;
       return Term(model_, row, qualified_name);
+    }
+
+    template <typename Factory>
+    void
+    context_update(Factory factory)
+    {
+      model_.add_context_update(
+        typename Model::ContextUpdateFactory(std::move(factory)));
     }
 
     /** Create a provenance-preserving operator from an assembled matrix. */

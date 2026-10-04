@@ -72,7 +72,10 @@ TEST(PoissonPrimitives, BOTH_SolveFromGenericPrimitives)
   FiniteElementSpaceParameters<2> space_parameters("/Primitive space/");
   space_parameters.finite_element = "FE_Q<2>(1)";
   FiniteElementSpace<2> space(domain.triangulation(), space_parameters);
-  set_constant_dirichlet_boundary_condition(space, 0, 1.);
+  BoundaryConditions<2> boundary_conditions(space);
+  dealii::Functions::ConstantFunction<2> boundary_value(1.);
+  boundary_conditions.add_dirichlet(0, boundary_value);
+  boundary_conditions.update(0.);
 
   const auto view         = space.view();
   const auto unregistered = view.field("u");

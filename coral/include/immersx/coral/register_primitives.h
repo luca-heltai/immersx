@@ -87,9 +87,10 @@ namespace ImmersX::Coral
         [](SpaceHandle       &space,
            const unsigned int boundary_id,
            const double       value) {
-          ImmersX::set_constant_dirichlet_boundary_condition(*space,
-                                                             boundary_id,
-                                                             value);
+          ImmersX::BoundaryConditions<dim, spacedim>    conditions(*space);
+          dealii::Functions::ConstantFunction<spacedim> boundary_value(value);
+          conditions.add_dirichlet(boundary_id, boundary_value);
+          conditions.update(0.);
           return space;
         }),
       {"space", "boundary_id", "value"},
@@ -139,9 +140,11 @@ namespace ImmersX::Coral
         "Create the residual test expression for a scalar field."});
 
     coral::NodeObject::register_function(
-      std::function<TestGradient(const TestField &)>(
-        [](const TestField &field) { return ImmersX::gradient(field); }),
-      {"test_field"},
+      std::function<TestGradient(const ScalarField &)>(
+        [](const ScalarField &field) {
+          return ImmersX::gradient(ImmersX::test(field));
+        }),
+      {"field"},
       coral::RegistryMetadata{
         "Test gradient",
         "Test gradient",

@@ -183,7 +183,10 @@ to one `LinearAdapter`. The same path is available directly in C++:
 Domain<2> domain(domain_parameters);
 domain.make_grid();
 FiniteElementSpace<2> space(domain.triangulation(), space_parameters);
-set_constant_dirichlet_boundary_condition(space, 0, 1.0);
+BoundaryConditions<2> boundary_conditions(space);
+dealii::Functions::ConstantFunction<2> boundary_value(1.0);
+boundary_conditions.add_dirichlet(0, boundary_value);
+boundary_conditions.update(0.);
 
 const auto unregistered = space.view().field("u");
 const auto registration =
