@@ -13,13 +13,13 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
 
+#include <immersx/core/detail/function_time.h>
 #include <immersx/core/weak_term.h>
 
 #include <functional>
 #include <map>
 #include <optional>
 #include <set>
-#include <type_traits>
 #include <utility>
 
 namespace ImmersX
@@ -102,25 +102,6 @@ namespace ImmersX
 
   namespace detail
   {
-    template <typename FunctionType, typename = void>
-    struct has_set_time : std::false_type
-    {};
-
-    template <typename FunctionType>
-    struct has_set_time<
-      FunctionType,
-      std::void_t<decltype(std::declval<FunctionType &>().set_time(0.))>>
-      : std::true_type
-    {};
-
-    template <typename FunctionType>
-    void
-    set_function_time(const FunctionType &function, const double time)
-    {
-      if constexpr (has_set_time<FunctionType>::value)
-        const_cast<FunctionType &>(function).set_time(time);
-    }
-
     template <typename Type>
     struct is_known_source : std::false_type
     {};
