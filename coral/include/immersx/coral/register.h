@@ -21,6 +21,7 @@
 #include <immersx/coral/fiber_reinforced_elastodynamics.h>
 #include <immersx/coral/ida_elastodynamics.h>
 #include <immersx/coral/reduced_poisson.h>
+#include <immersx/core/boundary_conditions.h>
 #include <immersx/core/constraint.h>
 #include <immersx/core/fe_space.h>
 #include <immersx/core/linear_adapter.h>
@@ -179,12 +180,21 @@ namespace ImmersX::Coral
 
   template <int dim, int spacedim>
   inline void
+  register_boundary_condition_operations();
+
+  template <int spacedim>
+  inline void
+  register_boundary_function_types();
+
+  template <int dim, int spacedim>
+  inline void
   register_field_types()
   {
     register_scalar_field_types<dim, spacedim>();
     register_vector_field_types<dim, spacedim>();
     register_field_observable_operations<dim, spacedim>();
     register_test_expression_operations<dim, spacedim>();
+    register_boundary_condition_operations<dim, spacedim>();
     register_expression_algebra<dim, spacedim>();
   }
 
@@ -401,6 +411,119 @@ namespace ImmersX::Coral
     register_vector_test_expression_operations<dim, spacedim>();
   }
 
+  inline coral::RegistryMetadata
+  boundary_condition_metadata(const std::string &operation,
+                              const std::string &variant_name,
+                              const std::string &description,
+                              const int          dim,
+                              const int          spacedim)
+  {
+    return expression_metadata(
+      operation, variant_name, description, dim, spacedim);
+  }
+
+  template <int spacedim>
+  inline void
+  register_boundary_function_types()
+  {
+    using Function       = dealii::Function<spacedim>;
+    using FunctionHandle = std::shared_ptr<const Function>;
+
+    coral::detail::set_type_alias<FunctionHandle>(
+      "ImmersX::BoundaryFunction<" + std::to_string(spacedim) + ">");
+    coral::NodeObject::register_output_type<FunctionHandle>();
+    coral::NodeObject::register_function(
+      std::function<FunctionHandle(double)>([](const double value) {
+        return std::make_shared<
+          const dealii::Functions::ConstantFunction<spacedim>>(value);
+      }),
+      {"value"},
+      coral::RegistryMetadata{"Constant function",
+                              "Constant function",
+                              std::to_string(spacedim) + "D",
+                              "Create a scalar constant boundary function."});
+    coral::NodeObject::register_function(
+      std::function<FunctionHandle(const std::vector<double> &)>(
+        [](const std::vector<double> &values) {
+          return std::make_shared<
+            const dealii::Functions::ConstantFunction<spacedim>>(values);
+        }),
+      {"values"},
+      coral::RegistryMetadata{
+        "Constant function",
+        "Constant function",
+        std::to_string(spacedim) + "D vector",
+        "Create a vector-valued constant boundary function."});
+  }
+
+  template <int dim, int spacedim, typename Extractor>
+  inline void
+  register_boundary_condition_operations(const std::string &field_kind)
+  {
+    using Field          = ImmersX::Field<dim, spacedim, Extractor>;
+    using Conditions     = ImmersX::BoundaryConditions<dim, spacedim>;
+    using Function       = dealii::Function<spacedim>;
+    using FunctionHandle = std::shared_ptr<const Function>;
+
+    coral::detail::set_type_alias<Conditions>("ImmersX::BoundaryConditions<" +
+                                              dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_output_type<Conditions>();
+    coral::NodeObject::register_function(
+      std::function<Conditions(const Field &)>(
+        [](const Field &field) { return Conditions(field); }),
+      {"field"},
+      boundary_condition_metadata("Boundary conditions",
+                                  field_kind + " field",
+                                  "Select boundary conditions for a " +
+                                    field_kind + " field.",
+                                  dim,
+                                  spacedim));
+    coral::NodeObject::register_function(
+      std::function<Conditions(
+        const Conditions &, const unsigned int, const FunctionHandle &)>(
+        [](const Conditions     &conditions,
+           const unsigned int    boundary_id,
+           const FunctionHandle &function) {
+          auto result = conditions;
+          result.add_dirichlet(boundary_id, function);
+          return result;
+        }),
+      {"conditions", "boundary_id", "function"},
+      boundary_condition_metadata("Dirichlet boundary condition",
+                                  field_kind + " field",
+                                  "Add a Dirichlet boundary condition to a " +
+                                    field_kind + " field.",
+                                  dim,
+                                  spacedim));
+    coral::NodeObject::register_function(
+      std::function<Field(const Conditions &, const Field &)>(
+        [](const Conditions &conditions, const Field &field) {
+          conditions.update(0.);
+          return field;
+        }),
+      {"conditions", "field"},
+      boundary_condition_metadata(
+        "Apply boundary conditions",
+        field_kind + " field",
+        "Apply the selected boundary conditions to a " + field_kind + " field.",
+        dim,
+        spacedim));
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_boundary_condition_operations()
+  {
+    register_boundary_condition_operations<dim,
+                                           spacedim,
+                                           dealii::FEValuesExtractors::Scalar>(
+      "Scalar");
+    register_boundary_condition_operations<dim,
+                                           spacedim,
+                                           dealii::FEValuesExtractors::Vector>(
+      "Vector");
+  }
+
   template <typename Expression>
   inline void
   register_scaled_expression(const std::string &variant_name,
@@ -495,6 +618,7 @@ namespace ImmersX::Coral
   {
     coral::detail::set_type_alias<unsigned int>("unsigned int");
     coral::detail::set_type_alias<std::string>("std::string");
+    coral::detail::set_type_alias<std::vector<double>>("std::vector<double>");
     coral::detail::set_type_alias<ImmersX::FieldId>("ImmersX::FieldId");
     coral::detail::set_type_alias<dealii::ParameterAcceptor>(
       "dealii::ParameterAcceptor");
@@ -507,6 +631,7 @@ namespace ImmersX::Coral
     coral::NodeObject::register_elementary_type<int>();
     coral::NodeObject::register_elementary_type<unsigned int>();
     coral::NodeObject::register_elementary_type<double>();
+    coral::NodeObject::register_elementary_type<std::vector<double>>();
     coral::NodeObject::register_output_type<ImmersX::FieldId>();
     coral::Network::register_node();
   }
@@ -1523,6 +1648,7 @@ namespace ImmersX::Coral
   {
     register_common_types();
     register_initialize_parameter_types();
+    register_boundary_function_types<spacedim>();
     register_field_types<1, spacedim>();
     register_poisson_types<1, spacedim>();
     register_elastic_static_types<1, spacedim>();

@@ -81,24 +81,6 @@ namespace ImmersX::Coral
         "Create finite element space",
         "From domain. " + dimensions(dim, spacedim),
         "Create an owning finite element space directly on a domain."});
-
-    coral::NodeObject::register_function(
-      std::function<SpaceHandle(SpaceHandle &, unsigned int, double)>(
-        [](SpaceHandle       &space,
-           const unsigned int boundary_id,
-           const double       value) {
-          ImmersX::BoundaryConditions<dim, spacedim>    conditions(*space);
-          dealii::Functions::ConstantFunction<spacedim> boundary_value(value);
-          conditions.add_dirichlet(boundary_id, boundary_value);
-          conditions.update(0.);
-          return space;
-        }),
-      {"space", "boundary_id", "value"},
-      coral::RegistryMetadata{
-        "Set constant Dirichlet boundary condition",
-        "Set constant Dirichlet boundary condition",
-        "Finite element space. " + dimensions(dim, spacedim),
-        "Configure one constant scalar Dirichlet boundary."});
   }
 
   template <int dim, int spacedim>

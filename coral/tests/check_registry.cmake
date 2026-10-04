@@ -85,7 +85,24 @@ foreach(_dim RANGE 1 ${SPACEDIM})
           "Registry ${SPACEDIM}d does not register ${_test_observable_type} as output-only.")
       endif()
     endforeach()
+
+    set(_boundary_type "ImmersX::BoundaryConditions<${_dim},${SPACEDIM}>")
+    string(JSON _boundary_node_type ERROR_VARIABLE _boundary_error
+      GET "${_registry}" "${_boundary_type}" node_type)
+    if(_boundary_error OR NOT _boundary_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_boundary_type} as output-only.")
+    endif()
   endforeach()
+
+set(_boundary_function_type "ImmersX::BoundaryFunction<${SPACEDIM}>")
+string(JSON _boundary_function_node_type ERROR_VARIABLE _boundary_function_error
+  GET "${_registry}" "${_boundary_function_type}" node_type)
+if(_boundary_function_error OR
+   NOT _boundary_function_node_type STREQUAL "output_only")
+  message(FATAL_ERROR
+    "Registry ${SPACEDIM}d does not register ${_boundary_function_type} as output-only.")
+endif()
 
   foreach(_observable_kind divergence "symmetric gradient")
     set(_observable_type
@@ -193,7 +210,10 @@ if(SPACEDIM EQUAL 2)
       "Create domain"
       "Generate domain"
       "Create finite element space"
-      "Set constant Dirichlet boundary condition"
+      "Boundary conditions"
+      "Constant function"
+      "Dirichlet boundary condition"
+      "Apply boundary conditions"
       "Test"
       "Register algebraic field"
       "Weak term"
@@ -205,6 +225,13 @@ if(SPACEDIM EQUAL 2)
         "Registry 2d is missing generic primitive operation '${_primitive_operation}'.")
       endif()
   endforeach()
+
+  string(FIND "${_registry}" "Set constant Dirichlet boundary condition"
+    _legacy_boundary_condition_found)
+  if(NOT _legacy_boundary_condition_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry still contains the specialized constant Dirichlet operation.")
+  endif()
 
   foreach(_test_operation Test Value Gradient)
     string(FIND "${_registry}"

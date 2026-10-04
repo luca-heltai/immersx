@@ -29,7 +29,7 @@
         "type": "Create finite element space::std::function<std::shared_ptr<ImmersX::FiniteElementSpace<2, 2>> (const std::shared_ptr<ImmersX::Domain<2, 2>> &, const ImmersX::FiniteElementSpaceParameters<2, 2> &)>"
       },
       "13": {
-        "type": "Set constant Dirichlet boundary condition::std::function<std::shared_ptr<ImmersX::FiniteElementSpace<2, 2>> (std::shared_ptr<ImmersX::FiniteElementSpace<2, 2>> &, unsigned int, double)>"
+        "type": "Boundary conditions::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
       },
       "14": {
         "type": "Finite element space::std::function<ImmersX::FiniteElementSpaceView<2, 2> (const std::shared_ptr<ImmersX::FiniteElementSpace<2, 2>> &)>"
@@ -76,6 +76,15 @@
       },
       "31": {"type": "double", "value": "0.0"},
       "33": {"type": "unsigned int", "value": "0"},
+      "34": {
+        "type": "Constant function::std::function<std::shared_ptr<const dealii::Function<2>> (double)>"
+      },
+      "35": {
+        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::BoundaryConditions<2, 2> &, unsigned int, const std::shared_ptr<const dealii::Function<2>> &)>"
+      },
+      "36": {
+        "type": "Apply boundary conditions::std::function<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> (const ImmersX::BoundaryConditions<2, 2> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
+      },
       "32": {
         "type": "Write output::std::function<void (const std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, const double &)>"
       }
@@ -94,10 +103,14 @@
       "10": {"source": 10, "source_output": 0, "target": 11, "target_input": 0},
       "11": {"source": 11, "source_output": 0, "target": 12, "target_input": 0},
       "12": {"source": 3, "source_output": 0, "target": 12, "target_input": 1},
-      "13": {"source": 12, "source_output": 0, "target": 13, "target_input": 0},
-      "39": {"source": 13, "source_output": 0, "target": 14, "target_input": 0},
-      "41": {"source": 33, "source_output": 0, "target": 13, "target_input": 1},
-      "42": {"source": 31, "source_output": 0, "target": 13, "target_input": 2},
+      "13": {"source": 16, "source_output": 0, "target": 13, "target_input": 0},
+      "39": {"source": 12, "source_output": 0, "target": 14, "target_input": 0},
+      "44": {"source": 13, "source_output": 0, "target": 35, "target_input": 0},
+      "45": {"source": 33, "source_output": 0, "target": 35, "target_input": 1},
+      "46": {"source": 34, "source_output": 0, "target": 35, "target_input": 2},
+      "49": {"source": 31, "source_output": 0, "target": 34, "target_input": 0},
+      "47": {"source": 35, "source_output": 0, "target": 36, "target_input": 0},
+      "48": {"source": 16, "source_output": 0, "target": 36, "target_input": 1},
       "14": {"source": 14, "source_output": 0, "target": 16, "target_input": 0},
       "15": {"source": 15, "source_output": 0, "target": 16, "target_input": 1},
       "16": {"source": 22, "source_output": 1, "target": 17, "target_input": 0},
@@ -105,7 +118,7 @@
       "18": {"source": 18, "source_output": 0, "target": 19, "target_input": 0},
       "19": {"source": 5, "source_output": 0, "target": 20, "target_input": 0},
       "20": {"source": 20, "source_output": 0, "target": 22, "target_input": 0},
-      "21": {"source": 16, "source_output": 0, "target": 22, "target_input": 1},
+      "21": {"source": 36, "source_output": 0, "target": 22, "target_input": 1},
       "22": {"source": 21, "source_output": 0, "target": 22, "target_input": 2},
       "23": {"source": 17, "source_output": 0, "target": 23, "target_input": 0},
       "24": {"source": 19, "source_output": 0, "target": 23, "target_input": 1},

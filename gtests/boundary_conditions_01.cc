@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <utility>
 
 using namespace dealii;
@@ -140,6 +141,28 @@ TEST(BoundaryConditions, AggregatesRulesAndUpdatesStableConstraints)
   EXPECT_DOUBLE_EQ(minimum_at_two, 2.);
   EXPECT_EQ(time_dependent.value_revision(), 2u);
   EXPECT_EQ(time_dependent.structure_revision(), 1u);
+}
+
+TEST(BoundaryConditions, OwnedFunctionSurvivesSourceScope)
+{
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(triangulation);
+  triangulation.refine_global(1);
+  FiniteElementSpaceParameters<2> parameters;
+  parameters.finite_element = "FE_Q<2>(1)";
+  FiniteElementSpace<2> space(triangulation, parameters);
+
+  BoundaryConditions<2> conditions(space);
+  {
+    const auto function =
+      std::make_shared<const Functions::ConstantFunction<2>>(3.);
+    conditions.add_dirichlet(0, function);
+  }
+
+  conditions.update(0.);
+  ASSERT_GT(space.constraints().n_constraints(), 0u);
+  for (const auto &line : space.constraints().get_lines())
+    EXPECT_DOUBLE_EQ(space.constraints().get_inhomogeneity(line.index), 3.);
 }
 
 TEST(BoundaryConditions, VectorMaskAndNormalFlux)
