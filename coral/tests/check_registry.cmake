@@ -206,20 +206,13 @@ if(SPACEDIM EQUAL 2)
       endif()
   endforeach()
 
-  set(_scalar_field
-    "ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>")
-  set(_test_value
-    "ImmersX::TestExpression<${_scalar_field}, ImmersX::detail::ValueOperation>")
-  set(_test_gradient
-    "ImmersX::TestExpression<${_scalar_field}, ImmersX::detail::GradientOperation>")
-  foreach(_test_signature
-      "Test::std::function<${_test_value} (const ${_scalar_field} &)>"
-      "Value::std::function<${_test_value} (const ${_test_value} &)>"
-      "Gradient::std::function<${_test_gradient} (const ${_test_value} &)>" )
-    string(FIND "${_registry}" "${_test_signature}" _test_signature_found)
+  foreach(_test_operation Test Value Gradient)
+    string(FIND "${_registry}"
+      "${_test_operation}::std::function<ImmersX::TestExpression"
+      _test_signature_found)
     if(_test_signature_found EQUAL -1)
       message(FATAL_ERROR
-        "Registry 2d is missing compositional expression signature '${_test_signature}'.")
+        "Registry 2d is missing the ${_test_operation} TestExpression signature.")
     endif()
   endforeach()
 
