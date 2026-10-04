@@ -77,10 +77,10 @@
       "31": {"type": "double", "value": "0.0"},
       "33": {"type": "unsigned int", "value": "0"},
       "34": {
-        "type": "Constant function::std::function<std::shared_ptr<const dealii::Function<2>> (double)>"
+        "type": "Constant function::std::function<ImmersX::BoundaryFunction<2> (double)>"
       },
       "35": {
-        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::BoundaryConditions<2, 2> &, unsigned int, const std::shared_ptr<const dealii::Function<2>> &)>"
+        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::BoundaryConditions<2, 2> &, unsigned int, const ImmersX::BoundaryFunction<2> &)>"
       },
       "36": {
         "type": "Apply boundary conditions::std::function<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> (const ImmersX::BoundaryConditions<2, 2> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"

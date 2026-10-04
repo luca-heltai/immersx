@@ -44,6 +44,17 @@
 #include <utility>
 #include <vector>
 
+namespace ImmersX
+{
+  template <int spacedim>
+  struct BoundaryFunction
+  {
+    using Function = dealii::Function<spacedim>;
+
+    std::shared_ptr<const Function> value;
+  };
+} // namespace ImmersX
+
 namespace ImmersX::Coral
 {
   using json = nlohmann::json;
@@ -426,16 +437,16 @@ namespace ImmersX::Coral
   inline void
   register_boundary_function_types()
   {
-    using Function       = dealii::Function<spacedim>;
-    using FunctionHandle = std::shared_ptr<const Function>;
+    using BoundaryFunction = ImmersX::BoundaryFunction<spacedim>;
 
-    coral::detail::set_type_alias<FunctionHandle>(
+    coral::detail::set_type_alias<BoundaryFunction>(
       "ImmersX::BoundaryFunction<" + std::to_string(spacedim) + ">");
-    coral::NodeObject::register_output_type<FunctionHandle>();
+    coral::NodeObject::register_output_type<BoundaryFunction>();
     coral::NodeObject::register_function(
-      std::function<FunctionHandle(double)>([](const double value) {
-        return std::make_shared<
-          const dealii::Functions::ConstantFunction<spacedim>>(value);
+      std::function<BoundaryFunction(double)>([](const double value) {
+        return BoundaryFunction{
+          std::make_shared<const dealii::Functions::ConstantFunction<spacedim>>(
+            value)};
       }),
       {"value"},
       coral::RegistryMetadata{"Constant function",
@@ -443,10 +454,10 @@ namespace ImmersX::Coral
                               std::to_string(spacedim) + "D",
                               "Create a scalar constant boundary function."});
     coral::NodeObject::register_function(
-      std::function<FunctionHandle(const std::vector<double> &)>(
+      std::function<BoundaryFunction(const std::vector<double> &)>(
         [](const std::vector<double> &values) {
-          return std::make_shared<
-            const dealii::Functions::ConstantFunction<spacedim>>(values);
+          return BoundaryFunction{std::make_shared<
+            const dealii::Functions::ConstantFunction<spacedim>>(values)};
         }),
       {"values"},
       coral::RegistryMetadata{
@@ -460,10 +471,9 @@ namespace ImmersX::Coral
   inline void
   register_boundary_condition_operations(const std::string &field_kind)
   {
-    using Field          = ImmersX::Field<dim, spacedim, Extractor>;
-    using Conditions     = ImmersX::BoundaryConditions<dim, spacedim>;
-    using Function       = dealii::Function<spacedim>;
-    using FunctionHandle = std::shared_ptr<const Function>;
+    using Field            = ImmersX::Field<dim, spacedim, Extractor>;
+    using Conditions       = ImmersX::BoundaryConditions<dim, spacedim>;
+    using BoundaryFunction = ImmersX::BoundaryFunction<spacedim>;
 
     coral::detail::set_type_alias<Conditions>("ImmersX::BoundaryConditions<" +
                                               dimensions(dim, spacedim) + ">");
@@ -480,12 +490,12 @@ namespace ImmersX::Coral
                                   spacedim));
     coral::NodeObject::register_function(
       std::function<Conditions(
-        const Conditions &, const unsigned int, const FunctionHandle &)>(
-        [](const Conditions     &conditions,
-           const unsigned int    boundary_id,
-           const FunctionHandle &function) {
+        const Conditions &, const unsigned int, const BoundaryFunction &)>(
+        [](const Conditions       &conditions,
+           const unsigned int      boundary_id,
+           const BoundaryFunction &function) {
           auto result = conditions;
-          result.add_dirichlet(boundary_id, function);
+          result.add_dirichlet(boundary_id, function.value);
           return result;
         }),
       {"conditions", "boundary_id", "function"},
