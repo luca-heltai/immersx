@@ -242,6 +242,33 @@ graph does not depend on the lifetime of a temporary C++ function object. The
 specialized `Set constant Dirichlet boundary condition` node has been removed;
 there is no compatibility alias for it.
 
+The three concrete function sources converge on the same handle:
+
+```cpp
+using FunctionHandle =
+  std::shared_ptr<const dealii::Function<spacedim>>;
+```
+
+Coral transports that handle in `ImmersX::BoundaryFunction<spacedim>`, whose
+`value` member has type `FunctionHandle`. In addition to `Constant function`,
+the `Parsed function` operation has two variants:
+
+- `Expression` accepts exactly `const std::string &expression` and constructs
+  a scalar `dealii::FunctionParser<spacedim>` with
+  `default_variable_names() + ",t"`. It supplies the constants string
+  `E=<value>,PI=<value>` using `dealii::numbers::E`, `dealii::numbers::PI`, and
+  `std::numeric_limits<double>::max_digits10` precision.
+- `Parameterized` uses the existing
+  `ImmersX::ModulatedParsedFunction<spacedim>`. The concrete object is a
+  `ParameterAcceptor` derived type, so it can be connected to the generic
+  `Initialize parameters` operation before it is converted to the common
+  function handle. Its parameters are `Function constants`, `Function
+  expression`, `Variable names`, `Modulation frequency`, and `Phase shift`.
+
+The same handle type can therefore be consumed by boundary conditions today
+and by `KnownTerm`/RHS graph operations when those operations are exposed in
+Coral.
+
 The boundary helper rebuilds hanging-node and Dirichlet constraints on the
 owning space. For an inhomogeneous boundary, the linear weak-term assembly
 includes the corresponding affine contribution in the residual. Output uses

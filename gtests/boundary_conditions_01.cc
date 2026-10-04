@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------
 
 #include <deal.II/base/function_lib.h>
+#include <deal.II/base/function_parser.h>
 
 #include <deal.II/distributed/tria.h>
 
@@ -27,6 +28,7 @@
 #include <immersx/core/observable.h>
 #include <immersx/core/state.h>
 #include <immersx/core/weak_term.h>
+#include <immersx/physics/modulated_parsed_function.h>
 
 #include <algorithm>
 #include <limits>
@@ -163,6 +165,37 @@ TEST(BoundaryConditions, OwnedFunctionSurvivesSourceScope)
   ASSERT_GT(space.constraints().n_constraints(), 0u);
   for (const auto &line : space.constraints().get_lines())
     EXPECT_DOUBLE_EQ(space.constraints().get_inhomogeneity(line.index), 3.);
+}
+
+TEST(BoundaryConditions, OwnedParsedFunctionsSurviveBoundaryCopies)
+{
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(triangulation);
+  triangulation.refine_global(1);
+  FiniteElementSpaceParameters<2> parameters;
+  parameters.finite_element = "FE_Q<2>(1)";
+  FiniteElementSpace<2> space(triangulation, parameters);
+
+  using FunctionHandle = std::shared_ptr<const Function<2>>;
+  FunctionHandle expression;
+  FunctionHandle parameterized;
+  {
+    expression          = std::make_shared<const FunctionParser<2>>("x + t");
+    const auto function = std::make_shared<ModulatedParsedFunction<2>>(
+      "/Boundary condition parameterized function/");
+    parameterized = function->function_handle();
+  }
+
+  BoundaryConditions<2> conditions(space);
+  conditions.add_dirichlet(0, expression);
+  conditions.add_dirichlet(1, parameterized);
+  const auto copied_conditions = conditions;
+
+  conditions.update(0.5);
+  copied_conditions.update(0.5);
+  EXPECT_GT(space.constraints().n_constraints(), 0u);
+  EXPECT_EQ(conditions.n_dirichlet_rules(), 2u);
+  EXPECT_EQ(copied_conditions.n_dirichlet_rules(), 2u);
 }
 
 TEST(BoundaryConditions, VectorMaskAndNormalFlux)

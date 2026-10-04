@@ -104,6 +104,29 @@ if(_boundary_function_error OR
     "Registry ${SPACEDIM}d does not register ${_boundary_function_type} as output-only.")
 endif()
 
+string(FIND "${_registry}" "\"type\": \"ImmersX::ModulatedParsedFunction<${SPACEDIM}>\""
+  _modulated_function_found)
+if(_modulated_function_found EQUAL -1)
+  message(FATAL_ERROR
+    "Registry ${SPACEDIM}d does not expose the parameterized parsed function type.")
+endif()
+
+foreach(_parsed_variant Expression Parameterized)
+  string(FIND "${_registry}"
+    "\"operation\": \"Parsed function\"" _parsed_operation_found)
+  string(FIND "${_registry}"
+    "\"variant_name\": \"${_parsed_variant}. ${SPACEDIM}D\""
+    _parsed_variant_found)
+  string(FIND "${_registry}"
+    "\"output_type\": \"ImmersX::BoundaryFunction<${SPACEDIM}>\""
+    _parsed_output_found)
+  if(_parsed_operation_found EQUAL -1 OR _parsed_variant_found EQUAL -1 OR
+     _parsed_output_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d is missing the ${_parsed_variant} parsed-function variant.")
+  endif()
+endforeach()
+
   foreach(_observable_kind divergence "symmetric gradient")
     set(_observable_type
       "ImmersX::Observable<${_dim},${SPACEDIM},Vector,${_observable_kind}>")

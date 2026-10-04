@@ -4,15 +4,20 @@
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_function.h>
 
+#include <memory>
+
 namespace ImmersX
 {
   using namespace dealii;
 
   template <int spacedim>
   class ModulatedParsedFunction
-    : public ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+    : public ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>,
+      public std::enable_shared_from_this<ModulatedParsedFunction<spacedim>>
   {
   public:
+    using FunctionHandle = std::shared_ptr<const dealii::Function<spacedim>>;
+
     ModulatedParsedFunction(const std::string &section_name,
                             const unsigned int n_components = 1);
 
@@ -24,6 +29,9 @@ namespace ImmersX
 
     double
     scale(const double time) const;
+
+    FunctionHandle
+    function_handle() const;
 
     void
     copy_configuration_from(const ModulatedParsedFunction<spacedim> &other);

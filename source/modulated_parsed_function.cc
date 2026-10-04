@@ -107,6 +107,14 @@ namespace ImmersX
   }
 
   template <int spacedim>
+  typename ModulatedParsedFunction<spacedim>::FunctionHandle
+  ModulatedParsedFunction<spacedim>::function_handle() const
+  {
+    return std::static_pointer_cast<const dealii::Function<spacedim>>(
+      this->shared_from_this());
+  }
+
+  template <int spacedim>
   void
   ModulatedParsedFunction<spacedim>::copy_configuration_from(
     const ModulatedParsedFunction<spacedim> &other)
