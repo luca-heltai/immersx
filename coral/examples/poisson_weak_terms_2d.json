@@ -66,7 +66,7 @@
         "qualified_id": "poisson_trial_field"
       },
       "11": {
-        "type": "Field gradient::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>",
+        "type": "Gradient::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>",
         "position": {"x": 1980, "y": 40},
         "qualified_id": "poisson_gradient"
       },

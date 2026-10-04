@@ -175,11 +175,16 @@ namespace ImmersX::Coral
 
   template <int dim, int spacedim>
   inline void
+  register_test_expression_operations();
+
+  template <int dim, int spacedim>
+  inline void
   register_field_types()
   {
     register_scalar_field_types<dim, spacedim>();
     register_vector_field_types<dim, spacedim>();
     register_field_observable_operations<dim, spacedim>();
+    register_test_expression_operations<dim, spacedim>();
     register_expression_algebra<dim, spacedim>();
   }
 
@@ -246,11 +251,11 @@ namespace ImmersX::Coral
   register_field_observable_operations(const std::string &field_kind)
   {
     register_field_observable_operation<dim, spacedim, Extractor>(
-      field_kind, "Field value", "value", [](const auto &field) {
+      field_kind, "Value", "value", [](const auto &field) {
         return ImmersX::value(field);
       });
     register_field_observable_operation<dim, spacedim, Extractor>(
-      field_kind, "Field gradient", "gradient", [](const auto &field) {
+      field_kind, "Gradient", "gradient", [](const auto &field) {
         return ImmersX::gradient(field);
       });
   }
@@ -262,17 +267,17 @@ namespace ImmersX::Coral
     using Extractor = dealii::FEValuesExtractors::Vector;
 
     register_field_observable_operation<dim, spacedim, Extractor>(
-      "Vector", "Field divergence", "divergence", [](const auto &field) {
+      "Vector", "Divergence", "divergence", [](const auto &field) {
         return ImmersX::divergence(field);
       });
     register_field_observable_operation<dim, spacedim, Extractor>(
       "Vector",
-      "Field symmetric gradient",
+      "Symmetric gradient",
       "symmetric gradient",
       [](const auto &field) { return ImmersX::symmetric_gradient(field); });
     if constexpr (spacedim > 1)
       register_field_observable_operation<dim, spacedim, Extractor>(
-        "Vector", "Field curl", "curl", [](const auto &field) {
+        "Vector", "Curl", "curl", [](const auto &field) {
           return ImmersX::curl(field);
         });
   }
@@ -290,6 +295,110 @@ namespace ImmersX::Coral
                                          dealii::FEValuesExtractors::Vector>(
       "Vector");
     register_vector_field_observable_operations<dim, spacedim>();
+  }
+
+  template <int dim, int spacedim, typename Extractor, typename Function>
+  inline void
+  register_test_expression_operation(const std::string &field_kind,
+                                     const std::string &operation,
+                                     const std::string &observable_kind,
+                                     Function           function)
+  {
+    using Field = ImmersX::Field<dim, spacedim, Extractor>;
+    using Test =
+      std::decay_t<decltype(ImmersX::test(std::declval<const Field &>()))>;
+    using Expression =
+      std::decay_t<decltype(function(std::declval<const Test &>()))>;
+
+    const auto type_name = [&] {
+      auto result = "ImmersX::TestExpression<" + dimensions(dim, spacedim) +
+                    "," + field_kind;
+      if (observable_kind != "value")
+        result += "," + observable_kind;
+      return result + ">";
+    }();
+    coral::detail::set_type_alias<Expression>(type_name);
+    coral::NodeObject::register_output_type<Expression>();
+    coral::NodeObject::register_function(
+      std::function<Expression(const Test &)>(function),
+      {"expression"},
+      expression_metadata(operation,
+                          field_kind + " test expression",
+                          "Apply " + observable_kind + " to a test expression.",
+                          dim,
+                          spacedim));
+  }
+
+  template <int dim, int spacedim, typename Extractor>
+  inline void
+  register_test_expression_operations(const std::string &field_kind)
+  {
+    using Field = ImmersX::Field<dim, spacedim, Extractor>;
+    using Test =
+      std::decay_t<decltype(ImmersX::test(std::declval<const Field &>()))>;
+
+    coral::detail::set_type_alias<Test>("ImmersX::TestExpression<" +
+                                        dimensions(dim, spacedim) + "," +
+                                        field_kind + ">");
+    coral::NodeObject::register_output_type<Test>();
+    coral::NodeObject::register_function(
+      std::function<Test(const Field &)>(
+        [](const Field &field) { return ImmersX::test(field); }),
+      {"field"},
+      expression_metadata("Test",
+                          field_kind + " test expression",
+                          "Create the residual test expression for a " +
+                            field_kind + " field.",
+                          dim,
+                          spacedim));
+
+    register_test_expression_operation<dim, spacedim, Extractor>(
+      field_kind, "Value", "value", [](const auto &expression) {
+        return ImmersX::value(expression);
+      });
+    register_test_expression_operation<dim, spacedim, Extractor>(
+      field_kind, "Gradient", "gradient", [](const auto &expression) {
+        return ImmersX::gradient(expression);
+      });
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_vector_test_expression_operations()
+  {
+    using Extractor = dealii::FEValuesExtractors::Vector;
+
+    register_test_expression_operation<dim, spacedim, Extractor>(
+      "Vector", "Divergence", "divergence", [](const auto &expression) {
+        return ImmersX::divergence(expression);
+      });
+    register_test_expression_operation<dim, spacedim, Extractor>(
+      "Vector",
+      "Symmetric gradient",
+      "symmetric gradient",
+      [](const auto &expression) {
+        return ImmersX::symmetric_gradient(expression);
+      });
+    if constexpr (spacedim > 1)
+      register_test_expression_operation<dim, spacedim, Extractor>(
+        "Vector", "Curl", "curl", [](const auto &expression) {
+          return ImmersX::curl(expression);
+        });
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_test_expression_operations()
+  {
+    register_test_expression_operations<dim,
+                                        spacedim,
+                                        dealii::FEValuesExtractors::Scalar>(
+      "Scalar");
+    register_test_expression_operations<dim,
+                                        spacedim,
+                                        dealii::FEValuesExtractors::Vector>(
+      "Vector");
+    register_vector_test_expression_operations<dim, spacedim>();
   }
 
   template <typename Expression>

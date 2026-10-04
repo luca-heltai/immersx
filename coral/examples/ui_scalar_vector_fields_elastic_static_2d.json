@@ -77,12 +77,12 @@
         "qualified_id": "elastic_static_output"
       },
       "13": {
-        "type": "Field value::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>",
+        "type": "Value::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>",
         "position": {"x": 1800, "y": 40},
         "qualified_id": "scalar_field_value"
       },
       "14": {
-        "type": "Field divergence::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::DivergenceOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector> &)>",
+        "type": "Divergence::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::DivergenceOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector> &)>",
         "position": {"x": 1800, "y": 260},
         "qualified_id": "vector_field_divergence"
       }

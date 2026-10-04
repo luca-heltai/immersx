@@ -198,6 +198,32 @@ auto state = adapter.make_state();
 adapter.solve(state);
 ```
 
+The Coral expression binding follows the same compositional grammar as the
+C++ API:
+
+```text
+Field -> Test -> FE operation
+Field -> FE operation
+FE expression + test-side FE expression -> Weak term
+```
+
+For the Poisson primitive graph, the variational path is therefore:
+
+```text
+Field -> Gradient
+Field -> Test -> Gradient
+Gradient + Test Gradient -> Weak term
+```
+
+`Test`, `Value`, `Gradient`, `Divergence`, `Symmetric gradient`, and `Curl`
+are operation families registered for the supported scalar/vector overloads.
+The node signatures remain concrete C++ value types, while their metadata
+keeps the graph vocabulary at the operation-family level. `Weak term` consumes
+the outputs of those expression nodes directly; it does not encode a
+Poisson- or Laplace-specific shortcut. The current dealiiX-platform UI may
+still display concrete overloads separately until it groups nodes using the
+shared `operation` metadata.
+
 The boundary helper rebuilds hanging-node and Dirichlet constraints on the
 owning space. For an inhomogeneous boundary, the linear weak-term assembly
 includes the corresponding affine contribution in the residual. Output uses

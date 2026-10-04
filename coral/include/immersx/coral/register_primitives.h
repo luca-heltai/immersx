@@ -109,47 +109,19 @@ namespace ImmersX::Coral
     using AdapterHandle = std::shared_ptr<Adapter>;
     using ScalarField =
       ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
-    using Gradient     = std::decay_t<decltype(ImmersX::gradient(
+    using Gradient               = std::decay_t<decltype(ImmersX::gradient(
       std::declval<const ScalarField &>()))>;
-    using TestField    = std::decay_t<decltype(ImmersX::test(
-      std::declval<const ScalarField &>()))>;
-    using TestGradient = std::decay_t<decltype(ImmersX::gradient(
-      std::declval<const TestField &>()))>;
-    using Weak         = std::decay_t<decltype(ImmersX::weak_term(
-      std::declval<const Gradient &>(), std::declval<const TestGradient &>()))>;
+    using TestGradientExpression = std::decay_t<decltype(ImmersX::gradient(
+      ImmersX::test(std::declval<const ScalarField &>())))>;
+    using Weak                   = std::decay_t<decltype(ImmersX::weak_term(
+      std::declval<const Gradient &>(),
+      std::declval<const TestGradientExpression &>()))>;
 
-    coral::detail::set_type_alias<TestField>(
-      "ImmersX::TestExpression<" + dimensions(dim, spacedim) + ",Scalar>");
-    coral::detail::set_type_alias<TestGradient>(
-      "ImmersX::TestGradient<" + dimensions(dim, spacedim) + ">");
     coral::detail::set_type_alias<Weak>("ImmersX::WeakTerm<" +
                                         dimensions(dim, spacedim) +
-                                        ",ScalarGradient,ScalarTestGradient>");
-    coral::NodeObject::register_output_type<TestField>();
-    coral::NodeObject::register_output_type<TestGradient>();
+                                        ",ScalarGradient,"
+                                        "ScalarTestExpressionGradient>");
     coral::NodeObject::register_output_type<Weak>();
-
-    coral::NodeObject::register_function(
-      std::function<TestField(const ScalarField &)>(
-        [](const ScalarField &field) { return ImmersX::test(field); }),
-      {"field"},
-      coral::RegistryMetadata{
-        "Test field",
-        "Test field",
-        "Scalar test field. " + dimensions(dim, spacedim),
-        "Create the residual test expression for a scalar field."});
-
-    coral::NodeObject::register_function(
-      std::function<TestGradient(const ScalarField &)>(
-        [](const ScalarField &field) {
-          return ImmersX::gradient(ImmersX::test(field));
-        }),
-      {"field"},
-      coral::RegistryMetadata{
-        "Test gradient",
-        "Test gradient",
-        "Scalar test field. " + dimensions(dim, spacedim),
-        "Take the gradient of a scalar test expression."});
 
     coral::NodeObject::register_function(
       std::function<
@@ -169,14 +141,15 @@ namespace ImmersX::Coral
         "Register an existing scalar Field in a linear execution."});
 
     coral::NodeObject::register_function(
-      std::function<Weak(const Gradient &, const TestGradient &)>(
-        [](const Gradient &gradient, const TestGradient &test_gradient) {
+      std::function<Weak(const Gradient &, const TestGradientExpression &)>(
+        [](const Gradient               &gradient,
+           const TestGradientExpression &test_gradient) {
           return ImmersX::weak_term(gradient, test_gradient);
         }),
       {"trial_gradient", "test_gradient"},
       coral::RegistryMetadata{"Weak term",
                               "Weak term",
-                              "Scalar gradient / scalar test gradient. " +
+                              "Scalar gradient / scalar test expression. " +
                                 dimensions(dim, spacedim),
                               "Build a generic scalar gradient weak term."});
 
