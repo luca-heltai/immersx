@@ -87,9 +87,10 @@ namespace ImmersX::Coral
         [](SpaceHandle       &space,
            const unsigned int boundary_id,
            const double       value) {
-          ImmersX::set_constant_dirichlet_boundary_condition(*space,
-                                                             boundary_id,
-                                                             value);
+          ImmersX::BoundaryConditions<dim, spacedim>    conditions(*space);
+          dealii::Functions::ConstantFunction<spacedim> boundary_value(value);
+          conditions.add_dirichlet(boundary_id, boundary_value);
+          conditions.update(0.);
           return space;
         }),
       {"space", "boundary_id", "value"},

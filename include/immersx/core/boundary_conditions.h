@@ -236,19 +236,6 @@ namespace ImmersX
     mutable std::size_t           structure_revision_    = 0;
   };
 
-  /** Backward-compatible one-shot convenience for primitive Poisson. */
-  template <int dim, int spacedim = dim>
-  void
-  set_constant_dirichlet_boundary_condition(
-    FiniteElementSpace<dim, spacedim> &space,
-    const dealii::types::boundary_id   boundary_id,
-    const double                       value)
-  {
-    BoundaryConditions<dim, spacedim>             conditions(space);
-    dealii::Functions::ConstantFunction<spacedim> boundary_value(value);
-    conditions.add_dirichlet(boundary_id, boundary_value);
-    conditions.update(0.);
-  }
 } // namespace ImmersX
 
 #endif // immersx_boundary_conditions_h
