@@ -64,6 +64,27 @@ foreach(_dim RANGE 1 ${SPACEDIM})
           "Registry ${SPACEDIM}d does not register ${_observable_type} as output-only.")
       endif()
     endforeach()
+
+    set(_test_type
+      "ImmersX::TestExpression<${_dim},${SPACEDIM},${_field_kind}>")
+    string(JSON _test_node_type ERROR_VARIABLE _test_error
+      GET "${_registry}" "${_test_type}" node_type)
+    if(_test_error OR NOT _test_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_test_type} as output-only.")
+    endif()
+
+    foreach(_test_observable_kind gradient)
+      set(_test_observable_type
+        "ImmersX::TestExpression<${_dim},${SPACEDIM},${_field_kind},${_test_observable_kind}>")
+      string(JSON _test_observable_node_type ERROR_VARIABLE _test_observable_error
+        GET "${_registry}" "${_test_observable_type}" node_type)
+      if(_test_observable_error OR
+         NOT _test_observable_node_type STREQUAL "output_only")
+        message(FATAL_ERROR
+          "Registry ${SPACEDIM}d does not register ${_test_observable_type} as output-only.")
+      endif()
+    endforeach()
   endforeach()
 
   foreach(_observable_kind divergence "symmetric gradient")
@@ -75,6 +96,16 @@ foreach(_dim RANGE 1 ${SPACEDIM})
       message(FATAL_ERROR
         "Registry ${SPACEDIM}d does not register ${_observable_type} as output-only.")
     endif()
+
+    set(_test_observable_type
+      "ImmersX::TestExpression<${_dim},${SPACEDIM},Vector,${_observable_kind}>")
+    string(JSON _test_observable_node_type ERROR_VARIABLE _test_observable_error
+      GET "${_registry}" "${_test_observable_type}" node_type)
+    if(_test_observable_error OR
+       NOT _test_observable_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_test_observable_type} as output-only.")
+    endif()
   endforeach()
 
   if(SPACEDIM GREATER 1)
@@ -85,6 +116,15 @@ foreach(_dim RANGE 1 ${SPACEDIM})
     if(_observable_error OR NOT _observable_node_type STREQUAL "output_only")
       message(FATAL_ERROR
         "Registry ${SPACEDIM}d does not register ${_observable_type} as output-only.")
+    endif()
+    set(_test_observable_type
+      "ImmersX::TestExpression<${_dim},${SPACEDIM},Vector,curl>")
+    string(JSON _test_observable_node_type ERROR_VARIABLE _test_observable_error
+      GET "${_registry}" "${_test_observable_type}" node_type)
+    if(_test_observable_error OR
+       NOT _test_observable_node_type STREQUAL "output_only")
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d does not register ${_test_observable_type} as output-only.")
     endif()
   endif()
 endforeach()
@@ -140,8 +180,8 @@ if(SPACEDIM EQUAL 2)
       "ImmersX::OwnedDomain<2,2>"
       "ImmersX::OwnedFiniteElementSpace<2,2>"
       "ImmersX::TestExpression<2,2,Scalar>"
-      "ImmersX::TestGradient<2,2>"
-      "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestGradient>")
+      "ImmersX::TestExpression<2,2,Scalar,gradient>"
+      "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestExpressionGradient>")
     string(FIND "${_registry}" "${_primitive_type}" _primitive_found)
     if(_primitive_found EQUAL -1)
       message(FATAL_ERROR
@@ -154,8 +194,7 @@ if(SPACEDIM EQUAL 2)
       "Generate domain"
       "Create finite element space"
       "Set constant Dirichlet boundary condition"
-      "Test field"
-      "Test gradient"
+      "Test"
       "Register algebraic field"
       "Weak term"
       "Add weak term to linear execution")
@@ -164,6 +203,16 @@ if(SPACEDIM EQUAL 2)
     if(_primitive_operation_found EQUAL -1)
       message(FATAL_ERROR
         "Registry 2d is missing generic primitive operation '${_primitive_operation}'.")
+      endif()
+  endforeach()
+
+  foreach(_test_operation Test Value Gradient)
+    string(FIND "${_registry}"
+      "${_test_operation}::std::function<ImmersX::TestExpression"
+      _test_signature_found)
+    if(_test_signature_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry 2d is missing the ${_test_operation} TestExpression signature.")
     endif()
   endforeach()
 
@@ -179,6 +228,13 @@ if(SPACEDIM EQUAL 2)
         "${_parameter_type} is not registered as a ParameterAcceptor derived type.")
     endif()
   endforeach()
+
+  string(FIND "${_registry}" "\"operation\": \"Test gradient\""
+    _specialized_test_gradient_found)
+  if(NOT _specialized_test_gradient_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry still contains the specialized Test gradient operation.")
+  endif()
 endif()
 
 set(_initialize_arity4_found FALSE)
@@ -288,10 +344,10 @@ foreach(_field_operation "Scalar field" "Vector field")
 endforeach()
 
 foreach(_observable_operation
-    "Field value"
-    "Field gradient"
-    "Field divergence"
-    "Field symmetric gradient")
+    "Value"
+    "Gradient"
+    "Divergence"
+    "Symmetric gradient")
   string(FIND "${_registry}" "${_observable_operation}" _found)
   if(_found EQUAL -1)
     message(FATAL_ERROR
@@ -308,16 +364,25 @@ foreach(_expression_operation "Scale term" "Nonlinear product")
 endforeach()
 
 if(SPACEDIM GREATER 1)
-  string(FIND "${_registry}" "Field curl" _found)
+  string(FIND "${_registry}" "\"operation\": \"Curl\"" _found)
   if(_found EQUAL -1)
-    message(FATAL_ERROR "Registry is missing the 'Field curl' operation family.")
+    message(FATAL_ERROR "Registry is missing the 'Curl' operation family.")
   endif()
 else()
-  string(FIND "${_registry}" "Field curl" _found)
+  string(FIND "${_registry}" "\"operation\": \"Curl\"" _found)
   if(NOT _found EQUAL -1)
-    message(FATAL_ERROR "1D registry must not expose the unsupported Field curl operation.")
+    message(FATAL_ERROR "1D registry must not expose the unsupported Curl operation.")
   endif()
 endif()
+
+foreach(_test_operation "Test" "Value" "Gradient")
+  string(FIND "${_registry}" "\"operation\": \"${_test_operation}\""
+    _test_operation_found)
+  if(_test_operation_found EQUAL -1)
+    message(FATAL_ERROR
+      "Registry is missing the '${_test_operation}' test-expression operation family.")
+  endif()
+endforeach()
 
 string(FIND "${_registry}" "ImmersX::PoissonParameters<1,${SPACEDIM}>" _found)
 if(_found EQUAL -1)
