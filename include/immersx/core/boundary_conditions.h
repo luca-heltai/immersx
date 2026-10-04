@@ -71,14 +71,14 @@ namespace ImmersX
     }
 
     /** Add one strong Dirichlet rule, optionally restricted by component. */
-    template <typename FunctionType>
+    template <
+      typename FunctionType,
+      typename = std::enable_if_t<std::is_base_of_v<Function, FunctionType>>>
     void
     add_dirichlet(const BoundaryId                            boundary_id,
                   const FunctionType                         &function,
                   const std::optional<dealii::ComponentMask> &mask = {})
     {
-      static_assert(std::is_base_of_v<Function, FunctionType>,
-                    "A Dirichlet rule must use a deal.II Function.");
       validate_component_mask(mask);
       state_->dirichlet_rules.emplace_back([boundary_id,
                                             &function,
@@ -102,7 +102,40 @@ namespace ImmersX
       });
     }
 
-    template <typename FunctionType>
+    /** Add a Dirichlet rule while retaining ownership of the function. */
+    void
+    add_dirichlet(const BoundaryId                            boundary_id,
+                  std::shared_ptr<const Function>             function,
+                  const std::optional<dealii::ComponentMask> &mask = {})
+    {
+      AssertThrow(function != nullptr,
+                  dealii::ExcMessage("A Dirichlet function cannot be null."));
+      validate_component_mask(mask);
+      state_->dirichlet_rules.emplace_back([boundary_id,
+                                            function = std::move(function),
+                                            mask](const double  time,
+                                                  const Target &target,
+                                                  Constraints  &constraints) {
+        detail::set_function_time(*function, time);
+        const auto effective_mask =
+          mask.has_value() ? mask : target.component_mask;
+        if (effective_mask.has_value())
+          dealii::VectorTools::interpolate_boundary_values(target.dof_handler(),
+                                                           boundary_id,
+                                                           *function,
+                                                           constraints,
+                                                           *effective_mask);
+        else
+          dealii::VectorTools::interpolate_boundary_values(target.dof_handler(),
+                                                           boundary_id,
+                                                           *function,
+                                                           constraints);
+      });
+    }
+
+    template <
+      typename FunctionType,
+      typename = std::enable_if_t<std::is_base_of_v<Function, FunctionType>>>
     void
     add_dirichlet(const std::set<BoundaryId>                 &boundary_ids,
                   const FunctionType                         &function,
@@ -113,15 +146,15 @@ namespace ImmersX
     }
 
     /** Add one possibly time-dependent nonzero normal-flux rule. */
-    template <typename FunctionType>
+    template <
+      typename FunctionType,
+      typename = std::enable_if_t<std::is_base_of_v<Function, FunctionType>>>
     void
     add_nonzero_normal_flux(
       const BoundaryId                  boundary_id,
       const FunctionType               &function,
       const std::optional<unsigned int> first_vector_component = {})
     {
-      static_assert(std::is_base_of_v<Function, FunctionType>,
-                    "A normal-flux rule must use a deal.II Function.");
       state_->normal_flux_rules.emplace_back(
         [boundary_id, &function, first_vector_component](
           const double time, const Target &target, Constraints &constraints) {
@@ -136,7 +169,32 @@ namespace ImmersX
         });
     }
 
-    template <typename FunctionType>
+    /** Add a normal-flux rule while retaining ownership of the function. */
+    void
+    add_nonzero_normal_flux(
+      const BoundaryId                  boundary_id,
+      std::shared_ptr<const Function>   function,
+      const std::optional<unsigned int> first_vector_component = {})
+    {
+      AssertThrow(function != nullptr,
+                  dealii::ExcMessage("A normal-flux function cannot be null."));
+      state_->normal_flux_rules.emplace_back(
+        [boundary_id, function = std::move(function), first_vector_component](
+          const double time, const Target &target, Constraints &constraints) {
+          detail::set_function_time(*function, time);
+          const auto component = first_vector_component.value_or(
+            target.first_vector_component.value_or(0u));
+          const std::set<BoundaryId>                   ids{boundary_id};
+          const std::map<BoundaryId, const Function *> functions{
+            {boundary_id, function.get()}};
+          dealii::VectorTools::compute_nonzero_normal_flux_constraints(
+            target.dof_handler(), component, ids, functions, constraints);
+        });
+    }
+
+    template <
+      typename FunctionType,
+      typename = std::enable_if_t<std::is_base_of_v<Function, FunctionType>>>
     void
     add_nonzero_normal_flux(
       const std::set<BoundaryId>       &boundary_ids,
