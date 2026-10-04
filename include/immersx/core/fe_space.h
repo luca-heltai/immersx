@@ -155,6 +155,21 @@ namespace ImmersX
       return field_constraints_ != nullptr;
     }
 
+    /** Ensure that this field refers to a persistent local constraint set. */
+    dealii::AffineConstraints<double> &
+    ensure_constraints() const
+    {
+      if (field_constraints_ == nullptr)
+        {
+          field_constraints_ =
+            std::make_shared<dealii::AffineConstraints<double>>();
+          field_constraints_->reinit(locally_owned_dofs(),
+                                     locally_relevant_dofs());
+          field_constraints_->close();
+        }
+      return *field_constraints_;
+    }
+
     /**
      * Return a view of this FE field with a separate execution numbering.
      *
@@ -352,12 +367,13 @@ namespace ImmersX
       std::shared_ptr<const dealii::AffineConstraints<double>> constraints;
     };
 
-    const space_type                                  *space_;
-    std::string                                        name_;
-    FieldId                                            id_;
-    Extractor                                          extractor_;
-    std::shared_ptr<ExecutionLayout>                   execution_layout_;
-    std::shared_ptr<dealii::AffineConstraints<double>> field_constraints_;
+    const space_type                *space_;
+    std::string                      name_;
+    FieldId                          id_;
+    Extractor                        extractor_;
+    std::shared_ptr<ExecutionLayout> execution_layout_;
+    mutable std::shared_ptr<dealii::AffineConstraints<double>>
+      field_constraints_;
   };
 
   template <int dim, int spacedim, typename Extractor>

@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 using namespace dealii;
 using namespace ImmersX;
@@ -73,6 +74,20 @@ namespace
     }
   };
 
+  class ThreeComponentFunction : public Function<2>
+  {
+  public:
+    ThreeComponentFunction()
+      : Function<2>(3)
+    {}
+
+    double
+    value(const Point<2> &, const unsigned int component = 0) const override
+    {
+      return 1. + component;
+    }
+  };
+
   using LocalVector = Vector<double>;
   using LocalMatrix = SparseMatrix<double>;
 } // namespace
@@ -93,6 +108,10 @@ TEST(BoundaryConditions, AggregatesRulesAndUpdatesStableConstraints)
   aggregated.update(0.);
   EXPECT_EQ(aggregated.n_dirichlet_rules(), 2u);
   EXPECT_GT(space.constraints().n_constraints(), 0u);
+  auto copied = aggregated;
+  auto moved  = std::move(copied);
+  moved.update(0.);
+  EXPECT_EQ(moved.n_dirichlet_rules(), 2u);
 
   parallel::distributed::Triangulation<2> time_triangulation(MPI_COMM_WORLD);
   GridGenerator::hyper_cube(time_triangulation);
@@ -144,6 +163,146 @@ TEST(BoundaryConditions, VectorMaskAndNormalFlux)
   EXPECT_GT(space.constraints().n_constraints(), 0u);
 }
 
+TEST(BoundaryConditions, FieldConstraintsAreIndependentAndTimeAware)
+{
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(triangulation);
+  triangulation.refine_global(1);
+  FiniteElementSpaceParameters<2> parameters;
+  parameters.finite_element = "FE_Q<2>(1)";
+  FiniteElementSpace<2> space(triangulation, parameters);
+  const auto            V = space.view();
+
+  const auto            displacement = V.field("displacement");
+  const auto            velocity     = V.field("velocity");
+  TimeFunction          displacement_value;
+  TimeFunction          velocity_value;
+  BoundaryConditions<2> displacement_conditions(displacement);
+  BoundaryConditions<2> velocity_conditions(velocity);
+  displacement_conditions.add_dirichlet(0, displacement_value);
+  velocity_conditions.add_dirichlet(0, velocity_value);
+
+  const auto *displacement_address = &displacement.constraints();
+  const auto *velocity_address     = &velocity.constraints();
+  EXPECT_NE(displacement_address, &space.constraints());
+  EXPECT_NE(velocity_address, &space.constraints());
+  EXPECT_NE(displacement_address, velocity_address);
+
+  const auto minimum_inhomogeneity = [](const auto &constraints) {
+    double result = std::numeric_limits<double>::max();
+    for (const auto &line : constraints.get_lines())
+      result = std::min(result, constraints.get_inhomogeneity(line.index));
+    return result;
+  };
+
+  displacement_conditions.update(1.);
+  velocity_conditions.update(2.);
+  EXPECT_DOUBLE_EQ(minimum_inhomogeneity(displacement.constraints()), 1.);
+  EXPECT_DOUBLE_EQ(minimum_inhomogeneity(velocity.constraints()), 2.);
+  EXPECT_EQ(&displacement.constraints(), displacement_address);
+  EXPECT_EQ(&velocity.constraints(), velocity_address);
+
+  velocity_conditions.update(4.);
+  displacement_conditions.update(3.);
+  EXPECT_DOUBLE_EQ(minimum_inhomogeneity(displacement.constraints()), 3.);
+  EXPECT_DOUBLE_EQ(minimum_inhomogeneity(velocity.constraints()), 4.);
+  EXPECT_EQ(space.constraints().n_constraints(), 0u);
+}
+
+TEST(BoundaryConditions, FieldConstraintsIncludeHangingNodes)
+{
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(triangulation);
+  triangulation.refine_global(1);
+  triangulation.begin_active()->set_refine_flag();
+  triangulation.execute_coarsening_and_refinement();
+
+  FiniteElementSpaceParameters<2> parameters;
+  parameters.finite_element = "FE_Q<2>(1)";
+  FiniteElementSpace<2> space(triangulation, parameters);
+  const auto            V            = space.view();
+  const auto            with_hanging = V.field("with-hanging");
+  const auto            without      = V.field("without-hanging");
+
+  BoundaryConditions<2> with_hanging_conditions(with_hanging);
+  with_hanging_conditions.update(0.);
+  BoundaryConditions<2> without_conditions(without);
+  without_conditions.include_hanging_node_constraints(false);
+  without_conditions.update(0.);
+
+  EXPECT_GT(with_hanging.constraints().n_constraints(), 0u);
+  EXPECT_EQ(without.constraints().n_constraints(), 0u);
+}
+
+TEST(BoundaryConditions, FieldMaskSubmaskAndAutomaticNormalFlux)
+{
+  parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(triangulation);
+  triangulation.refine_global(1);
+  auto finite_element =
+    std::make_unique<FESystem<2>>(FE_Q<2>(1), 1, FE_Q<2>(1), 2);
+  FiniteElementSpace<2>  space(triangulation, std::move(finite_element));
+  const auto             V = space.view();
+  ThreeComponentFunction function;
+  VectorFunction         flux_function;
+
+  const auto vector = V.field("vector", FEValuesExtractors::Vector(1));
+  BoundaryConditions<2> vector_conditions(vector);
+  vector_conditions.include_hanging_node_constraints(false);
+  vector_conditions.add_dirichlet(0, function);
+  vector_conditions.update(0.);
+  const auto vector_dofs =
+    DoFTools::extract_dofs(vector.dof_handler(), vector.component_mask());
+  ASSERT_GT(vector.constraints().n_constraints(), 0u);
+  for (const auto &line : vector.constraints().get_lines())
+    EXPECT_TRUE(vector_dofs.is_element(line.index));
+
+  const auto subvector = V.field("subvector", FEValuesExtractors::Vector(1));
+  BoundaryConditions<2> subvector_conditions(subvector);
+  subvector_conditions.include_hanging_node_constraints(false);
+  const ComponentMask submask(std::vector<bool>{false, true, false});
+  subvector_conditions.add_dirichlet(0, function, submask);
+  subvector_conditions.update(0.);
+  const auto subvector_dofs =
+    DoFTools::extract_dofs(subvector.dof_handler(),
+                           ComponentMask(
+                             std::vector<bool>{false, true, false}));
+  ASSERT_GT(subvector.constraints().n_constraints(), 0u);
+  for (const auto &line : subvector.constraints().get_lines())
+    EXPECT_TRUE(subvector_dofs.is_element(line.index));
+  EXPECT_THROW(subvector_conditions.add_dirichlet(
+                 0,
+                 function,
+                 ComponentMask(std::vector<bool>{true, false, false})),
+               ExceptionBase);
+
+  const auto            flux = V.field("flux", FEValuesExtractors::Vector(1));
+  BoundaryConditions<2> flux_conditions(flux);
+  flux_conditions.include_hanging_node_constraints(false);
+  flux_conditions.add_nonzero_normal_flux(0, flux_function);
+  flux_conditions.update(0.);
+
+  const auto explicit_flux =
+    V.field("explicit-flux", FEValuesExtractors::Vector(1));
+  BoundaryConditions<2> explicit_flux_conditions(explicit_flux);
+  explicit_flux_conditions.include_hanging_node_constraints(false);
+  explicit_flux_conditions.add_nonzero_normal_flux(0, flux_function, 1);
+  explicit_flux_conditions.update(0.);
+
+  ASSERT_GT(flux.constraints().n_constraints(), 0u);
+  ASSERT_EQ(flux.constraints().n_constraints(),
+            explicit_flux.constraints().n_constraints());
+  for (unsigned int i = 0; i < flux.constraints().n_constraints(); ++i)
+    {
+      const auto &automatic_line = flux.constraints().get_lines()[i];
+      const auto &explicit_line  = explicit_flux.constraints().get_lines()[i];
+      EXPECT_EQ(automatic_line.index, explicit_line.index);
+      EXPECT_DOUBLE_EQ(
+        flux.constraints().get_inhomogeneity(automatic_line.index),
+        explicit_flux.constraints().get_inhomogeneity(explicit_line.index));
+    }
+}
+
 TEST(BoundaryConditions, WeakAffineContributionFollowsEvaluationTime)
 {
   parallel::distributed::Triangulation<2> triangulation(MPI_COMM_WORLD);
@@ -153,20 +312,18 @@ TEST(BoundaryConditions, WeakAffineContributionFollowsEvaluationTime)
   parameters.finite_element = "FE_Q<2>(1)";
   FiniteElementSpace<2> space(triangulation, parameters);
 
+  const auto            V = space.view();
+  StateLayout           layout;
+  const auto            u = V.field(layout, "u");
   TimeFunction          time_function;
-  BoundaryConditions<2> conditions(space);
+  BoundaryConditions<2> conditions(u);
   conditions.add_dirichlet(0, time_function);
   conditions.update(0.);
 
-  StateLayout                                   layout;
-  const auto                                    V = space.view();
-  const auto                                    u = V.field(layout, "u");
   SemiDiscreteModel<LocalVector, LocalMatrix>   model;
   SemidiscreteBuilder<LocalVector, LocalMatrix> builder(layout, model);
-  weak_term(gradient(u), gradient(test(u)))
-    .with_context_update(
-      [&conditions](const double time) { conditions.update(time); })
-    .add(builder);
+  conditions.register_with(builder);
+  weak_term(gradient(u), gradient(test(u))).add(builder);
 
   LocalVector state(u.dof_handler().n_dofs());
   state = 0.;
