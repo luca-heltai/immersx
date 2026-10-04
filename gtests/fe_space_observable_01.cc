@@ -82,6 +82,67 @@ TEST(FESpace, IsANonOwningViewAndSupportsSubspaces)
   EXPECT_EQ(displacement.extractor().first_vector_component, 0u);
 }
 
+TEST(FESpace, FieldLocalConstraintsArePersistentAndIndependent)
+{
+  ExternalFESystem system;
+  const auto       V = ImmersX::fe_space(system.dof_handler,
+                                   system.mapping,
+                                   system.constraints,
+                                   system.relevant);
+
+  const auto displacement =
+    V.field("displacement", FEValuesExtractors::Vector(0)).with_constraints();
+  const auto velocity =
+    V.field("velocity", FEValuesExtractors::Vector(0)).with_constraints();
+
+  ASSERT_TRUE(displacement.has_field_constraints());
+  ASSERT_TRUE(velocity.has_field_constraints());
+  EXPECT_NE(&displacement.constraints(), &system.constraints);
+  EXPECT_NE(&velocity.constraints(), &system.constraints);
+  EXPECT_NE(&displacement.constraints(), &velocity.constraints());
+
+  auto *const displacement_constraints = &displacement.mutable_constraints();
+  auto *const velocity_constraints     = &velocity.mutable_constraints();
+  displacement_constraints->clear();
+  velocity_constraints->clear();
+  displacement_constraints->add_line(0);
+  displacement_constraints->close();
+  velocity_constraints->add_line(1);
+  velocity_constraints->close();
+
+  EXPECT_TRUE(displacement.constraints().is_constrained(0));
+  EXPECT_FALSE(displacement.constraints().is_constrained(1));
+  EXPECT_FALSE(velocity.constraints().is_constrained(0));
+  EXPECT_TRUE(velocity.constraints().is_constrained(1));
+
+  displacement.mutable_constraints().clear();
+  displacement.mutable_constraints().close();
+  EXPECT_EQ(displacement_constraints, &displacement.constraints());
+  EXPECT_FALSE(displacement.constraints().is_constrained(0));
+  EXPECT_TRUE(velocity.constraints().is_constrained(1));
+}
+
+TEST(FESpace, FieldComponentMaskComesFromNonzeroExtractor)
+{
+  Triangulation<2> tria;
+  GridGenerator::hyper_cube(tria);
+  FESystem<2>   fe(FE_Q<2>(1), 1, FE_Q<2>(1), 2);
+  DoFHandler<2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
+  const auto vector = V.field("vector", FEValuesExtractors::Vector(1));
+  const auto mask   = vector.component_mask();
+
+  ASSERT_EQ(mask.size(), 3u);
+  EXPECT_FALSE(mask[0]);
+  EXPECT_TRUE(mask[1]);
+  EXPECT_TRUE(mask[2]);
+}
+
 TEST(FESpace, ScalarAndVectorFieldCPOsUseDealIIExtractors)
 {
   ExternalFESystem     system;

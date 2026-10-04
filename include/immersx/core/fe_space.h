@@ -121,8 +121,38 @@ namespace ImmersX
     with_id(const FieldId id) const
     {
       Field result(space(), name_, extractor_, id);
-      result.execution_layout_ = execution_layout_;
+      result.execution_layout_  = execution_layout_;
+      result.field_constraints_ = field_constraints_;
       return result;
+    }
+
+    /** Return the field with a persistent, field-local constraint set. */
+    Field
+    with_constraints(
+      std::shared_ptr<dealii::AffineConstraints<double>> constraints) const
+    {
+      AssertThrow(constraints != nullptr,
+                  dealii::ExcMessage("A field constraint set cannot be null."));
+      Field result(*this);
+      result.field_constraints_ = std::move(constraints);
+      return result;
+    }
+
+    /** Return the field with a new, empty field-local constraint set. */
+    Field
+    with_constraints() const
+    {
+      auto constraints = std::make_shared<dealii::AffineConstraints<double>>();
+      constraints->reinit(locally_owned_dofs(), locally_relevant_dofs());
+      constraints->close();
+      return with_constraints(std::move(constraints));
+    }
+
+    /** Return whether this field has its own constraint set. */
+    bool
+    has_field_constraints() const
+    {
+      return field_constraints_ != nullptr;
     }
 
     /**
@@ -151,7 +181,8 @@ namespace ImmersX
           execution_constraints = std::move(unconstrained);
         }
       Field result(space(), std::move(name), extractor_, id_);
-      result.execution_layout_ = std::make_shared<ExecutionLayout>();
+      result.field_constraints_ = field_constraints_;
+      result.execution_layout_  = std::make_shared<ExecutionLayout>();
       result.execution_layout_->locally_owned    = locally_owned;
       result.execution_layout_->locally_relevant = locally_relevant;
       result.execution_layout_->indices          = std::move(execution_indices);
@@ -228,8 +259,26 @@ namespace ImmersX
     const dealii::AffineConstraints<double> &
     constraints() const
     {
-      return execution_layout_ != nullptr ? *execution_layout_->constraints :
-                                            space().constraints();
+      return execution_layout_ != nullptr  ? *execution_layout_->constraints :
+             field_constraints_ != nullptr ? *field_constraints_ :
+                                             space().constraints();
+    }
+
+    /** Return the field-local constraints for contributor updates. */
+    dealii::AffineConstraints<double> &
+    mutable_constraints() const
+    {
+      AssertThrow(field_constraints_ != nullptr,
+                  dealii::ExcMessage(
+                    "This field has no field-local constraint set."));
+      return *field_constraints_;
+    }
+
+    /** Return the FE component mask represented by this field. */
+    dealii::ComponentMask
+    component_mask() const
+    {
+      return finite_element().component_mask(extractor_);
     }
 
     const dealii::IndexSet &
@@ -303,11 +352,12 @@ namespace ImmersX
       std::shared_ptr<const dealii::AffineConstraints<double>> constraints;
     };
 
-    const space_type                *space_;
-    std::string                      name_;
-    FieldId                          id_;
-    Extractor                        extractor_;
-    std::shared_ptr<ExecutionLayout> execution_layout_;
+    const space_type                                  *space_;
+    std::string                                        name_;
+    FieldId                                            id_;
+    Extractor                                          extractor_;
+    std::shared_ptr<ExecutionLayout>                   execution_layout_;
+    std::shared_ptr<dealii::AffineConstraints<double>> field_constraints_;
   };
 
   template <int dim, int spacedim, typename Extractor>
