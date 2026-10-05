@@ -29,6 +29,7 @@
 #include <immersx/core/linear_adapter.h>
 #include <immersx/core/observable.h>
 #include <immersx/io/output_handler.h>
+#include <immersx/io/utils.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/elastodynamics.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
@@ -750,9 +751,9 @@ namespace ImmersX::Coral
       dealii::Utilities::MPI::broadcast(communicator, file_exists, 0);
     if (file_exists)
       {
-        // Keep deal.II's normal exception behavior for unreadable or invalid
-        // existing files.
-        dealii::ParameterAcceptor::initialize(file_name);
+        // Keep ImmersX's two-pass initialization and its normal exception
+        // behavior for unreadable or invalid existing files.
+        ImmersX::initialize_parameters(file_name);
         return;
       }
 
@@ -781,11 +782,11 @@ namespace ImmersX::Coral
       {
         try
           {
-            dealii::ParameterAcceptor::initialize(file_name);
+            ImmersX::initialize_parameters(file_name);
           }
         catch (const dealii::ExcMessage &error)
           {
-            // deal.II deliberately throws after generating a missing input
+            // ImmersX deliberately throws after generating a missing input
             // file. Continue only for that documented first-run exception;
             // declaration and generation errors remain errors.
             const std::string message = error.what();
@@ -799,8 +800,9 @@ namespace ImmersX::Coral
     AssertThrowMPI(MPI_Barrier(communicator));
 #endif
 
-    // Parse the generated file in the same execution, including on rank zero.
-    dealii::ParameterAcceptor::initialize(file_name);
+    // Parse the generated file in the same execution, including on rank zero,
+    // using ImmersX's two-pass initialization.
+    ImmersX::initialize_parameters(file_name);
   }
 
   template <std::size_t>
