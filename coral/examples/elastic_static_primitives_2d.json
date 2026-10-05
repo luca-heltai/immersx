@@ -86,18 +86,18 @@
         "type": "Add weak term to linear execution::std::function<void (std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const ImmersX::WeakTerm<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::DivergenceOperation>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::DivergenceOperation>> &, const std::string &)>"
       },
       "36": {
-        "type": "Known source::std::function<ImmersX::KnownSource<dealii::Tensor<1, 2>, 2> (const ImmersX::BoundaryFunction<2> &)>"
+        "type": "Vector Known source"
       },
       "37": {
-        "type": "Known term::std::function<ImmersX::KnownTerm<ImmersX::KnownSource<dealii::Tensor<1, 2>, 2>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::ValueOperation>> (const ImmersX::KnownSource<dealii::Tensor<1, 2>, 2> &, const ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::ValueOperation> &)>"
+        "type": "Vector Known term"
       },
       "38": {"type": "unsigned int", "value": "3"},
       "39": {
-        "type": "Boundary known term::std::function<ImmersX::KnownTerm<ImmersX::KnownSource<dealii::Tensor<1, 2>, 2>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::ValueOperation>> (const ImmersX::KnownTerm<ImmersX::KnownSource<dealii::Tensor<1, 2>, 2>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::ValueOperation>> &, unsigned int)>"
+        "type": "Vector Boundary known term"
       },
       "40": {"type": "std::string", "value": "neumann"},
       "41": {
-        "type": "Add known term to linear execution::std::function<void (std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const ImmersX::KnownTerm<ImmersX::KnownSource<dealii::Tensor<1, 2>, 2>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector>, ImmersX::detail::ValueOperation>> &, const std::string &)>"
+        "type": "Vector Add known term to linear execution"
       },
       "42": {
         "type": "Parsed function::std::function<ImmersX::BoundaryFunction<2> (const std::string &)>"

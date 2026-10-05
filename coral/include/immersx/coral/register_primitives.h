@@ -66,6 +66,8 @@ namespace ImmersX::Coral
       std::decay_t<decltype(ImmersX::known_term(std::declval<const Source &>(),
                                                 std::declval<const Test &>()))>;
     using BoundaryFunction = ImmersX::BoundaryFunction<spacedim>;
+    const std::string operation_prefix =
+      field_kind == "Vector" ? "Vector " : "";
 
     coral::detail::set_type_alias<Source>("ImmersX::KnownSource<" +
                                           dimensions(dim, spacedim) + "," +
@@ -83,7 +85,7 @@ namespace ImmersX::Coral
         }),
       {"function"},
       coral::RegistryMetadata{
-        "Known source",
+        operation_prefix + "Known source",
         "Known source",
         field_kind + " boundary source. " + dimensions(dim, spacedim),
         "Create a generic context-aware known source from a boundary "
@@ -96,7 +98,7 @@ namespace ImmersX::Coral
         }),
       {"source", "test"},
       coral::RegistryMetadata{
-        "Known term",
+        operation_prefix + "Known term",
         "Known term",
         field_kind + " test expression. " + dimensions(dim, spacedim),
         "Pair a generic known source with a residual test expression."});
@@ -108,7 +110,7 @@ namespace ImmersX::Coral
         }),
       {"term", "boundary_id"},
       coral::RegistryMetadata{
-        "Boundary known term",
+        operation_prefix + "Boundary known term",
         "Boundary known term",
         field_kind + " field. " + dimensions(dim, spacedim),
         "Restrict a generic known term to one boundary id."});
@@ -120,7 +122,7 @@ namespace ImmersX::Coral
            const std::string &prefix) { (*adapter).add(term, prefix); }),
       {"adapter", "term", "prefix"},
       coral::RegistryMetadata{
-        "Add known term to linear execution",
+        operation_prefix + "Add known term to linear execution",
         "Add known term",
         "LinearAdapter",
         "Add a generic known source term to a linear execution."});

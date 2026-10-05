@@ -252,7 +252,11 @@ if(SPACEDIM EQUAL 2)
       "Known source"
       "Known term"
       "Boundary known term"
-      "Add known term to linear execution")
+      "Add known term to linear execution"
+      "Vector Known source"
+      "Vector Known term"
+      "Vector Boundary known term"
+      "Vector Add known term to linear execution")
     string(FIND "${_registry}" "\"operation\": \"${_primitive_operation}\""
       _primitive_operation_found)
     if(_primitive_operation_found EQUAL -1)
