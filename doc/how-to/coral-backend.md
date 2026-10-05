@@ -104,6 +104,16 @@ directory. Therefore the example command is run from the directory containing
 the installed graph and parameter file. Output remains controlled by the
 parameter file.
 
+If an `Initialize parameters` node refers to a parameter file that does not
+exist, the plugin creates its parent directories, declares all connected
+`ParameterAcceptor` objects, and writes a documented `ParameterHandler` file
+using `DefaultStyle`. Rank zero performs the write and the other ranks wait
+before parsing it. The graph then parses the generated file and continues in
+the same execution with the default values. An existing file is still parsed
+normally, so invalid or unreadable files remain errors. A subsequent
+dealiiX-platform run can detect the persistent file and stage it in its run
+directory.
+
 The same pass-through lifecycle is used by the checked-in static-elasticity
 and standalone-elastodynamics graphs:
 
@@ -192,6 +202,10 @@ const auto unregistered = space.view().field("u");
 const auto registration =
   adapter.add(algebraic_field(unregistered), "solution");
 const auto u = registration.fields();
+adapter.add_preconditioner(
+  u.id(), [](const auto &matrix, const auto &reinit_vector) {
+    return make_amg_preconditioner(matrix, reinit_vector);
+  });
 adapter.add(weak_term(gradient(u), gradient(test(u))), "laplace");
 
 auto state = adapter.make_state();
@@ -214,6 +228,10 @@ Field -> Gradient
 Field -> Test -> Gradient
 Gradient + Test Gradient -> Weak term
 ```
+
+The Coral primitive `Register algebraic field` registers the same AMG local
+preconditioner automatically. This makes the default `automatic` linear
+adapter policy usable for the checked-in graph.
 
 `Test`, `Value`, `Gradient`, `Divergence`, `Symmetric gradient`, and `Curl`
 are operation families registered for the supported scalar/vector overloads.

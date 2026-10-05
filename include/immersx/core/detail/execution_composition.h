@@ -610,6 +610,19 @@ namespace ImmersX::detail
       return true;
     }
 
+    /** Register a problem-local approximate inverse factory. */
+    template <typename Factory>
+    void
+    add_preconditioner(const FieldId field, Factory factory)
+    {
+      AssertThrow(!finalized_,
+                  dealii::ExcMessage(
+                    "Preconditioners must be registered before execution "
+                    "starts."));
+      model_.add_preconditioner(
+        field, typename Model::PreconditionerFactory(std::move(factory)));
+    }
+
     const std::vector<SaddlePointMetadata> &
     saddle_points() const
     {

@@ -153,6 +153,51 @@ foreach(_build_type ${_d2_build_types})
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
 
+        set(_primitive_first_run_parameter_file
+          "generated/parameters/poisson_primitives_first_run.prm")
+        set(_primitive_first_run_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_primitives_first_run_2d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.PoissonPrimitivesFirstRun2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_2d.prm
+                  -DSKIP_PARAMETER_COPY=ON
+                  -DPARAMETER_REFERENCE=${_primitive_first_run_parameter_file}
+                  -DEXPECTED_PARAMETER_FILE=${_primitive_first_run_parameter_file}
+                  "-DEXPECTED_PARAMETER_MARKERS=set Initial refinement|= 0|set Output directory|= ."
+                  -DWORKING_DIRECTORY=${_primitive_first_run_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=solution.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.PoissonPrimitivesFirstRun2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
+        set(_primitive_first_run_serial_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_primitives_first_run_2d_serial${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.PoissonPrimitivesFirstRun2DSerial${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_2d.prm
+                  -DSKIP_PARAMETER_COPY=ON
+                  -DPARAMETER_REFERENCE=${_primitive_first_run_parameter_file}
+                  -DEXPECTED_PARAMETER_FILE=${_primitive_first_run_parameter_file}
+                  "-DEXPECTED_PARAMETER_MARKERS=set Initial refinement|= 0|set Output directory|= ."
+                  -DWORKING_DIRECTORY=${_primitive_first_run_serial_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=solution.pvd
+                  -DSTRIP_PLUGIN_CONFIGURATION=ON
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.PoissonPrimitivesFirstRun2DSerial${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
         set(_primitive_vtk_graph_working_directory
           "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_primitives_vtk_2d${_postfix}")
         add_test(NAME "ImmersX.Coral.Graph.PoissonPrimitivesVTK2D${_postfix}"
