@@ -14,6 +14,7 @@
 #include <deal.II/fe/fe_values_extractors.h>
 
 #include <coral.h>
+#include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/boundary_conditions.h>
 #include <immersx/core/domain.h>
 #include <immersx/core/field_contributor.h>
@@ -151,16 +152,22 @@ namespace ImmersX::Coral
         [](AdapterHandle     &adapter,
            const ScalarField &field,
            const std::string &prefix) {
-          return (*adapter)
-            .add(ImmersX::algebraic_field(field), prefix)
-            .fields();
+          const auto registered_field =
+            (*adapter).add(ImmersX::algebraic_field(field), prefix).fields();
+          (*adapter).add_preconditioner(
+            registered_field.id(),
+            [](const auto &linearized_matrix, const auto &reinit_vector) {
+              return make_amg_preconditioner(linearized_matrix, reinit_vector);
+            });
+          return registered_field;
         }),
       {"adapter", "field", "prefix"},
       coral::RegistryMetadata{
         "Register algebraic field",
         "Register algebraic field",
         "Scalar field. " + dimensions(dim, spacedim),
-        "Register an existing scalar Field in a linear execution."});
+        "Register an existing scalar Field and its AMG local preconditioner "
+        "in a linear execution."});
 
     coral::NodeObject::register_function(
       std::function<Weak(const Gradient &, const TestGradientExpression &)>(

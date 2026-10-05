@@ -262,6 +262,14 @@ namespace ImmersX
       return composition_.has_complete_local_preconditioners();
     }
 
+    /** Register a problem-local approximate inverse factory. */
+    template <typename Factory>
+    void
+    add_preconditioner(const FieldId field, Factory factory)
+    {
+      composition_.add_preconditioner(field, std::move(factory));
+    }
+
     const std::vector<SaddlePointMetadata> &
     saddle_points() const
     {

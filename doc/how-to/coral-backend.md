@@ -202,6 +202,10 @@ const auto unregistered = space.view().field("u");
 const auto registration =
   adapter.add(algebraic_field(unregistered), "solution");
 const auto u = registration.fields();
+adapter.add_preconditioner(
+  u.id(), [](const auto &matrix, const auto &reinit_vector) {
+    return make_amg_preconditioner(matrix, reinit_vector);
+  });
 adapter.add(weak_term(gradient(u), gradient(test(u))), "laplace");
 
 auto state = adapter.make_state();
@@ -224,6 +228,10 @@ Field -> Gradient
 Field -> Test -> Gradient
 Gradient + Test Gradient -> Weak term
 ```
+
+The Coral primitive `Register algebraic field` registers the same AMG local
+preconditioner automatically. This makes the default `automatic` linear
+adapter policy usable for the checked-in graph.
 
 `Test`, `Value`, `Gradient`, `Divergence`, `Symmetric gradient`, and `Curl`
 are operation families registered for the supported scalar/vector overloads.

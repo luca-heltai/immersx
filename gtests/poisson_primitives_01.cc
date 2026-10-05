@@ -82,7 +82,7 @@ TEST(PoissonPrimitives, BOTH_SolveFromGenericPrimitives)
 
   LinearAdapterParameters adapter_parameters("/Primitive adapter/");
   adapter_parameters.solver         = LinearSolver::iterative;
-  adapter_parameters.preconditioner = LinearPreconditioner::none;
+  adapter_parameters.preconditioner = LinearPreconditioner::automatic;
   adapter_parameters.tolerance      = 1.e-12;
   Adapter adapter(adapter_parameters, MPI_COMM_WORLD);
 
@@ -90,6 +90,10 @@ TEST(PoissonPrimitives, BOTH_SolveFromGenericPrimitives)
     adapter.add(algebraic_field(unregistered), "solution");
   const auto u = registration.fields();
   ASSERT_TRUE(u.is_registered());
+  adapter.add_preconditioner(
+    u.id(), [](const auto &linearized_matrix, const auto &reinit_vector) {
+      return make_amg_preconditioner(linearized_matrix, reinit_vector);
+    });
 
   adapter.add(weak_term(gradient(u), gradient(test(u))), "laplace");
 
