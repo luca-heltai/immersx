@@ -224,7 +224,11 @@ if(SPACEDIM EQUAL 2)
       "ImmersX::TestExpression<2,2,Scalar,gradient>"
       "ImmersX::KnownTerm<2,2,ScalarParsedFunctionRhs>"
       "ImmersX::WeakTerm<2,2,ScalarStaticFieldRhs,ScalarTestExpression>"
-      "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestExpressionGradient>")
+      "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestExpressionGradient>"
+      "ImmersX::KnownSource<2,2,Vector>"
+      "ImmersX::KnownTerm<2,2,Vector>"
+      "ImmersX::WeakTerm<2,2,VectorDivergence,VectorTestExpressionDivergence>"
+      "ImmersX::WeakTerm<2,2,VectorSymmetricGradient,VectorTestExpressionSymmetricGradient>")
     string(FIND "${_registry}" "${_primitive_type}" _primitive_found)
     if(_primitive_found EQUAL -1)
       message(FATAL_ERROR
@@ -244,7 +248,15 @@ if(SPACEDIM EQUAL 2)
       "Static scalar field"
       "Register algebraic field"
       "Weak term"
-      "Add weak term to linear execution")
+      "Add weak term to linear execution"
+      "Known source"
+      "Known term"
+      "Boundary known term"
+      "Add known term to linear execution"
+      "Vector Known source"
+      "Vector Known term"
+      "Vector Boundary known term"
+      "Vector Add known term to linear execution")
     string(FIND "${_registry}" "\"operation\": \"${_primitive_operation}\""
       _primitive_operation_found)
     if(_primitive_operation_found EQUAL -1)
