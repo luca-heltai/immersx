@@ -1,0 +1,165 @@
+{
+  "plugin": {
+    "MPI": {
+      "enabled": true,
+      "max_num_threads": 1
+    }
+  },
+  "workflow": {
+    "nodes": {
+      "0": {"type": "std::string", "value": "/Primitive domain/"},
+      "1": {"type": "ImmersX::DomainParameters<2,2>"},
+      "2": {"type": "std::string", "value": "/Primitive space/"},
+      "3": {"type": "ImmersX::FiniteElementSpaceParameters<2,2>"},
+      "4": {"type": "std::string", "value": "/Primitive adapter/"},
+      "5": {"type": "ImmersX::LinearAdapterParameters"},
+      "6": {"type": "std::string", "value": "/Primitive output/"},
+      "7": {"type": "ImmersX::OutputHandlerParameters"},
+      "8": {"type": "std::string", "value": "poisson_primitives_vtk_2d.prm"},
+      "9": {
+        "type": "Initialize parameters::std::function<void (dealii::ParameterAcceptor &, dealii::ParameterAcceptor &, dealii::ParameterAcceptor &, dealii::ParameterAcceptor &, const std::string &)>"
+      },
+      "10": {
+        "type": "Create domain::std::function<std::shared_ptr<ImmersX::Domain<2, 2>> (const ImmersX::DomainParameters<2, 2> &)>"
+      },
+      "11": {
+        "type": "Generate domain::std::function<std::shared_ptr<ImmersX::Domain<2, 2>> (std::shared_ptr<ImmersX::Domain<2, 2>> &)>"
+      },
+      "12": {
+        "type": "Create finite element space::std::function<std::shared_ptr<ImmersX::FiniteElementSpace<2, 2>> (const std::shared_ptr<ImmersX::Domain<2, 2>> &, const ImmersX::FiniteElementSpaceParameters<2, 2> &)>"
+      },
+      "13": {
+        "type": "Boundary conditions::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
+      },
+      "14": {
+        "type": "Finite element space::std::function<ImmersX::FiniteElementSpaceView<2, 2> (const std::shared_ptr<ImmersX::FiniteElementSpace<2, 2>> &)>"
+      },
+      "15": {"type": "std::string", "value": "u"},
+      "16": {
+        "type": "Scalar field::std::function<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> (const ImmersX::FiniteElementSpaceView<2, 2> &, const std::string &)>"
+      },
+      "17": {
+        "type": "Test::std::function<ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
+      },
+      "18": {
+        "type": "Gradient::std::function<ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation> (const ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> &)>"
+      },
+      "19": {
+        "type": "Create linear execution::std::function<std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> (const ImmersX::LinearAdapterParameters &)>"
+      },
+      "20": {"type": "std::string", "value": "solution"},
+      "21": {
+        "type": "Register algebraic field::std::function<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> (std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &, const std::string &)>"
+      },
+      "22": {
+        "type": "Weak term::std::function<ImmersX::WeakTerm<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation>> (const ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation> &, const ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation> &)>"
+      },
+      "23": {"type": "std::string", "value": "laplace"},
+      "24": {
+        "type": "Add weak term to linear execution::std::function<void (std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const ImmersX::WeakTerm<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation>> &, const std::string &)>"
+      },
+      "25": {
+        "type": "Static scalar field::std::function<ImmersX::ImportedFiniteElementFields<2, 2>::FieldView (const std::shared_ptr<ImmersX::Domain<2, 2>> &, const std::string &)>"
+      },
+      "26": {"type": "std::string", "value": "rhs"},
+      "27": {
+        "type": "Weak term::std::function<ImmersX::WeakTerm<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>> (const ImmersX::ImportedFiniteElementFields<2, 2>::FieldView &, const ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> &)>"
+      },
+      "28": {"type": "std::string", "value": "rhs"},
+      "29": {
+        "type": "Add weak term to linear execution::std::function<void (std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const ImmersX::WeakTerm<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>> &, const std::string &)>"
+      },
+      "30": {"type": "double", "value": "0.0"},
+      "31": {
+        "type": "Constant function::std::function<ImmersX::BoundaryFunction<2> (double)>"
+      },
+      "32": {
+        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::BoundaryConditions<2, 2> &, unsigned int, const ImmersX::BoundaryFunction<2> &)>"
+      },
+      "33": {
+        "type": "Apply boundary conditions::std::function<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> (const ImmersX::BoundaryConditions<2, 2> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
+      },
+      "34": {"type": "unsigned int", "value": "0"},
+      "35": {
+        "type": "Create linear state::std::function<dealii::TrilinosWrappers::MPI::BlockVector (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &)>"
+      },
+      "36": {
+        "type": "Solve linear state::std::function<void (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, dealii::TrilinosWrappers::MPI::BlockVector &)>"
+      },
+      "37": {
+        "type": "Create output handler::std::function<std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> (const ImmersX::FiniteElementSpaceView<2, 2> &, const ImmersX::OutputHandlerParameters &, const std::string &)>"
+      },
+      "38": {
+        "type": "Add scalar field::std::function<void (std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
+      },
+      "39": {"type": "std::string", "value": "solution"},
+      "40": {
+        "type": "Write output::std::function<void (const std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, const double &)>"
+      },
+      "41": {"type": "double", "value": "0.0"},
+      "42": {
+        "type": "Gradient::std::function<ImmersX::Observable<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::GradientOperation> (const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar> &)>"
+      }
+    },
+    "edges": {
+      "0": {"source": 0, "source_output": 0, "target": 1, "target_input": 0},
+      "1": {"source": 2, "source_output": 0, "target": 3, "target_input": 0},
+      "2": {"source": 4, "source_output": 0, "target": 5, "target_input": 0},
+      "3": {"source": 6, "source_output": 0, "target": 7, "target_input": 0},
+      "4": {"source": 1, "source_output": 0, "target": 9, "target_input": 0},
+      "5": {"source": 3, "source_output": 0, "target": 9, "target_input": 1},
+      "6": {"source": 5, "source_output": 0, "target": 9, "target_input": 2},
+      "7": {"source": 7, "source_output": 0, "target": 9, "target_input": 3},
+      "8": {"source": 8, "source_output": 0, "target": 9, "target_input": 4},
+      "9": {"source": 9, "source_output": 0, "target": 10, "target_input": 0},
+      "10": {"source": 10, "source_output": 0, "target": 11, "target_input": 0},
+      "11": {"source": 11, "source_output": 0, "target": 12, "target_input": 0},
+      "12": {"source": 3, "source_output": 0, "target": 12, "target_input": 1},
+      "13": {"source": 16, "source_output": 0, "target": 13, "target_input": 0},
+      "14": {"source": 12, "source_output": 0, "target": 14, "target_input": 0},
+      "15": {"source": 14, "source_output": 0, "target": 16, "target_input": 0},
+      "16": {"source": 15, "source_output": 0, "target": 16, "target_input": 1},
+      "17": {"source": 21, "source_output": 1, "target": 17, "target_input": 0},
+      "19": {"source": 17, "source_output": 0, "target": 18, "target_input": 0},
+      "20": {"source": 5, "source_output": 0, "target": 19, "target_input": 0},
+      "21": {"source": 19, "source_output": 0, "target": 21, "target_input": 0},
+      "23": {"source": 20, "source_output": 0, "target": 21, "target_input": 2},
+      "24": {"source": 42, "source_output": 0, "target": 22, "target_input": 0},
+      "25": {"source": 18, "source_output": 0, "target": 22, "target_input": 1},
+      "26": {"source": 19, "source_output": 0, "target": 24, "target_input": 0},
+      "27": {"source": 22, "source_output": 0, "target": 24, "target_input": 1},
+      "28": {"source": 23, "source_output": 0, "target": 24, "target_input": 2},
+      "29": {"source": 11, "source_output": 0, "target": 25, "target_input": 0},
+      "30": {"source": 26, "source_output": 0, "target": 25, "target_input": 1},
+      "31": {"source": 25, "source_output": 0, "target": 27, "target_input": 0},
+      "32": {"source": 17, "source_output": 0, "target": 27, "target_input": 1},
+      "33": {"source": 19, "source_output": 0, "target": 29, "target_input": 0},
+      "34": {"source": 27, "source_output": 0, "target": 29, "target_input": 1},
+      "35": {"source": 28, "source_output": 0, "target": 29, "target_input": 2},
+      "37": {"source": 13, "source_output": 0, "target": 32, "target_input": 0},
+      "38": {"source": 34, "source_output": 0, "target": 32, "target_input": 1},
+      "39": {"source": 30, "source_output": 0, "target": 31, "target_input": 0},
+      "40": {"source": 31, "source_output": 0, "target": 32, "target_input": 2},
+      "41": {"source": 32, "source_output": 0, "target": 33, "target_input": 0},
+      "42": {"source": 16, "source_output": 0, "target": 33, "target_input": 1},
+      "43": {"source": 33, "source_output": 0, "target": 21, "target_input": 1},
+      "44": {"source": 19, "source_output": 0, "target": 35, "target_input": 0},
+      "45": {"source": 19, "source_output": 0, "target": 36, "target_input": 0},
+      "46": {"source": 35, "source_output": 0, "target": 36, "target_input": 1},
+      "47": {"source": 14, "source_output": 0, "target": 37, "target_input": 0},
+      "48": {"source": 7, "source_output": 0, "target": 37, "target_input": 1},
+      "49": {"source": 39, "source_output": 0, "target": 37, "target_input": 2},
+      "50": {"source": 37, "source_output": 0, "target": 38, "target_input": 0},
+      "51": {"source": 21, "source_output": 1, "target": 38, "target_input": 1},
+      "52": {"source": 37, "source_output": 0, "target": 40, "target_input": 0},
+      "53": {"source": 19, "source_output": 0, "target": 40, "target_input": 1},
+      "54": {"source": 36, "source_output": 0, "target": 40, "target_input": 2},
+      "55": {"source": 41, "source_output": 0, "target": 40, "target_input": 3},
+      "56": {"source": 21, "source_output": 1, "target": 42, "target_input": 0},
+      "57": {"source": 24, "source_output": 0, "target": 35, "target_input": 0},
+      "58": {"source": 29, "source_output": 0, "target": 35, "target_input": 0}
+    }
+  },
+  "version": 1,
+  "author": "ImmersX"
+}

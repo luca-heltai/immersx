@@ -153,6 +153,24 @@ foreach(_build_type ${_d2_build_types})
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
 
+        set(_primitive_vtk_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_poisson_primitives_vtk_2d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.PoissonPrimitivesVTK2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_vtk_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_vtk_2d.prm
+                  -DINPUT_FILES=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_primitives_vtk_2d.vtk
+                  -DWORKING_DIRECTORY=${_primitive_vtk_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/solution.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.PoissonPrimitivesVTK2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
         set(_static_graph_working_directory
           "${CMAKE_CURRENT_BINARY_DIR}/graph_elastic_static_2d${_postfix}")
         add_test(NAME "ImmersX.Coral.Graph.ElasticStatic2D${_postfix}"

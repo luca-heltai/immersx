@@ -219,8 +219,11 @@ if(SPACEDIM EQUAL 2)
       "ImmersX::DomainParameters<2,2>"
       "ImmersX::OwnedDomain<2,2>"
       "ImmersX::OwnedFiniteElementSpace<2,2>"
+      "ImmersX::StaticScalarField<2,2>"
       "ImmersX::TestExpression<2,2,Scalar>"
       "ImmersX::TestExpression<2,2,Scalar,gradient>"
+      "ImmersX::KnownTerm<2,2,ScalarParsedFunctionRhs>"
+      "ImmersX::WeakTerm<2,2,ScalarStaticFieldRhs,ScalarTestExpression>"
       "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestExpressionGradient>")
     string(FIND "${_registry}" "${_primitive_type}" _primitive_found)
     if(_primitive_found EQUAL -1)
@@ -238,6 +241,7 @@ if(SPACEDIM EQUAL 2)
       "Dirichlet boundary condition"
       "Apply boundary conditions"
       "Test"
+      "Static scalar field"
       "Register algebraic field"
       "Weak term"
       "Add weak term to linear execution")

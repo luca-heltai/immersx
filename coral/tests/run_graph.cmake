@@ -52,6 +52,19 @@ if(NOT _copy_parameters_result EQUAL 0)
   message(FATAL_ERROR "Could not copy the Coral parameter file")
 endif()
 
+if(DEFINED INPUT_FILES)
+  foreach(_input_file IN LISTS INPUT_FILES)
+    get_filename_component(_input_name "${_input_file}" NAME)
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${_input_file}" "${WORKING_DIRECTORY}/${_input_name}"
+      RESULT_VARIABLE _copy_input_result)
+    if(NOT _copy_input_result EQUAL 0)
+      message(FATAL_ERROR "Could not copy Coral graph input '${_input_file}'")
+    endif()
+  endforeach()
+endif()
+
 set(_environment
   "THREADS=1"
   "DYLD_LIBRARY_PATH=${CORAL_LIBRARY_DIRECTORY}"
