@@ -104,6 +104,16 @@ directory. Therefore the example command is run from the directory containing
 the installed graph and parameter file. Output remains controlled by the
 parameter file.
 
+If an `Initialize parameters` node refers to a parameter file that does not
+exist, the plugin creates its parent directories, declares all connected
+`ParameterAcceptor` objects, and writes a documented `ParameterHandler` file
+using `DefaultStyle`. Rank zero performs the write and the other ranks wait
+before parsing it. The graph then parses the generated file and continues in
+the same execution with the default values. An existing file is still parsed
+normally, so invalid or unreadable files remain errors. A subsequent
+dealiiX-platform run can detect the persistent file and stage it in its run
+directory.
+
 The same pass-through lifecycle is used by the checked-in static-elasticity
 and standalone-elastodynamics graphs:
 

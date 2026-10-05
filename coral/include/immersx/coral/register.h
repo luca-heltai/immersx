@@ -39,7 +39,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
+#include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -738,10 +738,68 @@ namespace ImmersX::Coral
   inline void
   initialize_parameter_file(const std::string &file_name)
   {
-    const std::ifstream input(file_name);
-    AssertThrow(input.good(),
-                dealii::ExcMessage("Could not open Coral parameter file '" +
-                                   file_name + "'."));
+    const auto communicator = MPI_COMM_WORLD;
+    const auto rank = dealii::Utilities::MPI::this_mpi_process(communicator);
+    const std::filesystem::path parameter_path(file_name);
+
+    bool file_exists = false;
+    if (rank == 0)
+      file_exists = std::filesystem::exists(parameter_path);
+
+    file_exists =
+      dealii::Utilities::MPI::broadcast(communicator, file_exists, 0);
+    if (file_exists)
+      {
+        // Keep deal.II's normal exception behavior for unreadable or invalid
+        // existing files.
+        dealii::ParameterAcceptor::initialize(file_name);
+        return;
+      }
+
+    std::string directory_error;
+    if (rank == 0)
+      try
+        {
+          const auto parent = parameter_path.parent_path();
+          if (!parent.empty())
+            std::filesystem::create_directories(parent);
+        }
+      catch (const std::filesystem::filesystem_error &error)
+        {
+          directory_error = error.what();
+        }
+
+    directory_error =
+      dealii::Utilities::MPI::broadcast(communicator, directory_error, 0);
+    AssertThrow(directory_error.empty(),
+                dealii::ExcMessage(
+                  "Could not create the parent directory for Coral parameter "
+                  "file '" +
+                  file_name + "': " + directory_error));
+
+    if (rank == 0)
+      {
+        try
+          {
+            dealii::ParameterAcceptor::initialize(file_name);
+          }
+        catch (const dealii::ExcMessage &error)
+          {
+            // deal.II deliberately throws after generating a missing input
+            // file. Continue only for that documented first-run exception;
+            // declaration and generation errors remain errors.
+            const std::string message = error.what();
+            AssertThrow(message.find("We created it for you.") !=
+                          std::string::npos,
+                        dealii::ExcMessage(message));
+          }
+      }
+
+#ifdef DEAL_II_WITH_MPI
+    AssertThrowMPI(MPI_Barrier(communicator));
+#endif
+
+    // Parse the generated file in the same execution, including on rank zero.
     dealii::ParameterAcceptor::initialize(file_name);
   }
 

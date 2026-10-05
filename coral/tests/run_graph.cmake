@@ -4,7 +4,6 @@ foreach(_required
     CORAL_EXECUTABLE
     PLUGIN
     GRAPH_SOURCE
-    PARAMETERS_SOURCE
     WORKING_DIRECTORY)
   if(NOT DEFINED ${_required})
     message(FATAL_ERROR "${_required} is required")
@@ -19,16 +18,33 @@ if(NOT DEFINED EXPECTED_OUTPUTS)
   endif()
 endif()
 
+file(REMOVE_RECURSE "${WORKING_DIRECTORY}")
 file(MAKE_DIRECTORY "${WORKING_DIRECTORY}")
 get_filename_component(_graph_name "${GRAPH_SOURCE}" NAME)
 get_filename_component(_graph_stem "${GRAPH_SOURCE}" NAME_WE)
-get_filename_component(_parameters_name "${PARAMETERS_SOURCE}" NAME)
 execute_process(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${GRAPH_SOURCE}" "${WORKING_DIRECTORY}/${_graph_name}"
   RESULT_VARIABLE _copy_graph_result)
 if(NOT _copy_graph_result EQUAL 0)
   message(FATAL_ERROR "Could not copy the Coral graph")
+endif()
+
+if(DEFINED PARAMETERS_SOURCE)
+  get_filename_component(_parameters_name "${PARAMETERS_SOURCE}" NAME)
+endif()
+
+if(DEFINED PARAMETER_REFERENCE)
+  if(NOT DEFINED _parameters_name)
+    message(FATAL_ERROR
+      "PARAMETERS_SOURCE is required when PARAMETER_REFERENCE is used")
+  endif()
+  file(READ "${WORKING_DIRECTORY}/${_graph_name}" _graph)
+  string(REPLACE "\"${_parameters_name}\""
+                 "\"${PARAMETER_REFERENCE}\""
+                 _graph
+                 "${_graph}")
+  file(WRITE "${WORKING_DIRECTORY}/${_graph_name}" "${_graph}")
 endif()
 
 if(DEFINED STRIP_PLUGIN_CONFIGURATION AND STRIP_PLUGIN_CONFIGURATION)
@@ -44,12 +60,15 @@ if(DEFINED STRIP_PLUGIN_CONFIGURATION AND STRIP_PLUGIN_CONFIGURATION)
   file(WRITE "${WORKING_DIRECTORY}/${_graph_name}" "{${_workflow}")
 endif()
 
-execute_process(
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${PARAMETERS_SOURCE}" "${WORKING_DIRECTORY}/${_parameters_name}"
-  RESULT_VARIABLE _copy_parameters_result)
-if(NOT _copy_parameters_result EQUAL 0)
-  message(FATAL_ERROR "Could not copy the Coral parameter file")
+if(DEFINED PARAMETERS_SOURCE AND
+   NOT (DEFINED SKIP_PARAMETER_COPY AND SKIP_PARAMETER_COPY))
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PARAMETERS_SOURCE}" "${WORKING_DIRECTORY}/${_parameters_name}"
+    RESULT_VARIABLE _copy_parameters_result)
+  if(NOT _copy_parameters_result EQUAL 0)
+    message(FATAL_ERROR "Could not copy the Coral parameter file")
+  endif()
 endif()
 
 if(DEFINED INPUT_FILES)
@@ -90,3 +109,31 @@ foreach(_expected_output IN LISTS _expected_outputs)
       "Coral graph did not write the expected output '${_expected_output}'")
   endif()
 endforeach()
+
+if(DEFINED EXPECTED_PARAMETER_FILE)
+  set(_expected_parameter_file "${EXPECTED_PARAMETER_FILE}")
+  if(NOT IS_ABSOLUTE "${_expected_parameter_file}")
+    set(_expected_parameter_file
+      "${WORKING_DIRECTORY}/${_expected_parameter_file}")
+  endif()
+  if(NOT EXISTS "${_expected_parameter_file}")
+    message(FATAL_ERROR
+      "Coral did not generate the expected parameter file "
+      "'${_expected_parameter_file}'")
+  endif()
+
+  if(DEFINED EXPECTED_PARAMETER_MARKERS)
+    file(READ "${_expected_parameter_file}" _generated_parameters)
+    string(REPLACE "|" ";" _expected_markers
+                   "${EXPECTED_PARAMETER_MARKERS}")
+    foreach(_expected_marker IN LISTS _expected_markers)
+      string(FIND "${_generated_parameters}" "${_expected_marker}"
+             _marker_position)
+      if(_marker_position LESS 0)
+        message(FATAL_ERROR
+          "Generated Coral parameter file does not contain expected default "
+          "marker '${_expected_marker}'")
+      endif()
+    endforeach()
+  endif()
+endif()
