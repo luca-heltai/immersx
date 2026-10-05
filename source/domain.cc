@@ -144,11 +144,11 @@ namespace ImmersX
                   "",
                   this->prm,
                   dealii::Patterns::Selection("distributed|fullydistributed"));
-    this->prm.enter_subsection("VTK support");
+    enter_subsection("VTK support");
     add_parameter("Read fields", read_vtk_fields);
     add_parameter("Boundary id field", vtk_boundary_id_field);
     add_parameter("Material id field", vtk_material_id_field);
-    this->prm.leave_subsection();
+    leave_subsection();
   }
 
 

@@ -88,6 +88,13 @@
       "37": {"type": "std::string", "value": "x + t + E + PI"},
       "32": {
         "type": "Write output::std::function<void (const std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, const double &)>"
+      },
+      "50": {
+        "type": "Weak term::std::function<ImmersX::KnownTerm<ImmersX::KnownSource<double, 2>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>> (const ImmersX::BoundaryFunction<2> &, const ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation> &)>"
+      },
+      "51": {"type": "std::string", "value": "rhs"},
+      "52": {
+        "type": "Add weak term to linear execution::std::function<void (std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const ImmersX::KnownTerm<ImmersX::KnownSource<double, 2>, ImmersX::TestExpression<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Scalar>, ImmersX::detail::ValueOperation>> &, const std::string &)>"
       }
     },
     "edges": {
@@ -137,7 +144,12 @@
       "35": {"source": 29, "source_output": 0, "target": 32, "target_input": 0},
       "36": {"source": 20, "source_output": 0, "target": 32, "target_input": 1},
       "37": {"source": 27, "source_output": 0, "target": 32, "target_input": 2},
-      "38": {"source": 31, "source_output": 0, "target": 32, "target_input": 3}
+      "38": {"source": 31, "source_output": 0, "target": 32, "target_input": 3},
+      "50": {"source": 34, "source_output": 0, "target": 50, "target_input": 0},
+      "51": {"source": 18, "source_output": 0, "target": 50, "target_input": 1},
+      "52": {"source": 20, "source_output": 0, "target": 52, "target_input": 0},
+      "53": {"source": 50, "source_output": 0, "target": 52, "target_input": 1},
+      "54": {"source": 51, "source_output": 0, "target": 52, "target_input": 2}
     }
   },
   "version": 1,

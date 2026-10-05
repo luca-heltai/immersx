@@ -15,7 +15,9 @@
 
 #include <coral.h>
 #include <immersx/core/boundary_conditions.h>
+#include <immersx/core/domain.h>
 #include <immersx/core/field_contributor.h>
+#include <immersx/core/known_term.h>
 
 #include <functional>
 #include <memory>
@@ -31,12 +33,16 @@ namespace ImmersX::Coral
     using Parameters   = ImmersX::DomainParameters<dim, spacedim>;
     using DomainType   = ImmersX::Domain<dim, spacedim>;
     using DomainHandle = std::shared_ptr<DomainType>;
+    using StaticField  = typename DomainType::ImportedFields::FieldView;
 
     register_parameter_type<Parameters>("ImmersX::DomainParameters<" +
                                         dimensions(dim, spacedim) + ">");
     coral::detail::set_type_alias<DomainHandle>(
       "ImmersX::OwnedDomain<" + dimensions(dim, spacedim) + ">");
     coral::NodeObject::register_output_type<DomainHandle>();
+    coral::detail::set_type_alias<StaticField>("ImmersX::StaticScalarField<" +
+                                               dimensions(dim, spacedim) + ">");
+    coral::NodeObject::register_output_type<StaticField>();
 
     coral::NodeObject::register_function(
       std::function<DomainHandle(const Parameters &)>(
@@ -59,6 +65,18 @@ namespace ImmersX::Coral
                               "Generate domain",
                               "Owned domain. " + dimensions(dim, spacedim),
                               "Generate the mesh in an owned domain."});
+
+    coral::NodeObject::register_function(
+      std::function<StaticField(const DomainHandle &, const std::string &)>(
+        [](const DomainHandle &domain, const std::string &name) {
+          return domain->field(name);
+        }),
+      {"domain", "name"},
+      coral::RegistryMetadata{
+        "Static scalar field",
+        "Static scalar field",
+        "Domain field. " + dimensions(dim, spacedim),
+        "Extract a named scalar field imported from the domain VTK mesh."});
   }
 
   template <int dim, int spacedim>
@@ -89,8 +107,11 @@ namespace ImmersX::Coral
   {
     using Adapter       = LinearAdapterFor<dim, spacedim>;
     using AdapterHandle = std::shared_ptr<Adapter>;
+    using FieldVector   = ImmersXLA::MPI::Vector;
     using ScalarField =
       ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Scalar>;
+    using TestExpression         = std::decay_t<decltype(ImmersX::test(
+      std::declval<const ScalarField &>()))>;
     using Gradient               = std::decay_t<decltype(ImmersX::gradient(
       std::declval<const ScalarField &>()))>;
     using TestGradientExpression = std::decay_t<decltype(ImmersX::gradient(
@@ -98,12 +119,31 @@ namespace ImmersX::Coral
     using Weak                   = std::decay_t<decltype(ImmersX::weak_term(
       std::declval<const Gradient &>(),
       std::declval<const TestGradientExpression &>()))>;
+    using ParsedRhs              = ImmersX::BoundaryFunction<spacedim>;
+    using KnownSource            = ImmersX::KnownSource<double, spacedim>;
+    using ParsedWeakTerm         = std::decay_t<
+      decltype(ImmersX::known_term(std::declval<const KnownSource &>(),
+                                   std::declval<const TestExpression &>()))>;
+    using FrozenSource = std::decay_t<
+      decltype(ImmersX::frozen(std::declval<const ScalarField &>(),
+                               std::declval<const FieldVector &>()))>;
+    using StaticWeakTerm = std::decay_t<
+      decltype(ImmersX::weak_term(std::declval<const FrozenSource &>(),
+                                  std::declval<const TestExpression &>()))>;
 
     coral::detail::set_type_alias<Weak>("ImmersX::WeakTerm<" +
                                         dimensions(dim, spacedim) +
                                         ",ScalarGradient,"
                                         "ScalarTestExpressionGradient>");
+    coral::detail::set_type_alias<ParsedWeakTerm>("ImmersX::KnownTerm<" +
+                                                  dimensions(dim, spacedim) +
+                                                  ",ScalarParsedFunctionRhs>");
+    coral::detail::set_type_alias<StaticWeakTerm>(
+      "ImmersX::WeakTerm<" + dimensions(dim, spacedim) +
+      ",ScalarStaticFieldRhs,ScalarTestExpression>");
     coral::NodeObject::register_output_type<Weak>();
+    coral::NodeObject::register_output_type<ParsedWeakTerm>();
+    coral::NodeObject::register_output_type<StaticWeakTerm>();
 
     coral::NodeObject::register_function(
       std::function<
@@ -136,6 +176,46 @@ namespace ImmersX::Coral
                               "Build a generic scalar gradient weak term."});
 
     coral::NodeObject::register_function(
+      std::function<ParsedWeakTerm(const ParsedRhs &, const TestExpression &)>(
+        [](const ParsedRhs &rhs, const TestExpression &test_expression) {
+          AssertThrow(rhs.value != nullptr,
+                      dealii::ExcMessage(
+                        "A parsed RHS must contain a function."));
+          const auto  function = rhs.value;
+          KnownSource source(
+            [function](const typename KnownSource::Context &context) {
+              ImmersX::detail::set_function_time(*function, context.time);
+              return function->value(context.point);
+            });
+          return ImmersX::known_term(source, test_expression);
+        }),
+      {"rhs", "test"},
+      coral::RegistryMetadata{
+        "Weak term",
+        "Weak term",
+        "Scalar parsed-function RHS / scalar test. " +
+          dimensions(dim, spacedim),
+        "Build a known scalar RHS weak term from a parsed function."});
+
+    coral::NodeObject::register_function(
+      std::function<StaticWeakTerm(
+        const typename ImmersX::Domain<dim, spacedim>::ImportedFields::FieldView
+          &,
+        const TestExpression &)>(
+        [](const auto &rhs, const TestExpression &test_expression) {
+          return ImmersX::weak_term(ImmersX::frozen(rhs.field(),
+                                                    rhs.coefficients()),
+                                    test_expression);
+        }),
+      {"rhs", "test"},
+      coral::RegistryMetadata{
+        "Weak term",
+        "Weak term",
+        "Scalar static-field RHS / scalar test. " + dimensions(dim, spacedim),
+        "Build a known scalar RHS weak term from a field imported by a "
+        "Domain."});
+
+    coral::NodeObject::register_function(
       std::function<void(AdapterHandle &, const Weak &, const std::string &)>(
         [](AdapterHandle     &adapter,
            const Weak        &weak,
@@ -145,6 +225,32 @@ namespace ImmersX::Coral
                               "Add weak term",
                               "LinearAdapter",
                               "Add a generic WeakTerm to a linear execution."});
+
+    coral::NodeObject::register_function(
+      std::function<
+        void(AdapterHandle &, const ParsedWeakTerm &, const std::string &)>(
+        [](AdapterHandle        &adapter,
+           const ParsedWeakTerm &term,
+           const std::string    &prefix) { (*adapter).add(term, prefix); }),
+      {"adapter", "term", "prefix"},
+      coral::RegistryMetadata{
+        "Add weak term to linear execution",
+        "Add weak term",
+        "Parsed-function RHS. " + dimensions(dim, spacedim),
+        "Add a known parsed-function RHS to a linear execution."});
+
+    coral::NodeObject::register_function(
+      std::function<
+        void(AdapterHandle &, const StaticWeakTerm &, const std::string &)>(
+        [](AdapterHandle        &adapter,
+           const StaticWeakTerm &term,
+           const std::string    &prefix) { (*adapter).add(term, prefix); }),
+      {"adapter", "term", "prefix"},
+      coral::RegistryMetadata{
+        "Add weak term to linear execution",
+        "Add weak term",
+        "Static-field RHS. " + dimensions(dim, spacedim),
+        "Add a known imported-field RHS to a linear execution."});
   }
 
   template <int dim, int spacedim>
