@@ -233,6 +233,23 @@ foreach(_build_type ${_d2_build_types})
           PROPERTIES LABELS "integration;quick;mpi"
                      TIMEOUT 300)
 
+        set(_primitive_static_graph_working_directory
+          "${CMAKE_CURRENT_BINARY_DIR}/graph_elastic_static_primitives_2d${_postfix}")
+        add_test(NAME "ImmersX.Coral.Graph.ElasticStaticPrimitives2D${_postfix}"
+          COMMAND ${CMAKE_COMMAND}
+                  -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
+                  -DPLUGIN=$<TARGET_FILE:${_plugin}>
+                  -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/elastic_static_primitives_2d.json
+                  -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/elastic_static_primitives_2d.prm
+                  -DWORKING_DIRECTORY=${_primitive_static_graph_working_directory}
+                  -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
+                  -DOUTPUT_FILE=output/elastic_static_primitives.pvd
+                  -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")
+        set_tests_properties(
+          "ImmersX.Coral.Graph.ElasticStaticPrimitives2D${_postfix}"
+          PROPERTIES LABELS "integration;quick;mpi"
+                     TIMEOUT 300)
+
         set(_elastodynamics_graph_working_directory
           "${CMAKE_CURRENT_BINARY_DIR}/graph_elastodynamics_2d${_postfix}")
         add_test(NAME "ImmersX.Coral.Graph.Elastodynamics2D${_postfix}"

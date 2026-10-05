@@ -27,6 +27,193 @@
 
 namespace ImmersX::Coral
 {
+  template <int spacedim, typename Value>
+  inline ImmersX::KnownSource<Value, spacedim>
+  known_source_from_boundary_function(
+    const ImmersX::BoundaryFunction<spacedim> &boundary_function)
+  {
+    AssertThrow(boundary_function.value != nullptr,
+                dealii::ExcMessage("A known source function cannot be null."));
+
+    const auto function = boundary_function.value;
+    return ImmersX::KnownSource<Value, spacedim>(
+      [function](const ImmersX::KnownTermContext<spacedim> &context) {
+        ImmersX::detail::set_function_time(*function, context.time);
+        if constexpr (std::is_arithmetic_v<Value>)
+          return function->value(context.point);
+        else
+          {
+            Value result;
+            for (unsigned int component = 0; component < spacedim; ++component)
+              result[component] = function->value(context.point, component);
+            return result;
+          }
+      });
+  }
+
+  template <int dim, int spacedim, typename Extractor>
+  inline void
+  register_primitive_known_term_operations(const std::string &field_kind)
+  {
+    using Adapter       = LinearAdapterFor<dim, spacedim>;
+    using AdapterHandle = std::shared_ptr<Adapter>;
+    using Field         = ImmersX::Field<dim, spacedim, Extractor>;
+    using Value         = typename Field::value_type;
+    using Test =
+      std::decay_t<decltype(ImmersX::test(std::declval<const Field &>()))>;
+    using Source = ImmersX::KnownSource<Value, spacedim>;
+    using Term =
+      std::decay_t<decltype(ImmersX::known_term(std::declval<const Source &>(),
+                                                std::declval<const Test &>()))>;
+    using BoundaryFunction = ImmersX::BoundaryFunction<spacedim>;
+
+    coral::detail::set_type_alias<Source>("ImmersX::KnownSource<" +
+                                          dimensions(dim, spacedim) + "," +
+                                          field_kind + ">");
+    coral::detail::set_type_alias<Term>("ImmersX::KnownTerm<" +
+                                        dimensions(dim, spacedim) + "," +
+                                        field_kind + ">");
+    coral::NodeObject::register_output_type<Source>();
+    coral::NodeObject::register_output_type<Term>();
+
+    coral::NodeObject::register_function(
+      std::function<Source(const BoundaryFunction &)>(
+        [](const BoundaryFunction &function) {
+          return known_source_from_boundary_function<spacedim, Value>(function);
+        }),
+      {"function"},
+      coral::RegistryMetadata{
+        "Known source",
+        "Known source",
+        field_kind + " boundary source. " + dimensions(dim, spacedim),
+        "Create a generic context-aware known source from a boundary "
+        "function."});
+
+    coral::NodeObject::register_function(
+      std::function<Term(const Source &, const Test &)>(
+        [](const Source &source, const Test &test_expression) {
+          return ImmersX::known_term(source, test_expression);
+        }),
+      {"source", "test"},
+      coral::RegistryMetadata{
+        "Known term",
+        "Known term",
+        field_kind + " test expression. " + dimensions(dim, spacedim),
+        "Pair a generic known source with a residual test expression."});
+
+    coral::NodeObject::register_function(
+      std::function<Term(const Term &, const unsigned int)>(
+        [](const Term &term, const unsigned int boundary_id) {
+          return term.on_boundary(boundary_id);
+        }),
+      {"term", "boundary_id"},
+      coral::RegistryMetadata{
+        "Boundary known term",
+        "Boundary known term",
+        field_kind + " field. " + dimensions(dim, spacedim),
+        "Restrict a generic known term to one boundary id."});
+
+    coral::NodeObject::register_function(
+      std::function<void(AdapterHandle &, const Term &, const std::string &)>(
+        [](AdapterHandle     &adapter,
+           const Term        &term,
+           const std::string &prefix) { (*adapter).add(term, prefix); }),
+      {"adapter", "term", "prefix"},
+      coral::RegistryMetadata{
+        "Add known term to linear execution",
+        "Add known term",
+        "LinearAdapter",
+        "Add a generic known source term to a linear execution."});
+  }
+
+  template <int dim, int spacedim>
+  inline void
+  register_primitive_vector_weak_terms()
+  {
+    using Adapter       = LinearAdapterFor<dim, spacedim>;
+    using AdapterHandle = std::shared_ptr<Adapter>;
+    using Field =
+      ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+    using SymmetricGradient = std::decay_t<decltype(ImmersX::symmetric_gradient(
+      std::declval<const Field &>()))>;
+    using Divergence        = std::decay_t<decltype(ImmersX::divergence(
+      std::declval<const Field &>()))>;
+    using Test =
+      std::decay_t<decltype(ImmersX::test(std::declval<const Field &>()))>;
+    using TestSymmetricGradient =
+      std::decay_t<decltype(ImmersX::symmetric_gradient(
+        std::declval<const Test &>()))>;
+    using TestDivergence =
+      std::decay_t<decltype(ImmersX::divergence(std::declval<const Test &>()))>;
+    using SymmetricGradientWeak = std::decay_t<decltype(ImmersX::weak_term(
+      std::declval<const SymmetricGradient &>(),
+      std::declval<const TestSymmetricGradient &>()))>;
+    using DivergenceWeak        = std::decay_t<
+      decltype(ImmersX::weak_term(std::declval<const Divergence &>(),
+                                  std::declval<const TestDivergence &>()))>;
+
+    coral::detail::set_type_alias<SymmetricGradientWeak>(
+      "ImmersX::WeakTerm<" + dimensions(dim, spacedim) +
+      ",VectorSymmetricGradient,VectorTestExpressionSymmetricGradient>");
+    coral::detail::set_type_alias<DivergenceWeak>(
+      "ImmersX::WeakTerm<" + dimensions(dim, spacedim) +
+      ",VectorDivergence,VectorTestExpressionDivergence>");
+    coral::NodeObject::register_output_type<SymmetricGradientWeak>();
+    coral::NodeObject::register_output_type<DivergenceWeak>();
+
+    coral::NodeObject::register_function(
+      std::function<SymmetricGradientWeak(const SymmetricGradient &,
+                                          const TestSymmetricGradient &)>(
+        [](const SymmetricGradient     &trial,
+           const TestSymmetricGradient &test_expression) {
+          return ImmersX::weak_term(trial, test_expression);
+        }),
+      {"trial", "test"},
+      coral::RegistryMetadata{
+        "Weak term",
+        "Weak term",
+        "Vector symmetric gradient. " + dimensions(dim, spacedim),
+        "Build the generic symmetric-gradient part of a linear elasticity "
+        "weak term."});
+    coral::NodeObject::register_function(
+      std::function<DivergenceWeak(const Divergence &, const TestDivergence &)>(
+        [](const Divergence &trial, const TestDivergence &test_expression) {
+          return ImmersX::weak_term(trial, test_expression);
+        }),
+      {"trial", "test"},
+      coral::RegistryMetadata{
+        "Weak term",
+        "Weak term",
+        "Vector divergence. " + dimensions(dim, spacedim),
+        "Build the generic divergence part of a linear elasticity weak "
+        "term."});
+
+    coral::NodeObject::register_function(
+      std::function<void(
+        AdapterHandle &, const SymmetricGradientWeak &, const std::string &)>(
+        [](AdapterHandle               &adapter,
+           const SymmetricGradientWeak &term,
+           const std::string &prefix) { (*adapter).add(term, prefix); }),
+      {"adapter", "term", "prefix"},
+      coral::RegistryMetadata{
+        "Add weak term to linear execution",
+        "Add weak term",
+        "Vector symmetric gradient. " + dimensions(dim, spacedim),
+        "Add a generic symmetric-gradient weak term to a linear execution."});
+    coral::NodeObject::register_function(
+      std::function<
+        void(AdapterHandle &, const DivergenceWeak &, const std::string &)>(
+        [](AdapterHandle        &adapter,
+           const DivergenceWeak &term,
+           const std::string    &prefix) { (*adapter).add(term, prefix); }),
+      {"adapter", "term", "prefix"},
+      coral::RegistryMetadata{
+        "Add weak term to linear execution",
+        "Add weak term",
+        "Vector divergence. " + dimensions(dim, spacedim),
+        "Add a generic divergence weak term to a linear execution."});
+  }
+
   template <int dim, int spacedim>
   inline void
   register_primitive_domain_types()
@@ -258,6 +445,35 @@ namespace ImmersX::Coral
         "Add weak term",
         "Static-field RHS. " + dimensions(dim, spacedim),
         "Add a known imported-field RHS to a linear execution."});
+
+    using VectorField =
+      ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
+    coral::NodeObject::register_function(
+      std::function<
+        VectorField(AdapterHandle &, const VectorField &, const std::string &)>(
+        [](AdapterHandle     &adapter,
+           const VectorField &field,
+           const std::string &prefix) {
+          return (*adapter)
+            .add(ImmersX::algebraic_field(field), prefix)
+            .fields();
+        }),
+      {"adapter", "field", "prefix"},
+      coral::RegistryMetadata{
+        "Register algebraic field",
+        "Register algebraic field",
+        "Vector field. " + dimensions(dim, spacedim),
+        "Register an existing vector Field in a linear execution."});
+
+    register_primitive_vector_weak_terms<dim, spacedim>();
+    register_primitive_known_term_operations<
+      dim,
+      spacedim,
+      dealii::FEValuesExtractors::Scalar>("Scalar");
+    register_primitive_known_term_operations<
+      dim,
+      spacedim,
+      dealii::FEValuesExtractors::Vector>("Vector");
   }
 
   template <int dim, int spacedim>

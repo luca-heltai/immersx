@@ -1,0 +1,21 @@
+subsection Primitive elasticity domain
+  set Grid generator           = hyper_cube
+  set Grid generator arguments = 0: 1: true
+  set Initial refinement       = 1
+  set Triangulation type       = distributed
+end
+
+subsection Primitive elasticity space
+  set Finite element = FESystem[FE_Q(1)^2]
+end
+
+subsection Primitive elasticity adapter
+  set Solver             = iterative
+  set Preconditioner     = none
+  set Maximum iterations = 1000
+  set Tolerance          = 1.e-12
+end
+
+subsection Primitive elasticity output
+  set Output directory = output
+end
