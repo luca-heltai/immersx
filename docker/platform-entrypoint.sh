@@ -12,6 +12,11 @@ fi
 Xvfb :99 -screen 0 1600x1000x24 -ac +extension GLX +render -noreset >/tmp/Xvfb.log 2>&1 &
 fluxbox >/tmp/fluxbox.log 2>&1 &
 x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -quiet >/tmp/x11vnc.log 2>&1 &
+cat > /usr/share/novnc/index.html <<'HTML'
+<!doctype html>
+<meta http-equiv="refresh" content="0; url=/vnc.html?autoconnect=1&resize=scale">
+<a href="/vnc.html?autoconnect=1&resize=scale">Open dealiiX-platform</a>
+HTML
 /usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 >/tmp/novnc.log 2>&1 &
 
 cd /opt/dealiix-platform

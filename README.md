@@ -48,7 +48,8 @@ docker compose pull
 docker compose up -d
 ```
 
-Open the dealiiX-platform interface at <http://localhost:6080>. It is the
+Open the dealiiX-platform interface at
+<http://localhost:6080/vnc.html?autoconnect=1&resize=scale>. It is the
 Electron platform running in a browser through noVNC. The Coral Visualizer is
 available directly at <http://localhost:8008>.
 

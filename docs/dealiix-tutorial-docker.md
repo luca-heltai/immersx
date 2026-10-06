@@ -12,8 +12,10 @@ docker compose pull
 docker compose up -d
 ```
 
-Open <http://localhost:6080> and use the platform in the browser. The visualizer
-is also available directly at <http://localhost:8008>.
+Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and use the
+platform in the browser. The container runs the production Electron build
+through noVNC, not `npm run dev:vite`; the latter is only the renderer and does
+not provide the Electron SSH/filesystem bridge. The visualizer is also available directly at <http://localhost:8008>.
 
 The default platform configuration uses the 2D ImmersX plugin and connects to
 `coral-ssh-slurm` over the internal Compose network. The Coral SSH port is also
