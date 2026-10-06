@@ -9,11 +9,23 @@
 #ifndef immersx_coral_register_h
 #define immersx_coral_register_h
 
+#include <deal.II/base/config.h>
+
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/numbers.h>
 #include <deal.II/base/parameter_acceptor.h>
+
+#include <deal.II/grid/tria.h>
+
+#ifdef DEAL_II_WITH_VTK
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+#    include <deal.II/vtk/utilities.h>
+#  else
+#    include <immersx/compatibility/dealii_9_8/vtk/utilities.h>
+#  endif
+#endif
 
 #include <coral.h>
 #include <coral_log.h>
@@ -699,6 +711,93 @@ namespace ImmersX::Coral
     coral::NodeObject::register_output_type<ImmersX::FieldId>();
     coral::Network::register_node();
   }
+
+#ifdef DEAL_II_WITH_VTK
+  template <int dim, int spacedim>
+  inline void
+  register_vtk_types()
+  {
+    using Triangulation = dealii::Triangulation<dim, spacedim>;
+    using Writer        = void (*)(const std::string &,
+                            const Triangulation &,
+                            const std::string &,
+                            const std::string &,
+                            const std::string &);
+
+    const std::string triangulation_name = "dealii::Triangulation<" +
+                                           std::to_string(dim) + ", " +
+                                           std::to_string(spacedim) + ">";
+    coral::detail::set_type_alias<Triangulation>(triangulation_name);
+    coral::NodeObject::register_type<Triangulation>();
+
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+    const Writer writer = &dealii::VTKWrappers::write_vtk<dim, spacedim>;
+#  else
+    const Writer writer = &ImmersX::VTKWrappers::write_vtk<dim, spacedim>;
+#  endif
+
+    const auto dimension_name =
+      std::to_string(dim) + "D" +
+      (dim == spacedim ? "" : " in " + std::to_string(spacedim) + "D");
+
+    const auto metadata = [dimension_name](const std::string &variant) {
+      return coral::RegistryMetadata{"Write VTK",
+                                     "Write VTK",
+                                     variant + ". " + dimension_name,
+                                     "Write a deal.II triangulation to a VTK "
+                                     "file."};
+    };
+
+    coral::NodeObject::register_function(
+      std::function<void(const std::string &,
+                         const Triangulation &,
+                         const std::string &,
+                         const std::string &,
+                         const std::string &)>(writer),
+      {"vtk_filename",
+       "triangulation",
+       "material_id_field",
+       "boundary_id_field",
+       "manifold_id_field"},
+      metadata("All id fields"));
+
+    coral::NodeObject::register_function(
+      std::function<void(const std::string &, const Triangulation &)>(
+        [writer](const std::string &vtk_filename, const Triangulation &tria) {
+          writer(vtk_filename, tria, "", "", "");
+        }),
+      {"vtk_filename", "triangulation"},
+      metadata("Default id fields"));
+
+    coral::NodeObject::register_function(
+      std::function<
+        void(const std::string &, const Triangulation &, const std::string &)>(
+        [writer](const std::string   &vtk_filename,
+                 const Triangulation &tria,
+                 const std::string   &material_id_field) {
+          writer(vtk_filename, tria, material_id_field, "", "");
+        }),
+      {"vtk_filename", "triangulation", "material_id_field"},
+      metadata("Material id field"));
+
+    coral::NodeObject::register_function(
+      std::function<void(const std::string &,
+                         const Triangulation &,
+                         const std::string &,
+                         const std::string &)>(
+        [writer](const std::string   &vtk_filename,
+                 const Triangulation &tria,
+                 const std::string   &material_id_field,
+                 const std::string   &boundary_id_field) {
+          writer(vtk_filename, tria, material_id_field, boundary_id_field, "");
+        }),
+      {"vtk_filename",
+       "triangulation",
+       "material_id_field",
+       "boundary_id_field"},
+      metadata("Material and boundary id fields"));
+  }
+#endif
 
   template <int dim, int spacedim>
   inline std::string
@@ -1771,6 +1870,9 @@ namespace ImmersX::Coral
   {
     register_common_types();
     register_initialize_parameter_types();
+#ifdef DEAL_II_WITH_VTK
+    register_vtk_types<1, spacedim>();
+#endif
     register_boundary_function_types<spacedim>();
     register_field_types<1, spacedim>();
     register_poisson_types<1, spacedim>();
@@ -1778,6 +1880,9 @@ namespace ImmersX::Coral
     register_elastodynamics_types<1, spacedim>();
     if constexpr (spacedim >= 2)
       {
+#ifdef DEAL_II_WITH_VTK
+        register_vtk_types<2, spacedim>();
+#endif
         register_field_types<2, spacedim>();
         register_poisson_types<2, spacedim>();
         register_elastic_static_types<2, spacedim>();
@@ -1798,6 +1903,9 @@ namespace ImmersX::Coral
       }
     if constexpr (spacedim >= 3)
       {
+#ifdef DEAL_II_WITH_VTK
+        register_vtk_types<3, spacedim>();
+#endif
         register_field_types<3, spacedim>();
         register_poisson_types<3, spacedim>();
         register_elastic_static_types<3, spacedim>();
