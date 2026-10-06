@@ -1252,6 +1252,43 @@ namespace ImmersX
                                  const std::string &,
                                  const std::string &);
 
+    template void
+    VTKWrappers::write_vtk<1, 1>(const std::string &,
+                                 const Triangulation<1, 1> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<1, 2>(const std::string &,
+                                 const Triangulation<1, 2> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<1, 3>(const std::string &,
+                                 const Triangulation<1, 3> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<2, 2>(const std::string &,
+                                 const Triangulation<2, 2> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<2, 3>(const std::string &,
+                                 const Triangulation<2, 3> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<3, 3>(const std::string &,
+                                 const Triangulation<3, 3> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+
   } // namespace VTKWrappers
 
 #  endif
