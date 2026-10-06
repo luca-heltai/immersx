@@ -16,6 +16,8 @@ try {
   state = JSON.parse(fs.readFileSync(storeFile, 'utf8'))
 } catch {}
 
+const buildType = process.env.DEALIXX_BUILD_TYPE === 'Debug' ? 'Debug' : 'Release'
+const buildSuffix = buildType === 'Debug' ? '_debug' : ''
 const localDefaults = {
   coralBinaryPath: '', coralPluginPath: '', executablePath: '',
   parametersFileName: 'parameters.json', workingDirectory: '',
@@ -24,8 +26,8 @@ const localDefaults = {
 const remoteDefaults = {
   host: 'coral-ssh-slurm', port: 22, username: 'root',
   sshKeyPath: '/run/tutorial-ssh/id_ed25519',
-  coralBinaryPath: '/opt/dealiix/coral/Release/bin/Release/coral',
-  coralPluginPath: '/opt/dealiix/immersx/Release/lib/immersx/coral/libcoral_backend_immersx_2.so',
+  coralBinaryPath: `/usr/local/bin/coral-${buildType.toLowerCase()}`,
+  coralPluginPath: `/opt/dealiix/immersx/${buildType}/lib/immersx/coral/libcoral_backend_immersx_2${buildSuffix}.so`,
   executablePath: '', parametersFileName: 'parameters.json',
   workingDirectory: '/app/shared-data',
   mpiLauncher: { kind: 'srun' }, probes: {}
@@ -34,6 +36,17 @@ const settings = state.settings && typeof state.settings === 'object' ? state.se
 const execution = settings.execution && typeof settings.execution === 'object' ? settings.execution : {}
 const local = execution.local && typeof execution.local === 'object' ? execution.local : {}
 const remote = execution.remote && typeof execution.remote === 'object' ? execution.remote : {}
+const tutorialPaths = !remote.coralBinaryPath ||
+  remote.coralBinaryPath.startsWith('/usr/local/bin/coral-') ||
+  remote.coralBinaryPath.startsWith('/opt/dealiix/')
+const mergedRemote = {
+  ...remoteDefaults, ...remote,
+  mpiLauncher: { ...remoteDefaults.mpiLauncher, ...(remote.mpiLauncher || {}) }
+}
+if (tutorialPaths) {
+  mergedRemote.coralBinaryPath = remoteDefaults.coralBinaryPath
+  mergedRemote.coralPluginPath = remoteDefaults.coralPluginPath
+}
 
 state.settings = {
   ...settings,
@@ -42,10 +55,11 @@ state.settings = {
   execution: {
     ...execution,
     local: { ...localDefaults, ...local, mpiLauncher: { ...localDefaults.mpiLauncher, ...(local.mpiLauncher || {}) } },
-    remote: { ...remoteDefaults, ...remote, mpiLauncher: { ...remoteDefaults.mpiLauncher, ...(remote.mpiLauncher || {}) } }
+    remote: mergedRemote
   }
 }
 state.execution_selection = state.execution_selection || { location: 'remote', backendKind: 'coral' }
+state.tutorial_build_type = buildType
 fs.writeFileSync(storeFile, JSON.stringify(state, null, 2) + '\n')
 NODE
 

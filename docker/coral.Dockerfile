@@ -72,7 +72,18 @@ RUN cmake -S . -B /tmp/immersx-build-Release \
     && cmake --build /tmp/immersx-build-Release --parallel 2 \
     && cmake --install /tmp/immersx-build-Release
 
-RUN ln -s /opt/dealiix/coral/Release/bin/Release/coral /usr/local/bin/coral
+RUN printf '%s\n' \
+      '#!/bin/sh' \
+      'export LD_LIBRARY_PATH=/opt/dealiix/coral/Debug/lib:/opt/dealiix/metric-flow-x/Debug/lib:/opt/dealiix/immersx/Debug/lib:${LD_LIBRARY_PATH}' \
+      'exec /opt/dealiix/coral/Debug/bin/Debug/coral "$@"' \
+      > /usr/local/bin/coral-debug \
+    && printf '%s\n' \
+      '#!/bin/sh' \
+      'export LD_LIBRARY_PATH=/opt/dealiix/coral/Release/lib:/opt/dealiix/metric-flow-x/Release/lib:/opt/dealiix/immersx/Release/lib:${LD_LIBRARY_PATH}' \
+      'exec /opt/dealiix/coral/Release/bin/Release/coral "$@"' \
+      > /usr/local/bin/coral-release \
+    && chmod +x /usr/local/bin/coral-debug /usr/local/bin/coral-release \
+    && ln -sf /usr/local/bin/coral-release /usr/local/bin/coral
 ENV LD_LIBRARY_PATH=/opt/dealiix/coral/Release/lib:/opt/dealiix/coral/Debug/lib:/opt/dealiix/metric-flow-x/Release/lib:/opt/dealiix/metric-flow-x/Debug/lib:/opt/dealiix/immersx/Release/lib:/opt/dealiix/immersx/Debug/lib
 ENV OMPI_ALLOW_RUN_AS_ROOT=1
 ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
