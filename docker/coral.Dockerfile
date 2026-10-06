@@ -42,7 +42,12 @@ RUN cmake -S . -B /tmp/immersx-build \
       -DENABLE_DEAL_II_APP_TESTING=OFF \
     && cmake --build /tmp/immersx-build --parallel 2 \
       --target coral_backend_immersx_1 coral_backend_immersx_2 coral_backend_immersx_3 \
-    && cmake --install /tmp/immersx-build
+    && mkdir -p /opt/dealiix/immersx/lib/immersx/coral \
+    && cp /tmp/immersx-build/coral/libcoral_backend_immersx_*.so \
+      /opt/dealiix/immersx/lib/immersx/coral/ \
+    && cp /tmp/immersx-build/libimmersx_lib.so /opt/dealiix/immersx/lib/ \
+    && mkdir -p /opt/dealiix/immersx/share/immersx/coral \
+    && cp -a coral/examples /opt/dealiix/immersx/share/immersx/coral/
 
 RUN ln -s /opt/dealiix/coral/bin/Release/coral /usr/local/bin/coral
 ENV LD_LIBRARY_PATH=/opt/dealiix/coral/lib/Release:/opt/dealiix/immersx/lib
