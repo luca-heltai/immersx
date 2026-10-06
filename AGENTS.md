@@ -26,6 +26,8 @@ Before editing the repository:
    proposing a new abstraction.
 5. Preserve unrelated local changes. Never reset, clean, stash, overwrite, or
    discard user work unless explicitly requested.
+6. Keep temporary plans, drafts, and scratch notes outside the source tree or in
+   a gitignored working directory. Do not add them to commits.
 
 For substantial refactors, first identify the smallest application or test that
 can serve as a vertical correctness gate.
@@ -53,6 +55,10 @@ In particular:
   application or test exercises them.
 - Prefer vertical, application-driven changes over broad horizontal
   generalization.
+- Use `git mv` when renaming a tracked file so the rename remains visible to
+  Git.
+- When branching on enum-like values, use explicit `else if` branches for the
+  known cases instead of a catch-all `else`.
 
 When a deal.II facility might already solve the problem, inspect the installed
 deal.II headers/API before implementing a local substitute.
@@ -195,6 +201,35 @@ block numbering belongs to the execution adapter.
 
 During implementation, create small, meaningful intermediate commits at logical
 milestones unless the task explicitly requests otherwise.
+
+Use concise, sentence-case commit subjects without trailing periods. When a
+commit needs a body, use short bullets with conventional prefixes such as
+`fix`, `feat`, `refactor`, `docs`, and `chore`. Do not add `Co-Authored-By` or
+generated-attribution trailers.
+
+### Changelog
+
+Every change to user-visible behavior, the public API, the build system, the
+test structure, or the documentation must add an entry to the repository-root
+[`CHANGELOG.md`](CHANGELOG.md) under `## [Unreleased]`.
+
+Use [`.github/CHANGELOG_TEMPLATE.md`](.github/CHANGELOG_TEMPLATE.md) as the
+skeleton. Pick the section that matches the change: `Added`, `Changed`,
+`Fixed`, `Removed`, `Documentation`, `Tutorial`, `Build and packaging`, or
+`Testing and CI`. Each entry must start with a link to the pull request that
+introduced it, for example:
+
+```markdown
+- [PR #231](https://github.com/luca-heltai/immersx/pull/231) Add primitive static elasticity boundary conditions.
+```
+
+Write the entry in plain prose. Describe the behavior change, not the internal
+refactor. When a release is tagged, move the accumulated `[Unreleased]` entries
+into a new dated version section instead of rewriting them.
+
+If asked to open or update a pull request, use the repository's pull-request
+template and include the required issue, overview, summary, test plan, and
+changelog information.
 
 A good intermediate commit should:
 
@@ -507,6 +542,11 @@ ctest --test-dir build-debug -V -R '<regex>'
 ```
 
 ## 12. Validation expectations
+
+Treat the repository's CI workflows as the authoritative reference for the
+supported build and test matrix. Inspect the relevant workflow before
+reproducing CI locally; do not assume that dependency versions, image tags, or
+commands have remained unchanged.
 
 Use the smallest useful test while iterating, but finish a substantial change
 with validation appropriate to its scope.
