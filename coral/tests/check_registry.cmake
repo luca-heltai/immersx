@@ -190,13 +190,13 @@ foreach(_dim RANGE 1 ${SPACEDIM})
     endif()
   endforeach()
 
-set(_boundary_function_type "ImmersX::BoundaryFunction<${SPACEDIM}>")
-string(JSON _boundary_function_node_type ERROR_VARIABLE _boundary_function_error
-  GET "${_registry}" "${_boundary_function_type}" node_type)
-if(_boundary_function_error OR
-   NOT _boundary_function_node_type STREQUAL "output_only")
+set(_function_type "ImmersX::Function<${SPACEDIM}>")
+string(JSON _function_node_type ERROR_VARIABLE _function_error
+  GET "${_registry}" "${_function_type}" node_type)
+if(_function_error OR
+   NOT _function_node_type STREQUAL "output_only")
   message(FATAL_ERROR
-    "Registry ${SPACEDIM}d does not register ${_boundary_function_type} as output-only.")
+    "Registry ${SPACEDIM}d does not register ${_function_type} as output-only.")
 endif()
 
 string(FIND "${_registry}" "\"type\": \"ImmersX::ModulatedParsedFunction<${SPACEDIM}>\""
@@ -213,7 +213,7 @@ foreach(_parsed_variant Expression Parameterized)
     "\"variant_name\": \"${_parsed_variant}. ${SPACEDIM}D\""
     _parsed_variant_found)
   string(FIND "${_registry}"
-    "\"output_type\": \"ImmersX::BoundaryFunction<${SPACEDIM}>\""
+    "\"output_type\": \"ImmersX::Function<${SPACEDIM}>\""
     _parsed_output_found)
   if(_parsed_operation_found EQUAL -1 OR _parsed_variant_found EQUAL -1 OR
      _parsed_output_found EQUAL -1)
