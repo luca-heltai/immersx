@@ -26,7 +26,7 @@ RUN cmake -S . -B /tmp/coral-build \
       -DCORAL_BUILD_SHARED_CORE=ON \
       -DCORAL_BUILD_TESTS=OFF \
       -DCORAL_INSTALL=ON \
-    && cmake --build /tmp/coral-build --parallel \
+    && cmake --build /tmp/coral-build --parallel 2 \
     && cmake --install /tmp/coral-build
 
 COPY . /src/immersx
@@ -40,7 +40,7 @@ RUN cmake -S . -B /tmp/immersx-build \
       -DENABLE_COUPLED_PROBLEMS=OFF \
       -DENABLE_GOOGLE_TESTING=OFF \
       -DENABLE_DEAL_II_APP_TESTING=OFF \
-    && cmake --build /tmp/immersx-build --parallel \
+    && cmake --build /tmp/immersx-build --parallel 2 \
       --target coral_backend_immersx_1 coral_backend_immersx_2 coral_backend_immersx_3 \
     && cmake --install /tmp/immersx-build
 
