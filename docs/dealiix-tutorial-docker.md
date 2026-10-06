@@ -20,8 +20,11 @@ not provide the Electron SSH/filesystem bridge. The visualizer is also available
 The default platform configuration uses the 2D ImmersX plugin and connects to
 `coral-ssh-slurm` over the internal Compose network. The Coral SSH port is also
 published as `localhost:2222` for debugging. The compute image installs
-MetricFlowX under `/opt/dealiix/metric-flow-x` and exposes the corresponding
-ImmersX support when the graph uses it.
+MetricFlowX under `/opt/dealiix/metric-flow-x/Debug` and
+`/opt/dealiix/metric-flow-x/Release`, and exposes the corresponding ImmersX
+support when the graph uses it. Coral and ImmersX Debug and Release libraries
+and plugins are installed side by side; the platform starts with the Release
+2D plugin.
 
 The latest mutable images are pulled by running:
 

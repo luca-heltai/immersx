@@ -24,8 +24,8 @@ const localDefaults = {
 const remoteDefaults = {
   host: 'coral-ssh-slurm', port: 22, username: 'root',
   sshKeyPath: '/run/tutorial-ssh/id_ed25519',
-  coralBinaryPath: '/opt/dealiix/coral/bin/Release/coral',
-  coralPluginPath: '/opt/dealiix/immersx/lib/immersx/coral/libcoral_backend_immersx_2.so',
+  coralBinaryPath: '/opt/dealiix/coral/Release/bin/Release/coral',
+  coralPluginPath: '/opt/dealiix/immersx/Release/lib/immersx/coral/libcoral_backend_immersx_2.so',
   executablePath: '', parametersFileName: 'parameters.json',
   workingDirectory: '/app/shared-data',
   mpiLauncher: { kind: 'srun' }, probes: {}
