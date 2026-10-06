@@ -1,0 +1,102 @@
+name: dealiiX tutorial images
+
+on:
+  push:
+    branches: [dealiix-tutorial]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_TAG: dealiix-tutorial
+  CORAL_REF: dealiix-tutorial
+  VISUALIZER_REF: dealiix-tutorial
+  PLATFORM_REF: dealiix-tutorial
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out ImmersX
+        uses: actions/checkout@v4
+
+      - name: Check out Coral
+        uses: actions/checkout@v4
+        with:
+          repository: 2listic/coral
+          ref: ${{ env.CORAL_REF }}
+          path: _deps/coral
+          submodules: recursive
+
+      - name: Check out Coral Visualizer
+        uses: actions/checkout@v4
+        with:
+          repository: 2listic/coral-visualizer
+          ref: ${{ env.VISUALIZER_REF }}
+          path: _deps/coral-visualizer
+
+      - name: Check out dealiiX-platform
+        uses: actions/checkout@v4
+        with:
+          repository: 2listic/dealiiX-platform
+          ref: ${{ env.PLATFORM_REF }}
+          path: _deps/dealiiX-platform
+          submodules: recursive
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Coral + ImmersX
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/coral.Dockerfile
+          build-contexts: coral=./_deps/coral
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            heltai/coral:${{ env.IMAGE_TAG }}
+            heltai/coral:${{ env.IMAGE_TAG }}-${{ github.sha }}
+          cache-from: type=gha,scope=coral-tutorial
+          cache-to: type=gha,mode=max,scope=coral-tutorial
+          provenance: false
+
+      - name: Build and push Coral Visualizer
+        uses: docker/build-push-action@v6
+        with:
+          context: _deps/coral-visualizer
+          file: _deps/coral-visualizer/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            heltai/coral-visualizer:${{ env.IMAGE_TAG }}
+            heltai/coral-visualizer:${{ env.IMAGE_TAG }}-${{ github.sha }}
+          cache-from: type=gha,scope=visualizer-tutorial
+          cache-to: type=gha,mode=max,scope=visualizer-tutorial
+          provenance: false
+
+      - name: Build and push dealiiX-platform
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/platform.Dockerfile
+          build-contexts: platform=./_deps/dealiiX-platform
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            heltai/dealiix-platform:${{ env.IMAGE_TAG }}
+            heltai/dealiix-platform:${{ env.IMAGE_TAG }}-${{ github.sha }}
+          cache-from: type=gha,scope=platform-tutorial
+          cache-to: type=gha,mode=max,scope=platform-tutorial
+          provenance: false

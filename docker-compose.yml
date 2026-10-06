@@ -1,0 +1,45 @@
+services:
+  coral-ssh-slurm:
+    image: heltai/coral:${TUTORIAL_IMAGE_TAG:-dealiix-tutorial}
+    container_name: coral-ssh-slurm
+    hostname: slurm
+    ports:
+      - '2222:22'
+    volumes:
+      - ./docker/shared-data:/app/shared-data
+      - ${SSH_PUB_KEY_PATH:-./docker/tutorial-ssh/id_ed25519.pub}:/tmp/ssh_key.pub:ro
+    environment:
+      OMPI_ALLOW_RUN_AS_ROOT: '1'
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: '1'
+    networks:
+      - tutorial
+
+  coral-visualizer:
+    image: heltai/coral-visualizer:${TUTORIAL_IMAGE_TAG:-dealiix-tutorial}
+    container_name: coral-visualizer
+    ports:
+      - '8008:8080'
+    volumes:
+      - ./docker/shared-data:/deploy/data
+    networks:
+      - tutorial
+    depends_on:
+      - coral-ssh-slurm
+
+  dealiix-platform:
+    image: heltai/dealiix-platform:${TUTORIAL_IMAGE_TAG:-dealiix-tutorial}
+    container_name: dealiix-platform
+    ports:
+      - '6080:6080'
+    volumes:
+      - ./docker/tutorial-ssh/id_ed25519:/run/tutorial-ssh/id_ed25519:ro
+      - ./docker/platform-userdata:/var/lib/dealiix-platform
+    networks:
+      - tutorial
+    depends_on:
+      - coral-ssh-slurm
+      - coral-visualizer
+
+networks:
+  tutorial:
+    driver: bridge
