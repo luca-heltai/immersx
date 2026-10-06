@@ -1098,10 +1098,8 @@ namespace ImmersX::Coral
     const auto handler_name =
       "ImmersX::OutputHandler<" + dimensions(dim, spacedim) + ">";
     coral::detail::set_type_alias<Handler>(handler_name);
-    // Coral method nodes take the concrete Handler as their receiver, while
-    // the constructor stores a shared_ptr<Handler>.  Give both spellings the
-    // same serialized type so the constructor output can feed the methods.
-    coral::detail::set_type_alias<HandlerHandle>(handler_name);
+    coral::detail::set_type_alias<HandlerHandle>(
+      "ImmersX::OutputHandlerHandle<" + dimensions(dim, spacedim) + ">");
     coral::NodeObject::register_output_type<HandlerHandle>();
 
     const auto create_metadata = coral::RegistryMetadata{
@@ -1120,7 +1118,9 @@ namespace ImmersX::Coral
       {"space", "parameters", "basename"},
       create_metadata);
 
-    coral::NodeObject::register_method<Handler, void, const ScalarField &>(
+    coral::NodeObject::register_shared_method<Handler,
+                                              void,
+                                              const ScalarField &>(
       static_cast<void (Handler::*)(const ScalarField &)>(&Handler::add_field),
       {handler_name + "::add_scalar_field", "output", "field"},
       coral::RegistryMetadata{"OutputHandler::add_scalar_field",
@@ -1130,7 +1130,9 @@ namespace ImmersX::Coral
                               "OutputHandler",
                               "add_scalar_field"});
 
-    coral::NodeObject::register_method<Handler, void, const VectorField &>(
+    coral::NodeObject::register_shared_method<Handler,
+                                              void,
+                                              const VectorField &>(
       static_cast<void (Handler::*)(const VectorField &)>(&Handler::add_field),
       {handler_name + "::add_vector_field", "output", "field"},
       coral::RegistryMetadata{"OutputHandler::add_vector_field",
