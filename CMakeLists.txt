@@ -57,6 +57,8 @@ option(IMMERSX_USE_CCACHE
   "Use ccache when it is available." ON)
 option(IMMERSX_BUILD_CORAL_PLUGINS
   "Build Coral plugins when a compatible Coral package is available." ON)
+option(IMMERSX_BUILD_APPLICATIONS
+  "Build the standalone ImmersX applications." ON)
 option(IMMERSX_ENABLE_CORAL_GRAPH_TESTS
   "Enable numerical Coral graph integration tests." OFF)
 
@@ -514,8 +516,9 @@ FOREACH(_build_type ${_d2_build_types})
       SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
 
       
-      FOREACH(_main ${_main_files})
-        # Setup one executable per dimension/per build type
+      IF(IMMERSX_BUILD_APPLICATIONS)
+        FOREACH(_main ${_main_files})
+          # Setup one executable per dimension/per build type
         get_filename_component(_main_we ${_main} NAME_WE)
         STRING(REPLACE "app_" "" _main_we ${_main_we})
         SET(_exe "${_main_we}${${_build_type}_postfix}")
@@ -556,7 +559,8 @@ FOREACH(_build_type ${_d2_build_types})
             ENDIF()
           ENDIF()
         ENDIF()
-    ENDFOREACH()
+        ENDFOREACH()
+      ENDIF()
   ENDIF()
 ENDFOREACH()
 

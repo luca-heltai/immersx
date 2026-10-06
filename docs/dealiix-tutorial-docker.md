@@ -13,8 +13,9 @@ docker compose pull
 docker compose up -d
 ```
 
-The Coral container creates `docker/tutorial-ssh/id_ed25519` and shares it
-with the platform container. Verify the mounted key with:
+The Coral container creates `docker/tutorial-ssh/id_ed25519`; Compose mounts the
+matching public key directly as `/root/.ssh/authorized_keys` and shares the
+private key with the platform container. Verify the mounted key with:
 
 ```bash
 docker exec dealiix-platform ls -l /run/tutorial-ssh/id_ed25519

@@ -63,7 +63,7 @@ heltai/dealiix-platform:dealiix-tutorial
 ```
 
 The compute image includes Debug and Release Coral, MetricFlowX, and ImmersX
-libraries, applications, and plugins. It includes the ImmersX 1D, 2D, and 3D
+libraries and plugins. It includes the ImmersX 1D, 2D, and 3D
 Coral plugins; the platform starts with the Release 2D plugin. To retrieve
 newer images while staying on the same
 branch, run:

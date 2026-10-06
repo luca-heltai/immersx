@@ -50,6 +50,7 @@ RUN cmake -S . -B /tmp/immersx-build-Debug \
       -Dcoral_DIR=/opt/dealiix/coral/Debug/lib/cmake/coral \
       -DMetricFlowX_DIR=/opt/dealiix/metric-flow-x/Debug/lib/cmake/MetricFlowX \
       -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
+      -DIMMERSX_BUILD_APPLICATIONS=OFF \
       -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=OFF \
       -DIMMERSX_INSTALL_TESTS=OFF \
       -DENABLE_COUPLED_PROBLEMS=OFF \
@@ -64,6 +65,7 @@ RUN cmake -S . -B /tmp/immersx-build-Release \
       -Dcoral_DIR=/opt/dealiix/coral/Release/lib/cmake/coral \
       -DMetricFlowX_DIR=/opt/dealiix/metric-flow-x/Release/lib/cmake/MetricFlowX \
       -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
+      -DIMMERSX_BUILD_APPLICATIONS=OFF \
       -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=OFF \
       -DIMMERSX_INSTALL_TESTS=OFF \
       -DENABLE_COUPLED_PROBLEMS=OFF \
