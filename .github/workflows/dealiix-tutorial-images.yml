@@ -15,7 +15,7 @@ concurrency:
 env:
   IMAGE_TAG: dealiix-tutorial
   CORAL_REF: dealiix-tutorial
-  METRIC_FLOW_X_REF: main
+  METRIC_FLOW_X_REF: dealiix-tutorial
   VISUALIZER_REF: dealiix-tutorial
   PLATFORM_REF: dealiix-tutorial
 

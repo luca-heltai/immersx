@@ -37,5 +37,5 @@ docker compose down
 
 The mutable `dealiix-tutorial` images are rebuilt by GitHub Actions from the
 ImmersX `dealiix-tutorial` branch, the Coral and visualizer `dealiix-tutorial`
-branches, the dealiiX-platform `dealiix-tutorial` branch, and the `main`
-branch of MetricFlowX.
+branches, the dealiiX-platform `dealiix-tutorial` branch, and the
+MetricFlowX `dealiix-tutorial` branch.
