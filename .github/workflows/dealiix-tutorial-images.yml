@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: dealiix-tutorial-images
+  cancel-in-progress: true
+
 env:
   IMAGE_TAG: dealiix-tutorial
   CORAL_REF: dealiix-tutorial
