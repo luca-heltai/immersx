@@ -177,5 +177,24 @@ After a graph writes VTK output, open the result with
 Visualizer consumes graph output; it does not replace the Coral executable or
 the ImmersX plugin.
 
+## Pull the tutorial images
+
+For the fastest browser-based setup, use the published stack from the
+`dealiix-tutorial` branch:
+
+```bash
+git clone --branch dealiix-tutorial \
+  https://github.com/luca-heltai/immersx.git
+cd immersx
+./scripts/tutorial-init.sh
+docker compose pull
+docker compose up -d
+```
+
+Open <http://localhost:6080> for the dealiiX-platform interface. The stack
+pulls the latest multi-architecture images for Coral plus ImmersX and
+MetricFlowX, Coral Visualizer, and dealiiX-platform. To refresh an existing
+checkout, use `git pull && docker compose pull && docker compose up -d`.
+
 For the ImmersX-side CMake and registry details, see the
 [Coral backend how-to](../how-to/coral-backend).

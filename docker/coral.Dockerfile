@@ -29,12 +29,22 @@ RUN cmake -S . -B /tmp/coral-build \
     && cmake --build /tmp/coral-build --parallel 2 \
     && cmake --install /tmp/coral-build
 
+COPY --from=metric_flow_x / /src/metric-flow-x
+WORKDIR /src/metric-flow-x
+RUN cmake -S . -B /tmp/metric-flow-x-build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/dealiix/metric-flow-x \
+    && cmake --build /tmp/metric-flow-x-build --parallel 2 \
+      --target metric_flow_x blood_flow \
+    && cmake --install /tmp/metric-flow-x-build
+
 COPY . /src/immersx
 WORKDIR /src/immersx
 RUN cmake -S . -B /tmp/immersx-build \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/opt/dealiix/immersx \
       -Dcoral_DIR=/opt/dealiix/coral/lib/cmake/coral \
+      -DMetricFlowX_DIR=/opt/dealiix/metric-flow-x/lib/cmake/MetricFlowX \
       -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
       -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=OFF \
       -DENABLE_COUPLED_PROBLEMS=OFF \
@@ -50,7 +60,7 @@ RUN cmake -S . -B /tmp/immersx-build \
     && cp -a coral/examples /opt/dealiix/immersx/share/immersx/coral/
 
 RUN ln -s /opt/dealiix/coral/bin/Release/coral /usr/local/bin/coral
-ENV LD_LIBRARY_PATH=/opt/dealiix/coral/lib/Release:/opt/dealiix/immersx/lib
+ENV LD_LIBRARY_PATH=/opt/dealiix/coral/lib/Release:/opt/dealiix/metric-flow-x/lib:/opt/dealiix/immersx/lib
 ENV OMPI_ALLOW_RUN_AS_ROOT=1
 ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
