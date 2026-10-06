@@ -43,6 +43,7 @@ Clone this branch and start the latest published images:
 git clone --branch dealiix-tutorial \
   https://github.com/luca-heltai/immersx.git
 cd immersx
+# Optional: docker compose up also generates the tutorial SSH key.
 ./scripts/tutorial-init.sh
 docker compose pull
 docker compose up -d

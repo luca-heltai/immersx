@@ -7,9 +7,17 @@ through noVNC. Published images are available for both Linux AMD64 and ARM64.
 ## Start
 
 ```bash
+# Optional: pre-create the SSH key. docker compose up also generates it.
 ./scripts/tutorial-init.sh
 docker compose pull
 docker compose up -d
+```
+
+The Coral container creates `docker/tutorial-ssh/id_ed25519` and shares it
+with the platform container. Verify the mounted key with:
+
+```bash
+docker exec dealiix-platform ls -l /run/tutorial-ssh/id_ed25519
 ```
 
 Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and use the

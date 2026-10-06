@@ -3,6 +3,18 @@ set -e
 
 mkdir -p "$ELECTRON_USERDATA"
 
+for attempt in $(seq 1 30); do
+  if [ -s /run/tutorial-ssh/id_ed25519 ]; then
+    break
+  fi
+  sleep 1
+done
+if [ ! -s /run/tutorial-ssh/id_ed25519 ]; then
+  echo 'Tutorial SSH key is missing at /run/tutorial-ssh/id_ed25519' >&2
+  echo 'The Coral container should generate it in the shared docker/tutorial-ssh directory.' >&2
+  exit 1
+fi
+
 # electron-store uses dealiix-storage.json, not config.json. Merge the tutorial
 # target into that store without overwriting settings a returning user changed.
 node <<'NODE'
