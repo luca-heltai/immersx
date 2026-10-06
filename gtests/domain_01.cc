@@ -29,14 +29,14 @@ TEST(Domain, CopiesToSerialTriangulation)
   DomainParameters<2> parameters("/Tests/DomainTriangulation/");
   parameters.name_of_grid       = "hyper_cube";
   parameters.arguments_for_grid = "0: 1: false";
-  parameters.initial_refinement = 1;
+  parameters.initial_refinement = 2;
 
   Domain<2> domain(parameters);
   domain.make_grid();
 
   dealii::Triangulation<2> triangulation;
   ASSERT_NO_THROW(triangulation.copy_triangulation(domain.triangulation()));
-  EXPECT_EQ(triangulation.n_active_cells(), 4u);
+  EXPECT_EQ(triangulation.n_active_cells(), 16u);
 }
 
 
@@ -45,15 +45,18 @@ TEST(Domain, MPI_CopiesToSerialTriangulation)
   DomainParameters<2> parameters("/Tests/DomainMPITriangulation/");
   parameters.name_of_grid       = "hyper_cube";
   parameters.arguments_for_grid = "0: 1: false";
-  parameters.initial_refinement = 1;
+  parameters.initial_refinement = 2;
 
   Domain<2> domain(parameters);
   domain.make_grid();
 
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  EXPECT_EQ(domain.triangulation().n_global_active_cells(), 16u);
+  EXPECT_EQ(domain.triangulation().n_locally_owned_active_cells(), 8u);
+
   dealii::Triangulation<2> triangulation;
   ASSERT_NO_THROW(triangulation.copy_triangulation(domain.triangulation()));
-  EXPECT_EQ(triangulation.n_active_cells(),
-            domain.triangulation().n_active_cells());
+  EXPECT_EQ(triangulation.n_active_cells(), 16u);
 }
 
 
