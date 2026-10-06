@@ -1095,10 +1095,13 @@ namespace ImmersX::Coral
     using VectorField =
       ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
 
-    coral::detail::set_type_alias<Handler>("ImmersX::OutputHandler<" +
-                                           dimensions(dim, spacedim) + ">");
-    coral::detail::set_type_alias<HandlerHandle>(
-      "ImmersX::OutputHandlerHandle<" + dimensions(dim, spacedim) + ">");
+    const auto handler_name =
+      "ImmersX::OutputHandler<" + dimensions(dim, spacedim) + ">";
+    coral::detail::set_type_alias<Handler>(handler_name);
+    // Coral method nodes take the concrete Handler as their receiver, while
+    // the constructor stores a shared_ptr<Handler>.  Give both spellings the
+    // same serialized type so the constructor output can feed the methods.
+    coral::detail::set_type_alias<HandlerHandle>(handler_name);
     coral::NodeObject::register_output_type<HandlerHandle>();
 
     const auto create_metadata = coral::RegistryMetadata{
@@ -1117,38 +1120,40 @@ namespace ImmersX::Coral
       {"space", "parameters", "basename"},
       create_metadata);
 
-    coral::NodeObject::register_function(
-      std::function<void(HandlerHandle &, const ScalarField &)>(
-        [](HandlerHandle &output, const ScalarField &field) {
-          output->add_field(field);
-        }),
-      {"output", "field"},
-      coral::RegistryMetadata{"Add scalar field",
+    coral::NodeObject::register_method<Handler, void, const ScalarField &>(
+      static_cast<void (Handler::*)(const ScalarField &)>(&Handler::add_field),
+      {handler_name + "::add_scalar_field", "output", "field"},
+      coral::RegistryMetadata{"OutputHandler::add_scalar_field",
                               "Add scalar field",
-                              "Output handler",
-                              "Register a scalar semantic field."});
+                              dimensions(dim, spacedim),
+                              "Register a scalar semantic field.",
+                              "OutputHandler",
+                              "add_scalar_field"});
 
-    coral::NodeObject::register_function(
-      std::function<void(HandlerHandle &, const VectorField &)>(
-        [](HandlerHandle &output, const VectorField &field) {
-          output->add_field(field);
-        }),
-      {"output", "field"},
-      coral::RegistryMetadata{"Add vector field",
+    coral::NodeObject::register_method<Handler, void, const VectorField &>(
+      static_cast<void (Handler::*)(const VectorField &)>(&Handler::add_field),
+      {handler_name + "::add_vector_field", "output", "field"},
+      coral::RegistryMetadata{"OutputHandler::add_vector_field",
                               "Add vector field",
-                              "Output handler",
-                              "Register a vector semantic field."});
+                              dimensions(dim, spacedim),
+                              "Register a vector semantic field.",
+                              "OutputHandler",
+                              "add_vector_field"});
 
+    coral::RegistryMetadata write_metadata;
+    write_metadata.operation    = "OutputHandler::write_output";
+    write_metadata.display_name = "Write output";
+    write_metadata.variant_name = dimensions(dim, spacedim);
+    write_metadata.description  = "Write semantic fields at one time.";
+    write_metadata.class_name   = "OutputHandler";
+    write_metadata.method_name  = "write_output";
     coral::NodeObject::register_function(
       std::function<void(const HandlerHandle &,
                          const AdapterHandle &,
                          const GlobalVector &,
                          const double &)>(&write_linear_output<dim, spacedim>),
       {"output", "adapter", "state", "time"},
-      coral::RegistryMetadata{"Write output",
-                              "Write output",
-                              "Output handler",
-                              "Write semantic fields at one time."});
+      write_metadata);
   }
 
   template <int dim, int spacedim>
