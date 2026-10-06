@@ -24,6 +24,39 @@ TEST(Domain, GeneratesNamedGrid)
 }
 
 
+TEST(Domain, CopiesToSerialTriangulation)
+{
+  DomainParameters<2> parameters("/Tests/DomainTriangulation/");
+  parameters.name_of_grid       = "hyper_cube";
+  parameters.arguments_for_grid = "0: 1: false";
+  parameters.initial_refinement = 1;
+
+  Domain<2> domain(parameters);
+  domain.make_grid();
+
+  dealii::Triangulation<2> triangulation;
+  ASSERT_NO_THROW(triangulation.copy_triangulation(domain.triangulation()));
+  EXPECT_EQ(triangulation.n_active_cells(), 4u);
+}
+
+
+TEST(Domain, MPI_CopiesToSerialTriangulation)
+{
+  DomainParameters<2> parameters("/Tests/DomainMPITriangulation/");
+  parameters.name_of_grid       = "hyper_cube";
+  parameters.arguments_for_grid = "0: 1: false";
+  parameters.initial_refinement = 1;
+
+  Domain<2> domain(parameters);
+  domain.make_grid();
+
+  dealii::Triangulation<2> triangulation;
+  ASSERT_NO_THROW(triangulation.copy_triangulation(domain.triangulation()));
+  EXPECT_EQ(triangulation.n_active_cells(),
+            domain.triangulation().n_active_cells());
+}
+
+
 TEST(Domain, ReadsLegacyVtkGrid)
 {
   const auto filename = TestPaths::output_path("domain/quad.vtk");

@@ -313,6 +313,7 @@ if(SPACEDIM EQUAL 2)
   foreach(_primitive_type
       "ImmersX::DomainParameters<2,2>"
       "ImmersX::OwnedDomain<2,2>"
+      "dealii::Triangulation<2, 2>"
       "ImmersX::OwnedFiniteElementSpace<2,2>"
       "ImmersX::StaticScalarField<2,2>"
       "ImmersX::TestExpression<2,2,Scalar>"
@@ -334,6 +335,7 @@ if(SPACEDIM EQUAL 2)
   foreach(_primitive_operation
       "Create domain"
       "Generate domain"
+      "Triangulation"
       "Create finite element space"
       "Boundary conditions"
       "Constant function"

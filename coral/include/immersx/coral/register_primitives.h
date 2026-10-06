@@ -13,6 +13,8 @@
 
 #include <deal.II/fe/fe_values_extractors.h>
 
+#include <deal.II/grid/tria.h>
+
 #include <coral.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/boundary_conditions.h>
@@ -232,10 +234,11 @@ namespace ImmersX::Coral
   inline void
   register_primitive_domain_types()
   {
-    using Parameters   = ImmersX::DomainParameters<dim, spacedim>;
-    using DomainType   = ImmersX::Domain<dim, spacedim>;
-    using DomainHandle = std::shared_ptr<DomainType>;
-    using StaticField  = typename DomainType::ImportedFields::FieldView;
+    using Parameters    = ImmersX::DomainParameters<dim, spacedim>;
+    using DomainType    = ImmersX::Domain<dim, spacedim>;
+    using DomainHandle  = std::shared_ptr<DomainType>;
+    using Triangulation = dealii::Triangulation<dim, spacedim>;
+    using StaticField   = typename DomainType::ImportedFields::FieldView;
 
     register_parameter_type<Parameters>("ImmersX::DomainParameters<" +
                                         dimensions(dim, spacedim) + ">");
@@ -271,6 +274,22 @@ namespace ImmersX::Coral
                       "Generate the mesh in an owned domain.",
                       "Domain",
                       "make_grid"));
+
+    coral::NodeObject::register_function(
+      std::function<Triangulation(const DomainHandle &)>(
+        [](const DomainHandle &domain) {
+          Triangulation triangulation;
+          triangulation.copy_triangulation(domain->triangulation());
+          return triangulation;
+        }),
+      {"domain"},
+      method_metadata(
+        "Triangulation",
+        "Triangulation",
+        "From domain. " + dimensions(dim, spacedim),
+        "Extract a serial triangulation snapshot from an owning domain.",
+        "Domain",
+        "triangulation"));
 
     coral::NodeObject::register_function(
       std::function<StaticField(const DomainHandle &, const std::string &)>(
