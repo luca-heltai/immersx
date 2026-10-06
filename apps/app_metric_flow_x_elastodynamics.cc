@@ -312,7 +312,7 @@ namespace
     adapter.add(interaction,
                 "vessel-wall-pressure",
                 flow_fields.fields().state,
-                coupling_fields.fields().multiplier);
+                coupling_fields.fields().multiplier.id());
 
     const auto output = [&solid_problem,
                          &solid_parameters,
