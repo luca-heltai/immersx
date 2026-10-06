@@ -16,7 +16,7 @@ try {
   state = JSON.parse(fs.readFileSync(storeFile, 'utf8'))
 } catch {}
 
-const buildType = process.env.DEALIXX_BUILD_TYPE === 'Debug' ? 'Debug' : 'Release'
+const buildType = process.env.DEALIIX_BUILD_TYPE === 'Debug' ? 'Debug' : 'Release'
 const buildSuffix = buildType === 'Debug' ? '_debug' : ''
 const localDefaults = {
   coralBinaryPath: '', coralPluginPath: '', executablePath: '',

@@ -77,8 +77,8 @@ Select the Debug or Release package set for the platform's first connection
 (the default is Release):
 
 ```bash
-DEALIXX_BUILD_TYPE=Debug docker compose up -d --force-recreate dealiix-platform
-DEALIXX_BUILD_TYPE=Release docker compose up -d --force-recreate dealiix-platform
+DEALIIX_BUILD_TYPE=Debug docker compose up -d --force-recreate dealiix-platform
+DEALIIX_BUILD_TYPE=Release docker compose up -d --force-recreate dealiix-platform
 ```
 
 The compute image contains both variants. Debug uses the `_debug` ImmersX

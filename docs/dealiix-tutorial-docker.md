@@ -22,10 +22,10 @@ The default platform configuration uses the Release 2D ImmersX plugin and connec
 for the platform with:
 
 ```bash
-DEALIXX_BUILD_TYPE=Debug docker compose up -d --force-recreate dealiix-platform
+DEALIIX_BUILD_TYPE=Debug docker compose up -d --force-recreate dealiix-platform
 ```
 
-Use `DEALIXX_BUILD_TYPE=Release` to switch back. The Coral SSH port is also
+Use `DEALIIX_BUILD_TYPE=Release` to switch back. The Coral SSH port is also
 published as `localhost:2222` for debugging. The compute image installs
 MetricFlowX under `/opt/dealiix/metric-flow-x/Debug` and
 `/opt/dealiix/metric-flow-x/Release`, and exposes the corresponding ImmersX

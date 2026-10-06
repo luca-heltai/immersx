@@ -195,7 +195,7 @@ Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> for the
 dealiiX-platform interface. The stack
 pulls the latest multi-architecture images for Coral plus ImmersX and
 MetricFlowX, Coral Visualizer, and dealiiX-platform. Set
-`DEALIXX_BUILD_TYPE=Debug` before `docker compose up -d --force-recreate
+`DEALIIX_BUILD_TYPE=Debug` before `docker compose up -d --force-recreate
 dealiix-platform` to use the Debug Coral and ImmersX variants; Release is the
 default. To refresh an existing
 checkout, use `git pull && docker compose pull && docker compose up -d`.

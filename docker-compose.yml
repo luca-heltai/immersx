@@ -32,7 +32,7 @@ services:
     ports:
       - '6080:6080'
     environment:
-      DEALIXX_BUILD_TYPE: ${DEALIXX_BUILD_TYPE:-Release}
+      DEALIIX_BUILD_TYPE: ${DEALIIX_BUILD_TYPE:-Release}
     volumes:
       - ./docker/tutorial-ssh/id_ed25519:/run/tutorial-ssh/id_ed25519:ro
       - ./docker/platform-userdata:/var/lib/dealiix-platform
