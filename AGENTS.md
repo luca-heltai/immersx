@@ -227,9 +227,17 @@ Write the entry in plain prose. Describe the behavior change, not the internal
 refactor. When a release is tagged, move the accumulated `[Unreleased]` entries
 into a new dated version section instead of rewriting them.
 
-If asked to open or update a pull request, use the repository's pull-request
-template and include the required issue, overview, summary, test plan, and
-changelog information.
+If asked to open or update a pull request, use the repository's template at
+[`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) as the
+body and fill in every section:
+
+- `It closes #<issue>` — the issue reference at the top;
+- `- [ ] Update CHANGELOG` — the checklist item that reminds the author to add
+  the `[Unreleased]` entry before merging;
+- `## Overview` — the goal, motivation, and reviewer context;
+- `## Summary` — concrete changes, each prefixed with a conventional commit
+  type (`feat`, `fix`, `refactor`, `chore`, `docs`);
+- `## Test plan` — the checklist of steps used to verify the change.
 
 A good intermediate commit should:
 
