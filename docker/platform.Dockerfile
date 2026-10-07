@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/dealiix-platform /opt/dealiix-platform
+# Keep the bundled ImmersX Coral graph examples in the Electron image so they
+# can be selected from the noVNC file picker even when execution is remote.
+COPY coral/examples /opt/dealiix/immersx/coral/examples
 COPY docker/platform-entrypoint.sh /usr/local/bin/platform-entrypoint.sh
 RUN chmod +x /usr/local/bin/platform-entrypoint.sh && mkdir -p /var/lib/dealiix-platform
 

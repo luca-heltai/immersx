@@ -26,8 +26,11 @@ platform in the browser. The container runs the production Electron build
 through noVNC, not `npm run dev:vite`; the latter is only the renderer and does
 not provide the Electron SSH/filesystem bridge. The visualizer is also available directly at <http://localhost:8008>.
 
-The default platform configuration uses the Release 2D ImmersX plugin and connects to
-`coral-ssh-slurm` over the internal Compose network. Select the Debug package set
+The platform image includes the ImmersX Coral graph examples at
+`/opt/dealiix/immersx/coral/examples`, so they can be selected in the Electron
+file picker while execution remains remote. The default platform configuration
+uses the Release 2D ImmersX plugin and connects to `coral-ssh-slurm` over the
+internal Compose network. Select the Debug package set
 for the platform with:
 
 ```bash
