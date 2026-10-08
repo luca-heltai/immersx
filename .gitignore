@@ -86,3 +86,8 @@ benchmarks/**/*mp4
 .atl/
 
 .vscode/settings.json
+
+# dealiiX tutorial Docker state
+docker/tutorial-ssh/
+docker/shared-data/
+docker/platform-userdata/
