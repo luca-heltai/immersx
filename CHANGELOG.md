@@ -150,7 +150,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Tutorial
 
 - [PR #233](https://github.com/luca-heltai/immersx/pull/233) Build multi-architecture Coral, visualizer, and platform images for the dealiiX tutorial stack.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the tutorial platform through noVNC with remote Slurm execution and selectable Debug or Release packages.
+- [PR #234](https://github.com/luca-heltai/immersx/pull/234) Run the tutorial platform through noVNC with remote Slurm execution and selectable Debug or Release packages.
 - [PR #80](https://github.com/luca-heltai/immersx/pull/80) Added the random-particle ReducedPoisson tutorials.
 - [PR #84](https://github.com/luca-heltai/immersx/pull/84) Added the standalone first-order elastodynamics solver and its tutorials.
 - [PR #127](https://github.com/luca-heltai/immersx/pull/127) Updated the tutorial documentation.
