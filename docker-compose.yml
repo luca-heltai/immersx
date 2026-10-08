@@ -7,7 +7,7 @@ services:
       - '2222:22'
     volumes:
       - ./docker/shared-data:/app/shared-data
-      - ${SSH_PUB_KEY_PATH:-./docker/tutorial-ssh/id_ed25519.pub}:/tmp/ssh_key.pub:ro
+      - ./docker/tutorial-ssh:/tutorial-ssh
     environment:
       OMPI_ALLOW_RUN_AS_ROOT: '1'
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: '1'
@@ -31,8 +31,10 @@ services:
     container_name: dealiix-platform
     ports:
       - '6080:6080'
+    environment:
+      DEALIIX_BUILD_TYPE: ${DEALIIX_BUILD_TYPE:-Release}
     volumes:
-      - ./docker/tutorial-ssh/id_ed25519:/run/tutorial-ssh/id_ed25519:ro
+      - ./docker/tutorial-ssh:/run/tutorial-ssh:ro
       - ./docker/platform-userdata:/var/lib/dealiix-platform
     networks:
       - tutorial

@@ -15,6 +15,7 @@ concurrency:
 env:
   IMAGE_TAG: dealiix-tutorial
   CORAL_REF: dealiix-tutorial
+  METRIC_FLOW_X_REF: dealiix-tutorial
   VISUALIZER_REF: dealiix-tutorial
   PLATFORM_REF: dealiix-tutorial
 
@@ -43,6 +44,13 @@ jobs:
           path: _deps/coral
           submodules: recursive
 
+      - name: Check out MetricFlowX
+        uses: actions/checkout@v4
+        with:
+          repository: luca-heltai/metric-flow-x
+          ref: ${{ env.METRIC_FLOW_X_REF }}
+          path: _deps/metric-flow-x
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -60,7 +68,9 @@ jobs:
         with:
           context: .
           file: docker/coral.Dockerfile
-          build-contexts: coral=./_deps/coral
+          build-contexts: |
+            coral=./_deps/coral
+            metric_flow_x=./_deps/metric-flow-x
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: heltai/coral:${{ env.IMAGE_TAG }}-${{ matrix.arch }}

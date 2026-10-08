@@ -1,22 +1,57 @@
 # dealiiX tutorial Docker stack
 
 This stack is defined in the ImmersX repository. It runs Coral with the ImmersX
-plugins, Coral Visualizer, and the dealiiX-platform Electron UI through noVNC.
+plugins and MetricFlowX, Coral Visualizer, and the dealiiX-platform Electron UI
+through noVNC. Published images are available for both Linux AMD64 and ARM64.
 
 ## Start
 
 ```bash
+# Optional: pre-create the SSH key. docker compose up also generates it.
 ./scripts/tutorial-init.sh
 docker compose pull
 docker compose up -d
 ```
 
-Open <http://localhost:6080> and use the platform in the browser. The visualizer
-is also available directly at <http://localhost:8008>.
+The Coral container creates `docker/tutorial-ssh/id_ed25519`, installs its public
+key as `/root/.ssh/authorized_keys`, and shares the private key with the platform
+container. Verify the mounted key with:
 
-The default platform configuration uses the 2D ImmersX plugin and connects to
-`coral-ssh-slurm` over the internal Compose network. The Coral SSH port is also
-published as `localhost:2222` for debugging.
+```bash
+docker exec dealiix-platform ls -l /run/tutorial-ssh/id_ed25519
+```
+
+Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and use the
+platform in the browser. The container runs the production Electron build
+through noVNC, not `npm run dev:vite`; the latter is only the renderer and does
+not provide the Electron SSH/filesystem bridge. The visualizer is also available directly at <http://localhost:8008>.
+
+The platform image includes the ImmersX Coral graph examples at
+`/opt/dealiix/immersx/coral/examples`, so they can be selected in the Electron
+file picker while execution remains remote. The default platform configuration
+uses the Release 2D ImmersX plugin and connects to `coral-ssh-slurm` over the
+internal Compose network. Select the Debug package set
+for the platform with:
+
+```bash
+DEALIIX_BUILD_TYPE=Debug docker compose up -d --force-recreate dealiix-platform
+```
+
+Use `DEALIIX_BUILD_TYPE=Release` to switch back. The Coral SSH port is also
+published as `localhost:2222` for debugging. The compute image installs
+MetricFlowX under `/opt/dealiix/metric-flow-x/Debug` and
+`/opt/dealiix/metric-flow-x/Release`, and exposes the corresponding ImmersX
+support when the graph uses it. Coral and ImmersX Debug and Release libraries
+and plugins are installed side by side; the platform starts with the Release
+2D plugin.
+
+The latest mutable images are pulled by running:
+
+```bash
+git pull
+docker compose pull
+docker compose up -d
+```
 
 ## Stop
 
@@ -24,5 +59,7 @@ published as `localhost:2222` for debugging.
 docker compose down
 ```
 
-The mutable `dealiix-tutorial` images are rebuilt from the corresponding
-`dealiix-tutorial` branches by GitHub Actions.
+The mutable `dealiix-tutorial` images are rebuilt by GitHub Actions from the
+ImmersX `dealiix-tutorial` branch, the Coral and visualizer `dealiix-tutorial`
+branches, the dealiiX-platform `dealiix-tutorial` branch, and the
+MetricFlowX `dealiix-tutorial` branch.
