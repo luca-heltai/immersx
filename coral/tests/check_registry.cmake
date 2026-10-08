@@ -19,6 +19,101 @@ if(NOT EXISTS "${REGISTRY}")
 endif()
 file(READ "${REGISTRY}" _registry)
 
+if(VTK_AVAILABLE)
+  set(_vtk_variant_count 0)
+  string(JSON _registry_size LENGTH "${_registry}")
+  math(EXPR _registry_last_index "${_registry_size} - 1")
+  foreach(_registry_index RANGE 0 ${_registry_last_index})
+    string(JSON _registry_key MEMBER "${_registry}" ${_registry_index})
+    string(JSON _operation ERROR_VARIABLE _operation_error
+      GET "${_registry}" "${_registry_key}" operation)
+    if(NOT _operation_error AND _operation STREQUAL "Write VTK")
+      math(EXPR _vtk_variant_count "${_vtk_variant_count} + 1")
+      string(JSON _vtk_variant GET
+        "${_registry}" "${_registry_key}" variant_name)
+      if(_vtk_variant MATCHES "^Default id fields\\. ")
+        set(_vtk_expected_arity 2)
+      elseif(_vtk_variant MATCHES "^Material id field\\. ")
+        set(_vtk_expected_arity 3)
+      elseif(_vtk_variant MATCHES "^Material and boundary id fields\\. ")
+        set(_vtk_expected_arity 4)
+      elseif(_vtk_variant MATCHES "^All id fields\\. ")
+        set(_vtk_expected_arity 5)
+      else()
+        message(FATAL_ERROR
+          "Registry ${SPACEDIM}d contains an unknown VTK writer variant "
+          "'${_vtk_variant}'.")
+      endif()
+
+      string(JSON _vtk_argument_count LENGTH
+        "${_registry}" "${_registry_key}" arguments)
+      if(NOT _vtk_argument_count EQUAL _vtk_expected_arity)
+        message(FATAL_ERROR
+          "VTK writer variant '${_vtk_variant}' has ${_vtk_argument_count} "
+          "arguments; expected ${_vtk_expected_arity}.")
+      endif()
+
+      string(JSON _vtk_output_count LENGTH
+        "${_registry}" "${_registry_key}" outputs)
+      if(NOT _vtk_output_count EQUAL 0)
+        message(FATAL_ERROR
+          "VTK writer variant '${_vtk_variant}' must not expose outputs.")
+      endif()
+
+      math(EXPR _vtk_last_argument "${_vtk_argument_count} - 1")
+      foreach(_vtk_argument RANGE 0 ${_vtk_last_argument})
+        string(JSON _vtk_connection_type GET
+          "${_registry}" "${_registry_key}" arguments ${_vtk_argument}
+          connection_type)
+        if(NOT _vtk_connection_type STREQUAL "input")
+          message(FATAL_ERROR
+            "VTK writer variant '${_vtk_variant}' must use input arguments.")
+        endif()
+      endforeach()
+    endif()
+  endforeach()
+
+  math(EXPR _expected_vtk_variant_count "${SPACEDIM} * 4")
+  if(NOT _vtk_variant_count EQUAL _expected_vtk_variant_count)
+    message(FATAL_ERROR
+      "Registry ${SPACEDIM}d contains ${_vtk_variant_count} VTK writer "
+      "variants; expected ${_expected_vtk_variant_count}.")
+  endif()
+
+  foreach(_dim RANGE 1 ${SPACEDIM})
+    if(_dim EQUAL SPACEDIM)
+      set(_vtk_dimension "${_dim}D")
+    else()
+      set(_vtk_dimension "${_dim}D in ${SPACEDIM}D")
+    endif()
+
+    string(FIND "${_registry}"
+      "dealii::Triangulation<${_dim}, ${SPACEDIM}>" _vtk_tria_found)
+    if(_vtk_tria_found EQUAL -1)
+      message(FATAL_ERROR
+        "Registry ${SPACEDIM}d is missing the VTK triangulation type for "
+        "${_dim}D.")
+    endif()
+
+    foreach(_vtk_variant
+        "Default id fields"
+        "Material id field"
+        "Material and boundary id fields"
+        "All id fields")
+      string(FIND "${_registry}"
+        "\"operation\": \"Write VTK\"" _vtk_operation_found)
+      string(FIND "${_registry}"
+        "\"variant_name\": \"${_vtk_variant}. ${_vtk_dimension}\""
+        _vtk_variant_found)
+      if(_vtk_operation_found EQUAL -1 OR _vtk_variant_found EQUAL -1)
+        message(FATAL_ERROR
+          "Registry ${SPACEDIM}d is missing the ${_vtk_variant} VTK writer "
+          "variant for ${_vtk_dimension}.")
+      endif()
+    endforeach()
+  endforeach()
+endif()
+
 foreach(_dim RANGE 1 ${SPACEDIM})
   foreach(_family Poisson ElasticStatic Elastodynamics)
     string(FIND "${_registry}"
@@ -95,13 +190,13 @@ foreach(_dim RANGE 1 ${SPACEDIM})
     endif()
   endforeach()
 
-set(_boundary_function_type "ImmersX::BoundaryFunction<${SPACEDIM}>")
-string(JSON _boundary_function_node_type ERROR_VARIABLE _boundary_function_error
-  GET "${_registry}" "${_boundary_function_type}" node_type)
-if(_boundary_function_error OR
-   NOT _boundary_function_node_type STREQUAL "output_only")
+set(_function_type "ImmersX::Function<${SPACEDIM}>")
+string(JSON _function_node_type ERROR_VARIABLE _function_error
+  GET "${_registry}" "${_function_type}" node_type)
+if(_function_error OR
+   NOT _function_node_type STREQUAL "output_only")
   message(FATAL_ERROR
-    "Registry ${SPACEDIM}d does not register ${_boundary_function_type} as output-only.")
+    "Registry ${SPACEDIM}d does not register ${_function_type} as output-only.")
 endif()
 
 string(FIND "${_registry}" "\"type\": \"ImmersX::ModulatedParsedFunction<${SPACEDIM}>\""
@@ -118,7 +213,7 @@ foreach(_parsed_variant Expression Parameterized)
     "\"variant_name\": \"${_parsed_variant}. ${SPACEDIM}D\""
     _parsed_variant_found)
   string(FIND "${_registry}"
-    "\"output_type\": \"ImmersX::BoundaryFunction<${SPACEDIM}>\""
+    "\"output_type\": \"ImmersX::Function<${SPACEDIM}>\""
     _parsed_output_found)
   if(_parsed_operation_found EQUAL -1 OR _parsed_variant_found EQUAL -1 OR
      _parsed_output_found EQUAL -1)
@@ -218,6 +313,7 @@ if(SPACEDIM EQUAL 2)
   foreach(_primitive_type
       "ImmersX::DomainParameters<2,2>"
       "ImmersX::OwnedDomain<2,2>"
+      "dealii::Triangulation<2, 2>"
       "ImmersX::OwnedFiniteElementSpace<2,2>"
       "ImmersX::StaticScalarField<2,2>"
       "ImmersX::TestExpression<2,2,Scalar>"
@@ -239,6 +335,7 @@ if(SPACEDIM EQUAL 2)
   foreach(_primitive_operation
       "Create domain"
       "Generate domain"
+      "Triangulation"
       "Create finite element space"
       "Boundary conditions"
       "Constant function"

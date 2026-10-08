@@ -396,11 +396,7 @@ namespace ImmersX
     vtk_to_finite_element(const std::string &vtk_filename,
                           FieldCatalog      &catalog)
     {
-      auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-      reader->SetFileName(vtk_filename.c_str());
-      reader->ReadAllScalarsOn();
-      reader->Update();
-      vtkUnstructuredGrid *grid = reader->GetOutput();
+      const auto grid = read_unstructured_grid(vtk_filename);
       AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
       catalog.clear();
       std::set<std::string> names[2];
@@ -452,11 +448,7 @@ namespace ImmersX
                          const FieldCatalog &catalog,
                          Vector<double>     &output_vector)
     {
-      auto reader = vtkSmartPointer<vtkUnstructuredGridReader>::New();
-      reader->SetFileName(vtk_filename.c_str());
-      reader->ReadAllScalarsOn();
-      reader->Update();
-      vtkUnstructuredGrid *grid = reader->GetOutput();
+      const auto grid = read_unstructured_grid(vtk_filename);
       AssertThrow(grid, ExcMessage("Failed to read VTK file: " + vtk_filename));
       std::vector<double> data;
       for (const auto &field : catalog)

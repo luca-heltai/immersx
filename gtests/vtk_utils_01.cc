@@ -83,6 +83,50 @@ TEST(VTKUtils, ReadPointCloudAndXml)
     }
 }
 
+
+TEST(VTKUtils, ReadXmlMeshFields)
+{
+  const auto filename = TestPaths::output_path("vtk_utils/simple_2d.vtu");
+  std::filesystem::create_directories(filename.parent_path());
+
+  std::ofstream output(filename);
+  output << R"xml(<?xml version="1.0"?>
+<VTKFile type="UnstructuredGrid" version="0.1" byte_order="LittleEndian">
+  <UnstructuredGrid>
+    <Piece NumberOfPoints="4" NumberOfCells="1">
+      <PointData Scalars="u">
+        <DataArray type="Float64" Name="u" format="ascii">0 1 2 3</DataArray>
+      </PointData>
+      <CellData/>
+      <Points>
+        <DataArray type="Float64" NumberOfComponents="3" format="ascii">
+          0 0 0  1 0 0  1 1 0  0 1 0
+        </DataArray>
+      </Points>
+      <Cells>
+        <DataArray type="Int32" Name="connectivity" format="ascii">0 1 2 3</DataArray>
+        <DataArray type="Int32" Name="offsets" format="ascii">4</DataArray>
+        <DataArray type="UInt8" Name="types" format="ascii">9</DataArray>
+      </Cells>
+    </Piece>
+  </UnstructuredGrid>
+</VTKFile>
+)xml";
+  output.close();
+
+  Triangulation<2> triangulation;
+  DoFHandler<2>    dof_handler(triangulation);
+  Vector<double>   coefficients;
+  FieldCatalog     catalog;
+
+  ASSERT_NO_THROW(
+    VTKUtils::read_vtk(filename.string(), dof_handler, coefficients, catalog));
+  ASSERT_EQ(catalog.size(), 1u);
+  EXPECT_EQ(catalog.front().name, "u");
+  EXPECT_EQ(dof_handler.n_dofs(), 4u);
+  EXPECT_EQ(coefficients.size(), dof_handler.n_dofs());
+}
+
 TEST(VTKUtils, ReadPointCloudCellDataReorderedByVertex)
 {
   PointCloud<2>     point_cloud;
