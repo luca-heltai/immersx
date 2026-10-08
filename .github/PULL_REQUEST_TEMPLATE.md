@@ -1,4 +1,4 @@
-It closes #
+<!-- Add "It closes #<issue>" if this PR closes an issue; omit this line otherwise. -->
 
 - [ ] Update CHANGELOG
 

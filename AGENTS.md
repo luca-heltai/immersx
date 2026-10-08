@@ -231,7 +231,8 @@ If asked to open or update a pull request, use the repository's template at
 [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) as the
 body and fill in every section:
 
-- `It closes #<issue>` — the issue reference at the top;
+- `It closes #<issue>` — include this at the top when closing an issue; omit
+  it when there is no issue to close;
 - `- [ ] Update CHANGELOG` — the checklist item that reminds the author to add
   the `[Unreleased]` entry before merging;
 - `## Overview` — the goal, motivation, and reviewer context;

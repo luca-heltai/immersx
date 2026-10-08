@@ -140,6 +140,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow pull requests without a related issue to omit the closing reference.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 - [PR #82](https://github.com/luca-heltai/immersx/pull/82) Revised the core architecture documentation.
 - [PR #95](https://github.com/luca-heltai/immersx/pull/95) Updated the agent instructions and the contributing guide.
