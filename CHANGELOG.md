@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add Coral operations for domain triangulations, VTK output, and output handlers.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Add Coral operations for domain triangulations, VTK output, and output handlers.
 - [PR #62](https://github.com/luca-heltai/immersx/pull/62) Supported strong dynamic elasticity constraints.
 - [PR #69](https://github.com/luca-heltai/immersx/pull/69) Added the VTK-backed reduced-coupling path to elasticity.
 - [PR #70](https://github.com/luca-heltai/immersx/pull/70) Made imported VTK fields usable in expressions.
@@ -105,9 +105,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Write the short Coral parameter values used by each graph run to a sibling file.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Read point and cell fields from XML VTK mesh files.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Treat grid names with a file extension as mesh files even when the path is unresolved.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Write the short Coral parameter values used by each graph run to a sibling file.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Read point and cell fields from XML VTK mesh files.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Treat grid names with a file extension as mesh files even when the path is unresolved.
 - [PR #67](https://github.com/luca-heltai/immersx/pull/67) Fixed the inclusion basis-function scaling.
 - [PR #68](https://github.com/luca-heltai/immersx/pull/68) Removed compiler warnings with deal.II 9.8.
 - [PR #74](https://github.com/luca-heltai/immersx/pull/74) Addressed a failing test.
@@ -140,7 +140,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow pull requests without a related issue to omit the closing reference.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Allow pull requests without a related issue to omit the closing reference.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 - [PR #82](https://github.com/luca-heltai/immersx/pull/82) Revised the core architecture documentation.
 - [PR #95](https://github.com/luca-heltai/immersx/pull/95) Updated the agent instructions and the contributing guide.
