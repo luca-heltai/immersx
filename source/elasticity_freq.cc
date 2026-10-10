@@ -296,8 +296,8 @@ namespace ImmersX
                   h[i][j] = top;
                 }
 
-              const C a     = h[j][j],
-                      lower = h[j + 1][j]; // move ot upper triangular form
+              const C a          = h[j][j],
+                      lower      = h[j + 1][j]; // move ot upper triangular form
               const double abs_a = std::abs(a), abs_lower = std::abs(lower);
               const double rotation_norm = std::hypot(abs_a, abs_lower);
               AssertThrow(rotation_norm > 0.0 && std::isfinite(rotation_norm),
@@ -1637,7 +1637,7 @@ namespace ImmersX
             // frequency.
             for (const auto i : owned_dofs[0])
               solution.block(0)[i] = std::hypot(static_cast<double>(ur[i]),
-                                      static_cast<double>(ui[i]));
+                                                static_cast<double>(ui[i]));
             solution.block(0).compress(VectorOperation::insert);
             locally_relevant_solution = solution;
             pcout << "Frequency " << current_frequency
