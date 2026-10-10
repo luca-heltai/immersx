@@ -30,6 +30,70 @@ multi-config generator.
 See the [getting-started guide](https://luca-heltai.github.io/immersx/getting-started/)
 for dependencies, configuration, and the first runnable example.
 
+## dealiiX tutorial Docker images
+
+The `dealiix-tutorial` branch publishes a complete multi-architecture tutorial
+stack containing the Coral runtime, the ImmersX Coral plugins, MetricFlowX,
+the Coral Visualizer, and the dealiiX-platform interface. Docker automatically
+selects the native `linux/amd64` or `linux/arm64` image for your machine.
+
+Clone this branch and start the latest published images:
+
+```bash
+git clone --branch dealiix-tutorial \
+  https://github.com/luca-heltai/immersx.git
+cd immersx
+# Optional: docker compose up also generates the tutorial SSH key.
+./scripts/tutorial-init.sh
+docker compose pull
+docker compose up -d
+```
+
+Open the dealiiX-platform interface at
+<http://localhost:6080/vnc.html?autoconnect=1&resize=scale>. It is the
+Electron platform running in a browser through noVNC. The Coral Visualizer is
+available directly at <http://localhost:8008>.
+
+The Compose file pulls these mutable tutorial images:
+
+```text
+heltai/coral:dealiix-tutorial
+heltai/coral-visualizer:dealiix-tutorial
+heltai/dealiix-platform:dealiix-tutorial
+```
+
+The compute image includes Debug and Release Coral, MetricFlowX, and ImmersX
+libraries, applications, and plugins. It includes the ImmersX 1D, 2D, and 3D
+Coral plugins; the platform starts with the Release 2D plugin. To retrieve
+newer images while staying on the same
+branch, run:
+
+```bash
+git pull
+docker compose pull
+docker compose up -d
+```
+
+Select the Debug or Release package set for the platform's first connection
+(the default is Release):
+
+```bash
+DEALIIX_BUILD_TYPE=Debug docker compose up -d --force-recreate dealiix-platform
+DEALIIX_BUILD_TYPE=Release docker compose up -d --force-recreate dealiix-platform
+```
+
+The compute image contains both variants. Debug uses the `_debug` ImmersX
+plugins and matching Coral, MetricFlowX, and ImmersX libraries.
+
+Stop the stack with:
+
+```bash
+docker compose down
+```
+
+See [`docs/dealiix-tutorial-docker.md`](docs/dealiix-tutorial-docker.md) for
+service details and troubleshooting.
+
 ## References
 
 - Giovanni Alzetta and Luca Heltai, *Multiscale modeling of fiber reinforced materials via non-matching immersed methods*, Computers & Structures, 239 (2020), 106334. DOI: <https://doi.org/10.1016/j.compstruc.2020.106334>
