@@ -1636,7 +1636,8 @@ namespace ImmersX
             // Refinement uses component amplitudes at the last solved
             // frequency.
             for (const auto i : owned_dofs[0])
-              solution.block(0)[i] = std::hypot(ur[i], ui[i]);
+              solution.block(0)[i] = std::hypot(static_cast<double>(ur[i]),
+                                      static_cast<double>(ui[i]));
             solution.block(0).compress(VectorOperation::insert);
             locally_relevant_solution = solution;
             pcout << "Frequency " << current_frequency
