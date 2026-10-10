@@ -39,11 +39,6 @@ jobs:
           path: coral-upstream
           submodules: recursive
 
-      - name: Apply Coral type-key compatibility patch
-        run: |
-          git -C coral-upstream apply \
-            "$GITHUB_WORKSPACE/.github/coral/dealiix-tutorial-type-compatibility.patch"
-
       - name: Install Coral
         run: |
           rm -rf coral-build-debug coral-install-debug
@@ -124,11 +119,6 @@ jobs:
           ref: dealiix-tutorial
           path: coral-upstream
           submodules: recursive
-
-      - name: Apply Coral type-key compatibility patch
-        run: |
-          git -C coral-upstream apply \
-            "$GITHUB_WORKSPACE/.github/coral/dealiix-tutorial-type-compatibility.patch"
 
       - name: Install Coral
         run: |

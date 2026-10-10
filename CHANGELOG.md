@@ -164,7 +164,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Build and test Coral plugins against the `dealiix-tutorial` Coral SDK branch with compiler-independent registry key lookup.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Build and test Coral plugins against the `dealiix-tutorial` Coral branch.
 - [PR #90](https://github.com/luca-heltai/immersx/pull/90) Reduced the Debug testsuite runtime.
 - [PR #169](https://github.com/luca-heltai/immersx/pull/169) Added the one-vessel two-way MetricFlowX-Elastodynamics MMS verification.
 - [PR #177](https://github.com/luca-heltai/immersx/pull/177) Reorganized the tests into labeled CTest suites.
