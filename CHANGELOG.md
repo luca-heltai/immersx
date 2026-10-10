@@ -108,6 +108,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #232](https://github.com/luca-heltai/immersx/pull/232) Write the short Coral parameter values used by each graph run to a sibling file.
 - [PR #232](https://github.com/luca-heltai/immersx/pull/232) Read point and cell fields from XML VTK mesh files.
 - [PR #232](https://github.com/luca-heltai/immersx/pull/232) Treat grid names with a file extension as mesh files even when the path is unresolved.
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Read XML VTK mesh files with VTK versions before 9.3.
 - [PR #67](https://github.com/luca-heltai/immersx/pull/67) Fixed the inclusion basis-function scaling.
 - [PR #68](https://github.com/luca-heltai/immersx/pull/68) Removed compiler warnings with deal.II 9.8.
 - [PR #74](https://github.com/luca-heltai/immersx/pull/74) Addressed a failing test.
@@ -163,6 +164,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #232](https://github.com/luca-heltai/immersx/pull/232) Build Coral plugins against the `dealiix-tutorial` Coral SDK branch.
 - [PR #90](https://github.com/luca-heltai/immersx/pull/90) Reduced the Debug testsuite runtime.
 - [PR #169](https://github.com/luca-heltai/immersx/pull/169) Added the one-vessel two-way MetricFlowX-Elastodynamics MMS verification.
 - [PR #177](https://github.com/luca-heltai/immersx/pull/177) Reorganized the tests into labeled CTest suites.
