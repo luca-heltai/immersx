@@ -9,11 +9,23 @@
 #ifndef immersx_coral_register_h
 #define immersx_coral_register_h
 
+#include <deal.II/base/config.h>
+
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/numbers.h>
 #include <deal.II/base/parameter_acceptor.h>
+
+#include <deal.II/grid/tria.h>
+
+#ifdef DEAL_II_WITH_VTK
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+#    include <deal.II/vtk/utilities.h>
+#  else
+#    include <immersx/compatibility/dealii_9_8/vtk/utilities.h>
+#  endif
+#endif
 
 #include <coral.h>
 #include <coral_log.h>
@@ -57,9 +69,9 @@ namespace ImmersX
   using FunctionHandle = std::shared_ptr<const dealii::Function<spacedim>>;
 
   template <int spacedim>
-  struct BoundaryFunction
+  struct Function
   {
-    using Function       = dealii::Function<spacedim>;
+    using DealiiFunction = dealii::Function<spacedim>;
     using FunctionHandle = ImmersX::FunctionHandle<spacedim>;
 
     FunctionHandle value;
@@ -77,6 +89,22 @@ namespace ImmersX::Coral
   }
 
   inline coral::RegistryMetadata
+  method_metadata(const std::string &operation,
+                  const std::string &display_name,
+                  const std::string &variant_name,
+                  const std::string &description,
+                  const std::string &class_name,
+                  const std::string &method_name)
+  {
+    return coral::RegistryMetadata{operation,
+                                   display_name,
+                                   variant_name,
+                                   description,
+                                   class_name,
+                                   method_name};
+  }
+
+  inline coral::RegistryMetadata
   finite_element_space_metadata(const std::string &problem_name,
                                 const int          dim,
                                 const int          spacedim)
@@ -89,6 +117,8 @@ namespace ImmersX::Coral
       metadata.variant_name += " in " + std::to_string(spacedim) + "D";
     metadata.description =
       "Extract the finite element space from the " + problem_name + " problem.";
+    metadata.class_name  = "FiniteElementSpace";
+    metadata.method_name = "view";
     return metadata;
   }
 
@@ -116,6 +146,8 @@ namespace ImmersX::Coral
       metadata.variant_name += " in " + std::to_string(spacedim) + "D";
     metadata.description =
       "Describe a generic " + field_kind + " over the finite element space.";
+    metadata.class_name  = "Field";
+    metadata.method_name = field_kind == "Scalar field" ? "scalar" : "vector";
     return metadata;
   }
 
@@ -142,16 +174,14 @@ namespace ImmersX::Coral
       {"space", "name"},
       metadata);
 
-    coral::RegistryMetadata registered_metadata;
-    registered_metadata.operation    = "Registered scalar field";
-    registered_metadata.display_name = "Registered scalar field";
-    registered_metadata.variant_name =
-      "Scalar field with semantic id. " + std::to_string(dim) + "D";
-    if (dim != spacedim)
-      registered_metadata.variant_name +=
-        " in " + std::to_string(spacedim) + "D";
-    registered_metadata.description =
-      "Bind a semantic FieldId to a scalar field description.";
+    coral::RegistryMetadata registered_metadata = method_metadata(
+      "Registered scalar field",
+      "Registered scalar field",
+      "Scalar field with semantic id. " + std::to_string(dim) + "D" +
+        (dim == spacedim ? "" : " in " + std::to_string(spacedim) + "D"),
+      "Bind a semantic FieldId to a scalar field description.",
+      "FiniteElementSpace",
+      "field");
     coral::NodeObject::register_function(
       std::function<
         Field(const Space &, const ImmersX::FieldId &, const std::string &)>(
@@ -206,7 +236,7 @@ namespace ImmersX::Coral
 
   template <int spacedim>
   inline void
-  register_boundary_function_types();
+  register_function_types();
 
   template <typename Parameters>
   void
@@ -240,6 +270,8 @@ namespace ImmersX::Coral
       metadata.variant_name += " in " + std::to_string(spacedim) + "D";
     metadata.description =
       "Apply " + observable_kind + " to a generic " + field_kind + " field.";
+    metadata.class_name  = "Field";
+    metadata.method_name = observable_kind;
     return metadata;
   }
 
@@ -257,6 +289,8 @@ namespace ImmersX::Coral
     if (dim != spacedim)
       metadata.variant_name += " in " + std::to_string(spacedim) + "D";
     metadata.description = description;
+    metadata.class_name  = "Expression";
+    metadata.method_name = operation;
     return metadata;
   }
 
@@ -444,8 +478,16 @@ namespace ImmersX::Coral
                               const int          dim,
                               const int          spacedim)
   {
-    return expression_metadata(
-      operation, variant_name, description, dim, spacedim);
+    auto metadata =
+      expression_metadata(operation, variant_name, description, dim, spacedim);
+    metadata.class_name = "BoundaryConditions";
+    if (operation == "Boundary conditions")
+      metadata.method_name = "create";
+    else if (operation == "Dirichlet boundary condition")
+      metadata.method_name = "add_dirichlet";
+    else if (operation == "Apply boundary conditions")
+      metadata.method_name = "apply";
+    return metadata;
   }
 
   inline std::string
@@ -459,75 +501,80 @@ namespace ImmersX::Coral
 
   template <int spacedim>
   inline void
-  register_boundary_function_types()
+  register_function_types()
   {
-    using BoundaryFunction = ImmersX::BoundaryFunction<spacedim>;
-    using ParsedFunction   = ImmersX::ModulatedParsedFunction<spacedim>;
+    using Function       = ImmersX::Function<spacedim>;
+    using ParsedFunction = ImmersX::ModulatedParsedFunction<spacedim>;
 
-    coral::detail::set_type_alias<BoundaryFunction>(
-      "ImmersX::BoundaryFunction<" + std::to_string(spacedim) + ">");
-    coral::NodeObject::register_output_type<BoundaryFunction>();
+    coral::detail::set_type_alias<Function>("ImmersX::Function<" +
+                                            std::to_string(spacedim) + ">");
+    coral::NodeObject::register_output_type<Function>();
     register_parameter_type<ParsedFunction>(
       "ImmersX::ModulatedParsedFunction<" + std::to_string(spacedim) + ">");
     coral::NodeObject::register_function(
-      std::function<BoundaryFunction(double)>([](const double value) {
-        return BoundaryFunction{
+      std::function<Function(double)>([](const double value) {
+        return Function{
           std::make_shared<const dealii::Functions::ConstantFunction<spacedim>>(
             value)};
       }),
       {"value"},
-      coral::RegistryMetadata{"Constant function",
-                              "Constant function",
-                              std::to_string(spacedim) + "D",
-                              "Create a scalar constant boundary function."});
+      method_metadata("Constant function",
+                      "Constant function",
+                      std::to_string(spacedim) + "D",
+                      "Create a scalar constant function.",
+                      "Function",
+                      "constant"));
     coral::NodeObject::register_function(
-      std::function<BoundaryFunction(const std::vector<double> &)>(
+      std::function<Function(const std::vector<double> &)>(
         [](const std::vector<double> &values) {
-          return BoundaryFunction{std::make_shared<
+          return Function{std::make_shared<
             const dealii::Functions::ConstantFunction<spacedim>>(values)};
         }),
       {"values"},
-      coral::RegistryMetadata{
-        "Constant function",
-        "Constant function",
-        std::to_string(spacedim) + "D vector",
-        "Create a vector-valued constant boundary function."});
+      method_metadata("Constant function",
+                      "Constant function",
+                      std::to_string(spacedim) + "D vector",
+                      "Create a vector-valued constant function.",
+                      "Function",
+                      "constant"));
     coral::NodeObject::register_function(
-      std::function<BoundaryFunction(const std::string &)>(
+      std::function<Function(const std::string &)>(
         [](const std::string &expression) {
           using FunctionParser = dealii::FunctionParser<spacedim>;
-          return BoundaryFunction{std::make_shared<const FunctionParser>(
+          return Function{std::make_shared<const FunctionParser>(
             expression,
             function_parser_constants(),
             FunctionParser::default_variable_names() + ",t")};
         }),
       {"expression"},
-      coral::RegistryMetadata{
-        "Parsed function",
-        "Parsed function",
-        "Expression. " + std::to_string(spacedim) + "D",
-        "Create a scalar parsed boundary function from one expression."});
+      method_metadata("Parsed function",
+                      "Parsed function",
+                      "Expression. " + std::to_string(spacedim) + "D",
+                      "Create a scalar parsed function from one expression.",
+                      "Function",
+                      "parsed"));
     coral::NodeObject::register_function(
-      std::function<BoundaryFunction(const ParsedFunction &)>(
+      std::function<Function(const ParsedFunction &)>(
         [](const ParsedFunction &function) {
-          return BoundaryFunction{function.function_handle()};
+          return Function{function.function_handle()};
         }),
       {"function"},
-      coral::RegistryMetadata{
+      method_metadata(
         "Parsed function",
         "Parsed function",
         "Parameterized. " + std::to_string(spacedim) + "D",
-        "Expose a parameterized ModulatedParsedFunction as a boundary "
-        "function."});
+        "Expose a parameterized ModulatedParsedFunction as a function.",
+        "Function",
+        "parsed"));
   }
 
   template <int dim, int spacedim, typename Extractor>
   inline void
   register_boundary_condition_operations(const std::string &field_kind)
   {
-    using Field            = ImmersX::Field<dim, spacedim, Extractor>;
-    using Conditions       = ImmersX::BoundaryConditions<dim, spacedim>;
-    using BoundaryFunction = ImmersX::BoundaryFunction<spacedim>;
+    using Field      = ImmersX::Field<dim, spacedim, Extractor>;
+    using Conditions = ImmersX::BoundaryConditions<dim, spacedim>;
+    using Function   = ImmersX::Function<spacedim>;
 
     coral::detail::set_type_alias<Conditions>("ImmersX::BoundaryConditions<" +
                                               dimensions(dim, spacedim) + ">");
@@ -543,11 +590,11 @@ namespace ImmersX::Coral
                                   dim,
                                   spacedim));
     coral::NodeObject::register_function(
-      std::function<Conditions(
-        const Conditions &, const unsigned int, const BoundaryFunction &)>(
-        [](const Conditions       &conditions,
-           const unsigned int      boundary_id,
-           const BoundaryFunction &function) {
+      std::function<
+        Conditions(const Conditions &, const unsigned int, const Function &)>(
+        [](const Conditions  &conditions,
+           const unsigned int boundary_id,
+           const Function    &function) {
           auto result = conditions;
           result.add_dirichlet(boundary_id, function.value);
           return result;
@@ -700,6 +747,93 @@ namespace ImmersX::Coral
     coral::Network::register_node();
   }
 
+#ifdef DEAL_II_WITH_VTK
+  template <int dim, int spacedim>
+  inline void
+  register_vtk_types()
+  {
+    using Triangulation = dealii::Triangulation<dim, spacedim>;
+    using Writer        = void (*)(const std::string &,
+                            const Triangulation &,
+                            const std::string &,
+                            const std::string &,
+                            const std::string &);
+
+    const std::string triangulation_name = "dealii::Triangulation<" +
+                                           std::to_string(dim) + ", " +
+                                           std::to_string(spacedim) + ">";
+    coral::detail::set_type_alias<Triangulation>(triangulation_name);
+    coral::NodeObject::register_type<Triangulation>();
+
+#  if DEAL_II_VERSION_GTE(9, 8, 0)
+    const Writer writer = &dealii::VTKWrappers::write_vtk<dim, spacedim>;
+#  else
+    const Writer writer = &ImmersX::VTKWrappers::write_vtk<dim, spacedim>;
+#  endif
+
+    const auto dimension_name =
+      std::to_string(dim) + "D" +
+      (dim == spacedim ? "" : " in " + std::to_string(spacedim) + "D");
+
+    const auto metadata = [dimension_name](const std::string &variant) {
+      return coral::RegistryMetadata{"Write VTK",
+                                     "Write VTK",
+                                     variant + ". " + dimension_name,
+                                     "Write a deal.II triangulation to a VTK "
+                                     "file."};
+    };
+
+    coral::NodeObject::register_function(
+      std::function<void(const std::string &,
+                         const Triangulation &,
+                         const std::string &,
+                         const std::string &,
+                         const std::string &)>(writer),
+      {"vtk_filename",
+       "triangulation",
+       "material_id_field",
+       "boundary_id_field",
+       "manifold_id_field"},
+      metadata("All id fields"));
+
+    coral::NodeObject::register_function(
+      std::function<void(const std::string &, const Triangulation &)>(
+        [writer](const std::string &vtk_filename, const Triangulation &tria) {
+          writer(vtk_filename, tria, "", "", "");
+        }),
+      {"vtk_filename", "triangulation"},
+      metadata("Default id fields"));
+
+    coral::NodeObject::register_function(
+      std::function<
+        void(const std::string &, const Triangulation &, const std::string &)>(
+        [writer](const std::string   &vtk_filename,
+                 const Triangulation &tria,
+                 const std::string   &material_id_field) {
+          writer(vtk_filename, tria, material_id_field, "", "");
+        }),
+      {"vtk_filename", "triangulation", "material_id_field"},
+      metadata("Material id field"));
+
+    coral::NodeObject::register_function(
+      std::function<void(const std::string &,
+                         const Triangulation &,
+                         const std::string &,
+                         const std::string &)>(
+        [writer](const std::string   &vtk_filename,
+                 const Triangulation &tria,
+                 const std::string   &material_id_field,
+                 const std::string   &boundary_id_field) {
+          writer(vtk_filename, tria, material_id_field, boundary_id_field, "");
+        }),
+      {"vtk_filename",
+       "triangulation",
+       "material_id_field",
+       "boundary_id_field"},
+      metadata("Material and boundary id fields"));
+  }
+#endif
+
   template <int dim, int spacedim>
   inline std::string
   poisson_parameters_name()
@@ -742,6 +876,10 @@ namespace ImmersX::Coral
     const auto communicator = MPI_COMM_WORLD;
     const auto rank = dealii::Utilities::MPI::this_mpi_process(communicator);
     const std::filesystem::path parameter_path(file_name);
+    auto                        used_parameter_path = parameter_path;
+    used_parameter_path.replace_filename(parameter_path.stem().string() +
+                                         "_used" +
+                                         parameter_path.extension().string());
 
     bool file_exists = false;
     if (rank == 0)
@@ -753,7 +891,7 @@ namespace ImmersX::Coral
       {
         // Keep ImmersX's two-pass initialization and its normal exception
         // behavior for unreadable or invalid existing files.
-        ImmersX::initialize_parameters(file_name);
+        ImmersX::initialize_parameters(file_name, used_parameter_path.string());
         return;
       }
 
@@ -802,7 +940,7 @@ namespace ImmersX::Coral
 
     // Parse the generated file in the same execution, including on rank zero,
     // using ImmersX's two-pass initialization.
-    ImmersX::initialize_parameters(file_name);
+    ImmersX::initialize_parameters(file_name, used_parameter_path.string());
   }
 
   template <std::size_t>
@@ -916,6 +1054,8 @@ namespace ImmersX::Coral
       "From finite element space view. " + dimensions(dim, spacedim);
     create_metadata.description =
       "Create an owning finite element space on an existing geometry.";
+    create_metadata.class_name  = "FiniteElementSpace";
+    create_metadata.method_name = "create";
     coral::NodeObject::register_function(
       std::function<OwnedSpace(const View &, const Parameters &)>(
         [](const View &view, const Parameters &parameters) {
@@ -932,6 +1072,8 @@ namespace ImmersX::Coral
       "Owning space view. " + dimensions(dim, spacedim);
     view_metadata.description =
       "Expose the non-owning view of an owning finite element space.";
+    view_metadata.class_name  = "FiniteElementSpace";
+    view_metadata.method_name = "view";
     coral::NodeObject::register_function(
       std::function<View(const OwnedSpace &)>(
         [](const OwnedSpace &space) { return space->view(); }),
@@ -996,17 +1138,20 @@ namespace ImmersX::Coral
     using VectorField =
       ImmersX::Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
 
-    coral::detail::set_type_alias<Handler>("ImmersX::OutputHandler<" +
-                                           dimensions(dim, spacedim) + ">");
+    const auto handler_name =
+      "ImmersX::OutputHandler<" + dimensions(dim, spacedim) + ">";
+    coral::detail::set_type_alias<Handler>(handler_name);
     coral::detail::set_type_alias<HandlerHandle>(
       "ImmersX::OutputHandlerHandle<" + dimensions(dim, spacedim) + ">");
     coral::NodeObject::register_output_type<HandlerHandle>();
 
-    const auto create_metadata = coral::RegistryMetadata{
+    const auto create_metadata = method_metadata(
       "Create output handler",
       "Output handler",
       "Semantic FE output. " + dimensions(dim, spacedim),
-      "Create an output handler for one semantic finite-element space."};
+      "Create an output handler for one semantic finite-element space.",
+      "OutputHandler",
+      "create");
     coral::NodeObject::register_function(
       std::function<
         HandlerHandle(const Space &, const Parameters &, const std::string &)>(
@@ -1018,38 +1163,44 @@ namespace ImmersX::Coral
       {"space", "parameters", "basename"},
       create_metadata);
 
-    coral::NodeObject::register_function(
-      std::function<void(HandlerHandle &, const ScalarField &)>(
-        [](HandlerHandle &output, const ScalarField &field) {
-          output->add_field(field);
-        }),
-      {"output", "field"},
-      coral::RegistryMetadata{"Add scalar field",
+    coral::NodeObject::register_shared_method<Handler,
+                                              void,
+                                              const ScalarField &>(
+      static_cast<void (Handler::*)(const ScalarField &)>(&Handler::add_field),
+      {handler_name + "::add_scalar_field", "output", "field"},
+      coral::RegistryMetadata{"OutputHandler::add_scalar_field",
                               "Add scalar field",
-                              "Output handler",
-                              "Register a scalar semantic field."});
+                              dimensions(dim, spacedim),
+                              "Register a scalar semantic field.",
+                              "OutputHandler",
+                              "add_scalar_field"});
 
-    coral::NodeObject::register_function(
-      std::function<void(HandlerHandle &, const VectorField &)>(
-        [](HandlerHandle &output, const VectorField &field) {
-          output->add_field(field);
-        }),
-      {"output", "field"},
-      coral::RegistryMetadata{"Add vector field",
+    coral::NodeObject::register_shared_method<Handler,
+                                              void,
+                                              const VectorField &>(
+      static_cast<void (Handler::*)(const VectorField &)>(&Handler::add_field),
+      {handler_name + "::add_vector_field", "output", "field"},
+      coral::RegistryMetadata{"OutputHandler::add_vector_field",
                               "Add vector field",
-                              "Output handler",
-                              "Register a vector semantic field."});
+                              dimensions(dim, spacedim),
+                              "Register a vector semantic field.",
+                              "OutputHandler",
+                              "add_vector_field"});
 
+    coral::RegistryMetadata write_metadata;
+    write_metadata.operation    = "OutputHandler::write_output";
+    write_metadata.display_name = "Write output";
+    write_metadata.variant_name = dimensions(dim, spacedim);
+    write_metadata.description  = "Write semantic fields at one time.";
+    write_metadata.class_name   = "OutputHandler";
+    write_metadata.method_name  = "write_output";
     coral::NodeObject::register_function(
       std::function<void(const HandlerHandle &,
                          const AdapterHandle &,
                          const GlobalVector &,
                          const double &)>(&write_linear_output<dim, spacedim>),
       {"output", "adapter", "state", "time"},
-      coral::RegistryMetadata{"Write output",
-                              "Write output",
-                              "Output handler",
-                              "Write semantic fields at one time."});
+      write_metadata);
   }
 
   template <int dim, int spacedim>
@@ -1080,6 +1231,8 @@ namespace ImmersX::Coral
     add_metadata.variant_name = "Poisson problem. " + dimensions(dim, spacedim);
     add_metadata.description =
       "Add a generic assembled Problem to a LinearAdapter.";
+    add_metadata.class_name  = "LinearExecution";
+    add_metadata.method_name = "add_problem";
     coral::NodeObject::register_function(
       std::function<ProblemHandleType(
         AdapterHandle &, const Problem &, const std::string &)>(
@@ -1098,6 +1251,8 @@ namespace ImmersX::Coral
       "Poisson solution. " + dimensions(dim, spacedim);
     field_metadata.description =
       "Return the semantic solution field registered by a Problem handle.";
+    field_metadata.class_name  = "PoissonProblem";
+    field_metadata.method_name = "solution_field";
     coral::NodeObject::register_function(
       std::function<SolutionField(const ProblemHandleType &)>(
         [](const ProblemHandleType &handle) {
@@ -1161,6 +1316,8 @@ namespace ImmersX::Coral
     adapter_metadata.variant_name = "LinearAdapter";
     adapter_metadata.description =
       "Create the generic execution adapter for a composed linear system.";
+    adapter_metadata.class_name  = "LinearExecution";
+    adapter_metadata.method_name = "create";
     coral::NodeObject::register_function(
       std::function<AdapterHandle(const AdapterParameters &)>(
         [](const AdapterParameters &parameters) {
@@ -1175,6 +1332,8 @@ namespace ImmersX::Coral
     constraint_metadata.variant_name = "Scalar fields";
     constraint_metadata.description =
       "Build a generic Lagrange-multiplier continuity Constraint.";
+    constraint_metadata.class_name  = "Constraint";
+    constraint_metadata.method_name = "continuity";
     coral::NodeObject::register_function(
       std::function<
         Constraint(const BulkField &, const LineField &, const LineField &)>(
@@ -1192,6 +1351,8 @@ namespace ImmersX::Coral
     constraint_add_metadata.variant_name = "Lagrange-multiplier Constraint";
     constraint_add_metadata.description =
       "Add an Interaction or Constraint to a LinearAdapter.";
+    constraint_add_metadata.class_name  = "LinearExecution";
+    constraint_add_metadata.method_name = "add_constraint";
     coral::NodeObject::register_function(
       std::function<ConstraintHandle(
         AdapterHandle &, const Constraint &, const std::string &)>(
@@ -1209,6 +1370,8 @@ namespace ImmersX::Coral
     multiplier_metadata.variant_name = "Lagrange multiplier";
     multiplier_metadata.description =
       "Return the semantic multiplier field registered by a Constraint.";
+    multiplier_metadata.class_name  = "Constraint";
+    multiplier_metadata.method_name = "multiplier_field";
     coral::NodeObject::register_function(
       std::function<LineField(const ConstraintHandle &)>(
         [](const ConstraintHandle &handle) {
@@ -1223,6 +1386,8 @@ namespace ImmersX::Coral
     state_metadata.variant_name = "Global block vector";
     state_metadata.description =
       "Allocate the execution state owned by a LinearAdapter.";
+    state_metadata.class_name  = "LinearExecution";
+    state_metadata.method_name = "create_state";
     coral::NodeObject::register_function(
       std::function<GlobalVector(const AdapterHandle &)>(
         [](const AdapterHandle &adapter) { return adapter->make_state(); }),
@@ -1235,6 +1400,8 @@ namespace ImmersX::Coral
     field_value_metadata.variant_name = "Distributed field vector";
     field_value_metadata.description =
       "Extract one semantic field vector from an execution state.";
+    field_value_metadata.class_name  = "LinearExecution";
+    field_value_metadata.method_name = "field";
     coral::NodeObject::register_function(
       std::function<FieldVector(
         const AdapterHandle &, const GlobalVector &, const ImmersX::FieldId &)>(
@@ -1252,10 +1419,12 @@ namespace ImmersX::Coral
           adapter->solve(state);
         }),
       {"adapter", "state"},
-      coral::RegistryMetadata{"Solve linear state",
-                              "Solve",
-                              "LinearAdapter",
-                              "Solve the composed linear system."});
+      method_metadata("Solve linear state",
+                      "Solve",
+                      "LinearAdapter",
+                      "Solve the composed linear system.",
+                      "LinearExecution",
+                      "solve"));
 
     coral::NodeObject::register_function(
       std::function<
@@ -1266,28 +1435,33 @@ namespace ImmersX::Coral
           adapter->evaluate_residual(state, residual);
         }),
       {"adapter", "state", "residual"},
-      coral::RegistryMetadata{"Evaluate linear residual",
-                              "Evaluate residual",
-                              "LinearAdapter",
-                              "Evaluate the residual of a composed state."});
+      method_metadata("Evaluate linear residual",
+                      "Evaluate residual",
+                      "LinearAdapter",
+                      "Evaluate the residual of a composed state.",
+                      "LinearExecution",
+                      "evaluate_residual"));
 
     coral::NodeObject::register_function(
       std::function<double(const GlobalVector &)>(
         [](const GlobalVector &vector) { return vector.l2_norm(); }),
       {"vector"},
-      coral::RegistryMetadata{"Linear state norm",
-                              "State norm",
-                              "Global block vector",
-                              "Compute a distributed execution-state norm."});
+      method_metadata("Linear state norm",
+                      "State norm",
+                      "Global block vector",
+                      "Compute a distributed execution-state norm.",
+                      "LinearState",
+                      "norm"));
 
     coral::NodeObject::register_function(
       std::function<void(const double &, const double &)>(&assert_finite_below),
       {"value", "limit"},
-      coral::RegistryMetadata{
-        "Assert finite below",
-        "Assert finite below",
-        "Scalar diagnostic",
-        "Require a finite scalar below a prescribed limit."});
+      method_metadata("Assert finite below",
+                      "Assert finite below",
+                      "Scalar diagnostic",
+                      "Require a finite scalar below a prescribed limit.",
+                      "LinearExecution",
+                      "assert_finite_below"));
   }
 
   template <int dim, int spacedim>
@@ -1771,13 +1945,19 @@ namespace ImmersX::Coral
   {
     register_common_types();
     register_initialize_parameter_types();
-    register_boundary_function_types<spacedim>();
+#ifdef DEAL_II_WITH_VTK
+    register_vtk_types<1, spacedim>();
+#endif
+    register_function_types<spacedim>();
     register_field_types<1, spacedim>();
     register_poisson_types<1, spacedim>();
     register_elastic_static_types<1, spacedim>();
     register_elastodynamics_types<1, spacedim>();
     if constexpr (spacedim >= 2)
       {
+#ifdef DEAL_II_WITH_VTK
+        register_vtk_types<2, spacedim>();
+#endif
         register_field_types<2, spacedim>();
         register_poisson_types<2, spacedim>();
         register_elastic_static_types<2, spacedim>();
@@ -1798,6 +1978,9 @@ namespace ImmersX::Coral
       }
     if constexpr (spacedim >= 3)
       {
+#ifdef DEAL_II_WITH_VTK
+        register_vtk_types<3, spacedim>();
+#endif
         register_field_types<3, spacedim>();
         register_poisson_types<3, spacedim>();
         register_elastic_static_types<3, spacedim>();

@@ -72,12 +72,18 @@ foreach(_build_type ${_d2_build_types})
     if(TARGET coral::coral)
       set(_registry
         "${CMAKE_CURRENT_BINARY_DIR}/registry_${_spacedim}d${_postfix}.json")
+      if(DEFINED DEAL_II_WITH_VTK AND DEAL_II_WITH_VTK)
+        set(_vtk_registry_test TRUE)
+      else()
+        set(_vtk_registry_test FALSE)
+      endif()
       add_test(NAME "ImmersX.Coral.Registry.${_spacedim}d${_postfix}"
         COMMAND ${CMAKE_COMMAND}
                 -DCORAL_EXECUTABLE=$<TARGET_FILE:coral::coral>
                 -DPLUGIN=$<TARGET_FILE:${_plugin}>
                 -DREGISTRY=${_registry}
                 -DSPACEDIM=${_spacedim}
+                -DVTK_AVAILABLE=${_vtk_registry_test}
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_registry.cmake")
       set_tests_properties(
         "ImmersX.Coral.Registry.${_spacedim}d${_postfix}"
@@ -94,6 +100,8 @@ foreach(_build_type ${_d2_build_types})
                   -DPLUGIN=$<TARGET_FILE:${_plugin}>
                   -DGRAPH_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.json
                   -DPARAMETERS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/examples/poisson_2d.prm
+                  -DEXPECTED_USED_PARAMETER_FILE=poisson_2d_used.prm
+                  "-DEXPECTED_USED_PARAMETER_MARKERS=set Initial refinement|= 1"
                   -DWORKING_DIRECTORY=${_graph_working_directory}
                   -DCORAL_LIBRARY_DIRECTORY=${_coral_core_directory}
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/run_graph.cmake")

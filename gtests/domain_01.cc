@@ -24,6 +24,42 @@ TEST(Domain, GeneratesNamedGrid)
 }
 
 
+TEST(Domain, CopiesToSerialTriangulation)
+{
+  DomainParameters<2> parameters("/Tests/DomainTriangulation/");
+  parameters.name_of_grid       = "hyper_cube";
+  parameters.arguments_for_grid = "0: 1: false";
+  parameters.initial_refinement = 2;
+
+  Domain<2> domain(parameters);
+  domain.make_grid();
+
+  dealii::Triangulation<2> triangulation;
+  ASSERT_NO_THROW(triangulation.copy_triangulation(domain.triangulation()));
+  EXPECT_EQ(triangulation.n_active_cells(), 16u);
+}
+
+
+TEST(Domain, MPI_CopiesToSerialTriangulation)
+{
+  DomainParameters<2> parameters("/Tests/DomainMPITriangulation/");
+  parameters.name_of_grid       = "hyper_cube";
+  parameters.arguments_for_grid = "0: 1: false";
+  parameters.initial_refinement = 2;
+
+  Domain<2> domain(parameters);
+  domain.make_grid();
+
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  EXPECT_EQ(domain.triangulation().n_global_active_cells(), 16u);
+  EXPECT_EQ(domain.triangulation().n_locally_owned_active_cells(), 8u);
+
+  dealii::Triangulation<2> triangulation;
+  ASSERT_NO_THROW(triangulation.copy_triangulation(domain.triangulation()));
+  EXPECT_EQ(triangulation.n_active_cells(), 16u);
+}
+
+
 TEST(Domain, ReadsLegacyVtkGrid)
 {
   const auto filename = TestPaths::output_path("domain/quad.vtk");
@@ -48,6 +84,26 @@ TEST(Domain, ReadsLegacyVtkGrid)
   Domain<2> domain(parameters);
   ASSERT_NO_THROW(domain.make_grid());
   EXPECT_EQ(domain.triangulation().n_global_active_cells(), 1u);
+}
+
+
+TEST(Domain, TreatsGridNameWithExtensionAsFile)
+{
+  DomainParameters<2> parameters("/Tests/DomainVtkMissing/");
+  parameters.name_of_grid       = "poisson_primitives_vtk_2d.vtk";
+  parameters.arguments_for_grid = "-1: 1: false";
+
+  Domain<2> domain(parameters);
+  try
+    {
+      domain.make_grid();
+      FAIL() << "Expected the missing mesh file to fail to open";
+    }
+  catch (const dealii::ExceptionBase &exception)
+    {
+      EXPECT_EQ(std::string(exception.what()).find("not implemented"),
+                std::string::npos);
+    }
 }
 
 

@@ -35,13 +35,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 2listic/coral
-          ref: installable-plugin-sdk
+          ref: dealiix-tutorial
           path: coral-upstream
           submodules: recursive
-
-      - name: Prepare Coral plugin SDK
-        run: |
-          base64 -d "$GITHUB_WORKSPACE/.github/coral/coral-api.patch.gz.b64" | gzip -d | git -C coral-upstream apply
 
       - name: Install Coral
         run: |
@@ -120,13 +116,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 2listic/coral
-          ref: installable-plugin-sdk
+          ref: dealiix-tutorial
           path: coral-upstream
           submodules: recursive
-
-      - name: Prepare Coral plugin SDK
-        run: |
-          base64 -d "$GITHUB_WORKSPACE/.github/coral/coral-api.patch.gz.b64" | gzip -d | git -C coral-upstream apply
 
       - name: Install Coral
         run: |

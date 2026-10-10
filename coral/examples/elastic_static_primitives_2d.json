@@ -40,11 +40,11 @@
       },
       "17": {"type": "unsigned int", "value": "0"},
       "18": {
-        "type": "Parsed function::std::function<ImmersX::BoundaryFunction<2> (const std::string &)>"
+        "type": "Parsed function::std::function<ImmersX::Function<2> (const std::string &)>"
       },
       "19": {"type": "std::string", "value": "0; 0"},
       "20": {
-        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::BoundaryConditions<2, 2> &, unsigned int, const ImmersX::BoundaryFunction<2> &)>"
+        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<2, 2> (const ImmersX::BoundaryConditions<2, 2> &, unsigned int, const ImmersX::Function<2> &)>"
       },
       "21": {
         "type": "Apply boundary conditions::std::function<ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector> (const ImmersX::BoundaryConditions<2, 2> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector> &)>"
@@ -100,7 +100,7 @@
         "type": "Vector Add known term to linear execution"
       },
       "42": {
-        "type": "Parsed function::std::function<ImmersX::BoundaryFunction<2> (const std::string &)>"
+        "type": "Parsed function::std::function<ImmersX::Function<2> (const std::string &)>"
       },
       "43": {"type": "std::string", "value": "0; 1"},
       "44": {
@@ -113,11 +113,11 @@
         "type": "Create output handler::std::function<std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> (const ImmersX::FiniteElementSpaceView<2, 2> &, const ImmersX::OutputHandlerParameters &, const std::string &)>"
       },
       "47": {
-        "type": "Add vector field::std::function<void (std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const ImmersX::Field<2, 2, dealii::FEValuesExtractors::Vector> &)>"
+        "type": "ImmersX::OutputHandler<2,2>::add_vector_field"
       },
       "48": {"type": "std::string", "value": "elastic_static_primitives"},
       "49": {
-        "type": "Write output::std::function<void (const std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, const double &)>"
+        "type": "OutputHandler::write_output::std::function<void (const std::shared_ptr<ImmersX::OutputHandler<2, 2, dealii::TrilinosWrappers::MPI::Vector>> &, const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, const double &)>"
       },
       "50": {"type": "double", "value": "0.0"}
     },

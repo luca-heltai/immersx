@@ -137,3 +137,31 @@ if(DEFINED EXPECTED_PARAMETER_FILE)
     endforeach()
   endif()
 endif()
+
+if(DEFINED EXPECTED_USED_PARAMETER_FILE)
+  set(_expected_used_parameter_file "${EXPECTED_USED_PARAMETER_FILE}")
+  if(NOT IS_ABSOLUTE "${_expected_used_parameter_file}")
+    set(_expected_used_parameter_file
+      "${WORKING_DIRECTORY}/${_expected_used_parameter_file}")
+  endif()
+  if(NOT EXISTS "${_expected_used_parameter_file}")
+    message(FATAL_ERROR
+      "Coral did not write the used parameter file "
+      "'${_expected_used_parameter_file}'")
+  endif()
+
+  if(DEFINED EXPECTED_USED_PARAMETER_MARKERS)
+    file(READ "${_expected_used_parameter_file}" _used_parameters)
+    string(REPLACE "|" ";" _expected_markers
+                   "${EXPECTED_USED_PARAMETER_MARKERS}")
+    foreach(_expected_marker IN LISTS _expected_markers)
+      string(FIND "${_used_parameters}" "${_expected_marker}"
+             _marker_position)
+      if(_marker_position LESS 0)
+        message(FATAL_ERROR
+          "Coral used parameter file does not contain expected value "
+          "'${_expected_marker}'")
+      endif()
+    endforeach()
+  endif()
+endif()

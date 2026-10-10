@@ -115,7 +115,7 @@ namespace ImmersX
     make_grid_in(const DomainParameters<dim, spacedim> &parameters,
                  TriangulationType                     &tria)
     {
-      if (std::filesystem::is_regular_file(parameters.name_of_grid))
+      if (std::filesystem::path(parameters.name_of_grid).has_extension())
         {
           read_mesh_file<dim, spacedim>(parameters.name_of_grid,
                                         tria,

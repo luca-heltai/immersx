@@ -65,8 +65,6 @@
 #    include <vtkCellData.h>
 #    if DEAL_II_VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 3, 0)
 #      include <vtkCleanUnstructuredGrid.h>
-#      include <vtkGenericDataObjectReader.h>
-#      include <vtkXMLGenericDataObjectReader.h>
 #    endif
 #    include <vtkCellType.h>
 #    include <vtkDataArray.h>
@@ -87,6 +85,7 @@
 #    include <vtkStructuredPoints.h>
 #    include <vtkUnstructuredGrid.h>
 #    include <vtkUnstructuredGridWriter.h>
+#    include <vtkXMLUnstructuredGridReader.h>
 #    include <vtkXMLUnstructuredGridWriter.h>
 
 #    include <fstream>
@@ -157,19 +156,16 @@ namespace ImmersX
           (dot_pos == std::string::npos ? "" :
                                           vtk_filename.substr(dot_pos + 1));
 
-#    if DEAL_II_VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 3, 0)
         if (ext == "vtu")
           {
-            auto reader = vtkSmartPointer<vtkXMLGenericDataObjectReader>::New();
+            auto reader = vtkSmartPointer<vtkXMLUnstructuredGridReader>::New();
             reader->SetFileName(vtk_filename.c_str());
             reader->Update();
             data_object = reader->GetOutput();
           }
         else if (ext == "vtk")
           {
-            // Read the legacy VTK format without assuming a specific dataset
-            // type; the result is normalized to an unstructured grid below.
-            auto reader = vtkSmartPointer<vtkGenericDataObjectReader>::New();
+            auto reader = vtkSmartPointer<vtkDataSetReader>::New();
             reader->SetFileName(vtk_filename.c_str());
             reader->Update();
             data_object = reader->GetOutput();
@@ -179,18 +175,6 @@ namespace ImmersX
                       ExcMessage("Unsupported file extension '" + ext +
                                  "'. Use '.vtu' for VTK XML format or '.vtk' "
                                  "for legacy VTK format."));
-#    else
-        AssertThrow(ext == "vtk",
-                    ExcMessage("Unsupported file extension '" + ext +
-                               "'. With VTK < 9.3 only '.vtk' legacy files can "
-                               "be read."));
-        {
-          auto reader = vtkSmartPointer<vtkDataSetReader>::New();
-          reader->SetFileName(vtk_filename.c_str());
-          reader->Update();
-          data_object = reader->GetOutput();
-        }
-#    endif
 
         auto out = convert_to_unstructured_grid(data_object);
 
@@ -1248,6 +1232,43 @@ namespace ImmersX
                                  Triangulation<3, 3> &,
                                  const bool,
                                  const double,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+
+    template void
+    VTKWrappers::write_vtk<1, 1>(const std::string &,
+                                 const Triangulation<1, 1> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<1, 2>(const std::string &,
+                                 const Triangulation<1, 2> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<1, 3>(const std::string &,
+                                 const Triangulation<1, 3> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<2, 2>(const std::string &,
+                                 const Triangulation<2, 2> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<2, 3>(const std::string &,
+                                 const Triangulation<2, 3> &,
+                                 const std::string &,
+                                 const std::string &,
+                                 const std::string &);
+    template void
+    VTKWrappers::write_vtk<3, 3>(const std::string &,
+                                 const Triangulation<3, 3> &,
                                  const std::string &,
                                  const std::string &,
                                  const std::string &);

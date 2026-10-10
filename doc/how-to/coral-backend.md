@@ -267,7 +267,7 @@ using FunctionHandle =
   std::shared_ptr<const dealii::Function<spacedim>>;
 ```
 
-Coral transports that handle in `ImmersX::BoundaryFunction<spacedim>`, whose
+Coral transports that handle in `ImmersX::Function<spacedim>`, whose
 `value` member has type `FunctionHandle`. In addition to `Constant function`,
 the `Parsed function` operation has two variants:
 
