@@ -32,6 +32,16 @@ namespace ImmersX
   void
   CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
   {
+    // Reuse the point-coupling assembly so the multiplier rhs has the same
+    // scaling as the coupling matrix assembled at cycle 0. Matrices are kept.
+    this->assemble_point_coupling(false);
+  }
+
+  /*
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
+  {
     TimerOutput::Scope t(this->computing_timer, "updating coupling rhs");
 
     this->system_rhs.block(1) = 0;
@@ -130,6 +140,7 @@ namespace ImmersX
       }
     this->system_rhs.compress(VectorOperation::insert);
   }
+  */
 
 
   /**
