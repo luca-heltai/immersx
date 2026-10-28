@@ -97,11 +97,12 @@ TEST(Elastodynamics, ParameterParsing)
       set Dirichlet boundary ids = 0
       subsection Material properties
         subsection default
-          set Density       = 2.5
-          set Lame mu       = 3.0
-          set Lame lambda   = 4.0
-          set Damping shear = 0.2
-          set Damping bulk  = 0.1
+          set Density        = 2.5
+          set Lame mu        = 3.0
+          set Lame lambda    = 4.0
+          set Rayleigh alpha = 0.2
+          set Rayleigh beta  = 0.1
+          set Viscosity eta  = 0.3
         end
       end
       subsection Time interval
@@ -129,8 +130,9 @@ TEST(Elastodynamics, ParameterParsing)
   EXPECT_DOUBLE_EQ(material.density, 2.5);
   EXPECT_DOUBLE_EQ(material.lame_mu, 3.0);
   EXPECT_DOUBLE_EQ(material.lame_lambda, 4.0);
-  EXPECT_DOUBLE_EQ(material.damping_shear, 0.2);
-  EXPECT_DOUBLE_EQ(material.damping_bulk, 0.1);
+  EXPECT_DOUBLE_EQ(material.rayleigh_alpha, 0.2);
+  EXPECT_DOUBLE_EQ(material.rayleigh_beta, 0.1);
+  EXPECT_DOUBLE_EQ(material.viscosity_eta, 0.3);
   EXPECT_EQ(parameters.fixed_step_parameters.number_of_steps, 1u);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 0), 1.0);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 1), 2.0);
@@ -325,12 +327,15 @@ TEST(ElastodynamicsValidation, BOTH_TrapezoidalMatchesNewmarkMMS)
         set Grid generator = hyper_cube
         set Grid generator arguments = 0: 1: true
       end
-      subsection Material
-        set Density = 1
-        set Lame mu = 1
-        set Lame lambda = 2
-        set Damping shear = 0
-        set Damping bulk = 0
+      subsection Material properties
+        subsection default
+          set Density = 1
+          set Lame mu = 1
+          set Lame lambda = 2
+          set Rayleigh alpha = 0
+          set Rayleigh beta = 0
+          set Viscosity eta = 0
+        end
       end
       subsection Time interval
         set Initial time = 0

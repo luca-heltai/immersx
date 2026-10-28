@@ -33,12 +33,16 @@ subsection Fiber Reinforced Elastodynamics
       set Triangulation type       = distributed
     end
 
-    subsection Material
-      set Density       = 1.0
-      set Lame mu       = 1.0
-      set Lame lambda   = 1.0
-      set Damping shear = 0.0
-      set Damping bulk  = 0.0
+    subsection Material properties
+      set Material tags by material id =
+      subsection default
+        set Density       = 1.0
+        set Lame mu       = 1.0
+        set Lame lambda   = 1.0
+        set Rayleigh alpha = 0
+        set Rayleigh beta  = 0
+        set Viscosity eta  = 0
+      end
     end
 
     subsection Functions
