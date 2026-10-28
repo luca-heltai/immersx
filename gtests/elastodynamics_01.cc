@@ -95,12 +95,14 @@ TEST(Elastodynamics, ParameterParsing)
     subsection Elastodynamics
       set FE degree             = 2
       set Dirichlet boundary ids = 0
-      subsection Material
-        set Density       = 2.5
-        set Lame mu       = 3.0
-        set Lame lambda   = 4.0
-        set Damping shear = 0.2
-        set Damping bulk  = 0.1
+      subsection Material properties
+        subsection default
+          set Density       = 2.5
+          set Lame mu       = 3.0
+          set Lame lambda   = 4.0
+          set Damping shear = 0.2
+          set Damping bulk  = 0.1
+        end
       end
       subsection Time interval
         set Initial time       = 0.0
@@ -122,10 +124,13 @@ TEST(Elastodynamics, ParameterParsing)
   )");
 
   EXPECT_EQ(parameters.fe_degree, 2u);
-  EXPECT_DOUBLE_EQ(parameters.density, 2.5);
-  EXPECT_DOUBLE_EQ(parameters.lame_mu, 3.0);
-  EXPECT_DOUBLE_EQ(parameters.lame_lambda, 4.0);
-  EXPECT_DOUBLE_EQ(parameters.damping_shear, 0.2);
+    const auto &material = parameters.default_material.coefficients;
+
+  EXPECT_DOUBLE_EQ(material.density, 2.5);
+  EXPECT_DOUBLE_EQ(material.lame_mu, 3.0);
+  EXPECT_DOUBLE_EQ(material.lame_lambda, 4.0);
+  EXPECT_DOUBLE_EQ(material.damping_shear, 0.2);
+  EXPECT_DOUBLE_EQ(material.damping_bulk, 0.1);
   EXPECT_EQ(parameters.fixed_step_parameters.number_of_steps, 1u);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 0), 1.0);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 1), 2.0);
