@@ -156,8 +156,7 @@ namespace ImmersX
                          "Postprocessing: Computing Pressure");
 
     if (!this->uses_tensor_product_coupling() &&
-        this->inclusions.n_inclusions() > 0
-    )
+        this->inclusions.n_inclusions() > 0)
       {
         const auto locally_owned_vessels =
           Utilities::MPI::create_evenly_distributed_partitioning(
@@ -535,10 +534,8 @@ namespace ImmersX
     else
       {
 #ifdef DEAL_II_WITH_VTK
-          AssertThrow(
-          false,
-          ExcMessage(
-            "Cannot update data for tensor coupling"));
+        AssertThrow(false,
+                    ExcMessage("Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(
@@ -577,10 +574,8 @@ namespace ImmersX
     else
       {
 #ifdef DEAL_II_WITH_VTK
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Cannot update data for tensor coupling"));
+        AssertThrow(false,
+                    ExcMessage("Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(

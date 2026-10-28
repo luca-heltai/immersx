@@ -18,8 +18,8 @@
 #include <algorithm>
 
 using namespace ImmersX;
-#include <immersx/coupling/tensor_product_space.h>
 #include <immersx/core/symbolic_field_evaluator.h>
+#include <immersx/coupling/tensor_product_space.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/reduced_poisson.h>
 

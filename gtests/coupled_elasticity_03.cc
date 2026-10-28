@@ -296,14 +296,13 @@ namespace
   // Set the pressure of inclusion i to pressure(i), for the 50 inclusions of
   // point_parameters().
   void
-  set_pressure_by_inclusion(CoupledElasticityProblem<3>          &problem,
+  set_pressure_by_inclusion(CoupledElasticityProblem<3>           &problem,
                             const std::function<double(unsigned)> &pressure)
   {
     auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
-    by_inclusion.reinit(
-      Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
-                                                             50),
-      MPI_COMM_WORLD);
+    by_inclusion.reinit(Utilities::MPI::create_evenly_distributed_partitioning(
+                          MPI_COMM_WORLD, 50),
+                        MPI_COMM_WORLD);
     for (const auto i : by_inclusion.locally_owned_elements())
       by_inclusion[i] = pressure(i);
     by_inclusion.compress(VectorOperation::insert);
@@ -485,10 +484,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
-    by_inclusion.reinit(
-      Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
-                                                             50),
-      MPI_COMM_WORLD);
+    by_inclusion.reinit(Utilities::MPI::create_evenly_distributed_partitioning(
+                          MPI_COMM_WORLD, 50),
+                        MPI_COMM_WORLD);
     for (const auto i : by_inclusion.locally_owned_elements())
       by_inclusion[i] = i;
     by_inclusion.compress(VectorOperation::insert);
@@ -509,7 +507,8 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
 // With one cell per inclusion, cell c of vessel v gets the pressure of
 // inclusion 25 v + c. The pressure is not linear in the inclusion index, so
 // this also checks that no interpolation happens between inclusions.
-TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsOneCellPerInclusionPoint)
+TEST(CoupledElasticity,
+     BOTH_SplitPressureOverInclusionsOneCellPerInclusionPoint)
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
@@ -630,7 +629,8 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
 }
 
 // The number of cells must be given for each vessel.
-TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsWrongNumberOfVesselsPoint)
+TEST(CoupledElasticity,
+     BOTH_SplitPressureOverInclusionsWrongNumberOfVesselsPoint)
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();

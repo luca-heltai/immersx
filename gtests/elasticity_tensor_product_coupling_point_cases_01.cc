@@ -438,7 +438,8 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
   Vector<float>   cellwise_errors(problem.tria->n_active_cells());
   const auto      error = [&](const VectorTools::NormType norm) {
     VectorTools::integrate_difference(problem.dh,
-                                      problem.locally_relevant_solution.block(0),
+                                      problem.locally_relevant_solution.block(
+                                        0),
                                       par.exact_solution,
                                       cellwise_errors,
                                       quadrature,
@@ -450,8 +451,8 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
   const double l2     = error(VectorTools::L2_norm);
   const double linfty = error(VectorTools::Linfty_norm);
   const double h1     = error(VectorTools::H1_norm);
-  problem.pcout << std::setprecision(10) << "L2 " << l2 << " Linfty "
-                << linfty << " H1 " << h1 << std::endl;
+  problem.pcout << std::setprecision(10) << "L2 " << l2 << " Linfty " << linfty
+                << " H1 " << h1 << std::endl;
 
   // Regression values: the errors this test computed (10240 cells, 33363
   // dofs) in a serial Debug run with deal.II 9.7.1. They are not theoretical

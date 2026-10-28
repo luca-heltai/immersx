@@ -281,16 +281,16 @@ namespace ImmersX
 
       if (!selected_coefficients.empty())
         {
-          AssertThrow(
-            n_coefficients == 0 ||
-              n_coefficients == selected_coefficients.size(),
-            ExcMessage(
-              "\"Number of fourier coefficients\" is " +
-              std::to_string(n_coefficients) + ", but \"Selection of Fourier "
-              "coefficients\" has " +
-              std::to_string(selected_coefficients.size()) +
-              " entries. Set the number to 0 or to the size of the "
-              "selection."));
+          AssertThrow(n_coefficients == 0 ||
+                        n_coefficients == selected_coefficients.size(),
+                      ExcMessage(
+                        "\"Number of fourier coefficients\" is " +
+                        std::to_string(n_coefficients) +
+                        ", but \"Selection of Fourier "
+                        "coefficients\" has " +
+                        std::to_string(selected_coefficients.size()) +
+                        " entries. Set the number to 0 or to the size of the "
+                        "selection."));
           n_coefficients = selected_coefficients.size();
         }
       else
@@ -950,8 +950,7 @@ namespace ImmersX
               // inclusion of the vessel, in the order of the inclusions file.
               for (unsigned int i = 0; i < N1; ++i)
                 {
-                  const double X =
-                    static_cast<double>(i) * (N2 - 1) / (N1 - 1);
+                  const double X = static_cast<double>(i) * (N2 - 1) / (N1 - 1);
                   const unsigned int j =
                     std::min<unsigned int>(std::floor(X), N2 - 2);
                   const double w = X - j;
@@ -1300,8 +1299,8 @@ namespace ImmersX
     bool cluster_with_segments = false; // make const
 
   private:
-    unsigned int              n_q_points          = 100;
-    unsigned int              n_coefficients      = 0;
+    unsigned int n_q_points     = 100;
+    unsigned int n_coefficients = 0;
     // unsigned int              offset_coefficients = 0;
     std::vector<unsigned int> selected_coefficients;
     unsigned int              global_max_segment_index;
@@ -1382,11 +1381,11 @@ namespace ImmersX
                     cross_product_3d(first, direction).norm() <=
                         tolerance * first.norm() * direction.norm() &&
                       first * direction > 0,
-                    ExcMessage("Inclusions " + std::to_string(first_id) +
-                               " and " + std::to_string(inclusion_id) +
-                               " belong to vessel " +
-                               std::to_string(vessel_id) +
-                               " but their directions are not parallel and equally oriented."));
+                    ExcMessage(
+                      "Inclusions " + std::to_string(first_id) + " and " +
+                      std::to_string(inclusion_id) + " belong to vessel " +
+                      std::to_string(vessel_id) +
+                      " but their directions are not parallel and equally oriented."));
                 }
             }
         }

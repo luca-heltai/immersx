@@ -159,7 +159,8 @@ main(int argc, char *argv[])
                                                     pb1D.new_displacement);
 
                         if (!problem3D.uses_tensor_product_coupling())
-                        // #TODO add functins to update the data in the case of VTK
+                          // #TODO add functins to update the data in the case
+                          // of VTK
                           {
                             if (coupling_mode == 0)
                               {

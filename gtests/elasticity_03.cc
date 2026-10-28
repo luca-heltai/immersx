@@ -282,9 +282,8 @@ TEST(ElasticityProblem, BOTH_PointCouplingAveragesDisplacementOverInclusion)
   setup_system(problem);
   problem.assemble_coupling();
 
-  const auto  &Bt = problem.coupling_matrix;
-  const double section_measure =
-    problem.inclusions.get_section_measure(0);
+  const auto  &Bt              = problem.coupling_matrix;
+  const double section_measure = problem.inclusions.get_section_measure(0);
   EXPECT_NEAR(section_measure, numbers::PI, 1e-14);
 
   // B u is the mean of u over the inclusion boundary for the constant modes.
@@ -367,19 +366,21 @@ TEST(ElasticityProblem, BOTH_RefinementTransfersAffineSolutionExactly)
       ParameterAcceptor::clear();
       ElasticityProblemParameters<dim> par;
       Problem                          problem(par);
-      parse_parameters(par, R"(
+      parse_parameters(par,
+                       R"(
         subsection Immersed Problem
           subsection Refinement and remeshing
-            set Strategy            = )" + strategy + R"(
+            set Strategy            = )" +
+                         strategy + R"(
             set Refinement fraction = 0.3
           end
         end
       )");
       setup_system(problem);
 
-      const std::string affine = "1 + x + 2*y; -0.5 + 3*x - y";
-      const auto        n_cells_before = problem.tria->n_global_active_cells();
-      problem.solution.block(0)        = interpolate(problem, affine);
+      const std::string affine          = "1 + x + 2*y; -0.5 + 3*x - y";
+      const auto        n_cells_before  = problem.tria->n_global_active_cells();
+      problem.solution.block(0)         = interpolate(problem, affine);
       problem.locally_relevant_solution = problem.solution;
 
       problem.refine_and_transfer();
@@ -465,8 +466,7 @@ TEST(ElasticityProblem, BOTH_OutputSolutionFileNameEncodesCycleAndTimeStep)
 
     const auto filename = problem.output_solution();
     EXPECT_EQ(filename, name + "_3.vtu");
-    EXPECT_TRUE(
-      std::filesystem::exists(par.output_directory + "/" + filename));
+    EXPECT_TRUE(std::filesystem::exists(par.output_directory + "/" + filename));
   }
   {
     ParameterAcceptor::clear();
@@ -495,8 +495,7 @@ TEST(ElasticityProblem, BOTH_OutputSolutionFileNameEncodesCycleAndTimeStep)
 
     const auto filename = problem.output_solution();
     EXPECT_EQ(filename, name + "_1_007.vtu");
-    EXPECT_TRUE(
-      std::filesystem::exists(par.output_directory + "/" + filename));
+    EXPECT_TRUE(std::filesystem::exists(par.output_directory + "/" + filename));
   }
 }
 

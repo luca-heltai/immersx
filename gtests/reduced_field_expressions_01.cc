@@ -17,8 +17,8 @@
 
 #ifdef DEAL_II_WITH_VTK
 
-#  include <immersx/coupling/reduced_coupling.h>
 #  include <immersx/core/symbolic_field_evaluator.h>
+#  include <immersx/coupling/reduced_coupling.h>
 
 using namespace ImmersX;
 

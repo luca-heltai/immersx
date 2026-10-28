@@ -222,10 +222,10 @@ TEST(ElasticityValidation, BOTH_PaperHigherOrderModes)
   {
     std::string  ri;
     unsigned int highest_mode; // N in Table 1: highest Fourier mode retained
-    double       norm;     // ||Lambda||_l2 column of Table 1
-    double       share_1x; // |Lambda_1,x|^2 / ||Lambda||^2, in percent
-    double       share_2y; // |Lambda_2,y|^2 / ||Lambda||^2, in percent
-    double       e;        // truncation e_N,i, in percent
+    double       norm;         // ||Lambda||_l2 column of Table 1
+    double       share_1x;     // |Lambda_1,x|^2 / ||Lambda||^2, in percent
+    double       share_2y;     // |Lambda_2,y|^2 / ||Lambda||^2, in percent
+    double       e;            // truncation e_N,i, in percent
   };
   const std::vector<Table1Row> table1 = {
     {"0.05", 2, 34.5814, 51.07, 48.93, 0},

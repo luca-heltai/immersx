@@ -11,9 +11,9 @@
 #include <numeric>
 
 using namespace ImmersX;
+#include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/coupling/reference_cross_section.h>
 #include <immersx/coupling/tensor_product_space.h>
-#include <immersx/core/symbolic_field_evaluator.h>
 
 #include "test_paths.h"
 
