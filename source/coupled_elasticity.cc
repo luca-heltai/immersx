@@ -603,42 +603,61 @@ namespace ImmersX
 
     if (!this->uses_tensor_product_coupling())
       {
-        Assert(number_of_cells_per_vessel.size() ==
-                 this->inclusions.get_n_vessels(),
-               ExcInternalError());
+        AssertThrow(number_of_cells_per_vessel.size() ==
+                      this->inclusions.get_n_vessels(),
+                    ExcDimensionMismatch(number_of_cells_per_vessel.size(),
+                                         this->inclusions.get_n_vessels()));
 
-        unsigned starting_inclusion = 0;
+        // Copying the distributed vector into a serial one is collective, so
+        // every rank must call this function.
+        const Vector<double> pressure_by_inclusion(
+          pressure_at_immersed_surface_by_inclusion);
 
         for (unsigned int vessel = 0;
              vessel < number_of_cells_per_vessel.size();
              ++vessel)
           {
-            auto N2 = number_of_cells_per_vessel[vessel];
-            auto N1 = this->inclusions.get_inclusions_in_vessel(vessel);
+            const auto &current_inclusions =
+              this->inclusions.map_vessel_inclusions.at(vessel);
 
-            std::vector<double> new_vector;
+            const int  N2 = number_of_cells_per_vessel[vessel]; // cells
+            const auto N1 = current_inclusions.size(); // inclusions in vessel
 
-            // const std::vector<double> pressure_of_inc_in_vessel(pressure);//
-            // (*pressure[starting_inclusion],
-            // *pressure[starting_inclusion+N1]);
-            const Vector<double> pressure_of_inc_in_vessel(
-              pressure_at_immersed_surface_by_inclusion);
+            AssertThrow(N2 > 0,
+                        ExcMessage("Each vessel must have at least one cell."));
 
-            new_vector.push_back(pressure_of_inc_in_vessel[starting_inclusion]);
-
-            for (auto cell = 1; cell < N2 - 1; ++cell)
+            std::vector<double> new_vector(N2, 0.);
+            if (N1 == 1)
               {
-                auto X = cell / (N2 - 1) * (N1 - 1);
-                auto j = floor(X);
-                auto w = X - j;
-
-                new_vector.push_back(
-                  (1 - w) * pressure_of_inc_in_vessel[starting_inclusion + j] +
-                  (w)*pressure_of_inc_in_vessel[starting_inclusion + j + 1]);
+                // Nothing to interpolate: every cell gets the pressure of the
+                // only inclusion.
+                std::fill(new_vector.begin(),
+                          new_vector.end(),
+                          pressure_by_inclusion[current_inclusions[0]]);
               }
-            new_vector.push_back(
-              pressure_of_inc_in_vessel[starting_inclusion + N1 - 1]);
-            starting_inclusion += N1;
+            else if (N2 == 1)
+              {
+                // A single cell gets the mean pressure of the vessel.
+                for (const auto inclusion_id : current_inclusions)
+                  new_vector[0] += pressure_by_inclusion[inclusion_id];
+                new_vector[0] /= N1;
+              }
+            else
+              {
+                // The cells are equally spaced from the first to the last
+                // inclusion of the vessel, in the order of the inclusions file.
+                for (int cell = 0; cell < N2; ++cell)
+                  {
+                    const double X =
+                      static_cast<double>(cell) * (N1 - 1) / (N2 - 1);
+                    const unsigned int j =
+                      std::min<unsigned int>(std::floor(X), N1 - 2);
+                    const double w = X - j;
+                    new_vector[cell] =
+                      (1 - w) * pressure_by_inclusion[current_inclusions[j]] +
+                      w * pressure_by_inclusion[current_inclusions[j + 1]];
+                  }
+              }
             split_pressure.push_back(new_vector);
           }
 
@@ -648,15 +667,15 @@ namespace ImmersX
       {
 #ifdef DEAL_II_WITH_VTK
         AssertThrow(
-          true,
+          false,
           ExcMessage(
-            "Cannot update data for tensor coupling"));
+            "Cannot split the pressure over inclusions for tensor coupling"));
 
 #endif
         AssertThrow(
-          true,
+          false,
           ExcMessage(
-            "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
+            "Trying to split the pressure over inclusions: the code uses tensor_coupling but VTK flag is OFF"));
         return split_pressure;
       }
   }

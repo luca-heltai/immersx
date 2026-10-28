@@ -15,8 +15,9 @@ using namespace ImmersX;
 
 #include "test_paths.h"
 
-// Tests of CoupledElasticityProblem::update_vessel_radius_data() on a straight
-// cylinder along x embedded in a cube. The setup is the one of
+// Tests of CoupledElasticityProblem::update_vessel_radius_data() and
+// split_pressure_over_inclusions() on a straight cylinder along x embedded in
+// a cube. The setup is the one of
 // coupled_elasticity_02.cc. The reduced grids and inclusion files are
 // generated in the test output directory.
 #ifdef DEAL_II_WITH_VTK
@@ -102,6 +103,18 @@ namespace
            << "\n";
     return input_file("inclusions_" + std::to_string(n_vessels) + ".txt",
                       text.str());
+  }
+
+  // The inclusions of inclusions_file(), with inclusions 0-48 in vessel 0 and
+  // inclusion 49 alone in vessel 1.
+  std::string
+  inclusions_file_with_single_inclusion_vessel()
+  {
+    std::ostringstream text;
+    for (unsigned int i = 0; i < 50; ++i)
+      text << -0.98 + 0.04 * i << " 0 0 0.04 0 0 0.2 " << (i == 49 ? 1 : 0)
+           << "\n";
+    return input_file("inclusions_single_inclusion_vessel.txt", text.str());
   }
 
   // Parameters of the cylinder with point coupling, using the inclusions of
@@ -279,6 +292,22 @@ namespace
     const double w = x - j;
     return (1 - w) * samples[j] + w * samples[j + 1];
   }
+
+  // Set the pressure of inclusion i to pressure(i), for the 50 inclusions of
+  // point_parameters().
+  void
+  set_pressure_by_inclusion(CoupledElasticityProblem<3>          &problem,
+                            const std::function<double(unsigned)> &pressure)
+  {
+    auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
+    by_inclusion.reinit(
+      Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
+                                                             50),
+      MPI_COMM_WORLD);
+    for (const auto i : by_inclusion.locally_owned_elements())
+      by_inclusion[i] = pressure(i);
+    by_inclusion.compress(VectorOperation::insert);
+  }
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -441,6 +470,184 @@ TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsInterpolatesPoint)
                     interpolated_sample(samples[vessel], k, 25),
                     1e-12)
           << "vessel " << vessel << ", inclusion " << k;
+  });
+}
+
+// -----------------------------------------------------------------------------
+// split_pressure_over_inclusions()
+// -----------------------------------------------------------------------------
+
+// Inclusion i has pressure i. Each vessel has 25 inclusions and 49 cells, so
+// cell c of vessel v lies at inclusion 25 v + c / 2 and gets that pressure by
+// linear interpolation.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
+    by_inclusion.reinit(
+      Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
+                                                             50),
+      MPI_COMM_WORLD);
+    for (const auto i : by_inclusion.locally_owned_elements())
+      by_inclusion[i] = i;
+    by_inclusion.compress(VectorOperation::insert);
+
+    const auto split =
+      problem.split_pressure_over_inclusions({49, 49}, Vector<double>(50));
+    ASSERT_EQ(split.size(), 2u);
+    for (unsigned int vessel = 0; vessel < 2; ++vessel)
+      {
+        ASSERT_EQ(split[vessel].size(), 49u);
+        for (unsigned int c = 0; c < 49; ++c)
+          EXPECT_NEAR(split[vessel][c], 25. * vessel + c / 2., 1e-12)
+            << "vessel " << vessel << ", cell " << c;
+      }
+  });
+}
+
+// With one cell per inclusion, cell c of vessel v gets the pressure of
+// inclusion 25 v + c. The pressure is not linear in the inclusion index, so
+// this also checks that no interpolation happens between inclusions.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsOneCellPerInclusionPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i * i; });
+
+    const auto split =
+      problem.split_pressure_over_inclusions({25, 25}, Vector<double>(50));
+    ASSERT_EQ(split.size(), 2u);
+    for (unsigned int vessel = 0; vessel < 2; ++vessel)
+      {
+        ASSERT_EQ(split[vessel].size(), 25u);
+        for (unsigned int c = 0; c < 25; ++c)
+          {
+            const double i = 25. * vessel + c;
+            EXPECT_NEAR(split[vessel][c], i * i, 1e-12)
+              << "vessel " << vessel << ", cell " << c;
+          }
+      }
+  });
+}
+
+// One cell per vessel gets the mean pressure of the inclusions of that
+// vessel: 12 for inclusions 0-24 and 37 for inclusions 25-49.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsOneCellPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
+
+    const auto split =
+      problem.split_pressure_over_inclusions({1, 1}, Vector<double>(50));
+    ASSERT_EQ(split.size(), 2u);
+    ASSERT_EQ(split[0].size(), 1u);
+    ASSERT_EQ(split[1].size(), 1u);
+    EXPECT_NEAR(split[0][0], 12., 1e-12);
+    EXPECT_NEAR(split[1][0], 37., 1e-12);
+  });
+}
+
+// Vessels with different numbers of cells, and a pressure that is not linear
+// in the inclusion index: cell c of a vessel with n cells lies at position
+// c (25 - 1) / (n - 1) along the inclusions of the vessel, and its pressure is
+// the linear interpolation of the two neighboring inclusions. The first and
+// last cells get the pressure of the first and last inclusions.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsInterpolatesPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    const auto pressure = [](unsigned i) { return 1. * i * i; };
+    set_pressure_by_inclusion(problem, pressure);
+
+    const std::vector<int> n_cells = {3, 7};
+    const auto             split =
+      problem.split_pressure_over_inclusions(n_cells, Vector<double>(50));
+    ASSERT_EQ(split.size(), 2u);
+    for (unsigned int vessel = 0; vessel < 2; ++vessel)
+      {
+        std::vector<double> vessel_pressure(25);
+        for (unsigned int k = 0; k < 25; ++k)
+          vessel_pressure[k] = pressure(25 * vessel + k);
+
+        ASSERT_EQ(split[vessel].size(), static_cast<unsigned>(n_cells[vessel]));
+        for (int c = 0; c < n_cells[vessel]; ++c)
+          EXPECT_NEAR(split[vessel][c],
+                      interpolated_sample(vessel_pressure, c, n_cells[vessel]),
+                      1e-12)
+            << "vessel " << vessel << ", cell " << c;
+        EXPECT_DOUBLE_EQ(split[vessel].front(), vessel_pressure.front());
+        EXPECT_DOUBLE_EQ(split[vessel].back(), vessel_pressure.back());
+      }
+  });
+}
+
+// Vessel 1 has a single inclusion, so all its cells get the pressure of that
+// inclusion, whatever the number of cells. Vessel 0 is split as usual.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
+{
+  with_problem(
+    point_parameters(
+      {{"Inclusions file", inclusions_file_with_single_inclusion_vessel()}}),
+    [](auto &problem) {
+      problem.run_timestep0();
+      ASSERT_EQ(problem.n_vessels(), 2u);
+      const auto pressure = [](unsigned i) { return 1. * i * i; };
+      set_pressure_by_inclusion(problem, pressure);
+
+      std::vector<double> vessel_pressure(49);
+      for (unsigned int k = 0; k < 49; ++k)
+        vessel_pressure[k] = pressure(k);
+
+      const auto split =
+        problem.split_pressure_over_inclusions({3, 4}, Vector<double>(50));
+      ASSERT_EQ(split.size(), 2u);
+      ASSERT_EQ(split[0].size(), 3u);
+      for (unsigned int c = 0; c < 3; ++c)
+        EXPECT_NEAR(split[0][c],
+                    interpolated_sample(vessel_pressure, c, 3),
+                    1e-12)
+          << "cell " << c;
+      ASSERT_EQ(split[1].size(), 4u);
+      for (unsigned int c = 0; c < 4; ++c)
+        EXPECT_DOUBLE_EQ(split[1][c], pressure(49)) << "cell " << c;
+
+      // One cell in each vessel: the mean pressure of vessel 0, and the
+      // pressure of the only inclusion of vessel 1.
+      const auto one_cell =
+        problem.split_pressure_over_inclusions({1, 1}, Vector<double>(50));
+      ASSERT_EQ(one_cell.size(), 2u);
+      ASSERT_EQ(one_cell[0].size(), 1u);
+      ASSERT_EQ(one_cell[1].size(), 1u);
+      double mean = 0;
+      for (const auto p : vessel_pressure)
+        mean += p;
+      mean /= vessel_pressure.size();
+      EXPECT_NEAR(one_cell[0][0], mean, 1e-10);
+      EXPECT_DOUBLE_EQ(one_cell[1][0], pressure(49));
+    });
+}
+
+// The number of cells must be given for each vessel.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsWrongNumberOfVesselsPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
+    EXPECT_ANY_THROW(
+      problem.split_pressure_over_inclusions({49}, Vector<double>(50)));
+  });
+}
+
+// A vessel without cells is rejected.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsZeroCellsPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
+    EXPECT_ANY_THROW(
+      problem.split_pressure_over_inclusions({49, 0}, Vector<double>(50)));
   });
 }
 
