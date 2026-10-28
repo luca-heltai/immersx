@@ -406,6 +406,11 @@ namespace ImmersX
         else
           make_grid_in(parameters_, *serial_triangulation_);
         detail::assert_uniform_reference_cells(*serial_triangulation_);
+        // deal.II's optional smoothing rules use hypercube face numbering.
+        if constexpr (dim > 1)
+          if (serial_triangulation_->all_reference_cells_are_simplex())
+            serial_triangulation_->set_mesh_smoothing(
+              dealii::Triangulation<dim, spacedim>::none);
         AssertThrow(
           uses_fully_distributed_triangulation() ||
             serial_triangulation_->all_reference_cells_are_hyper_cube(),

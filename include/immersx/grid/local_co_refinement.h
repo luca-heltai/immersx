@@ -61,8 +61,20 @@ namespace ImmersX
                   ExcMessage("The embedded preparation mesh must be serial."));
       space.refine_global(parameters.space_pre_refinement_cycles);
       embedded.refine_global(parameters.embedded_pre_refinement_cycles);
-      GridTools::Cache<d1, spacedim> space_cache(space);
-      GridTools::Cache<d2, spacedim> embedded_cache(embedded);
+      detail::assert_uniform_reference_cells(space);
+      detail::assert_uniform_reference_cells(embedded);
+      const Mapping<d1, spacedim> &space_mapping =
+        space.get_reference_cells().empty() ?
+          StaticMappingQ1<d1, spacedim>::mapping :
+          compatibility::linear_mapping<d1, spacedim>(
+            space.get_reference_cells().front());
+      const Mapping<d2, spacedim> &embedded_mapping =
+        embedded.get_reference_cells().empty() ?
+          StaticMappingQ1<d2, spacedim>::mapping :
+          compatibility::linear_mapping<d2, spacedim>(
+            embedded.get_reference_cells().front());
+      GridTools::Cache<d1, spacedim> space_cache(space, space_mapping);
+      GridTools::Cache<d2, spacedim> embedded_cache(embedded, embedded_mapping);
       const bool                     serial_space =
         dynamic_cast<parallel::TriangulationBase<d1, spacedim> *>(&space) ==
         nullptr;
