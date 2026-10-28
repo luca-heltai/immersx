@@ -68,7 +68,7 @@ namespace ImmersX
     double density     = 1.0;
     double lame_mu     = 1.0;
     double lame_lambda = 1.0;
-   
+
     double damping_shear = 0.0;
     double damping_bulk  = 0.0;
 
