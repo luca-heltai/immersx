@@ -547,3 +547,18 @@ TEST(AppExecutables, ElasticStaticAdapterReferenceCells)
   run_app_with_parameter("elastic_static_adapter",
                          "gtests/parameters/elastic_static_hypercube.prm");
 }
+
+#ifdef DEAL_II_WITH_SUNDIALS
+TEST(AppExecutables, ElastodynamicsAdapterReferenceCells)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter(
+    "elastodynamics_adapter",
+    "gtests/parameters/elastodynamics_adapter_simplex.prm");
+  run_app_with_parameter(
+    "elastodynamics_adapter",
+    "gtests/parameters/elastodynamics_adapter_hypercube.prm");
+}
+
+#endif

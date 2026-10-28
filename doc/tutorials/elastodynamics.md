@@ -64,5 +64,13 @@ fullydistributed triangulation cannot be refined afterwards, so
 `data/tests/simplex_cube.msh.in` with nonzero body force and Dirichlet data,
 in serial and on two MPI ranks.
 
+The `elastodynamics_adapter` executable accepts the same uniform simplex
+meshes through `Elastodynamics/Domain`. Set
+`Triangulation type = fullydistributed` and use one refinement cycle.
+Its IDA solve uses simplex operators and skips the convergence table.
+The generated test input
+`gtests/parameters/elastodynamics_adapter_simplex.prm` supplies nonzero body
+force and time-dependent displacement and velocity boundary values.
+
 Next, [Reduced Poisson](reduced-poisson) introduces a lower-dimensional
 geometry and coupling.

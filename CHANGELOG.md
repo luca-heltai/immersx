@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the IDA elastodynamics adapter on simplex meshes, skipping its unavailable convergence table. Verify nonzero time-dependent displacement and velocity on simplex and hypercube meshes.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the static elasticity adapter on simplex meshes and retain hypercube error tables.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve static elasticity on uniform simplex meshes with automatic simplex displacement elements and matching cell and boundary quadrature. The simplex lifecycle skips the unavailable error table.
