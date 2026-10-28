@@ -16,6 +16,9 @@
 
 #include <deal.II/base/exceptions.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/mapping_fe.h>
+
 #include <deal.II/lac/vector.h>
 
 #include <immersx/io/utils.h>
@@ -147,9 +150,25 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
 
-    fe = std::make_unique<FESystem<dim, spacedim>>(
-      FE_Q<dim, spacedim>(par.fe_degree), 1);
-    quadrature = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
+    AssertThrow(tria->get_reference_cells().size() == 1 &&
+                  (tria->all_reference_cells_are_hyper_cube() ||
+                   tria->all_reference_cells_are_simplex()),
+                ExcMessage("PoissonSolver requires only hypercube or only "
+                           "simplex cells."));
+    if (tria->all_reference_cells_are_hyper_cube())
+      {
+        fe = std::make_unique<FESystem<dim, spacedim>>(
+          FE_Q<dim, spacedim>(par.fe_degree), 1);
+        quadrature = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
+      }
+    else if constexpr (dim > 1)
+      {
+        fe = std::make_unique<FESystem<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(par.fe_degree), 1);
+        quadrature = std::make_unique<QGaussSimplex<dim>>(par.fe_degree + 1);
+        mapping_storage = std::make_unique<MappingFE<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(1));
+      }
   }
 
 
@@ -184,10 +203,8 @@ namespace ImmersX
                   }
         }
       else
-        VectorTools::interpolate_boundary_values(dh,
-                                                 boundary_id,
-                                                 par.bc,
-                                                 constraints_storage);
+        VectorTools::interpolate_boundary_values(
+          mapping(), dh, boundary_id, par.bc, constraints_storage);
     constraints_storage.close();
 
     DynamicSparsityPattern dsp(relevant_dofs);
@@ -226,7 +243,8 @@ namespace ImmersX
     stiffness_matrix   = 0.;
     system_rhs_storage = 0.;
 
-    FEValues<dim, spacedim> fe_values(*fe,
+    FEValues<dim, spacedim> fe_values(mapping(),
+                                      *fe,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_quadrature_points |
@@ -363,7 +381,7 @@ namespace ImmersX
         for (unsigned int i = 0; i < subdomain.size(); ++i)
           subdomain(i) = tria->locally_owned_subdomain();
         data_out.add_data_vector(subdomain, "subdomain");
-        data_out.build_patches();
+        data_out.build_patches(mapping());
 
         const std::string filename =
           par.output_name + "_" + std::to_string(output_cycle) + ".vtu";
@@ -472,14 +490,18 @@ namespace ImmersX
         solve();
         output_results();
 
-        par.convergence_table.error_from_exact(dh,
-                                               locally_relevant_solution,
-                                               par.exact_solution);
+        if (tria->all_reference_cells_are_hyper_cube())
+          par.convergence_table.error_from_exact(dh,
+                                                 locally_relevant_solution,
+                                                 par.exact_solution);
+        else if (tria->all_reference_cells_are_simplex())
+          pcout << "   Error table skipped: not available on simplex meshes."
+                << std::endl;
 
         if (cycle + 1 < par.n_refinement_cycles)
           refine_grid();
 
-        if (pcout.is_active())
+        if (pcout.is_active() && tria->all_reference_cells_are_hyper_cube())
           par.convergence_table.output_table(pcout.get_stream());
       }
   }
@@ -529,7 +551,12 @@ namespace ImmersX
   const Mapping<dim, spacedim> &
   PoissonSolver<dim, spacedim>::mapping() const
   {
-    return StaticMappingQ1<dim, spacedim>::mapping;
+    if (fe != nullptr && fe->reference_cell().is_hyper_cube())
+      return StaticMappingQ1<dim, spacedim>::mapping;
+    AssertThrow(mapping_storage != nullptr,
+                ExcMessage(
+                  "setup_fe() must be called before accessing mapping()."));
+    return *mapping_storage;
   }
 
 

@@ -55,6 +55,31 @@ For a distributed run, launch the executable explicitly with MPI:
 mpirun -np 2 ./build/poisson build/tutorials/poisson/poisson_2d.prm
 ```
 
+## Simplex meshes
+
+`poisson` accepts meshes containing only triangles or only tetrahedra. Select
+`Triangulation type = fullydistributed` and read the mesh through the Domain:
+
+```ini
+subsection Poisson
+  subsection Domain
+    set Triangulation type = fullydistributed
+    set Grid generator = /absolute/path/mesh.msh
+    set Initial refinement = 0
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+  end
+end
+```
+
+The solver uses `FE_SimplexP`, simplex Gauss quadrature, and a linear
+`MappingFE`. Set `dimension` and `space dimension` to match the imported mesh.
+Initial refinement is performed before distributing the mesh. Refinement
+between solve cycles is unavailable with this backend. The convergence table
+is skipped because deal.II's `ParsedConvergenceTable` uses hypercube quadrature.
+Mixed cell meshes are rejected.
+
 ## What to try next
 
 Change `FE degree`, `Initial refinement`, or the right-hand-side expression and
