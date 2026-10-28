@@ -54,3 +54,11 @@ same reference-cell mapping as assembly and output. Use one refinement cycle;
 initial refinement is performed before distribution. Parsed convergence tables
 are available on hypercube meshes. The generated
 `gtests/parameters/elasticity_simplex.prm` is a forced quadratic example.
+
+`elasticity_explicit` also accepts uniform simplex meshes with
+`Immersed Problem/Grid generation/Triangulation type = fullydistributed`.
+Set `FE degree = 1`: higher-degree simplex elements have zero or negative
+row-sum nodal masses and are rejected. The existing restriction against hanging
+nodes also applies. The generated
+`gtests/parameters/elasticity_explicit_simplex.prm` advances a freely translating
+body with nonzero forcing.

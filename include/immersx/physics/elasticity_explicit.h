@@ -39,10 +39,13 @@
 
 #include <deal.II/dofs/dof_handler.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/grid/tria.h>
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/physics/elasticity_problem_parameters.h>
 
 #include <memory>
@@ -72,6 +75,13 @@ namespace ImmersX
     run();
 
   private:
+    const Mapping<spacedim> &
+    geometry_mapping() const
+    {
+      AssertThrow(fe != nullptr, ExcNotInitialized());
+      return compatibility::linear_mapping<spacedim>(fe->reference_cell());
+    }
+
     void
     make_grid();
     void

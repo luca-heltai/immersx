@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run forward Euler elasticity on uniform simplex meshes with P1 displacement elements and a positive row-sum lumped mass. Reject higher simplex degrees before assembly.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run legacy elasticity on uniform simplex meshes with matching displacement elements, cell and boundary integration, boundary constraints, and stress output.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve frequency-domain elasticity on uniform triangle and tetrahedron meshes, with matching displacement elements, cell and face quadrature, boundary interpolation, stress integration, and output.

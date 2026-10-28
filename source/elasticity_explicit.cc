@@ -231,6 +231,11 @@ namespace ImmersX
     if (par.grid_scale != 1.0)
       GridTools::scale(par.grid_scale, serial_tria);
 
+    const auto reference_cell = detail::uniform_reference_cell(serial_tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The explicit elasticity mesh has no cells."));
+    if (reference_cell->is_simplex())
+      serial_tria.set_mesh_smoothing(Triangulation<spacedim>::none);
     serial_tria.refine_global(par.initial_refinement);
     auto &fully_distributed_tria =
       std::get<FullyDistributedTriangulation>(triangulation_storage);
@@ -251,7 +256,10 @@ namespace ImmersX
     pcout << "   Material ids: " << Patterns::Tools::to_string(material_ids)
           << std::endl;
 
-    pcout << "   Grid volume: " << GridTools::volume(*tria) << std::endl
+    pcout << "   Grid volume: "
+          << GridTools::volume(
+               *tria, compatibility::linear_mapping<spacedim>(*reference_cell))
+          << std::endl
           << "   Dirichlet boundary ids: "
           << Patterns::Tools::to_string(par.dirichlet_ids) << std::endl
           << "   Neumann boundary ids: "
@@ -263,11 +271,26 @@ namespace ImmersX
   ElasticityExplicit<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree),
-                                              spacedim);
-    quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
-    face_quadrature_formula =
-      std::make_unique<QGauss<spacedim - 1>>(par.fe_degree + 1);
+    const auto         reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The explicit elasticity mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
+      fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree),
+                                                spacedim);
+    else if (reference_cell->is_simplex())
+      {
+        AssertThrow(par.fe_degree == 1,
+                    ExcMessage(
+                      "Simplex row-sum lumped mass requires FE degree 1."));
+        fe = std::make_unique<FESystem<spacedim>>(FE_SimplexP<spacedim>(1),
+                                                  spacedim);
+      }
+    quadrature = std::make_unique<Quadrature<spacedim>>(
+      compatibility::gauss_quadrature<spacedim>(*reference_cell,
+                                                par.fe_degree + 1));
+    face_quadrature_formula = std::make_unique<Quadrature<spacedim - 1>>(
+      compatibility::gauss_quadrature<spacedim - 1>(
+        reference_cell->face_reference_cell(0), par.fe_degree + 1));
   }
 
   template <int dim, int spacedim>
@@ -282,10 +305,8 @@ namespace ImmersX
     for (const auto id : par.dirichlet_ids)
       {
         std::map<types::global_dof_index, double> face_values;
-        VectorTools::interpolate_boundary_values(dh,
-                                                 id,
-                                                 par.get_dirichlet_bc(id),
-                                                 face_values);
+        VectorTools::interpolate_boundary_values(
+          geometry_mapping(), dh, id, par.get_dirichlet_bc(id), face_values);
         for (const auto &entry : face_values)
           boundary_values[entry.first] = entry.second;
       }
@@ -314,8 +335,11 @@ namespace ImmersX
     damping_matrix   = 0;
     lumped_mass      = 0.0;
 
-    FEValues<spacedim> fe_values(
-      *fe, *quadrature, update_values | update_gradients | update_JxW_values);
+    FEValues<spacedim> fe_values(geometry_mapping(),
+                                 *fe,
+                                 *quadrature,
+                                 update_values | update_gradients |
+                                   update_JxW_values);
 
     const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature->size();
@@ -418,7 +442,10 @@ namespace ImmersX
     // Ensure the exact solution is evaluated at the current time.
     par.exact_solution.set_time(current_time);
 
-    VectorTools::interpolate(dh, par.exact_solution, exact_vec);
+    VectorTools::interpolate(geometry_mapping(),
+                             dh,
+                             par.exact_solution,
+                             exact_vec);
     constraints.distribute(exact_vec);
     auto exact_vec_locally_relevant(locally_relevant_solution.block(0));
 
@@ -462,7 +489,7 @@ namespace ImmersX
         data_out.add_data_vector(material_ids, "material_id");
       }
 
-    data_out.build_patches();
+    data_out.build_patches(geometry_mapping());
     std::ostringstream filename;
     filename << par.output_name << "_" << std::setw(3) << std::setfill('0')
              << time_step << ".vtu";
@@ -505,11 +532,13 @@ namespace ImmersX
     system_rhs = 0;
 
     TimerOutput::Scope     t(computing_timer, "Assemble rhs");
-    FEValues<spacedim>     fe_values(*fe,
+    FEValues<spacedim>     fe_values(geometry_mapping(),
+                                 *fe,
                                  *quadrature,
                                  update_values | update_quadrature_points |
                                    update_JxW_values);
-    FEFaceValues<spacedim> fe_face_values(*fe,
+    FEFaceValues<spacedim> fe_face_values(geometry_mapping(),
+                                          *fe,
                                           *face_quadrature_formula,
                                           update_values | update_JxW_values |
                                             update_quadrature_points |
@@ -744,8 +773,14 @@ namespace ImmersX
     assemble_elasticity_system();
     par.initial_displacement.set_time(current_time);
     par.initial_velocity.set_time(current_time);
-    VectorTools::interpolate(dh, par.initial_displacement, solution.block(0));
-    VectorTools::interpolate(dh, par.initial_velocity, velocity.block(0));
+    VectorTools::interpolate(geometry_mapping(),
+                             dh,
+                             par.initial_displacement,
+                             solution.block(0));
+    VectorTools::interpolate(geometry_mapping(),
+                             dh,
+                             par.initial_velocity,
+                             velocity.block(0));
     constraints.distribute(solution.block(0));
     velocity_constraints.distribute(velocity.block(0));
     acceleration              = 0.0;
@@ -775,10 +810,11 @@ namespace ImmersX
           current_time = par.time_parameters.final_time;
       }
     par.exact_solution.set_time(current_time);
-    par.convergence_table.error_from_exact(dh,
-                                           locally_relevant_solution.block(0),
-                                           par.exact_solution);
-    if (pcout.is_active())
+    if (fe->reference_cell().is_hyper_cube())
+      par.convergence_table.error_from_exact(dh,
+                                             locally_relevant_solution.block(0),
+                                             par.exact_solution);
+    if (pcout.is_active() && fe->reference_cell().is_hyper_cube())
       par.convergence_table.output_table(pcout.get_stream());
   }
 
