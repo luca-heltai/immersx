@@ -157,9 +157,6 @@ namespace ImmersX
 
     if (!this->uses_tensor_product_coupling() &&
         this->inclusions.n_inclusions() > 0
-        // &&
-        // inclusions.get_offset_coefficients() == 1 &&
-        // inclusions.n_coefficients >= 2
     )
       {
         const auto locally_owned_vessels =

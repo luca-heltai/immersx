@@ -263,7 +263,7 @@ TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .5
         set Number of fourier coefficients      = 3
-        set Data file                           = @TEST_DATA_DIR@/tests/data_file_1d.txt
+        set Reference inclusion data            = 0, 0, 0.1, 0, 0, 0.1
         set Inclusions refinement               = 100
       end
     end

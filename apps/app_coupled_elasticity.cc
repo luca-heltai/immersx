@@ -205,7 +205,7 @@ main(int argc, char *argv[])
                           {
                             Vector<double> pressure(
                               problem3D
-                                .pressure_at_immersed_surface_at_inclusions);
+                                .pressure_at_immersed_surface_by_inclusions);
 
                             // baseline_pExt - pressure
 
