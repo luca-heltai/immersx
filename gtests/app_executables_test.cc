@@ -529,3 +529,11 @@ TEST(AppExecutables, PoissonAdapterReferenceCells)
   run_app_with_parameter("poisson_adapter",
                          "gtests/parameters/poisson_adapter_hypercube.prm");
 }
+
+TEST(AppExecutables, ElasticStaticSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elastic_static",
+                         "gtests/parameters/elastic_static_simplex.prm");
+}

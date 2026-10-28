@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve static elasticity on uniform simplex meshes with automatic simplex displacement elements and matching cell and boundary quadrature. The simplex lifecycle skips the unavailable error table.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the Poisson adapter on simplex meshes. Skip its unavailable simplex error table and provide locally relevant values for error integration on hypercube meshes in MPI.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assemble weak terms, known sources, and multiplier metrics on uniform simplex meshes. Choose matching mappings for finite-element spaces, imported fields, particle search, immersed partitioning, and lifted triangular sheets. Reject mixed cell meshes in Domains and integration supports.

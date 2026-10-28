@@ -33,3 +33,18 @@ workflows; its strong/weak/Neumann and MMS cases are kept under
 
 For boundary-condition choices, see [Choose boundary conditions](../how-to/boundary-conditions).
 For the time-dependent extension, continue with [Elastodynamics](elastodynamics).
+
+## Simplex meshes
+
+For `elastic_static`, set `Elastic static/Domain/Triangulation type` to
+`fullydistributed` and provide a triangle or tetrahedron mesh through
+`Elastic static/Domain/Grid generator`. Set the runtime dimensions to match
+the mesh. Keep one refinement cycle; initial refinement is performed before
+distribution.
+
+The default `Displacement space/Finite element = auto` selects `FE_SimplexP`
+with `FE degree` and one component per spatial dimension. Explicit finite
+elements must match the mesh reference cell. Cell assembly, Neumann loads,
+Dirichlet interpolation, and output use a matching mapping and quadrature.
+The standalone lifecycle skips the convergence table on simplices;
+`compute_error()` reports that this table requires hypercube meshes.

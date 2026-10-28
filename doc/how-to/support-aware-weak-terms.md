@@ -31,7 +31,8 @@ regression input `gtests/parameters/coupled_poisson_multiplier_q1.prm` selects
 `FE_DGQ<1>(1)` with nonzero loads.
 
 Static elasticity exposes `Elastic static/Displacement space/Finite element`.
-The default `auto` entry retains `FE degree` and builds `spacedim` copies of `FE_Q`.
+The default `auto` entry retains `FE degree` and builds `spacedim` copies of
+`FE_Q` on hypercubes or `FE_SimplexP` on simplices.
 For example, `FESystem<2>[FE_Q<2>(2)^2]` selects quadratic displacement in 2D.
 The element must be primitive with `spacedim` components; assembly quadrature
 uses the selected element's actual degree. Problems still own their native

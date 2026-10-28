@@ -24,6 +24,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_q1.h>
@@ -418,11 +419,16 @@ namespace ImmersX
       return space_->dof_handler();
     }
 
-    /** Return the Q1 mapping used by this problem's FE evaluations. */
+    /** Return the linear reference-cell mapping used for FE evaluations. */
     const dealii::Mapping<dim, spacedim> &
     mapping() const
     {
-      return StaticMappingQ1<dim, spacedim>::mapping;
+      AssertThrow(
+        space_ != nullptr,
+        ExcMessage(
+          "Call setup() before accessing the static elasticity mapping."));
+      return compatibility::linear_mapping<dim, spacedim>(
+        space_->finite_element().reference_cell());
     }
 
     const dealii::AffineConstraints<double> &
@@ -505,14 +511,21 @@ namespace ImmersX
            ++cycle)
         {
           solve();
-          compute_error(parameters_.convergence_table);
+          if (triangulation().all_reference_cells_are_hyper_cube())
+            compute_error(parameters_.convergence_table);
+          else if (triangulation().all_reference_cells_are_simplex() &&
+                   Utilities::MPI::this_mpi_process(communicator_) == 0)
+            std::cout
+              << "   Error table skipped: not available on simplex meshes."
+              << std::endl;
           output_results(cycle);
 
           if (cycle + 1 < parameters_.n_refinement_cycles)
             refine_global();
         }
 
-      if (Utilities::MPI::this_mpi_process(communicator_) == 0)
+      if (Utilities::MPI::this_mpi_process(communicator_) == 0 &&
+          triangulation().all_reference_cells_are_hyper_cube())
         parameters_.convergence_table.output_table(std::cout);
     }
 
@@ -526,9 +539,13 @@ namespace ImmersX
       update_locally_relevant_solution();
     }
 
+    /** ParsedConvergenceTable currently supports only hypercube meshes. */
     void
     compute_error(dealii::ParsedConvergenceTable &table) const
     {
+      AssertThrow(
+        triangulation().all_reference_cells_are_hyper_cube(),
+        ExcMessage("Static elasticity error tables require a hypercube mesh."));
       table.error_from_exact(dof_handler(),
                              locally_relevant_solution_,
                              parameters_.exact_solution);
@@ -562,7 +579,7 @@ namespace ImmersX
         material_id(cell->active_cell_index()) = cell->material_id();
       data_out.add_data_vector(subdomain, "subdomain");
       data_out.add_data_vector(material_id, "material_id");
-      data_out.build_patches();
+      data_out.build_patches(mapping());
 
       const std::string filename =
         parameters_.output_name + "_" + std::to_string(cycle) + ".vtu";
@@ -584,13 +601,23 @@ namespace ImmersX
     void
     setup_system()
     {
+      std::unique_ptr<FiniteElement<dim, spacedim>> element;
+      if (parameters_.space_parameters.finite_element != "auto")
+        element = FETools::get_fe_by_name<dim, spacedim>(
+          parameters_.space_parameters.finite_element);
+      else if (triangulation().all_reference_cells_are_hyper_cube())
+        element = std::make_unique<FESystem<dim, spacedim>>(
+          FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim);
+      else if constexpr (dim > 1)
+        element = std::make_unique<FESystem<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(parameters_.fe_degree), spacedim);
+      AssertThrow(
+        element != nullptr && element->reference_cell() ==
+                                triangulation().get_reference_cells().front(),
+        ExcMessage(
+          "The displacement finite element must match the mesh reference cell."));
       space_ = std::make_unique<FiniteElementSpace<dim, spacedim>>(
-        domain_.triangulation(),
-        parameters_.space_parameters.finite_element == "auto" ?
-          std::make_unique<FESystem<dim, spacedim>>(
-            FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim) :
-          FETools::get_fe_by_name<dim, spacedim>(
-            parameters_.space_parameters.finite_element));
+        domain_.triangulation(), std::move(element));
       AssertThrow(
         space_->finite_element().n_components() == spacedim &&
           space_->finite_element().is_primitive(),
@@ -603,7 +630,8 @@ namespace ImmersX
       constraints.reinit(owned, relevant);
       DoFTools::make_hanging_node_constraints(dofs, constraints);
       for (const auto boundary_id : parameters_.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(dofs,
+        VectorTools::interpolate_boundary_values(mapping(),
+                                                 dofs,
                                                  boundary_id,
                                                  parameters_.get_dirichlet_bc(
                                                    boundary_id),
@@ -629,10 +657,13 @@ namespace ImmersX
     void
     assemble_system(const dealii::Function<spacedim> *body_force_override)
     {
-      const auto             &fe_          = space_->finite_element();
-      const auto             &constraints_ = constraints();
-      const QGauss<dim>       quadrature(fe_.degree + 1);
-      FEValues<dim, spacedim> fe_values(fe_,
+      const auto &fe_          = space_->finite_element();
+      const auto &constraints_ = constraints();
+      const auto  quadrature =
+        compatibility::gauss_quadrature<dim>(fe_.reference_cell(),
+                                             fe_.degree + 1);
+      FEValues<dim, spacedim> fe_values(mapping(),
+                                        fe_,
                                         quadrature,
                                         update_values | update_gradients |
                                           update_quadrature_points |
@@ -710,8 +741,11 @@ namespace ImmersX
             if (!parameters_.neumann_ids.empty())
               {
                 FEFaceValues<dim, spacedim> face_values(
+                  mapping(),
                   fe_,
-                  QGauss<dim - 1>(fe_.degree + 1),
+                  compatibility::gauss_quadrature<dim - 1>(
+                    fe_.reference_cell().face_reference_cell(0),
+                    fe_.degree + 1),
                   update_values | update_quadrature_points | update_JxW_values);
                 std::vector<Vector<double>> face_values_list(
                   face_values.n_quadrature_points, Vector<double>(spacedim));
