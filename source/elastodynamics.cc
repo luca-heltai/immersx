@@ -13,7 +13,9 @@
 
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_fe.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -251,10 +253,28 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe_storage = std::make_unique<FESystem<dim, spacedim>>(
-      FE_Q<dim, spacedim>(par.fe_degree), spacedim);
-    quadrature      = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
-    mapping_storage = std::make_unique<MappingQ<dim, spacedim>>(1);
+    if (tria->all_reference_cells_are_hyper_cube())
+      {
+        fe_storage = std::make_unique<FESystem<dim, spacedim>>(
+          FE_Q<dim, spacedim>(par.fe_degree), spacedim);
+        quadrature      = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
+        face_quadrature = std::make_unique<QGauss<dim - 1>>(par.fe_degree + 1);
+        mapping_storage = std::make_unique<MappingQ<dim, spacedim>>(1);
+      }
+    // Line meshes are hypercube meshes, so only dim > 1 reaches this branch.
+    else if constexpr (dim > 1)
+      {
+        AssertThrow(tria->all_reference_cells_are_simplex(),
+                    ExcMessage("ElastodynamicsSolver supports meshes of only "
+                               "hypercube or only simplex cells."));
+        fe_storage = std::make_unique<FESystem<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(par.fe_degree), spacedim);
+        quadrature = std::make_unique<QGaussSimplex<dim>>(par.fe_degree + 1);
+        face_quadrature =
+          std::make_unique<QGaussSimplex<dim - 1>>(par.fe_degree + 1);
+        mapping_storage = std::make_unique<MappingFE<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(1));
+      }
   }
 
 
@@ -378,7 +398,11 @@ namespace ImmersX
     par.displacement_boundary.set_time(time);
     for (const auto id : par.dirichlet_ids)
       VectorTools::interpolate_boundary_values(
-        dh, id, par.displacement_boundary, displacement_constraints_storage);
+        *mapping_storage,
+        dh,
+        id,
+        par.displacement_boundary,
+        displacement_constraints_storage);
     displacement_constraints_storage.close();
 
     velocity_constraints_storage.clear();
@@ -386,7 +410,8 @@ namespace ImmersX
     DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
     par.velocity_boundary.set_time(time);
     for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh,
+      VectorTools::interpolate_boundary_values(*mapping_storage,
+                                               dh,
                                                id,
                                                par.velocity_boundary,
                                                velocity_constraints_storage);
@@ -528,7 +553,8 @@ namespace ImmersX
     AffineConstraints<double> no_constraints;
     no_constraints.close();
 
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_quadrature_points |
@@ -623,14 +649,17 @@ namespace ImmersX
 
     AffineConstraints<double> no_constraints;
     no_constraints.close();
-    FEValues<dim, spacedim>     fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_quadrature_points |
                                         update_JxW_values);
-    FEFaceValues<dim, spacedim> fe_face_values(
-      *fe_storage,
-      QGauss<dim - 1>(par.fe_degree + 1),
-      update_values | update_quadrature_points | update_JxW_values);
+    FEFaceValues<dim, spacedim>      fe_face_values(*mapping_storage,
+                                               *fe_storage,
+                                               *face_quadrature,
+                                               update_values |
+                                                 update_quadrature_points |
+                                                 update_JxW_values);
     const FEValuesExtractors::Vector vector_field(0);
     const unsigned int          dofs_per_cell = fe_storage->n_dofs_per_cell();
     const unsigned int          n_q_points    = quadrature->size();
@@ -706,10 +735,14 @@ namespace ImmersX
 
     par.initial_displacement.set_time(current_time_storage);
     par.initial_velocity.set_time(current_time_storage);
-    VectorTools::interpolate(dh,
+    VectorTools::interpolate(*mapping_storage,
+                             dh,
                              par.initial_displacement,
                              displacement_storage);
-    VectorTools::interpolate(dh, par.initial_velocity, velocity_storage);
+    VectorTools::interpolate(*mapping_storage,
+                             dh,
+                             par.initial_velocity,
+                             velocity_storage);
 
     // The initial velocity is the value of the initial condition, not an
     // independently prescribed boundary datum.  In particular, do not impose
@@ -718,7 +751,8 @@ namespace ImmersX
     velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
     DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
     for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh,
+      VectorTools::interpolate_boundary_values(*mapping_storage,
+                                               dh,
                                                id,
                                                par.initial_velocity,
                                                velocity_constraints_storage);
@@ -810,7 +844,8 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::add_initial_acceleration_constraint_rhs(
     VectorType &rhs) const
   {
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_JxW_values);
     const FEValuesExtractors::Vector vector_field(0);
@@ -865,7 +900,8 @@ namespace ImmersX
     locally_relevant_velocity = previous_velocity;
     locally_relevant_velocity.update_ghost_values();
 
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_quadrature_points |
@@ -992,7 +1028,8 @@ namespace ImmersX
     locally_relevant_velocity = previous_velocity;
     locally_relevant_velocity.update_ghost_values();
 
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_JxW_values);
@@ -1225,8 +1262,12 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::compute_error() const
   {
+    // ParsedConvergenceTable::error_from_exact() integrates with QGauss.
+    AssertThrow(tria->all_reference_cells_are_hyper_cube(),
+                ExcMessage("compute_error() supports hypercube meshes only."));
     par.exact_solution.set_time(current_time_storage);
-    par.convergence_table.error_from_exact(dh,
+    par.convergence_table.error_from_exact(*mapping_storage,
+                                           dh,
                                            locally_relevant_displacement,
                                            par.exact_solution);
   }
@@ -1260,7 +1301,7 @@ namespace ImmersX
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = tria->locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
-    data_out.build_patches();
+    data_out.build_patches(*mapping_storage);
 
     const std::string cycle_suffix =
       par.n_refinement_cycles > 1 ?
@@ -1407,13 +1448,15 @@ namespace ImmersX
         cycles_and_solutions.clear();
         run_time_integration();
 
-        par.exact_solution.set_time(current_time_storage);
-        par.convergence_table.error_from_exact(dh,
-                                               locally_relevant_displacement,
-                                               par.exact_solution);
-
-        if (pcout.is_active())
-          par.convergence_table.output_table(pcout.get_stream());
+        if (tria->all_reference_cells_are_hyper_cube())
+          {
+            compute_error();
+            if (pcout.is_active())
+              par.convergence_table.output_table(pcout.get_stream());
+          }
+        else
+          pcout << "   Error table skipped: not available on simplex meshes."
+                << std::endl;
 
         if (refinement_cycle_storage + 1 < par.n_refinement_cycles)
           refine_global();

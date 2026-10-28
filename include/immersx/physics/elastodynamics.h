@@ -161,8 +161,10 @@ namespace ImmersX
    *
    * The spatial domain may be embedded in a higher-dimensional ambient space,
    * with `1 <= dim <= spacedim <= 3`. The spatial finite-element space is one
-   * vector-valued `FESystem<dim>(FE_Q<dim>, spacedim)`, represented by
-   * one DoFHandler. Displacement and velocity are separate algebraic vectors on
+   * vector-valued `FESystem<dim>(FE_Q<dim>, spacedim)` on hypercube meshes, or
+   * `FESystem<dim>(FE_SimplexP<dim>, spacedim)` on simplex meshes, represented
+   * by one DoFHandler. Simplex meshes need the fullydistributed Domain
+   * triangulation. Displacement and velocity are separate algebraic vectors on
    * that same space. The solver exposes separate mass, stiffness, and optional
    * damping operators and advances the state with the configured standalone
    * time-stepping strategy.
@@ -186,7 +188,7 @@ namespace ImmersX
     void
     make_grid();
 
-    /** Create the vector FE and quadrature. */
+    /** Create the vector FE, quadratures, and mapping for the mesh cells. */
     void
     setup_fe();
 
@@ -408,6 +410,7 @@ namespace ImmersX
     dealii::parallel::TriangulationBase<dim, spacedim>   *tria;
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe_storage;
     std::unique_ptr<dealii::Quadrature<dim>>              quadrature;
+    std::unique_ptr<dealii::Quadrature<dim - 1>>          face_quadrature;
     std::unique_ptr<dealii::Mapping<dim, spacedim>>       mapping_storage;
     dealii::DoFHandler<dim, spacedim>                     dh;
 

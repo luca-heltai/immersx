@@ -40,5 +40,29 @@ execution-adapter concepts are described in
 The larger convergence cases remain in `tutorials/elastodynamics/` and are
 listed in the [verification reference](../reference/verification).
 
+`ElastodynamicsSolver` also runs on simplex meshes (triangles in 2D,
+tetrahedra in 3D). Read the mesh from a file and select the fullydistributed
+triangulation, since p4est holds only quadrilaterals and hexahedra:
+
+```ini
+subsection Elastodynamics
+  subsection Domain
+    set Grid generator = liver.msh
+    set Triangulation type = fullydistributed
+  end
+end
+```
+
+On simplex meshes the solver uses `FE_SimplexP`, `QGaussSimplex`, and a linear
+`MappingFE`; meshes that mix simplex and hypercube cells are rejected.
+`Initial refinement` refines the mesh before it is distributed. The
+fullydistributed triangulation cannot be refined afterwards, so
+`Number of refinement cycles` must stay at 1. The
+`ParsedConvergenceTable` error integration supports only hypercube cells:
+`run()` skips the error table on simplex meshes and `compute_error()` throws.
+`gtests/elastodynamics_simplex_01.cc` runs a 48-tetrahedron cube from
+`data/tests/simplex_cube.msh.in` with nonzero body force and Dirichlet data,
+in serial and on two MPI ranks.
+
 Next, [Reduced Poisson](reduced-poisson) introduces a lower-dimensional
 geometry and coupling.

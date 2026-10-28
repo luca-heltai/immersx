@@ -148,3 +148,14 @@ scalar `FiniteElementSpace<1,3>` on the centerline triangulation. Its default
 `auto` selection follows the parsed MetricFlowX area degree. The application
 checks that the local scalar FE basis matches. The IDA adapter advances both Problems,
 and output includes flow, solid, and multiplier fields.
+
+The solid can also be read from a mesh file, including a tetrahedral one:
+set `Grid generator` in `subsection Elastodynamics/Domain` to the file name
+and `Triangulation type = fullydistributed`, and use `Grid scale` when the
+mesh and the VTK network use different length units. At startup the
+application prints the solid boundary ids and the number of vessel cells with
+a vertex outside the solid mesh. This only checks centreline vertices: the
+lifted wall points lie one radius away from the centreline, so a count of zero
+does not guarantee that the lifted wall is inside the solid. Lifted points
+outside the solid stop the assembly with "Some lifted integration points lie
+outside the background mesh".

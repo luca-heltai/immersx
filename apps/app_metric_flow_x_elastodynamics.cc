@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------
 
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/fe/fe_dgq.h>
@@ -33,6 +34,7 @@
 #  include <filesystem>
 #  include <fstream>
 #  include <iostream>
+#  include <set>
 #  include <stdexcept>
 #  include <string>
 #  include <type_traits>
@@ -51,6 +53,54 @@ namespace
     const auto result = prm.get(name);
     prm.leave_subsection();
     return result;
+  }
+
+  // Print the solid boundary ids and the number of vessel cells with a vertex
+  // outside the solid mesh. This only checks the centreline vertices. The
+  // lifted wall points lie one radius away from the centreline, so a count of
+  // zero does not guarantee that the lifted wall is inside the solid. Lifted
+  // points outside the solid stop the assembly with "Some lifted integration
+  // points lie outside the background mesh".
+  template <typename FlowTriangulation, typename SolidProblem>
+  void
+  report_vessel_geometry(const FlowTriangulation &flow_triangulation,
+                         const SolidProblem      &solid_problem)
+  {
+    std::vector<Point<3>> points;
+    unsigned int          n_local_cells = 0;
+    for (const auto &cell : flow_triangulation.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          ++n_local_cells;
+          for (const auto v : cell->vertex_indices())
+            points.push_back(cell->vertex(v));
+        }
+
+    Utilities::MPI::RemotePointEvaluation<3, 3> evaluation;
+    evaluation.reinit(points,
+                      solid_problem.triangulation(),
+                      solid_problem.mapping());
+    unsigned int n_local_outside = 0;
+    for (unsigned int i = 0; i < points.size(); i += 2)
+      if (!evaluation.point_found(i) || !evaluation.point_found(i + 1))
+        ++n_local_outside;
+
+    const auto n_cells   = Utilities::MPI::sum(n_local_cells, MPI_COMM_WORLD);
+    const auto n_outside = Utilities::MPI::sum(n_local_outside, MPI_COMM_WORLD);
+    const auto local_ids = solid_problem.triangulation().get_boundary_ids();
+    const auto boundary_ids = Utilities::MPI::compute_set_union(
+      std::set<types::boundary_id>(local_ids.begin(), local_ids.end()),
+      MPI_COMM_WORLD);
+
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        std::cout << "Solid boundary ids:";
+        for (const auto id : boundary_ids)
+          std::cout << ' ' << id;
+        std::cout << std::endl
+                  << "Vessel cells with a vertex outside the solid mesh: "
+                  << n_outside << " of " << n_cells << std::endl;
+      }
   }
 
   void
@@ -168,6 +218,7 @@ namespace
     solid_problem.setup_system();
     solid_problem.assemble_operators();
     solid_problem.set_initial_conditions();
+    report_vessel_geometry(flow_problem.triangulation(), solid_problem);
 
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_schur_primal_coupling();

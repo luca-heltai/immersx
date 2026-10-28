@@ -12,6 +12,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Added
 
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Allow the coupled MetricFlowX–elastodynamics application to partition vessels with the solid cell owners through the `immersed` policy, with serial and MPI RCR regression cases.
+- [PR #291](https://github.com/luca-heltai/immersx/pull/291) Allow ElastodynamicsSolver to run on simplex (triangle and tetrahedron) meshes with `FE_SimplexP`, simplex Gauss quadrature, and a linear `MappingFE`. Simplex meshes require the fullydistributed Domain triangulation. `run()` skips the error table on simplex meshes, and `compute_error()` throws there.
+- [PR #291](https://github.com/luca-heltai/immersx/pull/291) Report the solid boundary ids and the number of vessel cells with a vertex outside the solid mesh at the start of `metric_flow_x_elastodynamics`.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Select harmonic reinforcement dimensions and displacement formulation from parameters: reduced meshes use a normal volume lift, full-dimensional meshes need no lift, and either independent displacements with continuity multipliers or one shared displacement can be solved.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Integrate known volume sources and linear weak terms on independent physical volume supports, retaining nonzero essential offsets.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Lift scalar representative fields and geometric integration supports to volumes in codimension one and two, using the complete surface tangent space for normal sheet extrusion.
@@ -235,6 +237,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #291](https://github.com/luca-heltai/immersx/pull/291) Document simplex meshes in the elastodynamics tutorial and reading the solid mesh from a file in the MetricFlowX–elastodynamics tutorial.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Document Field-local IDA tolerances, startup ramps, progress statistics, and restart behavior.
 
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Profile the one-vessel elastodynamics MMS, explain Jacobian materialization and nested solver costs, and compare iterative and serial UMFPACK timings, memory, and numerical results.
@@ -289,6 +292,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #291](https://github.com/luca-heltai/immersx/pull/291) Test ElastodynamicsSolver on a 48-tetrahedron Gmsh cube and a hexahedral cube with a nonzero linear-in-space, quadratic-in-time exact solution, in serial and on two MPI ranks.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Run harmonic reinforcement sweeps through parameter-file dispatch for all six dimension pairs, both formulations, and serial/two-rank MPI execution, checking the expected displacement and multiplier datasets. Verify owned affine offsets against a separately reconstructed finite-element field.
 
 - [PR #282](https://github.com/luca-heltai/immersx/pull/282) Reduce mesh sizes in the 2D cross-section checks and mixed-boundary time-integrator regression without changing analytic values or tolerances. Keep all eight time steps and run the faster integrator regression in the quick serial/MPI groups. Synchronize MPI application tests before checking files written by rank zero.
