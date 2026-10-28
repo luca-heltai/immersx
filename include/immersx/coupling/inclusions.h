@@ -821,7 +821,7 @@ namespace ImmersX
     update_inclusions_data(std::vector<std::vector<double>> new_data)
     {
       AssertThrow(
-        spacedim == 2,
+        spacedim == 3,
         ExcMessage(
           "update of inclusions data is only available for spacedim = 3"));
 
@@ -850,37 +850,26 @@ namespace ImmersX
               "insufficient number of inclusion int the vessel for the update"));
           if (N2 == 1)
             {
-              for (unsigned int i = 0; i < N1 - 1; ++i)
-                update_single_inclusion_data_along_normal(i,
+              for (const auto inclusion_id : current_inclusions)
+                update_single_inclusion_data_along_normal(inclusion_id,
                                                           current_new_data[0]);
             }
           else
             {
-              double current_vessel_new_data;
-              update_single_inclusion_data_along_normal(0, current_new_data[0]);
-              // current_vessel_new_data.push_back(current_new_data[0]);
-              for (unsigned int i = 1; i < N1 - 1; ++i)
+              // The samples are equally spaced from the first to the last
+              // inclusion of the vessel, in the order of the inclusions file.
+              for (unsigned int i = 0; i < N1; ++i)
                 {
-                  auto X = i / (N1 - 1) * (N2 - 1);
-                  auto j = floor(X);
-                  Assert(j < N2, ExcInternalError());
-                  auto w = X - j;
-                  current_vessel_new_data =
-                    (1 - w) * current_new_data[j] + (w)*current_new_data[j + 1];
+                  const double X =
+                    static_cast<double>(i) * (N2 - 1) / (N1 - 1);
+                  const unsigned int j =
+                    std::min<unsigned int>(std::floor(X), N2 - 2);
+                  const double w = X - j;
                   update_single_inclusion_data_along_normal(
-                    i, current_vessel_new_data);
-                  // current_vessel_new_data.push_back((1-w)*current_new_data[j]+(w)*current_new_data[j+1]);
+                    current_inclusions[i],
+                    (1 - w) * current_new_data[j] +
+                      w * current_new_data[j + 1]);
                 }
-              update_single_inclusion_data_along_normal(
-                N1 - 1, current_new_data[N2 - 1]);
-              // current_vessel_new_data.push_back(current_new_data[N2-1]);
-
-              // for (auto inclusion_id : current_inclusions)
-              // {
-              //   // assign nv
-              //   update_single_inclusion_data_along_normal(inclusion_id,
-              //   current_vessel_new_data[inclusion_id]);
-              // }
             }
         }
     }
@@ -917,7 +906,7 @@ namespace ImmersX
       const double                   nd)
     {
       AssertThrow(
-        spacedim == 2,
+        spacedim == 3,
         ExcMessage(
           "update of inclusions data is only available for spacedim = 3"));
 

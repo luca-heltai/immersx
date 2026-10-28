@@ -158,16 +158,20 @@ main(int argc, char *argv[])
                           Utilities::MPI::broadcast(MPI_COMM_WORLD,
                                                     pb1D.new_displacement);
 
-                        if (coupling_mode == 0)
+                        if (!problem3D.uses_tensor_product_coupling())
+                        // #TODO add functins to update the data in the case of VTK
                           {
-                            problem3D.update_vessel_radius_data(
-                              new_displacement_data);
-                          }
-                        else // if (coupling_mode == 1)
-                          {
-                            problem3D.update_vessel_radius_data(
-                              new_displacement_data,
-                              number_of_cells_per_vessel);
+                            if (coupling_mode == 0)
+                              {
+                                problem3D.update_vessel_radius_data(
+                                  new_displacement_data);
+                              }
+                            else // if (coupling_mode == 1)
+                              {
+                                problem3D.update_vessel_radius_data(
+                                  new_displacement_data,
+                                  number_of_cells_per_vessel);
+                              }
                           }
                         timer.enter_subsection("3 3d timestep");
                         problem3D.run_timestep();

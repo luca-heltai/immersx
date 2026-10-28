@@ -539,13 +539,13 @@ namespace ImmersX
       {
 #ifdef DEAL_II_WITH_VTK
           AssertThrow(
-          true,
+          false,
           ExcMessage(
             "Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(
-          true,
+          false,
           ExcMessage(
             "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
       }
@@ -581,13 +581,13 @@ namespace ImmersX
       {
 #ifdef DEAL_II_WITH_VTK
         AssertThrow(
-          true,
+          false,
           ExcMessage(
             "Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(
-          true,
+          false,
           ExcMessage(
             "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
       }
