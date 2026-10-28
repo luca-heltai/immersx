@@ -46,3 +46,11 @@ or tetrahedra. `FE degree` selects `FE_SimplexP` on these meshes. Keep one
 refinement cycle; initial refinement happens before distribution. The generated
 `gtests/parameters/elasticity_freq_simplex.prm` provides a tetrahedral example
 with a nonzero affine displacement at a nonzero frequency.
+
+For `elasticity`, import triangles or tetrahedra with `fullydistributed` under
+`Immersed Problem/Grid generation`. `FE degree` selects the corresponding
+simplex displacement element. Strong and weak Dirichlet conditions use the
+same reference-cell mapping as assembly and output. Use one refinement cycle;
+initial refinement is performed before distribution. Parsed convergence tables
+are available on hypercube meshes. The generated
+`gtests/parameters/elasticity_simplex.prm` is a forced quadratic example.

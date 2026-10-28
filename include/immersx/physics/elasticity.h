@@ -49,6 +49,7 @@
 
 #include <deal.II/fe/fe_nothing.h>
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_fe_field.h>
@@ -82,6 +83,9 @@
 #include <deal.II/lac/trilinos_vector.h>
 
 #include <deal.II/physics/elasticity/standard_tensors.h>
+
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 
 // #include <deal.II/trilinos/parameter_acceptor.h>
 #include <deal.II/lac/vector.h>
@@ -815,6 +819,14 @@ namespace ImmersX
     output_immersed_particles(const std::string &filename) const;
 
     class Postprocessor;
+
+  private:
+    const Mapping<spacedim> &
+    geometry_mapping() const
+    {
+      AssertThrow(fe != nullptr, ExcNotInitialized());
+      return compatibility::linear_mapping<spacedim>(fe->reference_cell());
+    }
   };
 
 } // namespace ImmersX
