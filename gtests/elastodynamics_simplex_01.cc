@@ -97,12 +97,16 @@ namespace
           set Triangulation type = )" +
       triangulation_type + R"(
         end
-        subsection Material
-          set Density = 1
-          set Lame mu = 1
-          set Lame lambda = 2
-          set Damping shear = 0
-          set Damping bulk = 0
+        subsection Material properties
+          set Material tags by material id =
+          subsection default
+            set Density = 1
+            set Lame mu = 1
+            set Lame lambda = 2
+            set Rayleigh alpha = 0
+            set Rayleigh beta  = 0
+            set Viscosity eta  = 0
+          end
         end
         subsection Time interval
           set Initial time = 0
