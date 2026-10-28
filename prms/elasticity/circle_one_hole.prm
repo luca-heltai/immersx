@@ -39,7 +39,7 @@ subsection Immersed Problem
     set Bounding boxes extraction level   = 1
     set Inclusions                        = 0, 0, 0.2
     set Inclusions refinement             = 400
-    set Number of fourier coefficients    = 3
+    set Number of fourier coefficients    = 2
     set Reference inclusion data          = 0, 0, 0.1, 0, 0, 0.1
     set Selection of Fourier coefficients = 2, 5
   end
