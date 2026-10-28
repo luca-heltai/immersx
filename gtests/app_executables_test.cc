@@ -519,3 +519,13 @@ TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
   EXPECT_TRUE(has_fiber_state);
   EXPECT_TRUE(has_multiplier);
 }
+
+TEST(AppExecutables, PoissonAdapterReferenceCells)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("poisson_adapter",
+                         "gtests/parameters/poisson_adapter_simplex.prm");
+  run_app_with_parameter("poisson_adapter",
+                         "gtests/parameters/poisson_adapter_hypercube.prm");
+}

@@ -57,8 +57,9 @@ mpirun -np 2 ./build/poisson build/tutorials/poisson/poisson_2d.prm
 
 ## Simplex meshes
 
-`poisson` accepts meshes containing only triangles or only tetrahedra. Select
-`Triangulation type = fullydistributed` and read the mesh through the Domain:
+`poisson` and `poisson_adapter` accept meshes containing only triangles or only
+tetrahedra. Select `Triangulation type = fullydistributed` and read the mesh
+through the Domain:
 
 ```ini
 subsection Poisson
