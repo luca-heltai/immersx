@@ -124,7 +124,7 @@ TEST(Elastodynamics, ParameterParsing)
   )");
 
   EXPECT_EQ(parameters.fe_degree, 2u);
-    const auto &material = parameters.default_material.coefficients;
+  const auto &material = parameters.default_material.coefficients;
 
   EXPECT_DOUBLE_EQ(material.density, 2.5);
   EXPECT_DOUBLE_EQ(material.lame_mu, 3.0);
