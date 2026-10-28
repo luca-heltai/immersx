@@ -18,6 +18,7 @@
 #ifdef DEAL_II_WITH_VTK
 
 #  include <immersx/coupling/reduced_coupling.h>
+#  include <immersx/core/symbolic_field_evaluator.h>
 
 using namespace ImmersX;
 
@@ -90,6 +91,9 @@ namespace
 
 TEST(ReducedCoupling, BOTH_FieldDependentRhsUsesInterpolatedFields)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   ParameterAcceptor::clear();
   check_field_dependent_reduced_rhs();
 }
@@ -160,6 +164,9 @@ TEST(ReducedCoupling, MPI_TensorProductDuplicateRhsPopulatesBothComponents)
 
 TEST(TensorProductSpace, ThicknessExpressionUsesAResolvedBinding)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
   parameters.reduced_grid_name =
@@ -177,6 +184,9 @@ TEST(TensorProductSpace, ThicknessExpressionUsesAResolvedBinding)
 
 TEST(TensorProductSpace, ThicknessExpressionCanDependOnTime)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   ParameterAcceptor::clear();
   TensorProductSpaceParameters<1, 2, 3, 1> parameters;
   parameters.reduced_grid_name =

@@ -19,6 +19,7 @@
 
 using namespace ImmersX;
 #include <immersx/coupling/tensor_product_space.h>
+#include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/reduced_poisson.h>
 
@@ -161,6 +162,9 @@ TEST(TensorProductSpace0D, UnsupportedImportedInputs)
 
 TEST(TensorProductSpace0D, ProgrammaticPointCloudRadiusThickness)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   TensorProductSpaceParameters<0, 2, 2, 1> params;
   params.input_file_fields             = "radius";
   params.thickness                     = "radius";
@@ -182,6 +186,9 @@ TEST(TensorProductSpace0D, ProgrammaticPointCloudRadiusThickness)
 
 TEST(ReducedCoupling0D, SetTimeAcceptsStaticThicknessAndUpdatesRhs)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
   GridGenerator::hyper_cube(background, -1., 1.);
   ReducedCouplingParameters<0, 2, 2, 1> params;
@@ -203,6 +210,9 @@ TEST(ReducedCoupling0D, SetTimeAcceptsStaticThicknessAndUpdatesRhs)
 
 TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
   GridGenerator::subdivided_hyper_cube(background, 2, -1., 1.);
 
@@ -288,6 +298,9 @@ TEST(ReducedCoupling0D, MPI_RankLocalProgrammaticPointCloud)
 
 TEST(ReducedCoupling0D, MPI_RankLocalEmptySourceRanks)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
   GridGenerator::subdivided_hyper_cube(background, 2, -1., 1.);
 
@@ -364,6 +377,9 @@ TEST(TensorProductSpace0D, ThicknessScalingAndLiftedMeasure)
 #ifdef DEAL_II_WITH_VTK
 TEST(TensorProductSpace0D, ImportsReorderedCellDataFromPointCloud)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   TensorProductSpaceParameters<0, 2, 2, 1> params;
   params.reduced_grid_name =
     ImmersX::TestPaths::binary_path(
@@ -387,6 +403,9 @@ TEST(TensorProductSpace0D, ImportsReorderedCellDataFromPointCloud)
 
 TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   for (const std::string &filename :
        {ImmersX::TestPaths::binary_path(
           "gtests/fixtures/point_cloud_minimal.vtk")
@@ -417,6 +436,9 @@ TEST(TensorProductSpace0D, ImportsRadiusThicknessFromPointCloud)
 
 TEST(ReducedCoupling0D, MPI_ImportsDistributedPVTU)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
   GridGenerator::subdivided_hyper_cube(background, 2, -1., 1.);
 
