@@ -1405,8 +1405,7 @@ namespace ImmersX
                       }
                     if (inclusions.inclusions_data[inclusion_id].size() > 0)
                       {
-                        if (inclusions.inclusions_data[inclusion_id].size() +
-                              1 >
+                        if (inclusions.inclusions_data[inclusion_id].size() >
                             inclusions.get_fourier_component(j))
                           {
                             auto temp =
@@ -2580,7 +2579,7 @@ namespace ImmersX
           }
         else
           par.convergence_table.error_from_exact(
-            dh, locally_relevant_solution.block(0), par.bc);
+            dh, locally_relevant_solution.block(0), par.exact_solution);
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
       }

@@ -954,14 +954,14 @@ namespace ImmersX
       return n_coefficients;
     }
 
-    /**
-     * Return coefficient offset used for harmonic indexing.
-     */
-    unsigned int
-    get_offset_coefficients() const
-    {
-      return offset_coefficients;
-    }
+    // /**
+    //  * Return coefficient offset used for harmonic indexing.
+    //  */
+    // unsigned int
+    // get_offset_coefficients() const
+    // {
+    //   return offset_coefficients;
+    // }
 
     /**
      * Return number of inclusions mapped to a given vessel id.
@@ -1195,7 +1195,7 @@ namespace ImmersX
   private:
     unsigned int              n_q_points          = 100;
     unsigned int              n_coefficients      = 1;
-    unsigned int              offset_coefficients = 0;
+    // unsigned int              offset_coefficients = 0;
     std::vector<unsigned int> selected_coefficients;
     unsigned int              global_max_segment_index;
     unsigned int              local_max_segment_index;
