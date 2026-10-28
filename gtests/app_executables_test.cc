@@ -537,3 +537,13 @@ TEST(AppExecutables, ElasticStaticSimplex)
   run_app_with_parameter("elastic_static",
                          "gtests/parameters/elastic_static_simplex.prm");
 }
+
+TEST(AppExecutables, ElasticStaticAdapterReferenceCells)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elastic_static_adapter",
+                         "gtests/parameters/elastic_static_simplex.prm");
+  run_app_with_parameter("elastic_static_adapter",
+                         "gtests/parameters/elastic_static_hypercube.prm");
+}

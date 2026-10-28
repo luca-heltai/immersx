@@ -36,7 +36,8 @@ For the time-dependent extension, continue with [Elastodynamics](elastodynamics)
 
 ## Simplex meshes
 
-For `elastic_static`, set `Elastic static/Domain/Triangulation type` to
+For `elastic_static` and `elastic_static_adapter`, set
+`Elastic static/Domain/Triangulation type` to
 `fullydistributed` and provide a triangle or tetrahedron mesh through
 `Elastic static/Domain/Grid generator`. Set the runtime dimensions to match
 the mesh. Keep one refinement cycle; initial refinement is performed before
@@ -46,5 +47,5 @@ The default `Displacement space/Finite element = auto` selects `FE_SimplexP`
 with `FE degree` and one component per spatial dimension. Explicit finite
 elements must match the mesh reference cell. Cell assembly, Neumann loads,
 Dirichlet interpolation, and output use a matching mapping and quadrature.
-The standalone lifecycle skips the convergence table on simplices;
+Both application lifecycles skip the convergence table on simplices;
 `compute_error()` reports that this table requires hypercube meshes.
