@@ -511,9 +511,11 @@ namespace ImmersX
            ++cycle)
         {
           solve();
-          if (triangulation().all_reference_cells_are_hyper_cube())
+          if (space_ != nullptr &&
+              space_->finite_element().reference_cell().is_hyper_cube())
             compute_error(parameters_.convergence_table);
-          else if (triangulation().all_reference_cells_are_simplex() &&
+          else if (space_ != nullptr &&
+                   space_->finite_element().reference_cell().is_simplex() &&
                    Utilities::MPI::this_mpi_process(communicator_) == 0)
             std::cout
               << "   Error table skipped: not available on simplex meshes."
@@ -525,7 +527,8 @@ namespace ImmersX
         }
 
       if (Utilities::MPI::this_mpi_process(communicator_) == 0 &&
-          triangulation().all_reference_cells_are_hyper_cube())
+          space_ != nullptr &&
+          space_->finite_element().reference_cell().is_hyper_cube())
         parameters_.convergence_table.output_table(std::cout);
     }
 
@@ -544,7 +547,8 @@ namespace ImmersX
     compute_error(dealii::ParsedConvergenceTable &table) const
     {
       AssertThrow(
-        triangulation().all_reference_cells_are_hyper_cube(),
+        space_ != nullptr &&
+          space_->finite_element().reference_cell().is_hyper_cube(),
         ExcMessage("Static elasticity error tables require a hypercube mesh."));
       table.error_from_exact(dof_handler(),
                              locally_relevant_solution_,
@@ -601,19 +605,22 @@ namespace ImmersX
     void
     setup_system()
     {
+      const auto reference_cell =
+        detail::uniform_reference_cell(triangulation());
+      AssertThrow(reference_cell.has_value(),
+                  ExcMessage("The static elasticity mesh has no cells."));
       std::unique_ptr<FiniteElement<dim, spacedim>> element;
       if (parameters_.space_parameters.finite_element != "auto")
         element = FETools::get_fe_by_name<dim, spacedim>(
           parameters_.space_parameters.finite_element);
-      else if (triangulation().all_reference_cells_are_hyper_cube())
+      else if (reference_cell->is_hyper_cube())
         element = std::make_unique<FESystem<dim, spacedim>>(
           FE_Q<dim, spacedim>(parameters_.fe_degree), spacedim);
       else if constexpr (dim > 1)
         element = std::make_unique<FESystem<dim, spacedim>>(
           FE_SimplexP<dim, spacedim>(parameters_.fe_degree), spacedim);
       AssertThrow(
-        element != nullptr && element->reference_cell() ==
-                                triangulation().get_reference_cells().front(),
+        element != nullptr && element->reference_cell() == *reference_cell,
         ExcMessage(
           "The displacement finite element must match the mesh reference cell."));
       space_ = std::make_unique<FiniteElementSpace<dim, spacedim>>(

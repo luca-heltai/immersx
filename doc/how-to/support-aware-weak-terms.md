@@ -194,3 +194,14 @@ The callback is evaluated at the physical quadrature points, with the physical
 weights supplied by the support. Its material id is the background cell's material id.
 These terms have no state derivative. Physical supports can have any positive
 dimension up to the background dimension, including independent volume meshes.
+
+Mesh uniformity refers to physical cells. A fully distributed triangulation may
+keep an artificial hypercube on a rank with no locally owned cells. Mesh and
+space setup identify the physical reference cell collectively, so these ranks
+use the same finite element family as the other ranks. Field views and geometry
+accessors remain local operations. Independent geometry assembly and search
+setup also use the physical reference cell.
+
+Construct lifted quadrature supports and call their `rebuild()` method
+collectively. Reading their already generated local quadrature points remains
+a local operation.

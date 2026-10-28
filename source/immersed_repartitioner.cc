@@ -33,11 +33,11 @@ namespace ImmersX
   ImmersedRepartitioner<dim, spacedim>::partition(
     const Triangulation<dim, spacedim> &tria_immersed) const
   {
-    detail::assert_uniform_reference_cells(tria_background);
-    AssertThrow(!tria_background.get_reference_cells().empty(),
+    const auto reference_cell = detail::uniform_reference_cell(tria_background);
+    AssertThrow(reference_cell.has_value(),
                 ExcMessage("The repartitioning background mesh has no cells."));
-    const auto &mapping = compatibility::linear_mapping<spacedim>(
-      tria_background.get_reference_cells().front());
+    const auto &mapping =
+      compatibility::linear_mapping<spacedim>(*reference_cell);
 
     // 1) collect centers of immeresed mesh
     std::vector<Point<spacedim>> points;

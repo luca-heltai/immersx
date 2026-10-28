@@ -11,6 +11,7 @@
 #define immersx_integration_support_h
 
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/tensor.h>
 
 #include <deal.II/fe/fe_values_base.h>
@@ -27,18 +28,61 @@ namespace ImmersX
   namespace detail
   {
     template <typename TriangulationType>
-    void
-    assert_uniform_reference_cells(const TriangulationType &tria)
+    auto
+    local_physical_reference_cells(const TriangulationType &tria)
     {
-      const auto &cells = tria.get_reference_cells();
-      AssertThrow(cells.empty() ||
-                    (cells.size() == 1 &&
-                     (tria.all_reference_cells_are_hyper_cube() ||
-                      tria.all_reference_cells_are_simplex())),
+      using ReferenceCell =
+        std::decay_t<decltype(tria.begin_active()->reference_cell())>;
+      std::set<ReferenceCell> cells;
+      for (const auto &cell : tria.active_cell_iterators())
+        if (!cell->is_artificial())
+          cells.insert(cell->reference_cell());
+      return cells;
+    }
+
+    template <typename ReferenceCell>
+    void
+    assert_uniform_reference_cells(const std::set<ReferenceCell> &cells)
+    {
+      AssertThrow(cells.size() <= 1 &&
+                    (cells.empty() || cells.begin()->is_hyper_cube() ||
+                     cells.begin()->is_simplex()),
                   dealii::ExcMessage(
                     "ImmersX requires meshes containing only simplices or "
                     "only hypercubes. Mixed meshes are not supported."));
     }
+
+    /** Collectively identify physical cells, ignoring artificial placeholders.
+     * Fully distributed meshes can retain a dummy hypercube on an empty rank.
+     * Call this during collective setup or assembly, not from field views or
+     * geometry accessors.
+     */
+    template <typename TriangulationType>
+    auto
+    uniform_reference_cell(const TriangulationType &tria)
+    {
+      const auto cells = dealii::Utilities::MPI::compute_set_union(
+        local_physical_reference_cells(tria), tria.get_mpi_communicator());
+      assert_uniform_reference_cells(cells);
+      using ReferenceCell = typename std::decay_t<decltype(cells)>::value_type;
+      if (cells.empty())
+        return std::optional<ReferenceCell>();
+      return std::optional<ReferenceCell>(*cells.begin());
+    }
+
+    /** Check accessors locally; global validation belongs to setup/assembly. */
+    template <typename TriangulationType>
+    void
+    assert_locally_uniform_reference_cells(const TriangulationType &tria)
+    {
+      const auto &cached = tria.get_reference_cells();
+      if (cached.size() <= 1 &&
+          (cached.empty() || cached.front().is_hyper_cube() ||
+           cached.front().is_simplex()))
+        return;
+      assert_uniform_reference_cells(local_physical_reference_cells(tria));
+    }
+
   } // namespace detail
 
   /** A non-owning view of the cells used by a weak-term integral. */
@@ -74,7 +118,7 @@ namespace ImmersX
     {
       AssertThrow(triangulation_ != nullptr,
                   dealii::ExcMessage("Integration support has no mesh."));
-      detail::assert_uniform_reference_cells(*triangulation_);
+      detail::assert_locally_uniform_reference_cells(*triangulation_);
       return *triangulation_;
     }
 
@@ -239,7 +283,7 @@ namespace ImmersX
     {
       AssertThrow(triangulation_ != nullptr,
                   dealii::ExcMessage("Boundary support has no mesh."));
-      detail::assert_uniform_reference_cells(*triangulation_);
+      detail::assert_locally_uniform_reference_cells(*triangulation_);
       return *triangulation_;
     }
 

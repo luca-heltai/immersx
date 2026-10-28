@@ -493,8 +493,9 @@ namespace ImmersX
       tria != nullptr && tria->n_global_active_cells() > 0,
       ExcMessage(
         "Create the harmonic mesh before selecting its finite element."));
-    detail::assert_uniform_reference_cells(*tria);
-    if (tria->all_reference_cells_are_hyper_cube())
+    const auto reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(), ExcNotInitialized());
+    if (reference_cell->is_hyper_cube())
       fe = std::make_unique<FESystem<dim, spacedim>>(
         FE_Q<dim, spacedim>(par.fe_degree), spacedim);
     else if constexpr (dim > 1)

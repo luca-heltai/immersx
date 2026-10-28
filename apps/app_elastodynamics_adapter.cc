@@ -83,14 +83,14 @@ namespace
           adapter, fields, problem, state, state_dot);
 
         adapter.solve(state, state_dot);
-        if (problem.triangulation().all_reference_cells_are_hyper_cube())
+        if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
           problem.compute_error();
 
         if (cycle + 1 < parameters.n_refinement_cycles)
           problem.refine_global();
       }
 
-    if (problem.triangulation().all_reference_cells_are_hyper_cube() &&
+    if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube() &&
         dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       parameters.convergence_table.output_table(std::cout);
   }

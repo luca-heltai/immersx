@@ -455,6 +455,7 @@ namespace ImmersX
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
     using MappingType    = dealii::Mapping<dim, spacedim>;
 
+    /** Construct a local view; owning-space setup validates the global mesh. */
     FiniteElementSpaceView(const DoFHandlerType                    &dof_handler,
                            const MappingType                       &mapping,
                            const dealii::AffineConstraints<double> &constraints,
@@ -467,9 +468,7 @@ namespace ImmersX
           locally_relevant == nullptr ?
             dealii::DoFTools::extract_locally_relevant_dofs(dof_handler) :
             dealii::IndexSet())
-    {
-      detail::assert_uniform_reference_cells(dof_handler.get_triangulation());
-    }
+    {}
 
     const DoFHandlerType &
     dof_handler() const
@@ -628,7 +627,12 @@ namespace ImmersX
     void
     distribute_dofs()
     {
-      detail::assert_uniform_reference_cells(*triangulation_);
+      const auto reference_cell =
+        detail::uniform_reference_cell(*triangulation_);
+      AssertThrow(
+        !reference_cell || *reference_cell == finite_element_->reference_cell(),
+        dealii::ExcMessage(
+          "The finite element must match the physical mesh reference cell."));
       dof_handler_.distribute_dofs(*finite_element_);
       locally_owned_dofs_ = dof_handler_.locally_owned_dofs();
       locally_relevant_dofs_ =

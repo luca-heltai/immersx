@@ -170,6 +170,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Identify the physical mesh reference cell collectively when MPI ranks own no cells. Ignore fully distributed artificial placeholders when selecting elements, quadrature, and search mappings; keep field views and geometry accessors local, and reject mixed physical meshes.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Import point and cell fields on simplex meshes with matching finite elements. Preserve those fields during initial refinement and use reference-cell mappings and smoothing rules during Domain co-refinement. Boundary recipes use the target field mapping; point-cloud refinement accepts serial preparation meshes and uses each cell's actual bounding box.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve multiplier mass contributions whose matrix rows belong to other MPI ranks.

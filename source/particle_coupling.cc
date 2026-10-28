@@ -53,13 +53,11 @@ namespace ImmersX
     const parallel::TriangulationBase<dim> &tria,
     const unsigned int                      n_properties)
   {
-    detail::assert_uniform_reference_cells(tria);
-    AssertThrow(!tria.get_reference_cells().empty(),
+    const auto reference_cell = detail::uniform_reference_cell(tria);
+    AssertThrow(reference_cell.has_value(),
                 ExcMessage("The particle background mesh has no cells."));
-    initialize_particle_handler(tria,
-                                compatibility::linear_mapping<dim>(
-                                  tria.get_reference_cells().front()),
-                                n_properties);
+    initialize_particle_handler(
+      tria, compatibility::linear_mapping<dim>(*reference_cell), n_properties);
   }
 
   template <int dim>

@@ -58,7 +58,7 @@ namespace
         problem.set_solution(adapter.field(state, fields.fields().solution));
 
         problem.output_results(cycle);
-        if (problem.triangulation().all_reference_cells_are_hyper_cube())
+        if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
           {
             typename PoissonSolver<dim, spacedim>::VectorType relevant_solution;
             relevant_solution.reinit(problem.locally_owned_dofs(),
@@ -70,7 +70,7 @@ namespace
               relevant_solution,
               parameters.exact_solution);
           }
-        else if (problem.triangulation().all_reference_cells_are_simplex() &&
+        else if (problem.dof_handler().get_fe().reference_cell().is_simplex() &&
                  dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
           std::cout
             << "   Error table skipped: not available on simplex meshes."
@@ -81,7 +81,7 @@ namespace
       }
 
     if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0 &&
-        problem.triangulation().all_reference_cells_are_hyper_cube())
+        problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
       parameters.convergence_table.output_table(std::cout);
   }
 } // namespace

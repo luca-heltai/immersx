@@ -332,11 +332,11 @@ namespace ImmersX
       mpi_communicator = tria.get_mpi_communicator();
       initialize();
 
-      detail::assert_uniform_reference_cells(tria);
-      AssertThrow(!tria.get_reference_cells().empty(),
+      const auto reference_cell = detail::uniform_reference_cell(tria);
+      AssertThrow(reference_cell.has_value(),
                   ExcMessage("The inclusion background mesh has no cells."));
-      const auto &mapping = compatibility::linear_mapping<spacedim>(
-        tria.get_reference_cells().front());
+      const auto &mapping =
+        compatibility::linear_mapping<spacedim>(*reference_cell);
       inclusions_as_particles.initialize(tria, mapping);
       particles_on_centerline.initialize(tria, mapping);
       if (n_inclusions() == 0)

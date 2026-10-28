@@ -700,11 +700,12 @@ namespace ImmersX
             const unsigned int degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            AssertThrow(!support.triangulation().get_reference_cells().empty(),
+            const auto physical_reference =
+              detail::uniform_reference_cell(support.triangulation());
+            AssertThrow(physical_reference.has_value(),
                         dealii::ExcMessage(
                           "The integration support mesh has no cells."));
-            const auto reference_cell =
-              support.triangulation().get_reference_cells().front();
+            const auto reference_cell = *physical_reference;
             const auto support_quadrature =
               compatibility::gauss_quadrature<support_dim>(reference_cell,
                                                            degree + 2);
@@ -2426,12 +2427,12 @@ namespace ImmersX
                 const unsigned int degree =
                   std::max(source.space().finite_element().degree,
                            target_field.space().finite_element().degree);
-                AssertThrow(
-                  !support.triangulation().get_reference_cells().empty(),
-                  dealii::ExcMessage(
-                    "The integration support mesh has no cells."));
-                const auto reference_cell =
-                  support.triangulation().get_reference_cells().front();
+                const auto physical_reference =
+                  detail::uniform_reference_cell(support.triangulation());
+                AssertThrow(physical_reference.has_value(),
+                            dealii::ExcMessage(
+                              "The integration support mesh has no cells."));
+                const auto reference_cell = *physical_reference;
                 const auto quadrature =
                   compatibility::gauss_quadrature<support_dim>(reference_cell,
                                                                degree + 2);

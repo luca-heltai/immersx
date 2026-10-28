@@ -89,11 +89,11 @@ background_tria.get_mpi_communicator()
   void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize()
   {
-    detail::assert_uniform_reference_cells(*background_tria);
-    AssertThrow(!background_tria->get_reference_cells().empty(),
+    const auto reference_cell =
+      detail::uniform_reference_cell(*background_tria);
+    AssertThrow(reference_cell.has_value(),
                 ExcMessage("The coupling background mesh has no cells."));
-    initialize(compatibility::linear_mapping<spacedim>(
-      background_tria->get_reference_cells().front()));
+    initialize(compatibility::linear_mapping<spacedim>(*reference_cell));
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>

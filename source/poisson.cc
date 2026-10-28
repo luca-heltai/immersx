@@ -150,12 +150,10 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
 
-    AssertThrow(tria->get_reference_cells().size() == 1 &&
-                  (tria->all_reference_cells_are_hyper_cube() ||
-                   tria->all_reference_cells_are_simplex()),
-                ExcMessage("PoissonSolver requires only hypercube or only "
-                           "simplex cells."));
-    if (tria->all_reference_cells_are_hyper_cube())
+    const auto reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The Poisson mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
       {
         fe = std::make_unique<FESystem<dim, spacedim>>(
           FE_Q<dim, spacedim>(par.fe_degree), 1);
@@ -490,18 +488,18 @@ namespace ImmersX
         solve();
         output_results();
 
-        if (tria->all_reference_cells_are_hyper_cube())
+        if (fe->reference_cell().is_hyper_cube())
           par.convergence_table.error_from_exact(dh,
                                                  locally_relevant_solution,
                                                  par.exact_solution);
-        else if (tria->all_reference_cells_are_simplex())
+        else if (fe->reference_cell().is_simplex())
           pcout << "   Error table skipped: not available on simplex meshes."
                 << std::endl;
 
         if (cycle + 1 < par.n_refinement_cycles)
           refine_grid();
 
-        if (pcout.is_active() && tria->all_reference_cells_are_hyper_cube())
+        if (pcout.is_active() && fe->reference_cell().is_hyper_cube())
           par.convergence_table.output_table(pcout.get_stream());
       }
   }

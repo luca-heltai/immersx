@@ -71,7 +71,7 @@ namespace
                                "cycle " +
                                std::to_string(cycle) + "."));
 
-        if (problem.triangulation().all_reference_cells_are_hyper_cube())
+        if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
           problem.compute_error(parameters.convergence_table);
         problem.output_results(cycle);
 
@@ -79,7 +79,7 @@ namespace
           problem.refine_global();
       }
 
-    if (problem.triangulation().all_reference_cells_are_hyper_cube() &&
+    if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube() &&
         dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       parameters.convergence_table.output_table(std::cout);
   }

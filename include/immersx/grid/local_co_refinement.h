@@ -61,18 +61,16 @@ namespace ImmersX
                   ExcMessage("The embedded preparation mesh must be serial."));
       space.refine_global(parameters.space_pre_refinement_cycles);
       embedded.refine_global(parameters.embedded_pre_refinement_cycles);
-      detail::assert_uniform_reference_cells(space);
-      detail::assert_uniform_reference_cells(embedded);
+      const auto space_reference    = detail::uniform_reference_cell(space);
+      const auto embedded_reference = detail::uniform_reference_cell(embedded);
       const Mapping<d1, spacedim> &space_mapping =
-        space.get_reference_cells().empty() ?
-          StaticMappingQ1<d1, spacedim>::mapping :
-          compatibility::linear_mapping<d1, spacedim>(
-            space.get_reference_cells().front());
+        space_reference ?
+          compatibility::linear_mapping<d1, spacedim>(*space_reference) :
+          StaticMappingQ1<d1, spacedim>::mapping;
       const Mapping<d2, spacedim> &embedded_mapping =
-        embedded.get_reference_cells().empty() ?
-          StaticMappingQ1<d2, spacedim>::mapping :
-          compatibility::linear_mapping<d2, spacedim>(
-            embedded.get_reference_cells().front());
+        embedded_reference ?
+          compatibility::linear_mapping<d2, spacedim>(*embedded_reference) :
+          StaticMappingQ1<d2, spacedim>::mapping;
       GridTools::Cache<d1, spacedim> space_cache(space, space_mapping);
       GridTools::Cache<d2, spacedim> embedded_cache(embedded, embedded_mapping);
       const bool                     serial_space =
