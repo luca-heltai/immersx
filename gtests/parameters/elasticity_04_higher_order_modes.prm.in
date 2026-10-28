@@ -1,0 +1,64 @@
+# Section 5.2 of Belponer, Caiazzo, Heltai, "Mixed-dimensional modeling of
+# vascular tissues with reduced Lagrange multipliers": three inclusions in
+# [-1, 1]^2 with normal inflation ubar = 0.1 (Fig. 3). Former
+# prms/elasticity/square_three_holes.prm. The values below are the N = 2,
+# ri = 0.05 case of Table 1; the test overrides the radius and the modes.
+#
+# Table 1 was computed with the Schur complement solve stopped at a residual
+# reduction of 1e-2. The tolerances below are kept tight so that the test
+# checks the converged solution; see gtests/elasticity_04.cc.
+set dimension       = 2
+set space dimension = 2
+
+subsection Error
+  set Enable computation of the errors = false
+end
+
+subsection Immersed Problem
+  set Dirichlet boundary ids = 0
+  set FE degree              = 1
+  set Initial refinement     = 4
+  set Output directory       = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_04_higher_order_modes
+  set Output name            = solution
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -1: 1: false
+  end
+  subsection Immersed inclusions
+    set Inclusions                        = 0.3, 0.3, 0.05; -0.4, 0.3, 0.05; 0.1, -0.3, 0.05
+    set Inclusions refinement             = 100
+    set Number of fourier coefficients    = 3
+    set Reference inclusion data          = 0, 0, 0.1, 0, 0, 0.1
+    set Selection of Fourier coefficients = 2, 5
+  end
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 4
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_number
+  end
+end
+
+subsection Solvers
+  subsection Augmented Lagrange
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+  subsection Displacement
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+  subsection Reduced mass
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+end
