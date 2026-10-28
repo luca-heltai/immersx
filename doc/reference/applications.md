@@ -39,3 +39,10 @@ parameter-file command format.
 When Coral is installed, equivalent graph examples are installed under
 `share/immersx/coral/examples`. See the [Coral backend guide](../how-to/coral-backend)
 for plugin selection, graph execution, and conditional coupled workflows.
+
+For `elasticity_freq`, select `fullydistributed` under
+`Immersed Problem/Grid generation/Triangulation type` when importing triangles
+or tetrahedra. `FE degree` selects `FE_SimplexP` on these meshes. Keep one
+refinement cycle; initial refinement happens before distribution. The generated
+`gtests/parameters/elasticity_freq_simplex.prm` provides a tetrahedral example
+with a nonzero affine displacement at a nonzero frequency.

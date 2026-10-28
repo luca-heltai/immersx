@@ -40,6 +40,7 @@
 
 #include <deal.II/fe/fe_nothing.h>
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_fe_field.h>
@@ -80,6 +81,7 @@
 #include <deal.II/physics/elasticity/standard_tensors.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/domain.h>
 
 // #include <deal.II/trilinos/parameter_acceptor.h>
@@ -201,7 +203,8 @@ namespace ImmersX
     const Mapping<dim, spacedim> &
     mapping() const
     {
-      return StaticMappingQ1<dim, spacedim>::mapping;
+      AssertThrow(fe != nullptr, ExcNotInitialized());
+      return compatibility::linear_mapping<dim, spacedim>(fe->reference_cell());
     }
     MPI_Comm
     communicator() const

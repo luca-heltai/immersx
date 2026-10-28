@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve frequency-domain elasticity on uniform triangle and tetrahedron meshes, with matching displacement elements, cell and face quadrature, boundary interpolation, stress integration, and output.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the IDA elastodynamics adapter on simplex meshes, skipping its unavailable convergence table. Verify nonzero time-dependent displacement and velocity on simplex and hypercube meshes.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the static elasticity adapter on simplex meshes and retain hypercube error tables.
