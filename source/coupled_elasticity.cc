@@ -233,7 +233,7 @@ namespace ImmersX
         const unsigned int n_comp = fe.n_components();
 
         AssertThrow(!vessel_index_of_a_cell.empty(),
-                    ExcMessage("error in filling the vessels_id #  todo"));
+                    ExcMessage("error in filling the vessels_id"));
 
         const auto locally_owned_vessels =
           Utilities::MPI::create_evenly_distributed_partitioning(
@@ -538,7 +538,10 @@ namespace ImmersX
     else
       {
 #ifdef DEAL_II_WITH_VTK
-        AssertThrow(true, ExcMessage("TODO"));
+          AssertThrow(
+          true,
+          ExcMessage(
+            "Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(
@@ -577,7 +580,10 @@ namespace ImmersX
     else
       {
 #ifdef DEAL_II_WITH_VTK
-        AssertThrow(true, ExcMessage("TODO"));
+        AssertThrow(
+          true,
+          ExcMessage(
+            "Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(
@@ -641,7 +647,10 @@ namespace ImmersX
     else
       {
 #ifdef DEAL_II_WITH_VTK
-        AssertThrow(true, ExcMessage("TODO"));
+        AssertThrow(
+          true,
+          ExcMessage(
+            "Cannot update data for tensor coupling"));
 
 #endif
         AssertThrow(
