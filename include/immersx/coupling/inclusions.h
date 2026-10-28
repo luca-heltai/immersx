@@ -1259,15 +1259,50 @@ namespace ImmersX
     std::vector<unsigned int> segment_indices;
 
     /**
+     * @brief Check that all inclusions with the same vessel ID have parallel
+     * directions.
+     *
+     * Directions only need to point the same way: their lengths may differ.
+     * Opposite directions are rejected.
+     */
+    void
+    check_vessel_directions() const
+    {
+      if constexpr (spacedim == 3)
+        {
+          // Tolerance on the sine of the angle between two directions.
+          const double tolerance = 1e-6;
+          for (const auto &[vessel_id, inclusion_ids] : map_vessel_inclusions)
+            {
+              AssertThrow(!inclusion_ids.empty(),
+                          ExcMessage("Vessel " + std::to_string(vessel_id) +
+                                     " has no inclusions."));
+              const auto first_id = inclusion_ids.front();
+              const auto first    = get_direction(first_id);
+              for (const auto inclusion_id : inclusion_ids)
+                {
+                  const auto direction = get_direction(inclusion_id);
+                  AssertThrow(
+                    cross_product_3d(first, direction).norm() <=
+                        tolerance * first.norm() * direction.norm() &&
+                      first * direction > 0,
+                    ExcMessage("Inclusions " + std::to_string(first_id) +
+                               " and " + std::to_string(inclusion_id) +
+                               " belong to vessel " +
+                               std::to_string(vessel_id) +
+                               " but their directions are not parallel and equally oriented."));
+                }
+            }
+        }
+    }
+
+    /**
      * @brief Check that all vesselsID are present
      and create the map vessel_inclusions
      */
     void
     check_vessels()
     {
-      // TODO:
-      // vessel sanity check: that vessel with same label have the same
-      // direction
       if (inclusions.size() == 0)
         return;
 
@@ -1296,6 +1331,7 @@ namespace ImmersX
 
         n_vessels = map_vessel_inclusions.size();
       }
+      check_vessel_directions();
       /*
       {
       std::set<double> vessel_id_is_present;
