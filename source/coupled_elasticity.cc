@@ -178,7 +178,7 @@ namespace ImmersX
 
         auto &lambda_to_pressure = this->locally_relevant_solution.block(1);
 
-        const auto used_number_modes = this->inclusions.get_n_coefficients();
+        const auto used_number_modes = this->inclusions.n_dofs_per_inclusion();
 
         const auto local_lambda = lambda_to_pressure.locally_owned_elements();
 

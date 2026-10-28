@@ -221,7 +221,7 @@ TEST(ElasticityValidation, BOTH_PaperHigherOrderModes)
   struct Table1Row
   {
     std::string  ri;
-    unsigned int n_modes;
+    unsigned int highest_mode; // N in Table 1: highest Fourier mode retained
     double       norm;     // ||Lambda||_l2 column of Table 1
     double       share_1x; // |Lambda_1,x|^2 / ||Lambda||^2, in percent
     double       share_2y; // |Lambda_2,y|^2 / ||Lambda||^2, in percent
@@ -254,7 +254,7 @@ TEST(ElasticityValidation, BOTH_PaperHigherOrderModes)
     {
       std::string selection = "2, 5";
       std::string data      = "0, 0, 0.1, 0, 0, 0.1";
-      for (unsigned int c = 6; c < 2 * (reference.n_modes + 1); ++c)
+      for (unsigned int c = 6; c < 2 * (reference.highest_mode + 1); ++c)
         {
           selection += ", " + std::to_string(c);
           data += ", 0";
@@ -273,7 +273,7 @@ TEST(ElasticityValidation, BOTH_PaperHigherOrderModes)
         ri + "; -0.4, 0.3, " + ri + "; 0.1, -0.3, " + ri +
         "\n"
         "    set Number of fourier coefficients    = " +
-        std::to_string(reference.n_modes + 1) +
+        std::to_string(2 * reference.highest_mode - 2) +
         "\n"
         "    set Reference inclusion data          = " +
         data +
@@ -288,7 +288,7 @@ TEST(ElasticityValidation, BOTH_PaperHigherOrderModes)
 
       const auto        &lambda = problem.solution.block(1);
       const unsigned int n      = problem.inclusions.n_dofs_per_inclusion();
-      ASSERT_EQ(n, 2 * reference.n_modes - 2);
+      ASSERT_EQ(n, 2 * reference.highest_mode - 2);
       std::vector<double> lambda_2(n);
       for (unsigned int k = 0; k < n; ++k)
         lambda_2[k] =
@@ -301,7 +301,7 @@ TEST(ElasticityValidation, BOTH_PaperHigherOrderModes)
       const double share_1x   = 100 * lambda_2[0] * lambda_2[0] / norm2;
       const double share_2y   = 100 * lambda_2[1] * lambda_2[1] / norm2;
       const double truncation = 100 - share_1x - share_2y;
-      problem.pcout << "ri " << ri << " N " << reference.n_modes
+      problem.pcout << "ri " << ri << " N " << reference.highest_mode
                     << " |Lambda|^2 " << norm2 << " 1x " << share_1x << " 2y "
                     << share_2y << " truncation " << truncation << " lambda";
       for (const auto l : lambda_2)
