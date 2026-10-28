@@ -1,0 +1,50 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Compiler path mapping: /tmp/immersx-benchmark-rxvhne9p/source -> /immersx/source
+-- Compiler path mapping: /tmp/immersx-benchmark-rxvhne9p/build -> /immersx/build
+-- Using the deal.II-9.7.1 installation found at /usr/local
+-- Include macro /usr/local/share/deal.II/macros/macro_deal_ii_add_test.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_deal_ii_initialize_cached_variables.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_deal_ii_invoke_autopilot.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_deal_ii_pickup_tests.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_deal_ii_query_git_information.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_deal_ii_setup_target.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_shell_escape_option_groups.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_target_compile_flags.cmake
+-- Include macro /usr/local/share/deal.II/macros/macro_target_link_flags.cmake
+-- ImmersX Coral plugins disabled (Coral package not found)
+-- MetricFlowX support disabled (package not found)
+-- Coupled problems disabled
+-- Found OpenMP_CXX: -fopenmp (found version "4.5") 
+-- Found OpenMP: TRUE (found version "4.5")  
+-- OpenMP found for CXX: flags='-fopenmp', libs='/usr/lib/gcc/x86_64-linux-gnu/13/libgomp.so;/usr/lib/x86_64-linux-gnu/libpthread.a'
+-- Found Release version of deal.II.
+-- Configuring library immersx_lib
+-- Configuring executable coupled_elasticity
+-- Configuring executable coupled_poisson
+-- Configuring executable coupled_poisson_elasticity
+-- Configuring executable elastic_static
+-- Configuring executable elastic_static_adapter
+-- Configuring executable elasticity
+-- Configuring executable elasticity_explicit
+-- Configuring executable elasticity_freq
+-- Configuring executable elastodynamics
+-- Configuring executable elastodynamics_adapter
+-- Configuring executable fiber_reinforced_elasticity_freq
+-- Configuring executable fiber_reinforced_elastodynamics
+-- Configuring executable laplacian
+-- Configuring executable lifted_elasticity
+-- Configuring executable lifted_poisson
+-- Configuring executable navier_stokes
+-- Configuring executable poisson
+-- Configuring executable poisson_adapter
+-- Configuring executable pseudocoupling1D
+-- Configuring executable reduced_poisson
+-- Documentation site target disabled. Required tools: doxygen, sphinx-build.
+-- Configuring done (0.4s)
+-- Generating done (1.4s)
+-- Build files have been written to: /tmp/immersx-benchmark-rxvhne9p/build
