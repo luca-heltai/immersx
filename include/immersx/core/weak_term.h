@@ -2594,6 +2594,11 @@ namespace ImmersX
       class CellInputCache
       {
       public:
+        using VectorType =
+          std::decay_t<decltype(std::declval<const Context &>().state(
+            FieldId()))>;
+        using InputStates = std::map<FieldId, VectorType>;
+
         struct Entry
         {
           std::unique_ptr<dealii::FEValues<dim, spacedim>> values;
@@ -2608,12 +2613,14 @@ namespace ImmersX
 
         CellInputCache(
           const Context                        &context,
+          const InputStates                    &input_states,
           const Cell                           &source_cell,
           const SourceValues                   &source_values,
           const dealii::Mapping<dim, spacedim> &integration_mapping,
           const dealii::UpdateFlags             update_flags,
           const bool                            reuse_across_cells = false)
           : context_(context)
+          , input_states_(input_states)
           , source_cell_(source_cell)
           , source_values_(&source_values)
           , integration_mapping_(&integration_mapping)
@@ -2664,8 +2671,6 @@ namespace ImmersX
               return *it->second;
             }
 
-          using VectorType =
-            std::decay_t<decltype(context_.state(observable.source_field()))>;
           const auto &input_field = observable.source();
           // Frozen leaves are not dependencies. Check them before converting
           // the integration cell to their DoFHandler.
@@ -2739,7 +2744,7 @@ namespace ImmersX
           const auto &coefficients =
             observable.is_frozen() ?
               observable.template frozen_values<VectorType>() :
-              context_.state(observable.source_field());
+              input_states_.at(observable.source_field());
           input_field.constraints().get_dof_values(
             coefficients,
             entry.execution_indices.begin(),
@@ -2750,6 +2755,7 @@ namespace ImmersX
         }
 
         const Context                        &context_;
+        const InputStates                    &input_states_;
         Cell                                  source_cell_;
         const SourceValues                   *source_values_;
         const dealii::Mapping<dim, spacedim> *integration_mapping_;
@@ -2843,6 +2849,55 @@ namespace ImmersX
                                           derivative_evaluator);
       }
 
+      template <typename VectorType, typename FieldType>
+      static void
+      distribute_cell_residual(
+        const FieldType                                    &field,
+        const std::vector<dealii::types::global_dof_index> &native_indices,
+        const dealii::Vector<double>                       &cell_values,
+        VectorType                                         &result)
+      {
+        std::vector<dealii::types::global_dof_index> indices;
+        std::vector<unsigned int>                    positions;
+        for (unsigned int i = 0; i < native_indices.size(); ++i)
+          if (field.has_execution_index(native_indices[i]))
+            {
+              indices.push_back(field.execution_index(native_indices[i]));
+              positions.push_back(i);
+            }
+        dealii::Vector<double> values(indices.size());
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          values[i] = cell_values[positions[i]];
+        field.constraints().distribute_local_to_global(values, indices, result);
+      }
+
+      // All ranks import state coefficients before entering local cell loops.
+      // Empty ranks must participate in the distributed vector setup as well.
+      template <typename VectorType, typename Context>
+      static std::map<FieldId, VectorType>
+      read_input_states(const ObservableType &observable,
+                        const Context        &context)
+      {
+        std::map<FieldId, VectorType> result;
+        for (const auto id : observable.dependencies())
+          {
+            const auto &field  = observable.source_for(id);
+            auto       &values = result[id];
+            if constexpr (has_distributed_reinit<VectorType,
+                                                 SourceField>::value)
+              {
+                values.reinit(field.locally_owned_dofs(),
+                              field.locally_relevant_dofs(),
+                              field.space().mpi_communicator());
+                values = context.state(id);
+                values.update_ghost_values();
+              }
+            else
+              values = context.state(id);
+          }
+        return result;
+      }
+
       template <typename VectorType,
                 typename MatrixType,
                 typename Context,
@@ -2863,6 +2918,9 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Nonlinear weak terms currently require matching "
                       "source and target meshes."));
+
+        const auto input_states =
+          read_input_states<VectorType>(observable, context);
 
         if constexpr (uses_support_quadratures<Support>())
           {
@@ -2898,6 +2956,7 @@ namespace ImmersX
                   flags);
                 source_values.reinit(cell_quadrature.cell);
                 CellInputCache input_cache(context,
+                                           input_states,
                                            cell_quadrature.cell,
                                            source_values,
                                            source.mapping(),
@@ -2906,7 +2965,8 @@ namespace ImmersX
                 std::vector<dealii::types::global_dof_index> target_indices(
                   target_cell->get_fe().n_dofs_per_cell());
                 target_cell->get_dof_indices(target_indices);
-                const auto &target_view =
+                dealii::Vector<double> cell_residual(target_indices.size());
+                const auto            &target_view =
                   target_values[target_field.extractor()];
                 for (unsigned int q = 0;
                      q < cell_quadrature.reference_points.size();
@@ -2919,13 +2979,16 @@ namespace ImmersX
                                                             context.time());
                     for (unsigned int i = 0; i < target_indices.size(); ++i)
                       if (target_field.has_execution_index(target_indices[i]))
-                        (*result)(
-                          target_field.execution_index(target_indices[i])) +=
+                        cell_residual[i] +=
                           target.scale() *
                           natural_pairing(
                             value, target.operation()(target_view, i, q)) *
                           cell_quadrature.physical_weights[q];
                   }
+                distribute_cell_residual(target_field,
+                                         target_indices,
+                                         cell_residual,
+                                         *result);
               }
             result->compress(dealii::VectorOperation::add);
             return result;
@@ -2985,6 +3048,7 @@ namespace ImmersX
                 input_cache->reinit(source_cell, source_values);
               else
                 input_cache = std::make_unique<Cache>(context,
+                                                      input_states,
                                                       source_cell,
                                                       source_values,
                                                       source.mapping(),
@@ -2992,6 +3056,7 @@ namespace ImmersX
                                                       true);
               target_indices.resize(target_cell->get_fe().n_dofs_per_cell());
               target_cell->get_dof_indices(target_indices);
+              dealii::Vector<double> cell_residual(target_indices.size());
               const auto &target_view = target_values[target_field.extractor()];
               for (unsigned int q = 0; q < quadrature.size(); ++q)
                 {
@@ -2999,13 +3064,16 @@ namespace ImmersX
                     observable, source_values, *input_cache, q, context.time());
                   for (unsigned int i = 0; i < target_indices.size(); ++i)
                     if (target_field.has_execution_index(target_indices[i]))
-                      (*result)(
-                        target_field.execution_index(target_indices[i])) +=
+                      cell_residual[i] +=
                         target.scale() *
                         natural_pairing(value,
                                         target.operation()(target_view, i, q)) *
                         target_values.JxW(q);
                 }
+              distribute_cell_residual(target_field,
+                                       target_indices,
+                                       cell_residual,
+                                       *result);
             }
         result->compress(dealii::VectorOperation::add);
         return result;
@@ -3035,6 +3103,9 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Nonlinear weak terms currently require matching "
                       "source meshes."));
+
+        const auto input_states =
+          read_input_states<VectorType>(observable, context);
 
         if constexpr (uses_support_quadratures<Support>())
           {
@@ -3127,6 +3198,7 @@ namespace ImmersX
                   flags);
                 source_values.reinit(cell_quadrature.cell);
                 CellInputCache input_cache(context,
+                                           input_states,
                                            cell_quadrature.cell,
                                            source_values,
                                            source.mapping(),
@@ -3308,6 +3380,7 @@ namespace ImmersX
                 input_cache->reinit(source_cell, source_values);
               else
                 input_cache = std::make_unique<Cache>(context,
+                                                      input_states,
                                                       source_cell,
                                                       source_values,
                                                       source.mapping(),

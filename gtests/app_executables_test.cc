@@ -602,3 +602,11 @@ TEST(AppExecutables, LaplacianSimplex)
   run_app_with_parameter("laplacian",
                          "gtests/parameters/laplacian_simplex.prm");
 }
+
+TEST(AppExecutables, NavierStokesSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("navier_stokes",
+                         "gtests/parameters/navier_stokes_simplex.prm");
+}

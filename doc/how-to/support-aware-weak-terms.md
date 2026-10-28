@@ -205,3 +205,9 @@ setup also use the physical reference cell.
 Construct lifted quadrature supports and call their `rebuild()` method
 collectively. Reading their already generated local quadrature points remains
 a local operation.
+
+Nonlinear weak terms import the candidate field coefficients before evaluating
+local cells. Candidate vectors may contain only locally owned entries. This
+setup is collective, including ranks without physical cells. Residual assembly
+uses the target Field constraints, as the Jacobian assembly does, so essential
+rows are omitted and hanging-node contributions are redistributed.

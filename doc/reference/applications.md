@@ -70,3 +70,11 @@ number of refinement cycles to one and use `Domain/Initial refinement` for
 refinement before distribution. Parsed convergence tables and the experimental
 compile-time matrix-free path require hypercube meshes. The generated
 `gtests/parameters/laplacian_simplex.prm` solves a forced quadratic problem.
+
+For `navier_stokes`, import uniform triangle or tetrahedron meshes using
+`Navier-Stokes/Domain/Triangulation type = fullydistributed`. The velocity
+and pressure degrees select simplex Taylor-Hood elements; the pressure degree
+must remain smaller than the velocity degree. The native solver and IDA
+application path use the same reference-cell mapping and quadrature.
+`gtests/parameters/navier_stokes_simplex.prm` maintains a nonzero Poiseuille
+velocity with constant body force on a tetrahedral mesh.
