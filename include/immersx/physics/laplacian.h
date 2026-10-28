@@ -149,6 +149,8 @@ namespace ImmersX
       rhs; ///< RHS function.
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
       bc; ///< Dirichlet data.
+    mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+      exact_solution; ///< Exact solution used for error computation.
     /// @}
 
     /**
@@ -180,6 +182,7 @@ namespace ImmersX
     , domain_parameters("/Immersed Problem/Domain/")
     , rhs("/Immersed Problem/Right hand side")
     , bc("/Immersed Problem/Dirichlet boundary conditions")
+    , exact_solution("/Immersed Problem/Exact solution")
     , inner_control("/Immersed Problem/Solver/Inner control")
     , outer_control("/Immersed Problem/Solver/Outer control")
   {

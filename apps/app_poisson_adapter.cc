@@ -58,9 +58,8 @@ namespace
         problem.set_solution(adapter.field(state, fields.fields().solution));
 
         problem.output_results(cycle);
-        parameters.convergence_table.error_from_exact(problem.dof_handler(),
-                                                      problem.solution(),
-                                                      parameters.bc);
+        parameters.convergence_table.error_from_exact(
+          problem.dof_handler(), problem.solution(), parameters.exact_solution);
 
         if (cycle + 1 < parameters.n_refinement_cycles)
           problem.refine_grid();

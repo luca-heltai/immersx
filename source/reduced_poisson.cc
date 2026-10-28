@@ -52,6 +52,7 @@ namespace ImmersX
     : ParameterAcceptor("/Reduced Poisson/")
     , rhs("/Reduced Poisson/Right hand side")
     , bc("/Reduced Poisson/Dirichlet boundary conditions")
+    , exact_solution("/Reduced Poisson/Exact solution")
     , inner_control("/Reduced Poisson/Solver/Inner control")
     , outer_control("/Reduced Poisson/Solver/Outer control")
   {
@@ -1075,7 +1076,7 @@ namespace ImmersX
         solve();
         output_results();
         par.convergence_table.error_from_exact(
-          dh, locally_relevant_solution.block(0), par.bc);
+          dh, locally_relevant_solution.block(0), par.exact_solution);
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
         if (pcout.is_active())

@@ -138,6 +138,8 @@ namespace ImmersX
     unsigned int                  max_cells           = 20000;
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
+    mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+      exact_solution;
 
     mutable ParameterAcceptorProxy<ReductionControl> inner_control;
     mutable ParameterAcceptorProxy<ReductionControl> outer_control;

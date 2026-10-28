@@ -111,6 +111,9 @@ namespace ImmersX
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       bc;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      exact_solution;
 
     mutable dealii::ParameterAcceptorProxy<dealii::ReductionControl>
       solver_control;
