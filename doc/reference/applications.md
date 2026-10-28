@@ -62,3 +62,11 @@ row-sum nodal masses and are rejected. The existing restriction against hanging
 nodes also applies. The generated
 `gtests/parameters/elasticity_explicit_simplex.prm` advances a freely translating
 body with nonzero forcing.
+
+For `laplacian`, select `fullydistributed` under
+`Immersed Problem/Domain/Triangulation type` when importing simplex meshes.
+The assembled solver selects simplex elements from `FE degree`. Set the
+number of refinement cycles to one and use `Domain/Initial refinement` for
+refinement before distribution. Parsed convergence tables and the experimental
+compile-time matrix-free path require hypercube meshes. The generated
+`gtests/parameters/laplacian_simplex.prm` solves a forced quadratic problem.

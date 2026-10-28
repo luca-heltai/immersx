@@ -594,3 +594,11 @@ TEST(AppExecutables, ElasticityExplicitSimplex)
   run_app_with_parameter("elasticity_explicit",
                          "gtests/parameters/elasticity_explicit_simplex.prm");
 }
+
+TEST(AppExecutables, LaplacianSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("laplacian",
+                         "gtests/parameters/laplacian_simplex.prm");
+}

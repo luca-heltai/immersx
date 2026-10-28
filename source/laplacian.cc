@@ -55,11 +55,6 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , domain(par.domain_parameters, mpi_communicator)
-    , tria(dynamic_cast<parallel::distributed::Triangulation<spacedim> &>(
-        domain.triangulation()))
-    , dh(tria)
-    , mapping(1)
   {}
 
 
@@ -67,7 +62,12 @@ namespace ImmersX
   void
   PoissonProblem<dim, spacedim>::make_grid()
   {
-    domain.make_grid();
+    auto next_domain = std::make_unique<Domain<spacedim>>(par.domain_parameters,
+                                                          mpi_communicator);
+    dh.reinit(next_domain->triangulation());
+    domain = std::move(next_domain);
+    tria   = &domain->triangulation();
+    domain->make_grid();
   }
 
 
@@ -77,8 +77,24 @@ namespace ImmersX
   PoissonProblem<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
-    quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
+    const auto         reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The Laplacian mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
+      fe =
+        std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
+    else if (reference_cell->is_simplex())
+      fe = std::make_unique<FESystem<spacedim>>(
+        FE_SimplexP<spacedim>(par.fe_degree), 1);
+    quadrature = std::make_unique<Quadrature<spacedim>>(
+      compatibility::gauss_quadrature<spacedim>(*reference_cell,
+                                                par.fe_degree + 1));
+#ifdef MATRIX_FREE_PATH
+    AssertThrow(
+      reference_cell->is_hyper_cube(),
+      ExcMessage(
+        "The experimental matrix-free path requires hypercube meshes."));
+#endif
   }
 
 
@@ -100,7 +116,8 @@ namespace ImmersX
       constraints.reinit(owned_dofs[0], relevant_dofs[0]);
       DoFTools::make_hanging_node_constraints(dh, constraints);
       for (const auto id : par.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(dh, id, par.bc, constraints);
+        VectorTools::interpolate_boundary_values(
+          geometry_mapping(), dh, id, par.bc, constraints);
       constraints.close();
     }
     {
@@ -112,13 +129,16 @@ namespace ImmersX
         (update_gradients | update_JxW_values | update_quadrature_points);
       std::shared_ptr<MatrixFree<spacedim, double>> system_mf_storage(
         new MatrixFree<spacedim, double>());
-      system_mf_storage->reinit(
-        mapping, dh, constraints, QGauss<1>(fe->degree + 1), additional_data);
+      system_mf_storage->reinit(geometry_mapping(),
+                                dh,
+                                constraints,
+                                QGauss<1>(fe->degree + 1),
+                                additional_data);
       stiffness_matrix.initialize(system_mf_storage);
 
       // Perform setup for matrix-free multigrid
       {
-        const unsigned int nlevels = tria.n_global_levels();
+        const unsigned int nlevels = tria->n_global_levels();
         mg_matrices.resize(0, nlevels - 1);
 
         const std::set<types::boundary_id> dirichlet_boundary_ids = {0};
@@ -145,7 +165,7 @@ namespace ImmersX
             additional_data_level.mg_level = level;
             std::shared_ptr<MatrixFree<spacedim, float>> mg_mf_storage_level =
               std::make_shared<MatrixFree<spacedim, float>>();
-            mg_mf_storage_level->reinit(mapping,
+            mg_mf_storage_level->reinit(geometry_mapping(),
                                         dh,
                                         level_constraints,
                                         QGauss<1>(fe->degree + 1),
@@ -246,7 +266,8 @@ namespace ImmersX
     stiffness_matrix = 0;
     coupling_matrix  = 0;
     system_rhs       = 0;
-    FEValues<spacedim>               fe_values(*fe,
+    FEValues<spacedim>               fe_values(geometry_mapping(),
+                                 *fe,
                                  *quadrature,
                                  update_values | update_gradients |
                                    update_quadrature_points |
@@ -393,7 +414,8 @@ namespace ImmersX
                                             next_p->get_id()) == inclusion_id;
                  ++next_p)
               ref_q_points.push_back(next_p->get_reference_location());
-            FEValues<spacedim, spacedim> fev(*fe,
+            FEValues<spacedim, spacedim> fev(geometry_mapping(),
+                                             *fe,
                                              ref_q_points,
                                              update_values | update_gradients);
             fev.reinit(dh_cell);
@@ -530,8 +552,8 @@ namespace ImmersX
                            LinearAlgebra::distributed::Vector<float>>
                                                          mg_smoother;
     MGLevelObject<typename SmootherType::AdditionalData> smoother_data;
-    smoother_data.resize(0, tria.n_global_levels() - 1);
-    for (unsigned int level = 0; level < tria.n_global_levels(); ++level)
+    smoother_data.resize(0, tria->n_global_levels() - 1);
+    for (unsigned int level = 0; level < tria->n_global_levels(); ++level)
       {
         if (level > 0)
           {
@@ -560,8 +582,8 @@ namespace ImmersX
 
     MGLevelObject<MatrixFreeOperators::MGInterfaceOperator<LevelMatrixType>>
       mg_interface_matrices;
-    mg_interface_matrices.resize(0, tria.n_global_levels() - 1);
-    for (unsigned int level = 0; level < tria.n_global_levels(); ++level)
+    mg_interface_matrices.resize(0, tria->n_global_levels() - 1);
+    for (unsigned int level = 0; level < tria->n_global_levels(); ++level)
       mg_interface_matrices[level].initialize(mg_matrices[level]);
     mg::Matrix<LinearAlgebra::distributed::Vector<float>> mg_interface(
       mg_interface_matrices);
@@ -767,8 +789,15 @@ namespace ImmersX
   PoissonProblem<dim, spacedim>::refine_and_transfer()
   {
     TimerOutput::Scope t(computing_timer, "Refine");
-    Vector<float>      error_per_cell(tria.n_active_cells());
-    KellyErrorEstimator<spacedim>::estimate(dh,
+    auto              *distributed =
+      dynamic_cast<parallel::distributed::Triangulation<spacedim> *>(tria);
+    AssertThrow(
+      distributed != nullptr,
+      ExcMessage(
+        "Use one refinement cycle with a fully distributed Laplacian mesh; refine it initially."));
+    Vector<float> error_per_cell(tria->n_active_cells());
+    KellyErrorEstimator<spacedim>::estimate(geometry_mapping(),
+                                            dh,
                                             QGauss<spacedim - 1>(par.fe_degree +
                                                                  1),
                                             {},
@@ -777,7 +806,7 @@ namespace ImmersX
     if (par.refinement_strategy == "fixed_fraction")
       {
         parallel::distributed::GridRefinement::
-          refine_and_coarsen_fixed_fraction(tria,
+          refine_and_coarsen_fixed_fraction(*distributed,
                                             error_per_cell,
                                             par.refinement_fraction,
                                             par.coarsening_fraction);
@@ -785,22 +814,22 @@ namespace ImmersX
     else if (par.refinement_strategy == "fixed_number")
       {
         parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
-          tria,
+          *distributed,
           error_per_cell,
           par.refinement_fraction,
           par.coarsening_fraction,
           par.max_cells);
       }
     else if (par.refinement_strategy == "global")
-      for (const auto &cell : tria.active_cell_iterators())
+      for (const auto &cell : tria->active_cell_iterators())
         cell->set_refine_flag();
 
     SolutionTransfer<spacedim, VectorType> transfer(dh);
-    tria.prepare_coarsening_and_refinement();
+    tria->prepare_coarsening_and_refinement();
     inclusions.inclusions_as_particles.prepare_for_coarsening_and_refinement();
     transfer.prepare_for_coarsening_and_refinement(
       locally_relevant_solution.block(0));
-    tria.execute_coarsening_and_refinement();
+    tria->execute_coarsening_and_refinement();
     inclusions.inclusions_as_particles.unpack_after_coarsening_and_refinement();
     setup_dofs();
     transfer.interpolate(solution.block(0));
@@ -819,11 +848,11 @@ namespace ImmersX
     DataOut<spacedim>  data_out;
     data_out.attach_dof_handler(dh);
     data_out.add_data_vector(locally_relevant_solution.block(0), solution_name);
-    Vector<float> subdomain(tria.n_active_cells());
+    Vector<float> subdomain(tria->n_active_cells());
     for (unsigned int i = 0; i < subdomain.size(); ++i)
-      subdomain(i) = tria.locally_owned_subdomain();
+      subdomain(i) = tria->locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
-    data_out.build_patches();
+    data_out.build_patches(geometry_mapping());
     const std::string filename =
       par.output_name + "_" + std::to_string(cycle) + ".vtu";
     data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
@@ -901,7 +930,7 @@ namespace ImmersX
     setup_fe();
     for (cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
       {
-        inclusions.setup_inclusions_particles(tria);
+        inclusions.setup_inclusions_particles(*tria);
         setup_dofs();
         if (par.output_results_before_solving)
           output_results();
@@ -920,11 +949,12 @@ namespace ImmersX
         // return;
         solve();
         output_results();
-        par.convergence_table.error_from_exact(
-          dh, locally_relevant_solution.block(0), par.exact_solution);
+        if (fe->reference_cell().is_hyper_cube())
+          par.convergence_table.error_from_exact(
+            dh, locally_relevant_solution.block(0), par.exact_solution);
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
-        if (pcout.is_active())
+        if (pcout.is_active() && fe->reference_cell().is_hyper_cube())
           par.convergence_table.output_table(pcout.get_stream());
       }
   }
