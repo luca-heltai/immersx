@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assemble weak terms, known sources, and multiplier metrics on uniform simplex meshes. Choose matching mappings for finite-element spaces, imported fields, particle search, immersed partitioning, and lifted triangular sheets. Reject mixed cell meshes in Domains and integration supports.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow Poisson to solve on uniform simplex meshes with fully distributed ownership, simplex finite elements and quadrature, and a linear geometry mapping.
 
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Allow the coupled MetricFlowX–elastodynamics application to partition vessels with the solid cell owners through the `immersed` policy, with serial and MPI RCR regression cases.
@@ -157,6 +159,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve multiplier mass contributions whose matrix rows belong to other MPI ranks.
 
 - [PR #294](https://github.com/luca-heltai/immersx/pull/294) Avoid division by zero in small fiber multiplier Schur solves with deal.II 9.7, including configurable discontinuous multiplier spaces in serial and MPI.
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Evaluate lifted observables and nonlinear weak terms with each cell's active finite element and local DoF count, including hp terminal pressure fields. Preserve differentiated fields' execution numbering for compact and permuted layouts and check coupled Jacobians per residual block.

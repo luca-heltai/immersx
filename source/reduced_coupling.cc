@@ -3,6 +3,8 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/coupling/immersed_repartitioner.h>
 #include <immersx/coupling/reduced_coupling.h>
 #include <immersx/coupling/tensor_product_space.h>
@@ -81,6 +83,17 @@ background_tria.get_mpi_communicator()
                                TriangulationDescription::Settings());
         };
       }
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize()
+  {
+    detail::assert_uniform_reference_cells(*background_tria);
+    AssertThrow(!background_tria->get_reference_cells().empty(),
+                ExcMessage("The coupling background mesh has no cells."));
+    initialize(compatibility::linear_mapping<spacedim>(
+      background_tria->get_reference_cells().front()));
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>

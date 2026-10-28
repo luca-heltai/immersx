@@ -34,7 +34,9 @@
 
 #include <deal.II/lac/affine_constraints.h>
 
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/field.h>
+#include <immersx/core/integration_support.h>
 
 #include <limits>
 #include <memory>
@@ -465,7 +467,9 @@ namespace ImmersX
           locally_relevant == nullptr ?
             dealii::DoFTools::extract_locally_relevant_dofs(dof_handler) :
             dealii::IndexSet())
-    {}
+    {
+      detail::assert_uniform_reference_cells(dof_handler.get_triangulation());
+    }
 
     const DoFHandlerType &
     dof_handler() const
@@ -624,6 +628,7 @@ namespace ImmersX
     void
     distribute_dofs()
     {
+      detail::assert_uniform_reference_cells(*triangulation_);
       dof_handler_.distribute_dofs(*finite_element_);
       locally_owned_dofs_ = dof_handler_.locally_owned_dofs();
       locally_relevant_dofs_ =
@@ -684,11 +689,12 @@ namespace ImmersX
                                                    &locally_relevant_dofs_);
     }
 
-    /** Return a view using deal.II's static Q1 mapping. */
+    /** Return a view using deal.II's linear reference-cell mapping. */
     FiniteElementSpaceView<dim, spacedim>
     view() const
     {
-      return view(dealii::StaticMappingQ1<dim, spacedim>::mapping);
+      return view(compatibility::linear_mapping<dim, spacedim>(
+        finite_element().reference_cell()));
     }
 
   private:

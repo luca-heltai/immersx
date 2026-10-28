@@ -420,8 +420,9 @@ namespace ImmersX
       constexpr int dim          = TargetField::dimension();
       constexpr int spacedim     = TargetField::spacedimension();
       const auto   &target_field = target.source();
-      const auto    quadrature   = dealii::QGauss<dim>(degree);
-      const auto    flags = target.update_flags() | dealii::update_JxW_values |
+      const auto    quadrature   = compatibility::gauss_quadrature<dim>(
+        target_field.space().finite_element().reference_cell(), degree);
+      const auto flags = target.update_flags() | dealii::update_JxW_values |
                          dealii::update_quadrature_points;
 
       if (region.kind == KnownTermRegion::Kind::volume)
@@ -448,8 +449,13 @@ namespace ImmersX
         }
       else
         {
-          const dealii::QGauss<dim - 1> face_quadrature(degree);
-          const auto                    face_flags =
+          const auto face_quadrature =
+            compatibility::gauss_quadrature<dim - 1>(target_field.space()
+                                                       .finite_element()
+                                                       .reference_cell()
+                                                       .face_reference_cell(0),
+                                                     degree);
+          const auto face_flags =
             target.update_flags() | dealii::update_JxW_values |
             dealii::update_quadrature_points | dealii::update_normal_vectors;
           dealii::FEFaceValues<dim, spacedim> face_values(
@@ -502,8 +508,9 @@ namespace ImmersX
         &source_field.mapping() == &target.source().mapping(),
         dealii::ExcMessage(
           "A frozen KnownTerm source and target must share a mapping."));
-      const auto quadrature = dealii::QGauss<dim>(degree);
-      const auto flags      = source.update_flags() | target.update_flags() |
+      const auto quadrature = compatibility::gauss_quadrature<dim>(
+        target.source().space().finite_element().reference_cell(), degree);
+      const auto flags = source.update_flags() | target.update_flags() |
                          dealii::update_JxW_values |
                          dealii::update_quadrature_points;
       const auto &frozen = source.template frozen_values<VectorType>();
@@ -534,8 +541,14 @@ namespace ImmersX
         }
       else
         {
-          const dealii::QGauss<dim - 1> face_quadrature(degree);
-          const auto                    face_flags =
+          const auto face_quadrature =
+            compatibility::gauss_quadrature<dim - 1>(target.source()
+                                                       .space()
+                                                       .finite_element()
+                                                       .reference_cell()
+                                                       .face_reference_cell(0),
+                                                     degree);
+          const auto face_flags =
             source.update_flags() | target.update_flags() |
             dealii::update_JxW_values | dealii::update_quadrature_points |
             dealii::update_normal_vectors;

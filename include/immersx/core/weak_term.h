@@ -700,10 +700,19 @@ namespace ImmersX
             const unsigned int degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const dealii::QGauss<support_dim> support_quadrature(degree + 2);
-            const dealii::FE_Nothing<support_dim, spacedim> geometry_element;
-            dealii::FEValues<support_dim, spacedim>         support_values(
-              dealii::StaticMappingQ1<support_dim, spacedim>::mapping,
+            AssertThrow(!support.triangulation().get_reference_cells().empty(),
+                        dealii::ExcMessage(
+                          "The integration support mesh has no cells."));
+            const auto reference_cell =
+              support.triangulation().get_reference_cells().front();
+            const auto support_quadrature =
+              compatibility::gauss_quadrature<support_dim>(reference_cell,
+                                                           degree + 2);
+            const dealii::FE_Nothing<support_dim, spacedim> geometry_element(
+              reference_cell);
+            dealii::FEValues<support_dim, spacedim> support_values(
+              compatibility::linear_mapping<support_dim, spacedim>(
+                reference_cell),
               geometry_element,
               support_quadrature,
               dealii::update_quadrature_points | dealii::update_JxW_values);
@@ -1126,8 +1135,10 @@ namespace ImmersX
             const auto degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const dealii::QGauss<dim> quadrature(degree + 1);
-            dealii::UpdateFlags       update_flags = dealii::update_JxW_values |
+            const auto quadrature = compatibility::gauss_quadrature<dim>(
+              target_field.space().finite_element().reference_cell(),
+              degree + 1);
+            dealii::UpdateFlags update_flags = dealii::update_JxW_values |
                                                observable.update_flags() |
                                                target.update_flags();
 
@@ -1352,8 +1363,14 @@ namespace ImmersX
             const unsigned int degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const dealii::QGauss<dim - 1> quadrature(degree + 1);
-            const auto                    flags =
+            const auto quadrature =
+              compatibility::gauss_quadrature<dim - 1>(target_field.space()
+                                                         .finite_element()
+                                                         .reference_cell()
+                                                         .face_reference_cell(
+                                                           0),
+                                                       degree + 1);
+            const auto flags =
               dealii::update_JxW_values | dealii::update_quadrature_points |
               dealii::update_normal_vectors | observable.update_flags() |
               target.update_flags();
@@ -1466,10 +1483,11 @@ namespace ImmersX
 
         const auto background_mask = background.component_mask();
         const auto embedded_mask   = embedded.component_mask();
-        const dealii::QGauss<embedded_dim> quadrature(
+        const auto quadrature = compatibility::gauss_quadrature<embedded_dim>(
+          embedded.space().finite_element().reference_cell(),
           std::max(background.space().finite_element().degree,
                    embedded.space().finite_element().degree) +
-          1);
+            1);
         dealii::DynamicSparsityPattern sparsity(
           background.dof_handler().n_dofs(),
           embedded.dof_handler().n_dofs(),
@@ -1652,8 +1670,10 @@ namespace ImmersX
                       "A mixed-dimensional weak term needs a distributed "
                       "target background triangulation."));
 
-        const dealii::QGauss<SourceField::dimension()> quadrature(degree + 1);
-        const unsigned int                             n_source_dofs =
+        const auto quadrature =
+          compatibility::gauss_quadrature<SourceField::dimension()>(
+            source.space().finite_element().reference_cell(), degree + 1);
+        const unsigned int n_source_dofs =
           source.space().finite_element().n_dofs_per_cell();
         const unsigned int source_components =
           n_stored_components<typename ObservableType::value_type>();
@@ -1846,9 +1866,10 @@ namespace ImmersX
                       "Nonmatching weak terms require a full-dimensional "
                       "source background.");
 
-        const auto                target_field = target.source();
-        const dealii::QGauss<dim> quadrature(degree + 1);
-        const auto               *source_tria =
+        const auto target_field = target.source();
+        const auto quadrature   = compatibility::gauss_quadrature<dim>(
+          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto *source_tria =
           dynamic_cast<const dealii::parallel::TriangulationBase<spacedim> *>(
             &source.space().dof_handler().get_triangulation());
         AssertThrow(source_tria != nullptr,
@@ -2405,10 +2426,20 @@ namespace ImmersX
                 const unsigned int degree =
                   std::max(source.space().finite_element().degree,
                            target_field.space().finite_element().degree);
-                const dealii::QGauss<support_dim> quadrature(degree + 2);
-                const dealii::FE_Nothing<support_dim, spacedim> geometry_fe;
-                dealii::FEValues<support_dim, spacedim>         support_values(
-                  dealii::StaticMappingQ1<support_dim, spacedim>::mapping,
+                AssertThrow(
+                  !support.triangulation().get_reference_cells().empty(),
+                  dealii::ExcMessage(
+                    "The integration support mesh has no cells."));
+                const auto reference_cell =
+                  support.triangulation().get_reference_cells().front();
+                const auto quadrature =
+                  compatibility::gauss_quadrature<support_dim>(reference_cell,
+                                                               degree + 2);
+                const dealii::FE_Nothing<support_dim, spacedim> geometry_fe(
+                  reference_cell);
+                dealii::FEValues<support_dim, spacedim> support_values(
+                  compatibility::linear_mapping<support_dim, spacedim>(
+                    reference_cell),
                   geometry_fe,
                   quadrature,
                   dealii::update_quadrature_points | dealii::update_JxW_values);
@@ -2902,8 +2933,9 @@ namespace ImmersX
         const auto degree =
           std::max(observable.polynomial_degree(),
                    target_field.space().finite_element().degree);
-        const dealii::QGauss<dim> quadrature(degree + 1);
-        const auto                flags = dealii::update_JxW_values |
+        const auto quadrature = compatibility::gauss_quadrature<dim>(
+          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto flags = dealii::update_JxW_values |
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
         const dealii::hp::MappingCollection<dim, spacedim> source_mappings(
@@ -3165,8 +3197,9 @@ namespace ImmersX
         const auto degree =
           std::max(observable.polynomial_degree(),
                    target_field.space().finite_element().degree);
-        const dealii::QGauss<dim> quadrature(degree + 1);
-        const auto                flags = dealii::update_JxW_values |
+        const auto quadrature = compatibility::gauss_quadrature<dim>(
+          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto flags = dealii::update_JxW_values |
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
 

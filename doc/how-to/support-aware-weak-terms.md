@@ -44,6 +44,29 @@ mapping, constraints, and relevant indices. Contributors can use
 native residual assembly when it carries affine boundary corrections; changing
 ownership does not require replacing it with a weak term.
 
+## Simplex meshes
+
+Each Domain and integration support must contain one reference-cell type:
+triangles, tetrahedra, quadrilaterals, hexahedra, or line segments. Mixed cell
+meshes are rejected. Simplex Domains use `Triangulation type = fullydistributed`.
+Refine the serial mesh during preparation before finalizing its ownership.
+
+Select a matching element, such as `FE_SimplexP<2>(1)` for a scalar triangle
+space or `FE_SimplexDGP<2>(0)` for a cellwise multiplier. The owning
+`FiniteElementSpace::view()` selects deal.II's linear mapping for that element.
+A non-owning view keeps the explicit mapping supplied by its Problem.
+
+Weak terms, known sources, boundary terms, and multiplier metrics select
+Gauss quadrature from the reference cell. Independent integration meshes use
+their own reference cell and mapping when generating physical support points.
+Particle searches and immersed partitioning also select a matching background
+mapping when none is supplied explicitly.
+
+Lifting a triangular sheet into a volume uses simplex Gauss quadrature on the
+sheet. Its `Representative quadrature/Type` must be `gauss`; the configured
+point count and number of repetitions still apply. Line representatives retain
+their configured one-dimensional quadrature.
+
 ## Cell and boundary supports
 
 Use a domain support to select all cells or one material id. Use a boundary

@@ -146,11 +146,14 @@ namespace ImmersX
 
     /**
      * @brief Initialize the tensor product space and particle coupling.
-     * @param mapping The mapping to use (default: StaticMappingQ1).
+     * @param mapping The background geometry mapping.
      */
     void
-    initialize(
-      const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
+    initialize(const Mapping<spacedim> &mapping);
+
+    /** Initialize using the background mesh's linear reference-cell mapping. */
+    void
+    initialize();
 
     /**
      * @brief Set the time used by the reduced right-hand-side function.

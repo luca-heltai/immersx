@@ -49,6 +49,9 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
+
 #include <fstream>
 #include <map>
 
@@ -329,10 +332,13 @@ namespace ImmersX
       mpi_communicator = tria.get_mpi_communicator();
       initialize();
 
-      inclusions_as_particles.initialize(tria,
-                                         StaticMappingQ1<spacedim>::mapping);
-      particles_on_centerline.initialize(tria,
-                                         StaticMappingQ1<spacedim>::mapping);
+      detail::assert_uniform_reference_cells(tria);
+      AssertThrow(!tria.get_reference_cells().empty(),
+                  ExcMessage("The inclusion background mesh has no cells."));
+      const auto &mapping = compatibility::linear_mapping<spacedim>(
+        tria.get_reference_cells().front());
+      inclusions_as_particles.initialize(tria, mapping);
+      particles_on_centerline.initialize(tria, mapping);
       if (n_inclusions() == 0)
         return;
 

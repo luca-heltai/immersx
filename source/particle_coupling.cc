@@ -14,6 +14,8 @@
 //
 // ---------------------------------------------------------------------
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/coupling/particle_coupling.h>
 namespace ImmersX
 {
@@ -44,6 +46,21 @@ namespace ImmersX
   }
 
 
+
+  template <int dim>
+  void
+  ParticleCoupling<dim>::initialize_particle_handler(
+    const parallel::TriangulationBase<dim> &tria,
+    const unsigned int                      n_properties)
+  {
+    detail::assert_uniform_reference_cells(tria);
+    AssertThrow(!tria.get_reference_cells().empty(),
+                ExcMessage("The particle background mesh has no cells."));
+    initialize_particle_handler(tria,
+                                compatibility::linear_mapping<dim>(
+                                  tria.get_reference_cells().front()),
+                                n_properties);
+  }
 
   template <int dim>
   void

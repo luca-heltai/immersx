@@ -18,6 +18,7 @@
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_q.h>
 
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/domain.h>
 #include <immersx/coupling/reference_frame.h>
 #include <immersx/coupling/tensor_product_lift.h>
@@ -155,12 +156,32 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "Cannot build lifted quadrature before the Domain mesh."));
 
-      const auto &representative_quadrature =
+      const auto reference_cell = tria.get_reference_cells().front();
+      auto       representative_quadrature =
         cache_->lift_support->representative_quadrature();
-      dealii::MappingQ<reduced_dim, spacedim>   mapping(2);
-      dealii::FE_Nothing<reduced_dim, spacedim> geometry_fe;
+      if constexpr (reduced_dim > 1)
+        if (tria.all_reference_cells_are_simplex())
+          {
+            const auto &parameters = lift_configuration().parameters();
+            AssertThrow(
+              parameters.representative_quadrature_type == "gauss",
+              dealii::ExcMessage(
+                "Simplex representative meshes require Gauss quadrature."));
+            const unsigned int n_points =
+              parameters.representative_n_q_points == 0 ?
+                2 * parameters.section.inclusion_degree + 1 :
+                parameters.representative_n_q_points;
+            representative_quadrature = dealii::QIteratedSimplex<reduced_dim>(
+              compatibility::gauss_quadrature<reduced_dim>(reference_cell,
+                                                           n_points),
+              parameters.representative_n_repetitions);
+          }
+      const auto mapping =
+        compatibility::default_mapping<reduced_dim, spacedim>(reference_cell,
+                                                              2);
+      dealii::FE_Nothing<reduced_dim, spacedim> geometry_fe(reference_cell);
       dealii::FEValues<reduced_dim, spacedim>   fe_values(
-        mapping,
+        *mapping,
         geometry_fe,
         representative_quadrature,
         dealii::update_quadrature_points | dealii::update_JxW_values |

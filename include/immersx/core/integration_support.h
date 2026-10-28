@@ -24,6 +24,23 @@
 
 namespace ImmersX
 {
+  namespace detail
+  {
+    template <typename TriangulationType>
+    void
+    assert_uniform_reference_cells(const TriangulationType &tria)
+    {
+      const auto &cells = tria.get_reference_cells();
+      AssertThrow(cells.empty() ||
+                    (cells.size() == 1 &&
+                     (tria.all_reference_cells_are_hyper_cube() ||
+                      tria.all_reference_cells_are_simplex())),
+                  dealii::ExcMessage(
+                    "ImmersX requires meshes containing only simplices or "
+                    "only hypercubes. Mixed meshes are not supported."));
+    }
+  } // namespace detail
+
   /** A non-owning view of the cells used by a weak-term integral. */
   template <int dim, int spacedim = dim>
   class IntegrationSupport
@@ -57,6 +74,7 @@ namespace ImmersX
     {
       AssertThrow(triangulation_ != nullptr,
                   dealii::ExcMessage("Integration support has no mesh."));
+      detail::assert_uniform_reference_cells(*triangulation_);
       return *triangulation_;
     }
 
@@ -221,6 +239,7 @@ namespace ImmersX
     {
       AssertThrow(triangulation_ != nullptr,
                   dealii::ExcMessage("Boundary support has no mesh."));
+      detail::assert_uniform_reference_cells(*triangulation_);
       return *triangulation_;
     }
 
