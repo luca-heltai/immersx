@@ -1,0 +1,74 @@
+set dimension = 3
+set space dimension = 3
+subsection Fiber Reinforced Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/fiber-simplex-3d
+  subsection Time interval
+    set Final time = 0.02
+    set Output time interval = 0.01
+  end
+  subsection Fixed step
+    set Time step = 0.01
+    set Number of time steps = 2
+  end
+  subsection IDA
+    subsection Error control
+      set Absolute error tolerance = 1.e-10
+      set Relative error tolerance = 1.e-10
+    end
+    subsection Running parameters
+      set Maximum order of BDF = 2
+    end
+  end
+  subsection Coupling solver
+    set Tolerance = 1.e-12
+    set Block tolerance = 1.e-13
+  end
+  subsection Matrix Elastodynamics
+    set Dirichlet boundary ids =
+    subsection Domain
+      set Triangulation type = fullydistributed
+      set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+      set Initial refinement = 0
+    end
+    subsection Material
+      set Density = 1
+      set Lame mu = 1
+      set Lame lambda = 1
+    end
+    subsection Functions
+      subsection Body force
+        set Function expression = 2;0;0
+      end
+      subsection Initial displacement
+        set Function expression = 1;0;0
+      end
+      subsection Initial velocity
+        set Function expression = 0;0;0
+      end
+    end
+  end
+  subsection Fiber Elastodynamics
+    set Dirichlet boundary ids =
+    subsection Domain
+      set Triangulation type = fullydistributed
+      set Grid generator = @TEST_DATA_DIR@/tests/simplex_interior_line_3d.vtk
+      set Initial refinement = 0
+    end
+    subsection Material
+      set Density = 1
+      set Lame mu = 1
+      set Lame lambda = 1
+    end
+    subsection Functions
+      subsection Body force
+        set Function expression = 2;0;0
+      end
+      subsection Initial displacement
+        set Function expression = 1;0;0
+      end
+      subsection Initial velocity
+        set Function expression = 0;0;0
+      end
+    end
+  end
+end

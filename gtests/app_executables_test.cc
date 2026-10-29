@@ -654,3 +654,11 @@ TEST(AppExecutables, CoupledPoissonElasticitySimplex)
     "coupled_poisson_elasticity",
     "gtests/parameters/coupled_poisson_elasticity_simplex.prm");
 }
+
+TEST(AppExecutables, FiberReinforcedSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("fiber_reinforced_elastodynamics",
+                         "gtests/parameters/fiber_reinforced_simplex_3d.prm");
+}

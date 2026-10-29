@@ -110,3 +110,10 @@ The pressure line and its lifted surface use the existing coupling parameters.
 The generated `coupled_poisson_elasticity_simplex.prm` places the axial line
 inside a tetrahedral cube; tests check the exact line pressure and balance
 its traction against the elastic stiffness action.
+
+For `fiber_reinforced_elastodynamics`, import triangles or tetrahedra into the
+fully distributed `Matrix Elastodynamics/Domain`. The line fiber and velocity
+multiplier retain their one-dimensional elements. The generated
+`fiber_reinforced_simplex_2d.prm` and `fiber_reinforced_simplex_3d.prm` exercise
+forced rigid translation; tests check both fixed steps and IDA against their
+respective displacement and velocity solutions.
