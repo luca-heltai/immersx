@@ -15,7 +15,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <queue>
 #include <set>
+#include <tuple>
 
 namespace ImmersX::Vascularization
 {
@@ -121,9 +123,9 @@ namespace ImmersX::Vascularization
       Id                   id;
       double               demand;
     };
-    std::vector<Resistor>           resistors;
-    std::vector<std::vector<Index>> neighbors(n);
-    const auto                      append = [&](Id     a,
+    std::vector<Resistor>                              resistors;
+    std::vector<std::vector<std::pair<Index, double>>> neighbors(n);
+    const auto                                         append = [&](Id     a,
                             Id     b,
                             double r,
                             Kind   kind,
@@ -140,8 +142,8 @@ namespace ImmersX::Vascularization
         }
       const Index i = indices.at(a), j = indices.at(b);
       resistors.push_back({{{i, j}}, r, kind, id, demand});
-      neighbors[i].push_back(j);
-      neighbors[j].push_back(i);
+      neighbors[i].emplace_back(j, r);
+      neighbors[j].emplace_back(i, r);
     };
     for (const auto &[id, e] : network.vessels)
       append(e.nodes[0], e.nodes[1], resistance(network, id), Kind::vessel, id);
@@ -173,7 +175,7 @@ namespace ImmersX::Vascularization
               {
                 anchored = true;
               }
-            for (const Index next : neighbors[j])
+            for (const auto &[next, resistance] : neighbors[j])
               if (!visited[next])
                 {
                   visited[next] = true;
@@ -188,27 +190,53 @@ namespace ImmersX::Vascularization
       }
     if (!result.validation.valid())
       return result;
-    // A deterministic multi-source lifting uses the nearest prescribed node
-    // in graph distance. Vascular drops near an inlet/outlet are then computed
-    // from small corrections, rather than subtracting two large pressures.
-    std::fill(visited.begin(), visited.end(), false);
-    std::vector<double> lifting(n, 0.);
-    std::vector<Index>  frontier;
+    // Resistive distance keeps small pressure corrections in each highly
+    // conducting forest. Graph-hop distance can cross a large 0D bed before
+    // reaching the true nearby outlet, causing cancellation of large offsets
+    // when computing tiny vascular pressure drops. Ties use physical port ids.
+    std::vector<double>      lifting(n, 0.);
+    std::vector<long double> distance(
+      n, std::numeric_limits<long double>::infinity());
+    std::vector<Id> anchor(n, invalid_id);
+    using Entry = std::tuple<long double, Id, Index>;
+    std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>>
+      frontier;
     for (const auto &[id, pressure] : conditions.pressures)
       {
         const Index i = indices.at(id);
-        visited[i]    = true;
+        distance[i]   = 0.;
+        anchor[i]     = id;
         lifting[i]    = pressure;
-        frontier.push_back(i);
+        frontier.emplace(0., id, i);
       }
-    for (std::size_t k = 0; k < frontier.size(); ++k)
-      for (const Index next : neighbors[frontier[k]])
-        if (!visited[next])
+    while (!frontier.empty())
+      {
+        const auto [d, origin, i] = frontier.top();
+        frontier.pop();
+        if (d != distance[i] || origin != anchor[i])
+          continue;
+        for (const auto &[next, r] : neighbors[i])
           {
-            visited[next] = true;
-            lifting[next] = lifting[frontier[k]];
-            frontier.push_back(next);
+            const long double candidate = d + static_cast<long double>(r);
+            if (!conditions.pressures.count(node_ids[next]) &&
+                std::isfinite(candidate) &&
+                (candidate < distance[next] ||
+                 (candidate == distance[next] && origin < anchor[next])))
+              {
+                distance[next] = candidate;
+                anchor[next]   = origin;
+                lifting[next]  = conditions.pressures.at(origin);
+                frontier.emplace(candidate, origin, next);
+              }
           }
+      }
+    for (Index i = 0; i < n; ++i)
+      if (anchor[i] == invalid_id)
+        issue("reference",
+              node_ids[i],
+              "Resistive pressure-lifting distance is not representable.");
+    if (!result.validation.valid())
+      return result;
     DynamicSparsityPattern pattern(n, n);
     for (Index i = 0; i < n; ++i)
       pattern.add(i, i);

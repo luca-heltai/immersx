@@ -1,0 +1,146 @@
+# Generate a physical vascular network
+
+The vascularization library grows physical vessels inside a prepared 3D
+background. It keeps vessel identity separate from numerical 1D cells.
+`NetworkData` stores physical node, vessel and tissue-terminal identifiers,
+radii, viscosity, system, orientation, ownership and provenance. A successful
+`GenerationResult` contains the proposed network, its numerical subdivision,
+common tissue territories and validation reports. The caller adopts it only
+when `validation.valid()` is true; input data are never modified.
+
+The current execution path requires one MPI rank and a first-order mapping on
+an all-tetrahedral or all-hexahedral background. Geometry checks include the
+vessel wall and clearance. An ambiguous boundary separation at the finite
+geometry budget fails conservatively. Explicit planar inlet/outlet sections
+are supported; a warped boundary face is not replaced by a planar aperture.
+
+## Arterial and venous trees
+
+This synthetic example uses metres, pascals, seconds and cubic metres per
+second. Its values are not an organ calibration. The background is a unit cube.
+The example is exercised by `VascularAV` integration tests in Debug and Release.
+
+```cpp
+#include <deal.II/fe/mapping_q1.h>
+#include <deal.II/grid/grid_generator.h>
+#include <immersx/vascularization/generation.h>
+
+using namespace dealii;
+using namespace ImmersX::Vascularization;
+
+Triangulation<3> background;
+GridGenerator::hyper_cube(background);
+MappingQ1<3> mapping;
+Parameters parameters;
+parameters.seed_position  = Point<3>(.2, .5, .5);
+parameters.seed_direction = Point<3>(1., 0., 0.);
+parameters.seed_radius    = .003;
+parameters.seed_length    = .2;
+parameters.viscosity      = .004;
+parameters.terminal_count = 8;
+parameters.reference_flow = 2.e-9;
+parameters.tissue_demand  = "1+x+2*y";
+parameters.arterial_murray_exponent = 2.7;
+parameters.venous.enabled = true;
+parameters.venous.seed_position = Point<3>(.8, .5, .5);
+parameters.venous.seed_radius = .004;
+parameters.venous.murray_exponent = 3.2;
+parameters.venous.terminal_separation = .04;
+parameters.reference_conditions.pressures = {{0, 12000.}, {2, 4000.}};
+
+auto result = generate(background, mapping, {}, parameters, MPI_COMM_WORLD);
+AssertThrow(result.validation.valid(), ExcMessage("Vascular generation failed"));
+Triangulation<1, 3> vessels;
+const auto physical_cells =
+  create_triangulation(result.network, result.discretization, vessels);
+```
+
+For empty input, the arterial inlet is physical node `0`. Arterial seed creation
+also creates its first endpoint, node `1`. When a new venous outlet is needed,
+its physical node is reserved next, node `2`, before further insertions. Its
+identifier therefore stays fixed when terminal-count calibration changes the
+number of territories. These pressure keys are physical node identifiers,
+not triangulation vertex numbers or DoF indices. Imported networks retain their
+own port identifiers.
+
+The arterial forest defines common territory centres and their demand. The
+same CCO engine then grows veins from the declared outlet or selected venous
+attachments toward these territories. The first venous connection goes directly
+to an admissible territory, trying territories in distance/id order. Each later
+insertion tries six Cartesian endpoint offsets of the configured separation.
+The territory centre is the arterial endpoint; its venous endpoint is distinct.
+Demand is evaluated once at the common centre and shared exactly by both
+terminals. A vein's geometry is oriented from outlet toward tissue, and its
+physical reference flow is negative in that orientation.
+
+The arterial forest remains fixed while the venous forest grows. All venous
+proposals, including radius changes on their ancestors, are checked against
+both forests and imported obstacles. This ordered construction can exhaust its
+finite geometry budget even when another joint arrangement might exist. Such
+failure is reported; it does not establish geometric impossibility.
+
+Each system has its own Murray exponent. The radius of a generated vessel
+satisfies $r_e=R_{\mathrm{root}}(D_e/D_{\mathrm{root}})^{1/\gamma}$, where
+$D_e$ is the sum of downstream territory demands. Root radii stay fixed. The
+minimum-radius check includes existing leaves when a new demand is added.
+`terminal_weight` and `density_beta` control where territories are sampled;
+`tissue_demand` controls supply and radii independently. Numerical subdivision
+uses diameters of background cells actually crossed by each segment. Refining
+these 1D cells changes neither the physical graph nor integrated volume and
+resistance.
+
+## Reference pressures, supply and microvascular beds
+
+With `venous.microvascular_resistance == 0`, supply is distributed by relative
+territory demand, with total `reference_flow` through each system. The generator
+first solves the two forests under the supplied port pressures and terminal
+flows. It derives a separate bed resistance
+$R_i=(p_{A,i}-p_{V,i})/Q_i$ for every territory and requires it to be finite and
+strictly positive. It then solves the connected graph using the supplied
+external boundary conditions, with the derived beds and no prescribed flows
+at paired tissue terminals. The actual bed flow must realize the demand split
+within the configured numerical reference tolerance. No inlet receives both
+an independent pressure and flow.
+
+A positive `venous.microvascular_resistance` supplies that resistance directly
+for each bed. With `reference_flow == 0`, pressures and resistances determine
+the resulting flows. If a positive reference flow is also requested, the result
+must realize its demand split; incompatible resistance/pressure/flow data fail
+validation. A bed has no implicit capillary volume or geometric collision
+segment.
+
+`result.reference` reports actual pressures, signed vessel flows, territory
+supply, endpoint wall shear, dissipated power and independent mass-balance
+checks. `target_terminal_flows` and `target_attachment_flows` hold desired
+flows, not substitutes for the solved values. The reference problem is steady
+Poiseuille flow on complete physical vessels, including imported exterior
+parts. It is separate from transient hemodynamics and accepted solver state.
+
+A nonzero `dissipation_weight` blends generated-vessel volume and dissipated
+power, each normalized by the current active forest value. Physical flow is
+split globally across the active system's roots by demand. Frozen imported
+vessels contribute to the full reference solve but not to this growth objective.
+
+## Complete imported forests
+
+Pass the existing `NetworkData` as `initial`. Set `selected_terminals` to
+arterial tissue-terminal identifiers and `venous.selected_terminals` to venous
+ones. Empty selections discover available interior leaves of the corresponding
+system. If no venous attachment is available, supply a new venous seed radius,
+position and viscosity. Multiple arterial attachments and multiple venous
+outlets are supported. The territory count must accommodate every selected
+attachment in each system.
+
+Every input node and vessel retains its geometry, radii and attributes,
+including input entries already marked as generated. Selected tissue-terminal
+roles are consumed; `attachment_roots` maps each consumed input terminal to its
+new root vessel. Unselected input terminal records remain unchanged. Explicitly
+selected exterior terminals fail instead of extending new vessels outside the
+background. Supply independent loads on unpaired input terminals through
+`reference_conditions`; paired terminals cannot also receive external loads.
+
+Volume fraction includes only inside portions of all 1D vessels, with additive
+volumes at junctions. It excludes beds. Coverage is a separate background
+quadrature estimate of finite service balls. In arterio-venous mode calibration
+uses dual coverage: quadrature points must lie within service distance of both
+systems. This geometric coverage is not a proof of physiological perfusion.
