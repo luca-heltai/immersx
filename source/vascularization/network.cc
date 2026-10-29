@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace ImmersX::Vascularization
 {
@@ -127,6 +128,75 @@ namespace ImmersX::Vascularization
           issue("terminal", id, "Owner is outside the communicator.");
         if (!known(terminal.system))
           issue("terminal", id, "Unknown vascular system.");
+      }
+    return report;
+  }
+
+  ValidationReport
+  validate_terminal_pairs(const NetworkData               &network,
+                          const std::vector<TerminalPair> &pairs)
+  {
+    ValidationReport report;
+    if (pairs.empty())
+      return report;
+    std::set<Id>                              territories, terminals;
+    std::map<Id, std::vector<const Vessel *>> incident;
+    for (const auto &[id, e] : network.vessels)
+      {
+        incident[e.nodes[0]].push_back(&e);
+        incident[e.nodes[1]].push_back(&e);
+      }
+    for (const auto &p : pairs)
+      {
+        const auto issue = [&](const std::string &message) {
+          report.issues.push_back({"terminal pair", p.territory, message});
+        };
+        if (p.territory == invalid_id ||
+            !territories.insert(p.territory).second)
+          issue("A supplied territory must have exactly one terminal pair.");
+        if (!terminals.insert(p.arterial).second ||
+            !terminals.insert(p.venous).second)
+          issue("A terminal cannot belong to more than one supplied pair.");
+        if (!positive(p.resistance))
+          issue("Microvascular resistance must be positive and finite.");
+        const auto a = network.terminals.find(p.arterial),
+                   v = network.terminals.find(p.venous);
+        if (a == network.terminals.end() || v == network.terminals.end())
+          {
+            issue("Missing terminal or terminal ghost.");
+            continue;
+          }
+        if (a->second.system != System::arterial ||
+            v->second.system != System::venous)
+          issue("A pair requires an arterial terminal and a venous terminal.");
+        if (a->second.territory != p.territory ||
+            v->second.territory != p.territory)
+          issue("Both terminals must identify the common paired territory.");
+        if (a->second.demand != v->second.demand)
+          issue("Paired terminals must share the same tissue demand.");
+        const auto an = network.nodes.find(a->second.node),
+                   vn = network.nodes.find(v->second.node);
+        if (an == network.nodes.end() || vn == network.nodes.end())
+          {
+            issue("Missing paired endpoint node or ghost.");
+            continue;
+          }
+        if (!positive(an->second.position.distance(vn->second.position)))
+          issue("Paired terminal endpoints must be geometrically distinct.");
+        for (const auto *terminal : {&a->second, &v->second})
+          {
+            unsigned int degree   = 0;
+            bool         oriented = true;
+            for (const auto *e : incident[terminal->node])
+              {
+                ++degree;
+                oriented = oriented && e->nodes[1] == terminal->node &&
+                           e->system == terminal->system;
+              }
+            if (degree != 1 || !oriented)
+              issue(
+                "Each paired terminal must end one correctly oriented vessel of its own system.");
+          }
       }
     return report;
   }

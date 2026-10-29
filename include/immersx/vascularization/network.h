@@ -81,6 +81,14 @@ namespace ImmersX::Vascularization
     double demand = 1.;
   };
 
+  struct TerminalPair
+  {
+    Id     territory  = invalid_id;
+    Id     arterial   = invalid_id;
+    Id     venous     = invalid_id;
+    double resistance = 0.;
+  };
+
   /**
    * Locally relevant physical data. Map keys are persistent IDs in separate
    * node, vessel and terminal namespaces. An entry is owned iff its owner is
@@ -112,6 +120,16 @@ namespace ImmersX::Vascularization
 
   ValidationReport
   validate_data(const NetworkData &network, unsigned int communicator_size);
+
+  /**
+   * Check the supplied local pair records: unique territory and terminal ids,
+   * matched systems, common territory/demand, distinct leaf endpoints and
+   * positive resistance. This does not assert that every network terminal is
+   * paired.
+   */
+  ValidationReport
+  validate_terminal_pairs(const NetworkData               &network,
+                          const std::vector<TerminalPair> &pairs);
 
   /** Physical centreline length in metres. Missing endpoints are an error. */
   double
