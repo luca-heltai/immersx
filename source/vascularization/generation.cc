@@ -121,9 +121,17 @@ namespace ImmersX::Vascularization
     add_parameter(
       "Dissipation weight",
       dissipation_weight,
-      "Zero minimizes volume; otherwise blend volume and dissipation, each normalized by its current tree value.");
+      "Zero minimizes generated-vessel volume; otherwise blend generated volume and dissipation under total new-tissue reference flow, each normalized by its current forest value.");
     leave_subsection();
     enter_subsection("Physiology");
+    add_parameter(
+      "Tissue demand",
+      tissue_demand,
+      "Positive finite relative demand at new territory positions; independent of sampling density.");
+    add_parameter(
+      "Total new-tissue reference flow",
+      reference_flow,
+      "m^3/s through newly generated terminals, split by tissue demand; required for a nonzero dissipation weight.");
     add_parameter("Arterial Murray exponent", arterial_murray_exponent);
     add_parameter("Minimum radius",
                   minimum_radius,
@@ -145,6 +153,11 @@ namespace ImmersX::Vascularization
       dealii::ExcMessage(
         "A positive minimum coverage requires an explicit positive maximum service distance."));
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
+    AssertThrow(
+      std::isfinite(reference_flow) && reference_flow >= 0. &&
+        (dissipation_weight == 0. || reference_flow > 0.),
+      dealii::ExcMessage(
+        "A blended dissipation objective requires an explicit positive total new-tissue reference flow in m^3/s."));
     AssertThrow(
       positive(seed_length) &&
         (creating_seed ? (positive(seed_radius) && positive(viscosity)) :
@@ -552,11 +565,13 @@ namespace ImmersX::Vascularization
       return first;
     }
 
-    // For N uniform terminal demands, r_e = R*(n_e/N)^(1/gamma).
-    // Volume is proportional to sum(L_e*n_e^(2/gamma))/N^(2/gamma).
-    // At fixed inlet flow, dissipation replaces that exponent by 2-4/gamma.
-    // Trial insertions change counts only on one ancestral path; the global
-    // radius normalization is evaluated lazily without copying the network.
+    // r_e = R*(D_e/D_root)^(1/gamma), with subtree demand D_e. The physical
+    // total tissue flow is split globally by demand, so power is proportional
+    // to sum_roots(mu/R^4 * D_root^(4/gamma) * sum_e(L_e*D_e^(2-4/gamma)))
+    // divided by total demand squared. The common total-flow squared factor
+    // cancels in the normalized objective. Counts remain separate for budgets.
+    // Trial demand changes touch one ancestral path; no candidate copies the
+    // complete network or materializes every normalized radius.
     struct CCOGrowth
     {
       using Leaf = std::pair<Segment<3>, Id>;
@@ -571,6 +586,7 @@ namespace ImmersX::Vascularization
       {
         double radius, viscosity;
         double volume_sum, dissipation_sum;
+        double minimum_demand;
       };
       struct Proposal
       {
@@ -579,39 +595,66 @@ namespace ImmersX::Vascularization
         std::vector<Id> ancestors;
         double          volume_sum = 0., dissipation_sum = 0.;
         double          cost = std::numeric_limits<double>::infinity();
+        double          terminal_demand = 1.;
       };
 
-      CCOGrowth(GenerationResult      &result,
-                const Parameters      &parameters,
-                BackgroundGeometry    &geometry,
-                const std::vector<Id> &roots,
-                unsigned int           terminal_count)
+      CCOGrowth(GenerationResult        &result,
+                const Parameters        &parameters,
+                BackgroundGeometry      &geometry,
+                const std::vector<Id>   &roots,
+                unsigned int             terminal_count,
+                const FunctionParser<3> &demand_function)
         : result(result)
         , network(result.network)
         , parameters(parameters)
         , terminal_count(terminal_count)
         , geometry(geometry)
+        , demand_function(demand_function)
         , random(parameters.random_seed)
         , exponent(2. / parameters.arterial_murray_exponent)
         , dissipation_exponent(2. - 4. / parameters.arterial_murray_exponent)
       {
+        std::map<Id, double> leaf_demands;
+        for (const auto &[id, t] : network.terminals)
+          leaf_demands[t.node] = t.demand;
+        for (Id root : roots)
+          demand_scale =
+            std::max(demand_scale,
+                     leaf_demands.at(network.vessels.at(root).nodes[1]));
         for (Id root : roots)
           {
-            const auto &e = network.vessels.at(root);
+            const auto  &e = network.vessels.at(root);
+            const double d = leaf_demands.at(e.nodes[1]) / demand_scale;
+            AssertThrow(
+              std::isfinite(d) && d > 0.,
+              ExcMessage(
+                "Initial relative tissue demand is not representable."));
             counts[root]  = 1;
+            demands[root] = d;
+            total_demand += d;
             parents[root] = invalid_id;
             tree_of[root] = root;
             trees[root]   = {e.radii[0],
                              e.viscosity,
-                             length(network, root),
-                             length(network, root)};
+                             length(network, root) * std::pow(d, exponent),
+                           parameters.dissipation_weight > 0. ?
+                               length(network, root) *
+                               std::pow(d, dissipation_exponent) :
+                               0.,
+                             d};
             forest_volume +=
-              tree_volume(trees.at(root), trees.at(root).volume_sum, 1.);
-            forest_dissipation +=
-              tree_dissipation(trees.at(root),
-                               trees.at(root).dissipation_sum,
-                               1.);
+              tree_volume(trees.at(root), trees.at(root).volume_sum, d);
+            forest_power_numerator +=
+              tree_power_numerator(trees.at(root),
+                                   trees.at(root).dissipation_sum,
+                                   d);
           }
+        AssertThrow(std::isfinite(forest_volume) && forest_volume > 0. &&
+                      (parameters.dissipation_weight == 0. ||
+                       (std::isfinite(forest_power_numerator) &&
+                        forest_power_numerator > 0.)),
+                    ExcMessage(
+                      "Initial vascular objective is not representable."));
         for (const auto &[id, e] : network.vessels)
           maximum_radius = std::max({maximum_radius, e.radii[0], e.radii[1]});
         next_node     = next_identifier(network.nodes);
@@ -652,17 +695,23 @@ namespace ImmersX::Vascularization
       }
 
       double
-      tree_volume(const Tree &tree, double sum, double count) const
+      tree_volume(const Tree &tree, double sum, double root_demand) const
       {
         return numbers::PI * tree.radius * tree.radius * sum /
-               std::pow(count, exponent);
+               std::pow(root_demand, exponent);
       }
 
       double
-      tree_dissipation(const Tree &tree, double sum, double count) const
+      tree_power_numerator(const Tree &tree,
+                           double      sum,
+                           double      root_demand) const
       {
+        if (parameters.dissipation_weight == 0.)
+          return 0.;
+        // Numerator of generated-forest power divided by the common Q^2.
         return 8. * tree.viscosity / numbers::PI / std::pow(tree.radius, 4) *
-               sum / std::pow(count, dissipation_exponent);
+               sum *
+               std::pow(root_demand, 4. / parameters.arterial_murray_exponent);
       }
 
       double
@@ -674,7 +723,7 @@ namespace ImmersX::Vascularization
                           network.vessels.at(id).radii[1]);
         const Id root = found->second;
         return trees.at(root).radius *
-               std::pow(static_cast<double>(counts.at(id)) / counts.at(root),
+               std::pow(demands.at(id) / demands.at(root),
                         1. / parameters.arterial_murray_exponent);
       }
 
@@ -740,19 +789,26 @@ namespace ImmersX::Vascularization
       propose(Id              id,
               const Point<3> &junction,
               const Point<3> &terminal,
-              double          ceiling) const
+              double          ceiling,
+              double          terminal_demand) const
       {
         Proposal p;
-        p.vessel   = id;
-        p.junction = junction;
-        p.terminal = terminal;
+        p.vessel          = id;
+        p.junction        = junction;
+        p.terminal        = terminal;
+        p.terminal_demand = terminal_demand;
         for (Id ancestor = parents.at(id); ancestor != invalid_id;
              ancestor    = parents.at(ancestor))
           p.ancestors.push_back(ancestor);
         const auto   old  = segment(id);
         const Id     root = tree_of.at(id);
         const auto  &tree = trees.at(root);
-        const double n = counts.at(id), total = counts.at(root);
+        const double n = demands.at(id), total = demands.at(root),
+                     w = terminal_demand / demand_scale;
+        if (!std::isfinite(w) || w <= 0. || !std::isfinite(total + w) ||
+            total + w <= total || !std::isfinite(total_demand + w) ||
+            total_demand + w <= total_demand)
+          return {};
         const double a     = old.first.distance(junction),
                      b     = junction.distance(old.second),
                      c     = junction.distance(terminal);
@@ -762,27 +818,38 @@ namespace ImmersX::Vascularization
           return {};
         const auto sum = [&](double power, double original) {
           double value = original - length(network, id) * std::pow(n, power) +
-                         a * std::pow(n + 1., power) + b * std::pow(n, power) +
-                         c;
+                         a * std::pow(n + w, power) + b * std::pow(n, power) +
+                         c * std::pow(w, power);
           for (Id ancestor : p.ancestors)
             value += length(network, ancestor) *
-                     (std::pow(counts.at(ancestor) + 1., power) -
-                      std::pow(counts.at(ancestor), power));
+                     (std::pow(demands.at(ancestor) + w, power) -
+                      std::pow(demands.at(ancestor), power));
           return value;
         };
         p.volume_sum      = sum(exponent, tree.volume_sum);
-        p.dissipation_sum = sum(dissipation_exponent, tree.dissipation_sum);
+        p.dissipation_sum = parameters.dissipation_weight > 0. ?
+                              sum(dissipation_exponent, tree.dissipation_sum) :
+                              0.;
+        if (!std::isfinite(p.volume_sum) || p.volume_sum <= 0. ||
+            (parameters.dissipation_weight > 0. &&
+             (!std::isfinite(p.dissipation_sum) || p.dissipation_sum <= 0.)))
+          return {};
         const double vr =
           (forest_volume - tree_volume(tree, tree.volume_sum, total) +
-           tree_volume(tree, p.volume_sum, total + 1.)) /
+           tree_volume(tree, p.volume_sum, total + w)) /
           forest_volume;
-        const double dr =
-          (forest_dissipation -
-           tree_dissipation(tree, tree.dissipation_sum, total) +
-           tree_dissipation(tree, p.dissipation_sum, total + 1.)) /
-          forest_dissipation;
-        p.cost = (1. - parameters.dissipation_weight) * vr +
-                 parameters.dissipation_weight * dr;
+        p.cost = vr;
+        if (parameters.dissipation_weight > 0.)
+          {
+            const double dr =
+              (forest_power_numerator -
+               tree_power_numerator(tree, tree.dissipation_sum, total) +
+               tree_power_numerator(tree, p.dissipation_sum, total + w)) /
+              forest_power_numerator *
+              std::pow(total_demand / (total_demand + w), 2);
+            p.cost = (1. - parameters.dissipation_weight) * vr +
+                     parameters.dissipation_weight * dr;
+          }
         if (!std::isfinite(p.cost) || p.cost >= ceiling)
           return {};
         std::set<Id> increased(p.ancestors.begin(), p.ancestors.end());
@@ -791,15 +858,18 @@ namespace ImmersX::Vascularization
           const auto found = tree_of.find(e);
           if (found == tree_of.end() || found->second != root)
             return radius(e);
-          const double count = counts.at(e) + (increased.count(e) ? 1. : 0.);
+          const double demand = demands.at(e) + (increased.count(e) ? w : 0.);
           return tree.radius *
-                 std::pow(count / (total + 1.),
+                 std::pow(demand / (total + w),
                           1. / parameters.arterial_murray_exponent);
         };
         const double leaf_radius =
           tree.radius *
-          std::pow(1. / (total + 1.), 1. / parameters.arterial_murray_exponent);
-        if (leaf_radius < parameters.minimum_radius)
+          std::pow(w / (total + w), 1. / parameters.arterial_murray_exponent);
+        const double smallest_leaf =
+          tree.radius * std::pow(std::min(tree.minimum_demand, w) / (total + w),
+                                 1. / parameters.arterial_murray_exponent);
+        if (!(smallest_leaf > 0.) || smallest_leaf < parameters.minimum_radius)
           return {};
         const auto        nodes = network.vessels.at(id).nodes;
         std::vector<Edge> changed{
@@ -810,7 +880,7 @@ namespace ImmersX::Vascularization
           {next_vessel,
            {{next_node, nodes[1]}},
            {{junction, old.second}},
-           tree.radius * std::pow(n / (total + 1.),
+           tree.radius * std::pow(n / (total + w),
                                   1. / parameters.arterial_murray_exponent)},
           {next_vessel + 1,
            {{next_node, next_node + 1}},
@@ -860,18 +930,20 @@ namespace ImmersX::Vascularization
       }
 
       std::optional<Proposal>
-      optimize(Id id, const Point<3> &terminal) const
+      optimize(Id id, const Point<3> &terminal, double terminal_demand) const
       {
         const auto s    = segment(id);
         auto       best = propose(id,
                             .5 * (s.first + s.second),
                             terminal,
-                            std::numeric_limits<double>::infinity());
+                            std::numeric_limits<double>::infinity(),
+                            terminal_demand);
         if (!best)
           best = propose(id,
                          (s.first + s.second + terminal) / 3.,
                          terminal,
-                         std::numeric_limits<double>::infinity());
+                         std::numeric_limits<double>::infinity(),
+                         terminal_demand);
         if (!best)
           return {};
         double step = .25 * s.first.distance(s.second);
@@ -885,8 +957,11 @@ namespace ImmersX::Vascularization
                 {
                   auto trial = best->junction;
                   trial[d] += sign * step;
-                  if (auto candidate =
-                        propose(id, trial, terminal, best->cost - 1.e-14))
+                  if (auto candidate = propose(id,
+                                               trial,
+                                               terminal,
+                                               best->cost - 1.e-14,
+                                               terminal_demand))
                     {
                       best     = std::move(candidate);
                       improved = true;
@@ -920,28 +995,38 @@ namespace ImmersX::Vascularization
         const Id tid                          = take_identifiers(next_terminal);
         const Id territory     = take_identifiers(next_territory);
         network.terminals[tid] = {
-          next_node + 1, territory, System::arterial, 0, 1.};
-        result.territories.push_back({territory, p.terminal, 0, 1.});
+          next_node + 1, territory, System::arterial, 0, p.terminal_demand};
+        result.territories.push_back(
+          {territory, p.terminal, 0, p.terminal_demand});
         for (auto &[child, parent] : parents)
           if (parent == p.vessel)
             parent = next_vessel;
         const Id root = tree_of.at(p.vessel);
         auto    &tree = trees.at(root);
-        forest_volume -= tree_volume(tree, tree.volume_sum, counts.at(root));
-        forest_dissipation -=
-          tree_dissipation(tree, tree.dissipation_sum, counts.at(root));
+        forest_volume -= tree_volume(tree, tree.volume_sum, demands.at(root));
+        forest_power_numerator -=
+          tree_power_numerator(tree, tree.dissipation_sum, demands.at(root));
         tree_of[next_vessel] = tree_of[next_vessel + 1] = root;
         counts[next_vessel]                             = counts.at(p.vessel);
         counts[next_vessel + 1]                         = 1;
         parents[next_vessel] = parents[next_vessel + 1] = p.vessel;
+        const double w           = p.terminal_demand / demand_scale;
+        demands[next_vessel]     = demands.at(p.vessel);
+        demands[next_vessel + 1] = w;
+        demands.at(p.vessel) += w;
+        total_demand += w;
+        tree.minimum_demand = std::min(tree.minimum_demand, w);
         ++counts.at(p.vessel);
         for (Id ancestor : p.ancestors)
-          ++counts.at(ancestor);
+          {
+            ++counts.at(ancestor);
+            demands.at(ancestor) += w;
+          }
         tree.volume_sum      = p.volume_sum;
         tree.dissipation_sum = p.dissipation_sum;
-        forest_volume += tree_volume(tree, tree.volume_sum, counts.at(root));
-        forest_dissipation +=
-          tree_dissipation(tree, tree.dissipation_sum, counts.at(root));
+        forest_volume += tree_volume(tree, tree.volume_sum, demands.at(root));
+        forest_power_numerator +=
+          tree_power_numerator(tree, tree.dissipation_sum, demands.at(root));
         take_identifiers(next_node, 2);
         take_identifiers(next_vessel, 2);
         ++result.accepted_insertions;
@@ -967,7 +1052,7 @@ namespace ImmersX::Vascularization
             result.validation.issues.push_back(
               {"growth",
                invalid_id,
-               "Requested uniform-demand terminal count is incompatible with the minimum radius at the fixed attachment radii."});
+               "Requested terminal count is incompatible with the minimum radius at the fixed attachment radii."});
             return;
           }
         while (result.territories.size() < terminal_count)
@@ -998,6 +1083,11 @@ namespace ImmersX::Vascularization
                 if (uniform() >= w / parameters.terminal_weight_bound *
                                    std::pow(scale / h, parameters.density_beta))
                   continue;
+                const double terminal_demand = demand_function.value(target);
+                AssertThrow(
+                  std::isfinite(terminal_demand) && terminal_demand > 0.,
+                  ExcMessage(
+                    "Tissue demand must be positive and finite at every proposed terminal."));
                 std::vector<Leaf> candidates;
                 candidate_vessels.query(
                   bgi::nearest(target, parameters.candidate_count),
@@ -1013,7 +1103,7 @@ namespace ImmersX::Vascularization
                           });
                 std::optional<Proposal> best;
                 for (const auto &[s, id] : candidates)
-                  if (auto p = optimize(id, target);
+                  if (auto p = optimize(id, target, terminal_demand);
                       p && (!best || p->cost < best->cost))
                     best = std::move(p);
                 if (best)
@@ -1034,24 +1124,49 @@ namespace ImmersX::Vascularization
           }
         for (const auto &[id, root] : tree_of)
           network.vessels.at(id).radii = {{radius(id), radius(id)}};
+        if (parameters.reference_flow > 0. && result.validation.valid())
+          {
+            std::set<Id> territories;
+            for (const auto &t : result.territories)
+              territories.insert(t.id);
+            for (const auto &[id, t] : network.terminals)
+              if (territories.count(t.territory))
+                {
+                  const double q = parameters.reference_flow *
+                                   ((t.demand / demand_scale) / total_demand);
+                  if (!std::isfinite(q) || q <= 0.)
+                    result.validation.issues.push_back(
+                      {"flow design",
+                       id,
+                       "Desired terminal flow is not representable."});
+                  result.target_terminal_flows[id] = q;
+                }
+            for (const auto &[root, tree] : trees)
+              result.target_attachment_flows[root] =
+                parameters.reference_flow * (demands.at(root) / total_demand);
+          }
       }
 
-      GenerationResult   &result;
-      NetworkData        &network;
-      const Parameters   &parameters;
-      const unsigned int  terminal_count;
-      BackgroundGeometry &geometry;
-      std::mt19937_64     random;
-      FunctionParser<3>   weight;
-      Point<3>            lower, upper;
-      double              minimum_h = std::numeric_limits<double>::infinity(),
-             maximum_h              = 0.;
+      GenerationResult        &result;
+      NetworkData             &network;
+      const Parameters        &parameters;
+      const unsigned int       terminal_count;
+      BackgroundGeometry      &geometry;
+      const FunctionParser<3> &demand_function;
+      std::mt19937_64          random;
+      FunctionParser<3>        weight;
+      Point<3>                 lower, upper;
+      double minimum_h = std::numeric_limits<double>::infinity(),
+             maximum_h = 0.;
       const double exponent, dissipation_exponent;
-      double forest_volume = 0., forest_dissipation = 0., maximum_radius = 0.;
+      double       forest_volume = 0., forest_power_numerator = 0.,
+             maximum_radius = 0.;
       Id next_node = 0, next_vessel = 0, next_terminal = 0, next_territory = 0;
       std::map<Id, Tree>         trees;
       std::map<Id, Id>           tree_of;
       std::map<Id, unsigned int> counts;
+      std::map<Id, double>       demands;
+      double                     demand_scale = 0., total_demand = 0.;
       std::map<Id, Id>           parents;
       RTree<Leaf>                vessels, candidate_vessels;
     };
@@ -1074,6 +1189,8 @@ namespace ImmersX::Vascularization
                                initial.vessels.empty() &&
                                initial.terminals.empty();
     parameters.validate(creating_seed);
+    FunctionParser<3> demand_function;
+    demand_function.initialize("x,y,z", parameters.tissue_demand, {});
     const auto seed_normal =
       normalized_port_normal(parameters.seed_inward_port_normal);
     GenerationResult result;
@@ -1288,6 +1405,11 @@ namespace ImmersX::Vascularization
             }
           if (!compatible)
             continue;
+          const double terminal_demand = demand_function.value(end);
+          AssertThrow(
+            std::isfinite(terminal_demand) && terminal_demand > 0.,
+            ExcMessage(
+              "Tissue demand must be positive and finite at every initial terminal."));
           if (creating_seed)
             result.network.nodes[start] = {position,
                                            0,
@@ -1308,8 +1430,8 @@ namespace ImmersX::Vascularization
           const Id tid                   = take_identifiers(next_terminal),
                    territory            = take_identifiers(next_territory);
           result.network.terminals[tid] = {
-            end_node, territory, System::arterial, 0, 1.};
-          result.territories.push_back({territory, end, 0, 1.});
+            end_node, territory, System::arterial, 0, terminal_demand};
+          result.territories.push_back({territory, end, 0, terminal_demand});
           take_identifiers(next_node, creating_seed ? 2 : 1);
           if (input_terminal != invalid_id)
             {
@@ -1343,7 +1465,8 @@ namespace ImmersX::Vascularization
         }
     if (!result.validation.valid())
       return result;
-    CCOGrowth growth(result, parameters, geometry, roots, terminal_count);
+    CCOGrowth growth(
+      result, parameters, geometry, roots, terminal_count, demand_function);
     growth.run();
     const auto report = validate_data(result.network, 1);
     result.validation.issues.insert(result.validation.issues.end(),

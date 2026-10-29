@@ -125,6 +125,7 @@ TEST(VascularImported, MultipleInletsKeepIndependentFixedRootMurrayLaws)
   controls(p);
   p.terminal_count     = 18;
   p.dissipation_weight = .3;
+  p.reference_flow     = 2.e-9;
   const auto result =
     generate(background, MappingQ1<3>(), initial, p, MPI_COMM_WORLD);
   ASSERT_TRUE(result.validation.valid());
