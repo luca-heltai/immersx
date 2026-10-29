@@ -152,3 +152,9 @@ The generated `gtests/parameters/coupled_elasticity_simplex.prm` exercises this
 interface. The external 1D drivers still require a complete library compatible
 with the compiler and dependencies. Linux OpenMP test builds compile their
 full driver bodies independently of the library link check.
+
+For `pseudocoupling1D`, vesselwise displacement data use the flat-vector
+overload of `update_inclusions_data`. The generated
+`gtests/parameters/pseudocoupling_simplex.prm` checks two successive tissue
+solves with changed data and their displacement, multiplier, and pressure
+response in serial and MPI.
