@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Extend selected arterial endpoints of existing networks with fixed-radius CCO subtrees, including multiple inlets and partially exterior input networks. Preserve all input nodes, vessels, radii and physical properties, and inherit new subtree properties from each attachment. Respect declared arterial and venous outlets when discovering endpoints.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Grow vascular trees with deterministic CCO bifurcations, fixed-root Murray radii, spatial terminal weights and mesh-dependent terminal density. Select physical vessels independently of their numerical subdivision and check walls, junction angles and collisions after radius updates.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate an initial vascular seed from explicit SI parameters, checking the complete vessel wall against linear tetrahedral and bilinear hexahedral background boundaries.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Represent physical vascular networks with stable identifiers, explicit arterial and venous roles, ownership and provenance. Integrate tapered-vessel volume and Poiseuille resistance independently of numerical subdivision.
