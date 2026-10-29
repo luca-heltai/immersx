@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Grow Murray trees using configurable positive tissue demand independently of terminal density. Distribute an explicit new-tissue reference flow by demand, include that distribution in the blended generated-vessel objective, and retain desired terminal and attachment flows for reference validation.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve the steady vascular Poiseuille reference problem with tapered vessels and positive microvascular terminal resistances. Validate pressure/flow boundary data and paired territories, and report conservation, signed flow, pressure, territory supply, dissipation and endpoint wall shear independently of numerical subdivision.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Declare planar vascular inlet and outlet sections with inward normals. Permit seeds on those sections while checking the retained vessel envelope, sidewall clearance and interior junctions throughout CCO growth. Preserve port geometry independently of physical node identifiers.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Calibrate new vascular terminal counts against independent volume and tissue coverage targets with finite bounds, recorded trials and explicit convergence or budget failure. Detect when fixed imported volume already exceeds the target, and keep domain volume independent of coverage quadrature order.

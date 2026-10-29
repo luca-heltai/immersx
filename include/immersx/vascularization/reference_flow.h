@@ -88,6 +88,22 @@ namespace ImmersX::Vascularization
                   const ReferenceConditions       &conditions,
                   const ReferenceParameters       &parameters,
                   MPI_Comm                         communicator);
+  /**
+   * Prescribe total_flow (m^3/s) through selected tissue terminals, distributed
+   * by their relative demand. Empty selection means all terminals. Arterial
+   * sinks and venous sources are normalized independently to the same total.
+   * Only the supplied explicit ports receive prescribed pressures; their
+   * flows are reactions, so no inlet receives both pressure and flow.
+   * Unselected terminals are left for the caller's boundary conditions.
+   * Current execution requires one rank.
+   */
+  ReferenceConditions
+  demand_flow_conditions(const NetworkData          &network,
+                         const std::map<Id, double> &port_pressures,
+                         double                      total_flow,
+                         const std::vector<Id>      &selected_terminals,
+                         MPI_Comm                    communicator);
+
   /** Exact Poiseuille pressure profile on a physical reference interval. */
   double
   reference_pressure(const NetworkData     &network,

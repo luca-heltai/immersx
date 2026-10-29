@@ -220,6 +220,7 @@ TEST(VascularCCO, SpatialWeightsAndMixedObjective)
   p.terminal_count           = 10;
   p.terminal_weight          = "x<0.5";
   p.dissipation_weight       = .4;
+  p.reference_flow           = 2.e-9;
   p.arterial_murray_exponent = 2.7;
   const auto result =
     generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);

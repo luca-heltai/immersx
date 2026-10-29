@@ -418,6 +418,89 @@ namespace ImmersX::Vascularization
     return result;
   }
 
+  ReferenceConditions
+  demand_flow_conditions(const NetworkData          &network,
+                         const std::map<Id, double> &port_pressures,
+                         double                      total_flow,
+                         const std::vector<Id>      &selected_terminals,
+                         MPI_Comm                    communicator)
+  {
+    using namespace dealii;
+    AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
+                ExcMessage(
+                  "The current demand-flow construction requires one rank."));
+    AssertThrow(
+      validate_data(network, 1).valid() && std::isfinite(total_flow) &&
+        total_flow > 0.,
+      ExcMessage(
+        "Demand-flow construction requires valid physical data and a positive finite total flow."));
+    ReferenceConditions result;
+    for (const auto &[id, p] : port_pressures)
+      {
+        const auto node = network.nodes.find(id);
+        AssertThrow(
+          node != network.nodes.end() && node->second.port != Port::none &&
+            std::isfinite(p),
+          ExcMessage(
+            "Demand-flow pressure data require explicit physical port nodes and finite pressures."));
+        result.pressures[id] = p;
+      }
+    std::vector<Id> selected = selected_terminals;
+    if (selected.empty())
+      for (const auto &[id, t] : network.terminals)
+        selected.push_back(id);
+    AssertThrow(
+      !selected.empty(),
+      ExcMessage(
+        "Demand-flow construction requires at least one selected tissue terminal."));
+    std::set<Id>          unique;
+    std::array<double, 2> scale{{0., 0.}}, sum{{0., 0.}};
+    const auto            system_index = [](System system) {
+      if (system == System::arterial)
+        return 0u;
+      else if (system == System::venous)
+        return 1u;
+      AssertThrow(false, ExcMessage("Unknown demand-flow system."));
+      return 0u;
+    };
+    for (Id id : selected)
+      {
+        AssertThrow(
+          network.terminals.count(id) && unique.insert(id).second,
+          ExcMessage(
+            "Selected demand-flow terminal ids must exist and be unique."));
+        const auto &t = network.terminals.at(id);
+        const auto  i = system_index(t.system);
+        scale[i]      = std::max(scale[i], t.demand);
+      }
+    for (Id id : selected)
+      {
+        const auto &t = network.terminals.at(id);
+        const auto  i = system_index(t.system);
+        sum[i] += t.demand / scale[i];
+      }
+    for (Id id : selected)
+      {
+        const auto  &t = network.terminals.at(id);
+        const auto   i = system_index(t.system);
+        const double q = total_flow * ((t.demand / scale[i]) / sum[i]);
+        AssertThrow(
+          std::isfinite(q) && q > 0.,
+          ExcMessage(
+            "Desired tissue flow is not representable; no demand clipping is applied."));
+        double signed_flow = 0.;
+        if (t.system == System::arterial)
+          signed_flow = -q;
+        else if (t.system == System::venous)
+          signed_flow = q;
+        AssertThrow(
+          result.inflows.emplace(t.node, signed_flow).second,
+          ExcMessage(
+            "A demand-flow terminal node must have one terminal identity."));
+      }
+    return result;
+  }
+
   double
   reference_pressure(const NetworkData     &network,
                      const ReferenceResult &reference,

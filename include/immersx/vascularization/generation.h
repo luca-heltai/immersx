@@ -90,6 +90,11 @@ namespace ImmersX::Vascularization
     double           density_beta             = 0.;
     std::string      terminal_weight          = "1";
     double           terminal_weight_bound    = 1.;
+    /** Positive dimensionless tissue-demand expression in x,y,z. */
+    std::string tissue_demand = "1";
+    /** Total m^3/s through NEW tissue terminals; zero leaves flow unspecified.
+     */
+    double reference_flow = 0.;
   };
 
   struct Territory
@@ -109,6 +114,11 @@ namespace ImmersX::Vascularization
     DiscretizationResult      discretization;
     TissueMetrics             tissue;
     CalibrationReport         calibration;
+    /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
+    std::map<Id, double> target_terminal_flows;
+    /** Desired m^3/s by NEW attachment Vessel id, using the same demand split.
+     */
+    std::map<Id, double> target_attachment_flows;
     /** Consumed input terminal id -> newly generated attachment vessel id. */
     std::map<Id, Id> attachment_roots;
     std::uint64_t    sampled_points      = 0;
