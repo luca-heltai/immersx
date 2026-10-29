@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use simplex multiplier elements and volume quadrature for harmonic reinforcement on triangular sheets and full-dimensional simplex meshes, with independent or shared displacement.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run fiber-reinforced elastodynamics on triangular and tetrahedral matrices with immersed line fibers, including backward-Euler and IDA evolution.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Support the Poisson-to-elasticity pressure-traction application on a tetrahedral solid with an immersed axial line.

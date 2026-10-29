@@ -189,13 +189,24 @@ namespace ImmersX
         parameters.multiplier_degree == 0 ?
           fiber_storage.dof_handler().get_fe().degree :
           parameters.multiplier_degree;
+      std::unique_ptr<dealii::FiniteElement<dim, spacedim>> element;
+      if (parameters.multiplier_parameters.finite_element != "auto")
+        element = dealii::FETools::get_fe_by_name<dim, spacedim>(
+          parameters.multiplier_parameters.finite_element);
+      else if (fiber_storage.dof_handler()
+                 .get_fe()
+                 .reference_cell()
+                 .is_hyper_cube())
+        element = std::make_unique<dealii::FESystem<dim, spacedim>>(
+          dealii::FE_Q<dim, spacedim>(degree), spacedim);
+      else if (fiber_storage.dof_handler()
+                 .get_fe()
+                 .reference_cell()
+                 .is_simplex())
+        element = std::make_unique<dealii::FESystem<dim, spacedim>>(
+          dealii::FE_SimplexP<dim, spacedim>(degree), spacedim);
       multiplier_space = std::make_unique<FiniteElementSpace<dim, spacedim>>(
-        fiber_storage.triangulation(),
-        parameters.multiplier_parameters.finite_element == "auto" ?
-          std::make_unique<dealii::FESystem<dim, spacedim>>(
-            dealii::FE_Q<dim, spacedim>(degree), spacedim) :
-          dealii::FETools::get_fe_by_name<dim, spacedim>(
-            parameters.multiplier_parameters.finite_element));
+        fiber_storage.triangulation(), std::move(element));
       AssertThrow(multiplier_space->finite_element().n_components() == spacedim,
                   dealii::ExcMessage(
                     "The multiplier FE must have spacedim components."));

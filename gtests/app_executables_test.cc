@@ -662,3 +662,13 @@ TEST(AppExecutables, FiberReinforcedSimplex)
   run_app_with_parameter("fiber_reinforced_elastodynamics",
                          "gtests/parameters/fiber_reinforced_simplex_3d.prm");
 }
+
+TEST(AppExecutables, FiberHarmonicSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("fiber_reinforced_elasticity_freq",
+                         "gtests/parameters/fiber_harmonic_simplex_23.prm");
+  run_app_with_parameter("fiber_reinforced_elasticity_freq",
+                         "gtests/parameters/fiber_harmonic_simplex_33.prm");
+}

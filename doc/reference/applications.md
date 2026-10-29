@@ -117,3 +117,10 @@ multiplier retain their one-dimensional elements. The generated
 `fiber_reinforced_simplex_2d.prm` and `fiber_reinforced_simplex_3d.prm` exercise
 forced rigid translation; tests check both fixed steps and IDA against their
 respective displacement and velocity solutions.
+
+`fiber_reinforced_elasticity_freq` accepts simplex matrices and reinforcement
+meshes, including triangular sheets in 3D and full-dimensional triangles or
+tetrahedra. Automatic multiplier elements follow the reinforcement reference
+cell. Both `independent` and `shared` formulations use the physical volume
+measure. The generated `fiber_harmonic_simplex_22.prm`, `_23.prm`, and `_33.prm`
+check a complex forced translation with damping.

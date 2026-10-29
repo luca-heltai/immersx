@@ -161,25 +161,8 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "The representative mesh has no physical cells."));
       const auto reference_cell = *physical_reference;
-      auto       representative_quadrature =
-        cache_->lift_support->representative_quadrature();
-      if constexpr (reduced_dim > 1)
-        if (reference_cell.is_simplex())
-          {
-            const auto &parameters = lift_configuration().parameters();
-            AssertThrow(
-              parameters.representative_quadrature_type == "gauss",
-              dealii::ExcMessage(
-                "Simplex representative meshes require Gauss quadrature."));
-            const unsigned int n_points =
-              parameters.representative_n_q_points == 0 ?
-                2 * parameters.section.inclusion_degree + 1 :
-                parameters.representative_n_q_points;
-            representative_quadrature = dealii::QIteratedSimplex<reduced_dim>(
-              compatibility::gauss_quadrature<reduced_dim>(reference_cell,
-                                                           n_points),
-              parameters.representative_n_repetitions);
-          }
+      const auto representative_quadrature =
+        cache_->lift_support->representative_quadrature(reference_cell);
       const auto mapping =
         compatibility::default_mapping<reduced_dim, spacedim>(reference_cell,
                                                               2);
