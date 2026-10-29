@@ -72,7 +72,8 @@ namespace ImmersX::Vascularization
         if (node.owner >= communicator_size)
           issue("node", id, "Owner is outside the communicator.");
         if (node.port != Port::none && node.port != Port::arterial_inlet &&
-            node.port != Port::venous_outlet)
+            node.port != Port::venous_outlet &&
+            node.port != Port::arterial_outlet)
           issue("node", id, "Unknown port role.");
         if (!known(node.provenance))
           issue("node", id, "Unknown provenance.");

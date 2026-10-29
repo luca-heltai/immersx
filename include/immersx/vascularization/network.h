@@ -35,7 +35,8 @@ namespace ImmersX::Vascularization
   {
     none,
     arterial_inlet,
-    venous_outlet
+    venous_outlet,
+    arterial_outlet
   };
 
   struct Node

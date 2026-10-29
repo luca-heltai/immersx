@@ -32,6 +32,7 @@ set(IMMERSX_UNIT_TEST_SUITES
 set(IMMERSX_INTEGRATION_TEST_SUITES
     VascularGeneration
     VascularCCO
+    VascularImported
     BoundaryConditions
     CoupledPoisson
     CoupledPoissonElasticity
