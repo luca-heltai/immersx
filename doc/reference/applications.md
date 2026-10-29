@@ -124,3 +124,9 @@ tetrahedra. Automatic multiplier elements follow the reinforcement reference
 cell. Both `independent` and `shared` formulations use the physical volume
 measure. The generated `fiber_harmonic_simplex_22.prm`, `_23.prm`, and `_33.prm`
 check a complex forced translation with damping.
+
+The standalone `metric_flow_x` mesh consists of line segments. These are the
+one-dimensional simplex reference cell, so its existing vessel mesh and
+finite-element settings already apply. Its integration test checks the cell
+family and advances a nonzero inflow through IDA. Triangle and tetrahedron
+selection belongs to the solid Domain in `metric_flow_x_elastodynamics`.

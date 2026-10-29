@@ -340,6 +340,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check that standalone MetricFlowX evolves on one-dimensional simplex cells and run the application linked to the installed package with its nonzero inflow fixture.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check native elastodynamics with quadratic displacement elements, nonzero forcing, and time-dependent boundary data on tetrahedra and hexahedra in serial and MPI.
 
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Test ElastodynamicsSolver on a 48-tetrahedron Gmsh cube and a hexahedral cube with a nonzero linear-in-space, quadratic-in-time exact solution, in serial and on two MPI ranks.

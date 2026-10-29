@@ -5,6 +5,7 @@
 #include <deal.II/base/mpi.h>
 
 #include <gtest/gtest.h>
+#include <immersx/config.h>
 
 #include <cmath>
 #include <cstdlib>
@@ -672,3 +673,13 @@ TEST(AppExecutables, FiberHarmonicSimplex)
   run_app_with_parameter("fiber_reinforced_elasticity_freq",
                          "gtests/parameters/fiber_harmonic_simplex_33.prm");
 }
+
+#if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
+TEST(AppExecutables, MetricFlowXSegments)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("metric_flow_x",
+                         "gtests/parameters/metric_flow_x.prm");
+}
+#endif
