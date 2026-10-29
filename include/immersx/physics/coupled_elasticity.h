@@ -1,7 +1,7 @@
-#ifndef dealii_distributed_lagrange_multiplier_coupled_elasticity_h
-#  define dealii_distributed_lagrange_multiplier_coupled_elasticity_h
+#ifndef immersx_coupled_elasticity_h
+#define immersx_coupled_elasticity_h
 
-#  include <immersx/physics/elasticity.h>
+#include <immersx/physics/elasticity.h>
 
 
 
@@ -144,8 +144,6 @@ namespace ImmersX
     /// @}
 
   private:
-    void
-    reassemble_coupling_rhs();
 
     void
     refine_and_transfer_around_inclusions();
@@ -159,6 +157,6 @@ namespace ImmersX
     // unsigned int n_vessels;
   };
 
-#endif
-
 } // namespace ImmersX
+
+#endif
