@@ -37,14 +37,17 @@ namespace ImmersX::Vascularization
     // allocated physical ids must be globally unique. Geometry and write
     // conflicts use one deterministic independent round; this deliberately does
     // not promise a maximal independent set. No accepted network/history is
-    // changed by a proposal or a vote.
+    // changed by a proposal or a vote. Disabling snapshot obstacle checks is
+    // only for preliminary votes after candidate-radius geometry checks; it
+    // requires subsequent joint-state certification before adoption.
     BatchSelection
     select_growth_batch(BackgroundGeometry               &geometry,
                         const NetworkData                &network,
                         const std::vector<BatchProposal> &local,
                         const Parameters                 &parameters,
                         MPI_Comm                          communicator,
-                        const std::function<double(Id)>  &radius);
+                        const std::function<double(Id)>  &radius,
+                        bool check_snapshot_obstacles = true);
   } // namespace internal
 } // namespace ImmersX::Vascularization
 #endif
