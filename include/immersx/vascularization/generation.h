@@ -68,6 +68,9 @@ namespace ImmersX::Vascularization
     dealii::Point<3>         seed_position;
     /** Zero selects a deterministic direction into the containing cell. */
     dealii::Point<3> seed_direction;
+    /** Zero retains a closed seed; otherwise declares a planar inlet section.
+     */
+    dealii::Point<3> seed_inward_port_normal;
     double           seed_radius              = 0.;
     double           seed_length              = 0.;
     double           viscosity                = 0.;
@@ -126,7 +129,11 @@ namespace ImmersX::Vascularization
    * terminals, with a degree-one mapping. Every input node and vessel stays
    * fixed; selected tissue terminals become attachment identities. Every new
    * vessel wall, including rounded ends and clearance, must lie inside the
-   * prepared background. Imported exterior portions are preserved. Ambiguous
+   * prepared background. An explicit inward port normal permits a planar
+   * surface section: the envelope is cut at that plane, and the opposite
+   * junction/end must clear it by the full radius plus clearance. The normal
+   * must match an actual planar boundary face and point into the domain.
+   * Imported exterior portions are preserved. Ambiguous
    * boundary proximity at the finite geometry budget is rejected
    * conservatively. Optional volume/coverage targets trigger a bounded,
    * deterministic search over terminal counts without monotonicity pruning.
