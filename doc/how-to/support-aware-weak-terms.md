@@ -31,7 +31,8 @@ regression input `gtests/parameters/coupled_poisson_multiplier_q1.prm` selects
 `FE_DGQ<1>(1)` with nonzero loads.
 
 Static elasticity exposes `Elastic static/Displacement space/Finite element`.
-The default `auto` entry retains `FE degree` and builds `spacedim` copies of `FE_Q`.
+The default `auto` entry retains `FE degree` and builds `spacedim` copies of
+`FE_Q` on hypercubes or `FE_SimplexP` on simplices.
 For example, `FESystem<2>[FE_Q<2>(2)^2]` selects quadratic displacement in 2D.
 The element must be primitive with `spacedim` components; assembly quadrature
 uses the selected element's actual degree. Problems still own their native
@@ -43,6 +44,29 @@ mapping, constraints, and relevant indices. Contributors can use
 `finite_element_space_view(problem)` without repeating those accessors. Keep
 native residual assembly when it carries affine boundary corrections; changing
 ownership does not require replacing it with a weak term.
+
+## Simplex meshes
+
+Each Domain and integration support must contain one reference-cell type:
+triangles, tetrahedra, quadrilaterals, hexahedra, or line segments. Mixed cell
+meshes are rejected. Simplex Domains use `Triangulation type = fullydistributed`.
+Refine the serial mesh during preparation before finalizing its ownership.
+
+Select a matching element, such as `FE_SimplexP<2>(1)` for a scalar triangle
+space or `FE_SimplexDGP<2>(0)` for a cellwise multiplier. The owning
+`FiniteElementSpace::view()` selects deal.II's linear mapping for that element.
+A non-owning view keeps the explicit mapping supplied by its Problem.
+
+Weak terms, known sources, boundary terms, and multiplier metrics select
+Gauss quadrature from the reference cell. Independent integration meshes use
+their own reference cell and mapping when generating physical support points.
+Particle searches and immersed partitioning also select a matching background
+mapping when none is supplied explicitly.
+
+Lifting a triangular sheet into a volume uses simplex Gauss quadrature on the
+sheet. Its `Representative quadrature/Type` must be `gauss`; the configured
+point count and number of repetitions still apply. Line representatives retain
+their configured one-dimensional quadrature.
 
 ## Cell and boundary supports
 
@@ -170,3 +194,20 @@ The callback is evaluated at the physical quadrature points, with the physical
 weights supplied by the support. Its material id is the background cell's material id.
 These terms have no state derivative. Physical supports can have any positive
 dimension up to the background dimension, including independent volume meshes.
+
+Mesh uniformity refers to physical cells. A fully distributed triangulation may
+keep an artificial hypercube on a rank with no locally owned cells. Mesh and
+space setup identify the physical reference cell collectively, so these ranks
+use the same finite element family as the other ranks. Field views and geometry
+accessors remain local operations. Independent geometry assembly and search
+setup also use the physical reference cell.
+
+Construct lifted quadrature supports and call their `rebuild()` method
+collectively. Reading their already generated local quadrature points remains
+a local operation.
+
+Nonlinear weak terms import the candidate field coefficients before evaluating
+local cells. Candidate vectors may contain only locally owned entries. This
+setup is collective, including ranks without physical cells. Residual assembly
+uses the target Field constraints, as the Jacobian assembly does, so essential
+rows are omitted and hanging-node contributions are redistributed.

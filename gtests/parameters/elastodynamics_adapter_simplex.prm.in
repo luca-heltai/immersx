@@ -1,0 +1,61 @@
+set dimension = 3
+set space dimension = 3
+subsection Elastodynamics
+  set FE degree = 2
+  set Number of refinement cycles = 1
+  set Dirichlet boundary ids = 0
+  set Output directory = @TEST_OUTPUT_DIR@/elastodynamics-adapter-simplex
+  subsection Domain
+    set Triangulation type = fullydistributed
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+    set Initial refinement = 0
+  end
+  subsection Material
+    set Density = 1
+    set Lame mu = 1
+    set Lame lambda = 1
+    set Damping shear = 0
+    set Damping bulk = 0
+  end
+  subsection Time interval
+    set Initial time = 0
+    set Final time = 0.02
+    set Output time interval = 0.02
+  end
+  subsection IDA
+    subsection Running parameters
+      set Initial step size = 0.0001
+      set Maximum order of BDF = 2
+    end
+    subsection Error control
+      set Absolute error tolerance = 1.e-10
+      set Relative error tolerance = 1.e-10
+    end
+  end
+  subsection Functions
+    subsection Body force
+      set Variable names = x,y,z,t
+      set Function expression = 6*t*(1+x*x)-6*(1+t*t*t);0;0
+    end
+    subsection Displacement boundary
+      set Variable names = x,y,z,t
+      set Function expression = (1+t*t*t)*(1+x*x);0;0
+    end
+    subsection Velocity boundary
+      set Variable names = x,y,z,t
+      set Function expression = 3*t*t*(1+x*x);0;0
+    end
+    subsection Initial displacement
+      set Variable names = x,y,z,t
+      set Function expression = 1+x*x;0;0
+    end
+    subsection Initial velocity
+      set Variable names = x,y,z,t
+      set Function expression = 0;0;0
+    end
+    subsection Exact solution
+      set Variable names = x,y,z,t
+      set Function expression = (1+t*t*t)*(1+x*x);0;0
+    end
+  end
+end

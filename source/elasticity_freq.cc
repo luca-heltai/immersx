@@ -489,11 +489,25 @@ namespace ImmersX
   ElasticityFreqProblem<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe = std::make_unique<FESystem<dim, spacedim>>(
-      FE_Q<dim, spacedim>(par.fe_degree), spacedim);
-    quadrature = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
-    face_quadrature_formula =
-      std::make_unique<QGauss<dim - 1>>(par.fe_degree + 1);
+    AssertThrow(
+      tria != nullptr && tria->n_global_active_cells() > 0,
+      ExcMessage(
+        "Create the harmonic mesh before selecting its finite element."));
+    const auto reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(), ExcNotInitialized());
+    if (reference_cell->is_hyper_cube())
+      fe = std::make_unique<FESystem<dim, spacedim>>(
+        FE_Q<dim, spacedim>(par.fe_degree), spacedim);
+    else if constexpr (dim > 1)
+      fe = std::make_unique<FESystem<dim, spacedim>>(
+        FE_SimplexP<dim, spacedim>(par.fe_degree), spacedim);
+    AssertThrow(fe != nullptr, ExcNotInitialized());
+    quadrature = std::make_unique<Quadrature<dim>>(
+      compatibility::gauss_quadrature<dim>(fe->reference_cell(),
+                                           par.fe_degree + 1));
+    face_quadrature_formula = std::make_unique<Quadrature<dim - 1>>(
+      compatibility::gauss_quadrature<dim - 1>(
+        fe->reference_cell().face_reference_cell(0), par.fe_degree + 1));
   }
 
   template <int dim, int spacedim>
@@ -552,7 +566,8 @@ namespace ImmersX
     //   //                              *quadrature,
     //   //                              update_values | update_gradients |
     //   //                                update_quadrature_points | update_JxW_values);
-    FEFaceValues<dim, spacedim>      fe_face_values(*fe,
+    FEFaceValues<dim, spacedim>      fe_face_values(mapping(),
+                                               *fe,
                                                *face_quadrature_formula,
                                                update_values |
                                                  update_gradients |
@@ -619,7 +634,7 @@ namespace ImmersX
             //           //       }
             //           //   }
 
-            for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+            for (const auto f : cell->face_indices())
               // for (const auto &f : cell->face_iterators())
               // for (const auto f : GeometryInfo<spacedim>::face_indices())
               if (cell->face(f)->at_boundary())
@@ -854,7 +869,8 @@ namespace ImmersX
                         }
             }
           else
-            VectorTools::interpolate_boundary_values(dh, id, amplitude, c);
+            VectorTools::interpolate_boundary_values(
+              mapping(), dh, id, amplitude, c);
         }
       // two maps for owning ampltiude and pointing to object
       std::map<types::boundary_id, std::unique_ptr<ScaledAmplitude<spacedim>>>
@@ -872,7 +888,7 @@ namespace ImmersX
         {
           if (!par.normal_flux_ids.empty())
             VectorTools::compute_nonzero_normal_flux_constraints(
-              dh, 0, par.normal_flux_ids, functions, c);
+              dh, 0, par.normal_flux_ids, functions, c, mapping());
         }
       else if constexpr (dim != spacedim || dim == 1)
         AssertThrow(par.normal_flux_ids.empty(),
@@ -917,12 +933,14 @@ namespace ImmersX
     const bool positive_surrogate = matrix.m() == dh.n_dofs();
     par.set_rhs_times(0.0);
     par.set_boundary_condition_times(0.0);
-    FEValues<dim, spacedim>     fe_values(*fe,
+    FEValues<dim, spacedim>     fe_values(mapping(),
+                                      *fe,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_quadrature_points |
                                         update_JxW_values);
-    FEFaceValues<dim, spacedim> fe_face_values(*fe,
+    FEFaceValues<dim, spacedim> fe_face_values(mapping(),
+                                               *fe,
                                                *face_quadrature_formula,
                                                update_values |
                                                  update_quadrature_points |
@@ -1245,7 +1263,7 @@ namespace ImmersX
       }
     data.add_data_vector(subdomain, "subdomain");
     data.add_data_vector(materials, "material_id");
-    data.build_patches(par.fe_degree);
+    data.build_patches(mapping(), par.fe_degree);
     const std::string stem =
       par.output_name + "_cycle_" + std::to_string(cycle);
     data.write_vtu_with_pvtu_record(
@@ -1437,7 +1455,10 @@ namespace ImmersX
               {
                 auto v = std::make_unique<LA::MPI::Vector>();
                 v->reinit(owned_dofs[0], mpi_communicator);
-                VectorTools::interpolate(dh, RigidBodyMotion<spacedim>(m), *v);
+                VectorTools::interpolate(mapping(),
+                                         dh,
+                                         RigidBodyMotion<spacedim>(m),
+                                         *v);
                 for (const auto &line : scalar_graph.get_lines())
                   if (owned_dofs[0].is_element(line.index))
                     (*v)[line.index] = 0.0;

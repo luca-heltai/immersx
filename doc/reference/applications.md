@@ -14,10 +14,12 @@ and `space dimension` entries select the template instantiation.
 | `elastodynamics` | `apps/app_elastodynamics.cc`; `ElastodynamicsSolver` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | MPI; `tutorials/elastodynamics/strong_dirichlet.prm.in` |
 | `elastodynamics_adapter` | `apps/app_elastodynamics_adapter.cc`; `ElastodynamicsSolver` through `IDAAdapter` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | MPI and deal.II SUNDIALS; `gtests/parameters/dynamic_purely_elastic.prm.in` |
 | `reduced_poisson` | `apps/app_reduced_poisson.cc`; `ReducedPoisson` | `2/2` and `3/3` with reduced dimension `0` or `1`; cross-section dimensions are checked by the application | MPI and deal.II VTK; `tutorials/reduced_poisson/single_cylinder_3d.prm.in` |
+| `lifted_poisson` | `apps/app_lifted_poisson.cc`; `LiftedPoisson` with a modal constraint | Fixed 3D bulk plus 1D-in-3D representative | MPI; `gtests/parameters/lifted_poisson.prm.in` |
+| `lifted_elasticity` | `apps/app_lifted_elasticity.cc`; `LiftedElasticity` with optional modal constraints | `2/2` and `3/3` bulk meshes | MPI; `gtests/parameters/lifted_elasticity_simplex.prm.in` |
 | `coupled_poisson` | `apps/app_coupled_poisson.cc`; 2D bulk and 1D embedded `PoissonSolver` with a multiplier `Constraint` | Fixed 2D bulk plus 1D-in-2D embedded field | MPI; `tutorials/coupled_poisson/coupled_poisson.prm.in` |
 | `coupled_poisson_elasticity` | `apps/app_coupled_poisson_elasticity.cc`; 1D-in-3D `PoissonSolver` and 3D `ElasticStaticProblem` | Fixed 1D-in-3D pressure lift coupled to 3D elasticity | MPI; `tutorials/coupled_poisson_elasticity/coupled_poisson_elasticity.prm.in` |
 | `fiber_reinforced_elastodynamics` | `apps/app_fiber_reinforced_elastodynamics.cc`; matrix `ElastodynamicsSolver<dim,dim>` and embedded line `ElastodynamicsSolver<1,dim>` with a multiplier constraint | `2/2` and `3/3` matrix meshes with a 1D-in-`dim` fiber | MPI; `tutorials/fiber_reinforced_elastodynamics/parameters.prm.in` |
-| `fiber_reinforced_elasticity_freq` | `apps/app_fiber_reinforced_elasticity_freq.cc`; additive harmonic reinforcement with independent or shared displacements through `LinearAdapter` | Root `dim` selects reinforcement dimension; matrix dimension is `spacedim`. All `1 <= dim <= spacedim <= 3`; reduced meshes lift to volumes, full-dimensional meshes use no lift | MPI; `tutorials/fiber_reinforced_elasticity_freq/parameters.prm.in` |
+| `fiber_reinforced_elasticity_freq` | `apps/app_fiber_reinforced_elasticity_freq.cc`; additive harmonic reinforcement with independent or shared displacements through `LinearAdapter` | Root `dimension` selects reinforcement dimension; matrix dimension is `space dimension`. All `1 <= dim <= spacedim <= 3`; reduced meshes lift to volumes, full-dimensional meshes use no lift | MPI; `tutorials/fiber_reinforced_elasticity_freq/parameters.prm.in` |
 | `metric_flow_x` | `apps/app_metric_flow_x.cc`; MetricFlowX `BloodFlowSystem<1,3>` through `IDAAdapter` | Fixed 1D-in-3D | MPI, deal.II SUNDIALS, and MetricFlowX; `gtests/parameters/metric_flow_x.prm.in` |
 | `metric_flow_x_elastodynamics` | `apps/app_metric_flow_x_elastodynamics.cc`; MetricFlowX and 3D `Elastodynamics` composed through weak terms and a multiplier constraint | Fixed 1D-in-3D flow and 3D wall | MPI, deal.II SUNDIALS, and MetricFlowX; `tutorials/metric_flow_x_elastodynamics/two_way.prm.in` |
 | `navier_stokes` | `apps/app_navier_stokes.cc`; `NavierStokesSolver` | `2/2`, `3/3` | MPI; uses `IDAAdapter` with deal.II SUNDIALS and the native solver path without it; `tutorials/navier_stokes/transient_2d.prm.in` |
@@ -31,7 +33,7 @@ and `space dimension` entries select the template instantiation.
 MetricFlowX executables are excluded from the build unless both MetricFlowX
 and deal.II SUNDIALS are available. The two `lib1dsolver` executables are
 built from their source files, but their functional code is enabled only when
-`ENABLE_COUPLED_PROBLEMS` is on and the library is found with RTTI support.
+`ENABLE_COUPLED_PROBLEMS` is on and the library passes the dependency and RTTI link check.
 All other executables are part of the normal application target set. The
 [running applications guide](../how-to/running-applications) explains the
 parameter-file command format.
@@ -39,3 +41,130 @@ parameter-file command format.
 When Coral is installed, equivalent graph examples are installed under
 `share/immersx/coral/examples`. See the [Coral backend guide](../how-to/coral-backend)
 for plugin selection, graph execution, and conditional coupled workflows.
+
+Every mesh must contain a single physical reference-cell type. Select either
+triangles/tetrahedra or quadrilaterals/hexahedra for each mesh; mixed meshes
+are rejected. Simplex applications use the fully distributed backend and
+refine before distribution. The simplex examples below use one solve cycle;
+legacy convergence tables and post-distribution adaptive refinement remain
+available for hypercube meshes. See [weak-term integration supports](../how-to/support-aware-weak-terms)
+for reference-cell selection in Fields, weak terms, and constraints.
+
+For `elasticity_freq`, select `fullydistributed` under
+`Immersed Problem/Grid generation/Triangulation type` when importing triangles
+or tetrahedra. `FE degree` selects `FE_SimplexP` on these meshes. Keep one
+refinement cycle; initial refinement happens before distribution. The generated
+`gtests/parameters/elasticity_freq_simplex.prm` provides a tetrahedral example
+with a nonzero affine displacement at a nonzero frequency.
+
+For `elasticity`, import triangles or tetrahedra with `fullydistributed` under
+`Immersed Problem/Grid generation`. `FE degree` selects the corresponding
+simplex displacement element. Strong and weak Dirichlet conditions use the
+same reference-cell mapping as assembly and output. Use one refinement cycle;
+initial refinement is performed before distribution. Parsed convergence tables
+are available on hypercube meshes. The generated
+`gtests/parameters/elasticity_simplex.prm` is a forced quadratic example.
+
+`elasticity_explicit` also accepts uniform simplex meshes with
+`Immersed Problem/Grid generation/Triangulation type = fullydistributed`.
+Set `FE degree = 1`: higher-degree simplex elements have zero or negative
+row-sum nodal masses and are rejected. The existing restriction against hanging
+nodes also applies. The generated
+`gtests/parameters/elasticity_explicit_simplex.prm` advances a freely translating
+body with nonzero forcing.
+
+For `laplacian`, select `fullydistributed` under
+`Immersed Problem/Domain/Triangulation type` when importing simplex meshes.
+The assembled solver selects simplex elements from `FE degree`. Set the
+number of refinement cycles to one and use `Domain/Initial refinement` for
+refinement before distribution. Parsed convergence tables and the experimental
+compile-time matrix-free path require hypercube meshes. The generated
+`gtests/parameters/laplacian_simplex.prm` solves a forced quadratic problem.
+
+For `navier_stokes`, import uniform triangle or tetrahedron meshes using
+`Navier-Stokes/Domain/Triangulation type = fullydistributed`. The velocity
+and pressure degrees select simplex Taylor-Hood elements; the pressure degree
+must remain smaller than the velocity degree. The native solver and IDA
+application path use the same reference-cell mapping and quadrature.
+`gtests/parameters/navier_stokes_simplex.prm` maintains a nonzero Poiseuille
+velocity with constant body force on a tetrahedral mesh.
+
+For `reduced_poisson`, select `fullydistributed` under
+`Reduced Poisson/Grid generation/Triangulation type` and import a uniform
+simplex mesh. `FE degree` selects simplex bulk elements. Set one refinement
+cycle; initial refinement and local co-refinement take place before
+partitioning. The generated `reduced_poisson_simplex_line_3d.prm` and
+`reduced_poisson_simplex_point_3d.prm` under `gtests/parameters` provide
+quadratic checks with a Schur solver and nonzero Dirichlet data.
+
+For `lifted_poisson`, select a fully distributed background and set
+`Background space/Finite element = FE_SimplexP<3>(2)` for quadratic tetrahedra.
+The representative line retains its one-dimensional element. Error diagnostics
+use the bulk mapping and reference-cell quadrature. The generated
+`gtests/parameters/lifted_poisson_simplex.prm` checks a nonzero quadratic
+solution and a zero multiplier.
+
+`lifted_elasticity` selects vector simplex elements when `Displacement space/Finite element`
+is `auto` and its fully distributed Domain contains triangles or tetrahedra.
+Set `FE degree` normally. Strong and weak Dirichlet terms use the same mapping.
+The legacy convergence table is omitted for simplex meshes; numerical tests
+check the displacement and residual directly.
+
+`coupled_poisson` accepts a fully distributed triangular `Poisson/Domain`.
+Its embedded line and multiplier remain one-dimensional. The generated
+`coupled_poisson_simplex.prm` uses quadratic physical fields with nonzero
+boundary data; the continuity multiplier is zero for its exact solution.
+
+`coupled_poisson_elasticity` accepts tetrahedra in `Elastic static/Domain`.
+The pressure line and its lifted surface use the existing coupling parameters.
+The generated `coupled_poisson_elasticity_simplex.prm` places the axial line
+inside a tetrahedral cube; tests check the exact line pressure and balance
+its traction against the elastic stiffness action.
+
+For `fiber_reinforced_elastodynamics`, import triangles or tetrahedra into the
+fully distributed `Matrix Elastodynamics/Domain`. The line fiber and velocity
+multiplier retain their one-dimensional elements. The generated
+`fiber_reinforced_simplex_2d.prm` and `fiber_reinforced_simplex_3d.prm` exercise
+forced rigid translation; tests check both fixed steps and IDA against their
+respective displacement and velocity solutions.
+
+`fiber_reinforced_elasticity_freq` accepts simplex matrices and reinforcement
+meshes, including triangular sheets in 3D and full-dimensional triangles or
+tetrahedra. Automatic multiplier elements follow the reinforcement reference
+cell. Both `independent` and `shared` formulations use the physical volume
+measure. The generated `fiber_harmonic_simplex_22.prm`, `_23.prm`, and `_33.prm`
+check a complex forced translation with damping.
+
+The standalone `metric_flow_x` mesh consists of line segments. These are the
+one-dimensional simplex reference cell, so its existing vessel mesh and
+finite-element settings already apply. Its integration test checks the cell
+family and advances a nonzero inflow through IDA. Triangle and tetrahedron
+selection belongs to the solid Domain in `metric_flow_x_elastodynamics`.
+
+For `metric_flow_x_elastodynamics`, select `fullydistributed` and a tetrahedral
+mesh under `Elastodynamics/Domain`. Keep enough unconstrained solid DoFs for
+the vessel-wall multiplier. The generated
+`gtests/parameters/metric_flow_x_rcr_simplex_coupled.prm` uses quadratic solid
+elements around two vessels with RCR outlets. CTest runs both default and
+immersed vessel ownership and checks accepted times and all three output
+collections in serial and MPI.
+
+The tissue component used by `coupled_elasticity` and `pseudocoupling1D` is
+available without `lib1dsolver`. Select a fully distributed tetrahedral mesh
+under `Immersed Problem/Grid generation` and refine before distribution.
+`CoupledElasticityProblem::run_timestep0()` prepares it; update displacement
+data and call `run_timestep()` for each tissue solve. Pointwise data use the
+overload taking one sample count per vessel. Gather inclusion pressures on
+all ranks before calling `split_pressure_over_inclusions` on rank zero.
+That interpolation performs no MPI operations.
+
+The generated `gtests/parameters/coupled_elasticity_simplex.prm` exercises this
+interface. The external 1D drivers still require a complete library compatible
+with the compiler and dependencies. Linux OpenMP test builds compile their
+full driver bodies independently of the library link check.
+
+For `pseudocoupling1D`, vesselwise displacement data use the flat-vector
+overload of `update_inclusions_data`. The generated
+`gtests/parameters/pseudocoupling_simplex.prm` checks two successive tissue
+solves with changed data and their displacement, multiplier, and pressure
+response in serial and MPI.

@@ -116,8 +116,14 @@ namespace ImmersX
     void
     initialize_particle_handler(
       const parallel::TriangulationBase<dim> &tria_background,
-      const Mapping<dim> &mapping      = StaticMappingQ1<dim>::mapping,
-      const unsigned int  n_properties = 1);
+      const Mapping<dim>                     &mapping,
+      const unsigned int                      n_properties = 1);
+
+    /** Initialize using the background mesh's linear reference-cell mapping. */
+    void
+    initialize_particle_handler(
+      const parallel::TriangulationBase<dim> &tria_background,
+      const unsigned int                      n_properties = 1);
 
     /**
      * Get a covering of the background triangulation indexed by processor.

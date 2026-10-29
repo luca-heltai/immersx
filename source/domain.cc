@@ -316,7 +316,10 @@ namespace ImmersX
     , triangulation_(&triangulation)
   {
     if (triangulation.n_global_active_cells() != 0)
-      import_vtk_fields_if_requested();
+      {
+        detail::uniform_reference_cell(triangulation);
+        import_vtk_fields_if_requested();
+      }
   }
 
 
@@ -402,6 +405,17 @@ namespace ImmersX
           serial_triangulation_->copy_triangulation(*coarse_mesh);
         else
           make_grid_in(parameters_, *serial_triangulation_);
+        detail::uniform_reference_cell(*serial_triangulation_);
+        // deal.II's optional smoothing rules use hypercube face numbering.
+        if constexpr (dim > 1)
+          if (serial_triangulation_->all_reference_cells_are_simplex())
+            serial_triangulation_->set_mesh_smoothing(
+              dealii::Triangulation<dim, spacedim>::none);
+        AssertThrow(
+          uses_fully_distributed_triangulation() ||
+            serial_triangulation_->all_reference_cells_are_hyper_cube(),
+          dealii::ExcMessage(
+            "Simplex meshes require Triangulation type = fullydistributed."));
         if (parameters_.read_vtk_fields &&
             std::filesystem::is_regular_file(parameters_.name_of_grid))
           {
@@ -423,6 +437,7 @@ namespace ImmersX
     else if (!uses_fully_distributed_triangulation())
       {
         make_grid_in(parameters_, *triangulation_);
+        detail::uniform_reference_cell(*triangulation_);
         import_vtk_fields_if_requested();
       }
     grid_prepared_ = true;
@@ -460,6 +475,7 @@ namespace ImmersX
                 dealii::ExcMessage("Prepare the Domain before finalizing it."));
     if (serial_triangulation_)
       {
+        detail::uniform_reference_cell(*serial_triangulation_);
         if (uses_fully_distributed_triangulation())
           {
             auto &fully_distributed =

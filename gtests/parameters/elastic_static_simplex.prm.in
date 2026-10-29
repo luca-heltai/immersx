@@ -1,0 +1,42 @@
+set dimension = 3
+set space dimension = 3
+subsection Elastic static
+  set FE degree = 2
+  set Dirichlet boundary ids = 0
+  set Output directory = @TEST_OUTPUT_DIR@/elastic-static-simplex
+  subsection Domain
+    set Triangulation type = fullydistributed
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+    set Initial refinement = 0
+  end
+  subsection Refinement
+    set Number of refinement cycles = 1
+  end
+  subsection Material properties
+    subsection default
+      set Lame mu = 1
+      set Lame lambda = 1
+    end
+  end
+  subsection Functions
+    subsection Right hand side
+      set Variable names = x,y,z,t
+      set Function expression = -6; 0; 0
+    end
+    subsection Dirichlet boundary conditions
+      set Variable names = x,y,z,t
+      set Function expression = 1+x*x; 0; 0
+    end
+    subsection Exact solution
+      set Variable names = x,y,z,t
+      set Function expression = 1+x*x; 0; 0
+    end
+  end
+  subsection Solver
+    subsection Control
+      set Max steps = 1000
+      set Tolerance = 1.e-13
+      set Reduction = 1.e-13
+    end
+  end
+end

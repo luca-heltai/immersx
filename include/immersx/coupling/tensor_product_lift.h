@@ -16,6 +16,7 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/quadrature_selector.h>
 
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/coupling/reference_cross_section.h>
 
 #include <algorithm>
@@ -369,9 +370,13 @@ namespace ImmersX
                                       const unsigned int representative_degree =
                                         dealii::numbers::invalid_unsigned_int)
       : parameters_(parameters)
+      , representative_degree_(representative_degree ==
+                                   dealii::numbers::invalid_unsigned_int ?
+                                 parameters.section.inclusion_degree :
+                                 representative_degree)
       , section_(std::make_shared<Section>(parameters_.section))
       , representative_quadrature_(
-          make_representative_quadrature(representative_degree))
+          make_representative_quadrature(representative_degree_))
     {
       AssertThrow(parameters_.representative_n_repetitions > 0,
                   dealii::ExcMessage(
@@ -390,6 +395,29 @@ namespace ImmersX
     const dealii::Quadrature<reduced_dim> &
     representative_quadrature() const
     {
+      return representative_quadrature_;
+    }
+
+    /** Select representative integration on the mesh's uniform cell type. */
+    template <typename ReferenceCell>
+    dealii::Quadrature<reduced_dim>
+    representative_quadrature(const ReferenceCell &cell) const
+    {
+      if constexpr (reduced_dim > 1)
+        if (cell.is_simplex())
+          {
+            AssertThrow(
+              parameters_.representative_quadrature_type == "gauss",
+              dealii::ExcMessage(
+                "Simplex representative meshes require Gauss quadrature."));
+            const unsigned int n_points =
+              parameters_.representative_n_q_points == 0 ?
+                2 * representative_degree_ + 1 :
+                parameters_.representative_n_q_points;
+            return dealii::QIteratedSimplex<reduced_dim>(
+              compatibility::gauss_quadrature<reduced_dim>(cell, n_points),
+              parameters_.representative_n_repetitions);
+          }
       return representative_quadrature_;
     }
 
@@ -605,6 +633,7 @@ namespace ImmersX
     }
 
     const Parameters                  &parameters_;
+    const unsigned int                 representative_degree_;
     std::shared_ptr<Section>           section_;
     dealii::Quadrature<reduced_dim>    representative_quadrature_;
     SourceThicknessEvaluator<spacedim> thickness_evaluator_;

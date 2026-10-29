@@ -62,11 +62,12 @@ namespace ImmersX
       using MatrixOperator =
         typename SemiDiscreteModel<VectorType, MatrixType>::MatrixOperator;
 
-      const auto                degree = field.space().finite_element().degree;
-      const dealii::QGauss<dim> quadrature(degree + 1);
+      const auto degree     = field.space().finite_element().degree;
+      const auto quadrature = compatibility::gauss_quadrature<dim>(
+        field.space().finite_element().reference_cell(), degree + 1);
       dealii::DynamicSparsityPattern sparsity(field.locally_owned_dofs().size(),
                                               field.locally_owned_dofs().size(),
-                                              field.locally_owned_dofs());
+                                              field.locally_relevant_dofs());
       std::vector<dealii::types::global_dof_index> native_indices(
         field.dof_handler().get_fe().n_dofs_per_cell());
       std::vector<dealii::types::global_dof_index> indices;
@@ -83,6 +84,15 @@ namespace ImmersX
                                                             sparsity,
                                                             false);
           }
+
+      if (dynamic_cast<
+            const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+            &field.dof_handler().get_triangulation()) != nullptr)
+        dealii::SparsityTools::distribute_sparsity_pattern(
+          sparsity,
+          field.locally_owned_dofs(),
+          field.space().mpi_communicator(),
+          field.locally_relevant_dofs());
 
       auto matrix = std::make_shared<MatrixType>();
       auto matrix_sparsity =

@@ -11,6 +11,48 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise vesselwise displacement and pressure exchange on tetrahedral tissue meshes in pseudocoupling1D, including repeated solves with updated coupling data.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Use simplex meshes in the tissue component of the legacy 1D coupling drivers. Build this component independently of the optional hemodynamics library and check pointwise displacement and pressure exchange in serial and MPI.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the coupled MetricFlowX wall model on a quadratic tetrahedral solid, including RCR outlets and default or immersed vessel ownership.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Use simplex multiplier elements and volume quadrature for harmonic reinforcement on triangular sheets and full-dimensional simplex meshes, with independent or shared displacement.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run fiber-reinforced elastodynamics on triangular and tetrahedral matrices with immersed line fibers, including backward-Euler and IDA evolution.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Support the Poisson-to-elasticity pressure-traction application on a tetrahedral solid with an immersed axial line.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise coupled Poisson with a triangular bulk, an immersed line, nonzero boundary values, and independent multiplier DoFs.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Select simplex displacement elements automatically in Lifted Elasticity and support strong and weak boundary data on uniform simplex meshes.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run Lifted Poisson on tetrahedral bulk meshes with simplex error integration and physical mappings.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run Reduced Poisson on fully distributed simplex bulk meshes. Prepare line and point-cloud co-refinement before distribution, complete simplex conformity before particle location, and preserve existing mesh parameter names.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Use simplex Taylor-Hood velocity and pressure elements in Navier-Stokes on uniform simplex meshes, with matching integration, boundary interpolation, divergence diagnostics, and output in the native and IDA paths.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the immersed Laplacian application on uniform simplex meshes using a fully distributed Domain and matching scalar elements, integration, boundary values, coupling, and output. Select the Domain backend after reading the parameters.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run forward Euler elasticity on uniform simplex meshes with P1 displacement elements and a positive row-sum lumped mass. Reject higher simplex degrees before assembly.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run legacy elasticity on uniform simplex meshes with matching displacement elements, cell and boundary integration, boundary constraints, and stress output.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Solve frequency-domain elasticity on uniform triangle and tetrahedron meshes, with matching displacement elements, cell and face quadrature, boundary interpolation, stress integration, and output.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the IDA elastodynamics adapter on simplex meshes, skipping its unavailable convergence table. Verify nonzero time-dependent displacement and velocity on simplex and hypercube meshes.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the static elasticity adapter on simplex meshes and retain hypercube error tables.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Solve static elasticity on uniform simplex meshes with automatic simplex displacement elements and matching cell and boundary quadrature. The simplex lifecycle skips the unavailable error table.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the Poisson adapter on simplex meshes. Skip its unavailable simplex error table and provide locally relevant values for error integration on hypercube meshes in MPI.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Assemble weak terms, known sources, and multiplier metrics on uniform simplex meshes. Choose matching mappings for finite-element spaces, imported fields, particle search, immersed partitioning, and lifted triangular sheets. Reject mixed cell meshes in Domains and integration supports.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Allow Poisson to solve on uniform simplex meshes with fully distributed ownership, simplex finite elements and quadrature, and a linear geometry mapping.
+
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Allow the coupled MetricFlowX–elastodynamics application to partition vessels with the solid cell owners through the `immersed` policy, with serial and MPI RCR regression cases.
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Allow ElastodynamicsSolver to run on simplex (triangle and tetrahedron) meshes with `FE_SimplexP`, simplex Gauss quadrature, and a linear `MappingFE`. Simplex meshes require the fullydistributed Domain triangulation. `run()` skips the error table on simplex meshes, and `compute_error()` throws there.
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Report the solid boundary ids and the number of vessel cells with a vertex outside the solid mesh at the start of `metric_flow_x_elastodynamics`.
@@ -156,6 +198,20 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include prescribed bulk values in the Reduced Poisson coupling right-hand side. Nonzero Dirichlet data now satisfy the same immersed constraint as the complete physical solution.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Condense nonlinear weak residuals through the target constraints and import candidate field states before distributed cell evaluation. Preserve essential rows and evaluate ghost coefficients when the supplied state owns only its local entries.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Retain all prescribed displacement components in the legacy elasticity weak Dirichlet stress terms. This restores consistency on simplex and hypercube meshes.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Identify the physical mesh reference cell collectively when MPI ranks own no cells. Ignore fully distributed artificial placeholders when selecting elements, quadrature, and search mappings; keep field views and geometry accessors local, and reject mixed physical meshes.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Import point and cell fields on simplex meshes with matching finite elements. Preserve those fields during initial refinement and use reference-cell mappings and smoothing rules during Domain co-refinement. Boundary recipes use the target field mapping; point-cloud refinement accepts serial preparation meshes and uses each cell's actual bounding box.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Preserve multiplier mass contributions whose matrix rows belong to other MPI ranks.
+
 - [PR #294](https://github.com/luca-heltai/immersx/pull/294) Avoid division by zero in small fiber multiplier Schur solves with deal.II 9.7, including configurable discontinuous multiplier spaces in serial and MPI.
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Evaluate lifted observables and nonlinear weak terms with each cell's active finite element and local DoF count, including hp terminal pressure fields. Preserve differentiated fields' execution numbering for compact and permuted layouts and check coupled Jacobians per residual block.
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Use MetricFlowX's native hp DoFHandler numbering and ghost indices for coupled area and velocity fields, including RCR capacitor pressures represented as a fifth FE component. Remove the conversion for the previous manually numbered capacitor layout.
@@ -237,6 +293,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
+
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Document simplex meshes in the elastodynamics tutorial and reading the solid mesh from a file in the MetricFlowX–elastodynamics tutorial.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Document Field-local IDA tolerances, startup ramps, progress statistics, and restart behavior.
 
@@ -278,6 +336,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Generate valid C++ for the optional 1dsolver link probe, include deal.II dependencies, and report incompatible libraries without claiming that RTTI is missing. Compile both driver bodies during Linux OpenMP test builds even when the external archive cannot link.
+
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Use the unified solution-transfer header so legacy applications build with deal.II 9.9.
 
 - [PR #269](https://github.com/luca-heltai/immersx/pull/269) Link each ImmersX variant to the matching MetricFlowX and deal.II libraries in DebugRelease builds, retain compatible legacy single-variant packages, and check generated linkage in CTest.
@@ -291,6 +351,12 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Check that standalone MetricFlowX evolves on one-dimensional simplex cells and run the application linked to the installed package with its nonzero inflow fixture.
+
+- [PR #299](https://github.com/luca-heltai/immersx/pull/299) Check native elastodynamics with quadratic displacement elements, nonzero forcing, and time-dependent boundary data on tetrahedra and hexahedra in serial and MPI.
 
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Test ElastodynamicsSolver on a 48-tetrahedron Gmsh cube and a hexahedral cube with a nonzero linear-in-space, quadratic-in-time exact solution, in serial and on two MPI ranks.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Run harmonic reinforcement sweeps through parameter-file dispatch for all six dimension pairs, both formulations, and serial/two-rank MPI execution, checking the expected displacement and multiplier datasets. Verify owned affine offsets against a separately reconstructed finite-element field.

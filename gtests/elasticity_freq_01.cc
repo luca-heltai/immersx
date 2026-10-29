@@ -125,7 +125,7 @@ namespace
 {
   template <int dim, int spacedim>
   void
-  check_adapter_affine_displacement()
+  check_adapter_affine_displacement(const bool simplex = false)
   {
     SCOPED_TRACE("dim=" + std::to_string(dim) +
                  ", spacedim=" + std::to_string(spacedim));
@@ -134,6 +134,13 @@ namespace
     ParameterAcceptor::clear();
     ElasticityFreqProblemParameters<dim, spacedim> parameters;
     parameters.initial_refinement = 2;
+    if (simplex)
+      {
+        parameters.initial_refinement = 0;
+        parameters.triangulation_type = "fullydistributed";
+        parameters.name_of_grid       = TestPaths::data_filename(
+          dim == 2 ? "tests/simplex_square.msh" : "tests/simplex_cube.msh");
+      }
     // A generated interval retains endpoint ids 0 and 1 even without
     // colorization.
     parameters.dirichlet_ids.clear();
@@ -241,6 +248,13 @@ TEST(ElasticityFreq, BOTH_AdapterAffineDisplacement)
   check_adapter_affine_displacement<2, 2>();
   check_adapter_affine_displacement<2, 3>();
   check_adapter_affine_displacement<3, 3>();
+}
+
+TEST(ElasticityFreq, BOTH_SimplexAdapterAffineDisplacement)
+{
+  check_adapter_affine_displacement<2, 2>(true);
+  check_adapter_affine_displacement<2, 3>(true);
+  check_adapter_affine_displacement<3, 3>(true);
 }
 
 TEST(ElasticityFreq, BOTH_RefinementParameterRoundTrip)

@@ -76,6 +76,9 @@ set(IMMERSX_VALIDATION_TEST_SUITES
     ElasticityCoupling
     ElasticStaticProblemValidation
     ElasticityValidation
+    ElasticityExplicitValidation
+    LaplacianValidation
+    ReducedPoissonValidation
     ElasticityTensorProductCouplingValidation
     TriangulationBackendsValidation/*
     ElastodynamicsValidation

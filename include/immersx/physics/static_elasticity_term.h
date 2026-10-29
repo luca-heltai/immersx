@@ -171,14 +171,14 @@ namespace ImmersX
       auto matrix_sparsity = detail::initialize_weak_matrix(
         *matrix, owned, owned, sparsity, communicator);
       rhs->reinit(owned, communicator);
-      const auto                          &fe = displacement.finite_element();
-      FEFaceValues<dim, spacedim>          values(displacement.mapping(),
-                                         fe,
-                                         QGauss<dim - 1>(fe.degree + 1),
-                                         update_values | update_gradients |
-                                           update_normal_vectors |
-                                           update_quadrature_points |
-                                           update_JxW_values);
+      const auto                 &fe = displacement.finite_element();
+      FEFaceValues<dim, spacedim> values(
+        displacement.mapping(),
+        fe,
+        compatibility::gauss_quadrature<dim - 1>(
+          fe.reference_cell().face_reference_cell(0), fe.degree + 1),
+        update_values | update_gradients | update_normal_vectors |
+          update_quadrature_points | update_JxW_values);
       const auto                           n = fe.n_dofs_per_cell();
       FullMatrix<double>                   local(n, n);
       dealii::Vector<double>               load(n);

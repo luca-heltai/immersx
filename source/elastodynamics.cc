@@ -253,7 +253,10 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    if (tria->all_reference_cells_are_hyper_cube())
+    const auto         reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The elastodynamics mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
       {
         fe_storage = std::make_unique<FESystem<dim, spacedim>>(
           FE_Q<dim, spacedim>(par.fe_degree), spacedim);
@@ -264,7 +267,7 @@ namespace ImmersX
     // Line meshes are hypercube meshes, so only dim > 1 reaches this branch.
     else if constexpr (dim > 1)
       {
-        AssertThrow(tria->all_reference_cells_are_simplex(),
+        AssertThrow(reference_cell->is_simplex(),
                     ExcMessage("ElastodynamicsSolver supports meshes of only "
                                "hypercube or only simplex cells."));
         fe_storage = std::make_unique<FESystem<dim, spacedim>>(
@@ -1263,7 +1266,8 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::compute_error() const
   {
     // ParsedConvergenceTable::error_from_exact() integrates with QGauss.
-    AssertThrow(tria->all_reference_cells_are_hyper_cube(),
+    AssertThrow(fe_storage != nullptr &&
+                  fe_storage->reference_cell().is_hyper_cube(),
                 ExcMessage("compute_error() supports hypercube meshes only."));
     par.exact_solution.set_time(current_time_storage);
     par.convergence_table.error_from_exact(*mapping_storage,
@@ -1448,13 +1452,15 @@ namespace ImmersX
         cycles_and_solutions.clear();
         run_time_integration();
 
-        if (tria->all_reference_cells_are_hyper_cube())
+        if (fe_storage != nullptr &&
+            fe_storage->reference_cell().is_hyper_cube())
           {
             compute_error();
             if (pcout.is_active())
               par.convergence_table.output_table(pcout.get_stream());
           }
-        else
+        else if (fe_storage != nullptr &&
+                 fe_storage->reference_cell().is_simplex())
           pcout << "   Error table skipped: not available on simplex meshes."
                 << std::endl;
 

@@ -1003,8 +1003,9 @@ namespace ImmersX
     build_points()
     {
       const auto &field      = source();
-      const auto &quadrature = support_->representative_quadrature();
-      const auto  flags = dealii::update_values | dealii::update_JxW_values |
+      const auto  quadrature = support_->representative_quadrature(
+        field.finite_element().reference_cell());
+      const auto flags = dealii::update_values | dealii::update_JxW_values |
                          dealii::update_quadrature_points |
                          dealii::update_jacobians;
       const dealii::hp::MappingCollection<reduced_dim, spacedim> mappings(

@@ -86,7 +86,8 @@ TEST(CoupledPoissonElasticity, BOTH_PoissonEndpointData)
     EXPECT_NEAR(poisson.solution()[dof], 1. + points.at(dof)[0], 1.e-10);
 }
 
-TEST(CoupledPoissonElasticity, BOTH_PressureTractionBalance)
+void
+check_pressure_traction_balance(const bool simplex)
 {
   ParameterAcceptor::clear();
   PoissonParameters<1, 3>                   poisson_parameters;
@@ -95,7 +96,8 @@ TEST(CoupledPoissonElasticity, BOTH_PressureTractionBalance)
   CoupledPoissonElasticity::CylinderSurface surface;
   LinearSolverParameters                    solver_parameters;
   initialize_parameters(TestPaths::parameter_path(
-    "gtests/parameters/coupled_poisson_elasticity.prm"));
+    simplex ? "gtests/parameters/coupled_poisson_elasticity_simplex.prm" :
+              "gtests/parameters/coupled_poisson_elasticity.prm"));
 
   PoissonSolver<1, 3>     poisson(poisson_parameters);
   ElasticStaticProblem<3> elastic(elastic_parameters);
@@ -170,4 +172,13 @@ TEST(CoupledPoissonElasticity, BOTH_PressureTractionBalance)
   defect += expected_load;
   elastic.constraints().set_zero(defect);
   EXPECT_LT(defect.l2_norm(), 1.e-9);
+}
+
+TEST(CoupledPoissonElasticity, BOTH_PressureTractionBalance)
+{
+  check_pressure_traction_balance(false);
+}
+TEST(CoupledPoissonElasticity, BOTH_SimplexPressureTractionBalance)
+{
+  check_pressure_traction_balance(true);
 }
