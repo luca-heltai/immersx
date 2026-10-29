@@ -20,6 +20,7 @@
 #include <random>
 #include <set>
 
+#include "forest_state.h"
 #include "growth_batch.h"
 #include "growth_geometry.h"
 
@@ -896,29 +897,34 @@ namespace ImmersX::Vascularization
                 break;
               }
           }
-        for (const auto &[id, root] : tree_of)
-          network.vessels.at(id).radii = {{radius(id), radius(id)}};
-        if (parameters.reference_flow > 0. && result.validation.valid())
+        if (result.validation.valid())
           {
-            std::set<Id> territories;
-            for (const auto &t : result.territories)
-              territories.insert(t.id);
-            for (const auto &[id, t] : network.terminals)
-              if (t.system == system && territories.count(t.territory))
-                {
-                  const double q = parameters.reference_flow *
-                                   ((t.demand / demand_scale) / total_demand);
-                  if (!std::isfinite(q) || q <= 0.)
-                    result.validation.issues.push_back(
-                      {"flow design",
-                       id,
-                       "Desired terminal flow is not representable."});
-                  result.target_terminal_flows[id] = q;
-                }
-            for (const auto &[root, tree] : trees)
-              result.target_attachment_flows[root] =
-                parameters.reference_flow * (demands.at(root) / total_demand);
+            std::set<Id>         mutable_owned;
+            std::map<Id, double> fixed_roots;
+            for (const auto &[id, root] : tree_of)
+              mutable_owned.insert(id);
+            for (const auto &[id, tree] : trees)
+              fixed_roots[id] = tree.radius;
+            const auto state = evaluate_forest(
+              network, mutable_owned, fixed_roots, parameters, MPI_COMM_SELF);
+            result.validation.issues.insert(result.validation.issues.end(),
+                                            state.validation.issues.begin(),
+                                            state.validation.issues.end());
+            if (state.validation.valid())
+              {
+                for (const auto &[id, b] : state.owned)
+                  network.vessels.at(id).radii = {{b.radius, b.radius}};
+                result.target_terminal_flows.insert(
+                  state.terminal_flows.begin(), state.terminal_flows.end());
+                if (parameters.reference_flow > 0.)
+                  for (const auto &[id, r] : fixed_roots)
+                    result.target_attachment_flows[id] =
+                      state.owned.at(id).flow;
+              }
           }
+        else
+          for (const auto &[id, root] : tree_of)
+            network.vessels.at(id).radii = {{radius(id), radius(id)}};
       }
 
       GenerationResult        &result;
