@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run Lifted Poisson on tetrahedral bulk meshes with simplex error integration and physical mappings.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run Reduced Poisson on fully distributed simplex bulk meshes. Prepare line and point-cloud co-refinement before distribution, complete simplex conformity before particle location, and preserve existing mesh parameter names.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use simplex Taylor-Hood velocity and pressure elements in Navier-Stokes on uniform simplex meshes, with matching integration, boundary interpolation, divergence diagnostics, and output in the native and IDA paths.

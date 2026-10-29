@@ -86,3 +86,10 @@ cycle; initial refinement and local co-refinement take place before
 partitioning. The generated `reduced_poisson_simplex_line_3d.prm` and
 `reduced_poisson_simplex_point_3d.prm` under `gtests/parameters` provide
 quadratic checks with a Schur solver and nonzero Dirichlet data.
+
+For `lifted_poisson`, select a fully distributed background and set
+`Background space/Finite element = FE_SimplexP<3>(2)` for quadratic tetrahedra.
+The representative line retains its one-dimensional element. Error diagnostics
+use the bulk mapping and reference-cell quadrature. The generated
+`gtests/parameters/lifted_poisson_simplex.prm` checks a nonzero quadratic
+solution and a zero multiplier.

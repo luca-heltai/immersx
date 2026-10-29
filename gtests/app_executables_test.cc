@@ -621,3 +621,11 @@ TEST(AppExecutables, ReducedPoissonSimplex)
     "reduced_poisson",
     "gtests/parameters/reduced_poisson_simplex_point_3d.prm");
 }
+
+TEST(AppExecutables, LiftedPoissonSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("lifted_poisson",
+                         "gtests/parameters/lifted_poisson_simplex.prm");
+}
