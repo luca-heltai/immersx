@@ -2580,7 +2580,7 @@ namespace ImmersX
           }
         else
           par.convergence_table.error_from_exact(
-            dh, locally_relevant_solution.block(0), par.bc);
+            dh, locally_relevant_solution.block(0), par.exact_solution);
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
       }

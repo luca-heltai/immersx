@@ -70,6 +70,8 @@ namespace ImmersX
     , rhs(normalize_poisson_subsection(subsection) + "Right hand side")
     , bc(normalize_poisson_subsection(subsection) +
          "Dirichlet boundary conditions")
+    , exact_solution(normalize_poisson_subsection(subsection) +
+                     "Exact solution")
     , solver_control(normalize_poisson_subsection(subsection) +
                      "Solver/Control")
   {
@@ -472,7 +474,7 @@ namespace ImmersX
 
         par.convergence_table.error_from_exact(dh,
                                                locally_relevant_solution,
-                                               par.bc);
+                                               par.exact_solution);
 
         if (cycle + 1 < par.n_refinement_cycles)
           refine_grid();
