@@ -36,8 +36,6 @@
   },
   "harness_sha": "d8f0d4cc32bfea201b602bafa1b96c10b7b0184a",
   "schema_version": 1,
-  "selected": [
-    "d8f0d4cc32bfea201b602bafa1b96c10b7b0184a"
-  ],
+  "selected": [],
   "source_sha": "d8f0d4cc32bfea201b602bafa1b96c10b7b0184a"
 }
