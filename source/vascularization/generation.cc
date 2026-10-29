@@ -25,6 +25,12 @@ namespace ImmersX::Vascularization
   Parameters::Parameters(const std::string &section)
     : dealii::ParameterAcceptor(section)
   {
+    enter_subsection("Objectives");
+    add_parameter("Maximum service distance",
+                  coverage.service_radius,
+                  "Metres; zero disables geometric coverage measurement.");
+    add_parameter("Coverage quadrature order", coverage.quadrature_order);
+    leave_subsection();
     enter_subsection("Discretization");
     add_parameter("Target length factor", discretization.target_factor);
     add_parameter("Lower length factor", discretization.lower_factor);
@@ -106,6 +112,7 @@ namespace ImmersX::Vascularization
   Parameters::validate(const bool creating_seed) const
   {
     discretization.validate();
+    coverage.validate();
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
     AssertThrow(
       positive(seed_length) &&
@@ -1183,6 +1190,13 @@ namespace ImmersX::Vascularization
           result.validation.issues.end(),
           result.discretization.validation.issues.begin(),
           result.discretization.validation.issues.end());
+        if (result.validation.valid())
+          result.tissue = measure_tissue(background,
+                                         mapping,
+                                         result.network,
+                                         result.discretization,
+                                         parameters.coverage,
+                                         communicator);
       }
     return result;
   }
