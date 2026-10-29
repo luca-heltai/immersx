@@ -71,6 +71,10 @@ namespace ImmersX::Vascularization
     add_parameter("Seed direction",
                   seed_direction,
                   "Direction vector; zero selects an interior direction.");
+    add_parameter(
+      "Seed inward port normal",
+      seed_inward_port_normal,
+      "Zero retains a closed envelope; a nonzero inward normal declares a planar inlet section on the boundary.");
     add_parameter("Seed radius",
                   seed_radius,
                   "Fixed seed radius in metres; must be supplied.");
@@ -170,9 +174,11 @@ namespace ImmersX::Vascularization
       dealii::ExcMessage(
         "Invalid Murray, radius, length, angle, objective or density controls."));
     for (unsigned int d = 0; d < 3; ++d)
-      AssertThrow(
-        std::isfinite(seed_position[d]) && std::isfinite(seed_direction[d]),
-        dealii::ExcMessage("Seed coordinates and direction must be finite."));
+      AssertThrow(std::isfinite(seed_position[d]) &&
+                    std::isfinite(seed_direction[d]) &&
+                    std::isfinite(seed_inward_port_normal[d]),
+                  dealii::ExcMessage(
+                    "Seed coordinates and directions must be finite."));
   }
 
   namespace
@@ -180,6 +186,21 @@ namespace ImmersX::Vascularization
     using namespace dealii;
     namespace bgi = boost::geometry::index;
     using Patch   = std::vector<Point<3>>;
+
+    Point<3>
+    normalized_port_normal(const Point<3> &value)
+    {
+      const double scale =
+        std::max({std::abs(value[0]), std::abs(value[1]), std::abs(value[2])});
+      if (scale == 0.)
+        return {};
+      Point<3> normal;
+      // Component division avoids the overflowing reciprocal used by Tensor's
+      // operator/=. Scaling also avoids overflow/underflow in its norm().
+      for (unsigned int d = 0; d < 3; ++d)
+        normal[d] = value[d] / scale;
+      return Point<3>(normal / normal.norm());
+    }
 
     double
     point_distance_square(const Point<3> &p, const Segment<3> &s)
@@ -259,11 +280,30 @@ namespace ImmersX::Vascularization
     }
 
     bool
-    separated(const Patch       &patch,
-              const Segment<3>  &s,
-              const double       radius,
-              const unsigned int depth,
-              unsigned int      &work)
+    in_triangle(const Point<3> &p,
+                const Point<3> &a,
+                const Point<3> &b,
+                const Point<3> &c,
+                double          guard)
+    {
+      const auto   u = b - a, v = c - a, w = p - a;
+      const double uu = u * u, uv = u * v, vv = v * v, wu = w * u, wv = w * v;
+      const double determinant = uu * vv - uv * uv;
+      if (!(determinant > 0.))
+        return false;
+      const double x         = (vv * wu - uv * wv) / determinant,
+                   y         = (uu * wv - uv * wu) / determinant;
+      const double tolerance = guard / std::sqrt(std::min(uu, vv));
+      return x >= -tolerance && y >= -tolerance && x + y <= 1. + tolerance;
+    }
+
+    bool
+    separated(const Patch                   &patch,
+              const Segment<3>              &s,
+              const double                   radius,
+              const unsigned int             depth,
+              unsigned int                  &work,
+              const std::array<Point<3>, 2> &port_normals)
     {
       if (work == 0)
         return false;
@@ -273,15 +313,33 @@ namespace ImmersX::Vascularization
       // the convex hull of their corners. A separated box proves separation.
       const double guard = 64. * std::numeric_limits<double>::epsilon() *
                            std::max({1., s.first.norm(), s.second.norm()});
+      const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
+      // A cap is the intersection of the capsule with each declared inward
+      // half-space. A triangle/bilinear patch stays in its corners' convex
+      // hull, so an outward patch cannot meet the retained envelope interior.
+      for (unsigned int i = 0; i < 2; ++i)
+        if (port_normals[i].norm_square() > 0. &&
+            std::all_of(patch.begin(), patch.end(), [&](const auto &p) {
+              return (p - endpoints[i]) * port_normals[i] <= guard;
+            }))
+          return true;
       if (box_distance_square(box, s) > (radius + guard) * (radius + guard))
         return true;
       for (const auto &p : patch)
         if (point_distance_square(p, s) <= radius * radius)
-          return false;
+          {
+            bool retained = true;
+            for (unsigned int i = 0; i < 2; ++i)
+              if (port_normals[i].norm_square() > 0. &&
+                  (p - endpoints[i]) * port_normals[i] <= guard)
+                retained = false;
+            if (retained)
+              return false;
+          }
       if (depth == 0)
         return false;
       for (const auto &child : children(patch))
-        if (!separated(child, s, radius, depth - 1, work))
+        if (!separated(child, s, radius, depth - 1, work, port_normals))
           return false;
       return true;
     }
@@ -321,10 +379,19 @@ namespace ImmersX::Vascularization
       }
 
       std::optional<Triangulation<3>::active_cell_iterator>
-      containing(const Point<3> &p) const
+      containing(const Point<3> &p, double tolerance = 0.) const
       {
         std::optional<Triangulation<3>::active_cell_iterator> result;
-        const BoundingBox<3> query(std::make_pair(p, p));
+        Point<3>                                              lo = p, hi = p;
+        if (tolerance > 0.)
+          for (unsigned int d = 0; d < 3; ++d)
+            {
+              const double pad = 64. * std::numeric_limits<double>::epsilon() *
+                                 std::max(1., p.norm());
+              lo[d] -= pad;
+              hi[d] += pad;
+            }
+        const BoundingBox<3> query(std::make_pair(lo, hi));
         for (const auto &[box, cell] :
              cache.get_locally_owned_cell_bounding_boxes_rtree() |
                bgi::adaptors::queried(bgi::intersects(query)))
@@ -332,7 +399,7 @@ namespace ImmersX::Vascularization
             try
               {
                 const auto unit = mapping.transform_real_to_unit_cell(cell, p);
-                if (cell->reference_cell().contains_point(unit, 0.) &&
+                if (cell->reference_cell().contains_point(unit, tolerance) &&
                     (!result || cell->diameter() < (*result)->diameter() ||
                      (cell->diameter() == (*result)->diameter() &&
                       cell->id() < (*result)->id())))
@@ -345,15 +412,63 @@ namespace ImmersX::Vascularization
       }
 
       bool
-      contains(const Segment<3> &s,
-               double            radius,
-               unsigned int      depth,
-               unsigned int      work) const
+      planar_section(const Point<3> &p, const Point<3> &normal) const
       {
-        if (!containing(s.first))
-          return false;
+        const double guard =
+          64. * std::numeric_limits<double>::epsilon() * std::max(1., p.norm());
+        Point<3> lo = p, hi = p;
+        for (unsigned int d = 0; d < 3; ++d)
+          {
+            lo[d] -= guard;
+            hi[d] += guard;
+          }
+        for (const auto &[box, index] :
+             boundary | bgi::adaptors::queried(bgi::intersects(
+                          BoundingBox<3>(std::make_pair(lo, hi)))))
+          {
+            const auto &patch = patches[index];
+            if (!std::all_of(patch.begin(), patch.end(), [&](const auto &v) {
+                  return std::abs((v - p) * normal) <= guard;
+                }))
+              continue;
+            // All corners must lie in the declared plane. Only then is the
+            // polygon test valid; a warped Q1 face is never flattened here.
+            if (patch.size() == 3 &&
+                in_triangle(p, patch[0], patch[1], patch[2], guard))
+              return true;
+            if (patch.size() == 4 &&
+                (in_triangle(p, patch[0], patch[1], patch[3], guard) ||
+                 in_triangle(p, patch[0], patch[3], patch[2], guard)))
+              return true;
+          }
+        return false;
+      }
+
+      bool
+      contains(const Segment<3>       &s,
+               double                  radius,
+               unsigned int            depth,
+               unsigned int            work,
+               std::array<Point<3>, 2> port_normals = {}) const
+      {
         const double guard = 64. * std::numeric_limits<double>::epsilon() *
                              std::max({1., s.first.norm(), s.second.norm()});
+        const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
+        bool                          open = false;
+        for (auto &normal : port_normals)
+          normal = normalized_port_normal(normal);
+        for (unsigned int i = 0; i < 2; ++i)
+          if (port_normals[i].norm() > 0.)
+            {
+              open = true;
+              if (!planar_section(endpoints[i], port_normals[i]) ||
+                  (endpoints[1 - i] - endpoints[i]) * port_normals[i] <=
+                    radius + guard)
+                return false;
+            }
+        if (!containing(s.first, port_normals[0].norm() > 0. ? 1.e-12 : 0.) ||
+            (open && !containing(.5 * (s.first + s.second))))
+          return false;
         Point<3> lo, hi;
         for (unsigned int d = 0; d < 3; ++d)
           {
@@ -363,10 +478,11 @@ namespace ImmersX::Vascularization
         const BoundingBox<3> query(std::make_pair(lo, hi));
         for (const auto &[box, index] :
              boundary | bgi::adaptors::queried(bgi::intersects(query)))
-          if (!separated(patches[index], s, radius, depth, work))
+          if (!separated(patches[index], s, radius, depth, work, port_normals))
             return false;
-        // Starting inside and avoiding the complete physical boundary keeps
-        // the connected swept segment inside, including in nonconvex domains.
+        // The retained envelope is connected. An interior anchor and boundary
+        // separation keep it inside, including in nonconvex domains; only its
+        // declared planar cap may meet the boundary.
         return true;
       }
       GridTools::Cache<3>                           cache;
@@ -708,11 +824,17 @@ namespace ImmersX::Vascularization
           replaced.insert(e.id);
         for (std::size_t i = 0; i < changed.size(); ++i)
           {
-            const auto &e = changed[i];
+            const auto             &e = changed[i];
+            std::array<Point<3>, 2> port_normals;
+            for (unsigned int end = 0; end < 2; ++end)
+              if (const auto node = network.nodes.find(e.nodes[end]);
+                  node != network.nodes.end())
+                port_normals[end] = node->second.inward_port_normal;
             if (!geometry.contains({e.points[0], e.points[1]},
                                    e.radius + parameters.clearance,
                                    parameters.geometry_depth,
-                                   parameters.geometry_work))
+                                   parameters.geometry_work,
+                                   port_normals))
               return {};
             for (std::size_t j = 0; j < i; ++j)
               if (!compatible(e, changed[j], parameters))
@@ -952,6 +1074,8 @@ namespace ImmersX::Vascularization
                                initial.vessels.empty() &&
                                initial.terminals.empty();
     parameters.validate(creating_seed);
+    const auto seed_normal =
+      normalized_port_normal(parameters.seed_inward_port_normal);
     GenerationResult result;
     result.network    = initial;
     result.validation = validate_data(initial, 1);
@@ -1067,10 +1191,22 @@ namespace ImmersX::Vascularization
       const Point<3> position = creating_seed ?
                                        parameters.seed_position :
                                        initial.nodes.at(start).position;
-      const auto     cell     = geometry.containing(position);
+      const auto     cell =
+        geometry.containing(position,
+                            creating_seed && seed_normal.norm_square() > 0. ?
+                                   1.e-12 :
+                                   0.);
       if (!cell)
         {
           fail(input_terminal, "Seed or attachment is outside the background.");
+          return;
+        }
+      if (creating_seed && seed_normal.norm_square() > 0. &&
+          !geometry.planar_section(position, seed_normal))
+        {
+          fail(
+            input_terminal,
+            "The declared planar port does not match a planar background boundary section.");
           return;
         }
       const double radius = properties.radii[1];
@@ -1117,7 +1253,9 @@ namespace ImmersX::Vascularization
           if (!geometry.contains({position, end},
                                  radius + parameters.clearance,
                                  parameters.geometry_depth,
-                                 parameters.geometry_work))
+                                 parameters.geometry_work,
+                                      {{creating_seed ? seed_normal : Point<3>(),
+                                   Point<3>()}}))
             continue;
           const CCOGrowth::Edge edge{next_vessel,
                                           {{start, end_node}},
@@ -1154,7 +1292,8 @@ namespace ImmersX::Vascularization
             result.network.nodes[start] = {position,
                                            0,
                                            Port::arterial_inlet,
-                                           Provenance::generated};
+                                           Provenance::generated,
+                                           seed_normal};
           result.network.nodes[end_node] = {end,
                                             0,
                                             Port::none,

@@ -45,6 +45,12 @@ namespace ImmersX::Vascularization
     dealii::types::subdomain_id owner      = 0;
     Port                        port       = Port::none;
     Provenance                  provenance = Provenance::imported;
+    /**
+     * Nonzero declares a planar surface section with this inward normal.
+     * Magnitude is ignored. Zero retains the closed rounded-end envelope.
+     * Only nodes with an explicit inlet/outlet role may declare a section.
+     */
+    dealii::Point<3> inward_port_normal{};
   };
 
   /**

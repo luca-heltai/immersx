@@ -69,6 +69,14 @@ namespace ImmersX::Vascularization
         for (unsigned int d = 0; d < 3; ++d)
           if (!std::isfinite(node.position[d]))
             issue("node", id, "Nonfinite position.");
+        for (unsigned int d = 0; d < 3; ++d)
+          if (!std::isfinite(node.inward_port_normal[d]))
+            issue("node", id, "Nonfinite inward port normal.");
+        if (node.port == Port::none &&
+            node.inward_port_normal != dealii::Point<3>())
+          issue("node",
+                id,
+                "A surface section requires an explicit inlet or outlet role.");
         if (node.owner >= communicator_size)
           issue("node", id, "Owner is outside the communicator.");
         if (node.port != Port::none && node.port != Port::arterial_inlet &&
