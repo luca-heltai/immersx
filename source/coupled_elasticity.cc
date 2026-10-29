@@ -183,10 +183,10 @@ namespace ImmersX
           }
         // The prefix sum is collective: every rank must call it, including
         // ranks that own no vessel.
-        const hsize_t los    = pressure.locally_owned_size();
-        const hsize_t prefix = Utilities::MPI::partial_and_total_sum(
-                                 los, this->mpi_communicator)
-                                 .first;
+        const hsize_t los = pressure.locally_owned_size();
+        const hsize_t prefix =
+          Utilities::MPI::partial_and_total_sum(los, this->mpi_communicator)
+            .first;
         if (los > 0)
           {
             std::vector<hsize_t> offset = {prefix, 1};
