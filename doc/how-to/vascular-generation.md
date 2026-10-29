@@ -193,3 +193,27 @@ checked through a distributed hash partition of the identifier registry.
 Invalid ownership or missing authoritative nodes fail collectively at a phase
 boundary. Input data remain unchanged. Repeating the operation after changes
 replaces obsolete ghosts, including when vessel radii shrink.
+
+## Validate a batch of proposals
+
+Before accepting a serial CCO insertion, the engine passes its changed vessel
+geometry through the same batch validation phase exercised by the MPI tests.
+Point location verifies all endpoints globally. Each participating process
+checks its owned physical boundary patches and relevant vessel obstacles;
+process interfaces are not physical boundaries. An open planar section must
+match at least one physical boundary face, and every process must certify
+separation from its remaining boundary patches.
+
+A proposed replacement needs consent from the current vessel owner, including
+agreement with the recorded endpoint identities and positions. New vessel rays
+are also checked against other proposals. Eligible proposals use cost, producer
+rank and producer-local identifier as a deterministic priority. One round
+selects proposals whose priority is lower than every eligible conflicting
+neighbor; the result is independent, but need not be maximal. Invalid proposals
+cannot block valid neighbors. All geometric participants and writing owners
+receive the same final decisions through sparse exchanges.
+
+This phase evaluates a common snapshot and changes no accepted network or
+history. The public generator currently submits single-process batches. MPI
+validation of simultaneous proposals does not yet provide distributed tree
+physiology updates or a distributed generation/commit loop.
