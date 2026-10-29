@@ -31,6 +31,7 @@ ownership boundaries used throughout the documentation.
 getting-started/index
 how-to/index
 how-to/local-co-refinement
+how-to/vascular-generation
 how-to/lifted-poisson
 how-to/lifted-static-elasticity
 tutorials/index

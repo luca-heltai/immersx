@@ -13,6 +13,7 @@
 #include <immersx/vascularization/discretization.h>
 #include <immersx/vascularization/metrics.h>
 #include <immersx/vascularization/network.h>
+#include <immersx/vascularization/reference_flow.h>
 
 namespace ImmersX::Vascularization
 {
@@ -24,7 +25,7 @@ namespace ImmersX::Vascularization
     /** Zero disables the volume target. */
     double volume_fraction    = 0.;
     double relative_tolerance = .05;
-    /** Minimum arterial service coverage; zero imposes no coverage target. */
+    /** Minimum service coverage: arterial, or dual in arterio-venous mode. */
     double       minimum_coverage  = 0.;
     unsigned int minimum_terminals = 1;
     unsigned int maximum_terminals = 10000;
@@ -55,6 +56,19 @@ namespace ImmersX::Vascularization
     std::uint64_t sampled_points = 0;
   };
 
+  struct VenousParameters
+  {
+    bool             enabled = false;
+    std::vector<Id>  selected_terminals;
+    dealii::Point<3> seed_position, seed_inward_port_normal;
+    double           seed_radius     = 0.;
+    double           murray_exponent = 3.;
+    /** Metres between the arterial endpoint and its venous partner. */
+    double terminal_separation = 0.;
+    /** Pa s/m^3 for each bed; zero derives individual beds from demand flow. */
+    double microvascular_resistance = 0.;
+  };
+
   struct Parameters : dealii::ParameterAcceptor
   {
     explicit Parameters(const std::string &section = "/Vascularization/");
@@ -64,8 +78,13 @@ namespace ImmersX::Vascularization
     DiscretizationParameters discretization;
     CoverageParameters       coverage;
     CalibrationParameters    calibration;
-    std::vector<Id>          selected_terminals;
-    dealii::Point<3>         seed_position;
+    VenousParameters         venous;
+    /** Explicit port pressures and optional loads on unpaired input terminals.
+     */
+    ReferenceConditions reference_conditions;
+    ReferenceParameters reference_parameters;
+    std::vector<Id>     selected_terminals;
+    dealii::Point<3>    seed_position;
     /** Zero selects a deterministic direction into the containing cell. */
     dealii::Point<3> seed_direction;
     /** Zero retains a closed seed; otherwise declares a planar inlet section.
@@ -114,6 +133,8 @@ namespace ImmersX::Vascularization
     DiscretizationResult      discretization;
     TissueMetrics             tissue;
     CalibrationReport         calibration;
+    /** Actual paired Poiseuille solution, evaluated in arterio-venous mode. */
+    ReferenceResult reference;
     /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
     std::map<Id, double> target_terminal_flows;
     /** Desired m^3/s by NEW attachment Vessel id, using the same demand split.
@@ -127,12 +148,15 @@ namespace ImmersX::Vascularization
 
   /**
    * Grow a CCO tree from an initial seed without changing the input. The
-   * current serial path grows arterial trees from a seed or selected input
-   * terminals, with a degree-one mapping. Every input node and vessel stays
-   * fixed; selected tissue terminals become attachment identities. Every new
-   * vessel wall, including rounded ends and clearance, must lie inside the
-   * prepared background. An explicit inward port normal permits a planar
-   * surface section: the envelope is cut at that plane, and the opposite
+   * current serial path grows arterial trees and optional venous forests from
+   * seeds or selected input terminals, with a degree-one mapping. Arterial
+   * endpoints define the common territories; venous endpoints are separated
+   * from them by the configured distance. Both forests use the same CCO engine,
+   * and all new vessels are checked against both systems. Every input node and
+   * vessel stays fixed; selected tissue terminals become attachment identities.
+   * Every new vessel wall, including rounded ends and clearance, must lie
+   * inside the prepared background. An explicit inward port normal permits a
+   * planar surface section: the envelope is cut at that plane, and the opposite
    * junction/end must clear it by the full radius plus clearance. The normal
    * must match an actual planar boundary face and point into the domain.
    * Imported exterior portions are preserved. Ambiguous

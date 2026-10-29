@@ -429,3 +429,37 @@ TEST(VascularReferenceFlow, FiniteSolverBudgetAndUnrepresentableResistance)
   p.linear_relative_tolerance = 0.;
   EXPECT_THROW(p.validate(), ExceptionBase);
 }
+
+TEST(VascularReferenceFlow, ResistiveLiftingPreservesTinyDropsBesideLargeBeds)
+{
+  NetworkData n;
+  for (Id i = 0; i < 3; ++i)
+    n.nodes[i].position = Point<3>(.01 * i, 0., 0.);
+  n.nodes[0].port = Port::arterial_inlet;
+  edge(n, 0, 0, 1, .004, .01);
+  edge(n, 1, 1, 2, .004, .01);
+  for (Id i = 0; i < 6; ++i)
+    n.nodes[10 + i].position = Point<3>(.1 - .01 * i, .02, 0.);
+  n.nodes[10].port = Port::venous_outlet;
+  for (Id i = 0; i < 5; ++i)
+    edge(n, 10 + i, 10 + i, 11 + i, .004, .01, System::venous);
+  n.terminals[100]                 = {2, 500, System::arterial, 0, 1.};
+  n.terminals[200]                 = {15, 500, System::venous, 0, 1.};
+  const double bed_resistance      = 4.e12;
+  double       expected_resistance = bed_resistance;
+  for (const auto &[id, e] : n.vessels)
+    expected_resistance +=
+      8. * .004 * length(n, id) / (numbers::PI * std::pow(.01, 4));
+  const double q = 8000. / expected_resistance;
+  const auto   r = solve(n,
+                         {{{0, 12000.}, {10, 4000.}}, {}},
+                         {{500, 100, 200, bed_resistance}});
+  ASSERT_TRUE(r.validation.valid());
+  EXPECT_NEAR(r.territories.at(500).flow / q, 1., 1.e-12);
+  for (const auto &[id, e] : n.vessels)
+    {
+      const double direction = e.system == System::arterial ? 1. : -1.;
+      EXPECT_NEAR(r.vessels.at(id).flow / (direction * q), 1., 1.e-10);
+    }
+  EXPECT_LE(r.relative_flow_defect, 1.e-9);
+}
