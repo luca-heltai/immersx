@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Stage concurrent vascular bifurcations at their physical owners, carry root controls through ownership changes, and certify geometry after joint Murray normalization. Discard the entire batch when an ownership, radius or geometry check fails.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Normalize generated vascular forests by weighted terminal demand through distributed owner exchanges, preserving attachment radii and frozen input vessels. Check flow conservation across partitions and keep arterial and venous normalization separate.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Validate vascular growth proposals in sparse MPI batches with physical-owner consent, global endpoint and wall checks, deterministic collision/write-conflict selection and consistent decisions for every participant. Reuse these checks before accepting serial CCO insertions.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Redistribute physical vascular data using native background point ownership and sparse MPI exchanges. Preserve crossing vessels and integer identifiers, refresh authoritative endpoint and terminal data, and exchange geometric ghosts across as many partitions as vessel radius and search reach require.

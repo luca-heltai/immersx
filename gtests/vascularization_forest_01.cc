@@ -6,6 +6,9 @@
 
 #include <deal.II/grid/grid_generator.h>
 
+#include <boost/serialization/array.hpp>
+#include <boost/serialization/vector.hpp>
+
 #include <gtest/gtest.h>
 #include <immersx/vascularization/distribution.h>
 #include <immersx/vascularization/generation.h>
@@ -13,6 +16,7 @@
 #include <functional>
 
 #include "../source/vascularization/forest_state.h"
+#include "../source/vascularization/growth_commit.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 using namespace ImmersX::Vascularization::internal;
@@ -562,4 +566,261 @@ TEST(VascularForest, BOTH_AConnectedRootDoesNotHideACyclicMutableComponent)
   const auto s = evaluate_forest(n, ids, r, p, MPI_COMM_WORLD);
   EXPECT_FALSE(s.validation.valid());
   EXPECT_LE(s.upward_levels, 2u);
+}
+
+namespace
+{
+  std::vector<GrowthSplit>
+  concurrent_splits(const NetworkData &n)
+  {
+    std::map<unsigned int, std::vector<GrowthSplit>> send;
+    for (unsigned int i = 0; i < 2; ++i)
+      {
+        const Id id = base + (i == 0 ? 12 : 14);
+        if (!n.vessels.count(id) || n.vessels.at(id).owner != rank())
+          continue;
+        const auto &v = n.vessels.at(id);
+        GrowthSplit s;
+        s.vessel     = id;
+        s.owner      = rank();
+        s.old_nodes  = v.nodes;
+        s.old_points = {
+          {n.nodes.at(v.nodes[0]).position, n.nodes.at(v.nodes[1]).position}};
+        s.junction          = base + 50 + 2 * i;
+        s.tip               = s.junction + 1;
+        s.junction_position = .5 * (s.old_points[0] + s.old_points[1]);
+        s.tip_position      = s.junction_position + Point<3>(0., 0., .2);
+        s.continuation      = base + 70 + 2 * i;
+        s.leaf              = s.continuation + 1;
+        s.terminal          = base + 90 + i;
+        s.territory         = base + 95 + i;
+        s.demand            = 2. + 2 * i;
+        // The producer and writer are different processes in MPI. Only these
+        // two compact proposals move, rather than the physical forest.
+        send[(rank() + 1) % size()].push_back(s);
+      }
+    const auto received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+    std::vector<GrowthSplit> result;
+    for (const auto &[owner, values] : received)
+      result.insert(result.end(), values.begin(), values.end());
+    return result;
+  }
+} // namespace
+TEST(VascularForest,
+     BOTH_CommitJointSplitsOnlyAfterOwnerPhysiologyAndGeometryChecks)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
+  Parameters p;
+  p.reference_flow    = 2.e-9;
+  p.minimum_angle     = 1.;
+  const auto proposed = concurrent_splits(n);
+  const auto result   = commit_growth_splits(bg,
+                                           MappingQ1<3>(),
+                                           n,
+                                           mutable_ids(n),
+                                           roots(n),
+                                           proposed,
+                                           p,
+                                           MPI_COMM_WORLD);
+  EXPECT_TRUE(result.committed);
+  EXPECT_TRUE(result.validation.valid());
+  for (const auto &i : result.validation.issues)
+    ADD_FAILURE() << i.message;
+  const std::uint64_t count = result.mutable_owned.size();
+  EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), 14u);
+  EXPECT_EQ(result.physiology.upward_levels, 5u);
+  for (const auto &[id, b] : result.physiology.owned)
+    {
+      const auto &v = result.network.vessels.at(id);
+      EXPECT_EQ(v.owner, rank());
+      EXPECT_EQ(v.radii, (std::array<double, 2>{{b.radius, b.radius}}));
+      const double root_demand = id >= base + 100 ? 12. : 15.;
+      EXPECT_NEAR(b.root_demand * result.physiology.demand_scale,
+                  root_demand,
+                  1.e-13);
+      EXPECT_NEAR(b.flow / (p.reference_flow * b.demand *
+                            result.physiology.demand_scale / 27.),
+                  1.,
+                  1.e-12);
+      EXPECT_EQ(v.physical_properties.at("density"),
+                id >= base + 100 ? 1051. : 1050.);
+      if (id == base + 14)
+        {
+          EXPECT_EQ(b.parent, base + 70);
+        }
+    }
+  for (unsigned int tree = 0; tree < 2; ++tree)
+    {
+      const Id id = base + 100 * tree + 10;
+      if (result.network.vessels.count(id))
+        {
+          EXPECT_EQ(result.network.vessels.at(id).nodes,
+                    (std::array<Id, 2>{
+                      {base + 100 * tree, base + 100 * tree + 1}}));
+          EXPECT_EQ(result.network.vessels.at(id).radii,
+                    (std::array<double, 2>{{.009, .006 + .001 * tree}}));
+        }
+    }
+  // Neither proposal staging nor the successful return updates the input.
+  if (n.vessels.count(base + 12))
+    {
+      EXPECT_EQ(n.vessels.at(base + 12).nodes[1], base + 3);
+    }
+  EXPECT_EQ(n.nodes.count(base + 50), 0u);
+}
+TEST(VascularForest, BOTH_AFailedFinalGeometryOrRadiusCheckRollsBackEveryRank)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
+  Parameters p;
+  p.minimum_angle = 1.;
+  auto proposed   = concurrent_splits(n);
+  for (auto &s : proposed)
+    if (s.vessel == base + 14)
+      s.tip_position[2] = -.1;
+  const auto outside = commit_growth_splits(bg,
+                                            MappingQ1<3>(),
+                                            n,
+                                            mutable_ids(n),
+                                            roots(n),
+                                            proposed,
+                                            p,
+                                            MPI_COMM_WORLD);
+  EXPECT_FALSE(outside.committed);
+  EXPECT_FALSE(outside.validation.valid());
+  EXPECT_TRUE(outside.network.vessels.empty());
+  p.minimum_radius = .0028;
+  // The old side leaf is admissible before the two insertions, but falls
+  // below this radius when their combined demand is normalized at the root.
+  EXPECT_TRUE(evaluate(n, p).validation.valid());
+  const auto thin = commit_growth_splits(bg,
+                                         MappingQ1<3>(),
+                                         n,
+                                         mutable_ids(n),
+                                         roots(n),
+                                         concurrent_splits(n),
+                                         p,
+                                         MPI_COMM_WORLD);
+  EXPECT_FALSE(thin.committed);
+  EXPECT_FALSE(thin.validation.valid());
+  EXPECT_TRUE(thin.network.vessels.empty());
+  EXPECT_EQ(n.nodes.count(base + 50), 0u);
+}
+TEST(VascularForest, BOTH_StaleDuplicateAndFrozenWritesNeverChangeTheSnapshot)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
+  Parameters p;
+  if (size() > 1)
+    {
+      if (rank() == 0)
+        p.clearance = .001;
+      EXPECT_FALSE(commit_growth_splits(bg,
+                                        MappingQ1<3>(),
+                                        n,
+                                        mutable_ids(n),
+                                        roots(n),
+                                        concurrent_splits(n),
+                                        p,
+                                        MPI_COMM_WORLD)
+                     .committed);
+      p.clearance = 0.;
+    }
+  auto proposed = concurrent_splits(n);
+  for (auto &s : proposed)
+    if (s.vessel == base + 12)
+      s.old_points[0][0] += .01;
+  EXPECT_FALSE(commit_growth_splits(bg,
+                                    MappingQ1<3>(),
+                                    n,
+                                    mutable_ids(n),
+                                    roots(n),
+                                    proposed,
+                                    p,
+                                    MPI_COMM_WORLD)
+                 .committed);
+  proposed = concurrent_splits(n);
+  if (!proposed.empty())
+    proposed.push_back(proposed.front());
+  EXPECT_FALSE(commit_growth_splits(bg,
+                                    MappingQ1<3>(),
+                                    n,
+                                    mutable_ids(n),
+                                    roots(n),
+                                    proposed,
+                                    p,
+                                    MPI_COMM_WORLD)
+                 .committed);
+  proposed = concurrent_splits(n);
+  // Remove the writer's permission independently of its provenance.
+  auto ids = mutable_ids(n);
+  ids.erase(base + 12);
+  EXPECT_FALSE(
+    commit_growth_splits(
+      bg, MappingQ1<3>(), n, ids, roots(n), proposed, p, MPI_COMM_WORLD)
+      .committed);
+  EXPECT_EQ(n.nodes.count(base + 50), 0u);
+}
+
+TEST(VascularForest, BOTH_FixedRootControlsFollowTheMigratingPhysicalRoot)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
+  std::vector<GrowthSplit> proposed;
+  unsigned int             previous_owner = size();
+  if (n.vessels.count(base + 11) && n.vessels.at(base + 11).owner == rank())
+    {
+      previous_owner = rank();
+      const auto &v  = n.vessels.at(base + 11);
+      GrowthSplit s;
+      s.vessel     = base + 11;
+      s.owner      = rank();
+      s.old_nodes  = v.nodes;
+      s.old_points = {
+        {n.nodes.at(v.nodes[0]).position, n.nodes.at(v.nodes[1]).position}};
+      s.junction          = base + 50;
+      s.tip               = base + 51;
+      s.junction_position = Point<3>(3.9, .1, 1.5);
+      s.tip_position      = Point<3>(3.9, .3, 1.5);
+      s.continuation      = base + 70;
+      s.leaf              = base + 71;
+      s.terminal          = base + 90;
+      s.territory         = base + 95;
+      s.demand            = 2.;
+      proposed.push_back(s);
+    }
+  previous_owner = Utilities::MPI::min(previous_owner, MPI_COMM_WORLD);
+  Parameters p;
+  p.minimum_angle   = 1.;
+  const auto result = commit_growth_splits(bg,
+                                           MappingQ1<3>(),
+                                           n,
+                                           mutable_ids(n),
+                                           roots(n),
+                                           proposed,
+                                           p,
+                                           MPI_COMM_WORLD);
+  EXPECT_TRUE(result.committed);
+  for (const auto &i : result.validation.issues)
+    ADD_FAILURE() << i.message;
+  unsigned int new_owner = size();
+  if (result.fixed_owned_roots.count(base + 11))
+    {
+      new_owner = rank();
+      EXPECT_DOUBLE_EQ(result.fixed_owned_roots.at(base + 11), .006);
+      EXPECT_DOUBLE_EQ(result.network.vessels.at(base + 11).radii[0], .006);
+      EXPECT_EQ(result.physiology.owned.at(base + 11).root, base + 11);
+      EXPECT_EQ(result.physiology.owned.at(base + 11).terminals, 4u);
+    }
+  new_owner = Utilities::MPI::min(new_owner, MPI_COMM_WORLD);
+  EXPECT_LT(new_owner, size());
+  if (size() > 1)
+    {
+      EXPECT_NE(new_owner, previous_owner);
+    }
 }
