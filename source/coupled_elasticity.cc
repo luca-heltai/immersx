@@ -16,9 +16,7 @@
  * Author: Wolfgang Bangerth, University of Heidelberg, 2000
  * Modified by: Luca Heltai, 2020
  */
-#ifdef ENABLE_COUPLED_PROBLEMS
-
-#  include <immersx/physics/coupled_elasticity.h>
+#include <immersx/physics/coupled_elasticity.h>
 
 namespace ImmersX
 {
@@ -27,110 +25,6 @@ namespace ImmersX
     const ElasticityProblemParameters<dim, spacedim> &par)
     : ElasticityProblem<dim, spacedim>(par)
   {}
-
-  template <int dim, int spacedim>
-  void
-  CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
-  {
-    TimerOutput::Scope t(this->computing_timer, "updating coupling rhs");
-
-    this->system_rhs.block(1) = 0;
-
-    std::vector<types::global_dof_index> fe_dof_indices(
-      this->fe->n_dofs_per_cell());
-    std::vector<types::global_dof_index> inclusion_dof_indices(
-      this->inclusions.n_dofs_per_inclusion());
-
-    Vector<double> local_rhs(this->inclusions.n_dofs_per_inclusion());
-
-    auto particle = this->inclusions.inclusions_as_particles.begin();
-    while (particle != this->inclusions.inclusions_as_particles.end())
-      {
-        const auto &cell = particle->get_surrounding_cell();
-        const auto  dh_cell =
-          typename DoFHandler<spacedim>::cell_iterator(*cell, &this->dh);
-        dh_cell->get_dof_indices(fe_dof_indices);
-        const auto pic =
-          this->inclusions.inclusions_as_particles.particles_in_cell(cell);
-        Assert(pic.begin() == particle, ExcInternalError());
-
-        auto p      = pic.begin();
-        auto next_p = pic.begin();
-        while (p != pic.end())
-          {
-            const auto inclusion_id =
-              this->inclusions.get_inclusion_id(p->get_id());
-            inclusion_dof_indices =
-              this->inclusions.get_dof_indices(p->get_id());
-            local_rhs = 0;
-
-            // Extract all points that refer to the same inclusion
-            std::vector<Point<spacedim>> ref_q_points;
-            for (; next_p != pic.end() && this->inclusions.get_inclusion_id(
-                                            next_p->get_id()) == inclusion_id;
-                 ++next_p)
-              ref_q_points.push_back(next_p->get_reference_location());
-            FEValues<spacedim, spacedim> fev(*this->fe,
-                                             ref_q_points,
-                                             update_values | update_gradients);
-            fev.reinit(dh_cell);
-            // double temp = 0;
-            for (unsigned int q = 0; q < ref_q_points.size(); ++q)
-              {
-                const auto  id = p->get_id();
-                const auto &inclusion_fe_values =
-                  this->inclusions.get_fe_values(id);
-                const auto &real_q = p->get_location();
-                const auto  ds     = this->inclusions.get_JxW(
-                  id); // /inclusions.get_radius(inclusion_id);
-
-                // Coupling and inclusions matrix
-                for (unsigned int j = 0;
-                     j < this->inclusions.n_dofs_per_inclusion();
-                     ++j)
-                  {
-                    if (this->inclusions.data_file != "")
-                      {
-                        if (this->inclusions.inclusions_data[inclusion_id]
-                              .size() > j)
-                          {
-                            auto temp =
-                              inclusion_fe_values[j] * inclusion_fe_values[j] *
-                              this->inclusions.get_inclusion_data(inclusion_id,
-                                                                  j) /
-                              // inclusions.inclusions_data[inclusion_id][j] /
-                              // // data is always prescribed in relative
-                              // coordinates
-                              this->inclusions.get_radius(inclusion_id) * ds;
-                            if (this->par.time_parameters.initial_time !=
-                                this->par.time_parameters.final_time)
-                              temp *= this->inclusions.inclusions_rhs.value(
-                                real_q, this->inclusions.get_component(j));
-                            local_rhs(j) += temp;
-                          }
-                      }
-                    else
-                      {
-                        local_rhs(j) +=
-                          inclusion_fe_values[j] *
-                          this->inclusions.inclusions_rhs.value(
-                            real_q, this->inclusions.get_component(j)) /
-                          this->inclusions.get_radius(inclusion_id) * ds;
-                      }
-                  }
-                ++p;
-              }
-            // I expect p and next_p to be the same now.
-            Assert(p == next_p, ExcInternalError());
-            // Add local matrices to global ones
-            this->inclusion_constraints.distribute_local_to_global(
-              local_rhs, inclusion_dof_indices, this->system_rhs.block(1));
-          }
-        particle = pic.end();
-      }
-    this->system_rhs.compress(VectorOperation::add);
-  }
-
 
   /**
    * @brief compute tissue pressure ($\Lambda$) over the vessels and output to a .txt file (sequential) or .h5 file (mpi)
@@ -169,7 +63,7 @@ namespace ImmersX
 
         auto &lambda_to_pressure = this->locally_relevant_solution.block(1);
 
-        const auto used_number_modes = this->inclusions.get_n_coefficients();
+        const auto used_number_modes = this->inclusions.n_dofs_per_inclusion();
 
         const auto local_lambda = lambda_to_pressure.locally_owned_elements();
 
@@ -258,7 +152,7 @@ namespace ImmersX
     else
       // print .h5
       {
-#  ifdef DEAL_II_WITH_HDF5
+#ifdef DEAL_II_WITH_HDF5
         const std::string FILE_NAME(this->par.output_directory +
                                     "/externalPressure.h5");
 
@@ -306,9 +200,9 @@ namespace ImmersX
           }
         else
           dataset.write_none<int>();
-#  else
+#else
         AssertThrow(false, ExcNeedsHDF5());
-#  endif
+#endif
       }
   }
 
@@ -323,7 +217,7 @@ namespace ImmersX
     this->setup_fe();
     {
       TimerOutput::Scope t(this->computing_timer, "Setup inclusion");
-      this->inclusions.setup_inclusions_particles(this->tria);
+      this->inclusions.setup_inclusions_particles(*this->tria);
     }
     this->cycle = 0;
     this->setup_dofs();
@@ -362,7 +256,7 @@ namespace ImmersX
       }
     else
       {
-        reassemble_coupling_rhs();
+        this->assemble_coupling();
         this->solve();
       }
 
@@ -418,7 +312,7 @@ namespace ImmersX
   std::vector<std::vector<double>>
   CoupledElasticityProblem<dim, spacedim>::split_pressure_over_inclusions(
     std::vector<int> number_of_cells_per_vessel,
-    Vector<double> /* full_press */) const
+    Vector<double>   full_press) const
   {
     Assert(number_of_cells_per_vessel.size() ==
              this->inclusions.get_n_vessels(),
@@ -437,16 +331,20 @@ namespace ImmersX
 
         // const std::vector<double> pressure_of_inc_in_vessel(pressure);//
         // (*pressure[starting_inclusion], *pressure[starting_inclusion+N1]);
-        const Vector<double> pressure_of_inc_in_vessel(
-          coupling_pressure_at_inclusions);
+        AssertThrow(
+          N1 >= 2 && N2 >= 2,
+          ExcMessage(
+            "Pressure interpolation needs at least two samples per vessel."));
+        AssertDimension(full_press.size(), this->inclusions.n_inclusions());
+        const auto &pressure_of_inc_in_vessel = full_press;
 
         new_vector.push_back(pressure_of_inc_in_vessel[starting_inclusion]);
 
         for (auto cell = 1; cell < N2 - 1; ++cell)
           {
-            auto X = cell / (N2 - 1) * (N1 - 1);
-            auto j = floor(X);
-            auto w = X - j;
+            const double X = static_cast<double>(cell) / (N2 - 1) * (N1 - 1);
+            const auto   j = static_cast<unsigned int>(std::floor(X));
+            const double w = X - j;
 
             new_vector.push_back(
               (1 - w) * pressure_of_inc_in_vessel[starting_inclusion + j] +
@@ -468,7 +366,10 @@ namespace ImmersX
                            spacedim>::refine_and_transfer_around_inclusions()
   {
     TimerOutput::Scope t(this->computing_timer, "Refine");
-    Vector<float>      error_per_cell(this->tria.n_active_cells());
+    AssertThrow(this->fe->reference_cell().is_hyper_cube(),
+                ExcMessage(
+                  "Refine simplex tissue meshes before distribution."));
+    Vector<float> error_per_cell(this->tria->n_active_cells());
     KellyErrorEstimator<spacedim>::estimate(
       this->dh,
       QGauss<spacedim - 1>(this->par.fe_degree + 1),
@@ -526,7 +427,7 @@ namespace ImmersX
          ref_cycle < this->par.n_refinement_cycles - 1;
          ++ref_cycle)
       {
-        for (const auto &cell : this->tria.active_cell_iterators())
+        for (const auto &cell : this->tria->active_cell_iterators())
           {
             if (cell->material_id() == material_id)
               cell->set_refine_flag();
@@ -541,5 +442,3 @@ namespace ImmersX
   template class CoupledElasticityProblem<3>;
 
 } // namespace ImmersX
-
-#endif

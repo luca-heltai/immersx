@@ -1,0 +1,31 @@
+set dimension = 3
+set space dimension = 3
+subsection Lifted elasticity
+  set Coupling = none
+  set FE degree = 2
+  set Output directory = @TEST_OUTPUT_DIR@/lifted-elasticity-simplex
+  subsection Domain
+    set Initial refinement = 0
+    set Triangulation type = fullydistributed
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+  end
+  subsection Material properties
+    subsection default
+      set Lame mu = 1
+      set Lame lambda = 1
+    end
+  end
+  subsection Functions
+    subsection Right hand side
+      set Variable names = x,y,z,t
+      set Function expression = -6;0;0
+    end
+    subsection Dirichlet boundary conditions
+      set Variable names = x,y,z,t
+      set Function expression = 1+x*x;0;0
+    end
+  end
+  subsection Linear adapter
+    set Solver = direct
+  end
+end

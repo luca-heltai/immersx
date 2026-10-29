@@ -35,6 +35,7 @@
 
 #include <immersx/algebra/augmented_lagrangian_preconditioner.h>
 #include <immersx/algebra/solver_controls.h>
+#include <immersx/grid/local_co_refinement.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/reduced_poisson.h>
 
@@ -50,8 +51,12 @@ namespace ImmersX
   ReducedPoissonParameters<spacedim, reduced_dim, cross_section_dim>::
     ReducedPoissonParameters()
     : ParameterAcceptor("/Reduced Poisson/")
+    , domain_parameters("/Reduced Poisson/Grid generation/")
+    , name_of_grid(domain_parameters.name_of_grid)
+    , arguments_for_grid(domain_parameters.arguments_for_grid)
     , rhs("/Reduced Poisson/Right hand side")
     , bc("/Reduced Poisson/Dirichlet boundary conditions")
+    , exact_solution("/Reduced Poisson/Exact solution")
     , inner_control("/Reduced Poisson/Solver/Inner control")
     , outer_control("/Reduced Poisson/Solver/Outer control")
   {
@@ -64,12 +69,6 @@ namespace ImmersX
     add_parameter("Solver type", solver_name);
     add_parameter("Assemble full AL system", assemble_full_AL_system);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
-    enter_subsection("Grid generation");
-    {
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-    }
-    leave_subsection();
     enter_subsection("Refinement and remeshing");
     {
       add_parameter("Strategy",
@@ -111,16 +110,47 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , tria(mpi_communicator,
-           typename Triangulation<spacedim>::MeshSmoothing(
-             Triangulation<spacedim>::smoothing_on_refinement |
-             Triangulation<spacedim>::smoothing_on_coarsening),
-           parallel::distributed::Triangulation<
-             spacedim>::construct_multigrid_hierarchy)
+    , domain(par.domain_parameters, mpi_communicator)
+    , tria(domain.triangulation())
     , dh(tria)
     , reduced_coupling(tria, par.reduced_coupling_parameters)
-    , mapping(1)
-  {}
+  {
+    if (domain.uses_fully_distributed_triangulation())
+      {
+        const auto finalize_background = [this]() {
+          auto &prepared = domain.refinement_triangulation();
+          // Native particle location needs conforming simplex vertex
+          // neighborhoods.
+          if (prepared.all_reference_cells_are_simplex() &&
+              prepared.has_hanging_nodes())
+            GridTools::remove_hanging_nodes(prepared,
+                                            true,
+                                            numbers::invalid_unsigned_int);
+          domain.finalize_grid();
+        };
+        if constexpr (reduced_dim == 0)
+          reduced_coupling.prepare_point_cloud_background =
+            [this, finalize_background](const auto &points,
+                                        const auto &scales) {
+              refine_space_around_points(
+                domain.refinement_triangulation(),
+                points,
+                scales,
+                this->par.reduced_coupling_parameters.refinement_parameters,
+                mpi_communicator);
+              finalize_background();
+            };
+        else if constexpr (reduced_dim > 0)
+          reduced_coupling.preprocess_serial_triangulation =
+            [this, finalize_background](auto &embedded) {
+              adjust_grids(
+                domain.refinement_triangulation(),
+                embedded,
+                this->par.reduced_coupling_parameters.refinement_parameters);
+              finalize_background();
+            };
+      }
+  }
 
 
 
@@ -128,18 +158,15 @@ namespace ImmersX
   void
   ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::make_grid()
   {
-    try
-      {
-        GridGenerator::generate_from_name_and_arguments(tria,
-                                                        par.name_of_grid,
-                                                        par.arguments_for_grid);
-      }
-    catch (...)
-      {
-        pcout << "Generating from name and argument failed." << std::endl
-              << "Trying to read from file name." << std::endl;
-        read_grid_and_cad_files(par.name_of_grid, par.arguments_for_grid, tria);
-      }
+    AssertThrow(
+      !domain.uses_fully_distributed_triangulation() ||
+        par.n_refinement_cycles == 1,
+      ExcMessage(
+        "Use one refinement cycle with a fully distributed Reduced Poisson mesh; refine it before distribution."));
+    if (domain.uses_fully_distributed_triangulation())
+      domain.prepare_grid();
+    else
+      domain.make_grid();
   }
 
 
@@ -149,8 +176,27 @@ namespace ImmersX
   ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
-    quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
+    const auto        &mesh = domain.uses_fully_distributed_triangulation() ?
+                                domain.refinement_triangulation() :
+                                static_cast<const Triangulation<spacedim> &>(tria);
+    const auto         reference_cell = detail::uniform_reference_cell(mesh);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The Reduced Poisson mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
+      fe =
+        std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree), 1);
+    else if (reference_cell->is_simplex())
+      fe = std::make_unique<FESystem<spacedim>>(
+        FE_SimplexP<spacedim>(par.fe_degree), 1);
+    quadrature = std::make_unique<Quadrature<spacedim>>(
+      compatibility::gauss_quadrature<spacedim>(*reference_cell,
+                                                par.fe_degree + 1));
+#ifdef MATRIX_FREE_PATH
+    AssertThrow(
+      reference_cell->is_hyper_cube(),
+      ExcMessage(
+        "The experimental matrix-free path requires hypercube meshes."));
+#endif
   }
 
 
@@ -160,7 +206,7 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Setup dofs");
 
-    reduced_coupling.initialize(mapping);
+    reduced_coupling.initialize(geometry_mapping());
 
     dh.distribute_dofs(*fe);
 #ifdef MATRIX_FREE_PATH
@@ -175,7 +221,8 @@ namespace ImmersX
       constraints.reinit(owned_dofs[0], relevant_dofs[0]);
       DoFTools::make_hanging_node_constraints(dh, constraints);
       for (const auto id : par.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(dh, id, par.bc, constraints);
+        VectorTools::interpolate_boundary_values(
+          geometry_mapping(), dh, id, par.bc, constraints);
       constraints.close();
     }
     {
@@ -187,8 +234,11 @@ namespace ImmersX
         (update_gradients | update_JxW_values | update_quadrature_points);
       std::shared_ptr<MatrixFree<spacedim, double>> system_mf_storage(
         new MatrixFree<spacedim, double>());
-      system_mf_storage->reinit(
-        mapping, dh, constraints, QGauss<1>(fe->degree + 1), additional_data);
+      system_mf_storage->reinit(geometry_mapping(),
+                                dh,
+                                constraints,
+                                QGauss<1>(fe->degree + 1),
+                                additional_data);
       stiffness_matrix.initialize(system_mf_storage);
 
       // Perform setup for matrix-free multigrid
@@ -220,7 +270,7 @@ namespace ImmersX
             additional_data_level.mg_level = level;
             std::shared_ptr<MatrixFree<spacedim, float>> mg_mf_storage_level =
               std::make_shared<MatrixFree<spacedim, float>>();
-            mg_mf_storage_level->reinit(mapping,
+            mg_mf_storage_level->reinit(geometry_mapping(),
                                         dh,
                                         level_constraints,
                                         QGauss<1>(fe->degree + 1),
@@ -311,7 +361,8 @@ namespace ImmersX
     stiffness_matrix = 0;
     coupling_matrix  = 0;
     system_rhs       = 0;
-    FEValues<spacedim>               fe_values(*fe,
+    FEValues<spacedim>               fe_values(geometry_mapping(),
+                                 *fe,
                                  *quadrature,
                                  update_values | update_gradients |
                                    update_quadrature_points |
@@ -364,8 +415,11 @@ namespace ImmersX
   ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
     assemble_coupling_system()
   {
-    reduced_coupling.assemble_coupling_matrix(coupling_matrix, dh, constraints);
     reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
+    reduced_coupling.assemble_coupling_matrix(coupling_matrix,
+                                              dh,
+                                              constraints,
+                                              system_rhs.block(1));
   }
 
 
@@ -482,7 +536,7 @@ namespace ImmersX
   inclusion_id;
                  ++next_p)
               ref_q_points.push_back(next_p->get_reference_location());
-            FEValues<spacedim, spacedim> fev(*fe,
+            FEValues<spacedim, spacedim> fev(geometry_mapping(), *fe,
                                              ref_q_points,
                                              update_values | update_gradients);
             fev.reinit(dh_cell);
@@ -927,7 +981,13 @@ namespace ImmersX
     refine_and_transfer()
   {
     TimerOutput::Scope t(computing_timer, "Refine");
-    Vector<float>      error_per_cell(tria.n_active_cells());
+    auto              *distributed =
+      dynamic_cast<parallel::distributed::Triangulation<spacedim> *>(&tria);
+    AssertThrow(
+      distributed != nullptr,
+      ExcMessage(
+        "Refine fully distributed Reduced Poisson meshes before distribution."));
+    Vector<float> error_per_cell(tria.n_active_cells());
     KellyErrorEstimator<spacedim>::estimate(dh,
                                             QGauss<spacedim - 1>(par.fe_degree +
                                                                  1),
@@ -937,7 +997,7 @@ namespace ImmersX
     if (par.refinement_strategy == "fixed_fraction")
       {
         parallel::distributed::GridRefinement::
-          refine_and_coarsen_fixed_fraction(tria,
+          refine_and_coarsen_fixed_fraction(*distributed,
                                             error_per_cell,
                                             par.refinement_fraction,
                                             par.coarsening_fraction);
@@ -945,7 +1005,7 @@ namespace ImmersX
     else if (par.refinement_strategy == "fixed_number")
       {
         parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number(
-          tria,
+          *distributed,
           error_per_cell,
           par.refinement_fraction,
           par.coarsening_fraction,
@@ -984,7 +1044,7 @@ namespace ImmersX
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = tria.locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
-    data_out.build_patches();
+    data_out.build_patches(geometry_mapping());
     const std::string filename =
       par.output_name + "_" + std::to_string(cycle) + ".vtu";
     data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
@@ -1074,11 +1134,12 @@ namespace ImmersX
         // return;
         solve();
         output_results();
-        par.convergence_table.error_from_exact(
-          dh, locally_relevant_solution.block(0), par.bc);
+        if (fe->reference_cell().is_hyper_cube())
+          par.convergence_table.error_from_exact(
+            dh, locally_relevant_solution.block(0), par.exact_solution);
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
-        if (pcout.is_active())
+        if (pcout.is_active() && fe->reference_cell().is_hyper_cube())
           par.convergence_table.output_table(pcout.get_stream());
       }
   }

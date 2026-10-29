@@ -356,26 +356,30 @@ ENDIF()
 
 INCLUDE(CheckCXXSourceCompiles)
 IF(ENABLE_COUPLED_PROBLEMS AND FVM_LIB)
-  SET(_FVM_RTTI_TEST_SOURCE
-    "#include <typeinfo>\n"
-    "#include <immersx/fvm/model1d.h>\n"
-    "int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0; }\n")
+  SET(_FVM_RTTI_TEST_SOURCE [=[
+#include <typeinfo>
+#include <immersx/fvm/model1d.h>
+int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0; }
+]=])
   SET(CMAKE_REQUIRED_INCLUDES
       "${CMAKE_CURRENT_SOURCE_DIR}/include")
-  SET(CMAKE_REQUIRED_LIBRARIES "${FVM_LIB}")
+  LIST(GET IMMERSX_REQUESTED_BUILD_TYPES 0 _fvm_build_type)
+  STRING(TOUPPER "${_fvm_build_type}" _FVM_BUILD_TYPE)
+  SET(CMAKE_REQUIRED_LIBRARIES
+      "${FVM_LIB};${DEAL_II_TARGET_${_FVM_BUILD_TYPE}}")
   IF(OpenMP_CXX_FOUND AND OpenMP_CXX_FLAGS)
     SET(CMAKE_REQUIRED_FLAGS "${OpenMP_CXX_FLAGS}")
   ENDIF()
-  CHECK_CXX_SOURCE_COMPILES("${_FVM_RTTI_TEST_SOURCE}" FVM_LIB_HAS_RTTI)
+  CHECK_CXX_SOURCE_COMPILES("${_FVM_RTTI_TEST_SOURCE}" FVM_LIB_LINKS)
   UNSET(CMAKE_REQUIRED_INCLUDES)
   UNSET(CMAKE_REQUIRED_LIBRARIES)
   UNSET(CMAKE_REQUIRED_FLAGS)
   UNSET(_FVM_RTTI_TEST_SOURCE)
-  IF(NOT FVM_LIB_HAS_RTTI)
+  IF(NOT FVM_LIB_LINKS)
     MESSAGE(WARNING
-      "Found 1dsolver library but RTTI for Model1d is missing. "
-      "Please rebuild lib1dsolver with RTTI enabled (no -fno-rtti). "
-      "Disabling coupled problems.")
+      "The 1dsolver library cannot link with this toolchain and its dependencies. "
+      "Use a compatible library with RTTI enabled; see CMakeFiles/CMakeError.log. "
+      "Disabling the optional 1D drivers.")
     SET(ENABLE_COUPLED_PROBLEMS OFF)
   ENDIF()
 ENDIF()

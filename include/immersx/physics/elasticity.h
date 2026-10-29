@@ -49,6 +49,7 @@
 
 #include <deal.II/fe/fe_nothing.h>
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_fe_field.h>
@@ -82,6 +83,9 @@
 #include <deal.II/lac/trilinos_vector.h>
 
 #include <deal.II/physics/elasticity/standard_tensors.h>
+
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 
 // #include <deal.II/trilinos/parameter_acceptor.h>
 #include <deal.II/lac/vector.h>
@@ -209,8 +213,8 @@ namespace ImmersX
    * - `solution.block(1)` \f$\equiv \lambda_h\f$ (may be size 0 if no
    * inclusions).
    *
-   * The displacement is discretized with a continuous \f$Q_p\f$ vector element:
-   * `FESystem<spacedim>(FE_Q<spacedim>(fe_degree), spacedim)`.
+   * The displacement uses `spacedim` continuous components of `FE_Q` on
+   * hypercubes or `FE_SimplexP` on simplices, with degree `fe_degree`.
    *
    * @section elasticity_operators Assembled matrices and right-hand sides
    *
@@ -815,6 +819,14 @@ namespace ImmersX
     output_immersed_particles(const std::string &filename) const;
 
     class Postprocessor;
+
+  private:
+    const Mapping<spacedim> &
+    geometry_mapping() const
+    {
+      AssertThrow(fe != nullptr, ExcNotInitialized());
+      return compatibility::linear_mapping<spacedim>(fe->reference_cell());
+    }
   };
 
 } // namespace ImmersX

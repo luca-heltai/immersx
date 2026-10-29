@@ -26,6 +26,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 # directive: a failure here is a public-header dependency or namespace error,
 # not a runtime test failure.
 set(_public_headers
+    immersx/compatibility/reference_cell.h
     immersx/core/boundary_conditions.h
     immersx/core/constraint.h
     immersx/core/contributor.h
@@ -63,6 +64,7 @@ set(_public_headers
     immersx/core/time_residual.h
     immersx/coupling/tensor_product_lift.h
     immersx/physics/elastic_static.h
+    immersx/physics/coupled_elasticity.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
     immersx/coupling/particle_coupling.h
@@ -173,6 +175,16 @@ FOREACH(_build_type ${_d2_build_types})
     IF(ENABLE_COUPLED_PROBLEMS)
       TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
     ENDIF()
+    if(OpenMP_CXX_FOUND AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
+      set(_optional_1d_clients "immersx_optional_1d_clients${_p}")
+      add_library(${_optional_1d_clients} OBJECT
+        "${CMAKE_SOURCE_DIR}/apps/app_coupled_elasticity.cc"
+        "${CMAKE_SOURCE_DIR}/apps/app_pseudocoupling1D.cc")
+      target_compile_definitions(${_optional_1d_clients} PRIVATE ENABLE_COUPLED_PROBLEMS)
+      target_link_libraries(${_optional_1d_clients} ${TEST_LIBRARIES_${_BUILD_TYPE}})
+      DEAL_II_SETUP_TARGET(${_optional_1d_clients} ${_BUILD_TYPE})
+      add_dependencies(${_exe} ${_optional_1d_clients})
+    endif()
     DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     target_include_directories(${_exe} PRIVATE ${GTEST_INCLUDE_DIRS})
     LIST(APPEND IMMERSX_TEST_TARGETS ${_exe})
@@ -378,7 +390,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                                         RESOURCE_LOCK ImmersX.TestOutput
                                         ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal")
       endif()
-      foreach(_case Coupled MMS MMSNeumann RCRDefault RCRImmersed)
+      foreach(_case Coupled MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
         set(_coupled_modes Serial MPI)
         if(DEAL_II_WITH_UMFPACK)
           list(APPEND _coupled_modes SerialUMFPACK)
@@ -417,6 +429,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_template "${CMAKE_SOURCE_DIR}/tutorials/metric_flow_x_elastodynamics/mms_cube_neumann.prm.in")
           elseif(_case STREQUAL "Coupled")
             set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_elastodynamics.prm.in")
+          elseif(_case STREQUAL "RCRSimplexDefault" OR _case STREQUAL "RCRSimplexImmersed")
+            set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_rcr_simplex_coupled.prm.in")
           elseif(_case MATCHES "^RCR")
             set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_rcr_coupled.prm.in")
             if(_case STREQUAL "RCRImmersed")
@@ -428,6 +442,10 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           configure_file(
             "${_coupled_template}"
             "${_coupled_input}" @ONLY)
+          if(_case STREQUAL "RCRSimplexImmersed")
+            file(APPEND "${_coupled_input}"
+              "\nsubsection MetricFlowX coupling\n  set Embedded partitioning policy = immersed\nend\n")
+          endif()
           if(_mode STREQUAL "SerialUMFPACK")
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = umfpack\n    end\n  end\nend\n")

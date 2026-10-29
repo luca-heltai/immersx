@@ -104,11 +104,15 @@ namespace ImmersX::harmonic_detail
       {
         const auto rank =
           dealii::Utilities::MPI::this_mpi_process(problem.communicator());
-        const dealii::QGauss<dim> quadrature(problem.parameters().fe_degree +
-                                             2);
-        const dealii::FE_Nothing<dim, spacedim> fe;
+        const auto reference =
+          detail::uniform_reference_cell(problem.triangulation());
+        AssertThrow(reference.has_value(),
+                    dealii::ExcMessage("The reinforcement mesh has no cells."));
+        const auto quadrature = compatibility::gauss_quadrature<dim>(
+          *reference, problem.parameters().fe_degree + 2);
+        const dealii::FE_Nothing<dim, spacedim> fe(*reference);
         dealii::FEValues<dim, spacedim>         values(
-          problem.mapping(),
+          compatibility::linear_mapping<dim, spacedim>(*reference),
           fe,
           quadrature,
           dealii::update_quadrature_points | dealii::update_JxW_values);

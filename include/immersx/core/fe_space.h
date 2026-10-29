@@ -34,7 +34,9 @@
 
 #include <deal.II/lac/affine_constraints.h>
 
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/field.h>
+#include <immersx/core/integration_support.h>
 
 #include <limits>
 #include <memory>
@@ -453,6 +455,7 @@ namespace ImmersX
     using DoFHandlerType = dealii::DoFHandler<dim, spacedim>;
     using MappingType    = dealii::Mapping<dim, spacedim>;
 
+    /** Construct a local view; owning-space setup validates the global mesh. */
     FiniteElementSpaceView(const DoFHandlerType                    &dof_handler,
                            const MappingType                       &mapping,
                            const dealii::AffineConstraints<double> &constraints,
@@ -624,6 +627,12 @@ namespace ImmersX
     void
     distribute_dofs()
     {
+      const auto reference_cell =
+        detail::uniform_reference_cell(*triangulation_);
+      AssertThrow(
+        !reference_cell || *reference_cell == finite_element_->reference_cell(),
+        dealii::ExcMessage(
+          "The finite element must match the physical mesh reference cell."));
       dof_handler_.distribute_dofs(*finite_element_);
       locally_owned_dofs_ = dof_handler_.locally_owned_dofs();
       locally_relevant_dofs_ =
@@ -684,11 +693,12 @@ namespace ImmersX
                                                    &locally_relevant_dofs_);
     }
 
-    /** Return a view using deal.II's static Q1 mapping. */
+    /** Return a view using deal.II's linear reference-cell mapping. */
     FiniteElementSpaceView<dim, spacedim>
     view() const
     {
-      return view(dealii::StaticMappingQ1<dim, spacedim>::mapping);
+      return view(compatibility::linear_mapping<dim, spacedim>(
+        finite_element().reference_cell()));
     }
 
   private:

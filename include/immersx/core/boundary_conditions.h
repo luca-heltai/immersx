@@ -44,7 +44,8 @@ namespace ImmersX
 
     struct Target
     {
-      std::function<const DoFHandler &()>       dof_handler;
+      std::function<const DoFHandler &()>                     dof_handler;
+      std::function<const dealii::Mapping<dim, spacedim> &()> mapping;
       std::function<const dealii::IndexSet &()> locally_owned_dofs;
       std::function<const dealii::IndexSet &()> locally_relevant_dofs;
       std::function<Constraints &()>            constraints;
@@ -89,13 +90,15 @@ namespace ImmersX
         const auto effective_mask =
           mask.has_value() ? mask : target.component_mask;
         if (effective_mask.has_value())
-          dealii::VectorTools::interpolate_boundary_values(target.dof_handler(),
+          dealii::VectorTools::interpolate_boundary_values(target.mapping(),
+                                                           target.dof_handler(),
                                                            boundary_id,
                                                            function,
                                                            constraints,
                                                            *effective_mask);
         else
-          dealii::VectorTools::interpolate_boundary_values(target.dof_handler(),
+          dealii::VectorTools::interpolate_boundary_values(target.mapping(),
+                                                           target.dof_handler(),
                                                            boundary_id,
                                                            function,
                                                            constraints);
@@ -120,13 +123,15 @@ namespace ImmersX
         const auto effective_mask =
           mask.has_value() ? mask : target.component_mask;
         if (effective_mask.has_value())
-          dealii::VectorTools::interpolate_boundary_values(target.dof_handler(),
+          dealii::VectorTools::interpolate_boundary_values(target.mapping(),
+                                                           target.dof_handler(),
                                                            boundary_id,
                                                            *function,
                                                            constraints,
                                                            *effective_mask);
         else
-          dealii::VectorTools::interpolate_boundary_values(target.dof_handler(),
+          dealii::VectorTools::interpolate_boundary_values(target.mapping(),
+                                                           target.dof_handler(),
                                                            boundary_id,
                                                            *function,
                                                            constraints);
@@ -165,7 +170,12 @@ namespace ImmersX
           const std::map<BoundaryId, const Function *> functions{
             {boundary_id, &function}};
           dealii::VectorTools::compute_nonzero_normal_flux_constraints(
-            target.dof_handler(), component, ids, functions, constraints);
+            target.dof_handler(),
+            component,
+            ids,
+            functions,
+            constraints,
+            target.mapping());
         });
     }
 
@@ -188,7 +198,12 @@ namespace ImmersX
           const std::map<BoundaryId, const Function *> functions{
             {boundary_id, function.get()}};
           dealii::VectorTools::compute_nonzero_normal_flux_constraints(
-            target.dof_handler(), component, ids, functions, constraints);
+            target.dof_handler(),
+            component,
+            ids,
+            functions,
+            constraints,
+            target.mapping());
         });
     }
 
@@ -302,6 +317,9 @@ namespace ImmersX
       result.constraints = [&space]() -> Constraints & {
         return space.constraints();
       };
+      result.mapping = [&space]() -> const dealii::Mapping<dim, spacedim> & {
+        return space.view().mapping();
+      };
       result.space = &space;
       return result;
     }
@@ -323,6 +341,9 @@ namespace ImmersX
       };
       result.constraints = [field]() -> Constraints & {
         return field.mutable_constraints();
+      };
+      result.mapping = [field]() -> const dealii::Mapping<dim, spacedim> & {
+        return field.mapping();
       };
       result.component_mask = field.component_mask();
       if constexpr (std::is_same_v<Extractor,

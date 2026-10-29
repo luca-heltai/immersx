@@ -212,6 +212,7 @@ TEST(MetricFlowX, BOTH_IDAVerticalSmoke)
   ImmersX::IDAParameters          ida_parameters(
     "/MetricFlowSystem<1, 3>/IDA parameters/", &time_parameters);
   initialize_problem(problem);
+  EXPECT_TRUE(problem.triangulation().all_reference_cells_are_simplex());
 
   Adapter    adapter(time_parameters, ida_parameters, MPI_COMM_WORLD);
   const auto fields =

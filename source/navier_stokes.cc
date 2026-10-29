@@ -233,12 +233,24 @@ namespace ImmersX
                 ExcMessage("The pressure degree must be smaller than the "
                            "velocity degree for the Taylor-Hood pair."));
 
-    fe = std::make_unique<FESystem<dim, spacedim>>(
-      FE_Q<dim, spacedim>(par.velocity_degree),
-      dim,
-      FE_Q<dim, spacedim>(par.pressure_degree),
-      1);
-    quadrature    = std::make_unique<QGauss<dim>>(par.velocity_degree + 1);
+    const auto reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The fluid mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
+      fe = std::make_unique<FESystem<dim, spacedim>>(
+        FE_Q<dim, spacedim>(par.velocity_degree),
+        dim,
+        FE_Q<dim, spacedim>(par.pressure_degree),
+        1);
+    else if (reference_cell->is_simplex())
+      fe = std::make_unique<FESystem<dim, spacedim>>(
+        FE_SimplexP<dim, spacedim>(par.velocity_degree),
+        dim,
+        FE_SimplexP<dim, spacedim>(par.pressure_degree),
+        1);
+    quadrature = std::make_unique<Quadrature<dim>>(
+      compatibility::gauss_quadrature<dim>(*reference_cell,
+                                           par.velocity_degree + 1));
     velocity_mask = fe->component_mask(velocity);
   }
 
@@ -288,7 +300,7 @@ namespace ImmersX
 
     for (const auto boundary_id : par.dirichlet_ids)
       VectorTools::interpolate_boundary_values(
-        dh, boundary_id, par.bc, constraints_storage, velocity_mask);
+        mapping(), dh, boundary_id, par.bc, constraints_storage, velocity_mask);
 
     // Component-wise renumbering places the pressure block after all velocity
     // DoFs, so this global index is the same on every MPI rank.
@@ -402,10 +414,8 @@ namespace ImmersX
   NavierStokesSolver<dim, spacedim>::interpolate_initial_condition()
   {
     par.set_time(current_time_storage);
-    VectorTools::interpolate(dh,
-                             par.initial_condition,
-                             solution_storage,
-                             velocity_mask);
+    VectorTools::interpolate(
+      mapping(), dh, par.initial_condition, solution_storage, velocity_mask);
     solution_storage.block(1) = 0.;
     constraints_storage.distribute(solution_storage);
     previous_solution_storage = solution_storage;
@@ -427,7 +437,7 @@ namespace ImmersX
     continuous_operator_storage = 0.;
     system_rhs_storage          = 0.;
 
-    FEValues<dim, spacedim> fe_values(mapping_storage,
+    FEValues<dim, spacedim> fe_values(mapping(),
                                       *fe,
                                       *quadrature,
                                       update_values | update_gradients |
@@ -669,7 +679,7 @@ namespace ImmersX
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = tria->locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
-    data_out.build_patches(mapping_storage);
+    data_out.build_patches(mapping());
 
     const std::string filename =
       par.output_name + "_" + std::to_string(output_cycle) + ".vtu";
@@ -812,7 +822,7 @@ namespace ImmersX
     if (solution_storage.size() == 0)
       return 0.;
 
-    FEValues<dim, spacedim> fe_values(mapping_storage,
+    FEValues<dim, spacedim> fe_values(mapping(),
                                       *fe,
                                       *quadrature,
                                       update_gradients | update_JxW_values);
@@ -878,7 +888,8 @@ namespace ImmersX
   const Mapping<dim, spacedim> &
   NavierStokesSolver<dim, spacedim>::mapping() const
   {
-    return mapping_storage;
+    AssertThrow(fe != nullptr, ExcNotInitialized());
+    return compatibility::linear_mapping<dim, spacedim>(fe->reference_cell());
   }
 
 
@@ -944,7 +955,7 @@ namespace ImmersX
     destination.reinit(owned_dofs_by_block[0], mpi_communicator);
     destination = 0.;
 
-    FEValues<dim, spacedim>              fe_values(mapping_storage,
+    FEValues<dim, spacedim>              fe_values(mapping(),
                                       *fe,
                                       *quadrature,
                                       update_values | update_quadrature_points |

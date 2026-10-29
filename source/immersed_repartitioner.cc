@@ -16,6 +16,8 @@
 
 #include <deal.II/numerics/vector_tools.h>
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/coupling/immersed_repartitioner.h>
 
 namespace ImmersX
@@ -31,6 +33,12 @@ namespace ImmersX
   ImmersedRepartitioner<dim, spacedim>::partition(
     const Triangulation<dim, spacedim> &tria_immersed) const
   {
+    const auto reference_cell = detail::uniform_reference_cell(tria_background);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The repartitioning background mesh has no cells."));
+    const auto &mapping =
+      compatibility::linear_mapping<spacedim>(*reference_cell);
+
     // 1) collect centers of immeresed mesh
     std::vector<Point<spacedim>> points;
 

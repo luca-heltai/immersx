@@ -324,21 +324,27 @@ namespace ImmersX
           {
             Vector<float> errors(bulk.triangulation().n_active_cells());
             VectorTools::integrate_difference(
+              view.mapping(),
               space.dof_handler(),
               ghosted_solution,
               parameters.exact_solution,
               errors,
-              QGauss<3>(space.finite_element().degree + 2),
+              compatibility::gauss_quadrature<3>(
+                space.finite_element().reference_cell(),
+                space.finite_element().degree + 2),
               VectorTools::L2_norm);
             l2_error = VectorTools::compute_global_error(bulk.triangulation(),
                                                          errors,
                                                          VectorTools::L2_norm);
             VectorTools::integrate_difference(
+              view.mapping(),
               space.dof_handler(),
               ghosted_solution,
               parameters.exact_solution,
               errors,
-              QGauss<3>(space.finite_element().degree + 2),
+              compatibility::gauss_quadrature<3>(
+                space.finite_element().reference_cell(),
+                space.finite_element().degree + 2),
               VectorTools::H1_norm);
             h1_error = VectorTools::compute_global_error(bulk.triangulation(),
                                                          errors,

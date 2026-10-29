@@ -5,6 +5,7 @@
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_nothing.h>
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 
 #include <immersx/algebra/linear_algebra.h>
@@ -18,7 +19,8 @@ namespace ImmersX
   {
     template <int dim, int spacedim>
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>>
-    field_catalog_to_finite_element(const FieldCatalog &catalog)
+    field_catalog_to_finite_element(const FieldCatalog &catalog,
+                                    const bool          simplex_mesh)
     {
       std::vector<std::shared_ptr<dealii::FiniteElement<dim, spacedim>>>
         field_fes;
@@ -28,30 +30,36 @@ namespace ImmersX
           AssertThrow(field.n_components > 0,
                       dealii::ExcMessage(
                         "Reduced field components must be positive."));
+          std::unique_ptr<dealii::FiniteElement<dim, spacedim>> scalar;
           if (field.association == FieldAssociation::point_data)
             {
-              if (field.n_components == 1)
-                field_fes.push_back(
-                  std::make_shared<dealii::FE_Q<dim, spacedim>>(1));
+              if (simplex_mesh)
+                scalar =
+                  std::make_unique<dealii::FE_SimplexP<dim, spacedim>>(1);
               else
-                field_fes.push_back(
-                  std::make_shared<dealii::FESystem<dim, spacedim>>(
-                    dealii::FE_Q<dim, spacedim>(1), field.n_components));
+                scalar = std::make_unique<dealii::FE_Q<dim, spacedim>>(1);
             }
-          else
+          else if (field.association == FieldAssociation::cell_data)
             {
-              if (field.n_components == 1)
-                field_fes.push_back(
-                  std::make_shared<dealii::FE_DGQ<dim, spacedim>>(0));
+              if (simplex_mesh)
+                scalar =
+                  std::make_unique<dealii::FE_SimplexDGP<dim, spacedim>>(0);
               else
-                field_fes.push_back(
-                  std::make_shared<dealii::FESystem<dim, spacedim>>(
-                    dealii::FE_DGQ<dim, spacedim>(0), field.n_components));
+                scalar = std::make_unique<dealii::FE_DGQ<dim, spacedim>>(0);
             }
+          AssertThrow(scalar != nullptr, dealii::ExcNotImplemented());
+          if (field.n_components == 1)
+            field_fes.push_back(std::move(scalar));
+          else
+            field_fes.push_back(
+              std::make_shared<dealii::FESystem<dim, spacedim>>(
+                *scalar, field.n_components));
         }
 
       if (field_fes.empty())
-        return std::make_unique<dealii::FE_Nothing<dim, spacedim>>();
+        return std::make_unique<dealii::FE_Nothing<dim, spacedim>>(
+          simplex_mesh ? dealii::ReferenceCells::get_simplex<dim>() :
+                         dealii::ReferenceCells::get_hypercube<dim>());
 
       std::vector<const dealii::FiniteElement<dim, spacedim> *> field_fe_ptrs;
       field_fe_ptrs.reserve(field_fes.size());
@@ -200,17 +208,17 @@ namespace ImmersX
 
     /// @cond DOXYGEN_IGNORE_EXPLICIT_INSTANTIATIONS
     template std::unique_ptr<dealii::FiniteElement<1, 1>>
-    field_catalog_to_finite_element<1, 1>(const FieldCatalog &);
+    field_catalog_to_finite_element<1, 1>(const FieldCatalog &, const bool);
     template std::unique_ptr<dealii::FiniteElement<1, 2>>
-    field_catalog_to_finite_element<1, 2>(const FieldCatalog &);
+    field_catalog_to_finite_element<1, 2>(const FieldCatalog &, const bool);
     template std::unique_ptr<dealii::FiniteElement<1, 3>>
-    field_catalog_to_finite_element<1, 3>(const FieldCatalog &);
+    field_catalog_to_finite_element<1, 3>(const FieldCatalog &, const bool);
     template std::unique_ptr<dealii::FiniteElement<2, 2>>
-    field_catalog_to_finite_element<2, 2>(const FieldCatalog &);
+    field_catalog_to_finite_element<2, 2>(const FieldCatalog &, const bool);
     template std::unique_ptr<dealii::FiniteElement<2, 3>>
-    field_catalog_to_finite_element<2, 3>(const FieldCatalog &);
+    field_catalog_to_finite_element<2, 3>(const FieldCatalog &, const bool);
     template std::unique_ptr<dealii::FiniteElement<3, 3>>
-    field_catalog_to_finite_element<3, 3>(const FieldCatalog &);
+    field_catalog_to_finite_element<3, 3>(const FieldCatalog &, const bool);
 
     template void
     serial_vector_to_distributed_vector<1, 1>(

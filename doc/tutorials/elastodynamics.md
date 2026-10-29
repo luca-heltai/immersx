@@ -86,7 +86,17 @@ fullydistributed triangulation cannot be refined afterwards, so
 `run()` skips the error table on simplex meshes and `compute_error()` throws.
 `gtests/elastodynamics_simplex_01.cc` runs a 48-tetrahedron cube from
 `data/tests/simplex_cube.msh.in` with nonzero body force and Dirichlet data,
-in serial and on two MPI ranks.
+in serial and on two MPI ranks. The generated
+`gtests/parameters/elastodynamics_simplex.prm` also checks quadratic spatial
+displacement and cubic time dependence with the native trapezoidal method.
+
+The `elastodynamics_adapter` executable accepts the same uniform simplex
+meshes through `Elastodynamics/Domain`. Set
+`Triangulation type = fullydistributed` and use one refinement cycle.
+Its IDA solve uses simplex operators and skips the convergence table.
+The generated test input
+`gtests/parameters/elastodynamics_adapter_simplex.prm` supplies nonzero body
+force and time-dependent displacement and velocity boundary values.
 
 Next, [Reduced Poisson](reduced-poisson) introduces a lower-dimensional
 geometry and coupling.

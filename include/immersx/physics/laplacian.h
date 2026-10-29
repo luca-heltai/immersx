@@ -24,11 +24,16 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/timer.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
+
 #include <deal.II/lac/block_linear_operator.h>
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
+
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 // #define MATRIX_FREE_PATH
 
 #define FORCE_USE_OF_TRILINOS
@@ -149,6 +154,8 @@ namespace ImmersX
       rhs; ///< RHS function.
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
       bc; ///< Dirichlet data.
+    mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+      exact_solution; ///< Exact solution used for error computation.
     /// @}
 
     /**
@@ -180,6 +187,7 @@ namespace ImmersX
     , domain_parameters("/Immersed Problem/Domain/")
     , rhs("/Immersed Problem/Right hand side")
     , bc("/Immersed Problem/Dirichlet boundary conditions")
+    , exact_solution("/Immersed Problem/Exact solution")
     , inner_control("/Immersed Problem/Solver/Inner control")
     , outer_control("/Immersed Problem/Solver/Outer control")
   {
@@ -318,8 +326,8 @@ namespace ImmersX
     /**
      * Distributed bulk triangulation.
      */
-    Domain<spacedim>                                domain;
-    parallel::distributed::Triangulation<spacedim> &tria;
+    std::unique_ptr<Domain<spacedim>>      domain;
+    parallel::TriangulationBase<spacedim> *tria = nullptr;
     /**
      * Finite element used for the background field.
      */
@@ -359,8 +367,14 @@ namespace ImmersX
     LA::MPI::SparseMatrix coupling_matrix;
     LA::MPI::SparseMatrix inclusion_matrix; ///< Multiplier mass/scaling matrix.
     LA::MPI::SparseMatrix mass_matrix;      ///< Bulk mass matrix.
-    MappingQ<spacedim>    mapping; ///< Geometry mapping for coupling points.
-                                   /// @}
+    /** Geometry mapping for assembly, output, and coupling points. */
+    const Mapping<spacedim> &
+    geometry_mapping() const
+    {
+      AssertThrow(fe != nullptr, ExcNotInitialized());
+      return compatibility::linear_mapping<spacedim>(fe->reference_cell());
+    }
+    /// @}
 #ifdef MATRIX_FREE_PATH
     /**
      * Vector and operator types for matrix-free mode.

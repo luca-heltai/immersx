@@ -257,6 +257,11 @@ namespace ImmersX
     if (par.grid_scale != 1.0)
       GridTools::scale(par.grid_scale, serial_tria);
 
+    const auto reference_cell = detail::uniform_reference_cell(serial_tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The elasticity mesh has no cells."));
+    if (reference_cell->is_simplex())
+      serial_tria.set_mesh_smoothing(Triangulation<spacedim>::none);
     serial_tria.refine_global(par.initial_refinement);
     auto &fully_distributed_tria =
       std::get<FullyDistributedTriangulation>(triangulation_storage);
@@ -277,7 +282,10 @@ namespace ImmersX
     pcout << "   Material ids: " << Patterns::Tools::to_string(material_ids)
           << std::endl;
 
-    pcout << "   Grid volume: " << GridTools::volume(*tria) << std::endl
+    pcout << "   Grid volume: "
+          << GridTools::volume(
+               *tria, compatibility::linear_mapping<spacedim>(*reference_cell))
+          << std::endl
           << "   Dirichlet boundary ids: "
           << Patterns::Tools::to_string(par.dirichlet_ids) << std::endl
           << "   Weak Dirichlet boundary ids: "
@@ -293,11 +301,21 @@ namespace ImmersX
   ElasticityProblem<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree),
-                                              spacedim);
-    quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
-    face_quadrature_formula =
-      std::make_unique<QGauss<spacedim - 1>>(par.fe_degree + 1);
+    const auto         reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The elasticity mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
+      fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree),
+                                                spacedim);
+    else if (reference_cell->is_simplex())
+      fe = std::make_unique<FESystem<spacedim>>(
+        FE_SimplexP<spacedim>(par.fe_degree), spacedim);
+    quadrature = std::make_unique<Quadrature<spacedim>>(
+      compatibility::gauss_quadrature<spacedim>(*reference_cell,
+                                                par.fe_degree + 1));
+    face_quadrature_formula = std::make_unique<Quadrature<spacedim - 1>>(
+      compatibility::gauss_quadrature<spacedim - 1>(
+        reference_cell->face_reference_cell(0), par.fe_degree + 1));
   }
 
 
@@ -311,10 +329,8 @@ namespace ImmersX
     DoFTools::make_hanging_node_constraints(dh, constraints);
 
     for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh,
-                                               id,
-                                               par.get_dirichlet_bc(id),
-                                               constraints);
+      VectorTools::interpolate_boundary_values(
+        geometry_mapping(), dh, id, par.get_dirichlet_bc(id), constraints);
 
     std::map<types::boundary_id, const Function<spacedim, double> *>
       function_map;
@@ -324,8 +340,12 @@ namespace ImmersX
           std::pair<types::boundary_id, const Function<spacedim, double> *>(
             id, &par.get_neumann_bc(id)));
       }
-    VectorTools::compute_nonzero_normal_flux_constraints(
-      dh, 0, par.normal_flux_ids, function_map, constraints);
+    VectorTools::compute_nonzero_normal_flux_constraints(dh,
+                                                         0,
+                                                         par.normal_flux_ids,
+                                                         function_map,
+                                                         constraints,
+                                                         geometry_mapping());
     constraints.close();
 
     /*{
@@ -444,8 +464,7 @@ namespace ImmersX
               *tria, par.tensor_product_coupling_parameters);
         if (tensor_product_coupling->get_dof_handler().n_dofs() == 0)
           {
-            MappingQ<spacedim> mapping(1);
-            tensor_product_coupling->initialize(mapping);
+            tensor_product_coupling->initialize(geometry_mapping());
           }
       }
 #endif
@@ -561,12 +580,14 @@ namespace ImmersX
 
     par.rhs.set_time(current_time);
     par.set_boundary_condition_times(current_time);
-    FEValues<spacedim>     fe_values(*fe,
+    FEValues<spacedim>     fe_values(geometry_mapping(),
+                                 *fe,
                                  *quadrature,
                                  update_values | update_gradients |
                                    update_quadrature_points |
                                    update_JxW_values);
-    FEFaceValues<spacedim> fe_face_values(*fe,
+    FEFaceValues<spacedim> fe_face_values(geometry_mapping(),
+                                          *fe,
                                           *face_quadrature_formula,
                                           update_values |
                                             update_quadrature_points |
@@ -703,11 +724,10 @@ namespace ImmersX
                                    div_phi_u[i] * (n * phi_u[j])) *
                                   fe_face_values.JxW(q);
                               }
-                            const auto comp_i =
-                              fe->system_to_component_index(i).first;
                             Tensor<1, spacedim> g;
-                            g[comp_i] = dirichlet_bc.value(
-                              fe_face_values.quadrature_point(q), comp_i);
+                            for (unsigned int d = 0; d < spacedim; ++d)
+                              g[d] = dirichlet_bc.value(
+                                fe_face_values.quadrature_point(q), d);
 
                             cell_penalty_value_rhs(i) +=
                               par.penalty_term * (1.0 / cell_diameter) * g *
@@ -848,9 +868,8 @@ namespace ImmersX
 
 #if DEAL_II_VERSION_GTE(9, 7, 0)
       using VectorType = std::vector<double>;
-      MappingQ1<spacedim>              mapping;
       std::vector<std::vector<double>> rigid_body_modes =
-        DoFTools::extract_rigid_body_modes(mapping, dh);
+        DoFTools::extract_rigid_body_modes(geometry_mapping(), dh);
 #else
       using VectorType = LinearAlgebra::distributed::Vector<double>;
       std::vector<VectorType> rigid_body_modes(spacedim == 3 ? 6 : 3);
@@ -861,7 +880,10 @@ namespace ImmersX
                                      locally_relevant_dofs,
                                      mpi_communicator);
           RigidBodyMotion<spacedim> rbm(i);
-          VectorTools::interpolate(dh, rbm, rigid_body_modes[i]);
+          VectorTools::interpolate(geometry_mapping(),
+                                   dh,
+                                   rbm,
+                                   rigid_body_modes[i]);
         }
 #endif
       // Only make prec_A for static and quasi-static runs
@@ -909,9 +931,13 @@ namespace ImmersX
   {
     Assert(par.time_mode == TimeMode::Dynamic, ExcInternalError());
 
-    FEValues<spacedim> fe_values(
-      *fe, *quadrature, update_values | update_gradients | update_JxW_values);
-    FEFaceValues<spacedim> fe_face_values(*fe,
+    FEValues<spacedim>     fe_values(geometry_mapping(),
+                                 *fe,
+                                 *quadrature,
+                                 update_values | update_gradients |
+                                   update_JxW_values);
+    FEFaceValues<spacedim> fe_face_values(geometry_mapping(),
+                                          *fe,
                                           *face_quadrature_formula,
                                           update_values | update_gradients |
                                             update_JxW_values |
@@ -1086,11 +1112,13 @@ namespace ImmersX
     neumann_bc_rhs = 0;
 
     TimerOutput::Scope     t(computing_timer, "Assemble rhs");
-    FEValues<spacedim>     fe_values(*fe,
+    FEValues<spacedim>     fe_values(geometry_mapping(),
+                                 *fe,
                                  *quadrature,
                                  update_values | update_quadrature_points |
                                    update_JxW_values);
-    FEFaceValues<spacedim> fe_face_values(*fe,
+    FEFaceValues<spacedim> fe_face_values(geometry_mapping(),
+                                          *fe,
                                           *face_quadrature_formula,
                                           update_values | update_JxW_values |
                                             update_quadrature_points |
@@ -1173,7 +1201,10 @@ namespace ImmersX
                               dirichlet_bc.value(
                                 fe_face_values.quadrature_point(q), comp_i);
                             Tensor<1, spacedim> g;
-                            g[comp_i] = g_value;
+                            for (unsigned int d = 0; d < spacedim; ++d)
+                              g[d] = dirichlet_scale *
+                                     dirichlet_bc.value(
+                                       fe_face_values.quadrature_point(q), d);
                             cell_bc_rhs(i) += par.penalty_term *
                                               (1.0 / cell_diameter) * g_value *
                                               fe_face_values.shape_value(i, q) *
@@ -1370,7 +1401,8 @@ namespace ImmersX
                                             next_p->get_id()) == inclusion_id;
                  ++next_p)
               ref_q_points.push_back(next_p->get_reference_location());
-            FEValues<spacedim, spacedim> fev(*fe,
+            FEValues<spacedim, spacedim> fev(geometry_mapping(),
+                                             *fe,
                                              ref_q_points,
                                              update_values | update_gradients);
             fev.reinit(dh_cell);
@@ -2040,7 +2072,10 @@ namespace ImmersX
     // Ensure the exact solution is evaluated at the current time.
     par.exact_solution.set_time(current_time);
 
-    VectorTools::interpolate(dh, par.exact_solution, exact_vec);
+    VectorTools::interpolate(geometry_mapping(),
+                             dh,
+                             par.exact_solution,
+                             exact_vec);
     constraints.distribute(exact_vec);
     auto exact_vec_locally_relevant(locally_relevant_solution.block(0));
 
@@ -2087,7 +2122,7 @@ namespace ImmersX
         data_out.add_data_vector(material_ids, "material_id");
       }
 
-    data_out.build_patches();
+    data_out.build_patches(geometry_mapping());
     std::ostringstream filename;
     if (par.time_mode == TimeMode::Static)
       {
@@ -2288,11 +2323,12 @@ namespace ImmersX
         u_dot_n[id]         = 0.0;
       }
     double internal_area = 0.;
-    //   // FEValues<spacedim>               fe_values(*fe,
+    //   // FEValues<spacedim>               fe_values(geometry_mapping(), *fe,
     //   //                              *quadrature,
     //   //                              update_values | update_gradients |
     //   //                                update_quadrature_points | update_JxW_values);
-    FEFaceValues<spacedim>           fe_face_values(*fe,
+    FEFaceValues<spacedim>           fe_face_values(geometry_mapping(),
+                                          *fe,
                                           *face_quadrature_formula,
                                           update_values | update_gradients |
                                             update_JxW_values |
@@ -2358,8 +2394,7 @@ namespace ImmersX
             //           //       }
             //           //   }
 
-            for (unsigned int f = 0; f < GeometryInfo<spacedim>::faces_per_cell;
-                 ++f)
+            for (const unsigned int f : cell->face_indices())
               // for (const auto &f : cell->face_iterators())
               // for (const auto f : GeometryInfo<spacedim>::face_indices())
               if (cell->face(f)->at_boundary())
@@ -2569,7 +2604,7 @@ namespace ImmersX
         assemble_coupling();
         solve_static();
         output_results();
-        if (spacedim == 2)
+        if (fe->reference_cell().is_hyper_cube() && spacedim == 2)
           {
             FunctionParser<spacedim> weight(par.weight_expression);
             par.convergence_table.error_from_exact(
@@ -2578,16 +2613,16 @@ namespace ImmersX
               par.exact_solution,
               &weight);
           }
-        else
+        else if (fe->reference_cell().is_hyper_cube())
           par.convergence_table.error_from_exact(
-            dh, locally_relevant_solution.block(0), par.bc);
+            dh, locally_relevant_solution.block(0), par.exact_solution);
         if (cycle != par.n_refinement_cycles - 1)
           refine_and_transfer();
       }
 
     compute_internal_and_boundary_stress(true);
 
-    if (pcout.is_active())
+    if (pcout.is_active() && fe->reference_cell().is_hyper_cube())
       par.convergence_table.output_table(pcout.get_stream());
 
     if (false)
@@ -2689,18 +2724,23 @@ namespace ImmersX
         par.initial_velocity.set_time(current_time);
         par.set_boundary_condition_times(current_time);
         setup_constraints();
-        VectorTools::interpolate(dh,
+        VectorTools::interpolate(geometry_mapping(),
+                                 dh,
                                  par.initial_displacement,
                                  solution.block(0));
         constraints.distribute(solution.block(0));
-        VectorTools::interpolate(dh, par.initial_velocity, velocity.block(0));
+        VectorTools::interpolate(geometry_mapping(),
+                                 dh,
+                                 par.initial_velocity,
+                                 velocity.block(0));
         {
           AffineConstraints<double> velocity_constraints;
           velocity_constraints.clear();
           velocity_constraints.reinit(owned_dofs[0], relevant_dofs[0]);
           DoFTools::make_hanging_node_constraints(dh, velocity_constraints);
           for (const auto id : par.dirichlet_ids)
-            VectorTools::interpolate_boundary_values(dh,
+            VectorTools::interpolate_boundary_values(geometry_mapping(),
+                                                     dh,
                                                      id,
                                                      par.initial_velocity,
                                                      velocity_constraints);
@@ -2827,8 +2867,9 @@ namespace ImmersX
         output_results();
 
         par.exact_solution.set_time(current_time);
-        par.convergence_table.error_from_exact(
-          dh, locally_relevant_solution.block(0), par.exact_solution);
+        if (fe->reference_cell().is_hyper_cube())
+          par.convergence_table.error_from_exact(
+            dh, locally_relevant_solution.block(0), par.exact_solution);
 
         if (cycle != par.n_refinement_cycles - 1)
           {
@@ -2836,7 +2877,7 @@ namespace ImmersX
             if (par.time_parameters.refine_time_step)
               par.time_parameters.time_step *= 0.5;
           }
-        if (pcout.is_active())
+        if (pcout.is_active() && fe->reference_cell().is_hyper_cube())
           par.convergence_table.output_table(pcout.get_stream());
       }
     // Output RAM usage

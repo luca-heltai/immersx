@@ -75,11 +75,6 @@ namespace ImmersX
      * @brief A reference to the background triangulation used for repartitioning.
      */
     const Triangulation<spacedim> &tria_background;
-
-    /**
-     * @brief A mapping object for the background triangulation.
-     */
-    const MappingQ1<spacedim> mapping;
   };
 
 } // namespace ImmersX

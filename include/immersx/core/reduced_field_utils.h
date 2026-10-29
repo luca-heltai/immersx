@@ -29,12 +29,14 @@ namespace ImmersX
   namespace ReducedFieldUtils
   {
     /** Build the FE representation implied by a reduced-field catalog.
-     * Point fields use FE_Q(1), while cell fields use FE_DGQ(0). Each catalog
-     * entry becomes one FE block, preserving the catalog component ordering.
+     * Point fields use FE_Q(1) or FE_SimplexP(1); cell fields use FE_DGQ(0)
+     * or FE_SimplexDGP(0). Each catalog entry becomes one FE block, preserving
+     * the catalog component ordering.
      */
     template <int dim, int spacedim>
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>>
-    field_catalog_to_finite_element(const FieldCatalog &catalog);
+    field_catalog_to_finite_element(const FieldCatalog &catalog,
+                                    const bool          simplex_mesh = false);
 
     /** Return the component sizes of the blocks of a finite element system. */
     template <int dim, int spacedim>

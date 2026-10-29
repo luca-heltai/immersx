@@ -1,11 +1,9 @@
 /* ---------------------------------------------------------------------
  */
-#ifdef ENABLE_COUPLED_PROBLEMS
+#ifndef immersx_coupled_elasticity_h
+#define immersx_coupled_elasticity_h
 
-#  ifndef dealii_distributed_lagrange_multiplier_coupled_elasticity_h
-#    define dealii_distributed_lagrange_multiplier_coupled_elasticity_h
-
-#    include <immersx/physics/elasticity.h>
+#include <immersx/physics/elasticity.h>
 
 
 
@@ -33,6 +31,11 @@ namespace ImmersX
     update_inclusions_data(std::vector<double> new_data,
                            std::vector<int>    cells_per_vessel);
 
+    /** Interpolate gathered inclusion pressures to vessel samples.
+     * Both the inclusion and requested sample counts must be at least two
+     * per vessel. This callback performs no MPI operations and may run only
+     * on rank zero after the caller gathers the pressure vector.
+     */
     std::vector<std::vector<double>>
       split_pressure_over_inclusions(std::vector<int>, Vector<double>) const;
 
@@ -47,16 +50,11 @@ namespace ImmersX
 
   private:
     void
-    reassemble_coupling_rhs();
-
-    void
     refine_and_transfer_around_inclusions();
 
     void
     output_coupling_pressure(bool openfilefirsttime) const;
   };
-
-#  endif
 
 } // namespace ImmersX
 

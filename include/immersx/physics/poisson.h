@@ -111,6 +111,9 @@ namespace ImmersX
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       bc;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      exact_solution;
 
     mutable dealii::ParameterAcceptorProxy<dealii::ReductionControl>
       solver_control;
@@ -145,8 +148,12 @@ namespace ImmersX
    * used by default for dimensions 2 and 3. The fully distributed backend can
    * be selected for any supported pair and is forced for `dim == 1`, where
    * deal.II does not provide a distributed 1D triangulation. Fully distributed
-   * meshes are constructed from a serial mesh and are not currently refined
-   * after construction; use one initial mesh with that backend.
+   * meshes may contain only simplices or only hypercubes. Simplex meshes
+   * require the fully distributed backend and use FE_SimplexP with a linear
+   * MappingFE. The convergence table is unavailable on simplex meshes.
+   * Fully distributed meshes are constructed from a serial mesh and are not
+   * currently refined after construction; use one initial mesh with that
+   * backend.
    */
   class PoissonSolver : public dealii::EnableObserverPointer
   {
@@ -207,7 +214,7 @@ namespace ImmersX
     const dealii::DoFHandler<dim, spacedim> &
     dof_handler() const;
 
-    /** Return the Q1 mapping used by this problem's FE evaluations. */
+    /** Return the linear mapping matching the mesh reference cell. */
     const dealii::Mapping<dim, spacedim> &
     mapping() const;
 
@@ -259,6 +266,7 @@ namespace ImmersX
     dealii::parallel::TriangulationBase<dim, spacedim>   *tria;
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe;
     std::unique_ptr<dealii::Quadrature<dim>>              quadrature;
+    std::unique_ptr<dealii::Mapping<dim, spacedim>>       mapping_storage;
     dealii::DoFHandler<dim, spacedim>                     dh;
 
     dealii::IndexSet                  owned_dofs;
