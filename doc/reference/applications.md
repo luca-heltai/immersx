@@ -78,3 +78,11 @@ must remain smaller than the velocity degree. The native solver and IDA
 application path use the same reference-cell mapping and quadrature.
 `gtests/parameters/navier_stokes_simplex.prm` maintains a nonzero Poiseuille
 velocity with constant body force on a tetrahedral mesh.
+
+For `reduced_poisson`, select `fullydistributed` under
+`Reduced Poisson/Grid generation/Triangulation type` and import a uniform
+simplex mesh. `FE degree` selects simplex bulk elements. Set one refinement
+cycle; initial refinement and local co-refinement take place before
+partitioning. The generated `reduced_poisson_simplex_line_3d.prm` and
+`reduced_poisson_simplex_point_3d.prm` under `gtests/parameters` provide
+quadratic checks with a Schur solver and nonzero Dirichlet data.

@@ -24,11 +24,16 @@
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/timer.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
+
 #include <deal.II/lac/block_linear_operator.h>
 #include <deal.II/lac/generic_linear_algebra.h>
 #include <deal.II/lac/la_parallel_block_vector.h>
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
+
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/domain.h>
 // #define MATRIX_FREE_PATH
 
 #define FORCE_USE_OF_TRILINOS
@@ -129,8 +134,9 @@ namespace ImmersX
     std::string                   output_name      = "solution";
     unsigned int                  fe_degree        = 1;
     std::list<types::boundary_id> dirichlet_ids{0};
-    std::string                   name_of_grid        = "hyper_cube";
-    std::string                   arguments_for_grid  = "-1: 1: false";
+    DomainParameters<spacedim>    domain_parameters;
+    std::string                  &name_of_grid;
+    std::string                  &arguments_for_grid;
     std::string                   refinement_strategy = "fixed_fraction";
     double                        coarsening_fraction = 0.0;
     double                        refinement_fraction = 0.3;
@@ -295,12 +301,13 @@ namespace ImmersX
 
   private:
     const ReducedPoissonParameters<spacedim, reduced_dim, cross_section_dim>
-                                                  &par;
-    MPI_Comm                                       mpi_communicator;
-    ConditionalOStream                             pcout;
-    mutable TimerOutput                            computing_timer;
-    parallel::distributed::Triangulation<spacedim> tria;
-    std::unique_ptr<FiniteElement<spacedim>>       fe;
+                                            &par;
+    MPI_Comm                                 mpi_communicator;
+    ConditionalOStream                       pcout;
+    mutable TimerOutput                      computing_timer;
+    Domain<spacedim>                         domain;
+    parallel::TriangulationBase<spacedim>   &tria;
+    std::unique_ptr<FiniteElement<spacedim>> fe;
 
     std::unique_ptr<Quadrature<spacedim>> quadrature;
 
@@ -317,7 +324,12 @@ namespace ImmersX
     LA::MPI::SparseMatrix coupling_matrix;
     LA::MPI::SparseMatrix coupling_matrix_transpose;
     LA::MPI::SparseMatrix inclusion_matrix;
-    MappingQ<spacedim>    mapping;
+    const Mapping<spacedim> &
+    geometry_mapping() const
+    {
+      AssertThrow(fe != nullptr, ExcNotInitialized());
+      return compatibility::linear_mapping<spacedim>(fe->reference_cell());
+    }
 #ifdef MATRIX_FREE_PATH
     using VectorType      = LinearAlgebra::distributed::Vector<double>;
     using BlockVectorType = LinearAlgebra::distributed::BlockVector<double>;

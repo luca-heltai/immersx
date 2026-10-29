@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run Reduced Poisson on fully distributed simplex bulk meshes. Prepare line and point-cloud co-refinement before distribution, complete simplex conformity before particle location, and preserve existing mesh parameter names.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use simplex Taylor-Hood velocity and pressure elements in Navier-Stokes on uniform simplex meshes, with matching integration, boundary interpolation, divergence diagnostics, and output in the native and IDA paths.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the immersed Laplacian application on uniform simplex meshes using a fully distributed Domain and matching scalar elements, integration, boundary values, coupling, and output. Select the Domain backend after reading the parameters.
@@ -177,6 +179,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Include prescribed bulk values in the Reduced Poisson coupling right-hand side. Nonzero Dirichlet data now satisfy the same immersed constraint as the complete physical solution.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Condense nonlinear weak residuals through the target constraints and import candidate field states before distributed cell evaluation. Preserve essential rows and evaluate ghost coefficients when the supplied state owns only its local entries.
 

@@ -610,3 +610,14 @@ TEST(AppExecutables, NavierStokesSimplex)
   run_app_with_parameter("navier_stokes",
                          "gtests/parameters/navier_stokes_simplex.prm");
 }
+
+TEST(AppExecutables, ReducedPoissonSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter(
+    "reduced_poisson", "gtests/parameters/reduced_poisson_simplex_line_3d.prm");
+  run_app_with_parameter(
+    "reduced_poisson",
+    "gtests/parameters/reduced_poisson_simplex_point_3d.prm");
+}
