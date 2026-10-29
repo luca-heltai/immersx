@@ -25,6 +25,15 @@ namespace ImmersX::Vascularization
   Parameters::Parameters(const std::string &section)
     : dealii::ParameterAcceptor(section)
   {
+    enter_subsection("Discretization");
+    add_parameter("Target length factor", discretization.target_factor);
+    add_parameter("Lower length factor", discretization.lower_factor);
+    add_parameter("Upper length factor", discretization.upper_factor);
+    add_parameter("Exterior target length",
+                  discretization.exterior_length,
+                  "Metres; zero uses the largest background diameter.");
+    add_parameter("Numerical cell budget", discretization.cell_budget);
+    leave_subsection();
     enter_subsection("Input and ports");
     add_parameter(
       "Selected terminal ids",
@@ -96,6 +105,7 @@ namespace ImmersX::Vascularization
   void
   Parameters::validate(const bool creating_seed) const
   {
+    discretization.validate();
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
     AssertThrow(
       positive(seed_length) &&
@@ -1162,6 +1172,18 @@ namespace ImmersX::Vascularization
     result.validation.issues.insert(result.validation.issues.end(),
                                     report.issues.begin(),
                                     report.issues.end());
+    if (result.validation.valid())
+      {
+        result.discretization = discretize(background,
+                                           mapping,
+                                           result.network,
+                                           parameters.discretization,
+                                           communicator);
+        result.validation.issues.insert(
+          result.validation.issues.end(),
+          result.discretization.validation.issues.begin(),
+          result.discretization.validation.issues.end());
+      }
     return result;
   }
 } // namespace ImmersX::Vascularization
