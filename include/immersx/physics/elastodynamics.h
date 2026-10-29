@@ -63,20 +63,21 @@ namespace ImmersX
   {
     using namespace ImmersXLA;
   } // namespace LA
+
+  /** Isotropic elastic, Rayleigh, and Kelvin--Voigt material coefficients. */
   struct ElastodynamicsMaterialCoefficients
   {
     double density     = 1.0;
     double lame_mu     = 1.0;
     double lame_lambda = 1.0;
 
-    double damping_shear = 0.0;
-    double damping_bulk  = 0.0;
-
     double rayleigh_alpha = 0.0;
     double rayleigh_beta  = 0.0;
     double viscosity_eta  = 0.0;
   };
 
+
+  /** Register one named material below Material properties. */
   class ElastodynamicsMaterialParameters : public dealii::ParameterAcceptor
   {
   public:
@@ -126,6 +127,8 @@ namespace ImmersX
     std::map<std::string, std::unique_ptr<ElastodynamicsMaterialParameters>>
       material_parameters_by_tag;
 
+    /** Return the mapped material, falling back to the default for unmapped
+     * ids. */
     ElastodynamicsMaterialCoefficients
     get_material_properties(dealii::types::material_id material_id) const;
 
@@ -332,7 +335,8 @@ namespace ImmersX
     const MatrixType &
     stiffness_matrix() const;
 
-    /** Return the Kelvin--Voigt damping operator, possibly identically zero. */
+    /** Return the Rayleigh and Kelvin--Voigt damping operator, possibly
+     * identically zero. */
     const MatrixType &
     damping_matrix() const;
 

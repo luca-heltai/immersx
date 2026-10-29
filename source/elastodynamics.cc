@@ -112,12 +112,8 @@ namespace ImmersX
       AssertThrow(std::isfinite(m.lame_mu) && m.lame_mu > 0.,
                   ExcMessage("Material Lame mu must be finite and positive."));
 
-      for (const double value : {m.lame_lambda,
-                                 m.damping_shear,
-                                 m.damping_bulk,
-                                 m.rayleigh_alpha,
-                                 m.rayleigh_beta,
-                                 m.viscosity_eta})
+      for (const double value :
+           {m.lame_lambda, m.rayleigh_alpha, m.rayleigh_beta, m.viscosity_eta})
         AssertThrow(std::isfinite(value) && value >= 0.,
                     ExcMessage("Material lambda and damping coefficients "
                                "must be finite and non-negative."));
@@ -686,13 +682,12 @@ namespace ImmersX
                       (mp.rayleigh_alpha * mp.density *
                          (values[i] * values[j]) +
 
-                       (2. * mp.damping_shear + mp.viscosity_eta +
-                        2. * mp.rayleigh_beta * mp.lame_mu) *
+                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
 
-                       (mp.damping_bulk + mp.rayleigh_beta * mp.lame_lambda) *
-                         divergences[i] * divergences[j]) *
+                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
+                         divergences[j]) *
                       jxw;
                   }
             }
@@ -1053,13 +1048,12 @@ namespace ImmersX
                       (mp.rayleigh_alpha * mp.density *
                          (values[i] * values[j]) +
 
-                       (2. * mp.damping_shear + mp.viscosity_eta +
-                        2. * mp.rayleigh_beta * mp.lame_mu) *
+                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
 
-                       (mp.damping_bulk + mp.rayleigh_beta * mp.lame_lambda) *
-                         divergences[i] * divergences[j]) *
+                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
+                         divergences[j]) *
                       jxw;
                   }
 
@@ -1186,13 +1180,12 @@ namespace ImmersX
                       (mp.rayleigh_alpha * mp.density *
                          (values[i] * values[j]) +
 
-                       (2. * mp.damping_shear + mp.viscosity_eta +
-                        2. * mp.rayleigh_beta * mp.lame_mu) *
+                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
 
-                       (mp.damping_bulk + mp.rayleigh_beta * mp.lame_lambda) *
-                         divergences[i] * divergences[j]) *
+                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
+                         divergences[j]) *
                       jxw;
                   }
             }

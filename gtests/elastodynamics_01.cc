@@ -9,6 +9,8 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/numerics/vector_tools.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/physics/elasticity.h>
@@ -136,6 +138,108 @@ TEST(Elastodynamics, ParameterParsing)
   EXPECT_EQ(parameters.fixed_step_parameters.number_of_steps, 1u);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 0), 1.0);
   EXPECT_DOUBLE_EQ(parameters.body_force.value(Point<2>(), 1), 2.0);
+}
+
+
+TEST(Elastodynamics, BOTH_TaggedMaterialOperators)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  initialize_parameters_from_string(R"(
+    subsection Elastodynamics
+      set Dirichlet boundary ids =
+      subsection Domain
+        set Grid generator = hyper_cube
+        set Grid generator arguments = 0: 1: true
+        set Initial refinement = 1
+        set Triangulation type = distributed
+      end
+      subsection Material properties
+        set Material tags by material id = 1: stiff, 2: stiff, 42: default
+        subsection default
+          set Density = 2
+          set Lame mu = 3
+          set Lame lambda = 4
+          set Rayleigh alpha = 0.2
+          set Rayleigh beta = 0.1
+          set Viscosity eta = 0.3
+        end
+        subsection stiff
+          set Density = 5
+          set Lame mu = 7
+          set Lame lambda = 11
+          set Rayleigh alpha = 0.4
+          set Rayleigh beta = 0.6
+          set Viscosity eta = 0.8
+        end
+      end
+      subsection Functions
+        subsection Initial displacement
+          set Function expression = x; 0
+        end
+      end
+    end
+  )");
+
+  ASSERT_EQ(parameters.material_parameters_by_tag.size(), 1u);
+  EXPECT_DOUBLE_EQ(parameters.get_material_properties(2).density, 5.);
+  EXPECT_DOUBLE_EQ(parameters.get_material_properties(42).density, 2.);
+  EXPECT_DOUBLE_EQ(parameters.get_material_properties(99).density, 2.);
+
+  ElastodynamicsSolver<2> problem(parameters);
+  problem.make_grid();
+  for (const auto &cell : problem.triangulation().active_cell_iterators())
+    if (cell->is_locally_owned())
+      cell->set_material_id(cell->center()[0] < 0.5 ? 1 : 99);
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+
+  auto displacement = constant_vector(problem, 0.);
+  VectorTools::interpolate(problem.mapping(),
+                           problem.dof_handler(),
+                           parameters.initial_displacement,
+                           displacement);
+
+  // For u=(x,0), epsilon:epsilon=div(u)^2=1. The integrals of x^2
+  // over the left and right half of the unit square are 1/24 and 7/24.
+  EXPECT_NEAR(quadratic_form<2>(problem.mass_matrix(), displacement),
+              19. / 24.,
+              1.e-12);
+  EXPECT_NEAR(quadratic_form<2>(problem.stiffness_matrix(), displacement),
+              17.5,
+              1.e-12);
+  EXPECT_NEAR(quadratic_form<2>(problem.damping_matrix(), displacement),
+              8.75,
+              1.e-12);
+}
+
+
+TEST(Elastodynamics, RejectInvalidMaterialCoefficients)
+{
+  for (const std::string entry : {"Density = 0",
+                                  "Lame mu = 0",
+                                  "Lame lambda = -1",
+                                  "Rayleigh alpha = -1",
+                                  "Rayleigh beta = -1",
+                                  "Viscosity eta = -1"})
+    {
+      SCOPED_TRACE(entry);
+      ParameterAcceptor::clear();
+      ElastodynamicsParameters<2> parameters;
+      EXPECT_THROW(initialize_parameters_from_string(
+                     "subsection Elastodynamics\n"
+                     "  subsection Material properties\n"
+                     "    set Material tags by material id = 1: invalid\n"
+                     "    subsection invalid\n"
+                     "      set " +
+                     entry +
+                     "\n"
+                     "    end\n"
+                     "  end\n"
+                     "end\n"),
+                   dealii::ExceptionBase);
+    }
 }
 
 

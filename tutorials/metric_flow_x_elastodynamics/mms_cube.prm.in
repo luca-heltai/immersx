@@ -15,12 +15,15 @@ subsection Elastodynamics
     set Grid generator arguments = 4, 16, 16: -0.120685, -0.120685, -0.120685: 0.120685, 0.120685, 0.120685: false
     set Triangulation type = distributed
   end
-  subsection Material
-    set Density = 1
-    set Lame mu = 1
-    set Lame lambda = 1
-    set Damping shear = 0
-    set Damping bulk = 0
+  subsection Material properties
+    subsection default
+      set Density = 1
+      set Lame mu = 1
+      set Lame lambda = 1
+      set Rayleigh alpha = 0
+      set Rayleigh beta = 0
+      set Viscosity eta = 0
+    end
   end
   subsection Functions
     # max(r^2,R2) gives the interior/exterior branches without dividing by zero.
