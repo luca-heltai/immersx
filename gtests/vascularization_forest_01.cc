@@ -17,6 +17,7 @@
 
 #include "../source/vascularization/forest_state.h"
 #include "../source/vascularization/growth_commit.h"
+#include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_paths.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
@@ -997,4 +998,187 @@ TEST(VascularForest, BOTH_InvalidOwnerAndCyclicPathMetadataFailCollectively)
   EXPECT_TRUE(empty.validation.valid());
   EXPECT_TRUE(empty.contexts.empty());
   EXPECT_EQ(empty.retained_branches, 0u);
+}
+
+namespace
+{
+  NetworkData
+  single_seed()
+  {
+    NetworkData n;
+    if (rank() == size() - 1)
+      {
+        n.nodes[base]     = {Point<3>(.2, 1., 1.),
+                             rank(),
+                             Port::arterial_inlet,
+                             Provenance::generated};
+        n.nodes[base + 1] = {Point<3>(.7, 1., 1.),
+                             rank(),
+                             Port::none,
+                             Provenance::generated};
+        Vessel v;
+        v.nodes                = {{base, base + 1}};
+        v.radii                = {{.006, .006}};
+        v.viscosity            = .004;
+        v.provenance           = Provenance::generated;
+        v.owner                = rank();
+        n.vessels[base + 10]   = v;
+        n.terminals[base + 30] = {
+          base + 1, base + 40, System::arterial, rank(), 1.};
+      }
+    return n;
+  }
+  std::set<Id>
+  seed_ids(const NetworkData &n)
+  {
+    std::set<Id> result;
+    if (n.vessels.count(base + 10) && n.vessels.at(base + 10).owner == rank())
+      result.insert(base + 10);
+    return result;
+  }
+  std::map<Id, double>
+  seed_roots(const NetworkData &n)
+  {
+    std::map<Id, double> result;
+    for (Id id : seed_ids(n))
+      result[id] = .006;
+    return result;
+  }
+} // namespace
+TEST(VascularForest,
+     BOTH_BatchedGrowthPropagatesFromOneRealSeedAndRepeatsExactly)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, single_seed(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.seed_length           = .2;
+  p.terminal_count        = 12;
+  p.sample_budget         = 100;
+  p.candidate_count       = 4;
+  p.optimization_steps    = 5;
+  p.reference_flow        = 2.e-9;
+  p.terminal_weight       = "1+x";
+  p.terminal_weight_bound = 5.;
+  p.tissue_demand         = "2+y";
+  const auto run =
+    grow_forest(bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD);
+  EXPECT_TRUE(run.validation.valid());
+  for (const auto &i : run.validation.issues)
+    ADD_FAILURE() << i.message;
+  EXPECT_TRUE(run.accepted.committed);
+  EXPECT_EQ(Utilities::MPI::sum(run.accepted_insertions, MPI_COMM_WORLD), 11u);
+  const unsigned int active   = run.accepted_insertions > 0 ? 1 : 0;
+  const auto active_producers = Utilities::MPI::sum(active, MPI_COMM_WORLD);
+  if (size() > 1)
+    {
+      EXPECT_GT(active_producers, 1u);
+      EXPECT_GT(run.maximum_batch_insertions, 1u);
+    }
+  for (const auto &[id, t] : run.accepted.network.terminals)
+    if (t.owner == rank() && id != base + 30)
+      {
+        EXPECT_DOUBLE_EQ(t.demand,
+                         2. +
+                           run.accepted.network.nodes.at(t.node).position[1]);
+      }
+  std::uint64_t leaves = 0, branches = run.accepted.mutable_owned.size(),
+                roots_count = run.accepted.fixed_owned_roots.size();
+  double flow               = 0.;
+  for (const auto &[id, b] : run.accepted.physiology.owned)
+    {
+      if (b.children.empty())
+        ++leaves;
+      EXPECT_EQ(b.root, base + 10);
+      const auto &v = run.accepted.network.vessels.at(id);
+      EXPECT_EQ(v.owner, rank());
+      EXPECT_NEAR(v.radii[0] /
+                    (.006 * std::pow(b.demand / b.root_demand, 1. / 3.)),
+                  1.,
+                  1.e-12);
+      EXPECT_DOUBLE_EQ(v.viscosity, .004);
+    }
+  for (const auto &[id, q] : run.accepted.physiology.terminal_flows)
+    flow += q;
+  EXPECT_EQ(Utilities::MPI::sum(leaves, MPI_COMM_WORLD), 12u);
+  EXPECT_EQ(Utilities::MPI::sum(branches, MPI_COMM_WORLD), 23u);
+  EXPECT_EQ(Utilities::MPI::sum(roots_count, MPI_COMM_WORLD), 1u);
+  EXPECT_NEAR(Utilities::MPI::sum(flow, MPI_COMM_WORLD) / p.reference_flow,
+              1.,
+              1.e-12);
+  const auto repeated =
+    grow_forest(bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD);
+  EXPECT_TRUE(repeated.validation.valid());
+  EXPECT_EQ(run.batches, repeated.batches);
+  EXPECT_EQ(run.sampled_points, repeated.sampled_points);
+  EXPECT_EQ(run.accepted.network.nodes.size(),
+            repeated.accepted.network.nodes.size());
+  for (const auto &[id, node] : run.accepted.network.nodes)
+    {
+      const auto it = repeated.accepted.network.nodes.find(id);
+      EXPECT_NE(it, repeated.accepted.network.nodes.end());
+      if (it != repeated.accepted.network.nodes.end())
+        {
+          EXPECT_EQ(node.position, it->second.position);
+          EXPECT_EQ(node.owner, it->second.owner);
+        }
+    }
+  if (n.nodes.count(base + 1))
+    {
+      EXPECT_EQ(n.nodes.at(base + 1).position, Point<3>(.7, 1., 1.));
+    }
+}
+TEST(VascularForest,
+     BOTH_BatchedGrowthIncludesEmptyRanksAndReportsFiniteFailure)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bg, 0., 4.);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, single_seed(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.seed_length        = .2;
+  p.terminal_count     = 4;
+  p.sample_budget      = 100;
+  p.candidate_count    = 4;
+  p.optimization_steps = 3;
+  const auto run =
+    grow_forest(bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD);
+  EXPECT_TRUE(run.validation.valid());
+  for (const auto &i : run.validation.issues)
+    ADD_FAILURE() << i.message;
+  EXPECT_EQ(Utilities::MPI::sum(run.accepted_insertions, MPI_COMM_WORLD), 3u);
+  if (bg.n_locally_owned_active_cells() == 0)
+    {
+      EXPECT_EQ(run.sampled_points, 0u);
+      EXPECT_EQ(run.proposed_insertions, 0u);
+    }
+  p.terminal_weight = "0";
+  p.sample_budget   = 3;
+  const auto failed =
+    grow_forest(bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD);
+  EXPECT_FALSE(failed.validation.valid());
+  EXPECT_TRUE(failed.accepted.committed);
+  EXPECT_EQ(failed.batches, 3u);
+  EXPECT_EQ(failed.accepted_insertions, 0u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  failed.accepted.mutable_owned.size()),
+                                MPI_COMM_WORLD),
+            1u);
+  p.minimum_radius = .006;
+  const auto incompatible =
+    grow_forest(bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD);
+  EXPECT_FALSE(incompatible.validation.valid());
+  EXPECT_EQ(incompatible.batches, 0u);
+  EXPECT_EQ(incompatible.sampled_points, 0u);
+  p.minimum_radius = 0.;
+  if (size() > 1)
+    {
+      if (rank() == 0)
+        ++p.terminal_count;
+      EXPECT_FALSE(
+        grow_forest(
+          bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD)
+          .validation.valid());
+    }
 }
