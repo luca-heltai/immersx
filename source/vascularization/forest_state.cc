@@ -68,26 +68,27 @@ namespace ImmersX::Vascularization::internal
     struct Up
     {
       Id            parent, child;
-      double        demand, volume_moment, resistance_moment;
+      double        demand, volume_moment, resistance_moment, minimum_demand;
       std::uint64_t count;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
-        ar &parent &child &demand &volume_moment &resistance_moment &count;
+        ar &parent &child &demand &volume_moment &resistance_moment
+          &minimum_demand &count;
       }
     };
     struct Down
     {
       Id     target, root;
-      double demand, radius, volume_moment, resistance_moment;
+      double demand, radius, volume_moment, resistance_moment, minimum_demand;
       System system;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
         ar &target &root &demand &radius &volume_moment &resistance_moment
-          &system;
+          &minimum_demand &system;
       }
     };
   } // namespace
@@ -313,7 +314,8 @@ namespace ImmersX::Vascularization::internal
       if (b.children.empty())
         {
           b.demand /= result.demand_scale;
-          b.terminals = 1;
+          b.terminals      = 1;
+          b.minimum_demand = b.demand;
           ready.push_back(id);
           valid = valid && positive(b.demand);
         }
@@ -348,6 +350,7 @@ namespace ImmersX::Vascularization::internal
                                                  b.demand,
                                                  b.volume_moment,
                                                  b.resistance_moment,
+                                                 b.minimum_demand,
                                                  b.terminals});
           }
         const auto messages = Utilities::MPI::some_to_some(comm, packets);
@@ -381,6 +384,8 @@ namespace ImmersX::Vascularization::internal
                     b.terminals += u.count;
                     b.volume_moment += u.volume_moment;
                     b.resistance_moment += u.resistance_moment;
+                    b.minimum_demand =
+                      std::min(b.minimum_demand, u.minimum_demand);
                     maximum_child = std::max(maximum_child, u.demand);
                   }
                 valid = valid && b.demand > maximum_child;
@@ -399,22 +404,40 @@ namespace ImmersX::Vascularization::internal
         "A mutable component is cyclic or does not reach a declared fixed root."))
       return result;
     std::array<double, 2> local_demands{{0., 0.}};
+    std::array<double, 2> local_power_numerator{{0., 0.}};
     std::vector<Down>     down;
     for (const auto &[id, radius] : fixed_owned_roots)
       {
         const auto &b      = result.owned.at(id);
         const auto  system = network.vessels.at(id).system;
         local_demands[index(system)] += b.demand;
+        if (parameters.dissipation_weight > 0.)
+          {
+            const double numerator = 8. / numbers::PI / std::pow(radius, 4) *
+                                     b.resistance_moment *
+                                     std::pow(b.demand, 4. / gamma(system));
+            valid = valid && positive(numerator);
+            local_power_numerator[index(system)] += numerator;
+          }
         down.push_back({id,
                         id,
                         b.demand,
                         radius,
                         b.volume_moment,
                         b.resistance_moment,
+                        b.minimum_demand,
                         system});
       }
     for (unsigned int i = 0; i < 2; ++i)
-      result.total_demand[i] = Utilities::MPI::sum(local_demands[i], comm);
+      {
+        result.total_demand[i] = Utilities::MPI::sum(local_demands[i], comm);
+        result.power_numerator[i] =
+          Utilities::MPI::sum(local_power_numerator[i], comm);
+        valid = valid && std::isfinite(result.power_numerator[i]);
+      }
+    if (!phase(valid,
+               "The normalized forest power numerator is not representable."))
+      return result;
     std::set<Id> normalized;
     while (Utilities::MPI::sum(static_cast<std::uint64_t>(down.size()), comm) >
            0)
@@ -438,6 +461,7 @@ namespace ImmersX::Vascularization::internal
             b.root_radius            = d.radius;
             b.root_volume_moment     = d.volume_moment;
             b.root_resistance_moment = d.resistance_moment;
+            b.root_minimum_demand    = d.minimum_demand;
             b.radius =
               d.target == d.root ?
                 d.radius :
