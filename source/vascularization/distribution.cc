@@ -21,6 +21,8 @@
 #include <limits>
 #include <set>
 
+#include "distribution_internal.h"
+
 // Wire serialization keeps physical ids as integers. Particle ids used during
 // point location are temporary and independent of these namespaces.
 namespace boost::serialization
@@ -170,11 +172,13 @@ namespace ImmersX::Vascularization
   } // namespace
 
   NetworkData
-  redistribute(const dealii::Triangulation<3> &background,
-               const dealii::Mapping<3>       &mapping,
-               const NetworkData              &initial,
-               double                          halo,
-               MPI_Comm                        communicator)
+  internal::redistribute_with_owners(
+    const dealii::Triangulation<3>              &background,
+    const dealii::Mapping<3>                    &mapping,
+    const NetworkData                           &initial,
+    double                                       halo,
+    MPI_Comm                                     communicator,
+    const std::function<void(Id, unsigned int)> &notify)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(communicator),
@@ -243,6 +247,9 @@ namespace ImmersX::Vascularization
     for (auto &[id, v] : source.vessels)
       if (point_owners[vessel_indices.at(id)] != size)
         v.owner = point_owners[vessel_indices.at(id)];
+    if (notify)
+      for (const auto &[id, v] : source.vessels)
+        notify(id, v.owner);
     for (auto &[id, t] : source.terminals)
       t.owner = source.nodes.at(t.node).owner;
 
@@ -346,5 +353,15 @@ namespace ImmersX::Vascularization
       communicator,
       "Vascular endpoint/terminal ghosts disagree with their authoritative owner.");
     return result;
+  }
+  NetworkData
+  redistribute(const dealii::Triangulation<3> &background,
+               const dealii::Mapping<3>       &mapping,
+               const NetworkData              &initial,
+               double                          halo,
+               MPI_Comm                        communicator)
+  {
+    return internal::redistribute_with_owners(
+      background, mapping, initial, halo, communicator, {});
   }
 } // namespace ImmersX::Vascularization
