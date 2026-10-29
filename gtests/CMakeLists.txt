@@ -64,6 +64,7 @@ set(_public_headers
     immersx/core/time_residual.h
     immersx/coupling/tensor_product_lift.h
     immersx/physics/elastic_static.h
+    immersx/physics/coupled_elasticity.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
     immersx/coupling/particle_coupling.h
@@ -174,6 +175,16 @@ FOREACH(_build_type ${_d2_build_types})
     IF(ENABLE_COUPLED_PROBLEMS)
       TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
     ENDIF()
+    if(OpenMP_CXX_FOUND AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
+      set(_optional_1d_clients "immersx_optional_1d_clients${_p}")
+      add_library(${_optional_1d_clients} OBJECT
+        "${CMAKE_SOURCE_DIR}/apps/app_coupled_elasticity.cc"
+        "${CMAKE_SOURCE_DIR}/apps/app_pseudocoupling1D.cc")
+      target_compile_definitions(${_optional_1d_clients} PRIVATE ENABLE_COUPLED_PROBLEMS)
+      target_link_libraries(${_optional_1d_clients} ${TEST_LIBRARIES_${_BUILD_TYPE}})
+      DEAL_II_SETUP_TARGET(${_optional_1d_clients} ${_BUILD_TYPE})
+      add_dependencies(${_exe} ${_optional_1d_clients})
+    endif()
     DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     target_include_directories(${_exe} PRIVATE ${GTEST_INCLUDE_DIRS})
     LIST(APPEND IMMERSX_TEST_TARGETS ${_exe})

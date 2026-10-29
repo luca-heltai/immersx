@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use simplex meshes in the tissue component of the legacy 1D coupling drivers. Build this component independently of the optional hemodynamics library and check pointwise displacement and pressure exchange in serial and MPI.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the coupled MetricFlowX wall model on a quadratic tetrahedral solid, including RCR outlets and default or immersed vessel ownership.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use simplex multiplier elements and volume quadrature for harmonic reinforcement on triangular sheets and full-dimensional simplex meshes, with independent or shared displacement.
@@ -194,6 +196,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Include prescribed bulk values in the Reduced Poisson coupling right-hand side. Nonzero Dirichlet data now satisfy the same immersed constraint as the complete physical solution.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Condense nonlinear weak residuals through the target constraints and import candidate field states before distributed cell evaluation. Preserve essential rows and evaluate ghost coefficients when the supplied state owns only its local entries.
@@ -327,6 +331,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #80](https://github.com/luca-heltai/immersx/pull/80) Added the random-particle ReducedPoisson tutorials.
 
 ### Build and packaging
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate valid C++ for the optional 1dsolver link probe, include deal.II dependencies, and report incompatible libraries without claiming that RTTI is missing. Compile both driver bodies during Linux OpenMP test builds even when the external archive cannot link.
 
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Use the unified solution-transfer header so legacy applications build with deal.II 9.9.
 

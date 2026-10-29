@@ -138,3 +138,17 @@ the vessel-wall multiplier. The generated
 elements around two vessels with RCR outlets. CTest runs both default and
 immersed vessel ownership and checks accepted times and all three output
 collections in serial and MPI.
+
+The tissue component used by `coupled_elasticity` and `pseudocoupling1D` is
+available without `lib1dsolver`. Select a fully distributed tetrahedral mesh
+under `Immersed Problem/Grid generation` and refine before distribution.
+`CoupledElasticityProblem::run_timestep0()` prepares it; update displacement
+data and call `run_timestep()` for each tissue solve. Pointwise data use the
+overload taking one sample count per vessel. Gather inclusion pressures on
+all ranks before calling `split_pressure_over_inclusions` on rank zero.
+That interpolation performs no MPI operations.
+
+The generated `gtests/parameters/coupled_elasticity_simplex.prm` exercises this
+interface. The external 1D drivers still require a complete library compatible
+with the compiler and dependencies. Linux OpenMP test builds compile their
+full driver bodies independently of the library link check.
