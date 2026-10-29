@@ -379,7 +379,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                                         RESOURCE_LOCK ImmersX.TestOutput
                                         ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal")
       endif()
-      foreach(_case Coupled MMS MMSNeumann RCRDefault RCRImmersed)
+      foreach(_case Coupled MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
         set(_coupled_modes Serial MPI)
         if(DEAL_II_WITH_UMFPACK)
           list(APPEND _coupled_modes SerialUMFPACK)
@@ -418,6 +418,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_template "${CMAKE_SOURCE_DIR}/tutorials/metric_flow_x_elastodynamics/mms_cube_neumann.prm.in")
           elseif(_case STREQUAL "Coupled")
             set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_elastodynamics.prm.in")
+          elseif(_case STREQUAL "RCRSimplexDefault" OR _case STREQUAL "RCRSimplexImmersed")
+            set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_rcr_simplex_coupled.prm.in")
           elseif(_case MATCHES "^RCR")
             set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_rcr_coupled.prm.in")
             if(_case STREQUAL "RCRImmersed")
@@ -429,6 +431,10 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           configure_file(
             "${_coupled_template}"
             "${_coupled_input}" @ONLY)
+          if(_case STREQUAL "RCRSimplexImmersed")
+            file(APPEND "${_coupled_input}"
+              "\nsubsection MetricFlowX coupling\n  set Embedded partitioning policy = immersed\nend\n")
+          endif()
           if(_mode STREQUAL "SerialUMFPACK")
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = umfpack\n    end\n  end\nend\n")

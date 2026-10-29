@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run the coupled MetricFlowX wall model on a quadratic tetrahedral solid, including RCR outlets and default or immersed vessel ownership.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use simplex multiplier elements and volume quadrature for harmonic reinforcement on triangular sheets and full-dimensional simplex meshes, with independent or shared displacement.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run fiber-reinforced elastodynamics on triangular and tetrahedral matrices with immersed line fibers, including backward-Euler and IDA evolution.

@@ -130,3 +130,11 @@ one-dimensional simplex reference cell, so its existing vessel mesh and
 finite-element settings already apply. Its integration test checks the cell
 family and advances a nonzero inflow through IDA. Triangle and tetrahedron
 selection belongs to the solid Domain in `metric_flow_x_elastodynamics`.
+
+For `metric_flow_x_elastodynamics`, select `fullydistributed` and a tetrahedral
+mesh under `Elastodynamics/Domain`. Keep enough unconstrained solid DoFs for
+the vessel-wall multiplier. The generated
+`gtests/parameters/metric_flow_x_rcr_simplex_coupled.prm` uses quadratic solid
+elements around two vessels with RCR outlets. CTest runs both default and
+immersed vessel ownership and checks accepted times and all three output
+collections in serial and MPI.
