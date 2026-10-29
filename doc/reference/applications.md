@@ -99,3 +99,8 @@ is `auto` and its fully distributed Domain contains triangles or tetrahedra.
 Set `FE degree` normally. Strong and weak Dirichlet terms use the same mapping.
 The legacy convergence table is omitted for simplex meshes; numerical tests
 check the displacement and residual directly.
+
+`coupled_poisson` accepts a fully distributed triangular `Poisson/Domain`.
+Its embedded line and multiplier remain one-dimensional. The generated
+`coupled_poisson_simplex.prm` uses quadratic physical fields with nonzero
+boundary data; the continuity multiplier is zero for its exact solution.

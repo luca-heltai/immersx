@@ -1,0 +1,40 @@
+set dimension = 2
+set space dimension = 2
+set reduced dimension = 1
+subsection Coupled Poisson
+  set Output directory = @TEST_OUTPUT_DIR@/coupled-poisson-simplex
+end
+subsection Poisson
+  set FE degree = 2
+  set Output name = bulk
+  subsection Domain
+    set Initial refinement = 0
+    set Triangulation type = fullydistributed
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_square.msh
+  end
+  subsection Right hand side
+    set Variable names = x,y,t
+    set Function expression = -2
+  end
+  subsection Dirichlet boundary conditions
+    set Variable names = x,y,t
+    set Function expression = 1+x*x
+  end
+end
+subsection Embedded Poisson
+  set FE degree = 2
+  set Output name = embedded
+  set Dirichlet boundary ids = 0,1
+  subsection Domain
+    set Initial refinement = 0
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_interior_line_2d.vtk
+  end
+  subsection Right hand side
+    set Variable names = x,y,t
+    set Function expression = -2
+  end
+  subsection Dirichlet boundary conditions
+    set Variable names = x,y,t
+    set Function expression = 1+x*x
+  end
+end

@@ -637,3 +637,11 @@ TEST(AppExecutables, LiftedElasticitySimplex)
   run_app_with_parameter("lifted_elasticity",
                          "gtests/parameters/lifted_elasticity_simplex.prm");
 }
+
+TEST(AppExecutables, CoupledPoissonSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("coupled_poisson",
+                         "gtests/parameters/coupled_poisson_simplex.prm");
+}
