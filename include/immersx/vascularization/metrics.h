@@ -28,16 +28,21 @@ namespace ImmersX::Vascularization
     /** Points within service_radius of both systems, independent of pairing. */
     double dual_coverage      = 0.;
     bool   coverage_evaluated = false;
+    /** Normalization volume of the coverage quadrature, zero if disabled. */
+    double coverage_quadrature_volume = 0.;
   };
 
   /**
    * Measure additive 1D volume fraction and, independently, geometric coverage
-   * by background quadrature. Service balls are centred at registered tissue
-   * terminal nodes (port==none). Exterior vessels and 0D beds add no volume;
-   * declared final ports are not tissue terminals. Coverage is disabled when
-   * service_radius is zero; its reported zero values then mean unevaluated.
-   * The supplied valid discretization must describe this network/background.
-   * Current execution requires one rank.
+   * by background quadrature, normalized by its own total physical weights.
+   * Domain volume uses mapping-aware GridTools::volume independently of the
+   * coverage quadrature order. The background must have one reference-cell
+   * type (tetrahedra or hexahedra). Service balls are centred at registered
+   * tissue terminal nodes (port==none). Exterior vessels and 0D beds add no
+   * volume; declared final ports are not tissue terminals. Coverage is disabled
+   * when service_radius is zero; its reported zero values then mean
+   * unevaluated. The supplied valid discretization must describe this
+   * network/background. Current execution requires one rank.
    */
   TissueMetrics
   measure_tissue(const dealii::Triangulation<3> &background,

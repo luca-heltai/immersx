@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Calibrate new vascular terminal counts against independent volume and tissue coverage targets with finite bounds, recorded trials and explicit convergence or budget failure. Detect when fixed imported volume already exceeds the target, and keep domain volume independent of coverage quadrature order.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Measure vascular volume fraction and geometric tissue coverage independently. Evaluate arterial, venous and joint service-distance coverage by physical background quadrature, excluding final ports from tissue service centres.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Discretize vascular networks using actual tetrahedral and bilinear hexahedral cell crossings, retaining exterior input portions and reporting short-cell exceptions. Build native line meshes with physical-vessel references that survive numerical refinement, and integrate the vessel volume inside the background.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Extend selected arterial endpoints of existing networks with fixed-radius CCO subtrees, including multiple inlets and partially exterior input networks. Preserve all input nodes, vessels, radii and physical properties, and inherit new subtree properties from each attachment. Respect declared arterial and venous outlets when discovering endpoints.

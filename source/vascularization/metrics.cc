@@ -3,6 +3,8 @@
 #include <deal.II/fe/fe_nothing.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <deal.II/grid/grid_tools.h>
+
 #include <deal.II/numerics/rtree.h>
 
 #include <immersx/compatibility/reference_cell.h>
@@ -41,6 +43,23 @@ namespace ImmersX::Vascularization
       discretization.validation.valid() && validate_data(network, 1).valid(),
       ExcMessage(
         "Tissue measurement requires a valid network and discretization."));
+    TissueMetrics result;
+    const auto    reference_cells = background.get_reference_cells();
+    AssertThrow(
+      reference_cells.size() == 1 &&
+        (reference_cells[0].is_simplex() || reference_cells[0].is_hyper_cube()),
+      ExcMessage(
+        "Tissue measurement requires a nonempty tetrahedral or hexahedral background."));
+    result.background_volume = GridTools::volume(background, mapping);
+    AssertThrow(
+      std::isfinite(result.background_volume) && result.background_volume > 0.,
+      ExcMessage("Tissue measurement requires a positive background volume."));
+    result.inside_vessel_volume = discretization.inside_volume;
+    result.volume_fraction =
+      result.inside_vessel_volume / result.background_volume;
+    result.coverage_evaluated = parameters.service_radius > 0.;
+    if (!result.coverage_evaluated)
+      return result;
     std::array<std::vector<Point<3>>, 2> terminals;
     for (const auto &[id, t] : network.terminals)
       {
@@ -60,9 +79,6 @@ namespace ImmersX::Vascularization
         return nearest.distance(point) <= parameters.service_radius;
       return false;
     };
-    TissueMetrics result;
-    result.inside_vessel_volume = discretization.inside_volume;
-    result.coverage_evaluated   = parameters.service_radius > 0.;
     // Retain each FE for the lifetime of its FEValues observer. Geometry-only
     // quadrature needs no DoFs and supports both tetrahedra and hexahedra.
     std::array<std::unique_ptr<FE_Nothing<3>>, 2> elements;
@@ -93,7 +109,7 @@ namespace ImmersX::Vascularization
               const double weight = fe.JxW(q);
               AssertThrow(std::isfinite(weight) && weight > 0.,
                           ExcMessage("Invalid background quadrature volume."));
-              result.background_volume += weight;
+              result.coverage_quadrature_volume += weight;
               if (result.coverage_evaluated)
                 {
                   const bool artery = served(0, fe.quadrature_point(q)),
@@ -107,14 +123,11 @@ namespace ImmersX::Vascularization
                 }
             }
         }
-    AssertThrow(result.background_volume > 0.,
-                ExcMessage(
-                  "Tissue measurement requires a positive background volume."));
-    result.volume_fraction =
-      result.inside_vessel_volume / result.background_volume;
-    result.arterial_coverage /= result.background_volume;
-    result.venous_coverage /= result.background_volume;
-    result.dual_coverage /= result.background_volume;
+    AssertThrow(result.coverage_quadrature_volume > 0.,
+                ExcMessage("Coverage quadrature has zero volume."));
+    result.arterial_coverage /= result.coverage_quadrature_volume;
+    result.venous_coverage /= result.coverage_quadrature_volume;
+    result.dual_coverage /= result.coverage_quadrature_volume;
     return result;
   }
 } // namespace ImmersX::Vascularization
