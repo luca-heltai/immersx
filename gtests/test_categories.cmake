@@ -34,6 +34,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     VascularCCO
     VascularImported
     VascularDiscretization
+    VascularMetrics
     BoundaryConditions
     CoupledPoisson
     CoupledPoissonElasticity

@@ -11,6 +11,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <immersx/vascularization/discretization.h>
+#include <immersx/vascularization/metrics.h>
 #include <immersx/vascularization/network.h>
 
 namespace ImmersX::Vascularization
@@ -22,6 +23,7 @@ namespace ImmersX::Vascularization
     validate(bool creating_seed = true) const;
 
     DiscretizationParameters discretization;
+    CoverageParameters       coverage;
     std::vector<Id>          selected_terminals;
     dealii::Point<3>         seed_position;
     /** Zero selects a deterministic direction into the containing cell. */
@@ -70,6 +72,7 @@ namespace ImmersX::Vascularization
     std::vector<TerminalPair> terminal_pairs;
     ValidationReport          validation;
     DiscretizationResult      discretization;
+    TissueMetrics             tissue;
     /** Consumed input terminal id -> newly generated attachment vessel id. */
     std::map<Id, Id> attachment_roots;
     std::uint64_t    sampled_points      = 0;
