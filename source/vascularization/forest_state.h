@@ -6,6 +6,7 @@
 
 #include <immersx/vascularization/network.h>
 
+#include <limits>
 #include <set>
 namespace ImmersX::Vascularization
 {
@@ -23,6 +24,17 @@ namespace ImmersX::Vascularization
       double volume_moment = 0., resistance_moment = 0.;
       double root_volume_moment = 0., root_resistance_moment = 0.;
       double flow = 0., resistance = 0.;
+      double minimum_demand      = std::numeric_limits<double>::infinity();
+      double root_minimum_demand = 0.;
+      template <class Archive>
+      void
+      serialize(Archive &ar, unsigned int)
+      {
+        ar &parent &root &terminal &parent_owner &terminal_owner &children
+          &terminals &demand &root_demand &root_radius &radius &volume_moment
+            &resistance_moment &root_volume_moment &root_resistance_moment &flow
+              &resistance &minimum_demand &root_minimum_demand;
+      }
     };
     struct ForestState
     {
@@ -33,7 +45,7 @@ namespace ImmersX::Vascularization
       std::map<Id, double>  terminal_flows;
       double                demand_scale = 1.;
       std::array<double, 2> total_demand{{0., 0.}}, volume{{0., 0.}},
-        power{{0., 0.}};
+        power{{0., 0.}}, power_numerator{{0., 0.}};
       unsigned int upward_levels = 0, downward_levels = 0;
     };
     // The mutable set and fixed-root controls contain OWNED ids only. Frozen
