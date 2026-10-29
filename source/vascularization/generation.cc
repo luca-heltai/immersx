@@ -133,12 +133,41 @@ namespace ImmersX::Vascularization
       reference_flow,
       "m^3/s through newly generated terminals, split by tissue demand; required for a nonzero dissipation weight.");
     add_parameter("Arterial Murray exponent", arterial_murray_exponent);
+    add_parameter(
+      "Reference pressures",
+      reference_conditions.pressures,
+      "Physical Node id: pressure in Pa; declare every physical port used by the paired reference solve.");
+    add_parameter(
+      "Unpaired reference inflows",
+      reference_conditions.inflows,
+      "Physical Node id: external m^3/s at unpaired input terminals; never prescribe pressure and flow at the same node.");
     add_parameter("Minimum radius",
                   minimum_radius,
                   "Smallest admissible generated radius in metres.");
     add_parameter("Dynamic viscosity",
                   viscosity,
                   "Dynamic viscosity in Pa s; must be supplied.");
+    leave_subsection();
+    enter_subsection("Venous network");
+    add_parameter("Enabled", venous.enabled);
+    add_parameter(
+      "Selected terminal ids",
+      venous.selected_terminals,
+      "Input venous tissue terminal ids to extend; empty selects available interior venous endpoints.");
+    add_parameter("Seed position", venous.seed_position);
+    add_parameter("Seed inward port normal", venous.seed_inward_port_normal);
+    add_parameter("Seed radius",
+                  venous.seed_radius,
+                  "Metres; required when no venous attachment is selected.");
+    add_parameter("Murray exponent", venous.murray_exponent);
+    add_parameter(
+      "Terminal separation",
+      venous.terminal_separation,
+      "Positive metres from each arterial terminal to its venous partner.");
+    add_parameter(
+      "Microvascular resistance",
+      venous.microvascular_resistance,
+      "Positive Pa s/m^3 per bed, or zero to derive each bed from the explicit reference pressures and demand flow.");
     leave_subsection();
   }
 
@@ -153,6 +182,25 @@ namespace ImmersX::Vascularization
       dealii::ExcMessage(
         "A positive minimum coverage requires an explicit positive maximum service distance."));
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
+    if (venous.enabled)
+      {
+        reference_parameters.validate();
+        AssertThrow(
+          positive(venous.murray_exponent) &&
+            positive(venous.terminal_separation) &&
+            std::isfinite(venous.seed_radius) && venous.seed_radius >= 0. &&
+            std::isfinite(venous.microvascular_resistance) &&
+            venous.microvascular_resistance >= 0. &&
+            (venous.microvascular_resistance > 0. || positive(reference_flow)),
+          dealii::ExcMessage(
+            "Venous growth requires a positive Murray exponent and terminal separation, and either a positive bed resistance or a positive reference flow to derive it."));
+        for (unsigned int d = 0; d < 3; ++d)
+          AssertThrow(
+            std::isfinite(venous.seed_position[d]) &&
+              std::isfinite(venous.seed_inward_port_normal[d]),
+            dealii::ExcMessage(
+              "Venous seed coordinates and directions must be finite."));
+      }
     AssertThrow(
       std::isfinite(reference_flow) && reference_flow >= 0. &&
         (dissipation_weight == 0. || reference_flow > 0.),
@@ -603,16 +651,21 @@ namespace ImmersX::Vascularization
                 BackgroundGeometry      &geometry,
                 const std::vector<Id>   &roots,
                 unsigned int             terminal_count,
-                const FunctionParser<3> &demand_function)
+                const FunctionParser<3> &demand_function,
+                System                   active_system)
         : result(result)
         , network(result.network)
         , parameters(parameters)
         , terminal_count(terminal_count)
         , geometry(geometry)
         , demand_function(demand_function)
+        , system(active_system)
         , random(parameters.random_seed)
-        , exponent(2. / parameters.arterial_murray_exponent)
-        , dissipation_exponent(2. - 4. / parameters.arterial_murray_exponent)
+        , murray_exponent(active_system == System::arterial ?
+                            parameters.arterial_murray_exponent :
+                            parameters.venous.murray_exponent)
+        , exponent(2. / murray_exponent)
+        , dissipation_exponent(2. - 4. / murray_exponent)
       {
         std::map<Id, double> leaf_demands;
         for (const auto &[id, t] : network.terminals)
@@ -677,6 +730,7 @@ namespace ImmersX::Vascularization
             maximum_h = std::max(maximum_h, cell->diameter());
             first     = false;
           }
+        active_terminal_count = roots.size();
         rebuild_index();
       }
 
@@ -710,8 +764,7 @@ namespace ImmersX::Vascularization
           return 0.;
         // Numerator of generated-forest power divided by the common Q^2.
         return 8. * tree.viscosity / numbers::PI / std::pow(tree.radius, 4) *
-               sum *
-               std::pow(root_demand, 4. / parameters.arterial_murray_exponent);
+               sum * std::pow(root_demand, 4. / murray_exponent);
       }
 
       double
@@ -724,7 +777,7 @@ namespace ImmersX::Vascularization
         const Id root = found->second;
         return trees.at(root).radius *
                std::pow(demands.at(id) / demands.at(root),
-                        1. / parameters.arterial_murray_exponent);
+                        1. / murray_exponent);
       }
 
       void
@@ -740,7 +793,7 @@ namespace ImmersX::Vascularization
                 const Id root = found->second;
                 if (trees.at(root).radius *
                       std::pow(1. / (counts.at(root) + 1.),
-                               1. / parameters.arterial_murray_exponent) >=
+                               1. / murray_exponent) >=
                     parameters.minimum_radius)
                   growing.emplace_back(segment(id), id);
               }
@@ -860,15 +913,13 @@ namespace ImmersX::Vascularization
             return radius(e);
           const double demand = demands.at(e) + (increased.count(e) ? w : 0.);
           return tree.radius *
-                 std::pow(demand / (total + w),
-                          1. / parameters.arterial_murray_exponent);
+                 std::pow(demand / (total + w), 1. / murray_exponent);
         };
         const double leaf_radius =
-          tree.radius *
-          std::pow(w / (total + w), 1. / parameters.arterial_murray_exponent);
+          tree.radius * std::pow(w / (total + w), 1. / murray_exponent);
         const double smallest_leaf =
           tree.radius * std::pow(std::min(tree.minimum_demand, w) / (total + w),
-                                 1. / parameters.arterial_murray_exponent);
+                                 1. / murray_exponent);
         if (!(smallest_leaf > 0.) || smallest_leaf < parameters.minimum_radius)
           return {};
         const auto        nodes = network.vessels.at(id).nodes;
@@ -880,8 +931,7 @@ namespace ImmersX::Vascularization
           {next_vessel,
            {{next_node, nodes[1]}},
            {{junction, old.second}},
-           tree.radius * std::pow(n / (total + w),
-                                  1. / parameters.arterial_murray_exponent)},
+           tree.radius * std::pow(n / (total + w), 1. / murray_exponent)},
           {next_vessel + 1,
            {{next_node, next_node + 1}},
            {{junction, terminal}},
@@ -974,7 +1024,7 @@ namespace ImmersX::Vascularization
       }
 
       void
-      accept(const Proposal &p)
+      accept(const Proposal &p, const Territory *shared_territory = nullptr)
       {
         const auto old                        = network.vessels.at(p.vessel);
         network.nodes[next_node]              = {p.junction,
@@ -993,11 +1043,15 @@ namespace ImmersX::Vascularization
         terminal.nodes                        = {{next_node, next_node + 1}};
         network.vessels[next_vessel + 1]      = terminal;
         const Id tid                          = take_identifiers(next_terminal);
-        const Id territory     = take_identifiers(next_territory);
-        network.terminals[tid] = {
-          next_node + 1, territory, System::arterial, 0, p.terminal_demand};
-        result.territories.push_back(
-          {territory, p.terminal, 0, p.terminal_demand});
+        const Id territory                    = shared_territory ?
+                                                  shared_territory->id :
+                                                  take_identifiers(next_territory);
+        network.terminals[tid]                = {
+          next_node + 1, territory, system, 0, p.terminal_demand};
+        if (!shared_territory)
+          result.territories.push_back(
+            {territory, p.terminal, 0, p.terminal_demand});
+        ++active_terminal_count;
         for (auto &[child, parent] : parents)
           if (parent == p.vessel)
             parent = next_vessel;
@@ -1045,7 +1099,7 @@ namespace ImmersX::Vascularization
                 terminal_count,
                 std::floor(
                   std::pow(tree.radius / parameters.minimum_radius,
-                           parameters.arterial_murray_exponent) *
+                           murray_exponent) *
                   (1. + 32. * std::numeric_limits<double>::epsilon())));
         if (capacity < terminal_count)
           {
@@ -1055,7 +1109,16 @@ namespace ImmersX::Vascularization
                "Requested terminal count is incompatible with the minimum radius at the fixed attachment radii."});
             return;
           }
-        while (result.territories.size() < terminal_count)
+        std::map<Id, Territory> pending;
+        if (system == System::venous)
+          {
+            for (const auto &t : result.territories)
+              pending.emplace(t.id, t);
+            for (const auto &[id, t] : network.terminals)
+              if (t.system == system)
+                pending.erase(t.territory);
+          }
+        while (active_terminal_count < terminal_count)
           {
             AssertThrow(next_node < invalid_id - 1 &&
                           next_vessel < invalid_id - 1,
@@ -1065,29 +1128,50 @@ namespace ImmersX::Vascularization
                  ++attempt)
               {
                 ++result.sampled_points;
-                Point<3> target;
-                for (unsigned int d = 0; d < 3; ++d)
-                  target[d] = lower[d] + uniform() * (upper[d] - lower[d]);
-                const auto cell = geometry.containing(target);
-                if (!cell)
-                  continue;
-                const double w = weight.value(target);
-                AssertThrow(
-                  std::isfinite(w) && w >= 0. &&
-                    w <= parameters.terminal_weight_bound,
-                  ExcMessage(
-                    "Spatial terminal weight violates its declared nonnegative bound."));
-                const double h = (*cell)->diameter();
-                const double scale =
-                  parameters.density_beta >= 0. ? minimum_h : maximum_h;
-                if (uniform() >= w / parameters.terminal_weight_bound *
-                                   std::pow(scale / h, parameters.density_beta))
-                  continue;
-                const double terminal_demand = demand_function.value(target);
-                AssertThrow(
-                  std::isfinite(terminal_demand) && terminal_demand > 0.,
-                  ExcMessage(
-                    "Tissue demand must be positive and finite at every proposed terminal."));
+                Point<3>         target;
+                const Territory *shared          = nullptr;
+                double           terminal_demand = 0.;
+                if (system == System::venous)
+                  {
+                    AssertThrow(!pending.empty(), ExcInternalError());
+                    auto entry = pending.begin();
+                    std::advance(entry, (attempt / 6) % pending.size());
+                    shared                       = &entry->second;
+                    target                       = shared->position;
+                    const unsigned int direction = (attempt + shared->id) % 6;
+                    target[direction / 2] +=
+                      (direction % 2 ? 1. : -1.) *
+                      parameters.venous.terminal_separation;
+                    terminal_demand = shared->demand;
+                    if (!geometry.containing(target))
+                      continue;
+                  }
+                else if (system == System::arterial)
+                  {
+                    for (unsigned int d = 0; d < 3; ++d)
+                      target[d] = lower[d] + uniform() * (upper[d] - lower[d]);
+                    const auto cell = geometry.containing(target);
+                    if (!cell)
+                      continue;
+                    const double w = weight.value(target);
+                    AssertThrow(
+                      std::isfinite(w) && w >= 0. &&
+                        w <= parameters.terminal_weight_bound,
+                      ExcMessage(
+                        "Spatial terminal weight violates its declared nonnegative bound."));
+                    const double h = (*cell)->diameter();
+                    const double scale =
+                      parameters.density_beta >= 0. ? minimum_h : maximum_h;
+                    if (uniform() >=
+                        w / parameters.terminal_weight_bound *
+                          std::pow(scale / h, parameters.density_beta))
+                      continue;
+                    terminal_demand = demand_function.value(target);
+                    AssertThrow(
+                      std::isfinite(terminal_demand) && terminal_demand > 0.,
+                      ExcMessage(
+                        "Tissue demand must be positive and finite at every proposed terminal."));
+                  }
                 std::vector<Leaf> candidates;
                 candidate_vessels.query(
                   bgi::nearest(target, parameters.candidate_count),
@@ -1108,7 +1192,10 @@ namespace ImmersX::Vascularization
                     best = std::move(p);
                 if (best)
                   {
-                    accept(*best);
+                    const Id shared_id = shared ? shared->id : invalid_id;
+                    accept(*best, shared);
+                    if (shared)
+                      pending.erase(shared_id);
                     inserted = true;
                     break;
                   }
@@ -1130,7 +1217,7 @@ namespace ImmersX::Vascularization
             for (const auto &t : result.territories)
               territories.insert(t.id);
             for (const auto &[id, t] : network.terminals)
-              if (territories.count(t.territory))
+              if (t.system == system && territories.count(t.territory))
                 {
                   const double q = parameters.reference_flow *
                                    ((t.demand / demand_scale) / total_demand);
@@ -1153,12 +1240,14 @@ namespace ImmersX::Vascularization
       const unsigned int       terminal_count;
       BackgroundGeometry      &geometry;
       const FunctionParser<3> &demand_function;
+      const System             system;
+      unsigned int             active_terminal_count = 0;
       std::mt19937_64          random;
       FunctionParser<3>        weight;
       Point<3>                 lower, upper;
       double minimum_h = std::numeric_limits<double>::infinity(),
              maximum_h = 0.;
-      const double exponent, dissipation_exponent;
+      const double murray_exponent, exponent, dissipation_exponent;
       double       forest_volume = 0., forest_power_numerator = 0.,
              maximum_radius = 0.;
       Id next_node = 0, next_vessel = 0, next_terminal = 0, next_territory = 0;
@@ -1191,8 +1280,6 @@ namespace ImmersX::Vascularization
     parameters.validate(creating_seed);
     FunctionParser<3> demand_function;
     demand_function.initialize("x,y,z", parameters.tissue_demand, {});
-    const auto seed_normal =
-      normalized_port_normal(parameters.seed_inward_port_normal);
     GenerationResult result;
     result.network    = initial;
     result.validation = validate_data(initial, 1);
@@ -1302,44 +1389,55 @@ namespace ImmersX::Vascularization
       }
     auto            index = pack_rtree(obstacles);
     std::vector<Id> roots;
-    const auto      append_root = [&](Id            start,
-                                 const Vessel &properties,
-                                 Id            input_terminal) {
-      const Point<3> position = creating_seed ?
-                                       parameters.seed_position :
-                                       initial.nodes.at(start).position;
-      const auto     cell =
-        geometry.containing(position,
-                            creating_seed && seed_normal.norm_square() > 0. ?
-                                   1.e-12 :
-                                   0.);
+    const auto      append_root = [&](Id               start,
+                                 const Vessel    &properties,
+                                 Id               input_terminal,
+                                 bool             new_port,
+                                 const Node      &port,
+                                 const Point<3>  &seed_direction,
+                                 const Territory *shared = nullptr,
+                                 bool             diagnose = true) -> bool {
+      const auto reject = [&](const std::string &message) {
+        if (diagnose)
+          fail(input_terminal, message);
+        return false;
+      };
+      const auto seed_normal = normalized_port_normal(port.inward_port_normal);
+      const Point<3> position =
+        new_port ? port.position : result.network.nodes.at(start).position;
+      const auto cell = geometry.containing(
+        position, new_port && seed_normal.norm_square() > 0. ? 1.e-12 : 0.);
       if (!cell)
         {
-          fail(input_terminal, "Seed or attachment is outside the background.");
-          return;
+          return reject("Seed or attachment is outside the background.");
         }
-      if (creating_seed && seed_normal.norm_square() > 0. &&
+      if (new_port && seed_normal.norm_square() > 0. &&
           !geometry.planar_section(position, seed_normal))
         {
-          fail(
-            input_terminal,
+          return reject(
             "The declared planar port does not match a planar background boundary section.");
-          return;
         }
       const double radius = properties.radii[1];
       if (radius < parameters.minimum_radius)
         {
-          fail(
-            input_terminal,
+          return reject(
             "Fixed attachment radius is below the minimum admissible new radius.");
-          return;
         }
       std::vector<Point<3>> directions;
-      if (parameters.seed_direction.norm() > 0.)
-        directions.push_back(parameters.seed_direction);
+      if (shared)
+        for (unsigned int i = 0; i < 6; ++i)
+          {
+            auto               end  = shared->position;
+            const unsigned int axis = (i + shared->id) % 6;
+            end[axis / 2] +=
+              (axis % 2 ? 1. : -1.) * parameters.venous.terminal_separation;
+            directions.emplace_back(end - position);
+          }
+      else if (seed_direction.norm() > 0.)
+        directions.push_back(seed_direction);
       else
         {
-          if (!creating_seed)
+          if (!new_port)
             directions.emplace_back(
               position - initial.nodes.at(properties.nodes[0]).position);
           directions.emplace_back((*cell)->center() - position);
@@ -1354,24 +1452,26 @@ namespace ImmersX::Vascularization
                 directions.push_back(direction);
               }
         }
-      AssertThrow(next_node < invalid_id - (creating_seed ? 1 : 0) &&
+      const bool allocate_port = new_port && !result.network.nodes.count(start);
+      AssertThrow(next_node < invalid_id - (allocate_port ? 1 : 0) &&
                     next_vessel < invalid_id,
                   ExcMessage("Vascular identifier space exhausted."));
-      const Id end_node = next_node + (creating_seed ? 1 : 0);
+      const Id end_node = next_node + (allocate_port ? 1 : 0);
       for (const auto &direction : directions)
         {
           const double norm = direction.norm();
           if (!(norm > 0.) || !std::isfinite(norm))
             continue;
           const Point<3> end =
-            position + parameters.seed_length / norm * direction;
+            shared ? position + direction :
+                          position + parameters.seed_length / norm * direction;
           if (position.distance(end) <= parameters.minimum_length)
             continue;
           if (!geometry.contains({position, end},
                                  radius + parameters.clearance,
                                  parameters.geometry_depth,
                                  parameters.geometry_work,
-                                      {{creating_seed ? seed_normal : Point<3>(),
+                                      {{new_port ? seed_normal : Point<3>(),
                                    Point<3>()}}))
             continue;
           const CCOGrowth::Edge edge{next_vessel,
@@ -1405,17 +1505,15 @@ namespace ImmersX::Vascularization
             }
           if (!compatible)
             continue;
-          const double terminal_demand = demand_function.value(end);
+          const double terminal_demand =
+            shared ? shared->demand : demand_function.value(end);
           AssertThrow(
             std::isfinite(terminal_demand) && terminal_demand > 0.,
             ExcMessage(
               "Tissue demand must be positive and finite at every initial terminal."));
-          if (creating_seed)
-            result.network.nodes[start] = {position,
-                                           0,
-                                           Port::arterial_inlet,
-                                           Provenance::generated,
-                                           seed_normal};
+          if (new_port)
+            result.network.nodes[start] = {
+              position, 0, port.port, Provenance::generated, seed_normal};
           result.network.nodes[end_node] = {end,
                                             0,
                                             Port::none,
@@ -1428,11 +1526,13 @@ namespace ImmersX::Vascularization
           const Id vid                   = take_identifiers(next_vessel);
           result.network.vessels[vid]    = vessel;
           const Id tid                   = take_identifiers(next_terminal),
-                   territory            = take_identifiers(next_territory);
+                   territory =
+                     shared ? shared->id : take_identifiers(next_territory);
           result.network.terminals[tid] = {
-            end_node, territory, System::arterial, 0, terminal_demand};
-          result.territories.push_back({territory, end, 0, terminal_demand});
-          take_identifiers(next_node, creating_seed ? 2 : 1);
+            end_node, territory, properties.system, 0, terminal_demand};
+          if (!shared)
+            result.territories.push_back({territory, end, 0, terminal_demand});
+          take_identifiers(next_node, allocate_port ? 2 : 1);
           if (input_terminal != invalid_id)
             {
               result.attachment_roots[input_terminal] = vid;
@@ -1440,10 +1540,10 @@ namespace ImmersX::Vascularization
             }
           roots.push_back(vid);
           index.insert({{position, end}, vid});
-          return;
+          maximum_radius = std::max(maximum_radius, radius);
+          return true;
         }
-      fail(
-        input_terminal,
+      return reject(
         "No admissible initial subtree direction was found within the deterministic geometry budget.");
     };
     if (creating_seed)
@@ -1451,7 +1551,12 @@ namespace ImmersX::Vascularization
         Vessel properties;
         properties.radii = {{parameters.seed_radius, parameters.seed_radius}};
         properties.viscosity = parameters.viscosity;
-        append_root(0, properties, invalid_id);
+        Node port;
+        port.position           = parameters.seed_position;
+        port.port               = Port::arterial_inlet;
+        port.inward_port_normal = parameters.seed_inward_port_normal;
+        append_root(
+          0, properties, invalid_id, true, port, parameters.seed_direction);
       }
     else
       for (Id id : selected)
@@ -1459,15 +1564,277 @@ namespace ImmersX::Vascularization
           const auto &terminal = result.network.terminals.at(id);
           append_root(terminal.node,
                       initial.vessels.at(incoming[terminal.node][0]),
-                      id);
+                      id,
+                      false,
+                      {},
+                      parameters.seed_direction);
           if (!result.validation.valid())
             break;
         }
     if (!result.validation.valid())
       return result;
-    CCOGrowth growth(
-      result, parameters, geometry, roots, terminal_count, demand_function);
+    Id reserved_venous_port = invalid_id;
+    if (parameters.venous.enabled &&
+        parameters.venous.selected_terminals.empty())
+      {
+        bool has_venous_attachment = false;
+        for (const auto &[id, t] : result.network.terminals)
+          if (t.system == System::venous &&
+              geometry.containing(result.network.nodes.at(t.node).position))
+            has_venous_attachment = true;
+        if (!has_venous_attachment)
+          {
+            // Reserve the port before CCO insertions so its id is independent
+            // of terminal-count calibration and the number of accepted trials.
+            reserved_venous_port = next_identifier(result.network.nodes);
+            result.network.nodes[reserved_venous_port] = {
+              parameters.venous.seed_position,
+              0,
+              Port::venous_outlet,
+              Provenance::generated,
+              normalized_port_normal(
+                parameters.venous.seed_inward_port_normal)};
+          }
+      }
+    CCOGrowth growth(result,
+                     parameters,
+                     geometry,
+                     roots,
+                     terminal_count,
+                     demand_function,
+                     System::arterial);
     growth.run();
+    if (parameters.venous.enabled && result.validation.valid())
+      {
+        // Arterial geometry remains an obstacle throughout venous growth.
+        obstacles.clear();
+        maximum_radius = parameters.venous.seed_radius;
+        for (const auto &[id, e] : result.network.vessels)
+          {
+            obstacles.emplace_back(
+              Segment<3>(result.network.nodes.at(e.nodes[0]).position,
+                         result.network.nodes.at(e.nodes[1]).position),
+              id);
+            maximum_radius = std::max({maximum_radius, e.radii[0], e.radii[1]});
+          }
+        index = pack_rtree(obstacles);
+        roots.clear();
+        next_node     = next_identifier(result.network.nodes);
+        next_vessel   = next_identifier(result.network.vessels);
+        next_terminal = next_identifier(result.network.terminals);
+        std::vector<Id> venous_selected = parameters.venous.selected_terminals;
+        if (venous_selected.empty())
+          for (const auto &[id, t] : result.network.terminals)
+            if (t.system == System::venous &&
+                geometry.containing(result.network.nodes.at(t.node).position))
+              venous_selected.push_back(id);
+        std::set<Id> seen;
+        for (Id id : venous_selected)
+          {
+            const auto t = result.network.terminals.find(id);
+            if (!seen.insert(id).second ||
+                t == result.network.terminals.end() ||
+                t->second.system != System::venous ||
+                !geometry.containing(
+                  result.network.nodes.at(t->second.node).position))
+              fail(
+                id,
+                "Selected venous terminals must exist, be unique interior venous leaves, and belong to the input network.");
+          }
+        if (venous_selected.size() > terminal_count)
+          fail(
+            invalid_id,
+            "Territory count is smaller than the number of selected venous attachments.");
+        const bool create_venous_port = venous_selected.empty();
+        if (create_venous_port && (!(parameters.venous.seed_radius > 0.) ||
+                                   !(parameters.viscosity > 0.)))
+          fail(
+            invalid_id,
+            "A new venous outlet requires an explicit positive radius and dynamic viscosity.");
+        if (!result.validation.valid())
+          return result;
+        std::map<Id, Territory> unassigned;
+        for (const auto &t : result.territories)
+          unassigned.emplace(t.id, t);
+        const unsigned int root_count =
+          create_venous_port ? 1 : venous_selected.size();
+        for (unsigned int i = 0; i < root_count; ++i)
+          {
+            const Id input_terminal =
+              create_venous_port ? invalid_id : venous_selected[i];
+            const Id start = create_venous_port ?
+                               reserved_venous_port :
+                               result.network.terminals.at(input_terminal).node;
+            Node     port;
+            port.position           = parameters.venous.seed_position;
+            port.port               = Port::venous_outlet;
+            port.inward_port_normal = parameters.venous.seed_inward_port_normal;
+            Vessel properties;
+            if (create_venous_port)
+              {
+                properties.system    = System::venous;
+                properties.viscosity = parameters.viscosity;
+                properties.radii     = {{parameters.venous.seed_radius,
+                                         parameters.venous.seed_radius}};
+              }
+            else
+              properties = initial.vessels.at(incoming.at(start).at(0));
+            const Point<3>         position = create_venous_port ?
+                                                port.position :
+                                                result.network.nodes.at(start).position;
+            std::vector<Territory> ordered;
+            for (const auto &[id, t] : unassigned)
+              ordered.push_back(t);
+            std::sort(ordered.begin(),
+                      ordered.end(),
+                      [&](const auto &a, const auto &b) {
+                        const auto da = position.distance_square(a.position),
+                                   db = position.distance_square(b.position);
+                        return da < db || (da == db && a.id < b.id);
+                      });
+            bool attached = false;
+            for (const auto &t : ordered)
+              if (append_root(start,
+                              properties,
+                              input_terminal,
+                              create_venous_port,
+                              port,
+                              {},
+                              &t,
+                              false))
+                {
+                  unassigned.erase(t.id);
+                  attached = true;
+                  break;
+                }
+            if (!attached)
+              {
+                fail(
+                  input_terminal,
+                  "No admissible connection from the venous outlet or attachment to a common tissue territory was found.");
+                return result;
+              }
+          }
+        CCOGrowth venous_growth(result,
+                                parameters,
+                                geometry,
+                                roots,
+                                terminal_count,
+                                demand_function,
+                                System::venous);
+        venous_growth.run();
+      }
+    if (parameters.venous.enabled && result.validation.valid())
+      {
+        std::map<Id, std::array<Id, 2>> paired;
+        for (const auto &t : result.territories)
+          paired[t.id] = {{invalid_id, invalid_id}};
+        std::vector<Id> selected_tissue;
+        for (const auto &[id, t] : result.network.terminals)
+          if (paired.count(t.territory))
+            {
+              unsigned int slot = 0;
+              if (t.system == System::arterial)
+                slot = 0;
+              else if (t.system == System::venous)
+                slot = 1;
+              if (paired.at(t.territory)[slot] != invalid_id)
+                fail(
+                  id,
+                  "A common territory has more than one terminal of the same system.");
+              paired.at(t.territory)[slot] = id;
+              selected_tissue.push_back(id);
+            }
+        for (const auto &[id, terminals] : paired)
+          if (terminals[0] == invalid_id || terminals[1] == invalid_id)
+            fail(
+              id,
+              "Every new territory requires exactly one arterial and one venous terminal.");
+        if (!result.validation.valid())
+          return result;
+        ReferenceResult design;
+        if (parameters.venous.microvascular_resistance == 0.)
+          {
+            std::map<Id, double> port_pressures;
+            for (const auto &[id, pressure] :
+                 parameters.reference_conditions.pressures)
+              if (result.network.nodes.count(id) &&
+                  result.network.nodes.at(id).port != Port::none)
+                port_pressures[id] = pressure;
+            auto       conditions = parameters.reference_conditions;
+            const auto demand_bc =
+              demand_flow_conditions(result.network,
+                                     port_pressures,
+                                     parameters.reference_flow,
+                                     selected_tissue,
+                                     communicator);
+            for (const auto &[id, flow] : demand_bc.inflows)
+              if (!conditions.inflows.emplace(id, flow).second)
+                fail(
+                  id,
+                  "A paired tissue terminal cannot also have an independent external load.");
+            if (!result.validation.valid())
+              return result;
+            design = solve_reference(result.network,
+                                     {},
+                                     conditions,
+                                     parameters.reference_parameters,
+                                     communicator);
+            result.validation.issues.insert(result.validation.issues.end(),
+                                            design.validation.issues.begin(),
+                                            design.validation.issues.end());
+            if (!result.validation.valid())
+              return result;
+          }
+        for (const auto &[id, terminals] : paired)
+          {
+            double bed_resistance = parameters.venous.microvascular_resistance;
+            if (bed_resistance == 0.)
+              {
+                const auto a = result.network.terminals.at(terminals[0]).node;
+                const auto v = result.network.terminals.at(terminals[1]).node;
+                bed_resistance =
+                  (design.pressures.at(a) - design.pressures.at(v)) /
+                  result.target_terminal_flows.at(terminals[0]);
+              }
+            if (!std::isfinite(bed_resistance) || bed_resistance <= 0.)
+              fail(
+                id,
+                "The requested reference flow and pressures leave no positive microvascular resistance.");
+            result.terminal_pairs.push_back(
+              {id, terminals[0], terminals[1], bed_resistance});
+          }
+        if (!result.validation.valid())
+          return result;
+        result.reference = solve_reference(result.network,
+                                           result.terminal_pairs,
+                                           parameters.reference_conditions,
+                                           parameters.reference_parameters,
+                                           communicator);
+        result.validation.issues.insert(
+          result.validation.issues.end(),
+          result.reference.validation.issues.begin(),
+          result.reference.validation.issues.end());
+        if (result.reference.validation.valid() &&
+            parameters.reference_flow > 0.)
+          for (const auto &[id, desired] : result.target_terminal_flows)
+            {
+              // Compare the requested supply to the actual 0D territory flow.
+              // Terminal Kirchhoff defects have their separate global-flow
+              // tolerance.
+              const Id territory = result.network.terminals.at(id).territory;
+              const double actual =
+                result.reference.territories.at(territory).flow;
+              if (std::abs(actual - desired) >
+                  parameters.reference_parameters.absolute_flow_tolerance +
+                    parameters.reference_parameters
+                        .conservation_relative_tolerance *
+                      desired)
+                fail(
+                  id,
+                  "The supplied bed resistances, pressures and reference flow do not realize the requested tissue-demand split.");
+            }
+      }
     const auto report = validate_data(result.network, 1);
     result.validation.issues.insert(result.validation.issues.end(),
                                     report.issues.begin(),
@@ -1567,7 +1934,10 @@ namespace ImmersX::Vascularization
                 0.;
             const double deficit =
               std::max(0.,
-                       p.minimum_coverage - candidate.tissue.arterial_coverage);
+                       p.minimum_coverage -
+                         (parameters.venous.enabled ?
+                            candidate.tissue.dual_coverage :
+                            candidate.tissue.arterial_coverage));
             if (error <= p.relative_tolerance && deficit == 0.)
               {
                 report.status         = CalibrationStatus::converged;

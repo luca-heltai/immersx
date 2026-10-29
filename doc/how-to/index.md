@@ -20,4 +20,5 @@ local-co-refinement
 coral-backend
 testing
 vascular-tree-elasticity
+vascular-generation
 ```

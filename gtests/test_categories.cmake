@@ -39,6 +39,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     VascularSurfacePorts
     VascularReferenceFlow
     VascularDemand
+    VascularAV
     BoundaryConditions
     CoupledPoisson
     CoupledPoissonElasticity

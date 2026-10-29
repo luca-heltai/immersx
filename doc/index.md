@@ -32,6 +32,7 @@ getting-started/index
 getting-started/containers
 how-to/index
 how-to/local-co-refinement
+how-to/vascular-generation
 how-to/lifted-poisson
 how-to/lifted-static-elasticity
 tutorials/index
