@@ -89,15 +89,6 @@ namespace
     return reduced_grid("single_cell", {1., -1.}, {0});
   }
 
-  // Cells [-0.9,-0.3], [-0.3,0.3], [0.3,0.9] with the given vessel ids.
-  std::string
-  three_cell_grid(const std::vector<unsigned int> &vessel_ids)
-  {
-    std::string name = "three_cells";
-    for (const auto id : vessel_ids)
-      name += "_" + std::to_string(id);
-    return reduced_grid(name, {-0.9, -0.3, 0.3, 0.9}, vessel_ids);
-  }
 
   // 50 point inclusions along x, centered at -0.98, -0.94, ..., 0.98 and split
   // into `n_vessels` consecutive vessels of equal size. Each line is cx, cy,
@@ -232,25 +223,6 @@ namespace
     return TestPaths::expand_configured_paths(text);
   }
 
-  // Point inclusions along x: inclusions 0-24 belong to vessel 0 and
-  // inclusions 25-49 to vessel 1. Inclusions are not clustered, so each one
-  // owns its own multiplier dofs.
-  std::string
-  point_parameters(const Overrides &overrides = {})
-  {
-    Overrides all = {{"Inclusions file", inclusions_file(2)},
-                     {"Cluster inclusions with segments", "false"}};
-    all.insert(all.end(), overrides.begin(), overrides.end());
-    return parameters(true, single_cell_grid(), "displacement", all);
-  }
-
-  // Reduced grid of three_cell_grid() with vessel ids 0, 1, 0.
-  std::string
-  tensor_parameters(const std::string &fields    = "displacement, vessel_id",
-                    const Overrides   &overrides = {})
-  {
-    return parameters(false, three_cell_grid({0, 1, 0}), fields, overrides);
-  }
 
   // Declare the parameters, read them from `text`, and pass the problem to
   // `test`. The problem is built before parsing, as in app_coupled_elasticity,
@@ -268,26 +240,6 @@ namespace
     test(problem);
   }
 
-  // The steps of run_timestep0() for tensor-product coupling, without
-  // make_vessel_index_of_a_cell(): the coupling object only exists after
-  // setup_dofs().
-  void
-  setup_tensor_product(CoupledElasticityProblem<3> &problem)
-  {
-    problem.make_grid();
-    problem.setup_fe();
-    problem.setup_dofs();
-  }
-
-  // Set every multiplier dof to `value`.
-  void
-  set_multiplier(CoupledElasticityProblem<3> &problem, const double value)
-  {
-    auto           &lambda = problem.locally_relevant_solution.block(1);
-    LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
-    owned  = value;
-    lambda = owned;
-  }
 
   // All entries of a distributed vector, on every rank.
   std::vector<double>
@@ -301,27 +253,6 @@ namespace
     return values;
   }
 
-  std::string
-  pressure_file(const CoupledElasticityProblem<3> &problem)
-  {
-    const bool serial = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1;
-    return problem.par.output_directory + "/" + problem.par.output_name +
-           (serial ? "_externalPressure.txt" : "_externalPressure.h5");
-  }
-
-  // Lines of the serial pressure file that start with `prefix`.
-  unsigned int
-  count_lines_starting_with(const std::string &filename,
-                            const std::string &prefix)
-  {
-    std::ifstream file(filename);
-    std::string   line;
-    unsigned int  n = 0;
-    while (std::getline(file, line))
-      if (line.rfind(prefix, 0) == 0)
-        ++n;
-    return n;
-  }
 } // namespace
 
 // -----------------------------------------------------------------------------
