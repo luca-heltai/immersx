@@ -25,6 +25,7 @@
 #include "growth_candidate.h"
 #include "growth_commit.h"
 #include "growth_geometry.h"
+#include "growth_loop.h"
 
 namespace ImmersX::Vascularization
 {
@@ -1194,14 +1195,46 @@ namespace ImmersX::Vascularization
                 parameters.venous.seed_inward_port_normal)};
           }
       }
-    CCOGrowth growth(result,
-                     parameters,
-                     geometry,
-                     roots,
-                     terminal_count,
-                     demand_function,
-                     System::arterial);
-    growth.run();
+    std::set<Id>         mutable_roots(roots.begin(), roots.end());
+    std::map<Id, double> fixed_roots;
+    for (Id root : roots)
+      fixed_roots[root] = result.network.vessels.at(root).radii[0];
+    auto growth = internal::grow_forest(background,
+                                        mapping,
+                                        result.network,
+                                        mutable_roots,
+                                        fixed_roots,
+                                        parameters,
+                                        communicator,
+                                        terminal_count);
+    result.validation.issues.insert(result.validation.issues.end(),
+                                    growth.validation.issues.begin(),
+                                    growth.validation.issues.end());
+    result.sampled_points +=
+      Utilities::MPI::sum(growth.sampled_points, communicator);
+    result.accepted_insertions +=
+      Utilities::MPI::sum(static_cast<unsigned int>(growth.accepted_insertions),
+                          communicator);
+    if (growth.accepted.committed)
+      {
+        result.network = std::move(growth.accepted.network);
+        result.territories.clear();
+        for (Id tid : growth.accepted.physiology.owned_leaf_terminals)
+          {
+            const auto &t = result.network.terminals.at(tid);
+            result.territories.push_back(
+              {t.territory,
+               result.network.nodes.at(t.node).position,
+               t.owner,
+               t.demand});
+          }
+        result.target_terminal_flows =
+          std::move(growth.accepted.physiology.terminal_flows);
+        if (parameters.reference_flow > 0.)
+          for (const auto &[root, radius] : growth.accepted.fixed_owned_roots)
+            result.target_attachment_flows[root] =
+              growth.accepted.physiology.owned.at(root).flow;
+      }
     if (parameters.venous.enabled && result.validation.valid())
       {
         // Arterial geometry remains an obstacle throughout venous growth.

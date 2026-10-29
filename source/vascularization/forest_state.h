@@ -42,7 +42,9 @@ namespace ImmersX::Vascularization
       /** Authoritative branch metadata only, not a replicated topology. */
       std::map<Id, ForestBranch> owned;
       /** Desired terminal flows on the terminal/node owner. */
-      std::map<Id, double>  terminal_flows;
+      std::map<Id, double> terminal_flows;
+      /** Mutable leaf terminal identities on their node owner, also at Q=0. */
+      std::set<Id>          owned_leaf_terminals;
       double                demand_scale = 1.;
       std::array<double, 2> total_demand{{0., 0.}}, volume{{0., 0.}},
         power{{0., 0.}}, power_numerator{{0., 0.}};

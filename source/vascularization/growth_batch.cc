@@ -58,7 +58,8 @@ namespace ImmersX::Vascularization::internal
                       const std::vector<BatchProposal> &local,
                       const Parameters                 &parameters,
                       MPI_Comm                          comm,
-                      const std::function<double(Id)>  &radius)
+                      const std::function<double(Id)>  &radius,
+                      bool check_snapshot_obstacles)
   {
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
                size = Utilities::MPI::n_mpi_processes(comm);
@@ -213,13 +214,14 @@ namespace ImmersX::Vascularization::internal
     using Leaf = std::pair<Segment<3>, Id>;
     std::vector<Leaf> leaves;
     double            max_radius = 0.;
-    for (const auto &[id, v] : network.vessels)
-      {
-        leaves.emplace_back(Segment<3>(network.nodes.at(v.nodes[0]).position,
-                                       network.nodes.at(v.nodes[1]).position),
-                            id);
-        max_radius = std::max(max_radius, radius(id));
-      }
+    if (check_snapshot_obstacles)
+      for (const auto &[id, v] : network.vessels)
+        {
+          leaves.emplace_back(Segment<3>(network.nodes.at(v.nodes[0]).position,
+                                         network.nodes.at(v.nodes[1]).position),
+                              id);
+          max_radius = std::max(max_radius, radius(id));
+        }
     const auto                  obstacles = pack_rtree(leaves);
     std::map<ProposalKey, Vote> votes;
     for (const auto &[key, p] : proposals)
@@ -281,7 +283,7 @@ namespace ImmersX::Vascularization::internal
                  obstacles |
                    bgi::adaptors::queried(bgi::intersects(
                      envelope_box(e, parameters.clearance + max_radius))))
-              if (!p.owners.count(id))
+              if (check_snapshot_obstacles && !p.owners.count(id))
                 {
                   const auto &v = network.vessels.at(id);
                   vote.valid =

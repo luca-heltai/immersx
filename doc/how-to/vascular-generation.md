@@ -318,7 +318,24 @@ consecutive sampling budget, and incomplete runs are reported as failures.
 Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
-still needs public seed/import startup, shared venous territories and distributed
-measurement and solver preparation before it replaces the public generator's
-single-process execution path. Scaling at the requested sizes has not yet been
+now also serves public arterial generation and calibration. Distributed public
+seed/import startup, shared venous execution, measurement and solver preparation
+remain to be connected. Scaling at the requested sizes has not yet been
 measured.
+
+Public arterial generation uses the batched engine with an explicit terminal
+count for each calibration attempt; it does not copy or re-register the
+parameter object. Leaf identities are returned on their terminal owners even
+when reference flow is unspecified, so geometric territories do not depend on
+whether a flow problem was requested.
+
+Before local optimization, each producer retrieves vessel geometry from
+physical owners over the possible trial region and the fixed ancestor paths.
+This includes exterior input vessels whose owners may have no nearby background
+cells. Trial collision checks use proposed Murray radii, including shrinking
+siblings and growing ancestors. A colliding low-cost trial cannot displace an
+already feasible position. Preliminary batch votes do not
+compare these trials against obsolete snapshot radii; final confirmation always
+checks the complete jointly normalized geometry. A regression places a frozen
+obstacle outside an old parent's wall and verifies rollback when an insertion
+makes that parent's radius reach the obstacle.
