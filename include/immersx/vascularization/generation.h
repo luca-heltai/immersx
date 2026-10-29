@@ -100,14 +100,6 @@ namespace ImmersX::Vascularization
     double                      demand = 1.;
   };
 
-  struct TerminalPair
-  {
-    Id     territory  = invalid_id;
-    Id     arterial   = invalid_id;
-    Id     venous     = invalid_id;
-    double resistance = 0.;
-  };
-
   struct GenerationResult
   {
     NetworkData               network;
