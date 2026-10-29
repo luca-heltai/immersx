@@ -93,3 +93,9 @@ The representative line retains its one-dimensional element. Error diagnostics
 use the bulk mapping and reference-cell quadrature. The generated
 `gtests/parameters/lifted_poisson_simplex.prm` checks a nonzero quadratic
 solution and a zero multiplier.
+
+`lifted_elasticity` selects vector simplex elements when `Displacement space/Finite element`
+is `auto` and its fully distributed Domain contains triangles or tetrahedra.
+Set `FE degree` normally. Strong and weak Dirichlet terms use the same mapping.
+The legacy convergence table is omitted for simplex meshes; numerical tests
+check the displacement and residual directly.

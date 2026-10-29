@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Select simplex displacement elements automatically in Lifted Elasticity and support strong and weak boundary data on uniform simplex meshes.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run Lifted Poisson on tetrahedral bulk meshes with simplex error integration and physical mappings.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run Reduced Poisson on fully distributed simplex bulk meshes. Prepare line and point-cloud co-refinement before distribution, complete simplex conformity before particle location, and preserve existing mesh parameter names.
