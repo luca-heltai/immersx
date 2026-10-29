@@ -16,9 +16,9 @@
  * Author: Wolfgang Bangerth, University of Heidelberg, 2000
  * Modified by: Luca Heltai, 2020
  */
-#ifdef ENABLE_COUPLED_PROBLEMS
 
-#  include <immersx/physics/coupled_elasticity.h>
+#include <immersx/core/reduced_field_values.h>
+#include <immersx/physics/coupled_elasticity.h>
 
 namespace ImmersX
 {
@@ -28,6 +28,16 @@ namespace ImmersX
     : ElasticityProblem<dim, spacedim>(par)
   {}
 
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
+  {
+    // Reuse the point-coupling assembly so the multiplier rhs has the same
+    // scaling as the coupling matrix assembled at cycle 0. Matrices are kept.
+    this->assemble_point_coupling(false);
+  }
+
+  /*
   template <int dim, int spacedim>
   void
   CoupledElasticityProblem<dim, spacedim>::reassemble_coupling_rhs()
@@ -128,28 +138,25 @@ namespace ImmersX
           }
         particle = pic.end();
       }
-    this->system_rhs.compress(VectorOperation::add);
+    this->system_rhs.compress(VectorOperation::insert);
   }
+  */
 
 
   /**
-   * @brief compute tissue pressure ($\Lambda$) over the vessels and output to a .txt file (sequential) or .h5 file (mpi)
-   *
-   * @param openfilefisrttime internal variable to open file
+   * @brief compute tissue pressure ($\Lambda$) over the vessels
    */
 
   template <int dim, int spacedim>
   void
-  CoupledElasticityProblem<dim, spacedim>::compute_coupling_pressure()
+  CoupledElasticityProblem<dim,
+                           spacedim>::compute_pressure_at_immersed_surface()
   {
     TimerOutput::Scope t(this->computing_timer,
                          "Postprocessing: Computing Pressure");
 
-    if (this->inclusions.n_inclusions() > 0
-        // &&
-        // inclusions.get_offset_coefficients() == 1 &&
-        // inclusions.n_coefficients >= 2
-    )
+    if (!this->uses_tensor_product_coupling() &&
+        this->inclusions.n_inclusions() > 0)
       {
         const auto locally_owned_vessels =
           Utilities::MPI::create_evenly_distributed_partitioning(
@@ -159,17 +166,18 @@ namespace ImmersX
           Utilities::MPI::create_evenly_distributed_partitioning(
             this->mpi_communicator, this->inclusions.n_inclusions());
 
-        coupling_pressure.reinit(locally_owned_vessels, this->mpi_communicator);
-        auto &pressure = coupling_pressure;
+        pressure_at_immersed_surface.reinit(locally_owned_vessels,
+                                            this->mpi_communicator);
+        auto &pressure = pressure_at_immersed_surface;
         pressure       = 0;
-        coupling_pressure_at_inclusions.reinit(locally_owned_inclusions,
-                                               this->mpi_communicator);
-        auto &pressure_at_inc = coupling_pressure_at_inclusions;
+        pressure_at_immersed_surface_by_inclusion.reinit(
+          locally_owned_inclusions, this->mpi_communicator);
+        auto &pressure_at_inc = pressure_at_immersed_surface_by_inclusion;
         pressure_at_inc       = 0;
 
         auto &lambda_to_pressure = this->locally_relevant_solution.block(1);
 
-        const auto used_number_modes = this->inclusions.get_n_coefficients();
+        const auto used_number_modes = this->inclusions.n_dofs_per_inclusion();
 
         const auto local_lambda = lambda_to_pressure.locally_owned_elements();
 
@@ -208,37 +216,164 @@ namespace ImmersX
             // pressure_at_inc.compress(VectorOperation::add);
           }
       }
+    else if (this->uses_tensor_product_coupling()) // tensor coupling
+      {
+#ifdef DEAL_II_WITH_VTK
+        // block(1) is indexed by the DoFs of the reduced DoFHandler, so lambda
+        // is a finite element field on the reduced grid: integrate each of its
+        // components over that grid.
+        const auto &reduced_dh =
+          this->tensor_product_coupling->get_dof_handler();
+        const auto        &lambda = this->locally_relevant_solution.block(1);
+        const auto        &fe     = reduced_dh.get_fe();
+        const unsigned int n_comp = fe.n_components();
+
+        AssertThrow(!vessel_index_of_a_cell.empty(),
+                    ExcMessage("error in filling the vessels_id"));
+
+        const auto locally_owned_vessels =
+          Utilities::MPI::create_evenly_distributed_partitioning(
+            this->mpi_communicator, n_vessels());
+
+        pressure_at_immersed_surface.reinit(locally_owned_vessels,
+                                            this->mpi_communicator);
+        auto &pressure = pressure_at_immersed_surface;
+        pressure       = 0;
+
+
+        FEValues<1, spacedim> fe_values(
+          fe,
+          this->tensor_product_coupling->get_quadrature(),
+          update_values | update_JxW_values);
+        std::vector<Vector<double>> lambda_values(fe_values.n_quadrature_points,
+                                                  Vector<double>(n_comp));
+
+        std::vector<double> local_integral(1, 0.0);
+        for (const auto &cell : reduced_dh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              fe_values.reinit(cell);
+              fe_values.get_function_values(lambda, lambda_values);
+              for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+                for (unsigned int c = 0; c < n_comp; ++c)
+                  pressure[vessel_index_of_a_cell[cell->active_cell_index()]] +=
+                    lambda_values[q][c] * fe_values.JxW(q);
+            }
+        std::vector<double> integral(1, 0.0);
+        Utilities::MPI::sum(make_array_view(std::as_const(local_integral)),
+                            this->mpi_communicator,
+                            make_array_view(integral));
+
+        pressure.compress(VectorOperation::add);
+#endif
+      }
   }
+
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::make_vessel_index_of_a_cell()
+  {
+    AssertThrow(this->tensor_product_coupling,
+                ExcMessage("Tensor-product coupling not initialized"));
+
+    const auto &bindings =
+      this->tensor_product_coupling->get_properties_bindings();
+    const auto binding = std::find_if(bindings.begin(),
+                                      bindings.end(),
+                                      [](const InputFieldBinding &b) {
+                                        return b.symbol_name == "vessel_id";
+                                      });
+    AssertThrow(binding != bindings.end(),
+                ExcMessage("vessel_id is not listed in the input file fields"));
+    const unsigned int slot = binding - bindings.begin();
+
+    const auto &reduced_dh = this->tensor_product_coupling->get_dof_handler();
+    const auto &properties_dh =
+      this->tensor_product_coupling->get_properties_dh();
+    const auto &quadrature = this->tensor_product_coupling->get_quadrature();
+
+    ReducedFieldValues<1, spacedim> field_values(
+      properties_dh,
+      quadrature,
+      this->tensor_product_coupling->get_properties(),
+      bindings);
+    std::vector<double> values(quadrature.size() * bindings.size());
+
+    // Indexed by the rank-local active cell index; ghost and artificial cells
+    // keep invalid_unsigned_int.
+    vessel_index_of_a_cell.assign(
+      reduced_dh.get_triangulation().n_active_cells(),
+      numbers::invalid_unsigned_int);
+
+    // Cell fields are piecewise constant, so the first quadrature point
+    // carries the value of the cell.
+    unsigned int local_largest_id = 0;
+    for (const auto &cell : reduced_dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          field_values.extract(cell->as_dof_handler_iterator(properties_dh),
+                               values);
+          const double value = std::round(values[slot]);
+          AssertThrow(value >= 0,
+                      ExcMessage("vessel_id must be a non-negative integer"));
+          const auto id = static_cast<unsigned int>(value);
+          vessel_index_of_a_cell[cell->active_cell_index()] = id;
+          local_largest_id = std::max(local_largest_id, id);
+        }
+
+    // Cells are distributed, so both the largest id and the set of ids
+    // present must be gathered over all ranks before checking for gaps.
+    const unsigned int largest_id =
+      Utilities::MPI::max(local_largest_id, this->mpi_communicator);
+    std::vector<unsigned int> local_present(largest_id + 1, 0);
+    for (const auto id : vessel_index_of_a_cell)
+      if (id != numbers::invalid_unsigned_int)
+        local_present[id] = 1;
+    std::vector<unsigned int> present(largest_id + 1, 0);
+    Utilities::MPI::max(local_present, this->mpi_communicator, present);
+    for (unsigned int id = 0; id <= largest_id; ++id)
+      AssertThrow(present[id] == 1,
+                  ExcMessage("vessel_id values must be consecutive from 0, "
+                             "but no cell has vessel_id " +
+                             std::to_string(id) + " while the largest is " +
+                             std::to_string(largest_id)));
+
+    n_vessels_from_input = largest_id + 1;
+  }
+
+
 
   template <int dim, int spacedim>
   // TrilinosWrappers::MPI::Vector
   void
-  CoupledElasticityProblem<dim, spacedim>::output_coupling_pressure(
+  CoupledElasticityProblem<dim, spacedim>::output_pressure_at_immersed_surface(
     bool openfilefirsttime) const
   {
     TimerOutput::Scope t(this->computing_timer,
                          "Postprocessing: output Pressure");
-    if (this->par.output_pressure == false ||
-        this->inclusions.n_inclusions() == 0)
+    if (this->par.output_pressure == false)
       {
-        std::cout << "no output" << std::endl;
         return;
       }
-    if (this->par.time_parameters.initial_time !=
-        this->par.time_parameters.final_time)
-      {
-        this->pcout
-          << "output_pressure file for time dependent simulation not implemented in MPI"
-          << std::endl;
-      }
+    // if (this->par.time_parameters.initial_time !=
+    //     this->par.time_parameters.final_time)
+    //   {
+    //     this->pcout
+    //       << "output_pressure file for time dependent simulation not
+    //       implemented in MPI"
+    //       << std::endl;
+    //   }
 
-    const auto &pressure = coupling_pressure;
+    const auto &pressure = pressure_at_immersed_surface;
 
     // print .txt only sequential
     if (Utilities::MPI::n_mpi_processes(this->mpi_communicator) == 1)
       {
-        const std::string filename(this->par.output_directory +
-                                   "/externalPressure.txt");
+        const std::string filename(this->par.output_directory + "/" +
+                                   this->par.output_name +
+                                   "_externalPressure.txt");
         std::ofstream     pressure_file;
         if (openfilefirsttime)
           {
@@ -258,9 +393,10 @@ namespace ImmersX
     else
       // print .h5
       {
-#  ifdef DEAL_II_WITH_HDF5
-        const std::string FILE_NAME(this->par.output_directory +
-                                    "/externalPressure.h5");
+#ifdef DEAL_II_WITH_HDF5
+        const std::string FILE_NAME(this->par.output_directory + "/" +
+                                    this->par.output_name +
+                                    "_externalPressure.h5");
 
         auto accessMode = HDF5::File::FileAccessMode::create;
         if (!openfilefirsttime)
@@ -271,8 +407,7 @@ namespace ImmersX
                                        std::to_string(this->cycle));
 
         HDF5::DataSet dataset =
-          file_h5.create_dataset<double>(DATASET_NAME,
-                                         {this->inclusions.get_n_vessels()});
+          file_h5.create_dataset<double>(DATASET_NAME, {n_vessels()});
 
         std::vector<double> data_to_write;
         // std::vector<hsize_t> coordinates;
@@ -280,7 +415,7 @@ namespace ImmersX
         // coordinates.reserve(pressure.locally_owned_size());
         const auto locally_owned_vessels =
           Utilities::MPI::create_evenly_distributed_partitioning(
-            this->mpi_communicator, this->inclusions.get_n_vessels());
+            this->mpi_communicator, n_vessels());
 
         for (const auto &el : locally_owned_vessels)
           {
@@ -306,9 +441,9 @@ namespace ImmersX
           }
         else
           dataset.write_none<int>();
-#  else
+#else
         AssertThrow(false, ExcNeedsHDF5());
-#  endif
+#endif
       }
   }
 
@@ -321,12 +456,20 @@ namespace ImmersX
     this->print_parameters();
     this->make_grid();
     this->setup_fe();
-    {
-      TimerOutput::Scope t(this->computing_timer, "Setup inclusion");
-      this->inclusions.setup_inclusions_particles(this->tria);
-    }
+    if (!this->uses_tensor_product_coupling())
+      {
+        TimerOutput::Scope t(this->computing_timer, "Setup inclusion");
+        this->inclusions.setup_inclusions_particles(*this->tria);
+      }
+
     this->cycle = 0;
     this->setup_dofs();
+    if (this->uses_tensor_product_coupling())
+      {
+#ifdef DEAL_II_WITH_VTK
+        make_vessel_index_of_a_cell();
+#endif
+      }
     // assemble_elasticity_system();
   }
 
@@ -370,12 +513,12 @@ namespace ImmersX
     // if (this->par.output_results)
     this->output_results();
 
-    coupling_pressure.clear();
-    coupling_pressure_at_inclusions.clear();
+    pressure_at_immersed_surface.clear();
+    pressure_at_immersed_surface_by_inclusion.clear();
     // coupling_pressure =
     // output_pressure(cycle == 0 ? true : false);
-    compute_coupling_pressure();
-    output_coupling_pressure(this->cycle == 0 ? true : false);
+    compute_pressure_at_immersed_surface();
+    output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
 
     this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);
     this->cycle++;
@@ -383,35 +526,63 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
-  CoupledElasticityProblem<dim, spacedim>::update_inclusions_data(
+  CoupledElasticityProblem<dim, spacedim>::update_vessel_radius_data(
     std::vector<double> new_data)
   {
-    this->inclusions.update_inclusions_data(new_data);
+    if (!this->uses_tensor_product_coupling())
+      this->inclusions.update_inclusions_data(new_data);
+    else
+      {
+#ifdef DEAL_II_WITH_VTK
+        AssertThrow(false,
+                    ExcMessage("Cannot update data for tensor coupling"));
+
+#endif
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
+      }
   }
 
   template <int dim, int spacedim>
   void
-  CoupledElasticityProblem<dim, spacedim>::update_inclusions_data(
+  CoupledElasticityProblem<dim, spacedim>::update_vessel_radius_data(
     std::vector<double> new_data,
     std::vector<int>    cells_per_vessel)
   {
-    Assert(cells_per_vessel.size() == this->inclusions.get_n_vessels(),
-           ExcInternalError());
-    std::vector<std::vector<double>> full_vector;
-    unsigned int                     starting_point = 0;
-    for (auto &N1 : cells_per_vessel)
+    if (!this->uses_tensor_product_coupling())
       {
-        std::vector<double> vessel_vector;
-        for (auto j = 0; j < N1; ++j)
+        Assert(cells_per_vessel.size() == this->inclusions.get_n_vessels(),
+               ExcInternalError());
+        std::vector<std::vector<double>> full_vector;
+        unsigned int                     starting_point = 0;
+        for (auto &N1 : cells_per_vessel)
           {
-            AssertIndexRange(starting_point + j, new_data.size());
-            vessel_vector.push_back(new_data[starting_point + j]);
-          }
-        starting_point += N1;
+            std::vector<double> vessel_vector;
+            for (auto j = 0; j < N1; ++j)
+              {
+                AssertIndexRange(starting_point + j, new_data.size());
+                vessel_vector.push_back(new_data[starting_point + j]);
+              }
+            starting_point += N1;
 
-        full_vector.push_back(vessel_vector);
+            full_vector.push_back(vessel_vector);
+          }
+        this->inclusions.update_inclusions_data(full_vector);
       }
-    this->inclusions.update_inclusions_data(full_vector);
+    else
+      {
+#ifdef DEAL_II_WITH_VTK
+        AssertThrow(false,
+                    ExcMessage("Cannot update data for tensor coupling"));
+
+#endif
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
+      }
   }
 
   template <int dim, int spacedim>
@@ -420,45 +591,85 @@ namespace ImmersX
     std::vector<int> number_of_cells_per_vessel,
     Vector<double> /* full_press */) const
   {
-    Assert(number_of_cells_per_vessel.size() ==
-             this->inclusions.get_n_vessels(),
-           ExcInternalError());
-
     std::vector<std::vector<double>> split_pressure;
-    unsigned                         starting_inclusion = 0;
 
-    for (unsigned int vessel = 0; vessel < number_of_cells_per_vessel.size();
-         ++vessel)
+    if (!this->uses_tensor_product_coupling())
       {
-        auto N2 = number_of_cells_per_vessel[vessel];
-        auto N1 = this->inclusions.get_inclusions_in_vessel(vessel);
+        AssertThrow(number_of_cells_per_vessel.size() ==
+                      this->inclusions.get_n_vessels(),
+                    ExcDimensionMismatch(number_of_cells_per_vessel.size(),
+                                         this->inclusions.get_n_vessels()));
 
-        std::vector<double> new_vector;
+        // Copying the distributed vector into a serial one is collective, so
+        // every rank must call this function.
+        const Vector<double> pressure_by_inclusion(
+          pressure_at_immersed_surface_by_inclusion);
 
-        // const std::vector<double> pressure_of_inc_in_vessel(pressure);//
-        // (*pressure[starting_inclusion], *pressure[starting_inclusion+N1]);
-        const Vector<double> pressure_of_inc_in_vessel(
-          coupling_pressure_at_inclusions);
-
-        new_vector.push_back(pressure_of_inc_in_vessel[starting_inclusion]);
-
-        for (auto cell = 1; cell < N2 - 1; ++cell)
+        for (unsigned int vessel = 0;
+             vessel < number_of_cells_per_vessel.size();
+             ++vessel)
           {
-            auto X = cell / (N2 - 1) * (N1 - 1);
-            auto j = floor(X);
-            auto w = X - j;
+            const auto &current_inclusions =
+              this->inclusions.map_vessel_inclusions.at(vessel);
 
-            new_vector.push_back(
-              (1 - w) * pressure_of_inc_in_vessel[starting_inclusion + j] +
-              (w)*pressure_of_inc_in_vessel[starting_inclusion + j + 1]);
+            const int  N2 = number_of_cells_per_vessel[vessel]; // cells
+            const auto N1 = current_inclusions.size(); // inclusions in vessel
+
+            AssertThrow(N2 > 0,
+                        ExcMessage("Each vessel must have at least one cell."));
+
+            std::vector<double> new_vector(N2, 0.);
+            if (N1 == 1)
+              {
+                // Nothing to interpolate: every cell gets the pressure of the
+                // only inclusion.
+                std::fill(new_vector.begin(),
+                          new_vector.end(),
+                          pressure_by_inclusion[current_inclusions[0]]);
+              }
+            else if (N2 == 1)
+              {
+                // A single cell gets the mean pressure of the vessel.
+                for (const auto inclusion_id : current_inclusions)
+                  new_vector[0] += pressure_by_inclusion[inclusion_id];
+                new_vector[0] /= N1;
+              }
+            else
+              {
+                // The cells are equally spaced from the first to the last
+                // inclusion of the vessel, in the order of the inclusions file.
+                for (int cell = 0; cell < N2; ++cell)
+                  {
+                    const double X =
+                      static_cast<double>(cell) * (N1 - 1) / (N2 - 1);
+                    const unsigned int j =
+                      std::min<unsigned int>(std::floor(X), N1 - 2);
+                    const double w = X - j;
+                    new_vector[cell] =
+                      (1 - w) * pressure_by_inclusion[current_inclusions[j]] +
+                      w * pressure_by_inclusion[current_inclusions[j + 1]];
+                  }
+              }
+            split_pressure.push_back(new_vector);
           }
-        new_vector.push_back(
-          pressure_of_inc_in_vessel[starting_inclusion + N1 - 1]);
-        starting_inclusion += N1;
-        split_pressure.push_back(new_vector);
-      }
 
-    return split_pressure;
+        return split_pressure;
+      }
+    else
+      {
+#ifdef DEAL_II_WITH_VTK
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Cannot split the pressure over inclusions for tensor coupling"));
+
+#endif
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Trying to split the pressure over inclusions: the code uses tensor_coupling but VTK flag is OFF"));
+        return split_pressure;
+      }
   }
 
 
@@ -467,72 +678,79 @@ namespace ImmersX
   CoupledElasticityProblem<dim,
                            spacedim>::refine_and_transfer_around_inclusions()
   {
-    TimerOutput::Scope t(this->computing_timer, "Refine");
-    Vector<float>      error_per_cell(this->tria.n_active_cells());
-    KellyErrorEstimator<spacedim>::estimate(
-      this->dh,
-      QGauss<spacedim - 1>(this->par.fe_degree + 1),
-      {},
-      this->locally_relevant_solution.block(0),
-      error_per_cell);
-
-    const int material_id = 1;
-
-    auto particle = this->inclusions.inclusions_as_particles.begin();
-    while (particle != this->inclusions.inclusions_as_particles.end())
+    if (!this->uses_tensor_product_coupling())
       {
-        const auto &cell = particle->get_surrounding_cell();
-        const auto  pic =
-          this->inclusions.inclusions_as_particles.particles_in_cell(cell);
-        Assert(pic.begin() == particle, ExcInternalError());
+        TimerOutput::Scope t(this->computing_timer, "Refine");
+        Vector<float>      error_per_cell(this->tria->n_active_cells());
+        KellyErrorEstimator<spacedim>::estimate(
+          this->dh,
+          QGauss<spacedim - 1>(this->par.fe_degree + 1),
+          {},
+          this->locally_relevant_solution.block(0),
+          error_per_cell);
 
-        cell->set_refine_flag();
-        cell->set_material_id(material_id);
+        const int material_id = 1;
 
-        // for (auto f : cell->face_indices())
-        // for (unsigned int face_no = 0; face_no
-        // <GeometryInfo<spacedim>::faces_per_cell; ++face_no)
-        for (auto vertex : cell->vertex_indices())
+        auto particle = this->inclusions.inclusions_as_particles.begin();
+        while (particle != this->inclusions.inclusions_as_particles.end())
           {
-            for (const auto &neigh_i :
-                 GridTools::find_cells_adjacent_to_vertex(this->dh, vertex))
-              // for (auto neigh_i = cell->neighbor(face_no)->begin_face();
-              // neigh_i < cell->neighbor(face_no)->end_face(); ++neigh_i)
+            const auto &cell = particle->get_surrounding_cell();
+            const auto  pic =
+              this->inclusions.inclusions_as_particles.particles_in_cell(cell);
+            Assert(pic.begin() == particle, ExcInternalError());
+
+            cell->set_refine_flag();
+            cell->set_material_id(material_id);
+
+            // for (auto f : cell->face_indices())
+            // for (unsigned int face_no = 0; face_no
+            // <GeometryInfo<spacedim>::faces_per_cell; ++face_no)
+            for (auto vertex : cell->vertex_indices())
               {
-                if (!neigh_i->refine_flag_set())
+                for (const auto &neigh_i :
+                     GridTools::find_cells_adjacent_to_vertex(this->dh, vertex))
+                  // for (auto neigh_i = cell->neighbor(face_no)->begin_face();
+                  // neigh_i < cell->neighbor(face_no)->end_face(); ++neigh_i)
                   {
-                    neigh_i->set_refine_flag();
-                    neigh_i->set_material_id(material_id);
-                    for (auto vertey : neigh_i->vertex_indices())
-                      for (const auto &neigh_j :
-                           GridTools::find_cells_adjacent_to_vertex(this->dh,
-                                                                    vertey))
-                        // for (auto neigh_j =
-                        // cell->neighbor(neigh_i)->begin_face(); neigh_j <
-                        // cell->neighbor(neigh_i)->end_face(); ++neigh_j)
-                        {
-                          neigh_j->set_refine_flag();
-                          neigh_j->set_material_id(material_id);
-                        }
+                    if (!neigh_i->refine_flag_set())
+                      {
+                        neigh_i->set_refine_flag();
+                        neigh_i->set_material_id(material_id);
+                        for (auto vertey : neigh_i->vertex_indices())
+                          for (const auto &neigh_j :
+                               GridTools::find_cells_adjacent_to_vertex(
+                                 this->dh, vertey))
+                            // for (auto neigh_j =
+                            // cell->neighbor(neigh_i)->begin_face(); neigh_j <
+                            // cell->neighbor(neigh_i)->end_face(); ++neigh_j)
+                            {
+                              neigh_j->set_refine_flag();
+                              neigh_j->set_material_id(material_id);
+                            }
+                      }
                   }
               }
-          }
 
-        particle = pic.end();
-      }
-    this->execute_actual_refine_and_transfer();
-
-    for (unsigned int ref_cycle = 0;
-         ref_cycle < this->par.n_refinement_cycles - 1;
-         ++ref_cycle)
-      {
-        for (const auto &cell : this->tria.active_cell_iterators())
-          {
-            if (cell->material_id() == material_id)
-              cell->set_refine_flag();
+            particle = pic.end();
           }
         this->execute_actual_refine_and_transfer();
+
+        for (unsigned int ref_cycle = 0;
+             ref_cycle < this->par.n_refinement_cycles - 1;
+             ++ref_cycle)
+          {
+            for (const auto &cell : this->tria->active_cell_iterators())
+              {
+                if (cell->material_id() == material_id)
+                  cell->set_refine_flag();
+              }
+            this->execute_actual_refine_and_transfer();
+          }
       }
+    else
+      this->pcout
+        << "Inclusion refinement is only implemented for Point Coupling type"
+        << std::endl;
   }
 
   // Template instantiations
@@ -541,5 +759,3 @@ namespace ImmersX
   template class CoupledElasticityProblem<3>;
 
 } // namespace ImmersX
-
-#endif

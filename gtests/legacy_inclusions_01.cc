@@ -11,6 +11,7 @@
 #include <numeric>
 
 using namespace ImmersX;
+#include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/coupling/reference_cross_section.h>
 #include <immersx/coupling/tensor_product_space.h>
 
@@ -20,6 +21,9 @@ using namespace dealii;
 
 TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   TensorProductSpaceParameters<0, 1, 2, 1> params;
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.txt")
@@ -57,6 +61,9 @@ TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
 
 TEST(LegacyInclusions, Vector2DInstantiationUsesSelectedReferenceBasis)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   TensorProductSpaceParameters<0, 1, 2, 2> params;
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.txt")
@@ -75,6 +82,9 @@ TEST(LegacyInclusions, Vector2DInstantiationUsesSelectedReferenceBasis)
 
 TEST(LegacyInclusions, Segment3DReconstructsCellsAndProperties)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   TensorProductSpaceParameters<1, 2, 3, 3> params;
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_3d.txt")
@@ -146,6 +156,9 @@ check_segment_3d_measure()
 
 TEST(LegacyInclusions, BOTH_Segment3DMeasureUsesCellJacobian)
 {
+  if (!ImmersX::SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   check_segment_3d_measure();
 }
 

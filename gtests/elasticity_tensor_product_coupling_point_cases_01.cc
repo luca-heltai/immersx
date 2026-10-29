@@ -1,8 +1,15 @@
+#include <deal.II/base/quadrature_lib.h>
+
+#include <deal.II/lac/vector.h>
+
+#include <deal.II/numerics/vector_tools.h>
+
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 
 #include <array>
 #include <cmath>
+#include <iomanip>
 #include <set>
 #include <string>
 #include <vector>
@@ -330,6 +337,129 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
   par.default_material_properties.Lame_mu = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_tensor_product_case(par);
+}
+
+// Tensor-product counterpart of ElasticityValidation.ExactLambda. A straight
+// vessel of radius ri = 0.2 along the axis of the cylinder of radius re = 2
+// and half length 2 around the x axis is inflated by di = 0.2. With u_x = 0
+// on the end faces and no x dependence, the problem is plane strain in
+// (y, z), and the exact displacement is the radial Lame solution
+// u_r = ri di / (re^2 - ri^2) (re^2 / r - r) outside the vessel and
+// u_r = di r / ri inside. It vanishes on the hull, where the Dirichlet data
+// is zero.
+//
+// Selected indices 3 and 7 are the modes x e_x and y e_y of the reference
+// disk. Each mode is normalized to mean square one over the unit disk, so the
+// radial combination is about 2 (x, y), and the coefficients 0.1 give the
+// inflation di = 0.2.
+TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<3> par;
+  ElasticityProblem<3>           problem(par);
+  initialize_parameters();
+  ParameterAcceptor::prm.parse_input_from_string(
+    TestPaths::expand_configured_paths(R"(
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = 0; 0; 0
+      end
+      subsection Exact solution
+        set Function constants  = ri=0.2, re=2, di=0.2
+        set Function expression = 0; if((y^2+z^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*y/(y^2+z^2) - y), di*y/ri); if((y^2+z^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*z/(y^2+z^2) - z), di*z/ri)
+        set Variable names      = x,y,z,t
+      end
+    end
+    subsection Immersed Problem
+      set Coupling type                      = TensorProduct
+      set Dirichlet boundary ids             = 0
+      set Normal flux boundary ids           = 1,2
+      set FE degree                          = 1
+      set Initial refinement                 = 3
+      set Output name                        = tensor_product_exact_solution
+      set Output results also before solving = false
+      subsection Grid generation
+        set Domain type              = generate
+        set Grid generator           = subdivided_cylinder
+        set Grid generator arguments = 4: 2: 2
+        set Triangulation type       = distributed
+      end
+      subsection Material properties
+        subsection default
+          set Lame lambda = 1
+          set Lame mu     = 1
+        end
+      end
+      subsection Refinement and remeshing
+        set Number of refinement cycles = 1
+        set Strategy                    = global
+      end
+    end
+    subsection Tensor product coupling
+      subsection Cross section
+        set Inclusion type           = hyper_ball
+        set Maximum inclusion degree = 1
+        set Refinement level         = 1
+        set Selected indices         = 3, 7
+      end
+      subsection Particle coupling
+        set RTree extraction level = 1
+      end
+      subsection Representative domain
+        set Finite element degree            = 1
+        set Number of quadrature points      = 3
+        set Number of quadrature repetitions = 4
+        set Reduced grid name                = @TEST_DATA_DIR@/tests/one_cylinder_rotation_x.vtk
+        set Reduced right hand side          = 0.1; 0.1
+        set Thickness                        = 0.2
+      end
+    end
+    subsection Solvers
+      subsection Augmented Lagrange
+        set Max steps = 10000
+        set Reduction = 1.e-10
+        set Tolerance = 1.e-12
+      end
+      subsection Displacement
+        set Max steps = 10000
+        set Reduction = 1.e-10
+        set Tolerance = 1.e-12
+      end
+    end
+    )"));
+  ParameterAcceptor::parse_all_parameters();
+  par.output_directory =
+    TestPaths::output_directory("elasticity-tensor-product-point");
+  problem.run();
+
+  // In 3D, run() measures the errors against the Dirichlet function, so they
+  // are computed here against the exact solution.
+  const QGauss<3> quadrature(par.fe_degree + 2);
+  Vector<float>   cellwise_errors(problem.tria->n_active_cells());
+  const auto      error = [&](const VectorTools::NormType norm) {
+    VectorTools::integrate_difference(problem.dh,
+                                      problem.locally_relevant_solution.block(
+                                        0),
+                                      par.exact_solution,
+                                      cellwise_errors,
+                                      quadrature,
+                                      norm);
+    return VectorTools::compute_global_error(*problem.tria,
+                                             cellwise_errors,
+                                             norm);
+  };
+  const double l2     = error(VectorTools::L2_norm);
+  const double linfty = error(VectorTools::Linfty_norm);
+  const double h1     = error(VectorTools::H1_norm);
+  problem.pcout << std::setprecision(10) << "L2 " << l2 << " Linfty " << linfty
+                << " H1 " << h1 << std::endl;
+
+  // Regression values: the errors this test computed (10240 cells, 33363
+  // dofs) in a serial Debug run with deal.II 9.7.1. They are not theoretical
+  // bounds.
+  ASSERT_NEAR(l2, 5.721614137e-02, 1e-6 * 5.721614137e-02);
+  ASSERT_NEAR(linfty, 6.395307928e-02, 1e-6 * 6.395307928e-02);
+  ASSERT_NEAR(h1, 7.070031762e-01, 1e-6 * 7.070031762e-01);
 }
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,

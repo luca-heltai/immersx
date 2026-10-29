@@ -16,17 +16,16 @@
  * Author: Wolfgang Bangerth, University of Heidelberg, 2000
  * Modified by: Luca Heltai, 2020, Camilla Belponer 2023
  */
-#ifdef ENABLE_COUPLED_PROBLEMS
 
-#  include <iomanip>
+#include <iomanip>
 
-#  if 1
-#    include <immersx/physics/coupled_elasticity.h>
+#if 1
+#  include <immersx/physics/coupled_elasticity.h>
 
 using namespace ImmersX;
-#  endif
-#  include <immersx/fvm/coupledModel1d.h>
-#  include <immersx/io/utils.h>
+#endif
+#include <immersx/fvm/coupledModel1d.h>
+#include <immersx/io/utils.h>
 
 int
 main(int argc, char *argv[])
@@ -38,10 +37,6 @@ main(int argc, char *argv[])
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
       std::string                      prm_file;
       std::string                      input_file_name;
-      unsigned int                     couplingSampling     = 1;
-      unsigned int                     Pa_to_dyn_conversion = 10;
-      unsigned int                     couplingStart        = 9;
-      unsigned int                     coupling_mode        = 0;
 
       ConditionalOStream pcout(
         std::cout, (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0));
@@ -50,6 +45,13 @@ main(int argc, char *argv[])
         prm_file = argv[1];
       else
         prm_file = "parameters.prm";
+
+#ifdef ENABLE_COUPLED_PROBLEMS
+      unsigned int couplingSampling     = 1;
+      unsigned int Pa_to_dyn_conversion = 10;
+      unsigned int couplingStart        = 9;
+      unsigned int coupling_mode        = 0;
+      double       baseline_pExt        = 5; // value to test!!
 
       if (argc > 2)
         {
@@ -66,13 +68,6 @@ main(int argc, char *argv[])
 
           if (couplingStart < 100)
             {
-              if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-                {
-                  std::cout
-                    << "Running coupled problem with parameters: Sampling = "
-                    << couplingSampling << " Start = " << couplingStart
-                    << " mode = " << coupling_mode << std::endl;
-                }
               TimerOutput timer(MPI_COMM_WORLD,
                                 pcout,
                                 TimerOutput::summary,
@@ -81,6 +76,22 @@ main(int argc, char *argv[])
               ElasticityProblemParameters<3> par;
               CoupledElasticityProblem<3>    problem3D(par);
               initialize_parameters(prm_file);
+              if ((coupling_mode == 1) &&
+                  (problem3D.inclusions.cluster_with_segments == true))
+                {
+                  coupling_mode = 0;
+                  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                    std::cout
+                      << "coupling_mode = 1 is incompatible with Cluster inclusions with segments = true, coupling_mode set to 0"
+                      << std::endl;
+                }
+              if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                {
+                  std::cout
+                    << "Running coupled problem with parameters: Sampling = "
+                    << couplingSampling << " Start = " << couplingStart
+                    << " mode (DEPRECATED) = " << coupling_mode << std::endl;
+                }
               problem3D.run_timestep0();
 
               {
@@ -147,28 +158,35 @@ main(int argc, char *argv[])
                           Utilities::MPI::broadcast(MPI_COMM_WORLD,
                                                     pb1D.new_displacement);
 
-                        if (coupling_mode == 0)
+                        if (!problem3D.uses_tensor_product_coupling())
+                          // #TODO add functins to update the data in the case
+                          // of VTK
                           {
-                            problem3D.update_inclusions_data(
-                              new_displacement_data);
-                          }
-                        else // if (coupling_mode == 1)
-                          {
-                            problem3D.update_inclusions_data(
-                              new_displacement_data,
-                              number_of_cells_per_vessel);
+                            if (coupling_mode == 0)
+                              {
+                                problem3D.update_vessel_radius_data(
+                                  new_displacement_data);
+                              }
+                            else // if (coupling_mode == 1)
+                              {
+                                problem3D.update_vessel_radius_data(
+                                  new_displacement_data,
+                                  number_of_cells_per_vessel);
+                              }
                           }
                         timer.enter_subsection("3 3d timestep");
                         problem3D.run_timestep();
-                        // problem3D.compute_coupling_pressure();
+                        // problem3D.compute_pressure_at_immersed_surface();
+                        timer.leave_subsection();
 
                         if (coupling_mode == 0)
                           {
                             Vector<double> coupling_pressure(
-                              problem3D.coupling_pressure);
+                              problem3D.pressure_at_immersed_surface);
                             coupling_pressure *= Pa_to_dyn_conversion;
                             coupling_pressure *= -1;
 
+                            // baseline - coupling_pressure
 
                             if (Utilities::MPI::this_mpi_process(
                                   MPI_COMM_WORLD) == 0)
@@ -187,7 +205,10 @@ main(int argc, char *argv[])
                         else // if (coupling_mode == 1)
                           {
                             Vector<double> pressure(
-                              problem3D.coupling_pressure_at_inclusions);
+                              problem3D
+                                .pressure_at_immersed_surface_by_inclusions);
+
+                            // baseline_pExt - pressure
 
                             if (Utilities::MPI::this_mpi_process(
                                   MPI_COMM_WORLD) == 0)
@@ -304,6 +325,15 @@ main(int argc, char *argv[])
           problem3D.run_timestep0();
           problem3D.run_timestep();
         }
+
+#endif
+      if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        std::cout << "Running uncoupled 3D problem" << std::endl;
+      ElasticityProblemParameters<3> par;
+      CoupledElasticityProblem<3>    problem3D(par);
+      initialize_parameters(prm_file);
+      problem3D.run_timestep0();
+      problem3D.run_timestep();
     }
   catch (std::exception &exc)
     {
@@ -332,10 +362,3 @@ main(int argc, char *argv[])
     }
   return 0;
 }
-#else
-int
-main()
-{
-  return 0;
-}
-#endif

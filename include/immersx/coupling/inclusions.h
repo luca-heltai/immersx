@@ -66,6 +66,54 @@ namespace ImmersX
    * center, and direction. It also provides methods for initializing the
    * inclusions from a file, setting up particles for the inclusions, and
    * getting degrees of freedom associated with each inclusion.
+   *
+   * <h3>Fourier coefficients</h3>
+   *
+   * Data on the boundary of an inclusion (a circle in 2D, the cross-section
+   * of a cylinder in 3D) is represented in the Fourier basis
+   * @f[
+   *   1,\ \cos\theta,\ \sin\theta,\ \cos 2\theta,\ \sin 2\theta,\ \dots
+   * @f]
+   * Fourier mode @f$m@f$ is the constant for @f$m=0@f$, @f$\cos(k\theta)@f$
+   * for @f$m=2k-1@f$, and @f$\sin(k\theta)@f$ for @f$m=2k@f$. The basis
+   * functions are not normalized: each of them has maximum value one.
+   *
+   * For a problem with @p n_vector_components components, every mode is
+   * repeated once per component. A coefficient index @f$c@f$ refers to
+   * Fourier mode @f$c / n_{\text{vector components}}@f$ and vector component
+   * @f$c \% n_{\text{vector components}}@f$. For example, in 3D the indices
+   * 0, 1, 2 are the constant mode in x, y, z, the indices 3, 4, 5 are
+   * @f$\cos\theta@f$ in x, y, z, and the indices 6, 7, 8 are
+   * @f$\sin\theta@f$ in x, y, z. The constant mode always has index 0, and
+   * every data line (from the "Data file" or the "Reference inclusion data")
+   * uses this same indexing, starting from the constant mode.
+   *
+   * The coefficients in use are chosen with two parameters:
+   *
+   * - "Selection of Fourier coefficients": an explicit list of coefficient
+   *   indices. Each selected index becomes one degree of freedom of the
+   *   Lagrange multiplier of each inclusion, in the order of the list.
+   * - "Number of fourier coefficients": the number of coefficients in use.
+   *
+   * initialize() combines them as follows:
+   *
+   * - Selection given, number 0: the selection is used, and the number is
+   *   set to the size of the selection.
+   * - Selection given, number equal to its size: the selection is used.
+   * - Selection given, number different from its size: an exception is
+   *   thrown.
+   * - No selection, number 0: no coefficients are used. The Lagrange
+   *   multiplier has no degrees of freedom, and the inclusions do not couple
+   *   to the bulk problem, even if inclusions and data are given. A message
+   *   on rank zero reports this case when inclusions exist.
+   * - No selection, number @f$N>0@f$: the indices
+   *   @f$0,\dots,N\,n_{\text{vector components}}-1@f$ are used, i.e., all
+   *   vector components of the first @f$N@f$ Fourier modes.
+   *
+   * n_dofs_per_inclusion() always returns the number of coefficients in use.
+   * Code that groups the Lagrange multiplier by inclusion must use it rather
+   * than get_n_coefficients(): in the last case the two differ by a factor
+   * @p n_vector_components.
    */
   template <int spacedim>
   class Inclusions : public ParameterAcceptor
@@ -93,22 +141,29 @@ namespace ImmersX
       add_parameter(
         "Number of fourier coefficients",
         n_coefficients,
-        "This represents the number of scalar harmonic functions used "
-        "for the representation of the data (boundary data or forcing data) "
-        "of the inclusion. The provided input files should contain at least "
-        "a number of entries which is equal to this number multiplied by the "
-        "number of vector components of the problem. Any additional entry is "
-        "ignored by program. If fewer entries are specified, an exception is "
-        "thrown.");
+        "Number of Fourier coefficients used on each inclusion. If "
+        "\"Selection of Fourier coefficients\" is given, this must be 0 "
+        "(it is then set to the size of the selection) or equal to the size "
+        "of the selection; any other value is an error. If no selection is "
+        "given and this is N > 0, all vector components of the first N "
+        "Fourier modes are used, that is, the coefficient indices "
+        "0, ..., N * n_vector_components - 1. If no selection is given and "
+        "this is 0, no coefficients are used and the Lagrange multiplier has "
+        "no degrees of freedom, even if inclusions and data are given.");
       add_parameter(
         "Selection of Fourier coefficients",
         selected_coefficients,
-        "This allows one to select a subset of the components of the harmonic functions "
-        "used for the representation of the data (boundary data or forcing data). Notice "
-        "that these indices are w.r.t. to the total number of components of the problem, "
-        "that is, number of Fourier coefficients x number of vector components. In "
-        "particular any entry of this list must be in the set "
-        "[0,n_coefficients*n_vector_components). ");
+        "Explicit list of the Fourier coefficient indices used on each "
+        "inclusion. Each index becomes one degree of freedom of the Lagrange "
+        "multiplier of each inclusion, in the order of the list. Index c "
+        "refers to Fourier mode c / n_vector_components and vector component "
+        "c % n_vector_components. Mode 0 is the constant, mode 2k-1 is "
+        "cos(k theta) and mode 2k is sin(k theta). For example, in 3D, 3 is "
+        "cos(theta) in x and 7 is sin(theta) in y; in 2D, 2 is cos(theta) in "
+        "x and 5 is sin(theta) in y. Data lines use the same indexing, "
+        "starting from the constant mode, so the data for index c is entry c "
+        "of the line. Leave empty to select coefficients with \"Number of "
+        "fourier coefficients\" instead.");
       add_parameter("Bounding boxes extraction level", rtree_extraction_level);
       add_parameter("Inclusions file", inclusions_file);
       add_parameter("Data file", data_file);
@@ -180,17 +235,30 @@ namespace ImmersX
     /**
      * @brief Number of degrees of freedom associated to each inclusion.
      *
-     * @return unsigned int
+     * This is the number of Fourier coefficients in use, i.e., the size of
+     * the selection after initialize(). It can be zero. See the class
+     * documentation for how the selection is built.
      */
     unsigned int
     n_dofs_per_inclusion() const
     {
-      // return n_coefficients * n_vector_components;
       return selected_coefficients.size();
     }
 
     /**
-     * Reinit all reference points and normals, and read inclusions file.
+     * Reinit all reference points and normals, read the inclusions file and
+     * the data file, and build the selection of Fourier coefficients.
+     *
+     * The selection is built from "Number of fourier coefficients" and
+     * "Selection of Fourier coefficients" as described in the class
+     * documentation. An explicit selection whose size differs from a nonzero
+     * number of coefficients throws an exception. An empty selection is
+     * replaced by all vector components of the first get_n_coefficients()
+     * modes, and an explicit selection with zero coefficients sets the
+     * number of coefficients to the size of the selection.
+     *
+     * This function appends the inclusions read from file and fills the
+     * selection, so it must be called only once per set of parameters.
      */
     void
     initialize()
@@ -198,9 +266,6 @@ namespace ImmersX
       AssertThrow(n_q_points > 0,
                   ExcMessage(
                     "Refinement of inclusions must be greater than zero."));
-      AssertThrow(n_coefficients > 0,
-                  ExcMessage(
-                    "Number of coefficients must be greater than zero."));
       support_points.resize(n_q_points);
       normals.resize(n_q_points);
       theta.resize(n_q_points);
@@ -214,9 +279,23 @@ namespace ImmersX
           normals[i]           = support_points[i];
         }
 
-      // Use all coefficients when no subset was requested.
-      if (selected_coefficients.empty())
+      if (!selected_coefficients.empty())
         {
+          AssertThrow(n_coefficients == 0 ||
+                        n_coefficients == selected_coefficients.size(),
+                      ExcMessage(
+                        "\"Number of fourier coefficients\" is " +
+                        std::to_string(n_coefficients) +
+                        ", but \"Selection of Fourier "
+                        "coefficients\" has " +
+                        std::to_string(selected_coefficients.size()) +
+                        " entries. Set the number to 0 or to the size of the "
+                        "selection."));
+          n_coefficients = selected_coefficients.size();
+        }
+      else
+        {
+          // Use all vector components of the first n_coefficients modes.
           selected_coefficients.resize(n_coefficients * n_vector_components);
           for (unsigned int i = 0; i < n_coefficients * n_vector_components;
                ++i)
@@ -292,6 +371,16 @@ namespace ImmersX
               inclusions_data.push_back(reference_inclusion_data);
             }
         }
+
+      if (n_dofs_per_inclusion() == 0 && n_inclusions() > 0 &&
+          Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+        std::cout << "Inclusions: " << n_inclusions()
+                  << " inclusions are defined, but no Fourier coefficients "
+                     "are selected (\"Number of fourier coefficients\" = 0 "
+                     "and empty \"Selection of Fourier coefficients\"). The "
+                     "Lagrange multiplier has no degrees of freedom and the "
+                     "inclusions do not couple to the bulk problem."
+                  << std::endl;
       check_vessels();
     }
 
@@ -536,7 +625,8 @@ namespace ImmersX
     get_fe_values(const types::global_dof_index particle_id) const
     {
       AssertIndexRange(particle_id, n_particles());
-      if (n_coefficients == 0)
+      // No coefficients in use: the multiplier has no dofs on this inclusion.
+      if (n_dofs_per_inclusion() == 0)
         return current_fe_values;
       const auto q  = particle_id % n_q_points;
       const auto id = particle_id / n_q_points;
@@ -781,8 +871,10 @@ namespace ImmersX
     void
     update_inclusions_data(std::vector<double> new_data)
     {
-      if constexpr (spacedim == 2)
-        return;
+      AssertThrow(
+        spacedim == 3,
+        ExcMessage(
+          "update of inclusions data is only available for spacedim = 3"));
 
       // if (new_data.size() != 0 && inclusions.size() == 0)
 
@@ -818,8 +910,10 @@ namespace ImmersX
     void
     update_inclusions_data(std::vector<std::vector<double>> new_data)
     {
-      if constexpr (spacedim == 2)
-        return;
+      AssertThrow(
+        spacedim == 3,
+        ExcMessage(
+          "update of inclusions data is only available for spacedim = 3"));
 
       AssertThrow(
         new_data.size() == n_vessels,
@@ -846,39 +940,25 @@ namespace ImmersX
               "insufficient number of inclusion int the vessel for the update"));
           if (N2 == 1)
             {
-              for (unsigned int i = 0; i < N1 - 1; ++i)
-                update_single_inclusion_data_along_normal(i,
+              for (const auto inclusion_id : current_inclusions)
+                update_single_inclusion_data_along_normal(inclusion_id,
                                                           current_new_data[0]);
             }
           else
             {
-              // compute nv
-              // std::vector<double>
-              double current_vessel_new_data;
-              update_single_inclusion_data_along_normal(0, current_new_data[0]);
-              // current_vessel_new_data.push_back(current_new_data[0]);
-              for (unsigned int i = 1; i < N1 - 1; ++i)
+              // The samples are equally spaced from the first to the last
+              // inclusion of the vessel, in the order of the inclusions file.
+              for (unsigned int i = 0; i < N1; ++i)
                 {
-                  auto X = i / (N1 - 1) * (N2 - 1);
-                  auto j = floor(X);
-                  Assert(j < N2, ExcInternalError());
-                  auto w = X - j;
-                  current_vessel_new_data =
-                    (1 - w) * current_new_data[j] + (w)*current_new_data[j + 1];
+                  const double X = static_cast<double>(i) * (N2 - 1) / (N1 - 1);
+                  const unsigned int j =
+                    std::min<unsigned int>(std::floor(X), N2 - 2);
+                  const double w = X - j;
                   update_single_inclusion_data_along_normal(
-                    i, current_vessel_new_data);
-                  // current_vessel_new_data.push_back((1-w)*current_new_data[j]+(w)*current_new_data[j+1]);
+                    current_inclusions[i],
+                    (1 - w) * current_new_data[j] +
+                      w * current_new_data[j + 1]);
                 }
-              update_single_inclusion_data_along_normal(
-                N1 - 1, current_new_data[N2 - 1]);
-              // current_vessel_new_data.push_back(current_new_data[N2-1]);
-
-              // for (auto inclusion_id : current_inclusions)
-              // {
-              //   // assign nv
-              //   update_single_inclusion_data_along_normal(inclusion_id,
-              //   current_vessel_new_data[inclusion_id]);
-              // }
             }
         }
     }
@@ -914,6 +994,11 @@ namespace ImmersX
       const types::global_dof_index &inclusion_id,
       const double                   nd)
     {
+      AssertThrow(
+        spacedim == 3,
+        ExcMessage(
+          "update of inclusions data is only available for spacedim = 3"));
+
       AssertIndexRange(inclusion_id, inclusions_data.size());
       // AssertIndexRange(inclusion_id, inclusions.size());
       // // update old radius with new value
@@ -929,7 +1014,7 @@ namespace ImmersX
       //     inclusions[inclusion_id][2 * spacedim] +=
       //     inclusions_data[inclusion_id][0];
       //   }
-      inclusions_data[inclusion_id] = {nd, 0, 0, 0, nd, 0, 0, 0, 0};
+      inclusions_data[inclusion_id] = {0, 0, 0, nd, 0, 0, 0, nd, 0, 0, 0, 0};
     }
 
     /**
@@ -941,7 +1026,7 @@ namespace ImmersX
     {}
 
     /**
-     * Return number of vessel groups currently detected.
+     * Return number of vessel currently detected.
      */
     unsigned int
     get_n_vessels() const
@@ -950,7 +1035,13 @@ namespace ImmersX
     }
 
     /**
-     * Return number of retained Fourier coefficients.
+     * Return the value of "Number of fourier coefficients".
+     *
+     * After initialize() this is the size of the selection when a selection
+     * was given, and the number of Fourier modes otherwise. In the second
+     * case each mode contributes @p n_vector_components coefficients, so this
+     * is not the number of degrees of freedom per inclusion for vector
+     * problems. Use n_dofs_per_inclusion() for that.
      */
     unsigned int
     get_n_coefficients() const
@@ -958,14 +1049,14 @@ namespace ImmersX
       return n_coefficients;
     }
 
-    /**
-     * Return coefficient offset used for harmonic indexing.
-     */
-    unsigned int
-    get_offset_coefficients() const
-    {
-      return offset_coefficients;
-    }
+    // /**
+    //  * Return coefficient offset used for harmonic indexing.
+    //  */
+    // unsigned int
+    // get_offset_coefficients() const
+    // {
+    //   return offset_coefficients;
+    // }
 
     /**
      * Return number of inclusions mapped to a given vessel id.
@@ -978,6 +1069,12 @@ namespace ImmersX
       return s;
     }
 
+    /**
+     * Return the Fourier coefficient indices in use. After initialize() this
+     * is the explicit selection, or the indices generated from
+     * get_n_coefficients() when no selection was given. Entry j is the
+     * coefficient of local degree of freedom j of each inclusion.
+     */
     std::vector<unsigned int>
     get_selected_coefficients() const
     {
@@ -992,7 +1089,8 @@ namespace ImmersX
 
 
     /**
-     * Override the number of Fourier coefficients per inclusion.
+     * Set "Number of fourier coefficients". Call before initialize(). See the
+     * class documentation for how it combines with the selection.
      */
     void
     set_n_coefficients(unsigned int n_coefficients)
@@ -1000,6 +1098,10 @@ namespace ImmersX
       this->n_coefficients = n_coefficients;
     }
 
+    /**
+     * Set "Selection of Fourier coefficients". Call before initialize(). An
+     * empty vector means no explicit selection.
+     */
     void
     set_fourier_coefficients(std::vector<unsigned int> temp)
     {
@@ -1113,6 +1215,45 @@ namespace ImmersX
       // segment_indices.nth_index_in_set(get_inclusion_id(quadrature_id));
     }
 
+    std::vector<unsigned int>
+    get_inclusions_in_a_segment(unsigned int segment_index) const
+    {
+      std::vector<unsigned int> inclusions_in_segment;
+      for (unsigned int i = 0; i < segment_indices.size(); ++i)
+        if (segment_indices[i] == segment_index)
+          inclusions_in_segment.push_back(i);
+      return inclusions_in_segment;
+    }
+
+
+    double
+    get_average_vessel_radius(unsigned int vessel_id)
+    {
+      AssertIndexRange(vessel_id, n_vessels);
+      auto   inc_vec = map_vessel_inclusions.at(vessel_id);
+      double radius  = 0;
+      for (const auto i : inc_vec)
+        {
+          radius += get_radius(i);
+        }
+      Assert(inc_vec.size() > 0, ExcInternalError());
+      radius /= inc_vec.size();
+      Assert(radius > 0, ExcInternalError());
+      return radius;
+    }
+
+    double
+    get_vessel_length(unsigned int vessel_id)
+    {
+      AssertIndexRange(vessel_id, n_vessels);
+      auto   inc_vec = map_vessel_inclusions.at(vessel_id);
+      double length  = 0;
+      for (const auto i : inc_vec)
+        length += get_direction(i).norm();
+      Assert(length > 0, ExcInternalError());
+      return length;
+    }
+
     ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> inclusions_rhs;
     /**
      * Frequency used to modulate inclusion boundary data in time.
@@ -1158,9 +1299,9 @@ namespace ImmersX
     bool cluster_with_segments = false; // make const
 
   private:
-    unsigned int              n_q_points          = 100;
-    unsigned int              n_coefficients      = 1;
-    unsigned int              offset_coefficients = 0;
+    unsigned int n_q_points     = 100;
+    unsigned int n_coefficients = 0;
+    // unsigned int              offset_coefficients = 0;
     std::vector<unsigned int> selected_coefficients;
     unsigned int              global_max_segment_index;
     unsigned int              local_max_segment_index;
@@ -1172,7 +1313,7 @@ namespace ImmersX
     /**
      * MPI communicator associated with the background triangulation.
      */
-    MPI_Comm mpi_communicator;
+    MPI_Comm mpi_communicator = MPI_COMM_WORLD;
     /**
      * Reference support points on the unit cross-section.
      */
@@ -1213,20 +1354,55 @@ namespace ImmersX
     std::vector<unsigned int> segment_indices;
 
     /**
+     * @brief Check that all inclusions with the same vessel ID have parallel
+     * directions.
+     *
+     * Directions only need to point the same way: their lengths may differ.
+     * Opposite directions are rejected.
+     */
+    void
+    check_vessel_directions() const
+    {
+      if constexpr (spacedim == 3)
+        {
+          // Tolerance on the sine of the angle between two directions.
+          const double tolerance = 1e-6;
+          for (const auto &[vessel_id, inclusion_ids] : map_vessel_inclusions)
+            {
+              AssertThrow(!inclusion_ids.empty(),
+                          ExcMessage("Vessel " + std::to_string(vessel_id) +
+                                     " has no inclusions."));
+              const auto first_id = inclusion_ids.front();
+              const auto first    = get_direction(first_id);
+              for (const auto inclusion_id : inclusion_ids)
+                {
+                  const auto direction = get_direction(inclusion_id);
+                  AssertThrow(
+                    cross_product_3d(first, direction).norm() <=
+                        tolerance * first.norm() * direction.norm() &&
+                      first * direction > 0,
+                    ExcMessage(
+                      "Inclusions " + std::to_string(first_id) + " and " +
+                      std::to_string(inclusion_id) + " belong to vessel " +
+                      std::to_string(vessel_id) +
+                      " but their directions are not parallel and equally oriented."));
+                }
+            }
+        }
+    }
+
+    /**
      * @brief Check that all vesselsID are present
      and create the map vessel_inclusions
      */
     void
     check_vessels()
     {
-      // TODO:
-      // vessel sanity check: that vessel with same label have the same
-      // direction
       if (inclusions.size() == 0)
         return;
 
-      if constexpr (spacedim == 2)
-        n_vessels = inclusions.size();
+      // if constexpr (spacedim == 2)
+      //   n_vessels = inclusions.size();
       {
         for (types::global_dof_index inc_number = 0;
              inc_number < inclusions.size();
@@ -1250,6 +1426,7 @@ namespace ImmersX
 
         n_vessels = map_vessel_inclusions.size();
       }
+      check_vessel_directions();
       /*
       {
       std::set<double> vessel_id_is_present;

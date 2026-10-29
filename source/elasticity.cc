@@ -1405,8 +1405,7 @@ namespace ImmersX
                       }
                     if (inclusions.inclusions_data[inclusion_id].size() > 0)
                       {
-                        if (inclusions.inclusions_data[inclusion_id].size() +
-                              1 >
+                        if (inclusions.inclusions_data[inclusion_id].size() >
                             inclusions.get_fourier_component(j))
                           {
                             auto temp =
@@ -2476,7 +2475,7 @@ namespace ImmersX
   ElasticityProblem<dim, spacedim>::output_lambda() const
   {
     auto      &lambda            = locally_relevant_solution.block(1);
-    const auto used_number_modes = inclusions.get_n_coefficients();
+    const auto used_number_modes = inclusions.n_dofs_per_inclusion();
 
     if (lambda.size() > 0)
       {

@@ -19,9 +19,11 @@
 #include <deal.II/lac/vector.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/core/input_field_selector.h>
 #include <immersx/core/reduced_field_catalog.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace ImmersX
@@ -150,6 +152,26 @@ namespace ImmersX
             }
         }
     }
+
+    /**
+     * Look up the input field named @p symbol_name among @p bindings and
+     * return its value on every locally owned active cell of
+     * @p properties_dh, in the order of active_cell_iterators().
+     *
+     * The name is the symbol the field has in the "Input file fields" entry
+     * of the parameter file (for example "vessel_id"). Fields stored per cell
+     * are constant on a cell. Point fields are evaluated at the cell midpoint.
+     * Throws if no binding has that name.
+     *
+     * @p properties must have up-to-date ghost values.
+     */
+    template <int dim, int spacedim>
+    std::vector<double>
+    read_field_values(
+      const std::string                                        &symbol_name,
+      const std::vector<InputFieldBinding>                     &bindings,
+      const dealii::DoFHandler<dim, spacedim>                  &properties_dh,
+      const dealii::LinearAlgebra::distributed::Vector<double> &properties);
   } // namespace ReducedFieldUtils
 
 } // namespace ImmersX
