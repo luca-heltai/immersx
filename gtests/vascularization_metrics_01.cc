@@ -190,6 +190,43 @@ TEST(VascularMetrics, GenerationReportsIndependentVolumeAndCoverage)
   EXPECT_DOUBLE_EQ(result.tissue.venous_coverage, 0.);
 }
 
+TEST(VascularMetrics, VolumeDoesNotDependOnCoverageQuadratureOrder)
+{
+  Triangulation<3> background;
+  GridGenerator::hyper_cube(background);
+  for (const auto &cell : background.active_cell_iterators())
+    for (const auto v : cell->vertex_indices())
+      {
+        const auto p = cell->vertex(v);
+        cell->vertex(v) =
+          Point<3>(p[0] + .4 * p[1] * p[2], p[1] + .4 * p[0] * p[2], p[2]);
+      }
+  NetworkData n;
+  terminal(n, Point<3>(.25, .25, .25));
+  n.nodes[1].position = Point<3>(.2, .2, .4);
+  n.nodes[2].position = Point<3>(.4, .2, .4);
+  Vessel e;
+  e.nodes             = {{1, 2}};
+  e.radii             = {{.01, .01}};
+  e.viscosity         = .004;
+  n.vessels[0]        = e;
+  const auto midpoint = measure(background, MappingQ1<3>(), n, 2., 1);
+  const auto gauss    = measure(background, MappingQ1<3>(), n, 2., 2);
+  // x=u+.4*v*w,y=v+.4*u*w,z=w has determinant 1-.16*w^2.
+  const double exact_volume = 1. - .16 / 3.;
+  EXPECT_NEAR(midpoint.background_volume, exact_volume, 1.e-13);
+  EXPECT_NEAR(gauss.background_volume, exact_volume, 1.e-13);
+  EXPECT_NEAR(midpoint.coverage_quadrature_volume, 1. - .16 / 4., 1.e-13);
+  EXPECT_NEAR(gauss.coverage_quadrature_volume, exact_volume, 1.e-13);
+  EXPECT_NEAR(midpoint.arterial_coverage, 1., 1.e-13);
+  EXPECT_NEAR(gauss.arterial_coverage, 1., 1.e-13);
+  EXPECT_DOUBLE_EQ(midpoint.volume_fraction, gauss.volume_fraction);
+  EXPECT_NEAR(midpoint.volume_fraction /
+                (numbers::PI * .01 * .01 * .2 / exact_volume),
+              1.,
+              1.e-13);
+}
+
 TEST(VascularMetrics, InvalidControlsAndDataAreRejected)
 {
   CoverageParameters p;

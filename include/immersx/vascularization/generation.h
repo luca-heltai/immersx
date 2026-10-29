@@ -16,6 +16,45 @@
 
 namespace ImmersX::Vascularization
 {
+  struct CalibrationParameters
+  {
+    void
+    validate() const;
+
+    /** Zero disables the volume target. */
+    double volume_fraction    = 0.;
+    double relative_tolerance = .05;
+    /** Minimum arterial service coverage; zero imposes no coverage target. */
+    double       minimum_coverage  = 0.;
+    unsigned int minimum_terminals = 1;
+    unsigned int maximum_terminals = 10000;
+    unsigned int attempt_budget    = 12;
+  };
+
+  enum class CalibrationStatus
+  {
+    not_requested,
+    converged,
+    incompatible,
+    exhausted
+  };
+
+  struct CalibrationAttempt
+  {
+    unsigned int     terminal_count = 0;
+    TissueMetrics    tissue;
+    ValidationReport generation_validation;
+    std::uint64_t    sampled_points = 0;
+  };
+
+  struct CalibrationReport
+  {
+    CalibrationStatus               status = CalibrationStatus::not_requested;
+    std::vector<CalibrationAttempt> attempts;
+    /** Includes samples from discarded attempts. */
+    std::uint64_t sampled_points = 0;
+  };
+
   struct Parameters : dealii::ParameterAcceptor
   {
     explicit Parameters(const std::string &section = "/Vascularization/");
@@ -24,6 +63,7 @@ namespace ImmersX::Vascularization
 
     DiscretizationParameters discretization;
     CoverageParameters       coverage;
+    CalibrationParameters    calibration;
     std::vector<Id>          selected_terminals;
     dealii::Point<3>         seed_position;
     /** Zero selects a deterministic direction into the containing cell. */
@@ -73,6 +113,7 @@ namespace ImmersX::Vascularization
     ValidationReport          validation;
     DiscretizationResult      discretization;
     TissueMetrics             tissue;
+    CalibrationReport         calibration;
     /** Consumed input terminal id -> newly generated attachment vessel id. */
     std::map<Id, Id> attachment_roots;
     std::uint64_t    sampled_points      = 0;
@@ -87,7 +128,10 @@ namespace ImmersX::Vascularization
    * vessel wall, including rounded ends and clearance, must lie inside the
    * prepared background. Imported exterior portions are preserved. Ambiguous
    * boundary proximity at the finite geometry budget is rejected
-   * conservatively.
+   * conservatively. Optional volume/coverage targets trigger a bounded,
+   * deterministic search over terminal counts without monotonicity pruning.
+   * A failed calibration returns an invalid result, including its best valid
+   * trial when available, for diagnostics only; it must not be adopted.
    */
   GenerationResult
   generate(const dealii::Triangulation<3> &background,
