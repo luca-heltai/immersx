@@ -91,17 +91,21 @@ namespace
     return reduced_grid("single_cell", {1., -1.}, {0});
   }
 
-  // 50 point inclusions along x, centered at -0.98, -0.94, ..., 0.98 and split
-  // into `n_vessels` consecutive vessels of equal size. Each line is cx, cy,
-  // cz, dx, dy, dz, r, vessel id.
+  // `n_inclusions` point inclusions of equal length covering x in [-1, 1]
+  // (for 50: centered at -0.98, -0.94, ..., 0.98), split into `n_vessels`
+  // consecutive vessels of equal size. Each line is cx, cy, cz, dx, dy, dz, r,
+  // vessel id.
   std::string
-  inclusions_file(const unsigned int n_vessels)
+  inclusions_file(const unsigned int n_vessels,
+                  const unsigned int n_inclusions = 50)
   {
+    const double       length = 2. / n_inclusions;
     std::ostringstream text;
-    for (unsigned int i = 0; i < 50; ++i)
-      text << -0.98 + 0.04 * i << " 0 0 0.04 0 0 0.2 " << i * n_vessels / 50
-           << "\n";
-    return input_file("inclusions_" + std::to_string(n_vessels) + ".txt",
+    for (unsigned int i = 0; i < n_inclusions; ++i)
+      text << -1. + (i + 0.5) * length << " 0 0 " << length << " 0 0 0.2 "
+           << i * n_vessels / n_inclusions << "\n";
+    return input_file("inclusions_" + std::to_string(n_vessels) + "_" +
+                        std::to_string(n_inclusions) + ".txt",
                       text.str());
   }
 
@@ -145,6 +149,7 @@ namespace
         set Output pressure                    = true
         set Output results also before solving = false
         set Pressure coupling                  = false
+        set Remove interior stress from pressure = true
         set Weak Dirichlet penalty coefficient = 1000
         subsection Grid generation
           set Domain type              = generate
@@ -408,6 +413,355 @@ TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataChangesPressurePoint)
           << "vessel " << v;
       }
   });
+}
+
+// -----------------------------------------------------------------------------
+// compute_pressure_at_immersed_surface()
+// -----------------------------------------------------------------------------
+
+namespace
+{
+  // Compute only the multiplier part of the pressure, without the interior
+  // stress, so that the expected values depend on the multiplier alone.
+  const std::pair<std::string, std::string> multiplier_only = {
+    "Remove interior stress from pressure",
+    "false"};
+
+  // Set multiplier dof i to 1 + i.
+  void
+  set_increasing_multiplier(CoupledElasticityProblem<3> &problem)
+  {
+    auto           &lambda = problem.locally_relevant_solution.block(1);
+    LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
+    for (const auto i : owned.locally_owned_elements())
+      owned[i] = 1. + i;
+    owned.compress(VectorOperation::insert);
+    lambda = owned;
+  }
+
+  // Set the multiplier to 1 + i, compute the pressure, and compare it with
+  // the formulas of doc/concepts/vessel-pressure.md: inclusion k uses the
+  // multiplier block b(k) (its own, or its segment's), only the coefficients
+  // 3 and 7 count, and
+  //   p_k = (lambda_{b(k),3} + lambda_{b(k),7}) / (2 |S_k|),
+  //   p_v = sum_{k in v} (lambda_{b(k),3} + lambda_{b(k),7}) / 2 / |Gamma_v|,
+  // with |Gamma_v| the sum of |S_k| over the inclusions of v.
+  void
+  check_pressure_from_multiplier(CoupledElasticityProblem<3> &problem)
+  {
+    set_increasing_multiplier(problem);
+    problem.compute_pressure_at_immersed_surface();
+
+    const auto &inclusions = problem.inclusions;
+    const auto  n          = inclusions.n_dofs_per_inclusion();
+    const auto  selection  = inclusions.get_selected_coefficients();
+
+    std::vector<unsigned int> block_of(inclusions.n_inclusions(),
+                                       numbers::invalid_unsigned_int);
+    if (inclusions.cluster_with_segments)
+      {
+        for (unsigned int s = 0; s < inclusions.n_global_segments(); ++s)
+          for (const auto k : inclusions.get_inclusions_in_a_segment(s))
+            block_of[k] = s;
+      }
+    else
+      for (unsigned int k = 0; k < block_of.size(); ++k)
+        block_of[k] = k;
+
+    std::vector<double> by_inclusion(inclusions.n_inclusions(), 0.);
+    std::vector<double> force(inclusions.get_n_vessels(), 0.);
+    std::vector<double> area(inclusions.get_n_vessels(), 0.);
+    for (unsigned int k = 0; k < block_of.size(); ++k)
+      {
+        ASSERT_NE(block_of[k], numbers::invalid_unsigned_int)
+          << "inclusion " << k;
+        double normal_force = 0;
+        for (unsigned int j = 0; j < n; ++j)
+          if (selection[j] == 3 || selection[j] == 7)
+            normal_force += (1. + block_of[k] * n + j) / 2.;
+        const auto measure = inclusions.get_section_measure(k);
+        by_inclusion[k]    = normal_force / measure;
+        force[inclusions.get_vesselID(k)] += normal_force;
+        area[inclusions.get_vesselID(k)] += measure;
+      }
+
+    const auto computed_by_inclusion =
+      gather(problem.pressure_at_immersed_surface_by_inclusion);
+    const auto computed_by_vessel = gather(problem.pressure_at_immersed_surface);
+    ASSERT_EQ(computed_by_inclusion.size(), by_inclusion.size());
+    ASSERT_EQ(computed_by_vessel.size(), force.size());
+    for (unsigned int k = 0; k < by_inclusion.size(); ++k)
+      EXPECT_NEAR(computed_by_inclusion[k],
+                  by_inclusion[k],
+                  1e-12 * std::abs(by_inclusion[k]))
+        << "inclusion " << k;
+    for (unsigned int v = 0; v < force.size(); ++v)
+      EXPECT_NEAR(computed_by_vessel[v],
+                  force[v] / area[v],
+                  1e-12 * std::abs(force[v] / area[v]))
+        << "vessel " << v;
+  }
+
+  // Pressure of each vessel after one solve of the point-coupled problem
+  // with `n_inclusions` inclusions on the cylinder, split into two vessels.
+  std::vector<double>
+  solved_vessel_pressure(const unsigned int n_inclusions, const bool cluster)
+  {
+    std::vector<double> pressure;
+    with_problem(point_parameters(
+                   {{"Inclusions file", inclusions_file(2, n_inclusions)},
+                    {"Cluster inclusions with segments",
+                     cluster ? "true" : "false"}}),
+                 [&](auto &problem) {
+                   problem.run_timestep0();
+                   problem.run_timestep();
+                   pressure = gather(problem.pressure_at_immersed_surface);
+                 });
+    return pressure;
+  }
+} // namespace
+
+// Without clustering, inclusion k owns multiplier block k.
+TEST(CoupledElasticity, BOTH_PressureFromMultiplierPoint)
+{
+  with_problem(point_parameters({multiplier_only}), [](auto &problem) {
+    problem.run_timestep0();
+    ASSERT_EQ(problem.inclusions.n_dofs(), 50u * 2u);
+    check_pressure_from_multiplier(problem);
+  });
+}
+
+// Coefficients other than 3 and 7 do not exert a normal force on the wall,
+// so they do not enter the pressure. Here they are the constant mode in x and
+// cos(theta) in y.
+TEST(CoupledElasticity, BOTH_PressureIgnoresTangentialCoefficientsPoint)
+{
+  with_problem(point_parameters(
+                 {multiplier_only,
+                  {"Number of fourier coefficients", "4"},
+                  {"Selection of Fourier coefficients", "0, 3, 4, 7"}}),
+               [](auto &problem) {
+                 problem.run_timestep0();
+                 ASSERT_EQ(problem.inclusions.n_dofs(), 50u * 4u);
+                 check_pressure_from_multiplier(problem);
+               });
+}
+
+// Without any of the coefficients 3 and 7 the multiplier exerts no normal
+// force, and the pressure is zero.
+TEST(CoupledElasticity, BOTH_PressureWithoutNormalCoefficientsIsZeroPoint)
+{
+  with_problem(point_parameters(
+                 {multiplier_only,
+                  {"Number of fourier coefficients", "2"},
+                  {"Selection of Fourier coefficients", "0, 4"}}),
+               [](auto &problem) {
+                 problem.run_timestep0();
+                 set_increasing_multiplier(problem);
+                 problem.compute_pressure_at_immersed_surface();
+                 for (const auto p :
+                      gather(problem.pressure_at_immersed_surface))
+                   EXPECT_EQ(p, 0.);
+                 for (const auto p :
+                      gather(problem.pressure_at_immersed_surface_by_inclusion))
+                   EXPECT_EQ(p, 0.);
+               });
+}
+
+// With "Cluster inclusions with segments" the multiplier is numbered by
+// segment: every inclusion of a segment receives the segment's block.
+TEST(CoupledElasticity, BOTH_PressureFromMultiplierClusteredPoint)
+{
+  with_problem(point_parameters(
+                 {multiplier_only, {"Cluster inclusions with segments", "true"}}),
+               [](auto &problem) {
+                 problem.run_timestep0();
+                 const auto n_segments = problem.inclusions.n_global_segments();
+                 ASSERT_GT(n_segments, 0u);
+                 ASSERT_LT(n_segments, 50u);
+                 ASSERT_EQ(problem.inclusions.n_dofs(), n_segments * 2u);
+                 check_pressure_from_multiplier(problem);
+               });
+}
+
+// The pressure is a mean normal stress, so it does not depend on how finely
+// the vessel is split into inclusions. With segments the constraint of a
+// segment only changes by the quadrature of its wall, and the pressure agrees
+// closely.
+TEST(CoupledElasticity, BOTH_PressureIndependentOfInclusionSpacingClusteredPoint)
+{
+  const auto coarse = solved_vessel_pressure(50, true);
+  const auto fine   = solved_vessel_pressure(100, true);
+  ASSERT_EQ(coarse.size(), 2u);
+  ASSERT_EQ(fine.size(), 2u);
+  for (unsigned int v = 0; v < 2; ++v)
+    {
+      ASSERT_NE(coarse[v], 0.) << "vessel " << v;
+      EXPECT_NEAR(fine[v], coarse[v], 1e-2 * std::abs(coarse[v]))
+        << "vessel " << v;
+    }
+}
+
+// Without segments every inclusion adds its own constraint, so more
+// inclusions per bulk cell change the discrete problem. The pressure still
+// has the same size: the multiplier of each inclusion scales with its wall
+// area.
+TEST(CoupledElasticity, BOTH_PressureIndependentOfInclusionSpacingPoint)
+{
+  const auto coarse = solved_vessel_pressure(50, false);
+  const auto fine   = solved_vessel_pressure(100, false);
+  ASSERT_EQ(coarse.size(), 2u);
+  ASSERT_EQ(fine.size(), 2u);
+  for (unsigned int v = 0; v < 2; ++v)
+    {
+      ASSERT_NE(coarse[v], 0.) << "vessel " << v;
+      EXPECT_NEAR(fine[v], coarse[v], 0.1 * std::abs(coarse[v]))
+        << "vessel " << v;
+    }
+}
+
+// Tensor-product coupling on four reduced cells, two per vessel, with the
+// selected modes 3 and 7. The multiplier components are set to the linear
+// functions lambda_3(x) = 1 + x and lambda_7(x) = 2 + 3x. The pressure at
+// each support point is k (lambda_3 + lambda_7) with k = 1/sqrt(2) up to the
+// polygonal approximation of the reference circle, and the pressure of each
+// vessel is the mean of k (lambda_3 + lambda_7) over its cells.
+TEST(CoupledElasticity, BOTH_PressureFromMultiplierTensorProduct)
+{
+  const std::vector<double> vertices = {-1., -0.5, 0., 0.5, 1.};
+  with_problem(
+    parameters(false,
+               reduced_grid("four_cells", vertices, {0, 0, 1, 1}),
+               "displacement, vessel_id",
+               {multiplier_only}),
+    [&](auto &problem) {
+      problem.run_timestep0();
+      ASSERT_EQ(problem.n_vessels(), 2u);
+
+      const auto &reduced_dh =
+        problem.tensor_product_coupling->get_dof_handler();
+      ASSERT_EQ(reduced_dh.get_fe().n_components(), 2u);
+
+      const auto lambda_3 = [](const double x) { return 1. + x; };
+      const auto lambda_7 = [](const double x) { return 2. + 3. * x; };
+      {
+        auto           &lambda = problem.locally_relevant_solution.block(1);
+        LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
+        VectorTools::interpolate(
+          reduced_dh,
+          FunctionFromFunctionObjects<3>(
+            {[&](const Point<3> &p) { return lambda_3(p[0]); },
+             [&](const Point<3> &p) { return lambda_7(p[0]); }}),
+          owned);
+        lambda = owned;
+      }
+
+      problem.compute_pressure_at_immersed_surface();
+
+      // One pressure per support point, i.e., per vertex for linear elements.
+      // Compare the sorted values, since the numbering of the support points
+      // follows the reduced DoFHandler.
+      auto by_point = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      ASSERT_EQ(by_point.size(), vertices.size());
+      std::sort(by_point.begin(), by_point.end());
+      const double k = by_point[0] / (lambda_3(-1.) + lambda_7(-1.));
+      EXPECT_NEAR(k, 1. / std::sqrt(2.), 2e-2);
+      for (unsigned int n = 0; n < vertices.size(); ++n)
+        EXPECT_NEAR(by_point[n],
+                    k * (lambda_3(vertices[n]) + lambda_7(vertices[n])),
+                    1e-12)
+          << "support point " << n;
+
+      // The mean of a linear function over a vessel is its value at the
+      // middle of the vessel: x = -0.5 for vessel 0 and x = 0.5 for vessel 1.
+      const auto by_vessel = gather(problem.pressure_at_immersed_surface);
+      ASSERT_EQ(by_vessel.size(), 2u);
+      EXPECT_NEAR(by_vessel[0], k * (lambda_3(-0.5) + lambda_7(-0.5)), 1e-12);
+      EXPECT_NEAR(by_vessel[1], k * (lambda_3(0.5) + lambda_7(0.5)), 1e-12);
+    });
+}
+
+namespace
+{
+  // Solve, then set the multiplier to zero, so that the pressure computed
+  // afterwards is the interior stress alone.
+  void
+  solve_and_zero_multiplier(CoupledElasticityProblem<3> &problem)
+  {
+    problem.run_timestep0();
+    problem.run_timestep();
+    auto &lambda = problem.locally_relevant_solution.block(1);
+    lambda       = 0;
+    problem.compute_pressure_at_immersed_surface();
+  }
+
+  // Interior stress 2 (lambda + mu) u_n / r of the point inclusions of
+  // parameters(): lambda = mu = 1, r = 0.2, and the reference data 0.1 in
+  // the coefficients 3 and 7, i.e., the wall displacement 0.1 (cos(theta),
+  // sin(theta)) with mean normal value u_n = 0.1.
+  constexpr double point_interior_stress = 2. * (1. + 1.) * 0.1 / 0.2;
+} // namespace
+
+// The material inside the vessels contributes the normal stress
+// 2 (lambda + mu) u_n / r to the multiplier. With the multiplier set to zero,
+// the pressure is this stress alone, on every inclusion and every vessel.
+TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    solve_and_zero_multiplier(problem);
+    for (const auto p :
+         gather(problem.pressure_at_immersed_surface_by_inclusion))
+      EXPECT_NEAR(p, point_interior_stress, 1e-12);
+    for (const auto p : gather(problem.pressure_at_immersed_surface))
+      EXPECT_NEAR(p, point_interior_stress, 1e-12);
+  });
+}
+
+// With segments the data of a segment is the sum over its inclusions, and
+// each inclusion receives the mean. The data are the same on all inclusions,
+// so the interior stress is the same as without segments.
+TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressClusteredPoint)
+{
+  with_problem(point_parameters(
+                 {{"Cluster inclusions with segments", "true"}}),
+               [](auto &problem) {
+                 solve_and_zero_multiplier(problem);
+                 for (const auto p : gather(
+                        problem.pressure_at_immersed_surface_by_inclusion))
+                   EXPECT_NEAR(p, point_interior_stress, 1e-12);
+                 for (const auto p :
+                      gather(problem.pressure_at_immersed_surface))
+                   EXPECT_NEAR(p, point_interior_stress, 1e-12);
+               });
+}
+
+// Tensor-product coupling with the data 0.1 for the normalized modes 3 and 7,
+// i.e., the wall displacement 0.1 sqrt(2) (cos(theta), sin(theta)) with mean
+// normal value u_n = k (0.1 + 0.1), k = 1/sqrt(2) up to the polygonal
+// reference circle. The interior stress is 2 (lambda + mu) u_n / r with
+// lambda = mu = 1 and r = 0.2, the same at every support point and on every
+// vessel.
+TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressTensorProduct)
+{
+  with_problem(parameters(false,
+                          reduced_grid("four_cells", {-1., -0.5, 0., 0.5, 1.},
+                                       {0, 0, 1, 1}),
+                          "displacement, vessel_id"),
+               [](auto &problem) {
+                 solve_and_zero_multiplier(problem);
+                 const auto by_point =
+                   gather(problem.pressure_at_immersed_surface_by_inclusion);
+                 ASSERT_EQ(by_point.size(), 5u);
+                 const double k = by_point[0] / (2. * (1. + 1.) * 0.2 / 0.2);
+                 EXPECT_NEAR(k, 1. / std::sqrt(2.), 2e-2);
+                 for (const auto p : by_point)
+                   EXPECT_NEAR(p, by_point[0], 1e-8 * by_point[0]);
+                 const auto by_vessel =
+                   gather(problem.pressure_at_immersed_surface);
+                 ASSERT_EQ(by_vessel.size(), 2u);
+                 for (const auto p : by_vessel)
+                   EXPECT_NEAR(p, by_point[0], 1e-8 * by_point[0]);
+               });
 }
 
 // -----------------------------------------------------------------------------

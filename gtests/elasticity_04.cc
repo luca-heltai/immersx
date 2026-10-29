@@ -27,7 +27,7 @@
 #include <deal.II/base/mpi.h>
 
 #include <gtest/gtest.h>
-#include <immersx/physics/elasticity.h>
+#include <immersx/physics/coupled_elasticity.h>
 
 #include <array>
 #include <cmath>
@@ -183,6 +183,77 @@ TEST(ElasticityValidation, BOTH_PaperAxisSymmetricAdaptiveRefinement)
                         MPI_COMM_WORLD);
   problem.pcout << "lambda " << lambda_1x << " " << lambda_2y << std::endl;
   EXPECT_NEAR(lambda_1x + lambda_2y, last_lambda, 1e-3 * std::abs(last_lambda));
+}
+
+
+
+// Section 5.1 with the pressure of CoupledElasticityProblem, on the annulus
+// between the inclusion (ri = 0.2) and the unit circle (R = 1), with normal
+// inflation ubar = 0.1 and Lame lambda = 3, mu = 1. The exact solution of the
+// parameter file does not depend on the material:
+//   outside the inclusion: u_r = A r + B / r, with
+//     A = -ri ubar / (R^2 - ri^2) and B = ri ubar R^2 / (R^2 - ri^2);
+//   inside the inclusion, which is filled with the same material: the
+//     uniform expansion u = ubar x / ri.
+// At r = ri the exact radial stresses are
+//   outside: sigma_rr = 2 (lambda + mu) A - 2 mu B / ri^2,
+//   inside:  sigma_rr = 2 (lambda + mu) ubar / ri.
+// The multiplier gives their difference. With "Remove interior stress from
+// pressure" the computed pressure adds back the inside stress, and it is the
+// outside stress. The finite element error of the multiplier at refinement 6
+// is about one percent of the jump (see BOTH_PaperAxisSymmetricGlobalConvergence).
+TEST(ElasticityValidation, BOTH_PaperAxisSymmetricPressure)
+{
+  constexpr double ri = 0.2, R = 1., ubar = 0.1, lambda = 3., mu = 1.;
+  const double     A       = -ri * ubar / (R * R - ri * ri);
+  const double     B       = ri * ubar * R * R / (R * R - ri * ri);
+  const double     outside = 2 * (lambda + mu) * A - 2 * mu * B / (ri * ri);
+  const double     inside  = 2 * (lambda + mu) * ubar / ri;
+
+  const auto pressure = [&](const bool remove_interior_stress) {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<2> par;
+    CoupledElasticityProblem<2>    problem(par);
+    initialize_parameters(TestPaths::parameter_path(
+      "gtests/parameters/elasticity_04_axis_symmetric.prm"));
+    ParameterAcceptor::prm.parse_input_from_string(
+      std::string("subsection Immersed Problem\n"
+                  "  set Initial refinement = 6\n"
+                  "  set Remove interior stress from pressure = ") +
+      (remove_interior_stress ? "true" : "false") +
+      "\n"
+      "  subsection Material properties\n"
+      "    subsection default\n"
+      "      set Lame lambda = 3\n"
+      "      set Lame mu     = 1\n"
+      "    end\n"
+      "  end\n"
+      "  subsection Refinement and remeshing\n"
+      "    set Number of refinement cycles = 1\n"
+      "    set Strategy                    = global\n"
+      "  end\n"
+      "end\n");
+    ParameterAcceptor::parse_all_parameters();
+    problem.run_timestep0();
+    problem.run_timestep();
+
+    const auto &p = problem.pressure_at_immersed_surface;
+    EXPECT_EQ(p.size(), 1u);
+    return Utilities::MPI::sum(p.in_local_range(0) ? p[0] : 0.,
+                               MPI_COMM_WORLD);
+  };
+
+  const double jump   = pressure(false);
+  const double tissue = pressure(true);
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    std::cout << "jump " << jump << " (exact " << outside - inside
+              << "), tissue " << tissue << " (exact " << outside << ")"
+              << std::endl;
+
+  const double tolerance = 2e-2 * std::abs(outside - inside);
+  EXPECT_NEAR(jump, outside - inside, tolerance);
+  EXPECT_NEAR(tissue - jump, inside, 1e-10 * inside);
+  EXPECT_NEAR(tissue, outside, tolerance);
 }
 
 
