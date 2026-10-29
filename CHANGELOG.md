@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Grow vascular trees with deterministic CCO bifurcations, fixed-root Murray radii, spatial terminal weights and mesh-dependent terminal density. Select physical vessels independently of their numerical subdivision and check walls, junction angles and collisions after radius updates.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate an initial vascular seed from explicit SI parameters, checking the complete vessel wall against linear tetrahedral and bilinear hexahedral background boundaries.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Represent physical vascular networks with stable identifiers, explicit arterial and venous roles, ownership and provenance. Integrate tapered-vessel volume and Poiseuille resistance independently of numerical subdivision.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise vesselwise displacement and pressure exchange on tetrahedral tissue meshes in pseudocoupling1D, including repeated solves with updated coupling data.
