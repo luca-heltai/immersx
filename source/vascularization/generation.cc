@@ -22,10 +22,32 @@
 
 namespace ImmersX::Vascularization
 {
+  void
+  CalibrationParameters::validate() const
+  {
+    AssertThrow(
+      std::isfinite(volume_fraction) && volume_fraction >= 0. &&
+        volume_fraction <= 1. && std::isfinite(relative_tolerance) &&
+        relative_tolerance > 0. && relative_tolerance < 1. &&
+        std::isfinite(minimum_coverage) && minimum_coverage >= 0. &&
+        minimum_coverage <= 1. && minimum_terminals > 0 &&
+        maximum_terminals >= minimum_terminals && attempt_budget > 0,
+      dealii::ExcMessage(
+        "Invalid vascular calibration targets, tolerance, terminal limits or attempt budget."));
+  }
+
   Parameters::Parameters(const std::string &section)
     : dealii::ParameterAcceptor(section)
   {
     enter_subsection("Objectives");
+    add_parameter("Target volume fraction",
+                  calibration.volume_fraction,
+                  "Zero disables the volume target.");
+    add_parameter("Volume relative tolerance", calibration.relative_tolerance);
+    add_parameter("Minimum tissue coverage", calibration.minimum_coverage);
+    add_parameter("Minimum new terminals", calibration.minimum_terminals);
+    add_parameter("Maximum new terminals", calibration.maximum_terminals);
+    add_parameter("Calibration attempt budget", calibration.attempt_budget);
     add_parameter("Maximum service distance",
                   coverage.service_radius,
                   "Metres; zero disables geometric coverage measurement.");
@@ -113,6 +135,11 @@ namespace ImmersX::Vascularization
   {
     discretization.validate();
     coverage.validate();
+    calibration.validate();
+    AssertThrow(
+      calibration.minimum_coverage == 0. || coverage.service_radius > 0.,
+      dealii::ExcMessage(
+        "A positive minimum coverage requires an explicit positive maximum service distance."));
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
     AssertThrow(
       positive(seed_length) &&
@@ -441,10 +468,12 @@ namespace ImmersX::Vascularization
       CCOGrowth(GenerationResult      &result,
                 const Parameters      &parameters,
                 BackgroundGeometry    &geometry,
-                const std::vector<Id> &roots)
+                const std::vector<Id> &roots,
+                unsigned int           terminal_count)
         : result(result)
         , network(result.network)
         , parameters(parameters)
+        , terminal_count(terminal_count)
         , geometry(geometry)
         , random(parameters.random_seed)
         , exponent(2. / parameters.arterial_murray_exponent)
@@ -804,14 +833,14 @@ namespace ImmersX::Vascularization
         for (const auto &[id, tree] : trees)
           capacity +=
             parameters.minimum_radius == 0. ?
-              parameters.terminal_count :
+              terminal_count :
               std::min<double>(
-                parameters.terminal_count,
+                terminal_count,
                 std::floor(
                   std::pow(tree.radius / parameters.minimum_radius,
                            parameters.arterial_murray_exponent) *
                   (1. + 32. * std::numeric_limits<double>::epsilon())));
-        if (capacity < parameters.terminal_count)
+        if (capacity < terminal_count)
           {
             result.validation.issues.push_back(
               {"growth",
@@ -819,7 +848,7 @@ namespace ImmersX::Vascularization
                "Requested uniform-demand terminal count is incompatible with the minimum radius at the fixed attachment radii."});
             return;
           }
-        while (result.territories.size() < parameters.terminal_count)
+        while (result.territories.size() < terminal_count)
           {
             AssertThrow(next_node < invalid_id - 1 &&
                           next_vessel < invalid_id - 1,
@@ -888,6 +917,7 @@ namespace ImmersX::Vascularization
       GenerationResult   &result;
       NetworkData        &network;
       const Parameters   &parameters;
+      const unsigned int  terminal_count;
       BackgroundGeometry &geometry;
       std::mt19937_64     random;
       FunctionParser<3>   weight;
@@ -906,12 +936,13 @@ namespace ImmersX::Vascularization
 
   } // namespace
 
-  GenerationResult
-  generate(const dealii::Triangulation<3> &background,
-           const dealii::Mapping<3>       &mapping,
-           const NetworkData              &initial,
-           const Parameters               &parameters,
-           MPI_Comm                        communicator)
+  static GenerationResult
+  generate_count(const dealii::Triangulation<3> &background,
+                 const dealii::Mapping<3>       &mapping,
+                 const NetworkData              &initial,
+                 const Parameters               &parameters,
+                 MPI_Comm                        communicator,
+                 unsigned int                    terminal_count)
   {
     using namespace dealii;
     AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
@@ -1012,7 +1043,7 @@ namespace ImmersX::Vascularization
       }
     if (!creating_seed && selected.empty())
       fail(invalid_id, "No available interior arterial terminal was found.");
-    if (parameters.terminal_count < (creating_seed ? 1 : selected.size()))
+    if (terminal_count < (creating_seed ? 1 : selected.size()))
       fail(
         invalid_id,
         "Terminal count is smaller than the number of selected attachments.");
@@ -1173,7 +1204,7 @@ namespace ImmersX::Vascularization
         }
     if (!result.validation.valid())
       return result;
-    CCOGrowth growth(result, parameters, geometry, roots);
+    CCOGrowth growth(result, parameters, geometry, roots, terminal_count);
     growth.run();
     const auto report = validate_data(result.network, 1);
     result.validation.issues.insert(result.validation.issues.end(),
@@ -1198,6 +1229,183 @@ namespace ImmersX::Vascularization
                                          parameters.coverage,
                                          communicator);
       }
+    return result;
+  }
+
+  GenerationResult
+  generate(const dealii::Triangulation<3> &background,
+           const dealii::Mapping<3>       &mapping,
+           const NetworkData              &initial,
+           const Parameters               &parameters,
+           MPI_Comm                        communicator)
+  {
+    using namespace dealii;
+    const auto &p = parameters.calibration;
+    if (p.volume_fraction == 0. && p.minimum_coverage == 0.)
+      return generate_count(background,
+                            mapping,
+                            initial,
+                            parameters,
+                            communicator,
+                            parameters.terminal_count);
+    AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
+                ExcMessage(
+                  "The current vascular calibration requires one rank."));
+    parameters.validate(initial.nodes.empty() && initial.vessels.empty() &&
+                        initial.terminals.empty());
+    GenerationResult baseline;
+    baseline.network    = initial;
+    baseline.validation = validate_data(initial, 1);
+    if (!baseline.validation.valid())
+      return baseline;
+    baseline.discretization = discretize(
+      background, mapping, initial, parameters.discretization, communicator);
+    baseline.validation = baseline.discretization.validation;
+    if (!baseline.validation.valid())
+      return baseline;
+    baseline.tissue = measure_tissue(
+      background, mapping, initial, baseline.discretization, {}, communicator);
+    if (p.volume_fraction > 0. &&
+        baseline.tissue.volume_fraction >
+          p.volume_fraction * (1. + p.relative_tolerance))
+      {
+        baseline.calibration.status = CalibrationStatus::incompatible;
+        baseline.validation.issues.push_back(
+          {"calibration",
+           invalid_id,
+           "The fixed imported inside volume alone exceeds the target upper tolerance; adding vessels cannot meet the target."});
+        return baseline;
+      }
+    CalibrationReport               report;
+    std::set<unsigned int>          tried;
+    std::optional<GenerationResult> best;
+    std::pair<double, double>       best_score{
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::infinity()};
+    unsigned int best_count = 0;
+    unsigned int count      = std::clamp(parameters.terminal_count,
+                                    p.minimum_terminals,
+                                    p.maximum_terminals);
+    for (unsigned int attempt = 0; attempt < p.attempt_budget; ++attempt)
+      {
+        auto candidate = generate_count(
+          background, mapping, initial, parameters, communicator, count);
+        report.sampled_points += candidate.sampled_points;
+        report.attempts.push_back({count,
+                                   candidate.tissue,
+                                   candidate.validation,
+                                   candidate.sampled_points});
+        tried.insert(count);
+        if (candidate.validation.valid())
+          {
+            const double error =
+              p.volume_fraction > 0. ?
+                std::abs(candidate.tissue.volume_fraction / p.volume_fraction -
+                         1.) :
+                0.;
+            const double deficit =
+              std::max(0.,
+                       p.minimum_coverage - candidate.tissue.arterial_coverage);
+            if (error <= p.relative_tolerance && deficit == 0.)
+              {
+                report.status         = CalibrationStatus::converged;
+                candidate.calibration = std::move(report);
+                return candidate;
+              }
+            const std::pair<double, double> score{deficit, error};
+            if (score < best_score)
+              {
+                best_score = score;
+                best_count = count;
+                best       = std::move(candidate);
+              }
+          }
+        else if (!best)
+          baseline = std::move(candidate);
+        std::optional<unsigned int> next;
+        const auto                  offer = [&](long double value) {
+          if (!next && std::isfinite(value))
+            {
+              const auto n = static_cast<unsigned int>(
+                std::clamp(std::round(value),
+                           static_cast<long double>(p.minimum_terminals),
+                           static_cast<long double>(p.maximum_terminals)));
+              if (!tried.count(n))
+                next = n;
+            }
+        };
+        // Secant interpolation and count doubling/halving are proposals only.
+        // Every third step explores an untried interval regardless of volume
+        // signs; no observation removes a count from the admissible domain.
+        if (best && (attempt + 1) % 3 != 0)
+          {
+            if (p.volume_fraction > 0.)
+              {
+                double      closest = std::numeric_limits<double>::infinity();
+                long double interpolated = 0.;
+                bool        bracket      = false;
+                for (const auto &a : report.attempts)
+                  for (const auto &b : report.attempts)
+                    if (a.generation_validation.valid() &&
+                        b.generation_validation.valid() &&
+                        a.tissue.volume_fraction < p.volume_fraction &&
+                        b.tissue.volume_fraction > p.volume_fraction)
+                      {
+                        const double span =
+                          b.tissue.volume_fraction - a.tissue.volume_fraction;
+                        if (span < closest)
+                          {
+                            closest = span;
+                            interpolated =
+                              a.terminal_count +
+                              static_cast<long double>(
+                                p.volume_fraction - a.tissue.volume_fraction) /
+                                span *
+                                (static_cast<long double>(b.terminal_count) -
+                                 a.terminal_count);
+                            bracket = true;
+                          }
+                      }
+                if (bracket)
+                  offer(interpolated);
+                if (!next)
+                  offer(best->tissue.volume_fraction < p.volume_fraction ?
+                          best_count * 2.L :
+                          std::floor(best_count * .5L));
+              }
+            else
+              offer(best_count * 2.L);
+          }
+        if (!next && !tried.count(p.minimum_terminals))
+          offer(p.minimum_terminals);
+        if (!next)
+          {
+            std::uint64_t begin = p.minimum_terminals, width = 0;
+            const auto    interval = [&](std::uint64_t end) {
+              if (end - begin > width)
+                {
+                  width = end - begin;
+                  next  = static_cast<unsigned int>(begin + (width - 1) / 2);
+                }
+            };
+            for (const auto n : tried)
+              {
+                interval(n);
+                begin = static_cast<std::uint64_t>(n) + 1;
+              }
+            interval(static_cast<std::uint64_t>(p.maximum_terminals) + 1);
+          }
+        if (!next)
+          break;
+        count = *next;
+      }
+    auto result        = best ? std::move(*best) : std::move(baseline);
+    report.status      = CalibrationStatus::exhausted;
+    result.calibration = std::move(report);
+    result.validation.issues.push_back(
+      {"calibration",
+       invalid_id,
+       "No terminal count met all requested volume and coverage targets within the finite calibration/search budget. This does not prove incompatibility."});
     return result;
   }
 } // namespace ImmersX::Vascularization
