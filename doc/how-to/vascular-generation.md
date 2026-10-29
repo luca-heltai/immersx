@@ -240,3 +240,26 @@ validation and the required geometric checks. Tests exercise joint ancestor
 and descendant splits across partitions, but the public generator still needs
 a distributed growth and commit loop before it can generate with multiple
 processes.
+
+## Confirm or discard a batch
+
+The internal batch staging path sends each proposed bifurcation to its physical
+vessel owner. The owner checks the recorded endpoint identities and positions,
+explicit mutability and exclusive writes. The serial CCO engine uses the same
+physical split operation. New vessels inherit the selected vessel's material
+properties; frozen input vessels remain unchanged.
+
+Tentative geometry migrates against the background with its private mutability
+and fixed-root controls. The forest kernel computes the joint demand and radii
+of all accepted splits, including ancestor and descendant splits in the same
+tree. Ghosts are refreshed for the new radii. Every mutable vessel is then
+checked on this final snapshot, using the same distributed geometry checks as
+proposal selection. A failed check discards the entire batch on every process.
+The caller can resample within its finite budget; it never adopts part of a
+failed batch. Staging copies locally relevant data once per batch, rather than
+once per candidate.
+
+This path provides distributed physical updates and rollback. It still needs
+to be connected to distributed sampling, candidate optimization and the public
+generation loop. Certifying all mutable vessels after each batch is a
+correctness check whose cost must be included in scaling measurements.

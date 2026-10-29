@@ -22,6 +22,7 @@
 
 #include "forest_state.h"
 #include "growth_batch.h"
+#include "growth_commit.h"
 #include "growth_geometry.h"
 
 namespace ImmersX::Vascularization
@@ -663,28 +664,29 @@ namespace ImmersX::Vascularization
       void
       accept(const Proposal &p, const Territory *shared_territory = nullptr)
       {
-        const auto old                        = network.vessels.at(p.vessel);
-        network.nodes[next_node]              = {p.junction,
-                                                 0,
-                                                 Port::none,
-                                                 Provenance::generated};
-        network.nodes[next_node + 1]          = {p.terminal,
-                                                 0,
-                                                 Port::none,
-                                                 Provenance::generated};
-        network.vessels.at(p.vessel).nodes[1] = next_node;
-        auto continuation                     = old;
-        continuation.nodes                    = {{next_node, old.nodes[1]}};
-        network.vessels[next_vessel]          = continuation;
-        auto terminal                         = old;
-        terminal.nodes                        = {{next_node, next_node + 1}};
-        network.vessels[next_vessel + 1]      = terminal;
-        const Id tid                          = take_identifiers(next_terminal);
-        const Id territory                    = shared_territory ?
-                                                  shared_territory->id :
-                                                  take_identifiers(next_territory);
-        network.terminals[tid]                = {
-          next_node + 1, territory, system, 0, p.terminal_demand};
+        const auto  old       = network.vessels.at(p.vessel);
+        const Id    tid       = take_identifiers(next_terminal);
+        const Id    territory = shared_territory ?
+                                  shared_territory->id :
+                                  take_identifiers(next_territory);
+        GrowthSplit split;
+        split.vessel            = p.vessel;
+        split.owner             = old.owner;
+        split.old_nodes         = old.nodes;
+        split.old_points        = {{network.nodes.at(old.nodes[0]).position,
+                                    network.nodes.at(old.nodes[1]).position}};
+        split.junction          = next_node;
+        split.tip               = next_node + 1;
+        split.junction_position = p.junction;
+        split.tip_position      = p.terminal;
+        split.continuation      = next_vessel;
+        split.leaf              = next_vessel + 1;
+        split.terminal          = tid;
+        split.territory         = territory;
+        split.demand            = p.terminal_demand;
+        AssertThrow(apply_growth_split(network, split),
+                    ExcMessage(
+                      "An accepted CCO split no longer matches its snapshot."));
         if (!shared_territory)
           result.territories.push_back(
             {territory, p.terminal, 0, p.terminal_demand});
