@@ -22,6 +22,7 @@
 
 #include "forest_state.h"
 #include "growth_batch.h"
+#include "growth_candidate.h"
 #include "growth_commit.h"
 #include "growth_geometry.h"
 
@@ -276,7 +277,7 @@ namespace ImmersX::Vascularization
 
     // r_e = R*(D_e/D_root)^(1/gamma), with subtree demand D_e. The physical
     // total tissue flow is split globally by demand, so power is proportional
-    // to sum_roots(mu/R^4 * D_root^(4/gamma) * sum_e(L_e*D_e^(2-4/gamma)))
+    // to sum_roots(1/R^4 * D_root^(4/gamma) * sum_e(mu_e*L_e*D_e^(2-4/gamma)))
     // divided by total demand squared. The common total-flow squared factor
     // cancels in the normalized objective. Counts remain separate for budgets.
     // Trial demand changes touch one ancestral path; no candidate copies the
@@ -287,20 +288,11 @@ namespace ImmersX::Vascularization
       using Edge = internal::Edge;
       struct Tree
       {
-        double radius, viscosity;
+        double radius;
         double volume_sum, dissipation_sum;
         double minimum_demand;
       };
-      struct Proposal
-      {
-        Id                vessel = invalid_id;
-        Point<3>          junction, terminal;
-        std::vector<Id>   ancestors;
-        double            volume_sum = 0., dissipation_sum = 0.;
-        double            cost = std::numeric_limits<double>::infinity();
-        double            terminal_demand = 1.;
-        std::vector<Edge> changed;
-      };
+      using Proposal = internal::GrowthCandidate;
 
       CCOGrowth(GenerationResult        &result,
                 const Parameters        &parameters,
@@ -344,10 +336,9 @@ namespace ImmersX::Vascularization
             parents[root] = invalid_id;
             tree_of[root] = root;
             trees[root]   = {e.radii[0],
-                             e.viscosity,
                              length(network, root) * std::pow(d, exponent),
                            parameters.dissipation_weight > 0. ?
-                               length(network, root) *
+                               e.viscosity * length(network, root) *
                                std::pow(d, dissipation_exponent) :
                                0.,
                              d};
@@ -419,8 +410,8 @@ namespace ImmersX::Vascularization
         if (parameters.dissipation_weight == 0.)
           return 0.;
         // Numerator of generated-forest power divided by the common Q^2.
-        return 8. * tree.viscosity / numbers::PI / std::pow(tree.radius, 4) *
-               sum * std::pow(root_demand, 4. / murray_exponent);
+        return 8. / numbers::PI / std::pow(tree.radius, 4) * sum *
+               std::pow(root_demand, 4. / murray_exponent);
       }
 
       double
@@ -476,74 +467,45 @@ namespace ImmersX::Vascularization
       }
 
       std::optional<Proposal>
-      propose(Id              id,
-              const Point<3> &junction,
-              const Point<3> &terminal,
-              double          ceiling,
-              double          terminal_demand) const
+      optimize(Id id, const Point<3> &terminal, double terminal_demand) const
       {
-        Proposal p;
-        p.vessel          = id;
-        p.junction        = junction;
-        p.terminal        = terminal;
-        p.terminal_demand = terminal_demand;
-        for (Id ancestor = parents.at(id); ancestor != invalid_id;
-             ancestor    = parents.at(ancestor))
-          p.ancestors.push_back(ancestor);
-        const auto   old  = segment(id);
-        const Id     root = tree_of.at(id);
-        const auto  &tree = trees.at(root);
-        const double n = demands.at(id), total = demands.at(root),
-                     w = terminal_demand / demand_scale;
-        if (!std::isfinite(w) || w <= 0. || !std::isfinite(total + w) ||
-            total + w <= total || !std::isfinite(total_demand + w) ||
-            total_demand + w <= total_demand)
-          return {};
-        const double a     = old.first.distance(junction),
-                     b     = junction.distance(old.second),
-                     c     = junction.distance(terminal);
-        const double guard = 64. * std::numeric_limits<double>::epsilon() *
-                             std::max({1., junction.norm(), terminal.norm()});
-        if (std::min({a, b, c}) <= std::max(guard, parameters.minimum_length))
-          return {};
-        const auto sum = [&](double power, double original) {
-          double value = original - length(network, id) * std::pow(n, power) +
-                         a * std::pow(n + w, power) + b * std::pow(n, power) +
-                         c * std::pow(w, power);
-          for (Id ancestor : p.ancestors)
-            value += length(network, ancestor) *
-                     (std::pow(demands.at(ancestor) + w, power) -
-                      std::pow(demands.at(ancestor), power));
-          return value;
-        };
-        p.volume_sum      = sum(exponent, tree.volume_sum);
-        p.dissipation_sum = parameters.dissipation_weight > 0. ?
-                              sum(dissipation_exponent, tree.dissipation_sum) :
-                              0.;
-        if (!std::isfinite(p.volume_sum) || p.volume_sum <= 0. ||
-            (parameters.dissipation_weight > 0. &&
-             (!std::isfinite(p.dissipation_sum) || p.dissipation_sum <= 0.)))
-          return {};
-        const double vr =
-          (forest_volume - tree_volume(tree, tree.volume_sum, total) +
-           tree_volume(tree, p.volume_sum, total + w)) /
-          forest_volume;
-        p.cost = vr;
-        if (parameters.dissipation_weight > 0.)
+        const Id                         root = tree_of.at(id);
+        const auto                      &tree = trees.at(root);
+        internal::GrowthCandidateContext context;
+        context.system                 = system;
+        context.root                   = root;
+        context.next_node              = next_node;
+        context.next_vessel            = next_vessel;
+        context.root_radius            = tree.radius;
+        context.root_demand            = demands.at(root);
+        context.minimum_demand         = tree.minimum_demand;
+        context.volume_sum             = tree.volume_sum;
+        context.dissipation_sum        = tree.dissipation_sum;
+        context.total_demand           = total_demand;
+        context.demand_scale           = demand_scale;
+        context.murray_exponent        = murray_exponent;
+        context.forest_volume          = forest_volume;
+        context.forest_power_numerator = forest_power_numerator;
+        std::set<Id> increased;
+        for (Id branch = id; branch != invalid_id; branch = parents.at(branch))
           {
-            const double dr =
-              (forest_power_numerator -
-               tree_power_numerator(tree, tree.dissipation_sum, total) +
-               tree_power_numerator(tree, p.dissipation_sum, total + w)) /
-              forest_power_numerator *
-              std::pow(total_demand / (total_demand + w), 2);
-            p.cost = (1. - parameters.dissipation_weight) * vr +
-                     parameters.dissipation_weight * dr;
+            internal::GrowthPathBranch record;
+            const auto                &v = network.vessels.at(branch);
+            record.edge                  = edge(branch, radius(branch));
+            record.demand                = demands.at(branch);
+            record.viscosity             = v.viscosity;
+            record.owner                 = v.owner;
+            for (unsigned int end = 0; end < 2; ++end)
+              {
+                const auto &node         = network.nodes.at(v.nodes[end]);
+                record.port_normals[end] = node.inward_port_normal;
+                record.node_owners[end]  = node.owner;
+              }
+            context.path.push_back(record);
+            increased.insert(branch);
           }
-        if (!std::isfinite(p.cost) || p.cost >= ceiling)
-          return {};
-        std::set<Id> increased(p.ancestors.begin(), p.ancestors.end());
-        increased.insert(id);
+        const double total         = context.root_demand,
+                     w             = terminal_demand / demand_scale;
         const auto proposed_radius = [&](Id e) {
           const auto found = tree_of.find(e);
           if (found == tree_of.end() || found->second != root)
@@ -552,113 +514,54 @@ namespace ImmersX::Vascularization
           return tree.radius *
                  std::pow(demand / (total + w), 1. / murray_exponent);
         };
-        const double leaf_radius =
-          tree.radius * std::pow(w / (total + w), 1. / murray_exponent);
-        const double smallest_leaf =
-          tree.radius * std::pow(std::min(tree.minimum_demand, w) / (total + w),
-                                 1. / murray_exponent);
-        if (!(smallest_leaf > 0.) || smallest_leaf < parameters.minimum_radius)
-          return {};
-        const auto        nodes = network.vessels.at(id).nodes;
-        std::vector<Edge> changed{
-          {id,
-           {{nodes[0], next_node}},
-           {{old.first, junction}},
-           proposed_radius(id)},
-          {next_vessel,
-           {{next_node, nodes[1]}},
-           {{junction, old.second}},
-           tree.radius * std::pow(n / (total + w), 1. / murray_exponent)},
-          {next_vessel + 1,
-           {{next_node, next_node + 1}},
-           {{junction, terminal}},
-           leaf_radius}};
-        for (Id ancestor : p.ancestors)
-          if (proposed_radius(ancestor) > radius(ancestor))
-            changed.push_back(edge(ancestor, proposed_radius(ancestor)));
-        std::set<Id> replaced;
-        for (const auto &e : changed)
-          replaced.insert(e.id);
-        for (std::size_t i = 0; i < changed.size(); ++i)
-          {
-            const auto             &e = changed[i];
-            std::array<Point<3>, 2> port_normals;
-            for (unsigned int end = 0; end < 2; ++end)
-              if (const auto node = network.nodes.find(e.nodes[end]);
-                  node != network.nodes.end())
-                port_normals[end] = node->second.inward_port_normal;
-            if (!geometry.contains({e.points[0], e.points[1]},
-                                   e.radius + parameters.clearance,
-                                   parameters.geometry_depth,
-                                   parameters.geometry_work,
-                                   port_normals))
-              return {};
-            for (std::size_t j = 0; j < i; ++j)
-              if (!compatible(e, changed[j], parameters))
-                return {};
-            Point<3>     lo, hi;
-            const double pad =
-              e.radius + maximum_radius + parameters.clearance + guard;
-            for (unsigned int d = 0; d < 3; ++d)
-              {
-                lo[d] = std::min(e.points[0][d], e.points[1][d]) - pad;
-                hi[d] = std::max(e.points[0][d], e.points[1][d]) + pad;
-              }
-            const BoundingBox<3> box(std::make_pair(lo, hi));
-            for (const auto &[s, other] :
-                 vessels | bgi::adaptors::queried(bgi::intersects(box)))
-              if (!replaced.count(other) &&
-                  !compatible(e,
-                              edge(other, proposed_radius(other)),
-                              parameters))
-                return {};
-          }
-        p.changed = std::move(changed);
-        return p;
-      }
-
-      std::optional<Proposal>
-      optimize(Id id, const Point<3> &terminal, double terminal_demand) const
-      {
-        const auto s    = segment(id);
-        auto       best = propose(id,
-                            .5 * (s.first + s.second),
-                            terminal,
-                            std::numeric_limits<double>::infinity(),
-                            terminal_demand);
-        if (!best)
-          best = propose(id,
-                         (s.first + s.second + terminal) / 3.,
-                         terminal,
-                         std::numeric_limits<double>::infinity(),
-                         terminal_demand);
-        if (!best)
-          return {};
-        double step = .25 * s.first.distance(s.second);
-        for (unsigned int iteration = 0;
-             iteration < parameters.optimization_steps;
-             ++iteration)
-          {
-            bool improved = false;
-            for (unsigned int d = 0; d < 3; ++d)
-              for (double sign : {-1., 1.})
+        const auto geometry_check = [&](const std::vector<Edge> &changed) {
+          double guard = 0.;
+          for (const auto &e : changed)
+            for (const auto &point : e.points)
+              guard = std::max(guard,
+                               64. * std::numeric_limits<double>::epsilon() *
+                                 std::max(1., point.norm()));
+          std::set<Id> replaced;
+          for (const auto &e : changed)
+            replaced.insert(e.id);
+          for (std::size_t i = 0; i < changed.size(); ++i)
+            {
+              const auto             &e = changed[i];
+              std::array<Point<3>, 2> port_normals;
+              for (unsigned int end = 0; end < 2; ++end)
+                if (const auto node = network.nodes.find(e.nodes[end]);
+                    node != network.nodes.end())
+                  port_normals[end] = node->second.inward_port_normal;
+              if (!geometry.contains({e.points[0], e.points[1]},
+                                     e.radius + parameters.clearance,
+                                     parameters.geometry_depth,
+                                     parameters.geometry_work,
+                                     port_normals))
+                return false;
+              for (std::size_t j = 0; j < i; ++j)
+                if (!compatible(e, changed[j], parameters))
+                  return false;
+              Point<3>     lo, hi;
+              const double pad =
+                e.radius + maximum_radius + parameters.clearance + guard;
+              for (unsigned int d = 0; d < 3; ++d)
                 {
-                  auto trial = best->junction;
-                  trial[d] += sign * step;
-                  if (auto candidate = propose(id,
-                                               trial,
-                                               terminal,
-                                               best->cost - 1.e-14,
-                                               terminal_demand))
-                    {
-                      best     = std::move(candidate);
-                      improved = true;
-                    }
+                  lo[d] = std::min(e.points[0][d], e.points[1][d]) - pad;
+                  hi[d] = std::max(e.points[0][d], e.points[1][d]) + pad;
                 }
-            if (!improved)
-              step *= .5;
-          }
-        return best;
+              const BoundingBox<3> box(std::make_pair(lo, hi));
+              for (const auto &[s, other] :
+                   vessels | bgi::adaptors::queried(bgi::intersects(box)))
+                if (!replaced.count(other) &&
+                    !compatible(e,
+                                edge(other, proposed_radius(other)),
+                                parameters))
+                  return false;
+            }
+          return true;
+        };
+        return internal::optimize_growth(
+          context, parameters, terminal, terminal_demand, geometry_check);
       }
 
       void

@@ -260,6 +260,30 @@ failed batch. Staging copies locally relevant data once per batch, rather than
 once per candidate.
 
 This path provides distributed physical updates and rollback. It still needs
-to be connected to distributed sampling, candidate optimization and the public
-generation loop. Certifying all mutable vessels after each batch is a
+to be connected to distributed sampling and nearest-vessel selection in the
+public generation loop. Certifying all mutable vessels after each batch is a
 correctness check whose cost must be included in scaling measurements.
+
+## Optimize from distributed ancestor paths
+
+The serial engine and distributed candidate evaluation use the same CCO cost
+and deterministic local search. A candidate needs its selected physical vessel
+and the path to its actual attachment root. Subtree demand, minimum leaf demand,
+and moments of the complete rooted tree provide the remaining information.
+Dissipation moments include each branch's viscosity. Candidate evaluation
+changes only the trial ancestral path and never copies the complete network.
+
+MPI path requests go directly to branch owners. Each reply identifies the next
+ancestor and its owner; subsequent requests are grouped by destination. Shared
+ancestors are retrieved once per requesting process. Processes without requests
+still participate and can serve their owned branches. Missing owners, cycles,
+and inconsistent endpoint geometry fail collectively. Only the union of the
+requested paths is retained, including integer physical identifiers and port
+normals. No tree is replaced by a local artificial root.
+
+Geometry checks supplied during optimization are preliminary. A candidate from
+a local background partition can cross other partitions and must pass final
+owner consent, joint normalization and global geometry certification. An MPI
+test performs this sequence and compares the candidate cost with independently
+recomputed physical volume and dissipation. Distributed sampling and nearest
+candidate selection still need to be connected to the public generation loop.
