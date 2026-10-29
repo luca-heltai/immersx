@@ -415,6 +415,20 @@ namespace ImmersX
     void
     set_time(const double time);
 
+    /**
+     * Evaluate the thickness, i.e., the scale of the cross section (its
+     * radius for a circular cross section), at the points of `quadrature` on
+     * the locally owned reduced cell `cell`. The constant, symbolic, or
+     * field-based Thickness is evaluated exactly as for the lifted quadrature,
+     * at the current time.
+     */
+    void
+    get_thickness_values(
+      const typename Triangulation<reduced_dim, spacedim>::active_cell_iterator
+                                    &cell,
+      const Quadrature<reduced_dim> &quadrature,
+      std::vector<double>           &thickness_values) const;
+
     unsigned int
     n_representative_dofs() const;
     IndexSet

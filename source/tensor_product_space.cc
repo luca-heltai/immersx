@@ -824,6 +824,43 @@ namespace ImmersX
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
+  void
+  TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
+    get_thickness_values(
+      const typename Triangulation<reduced_dim, spacedim>::active_cell_iterator
+                                    &cell,
+      const Quadrature<reduced_dim> &quadrature,
+      std::vector<double>           &thickness_values) const
+  {
+    thickness_values.assign(quadrature.size(), constant_thickness);
+    FEValues<reduced_dim, spacedim> fev(fe,
+                                        quadrature,
+                                        update_quadrature_points);
+    fev.reinit(cell);
+
+    // Same evaluation as in compute_points_and_weights().
+    ReducedFieldValues<reduced_dim, spacedim> field_values(properties_dh,
+                                                           quadrature,
+                                                           properties,
+                                                           properties_bindings);
+    std::vector<double> bound_values(quadrature.size() *
+                                     properties_bindings.size());
+    if (!properties_bindings.empty())
+      field_values.extract(cell->as_dof_handler_iterator(properties_dh),
+                           bound_values);
+    evaluate_thickness_values<reduced_dim, spacedim>(
+      thickness_evaluator,
+      thickness_expression.empty() ? std::string("constant") :
+                                     thickness_expression,
+      cell->as_dof_handler_iterator(properties_dh),
+      fev.get_quadrature_points(),
+      bound_values,
+      constant_thickness,
+      evaluation_time,
+      thickness_values);
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
   unsigned int
   TensorProductSpace<reduced_dim, dim, spacedim, n_components>::
     n_representative_dofs() const
