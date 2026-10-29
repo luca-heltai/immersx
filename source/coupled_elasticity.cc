@@ -271,7 +271,7 @@ namespace ImmersX
           AssertIndexRange(inclusion, this->inclusions.n_inclusions());
           const auto vessel_id = this->inclusions.get_vesselID(inclusion);
           const auto measure = this->inclusions.get_section_measure(inclusion);
-          const auto interior_stress = 0.0;
+          auto interior_stress = 0.0;
           if (this->par.remove_interior_stress_from_pressure)
             interior_stress = 
               interior_stiffness[inclusion] * displacement /
