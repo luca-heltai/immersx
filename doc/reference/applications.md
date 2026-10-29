@@ -104,3 +104,9 @@ check the displacement and residual directly.
 Its embedded line and multiplier remain one-dimensional. The generated
 `coupled_poisson_simplex.prm` uses quadratic physical fields with nonzero
 boundary data; the continuity multiplier is zero for its exact solution.
+
+`coupled_poisson_elasticity` accepts tetrahedra in `Elastic static/Domain`.
+The pressure line and its lifted surface use the existing coupling parameters.
+The generated `coupled_poisson_elasticity_simplex.prm` places the axial line
+inside a tetrahedral cube; tests check the exact line pressure and balance
+its traction against the elastic stiffness action.
