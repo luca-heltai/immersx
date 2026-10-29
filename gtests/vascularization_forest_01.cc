@@ -17,6 +17,7 @@
 
 #include "../source/vascularization/forest_state.h"
 #include "../source/vascularization/growth_commit.h"
+#include "../source/vascularization/growth_paths.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 using namespace ImmersX::Vascularization::internal;
@@ -168,6 +169,11 @@ namespace
           local_moment[tree][1] +=
             n.vessels.at(id).viscosity * length(n, id) *
             std::pow(d / s.demand_scale, 2. - 4. / gamma);
+        EXPECT_NEAR(b.root_minimum_demand * s.demand_scale, 1. + tree, 1.e-12);
+        const double minimum = local == 11 ? 1. + tree :
+                               local == 12 ? 3. + tree :
+                                             d;
+        EXPECT_NEAR(b.minimum_demand * s.demand_scale, minimum, 1.e-12);
         EXPECT_EQ(b.root, off + 11);
         EXPECT_NEAR(b.demand * s.demand_scale / d, 1., 1.e-12);
         EXPECT_NEAR(b.root_demand * s.demand_scale / root_demand, 1., 1.e-12);
@@ -207,6 +213,17 @@ namespace
                        Utilities::MPI::sum(local_power[i], MPI_COMM_WORLD);
         EXPECT_NEAR(s.volume[i], volume, 1.e-15);
         EXPECT_NEAR(s.power[i], power, 1.e-20);
+        if (p.dissipation_weight > 0. && power > 0.)
+          {
+            const double numerator = power / p.reference_flow /
+                                     p.reference_flow * s.total_demand[i] *
+                                     s.total_demand[i];
+            EXPECT_NEAR(s.power_numerator[i] / numerator, 1., 1.e-12);
+          }
+        else
+          {
+            EXPECT_DOUBLE_EQ(s.power_numerator[i], 0.);
+          }
       }
     for (unsigned int tree = 0; tree < 2; ++tree)
       for (unsigned int moment = 0; moment < 2; ++moment)
@@ -823,4 +840,161 @@ TEST(VascularForest, BOTH_FixedRootControlsFollowTheMigratingPhysicalRoot)
     {
       EXPECT_NE(new_owner, previous_owner);
     }
+}
+
+TEST(VascularForest,
+     BOTH_RemoteAncestralPathsOptimizeAndCommitFromLocalBackground)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3>       mapping;
+  BackgroundGeometry geometry(bg, mapping);
+  const auto n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters p;
+  p.minimum_angle      = 1.;
+  p.reference_flow     = 2.e-9;
+  p.dissipation_weight = .3;
+  const auto     state = evaluate(n, p);
+  const Point<3> terminal(3.15, .85, .95);
+  unsigned int   producer = geometry.containing(terminal) ? rank() : size();
+  producer                = Utilities::MPI::min(producer, MPI_COMM_WORLD);
+  std::map<Id, unsigned int> requests;
+  for (Id id : {base + 14, base + 15})
+    {
+      unsigned int owner =
+        n.vessels.count(id) && n.vessels.at(id).owner == rank() ? rank() :
+                                                                  size();
+      owner = Utilities::MPI::min(owner, MPI_COMM_WORLD);
+      if (rank() == producer)
+        requests[id] = owner;
+    }
+  const auto paths = fetch_growth_candidates(
+    n, state, requests, base + 50, base + 70, p, MPI_COMM_WORLD);
+  EXPECT_TRUE(paths.validation.valid());
+  for (const auto &i : paths.validation.issues)
+    ADD_FAILURE() << i.message;
+  EXPECT_EQ(paths.retained_branches, rank() == producer ? 4u : 0u);
+  EXPECT_EQ(paths.rounds, 3u);
+  std::vector<GrowthSplit>       splits;
+  std::optional<GrowthCandidate> candidate;
+  if (rank() == producer && paths.contexts.count(base + 14))
+    {
+      const auto &x = paths.contexts.at(base + 14);
+      EXPECT_EQ(x.path.size(), 3u);
+      EXPECT_EQ(x.path.front().edge.id, base + 14);
+      EXPECT_EQ(x.path.back().edge.id, base + 11);
+      EXPECT_NEAR(x.minimum_demand * x.demand_scale, 1., 1.e-12);
+      const auto cheap_geometry = [&](const std::vector<Edge> &changed) {
+        for (std::size_t i = 0; i < changed.size(); ++i)
+          {
+            std::array<Point<3>, 2> normals;
+            for (const auto &branch : x.path)
+              for (unsigned int end = 0; end < 2; ++end)
+                for (unsigned int other = 0; other < 2; ++other)
+                  if (changed[i].nodes[end] == branch.edge.nodes[other])
+                    normals[end] = branch.port_normals[other];
+            if (!geometry.boundary_separated({changed[i].points[0],
+                                              changed[i].points[1]},
+                                             changed[i].radius + p.clearance,
+                                             p.geometry_depth,
+                                             p.geometry_work,
+                                             normals))
+              return false;
+            for (std::size_t j = 0; j < i; ++j)
+              if (!compatible(
+                    changed[i], changed[j], p.minimum_angle, p.clearance))
+                return false;
+          }
+        return true;
+      };
+      candidate = optimize_growth(x, p, terminal, 2., cheap_geometry);
+      EXPECT_TRUE(candidate.has_value());
+      if (candidate)
+        {
+          const auto &selected = x.path.front();
+          GrowthSplit s;
+          s.vessel            = candidate->vessel;
+          s.owner             = selected.owner;
+          s.old_nodes         = selected.edge.nodes;
+          s.old_points        = selected.edge.points;
+          s.junction          = base + 50;
+          s.tip               = base + 51;
+          s.junction_position = candidate->junction;
+          s.tip_position      = candidate->terminal;
+          s.continuation      = base + 70;
+          s.leaf              = base + 71;
+          s.terminal          = base + 90;
+          s.territory         = base + 95;
+          s.demand            = candidate->terminal_demand;
+          splits.push_back(s);
+        }
+    }
+  const auto result = commit_growth_splits(
+    bg, mapping, n, mutable_ids(n), roots(n), splits, p, MPI_COMM_WORLD);
+  EXPECT_TRUE(result.committed);
+  for (const auto &i : result.validation.issues)
+    ADD_FAILURE() << i.message;
+  const std::uint64_t count = result.mutable_owned.size();
+  EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), 12u);
+  if (candidate && result.committed)
+    {
+      // Independent final physical volume and Q^2 R sums include the other
+      // root's changed flow share, although its topology was never fetched.
+      const double expected =
+        (1. - p.dissipation_weight) * result.physiology.volume[0] /
+          state.volume[0] +
+        p.dissipation_weight * result.physiology.power[0] / state.power[0];
+      EXPECT_NEAR(candidate->cost, expected, 1.e-12);
+      for (const auto &e : candidate->changed)
+        if (result.network.vessels.count(e.id))
+          {
+            EXPECT_NEAR(result.network.vessels.at(e.id).radii[0],
+                        e.radius,
+                        1.e-14);
+          }
+    }
+  EXPECT_EQ(n.nodes.count(base + 50), 0u);
+}
+TEST(VascularForest, BOTH_InvalidOwnerAndCyclicPathMetadataFailCollectively)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
+  Parameters p;
+  auto       state = evaluate(n, p);
+  std::map<Id, unsigned int> requests;
+  if (rank() == size() - 1)
+    requests[base + 999] = 0;
+  EXPECT_FALSE(fetch_growth_candidates(
+                 n, state, requests, base + 50, base + 70, p, MPI_COMM_WORLD)
+                 .validation.valid());
+  unsigned int owner = state.owned.count(base + 14) ? rank() : size();
+  owner              = Utilities::MPI::min(owner, MPI_COMM_WORLD);
+  requests.clear();
+  if (rank() == size() - 1)
+    requests[base + 14] = owner;
+  if (size() > 1)
+    {
+      auto wrong = requests;
+      if (!wrong.empty())
+        wrong.begin()->second = (owner + 1) % size();
+      EXPECT_FALSE(fetch_growth_candidates(
+                     n, state, wrong, base + 50, base + 70, p, MPI_COMM_WORLD)
+                     .validation.valid());
+    }
+  if (state.owned.count(base + 14))
+    {
+      state.owned.at(base + 14).parent       = base + 14;
+      state.owned.at(base + 14).parent_owner = rank();
+    }
+  const auto cyclic = fetch_growth_candidates(
+    n, state, requests, base + 50, base + 70, p, MPI_COMM_WORLD);
+  EXPECT_FALSE(cyclic.validation.valid());
+  EXPECT_TRUE(cyclic.contexts.empty());
+  requests.clear();
+  const auto empty = fetch_growth_candidates(
+    n, state, requests, base + 50, base + 70, p, MPI_COMM_WORLD);
+  EXPECT_TRUE(empty.validation.valid());
+  EXPECT_TRUE(empty.contexts.empty());
+  EXPECT_EQ(empty.retained_branches, 0u);
 }
