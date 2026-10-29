@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Grow prepared arterial forests through concurrent background-owned sampling and sparse global physical-vessel searches. Preserve one real root across MPI partitions, batch independent insertions, and report finite sampling failure without adopting incomplete results.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Optimize vascular bifurcations from physical ancestor paths retrieved from their MPI owners. Reuse the serial CCO objective and local search, including weighted demand, branch viscosities and the global flow shares of other roots.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Stage concurrent vascular bifurcations at their physical owners, carry root controls through ownership changes, and certify geometry after joint Murray normalization. Discard the entire batch when an ownership, radius or geometry check fails.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Normalize generated vascular forests by weighted terminal demand through distributed owner exchanges, preserving attachment radii and frozen input vessels. Check flow conservation across partitions and keep arterial and venous normalization separate.

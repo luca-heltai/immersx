@@ -287,3 +287,38 @@ owner consent, joint normalization and global geometry certification. An MPI
 test performs this sequence and compares the candidate cost with independently
 recomputed physical volume and dissipation. Distributed sampling and nearest
 candidate selection still need to be connected to the public generation loop.
+
+## Grow a prepared forest in MPI batches
+
+The internal arterial growth loop operates on already prepared real attachment
+trees with one or several processes. Each process draws raw samples in the
+bounding box of its owned background cells. Acceptance includes the ratio of
+its box volume to the largest box volume; this avoids prescribing the same
+number of accepted terminals to partitions with different physical volumes.
+Actual containing-cell queries reject holes and exterior points. On interfaces,
+the smallest containing rank proposes the point and the smallest containing
+cell diameter determines the density factor. Spatial sampling weight and tissue
+demand remain separate expressions.
+
+Nearest-vessel search uses owned physical segments. Only one covering box per
+nonempty vessel owner is replicated. A first sparse query obtains a distance
+bound; a second queries every remaining box that can improve the nearest
+candidate list. Replies contain physical identifiers, owners and exact point-to-
+segment distances. Ancestral paths are then fetched for these candidates.
+
+Every producer chooses its best locally optimized candidate. Sparse geometric
+votes select independent proposals; shared ancestor demand updates do not lock
+the whole tree. Joint normalization and final geometry checks confirm or discard
+the selected batch. Provisional integer identifiers are reserved by process and
+namespace, independent of numerical cells. The loop never creates roots to
+activate idle processes. A Murray bound rejects targets that cannot fit the
+minimum radius under the fixed roots. Failed batches consume a finite
+consecutive sampling budget, and incomplete runs are reported as failures.
+
+Tests start from one real seed, accept insertions from multiple producers in
+the same batch, and reproduce the result at a fixed partition and random seed.
+Empty background processes join the same phases without sampling. This loop
+still needs public seed/import startup, shared venous territories and distributed
+measurement and solver preparation before it replaces the public generator's
+single-process execution path. Scaling at the requested sizes has not yet been
+measured.
