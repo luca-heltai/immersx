@@ -18,8 +18,9 @@ namespace ImmersX::Vascularization
   {
     explicit Parameters(const std::string &section = "/Vascularization/");
     void
-    validate() const;
+    validate(bool creating_seed = true) const;
 
+    std::vector<Id>  selected_terminals;
     dealii::Point<3> seed_position;
     /** Zero selects a deterministic direction into the containing cell. */
     dealii::Point<3> seed_direction;
@@ -66,16 +67,21 @@ namespace ImmersX::Vascularization
     std::vector<Territory>    territories;
     std::vector<TerminalPair> terminal_pairs;
     ValidationReport          validation;
-    std::uint64_t             sampled_points      = 0;
-    unsigned int              accepted_insertions = 0;
+    /** Consumed input terminal id -> newly generated attachment vessel id. */
+    std::map<Id, Id> attachment_roots;
+    std::uint64_t    sampled_points      = 0;
+    unsigned int     accepted_insertions = 0;
   };
 
   /**
    * Grow a CCO tree from an initial seed without changing the input. The
-   * current serial path accepts an empty network and a degree-one mapping. The
-   * entire swept vessel, including its rounded ends and clearance, must lie
-   * inside the prepared background. Ambiguous boundary proximity at the finite
-   * geometry budget is rejected conservatively.
+   * current serial path grows arterial trees from a seed or selected input
+   * terminals, with a degree-one mapping. Every input node and vessel stays
+   * fixed; selected tissue terminals become attachment identities. Every new
+   * vessel wall, including rounded ends and clearance, must lie inside the
+   * prepared background. Imported exterior portions are preserved. Ambiguous
+   * boundary proximity at the finite geometry budget is rejected
+   * conservatively.
    */
   GenerationResult
   generate(const dealii::Triangulation<3> &background,
