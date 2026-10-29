@@ -125,10 +125,15 @@ namespace
               set Grid generator           = hyper_cube
               set Grid generator arguments = -0.6: 0.6: false
             end
-            subsection Material
-              set Density     = 2.0
-              set Lame mu     = 2.0
-              set Lame lambda = 2.0
+            subsection Material properties
+              subsection default
+                set Density     = 2.0
+                set Lame mu     = 2.0
+                set Lame lambda = 2.0
+                set Rayleigh alpha = 0
+                set Rayleigh beta = 0
+                set Viscosity eta = 0
+              end
             end
             subsection Functions
               subsection Body force

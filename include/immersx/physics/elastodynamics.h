@@ -23,6 +23,7 @@
 #include <deal.II/base/parsed_convergence_table.h>
 #include <deal.II/base/parsed_function.h>
 #include <deal.II/base/timer.h>
+#include <deal.II/base/types.h>
 #include <deal.II/base/utilities.h>
 
 #include <deal.II/distributed/tria_base.h>
@@ -49,6 +50,7 @@
 #include <immersx/core/time_parameters.h>
 
 #include <list>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -62,6 +64,27 @@ namespace ImmersX
     using namespace ImmersXLA;
   } // namespace LA
 
+  /** Isotropic elastic, Rayleigh, and Kelvin--Voigt material coefficients. */
+  struct ElastodynamicsMaterialCoefficients
+  {
+    double density     = 1.0;
+    double lame_mu     = 1.0;
+    double lame_lambda = 1.0;
+
+    double rayleigh_alpha = 0.0;
+    double rayleigh_beta  = 0.0;
+    double viscosity_eta  = 0.0;
+  };
+
+
+  /** Register one named material below Material properties. */
+  class ElastodynamicsMaterialParameters : public dealii::ParameterAcceptor
+  {
+  public:
+    explicit ElastodynamicsMaterialParameters(const std::string &subsection);
+
+    ElastodynamicsMaterialCoefficients coefficients;
+  };
 
   template <int dim, int spacedim = dim>
   /**
@@ -96,11 +119,18 @@ namespace ImmersX
     std::set<dealii::types::boundary_id> dirichlet_ids{0};
     std::set<dealii::types::boundary_id> neumann_ids;
 
-    double density       = 1.0;
-    double lame_mu       = 1.0;
-    double lame_lambda   = 1.0;
-    double damping_shear = 0.0;
-    double damping_bulk  = 0.0;
+    ElastodynamicsMaterialParameters default_material;
+
+    std::map<dealii::types::material_id, std::string>
+      material_tags_by_material_id;
+
+    std::map<std::string, std::unique_ptr<ElastodynamicsMaterialParameters>>
+      material_parameters_by_tag;
+
+    /** Return the mapped material, falling back to the default for unmapped
+     * ids. */
+    ElastodynamicsMaterialCoefficients
+    get_material_properties(dealii::types::material_id material_id) const;
 
     /** Solver-independent interval used by this Problem. */
     TimeIntervalParameters &time_parameters;
@@ -305,7 +335,8 @@ namespace ImmersX
     const MatrixType &
     stiffness_matrix() const;
 
-    /** Return the Kelvin--Voigt damping operator, possibly identically zero. */
+    /** Return the Rayleigh and Kelvin--Voigt damping operator, possibly
+     * identically zero. */
     const MatrixType &
     damping_matrix() const;
 

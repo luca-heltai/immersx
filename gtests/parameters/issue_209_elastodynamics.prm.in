@@ -13,14 +13,16 @@ subsection Elastodynamics
     set Grid generator arguments  = 0:0.1:true
     set Triangulation type        = distributed
   end
-  subsection Material
-    set Density       = 1000
-    set Lame mu       = 1000
-    set Lame lambda   = 0
-    # Legacy Viscosity eta=25 is eta*epsilon:epsilon. The standalone form is
-    # 2*damping_shear*epsilon:epsilon, hence damping_shear=12.5.
-    set Damping shear = 12.5
-    set Damping bulk  = 0
+  subsection Material properties
+    set Material tags by material id =
+    subsection default
+      set Density        = 1000
+      set Lame lambda    = 0
+      set Lame mu        = 1000
+      set Rayleigh alpha = 0
+      set Rayleigh beta  = 0
+      set Viscosity eta  = 25
+    end
   end
   subsection Fixed step
     set Number of time steps = 0
