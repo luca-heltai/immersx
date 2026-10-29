@@ -21,7 +21,7 @@ and search are handled by the particle-coupling infrastructure.
 For joint refinement of the bulk and representative meshes in elasticity and
 reduced Poisson, see [local co-refinement](local-co-refinement.md).
 
-### Simplex bulk preparation
+## Simplex bulk preparation
 
 `ReducedPoisson` prepares fully distributed bulk meshes on a replicated serial
 mesh. Its line and point-cloud refinement settings apply before partitioning

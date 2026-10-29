@@ -213,8 +213,8 @@ namespace ImmersX
    * - `solution.block(1)` \f$\equiv \lambda_h\f$ (may be size 0 if no
    * inclusions).
    *
-   * The displacement is discretized with a continuous \f$Q_p\f$ vector element:
-   * `FESystem<spacedim>(FE_Q<spacedim>(fe_degree), spacedim)`.
+   * The displacement uses `spacedim` continuous components of `FE_Q` on
+   * hypercubes or `FE_SimplexP` on simplices, with degree `fe_degree`.
    *
    * @section elasticity_operators Assembled matrices and right-hand sides
    *

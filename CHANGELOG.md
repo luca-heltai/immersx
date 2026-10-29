@@ -293,6 +293,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
+
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Document simplex meshes in the elastodynamics tutorial and reading the solid mesh from a file in the MetricFlowX–elastodynamics tutorial.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Document Field-local IDA tolerances, startup ramps, progress statistics, and restart behavior.
 
@@ -349,6 +351,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check that standalone MetricFlowX evolves on one-dimensional simplex cells and run the application linked to the installed package with its nonzero inflow fixture.
 
