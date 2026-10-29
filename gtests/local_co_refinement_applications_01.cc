@@ -10,6 +10,7 @@
 
 #  include <deal.II/fe/fe_values.h>
 
+#  include <immersx/core/symbolic_field_evaluator.h>
 #  include <immersx/physics/elasticity.h>
 #  include <immersx/physics/reduced_poisson.h>
 #  include <vtkNew.h>
@@ -110,6 +111,9 @@ namespace
 
 TEST(LocalCoRefinement, BOTH_ElasticityApplication)
 {
+  if (!SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
   initialize_parameters(TestPaths::parameter_path(
@@ -142,6 +146,9 @@ TEST(LocalCoRefinement, BOTH_ElasticityApplication)
 
 TEST(LocalCoRefinement, BOTH_ReducedPoissonApplication)
 {
+  if (!SymbolicFieldEvaluator::available())
+    GTEST_SKIP() << "deal.II was built without SymEngine";
+
   ParameterAcceptor::clear();
   ReducedPoissonParameters<3> par;
   initialize_parameters(TestPaths::parameter_path(
