@@ -144,3 +144,52 @@ volumes at junctions. It excludes beds. Coverage is a separate background
 quadrature estimate of finite service balls. In arterio-venous mode calibration
 uses dual coverage: quadrature points must lie within service distance of both
 systems. This geometric coverage is not a proof of physiological perfusion.
+
+## Redistribute physical ownership
+
+For an existing distributed `NetworkData`, `redistribute()` migrates owned
+entities against a prepared parallel background and refreshes geometric ghosts.
+It is collective, including processes with no physical entities or no owned
+background cells. This operation does not generate branches; `generate()` still
+requires one rank in the current implementation.
+
+```cpp
+#include <immersx/vascularization/distribution.h>
+
+const auto relevant_network =
+  redistribute(background, mapping, local_input, clearance + search_reach,
+               communicator);
+```
+
+Each physical entity has one authoritative input owner. A rank needs its own
+entities and the endpoint nodes referenced by its locally relevant vessels;
+it does not need the complete network. Node and terminal owners follow their
+physical points. The physical vessel owner follows its midpoint, matching the
+centre-based policy of `ImmersedRepartitioner`. Native `ParticleHandler` search
+checks actual background cells. Points on interfaces choose the smallest
+containing rank; a bounding-box overlap alone does not assign ownership.
+Exterior points and vessel midpoints retain their previous owner. A terminal
+always follows its node.
+
+A crossing physical vessel retains one identifier, one endpoint pair and its
+original taper and material properties. It is not cut into artificial physical
+branches at MPI interfaces. Numerical cell ownership is a separate decision.
+Every retained vessel carries its endpoint nodes and any terminal records at
+those endpoints. Wire messages retain integer identifiers without converting
+them to particle properties of type `double`.
+
+Ghost exchange routes a vessel to background covering boxes intersecting its
+segment bounding box expanded by the maximum endpoint radius plus the supplied
+halo. The halo can include wall clearance and an additional candidate-search
+reach. It can span several cells or partitions and is independent of mesh
+adjacency. These are conservative recipient queries; callers must still check
+actual segment geometry before accepting an insertion.
+
+Authoritative node values replace stale ghost values before midpoint location.
+Ghost edits to geometry, radii or demand cannot override owned data. Sparse
+migration and ghost exchanges use `Utilities::MPI::some_to_some`; only coarse
+background covering boxes are replicated. Duplicate owned identifiers are
+checked through a distributed hash partition of the identifier registry.
+Invalid ownership or missing authoritative nodes fail collectively at a phase
+boundary. Input data remain unchanged. Repeating the operation after changes
+replaces obsolete ghosts, including when vessel radii shrink.

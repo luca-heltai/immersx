@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Redistribute physical vascular data using native background point ownership and sparse MPI exchanges. Preserve crossing vessels and integer identifiers, refresh authoritative endpoint and terminal data, and exchange geometric ghosts across as many partitions as vessel radius and search reach require.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Grow arterial and venous forests toward common weighted tissue territories with distinct paired endpoints, independent Murray exponents, cross-system collision checks and multiple imported outlets. Validate positive supplied or pressure/flow-derived microvascular beds against the complete paired reference problem.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Grow Murray trees using configurable positive tissue demand independently of terminal density. Distribute an explicit new-tissue reference flow by demand, include that distribution in the blended generated-vessel objective, and retain desired terminal and attachment flows for reference validation.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve the steady vascular Poiseuille reference problem with tapered vessels and positive microvascular terminal resistances. Validate pressure/flow boundary data and paired territories, and report conservation, signed flow, pressure, territory supply, dissipation and endpoint wall shear independently of numerical subdivision.
