@@ -191,6 +191,17 @@ namespace ImmersX
     bool pressure_coupling = false;
 
     /**
+     * The elastic material also fills the vessels, so the multiplier is the
+     * jump between the normal stress of the tissue and that of the material
+     * inside the vessel. If this is true, the pressure computed by
+     * CoupledElasticityProblem::compute_pressure_at_immersed_surface() adds
+     * back the analytic normal stress of the interior material, so that it is
+     * the normal stress of the tissue alone. See
+     * doc/concepts/vessel-pressure.md.
+     */
+    bool remove_interior_stress_from_pressure = true;
+
+    /**
      * Volumetric forcing and forcing modulation.
      */
     /// @{
