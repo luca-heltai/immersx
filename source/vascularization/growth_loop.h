@@ -24,6 +24,7 @@ namespace ImmersX::Vascularization::internal
               const std::set<Id>             &mutable_owned,
               const std::map<Id, double>     &fixed_owned_roots,
               const Parameters               &parameters,
-              MPI_Comm                        communicator);
+              MPI_Comm                        communicator,
+              unsigned int                    terminal_count = 0);
 } // namespace ImmersX::Vascularization::internal
 #endif

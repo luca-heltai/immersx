@@ -248,7 +248,8 @@ namespace ImmersX::Vascularization::internal
                   valid = false;
                 else
                   {
-                    info.terminal    = t->second[0].first;
+                    info.terminal = t->second[0].first;
+                    result.owned_leaf_terminals.insert(info.terminal);
                     info.leaf_demand = t->second[0].second.demand;
                     valid = valid && t->second[0].second.system == a.system;
                   }

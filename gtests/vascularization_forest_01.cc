@@ -16,6 +16,7 @@
 #include <functional>
 
 #include "../source/vascularization/forest_state.h"
+#include "../source/vascularization/growth_batch.h"
 #include "../source/vascularization/growth_commit.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_paths.h"
@@ -1180,5 +1181,83 @@ TEST(VascularForest,
         grow_forest(
           bg, mapping, n, seed_ids(n), seed_roots(n), p, MPI_COMM_WORLD)
           .validation.valid());
+    }
+}
+
+TEST(VascularForest, BOTH_PreliminaryVotesCannotAdoptAnAncestorRadiusCollision)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         input      = forest();
+  const double old_radius = .006 * std::pow(8. / 9., 1. / 3.);
+  if (rank() == size() - 1)
+    {
+      const double y          = .5 + old_radius + .001 + .0001;
+      input.nodes[base + 200] = {Point<3>(1.4, y, .5), rank()};
+      input.nodes[base + 201] = {Point<3>(1.9, y, .5), rank()};
+      Vessel v;
+      v.nodes                   = {{base + 200, base + 201}};
+      v.radii                   = {{.001, .001}};
+      v.viscosity               = .004;
+      v.owner                   = rank();
+      input.vessels[base + 210] = v;
+    }
+  const auto raw = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
+  Parameters p;
+  p.minimum_angle     = 1.;
+  const auto baseline = commit_growth_splits(
+    bg, mapping, raw, mutable_ids(raw), roots(raw), {}, p, MPI_COMM_WORLD);
+  EXPECT_TRUE(baseline.committed);
+  for (const auto &i : baseline.validation.issues)
+    ADD_FAILURE() << i.message;
+  const auto                &n = baseline.committed ? baseline.network : raw;
+  auto                       candidates = concurrent_splits(n);
+  std::vector<GrowthSplit>   splits;
+  std::vector<BatchProposal> proposals;
+  for (auto s : candidates)
+    if (s.vessel == base + 14)
+      {
+        s.demand = 100.;
+        splits.push_back(s);
+        BatchProposal proposal;
+        proposal.id                  = 0;
+        proposal.owners[s.vessel]    = s.owner;
+        proposal.old_nodes[s.vessel] = s.old_nodes;
+        proposal.changed             = {{s.vessel,
+                                         {{s.old_nodes[0], s.junction}},
+                                         {{s.old_points[0], s.junction_position}},
+                                         .006 * std::pow(103. / 109., 1. / 3.)},
+                                        {s.continuation,
+                                         {{s.junction, s.old_nodes[1]}},
+                                         {{s.junction_position, s.old_points[1]}},
+                                         .006 * std::pow(3. / 109., 1. / 3.)},
+                                        {s.leaf,
+                                         {{s.junction, s.tip}},
+                                         {{s.junction_position, s.tip_position}},
+                                         .006 * std::pow(100. / 109., 1. / 3.)}};
+        proposals.push_back(proposal);
+      }
+  BackgroundGeometry geometry(bg, mapping);
+  const auto         preliminary = select_growth_batch(
+    geometry,
+    n,
+    proposals,
+    p,
+    MPI_COMM_WORLD,
+    [&](Id id) { return n.vessels.at(id).radii[0]; },
+    false);
+  for (const auto &[id, selected] : preliminary.local)
+    EXPECT_TRUE(selected);
+  const auto result = commit_growth_splits(
+    bg, mapping, n, mutable_ids(n), roots(n), splits, p, MPI_COMM_WORLD);
+  EXPECT_FALSE(result.committed);
+  EXPECT_FALSE(result.validation.valid());
+  EXPECT_TRUE(result.network.vessels.empty());
+  // The unchanged parent grows into the frozen obstacle only after the joint
+  // demand update; the three replacement rays alone do not expose this.
+  if (n.vessels.count(base + 12))
+    {
+      EXPECT_NEAR(n.vessels.at(base + 12).radii[0], old_radius, 1.e-15);
     }
 }
