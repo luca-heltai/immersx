@@ -215,5 +215,28 @@ receive the same final decisions through sparse exchanges.
 
 This phase evaluates a common snapshot and changes no accepted network or
 history. The public generator currently submits single-process batches. MPI
-validation of simultaneous proposals does not yet provide distributed tree
-physiology updates or a distributed generation/commit loop.
+validation of simultaneous proposals does not yet provide a distributed
+generation/commit loop.
+
+## Normalize generated forests
+
+Final serial CCO radii and desired flows use a forest evaluation kernel that
+also operates on distributed ownership. It reconstructs incidence at node
+owners and exchanges subtree demand and moments from leaves to the declared
+attachment roots. A reverse sweep distributes each fixed attachment radius
+and total subtree demand. Each vessel owner then computes its Murray radius;
+terminal owners receive the desired flows. No process needs the full topology.
+
+The mutable vessel set is explicit: input vessels remain frozen even when
+their recorded provenance is generated. Each mutable root retains its existing
+uniform radius. Arterial and venous systems use separate exponents and total
+demands. Positive reference flow is shared by terminal demand within each
+system; zero leaves desired flows unspecified. Common physiological controls
+must agree across processes. Invalid connectivity, unrooted cycles, missing
+terminal roles and unrepresentable positive demands or radii fail collectively.
+
+The kernel changes no physical data. A caller adopts its radii only after
+validation and the required geometric checks. Tests exercise joint ancestor
+and descendant splits across partitions, but the public generator still needs
+a distributed growth and commit loop before it can generate with multiple
+processes.

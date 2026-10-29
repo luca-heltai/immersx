@@ -42,6 +42,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     VascularAV
     VascularDistribution
     VascularGrowthBatch
+    VascularForest
     BoundaryConditions
     CoupledPoisson
     CoupledPoissonElasticity
