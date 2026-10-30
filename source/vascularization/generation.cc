@@ -26,6 +26,7 @@
 #include "growth_commit.h"
 #include "growth_geometry.h"
 #include "growth_loop.h"
+#include "growth_start.h"
 
 namespace ImmersX::Vascularization
 {
@@ -288,20 +289,82 @@ namespace ImmersX::Vascularization
                  unsigned int                    terminal_count)
   {
     using namespace dealii;
-    AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
-                ExcMessage(
-                  "The current CCO execution path requires one rank."));
-    const bool creating_seed = initial.nodes.empty() &&
-                               initial.vessels.empty() &&
-                               initial.terminals.empty();
-    parameters.validate(creating_seed);
+    const auto size        = Utilities::MPI::n_mpi_processes(communicator);
+    const bool local_empty = initial.nodes.empty() && initial.vessels.empty() &&
+                             initial.terminals.empty();
+    const bool creating_seed =
+      Utilities::MPI::min(static_cast<unsigned int>(local_empty),
+                          communicator) == 1;
+    const bool any_venous =
+      Utilities::MPI::max(static_cast<unsigned int>(parameters.venous.enabled),
+                          communicator) > 0;
+    AssertThrow(
+      size == 1 || (creating_seed && !any_venous),
+      ExcMessage(
+        "Distributed startup currently requires an empty arterial input; imported and venous startup still require one rank."));
+    bool valid_controls = true;
+    try
+      {
+        parameters.validate(creating_seed);
+      }
+    catch (const std::exception &)
+      {
+        if (size == 1)
+          throw;
+        valid_controls = false;
+      }
+    AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(valid_controls),
+                                    communicator) == 1,
+                ExcMessage("Invalid vascular generation controls."));
     FunctionParser<3> demand_function;
-    demand_function.initialize("x,y,z", parameters.tissue_demand, {});
+    try
+      {
+        demand_function.initialize("x,y,z", parameters.tissue_demand, {});
+      }
+    catch (const std::exception &)
+      {
+        if (size == 1)
+          throw;
+        valid_controls = false;
+      }
+    AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(valid_controls),
+                                    communicator) == 1,
+                ExcMessage("Invalid tissue-demand expression."));
     GenerationResult result;
     result.network    = initial;
-    result.validation = validate_data(initial, 1);
+    result.validation = validate_data(initial, size);
     if (!result.validation.valid())
       return result;
+    bool same_selection = true;
+    for (const auto &other :
+         Utilities::MPI::all_gather(communicator,
+                                    parameters.selected_terminals))
+      same_selection = other == parameters.selected_terminals && same_selection;
+    AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(same_selection),
+                                    communicator) == 1,
+                ExcMessage(
+                  "All processes must select the same input terminal ids."));
+    int comparison = MPI_UNEQUAL;
+    MPI_Comm_compare(background.get_mpi_communicator(),
+                     communicator,
+                     &comparison);
+    const auto *mapping_q  = dynamic_cast<const MappingQ<3> *>(&mapping);
+    const auto *mapping_fe = dynamic_cast<const MappingFE<3> *>(&mapping);
+    bool        valid_mapping =
+      (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
+      ((mapping_q && mapping_q->get_degree() == 1) ||
+       (mapping_fe && mapping_fe->get_degree() == 1));
+    for (const auto &cell : background.active_cell_iterators())
+      if (cell->is_locally_owned())
+        valid_mapping = (cell->reference_cell().is_simplex() ||
+                         cell->reference_cell().is_hyper_cube()) &&
+                        mapping.is_compatible_with(cell->reference_cell()) &&
+                        valid_mapping;
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(valid_mapping),
+                          communicator) == 1,
+      ExcMessage(
+        "Vascular generation requires compatible first-order background mappings and congruent communicators."));
     BackgroundGeometry geometry(background, mapping);
     const auto         fail = [&](Id id, const std::string &message) {
       result.validation.issues.push_back({"attachment", id, message});
@@ -440,35 +503,19 @@ namespace ImmersX::Vascularization
           return reject(
             "Fixed attachment radius is below the minimum admissible new radius.");
         }
-      std::vector<Point<3>> directions;
-      if (shared)
-        for (unsigned int i = 0; i < 6; ++i)
-          {
-            auto               end  = shared->position;
-            const unsigned int axis = (i + shared->id) % 6;
-            end[axis / 2] +=
-              (axis % 2 ? 1. : -1.) * parameters.venous.terminal_separation;
-            directions.emplace_back(end - position);
-          }
-      else if (seed_direction.norm() > 0.)
-        directions.push_back(seed_direction);
-      else
-        {
-          if (!new_port)
-            directions.emplace_back(
-              position - initial.nodes.at(properties.nodes[0]).position);
-          directions.emplace_back((*cell)->center() - position);
-          for (const auto v : (*cell)->vertex_indices())
-            directions.emplace_back(
-              .5 * ((*cell)->vertex(v) + (*cell)->center()) - position);
-          for (unsigned int d = 0; d < 3; ++d)
-            for (double sign : {-1., 1.})
-              {
-                Point<3> direction;
-                direction[d] = sign;
-                directions.push_back(direction);
-              }
-        }
+      std::vector<Point<3>> vertices;
+      for (const auto v : (*cell)->vertex_indices())
+        vertices.push_back((*cell)->vertex(v));
+      const auto directions = internal::initial_root_directions(
+        position,
+        (*cell)->center(),
+        vertices,
+        seed_direction,
+        new_port ? std::optional<Point<3>>() :
+                        std::optional<Point<3>>(
+                     position - initial.nodes.at(properties.nodes[0]).position),
+        shared,
+        parameters.venous.terminal_separation);
       const bool allocate_port = new_port && !result.network.nodes.count(start);
       AssertThrow(next_node < invalid_id - (allocate_port ? 1 : 0) &&
                     next_vessel < invalid_id,
@@ -568,15 +615,15 @@ namespace ImmersX::Vascularization
     };
     if (creating_seed)
       {
-        Vessel properties;
-        properties.radii = {{parameters.seed_radius, parameters.seed_radius}};
-        properties.viscosity = parameters.viscosity;
-        Node port;
-        port.position           = parameters.seed_position;
-        port.port               = Port::arterial_inlet;
-        port.inward_port_normal = parameters.seed_inward_port_normal;
-        append_root(
-          0, properties, invalid_id, true, port, parameters.seed_direction);
+        auto startup = internal::start_seed(
+          background, mapping, parameters, demand_function, communicator);
+        result.validation = startup.validation;
+        if (startup.committed)
+          {
+            result.network = std::move(startup.network);
+            for (const auto &[id, radius] : startup.fixed_owned_roots)
+              roots.push_back(id);
+          }
       }
     else
       for (Id id : selected)
@@ -891,10 +938,16 @@ namespace ImmersX::Vascularization
                   "The supplied bed resistances, pressures and reference flow do not realize the requested tissue-demand split.");
             }
       }
-    const auto report = validate_data(result.network, 1);
+    const auto report = validate_data(result.network, size);
     result.validation.issues.insert(result.validation.issues.end(),
                                     report.issues.begin(),
                                     report.issues.end());
+    if (Utilities::MPI::min(static_cast<unsigned int>(
+                              result.validation.valid()),
+                            communicator) == 0 &&
+        result.validation.valid())
+      fail(invalid_id,
+           "Vascular generation failed validation on another process.");
     if (result.validation.valid())
       {
         result.discretization = discretize(background,
@@ -925,7 +978,21 @@ namespace ImmersX::Vascularization
            MPI_Comm                        communicator)
   {
     using namespace dealii;
-    const auto &p = parameters.calibration;
+    const auto                 &p = parameters.calibration;
+    const std::array<double, 6> modes{{p.volume_fraction,
+                                       p.minimum_coverage,
+                                       p.relative_tolerance,
+                                       static_cast<double>(p.minimum_terminals),
+                                       static_cast<double>(p.maximum_terminals),
+                                       static_cast<double>(p.attempt_budget)}};
+    bool                        matching_modes = true;
+    for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
+      matching_modes = other == modes && matching_modes;
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(matching_modes),
+                          communicator) == 1,
+      ExcMessage(
+        "All processes must use the same vascular calibration controls."));
     if (p.volume_fraction == 0. && p.minimum_coverage == 0.)
       return generate_count(background,
                             mapping,
