@@ -159,6 +159,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Limit concurrent vascular proposal comparisons to overlapping vessel envelopes and shared physical identifiers. Preserve exact collision and junction checks, owner votes and deterministic conflict decisions during joint radius validation.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use one batched growth engine for arteries and veins. Assign venous proposals to common-territory owners, preserve the arterial demand at offset endpoints, and reject duplicate or inconsistent territory claims across MPI owners.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use batched CCO execution for public arterial generation and calibration. Check local-search trials against owner-provided vessel geometry with their proposed Murray radii, retaining the best feasible trial.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
