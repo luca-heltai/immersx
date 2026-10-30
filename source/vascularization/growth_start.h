@@ -25,6 +25,22 @@ namespace ImmersX::Vascularization::internal
     const Territory                       *shared,
     double                                 separation);
 
+  struct AttachmentStartup
+  {
+    GrowthCommit accepted;
+    // Records remain at the consumed input terminal's native node owner.
+    std::map<Id, Id> attachment_roots;
+  };
+
+  AttachmentStartup
+  start_attachments(const dealii::Triangulation<3>  &background,
+                    const dealii::Mapping<3>        &mapping,
+                    const NetworkData               &initial,
+                    const Parameters                &parameters,
+                    const dealii::FunctionParser<3> &demand,
+                    unsigned int                     terminal_count,
+                    MPI_Comm                         communicator);
+
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.
   GrowthCommit

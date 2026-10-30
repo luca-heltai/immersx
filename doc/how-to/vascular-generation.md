@@ -10,11 +10,12 @@ when `validation.valid()` is true; input data are never modified.
 
 Generation from an empty arterial input is collective and supports one or
 several MPI processes. The background point owner creates the single real seed
-root; its branch may cross partitions immediately. Imported and venous startup
-and terminal-count calibration currently require one process. Use a first-order
-mapping on an all-tetrahedral or all-hexahedral physical background. Geometry
-checks include the vessel wall and clearance. An ambiguous boundary separation at the finite
-geometry budget fails conservatively. Explicit planar inlet/outlet sections
+root; its branch may cross partitions immediately. Imported arterial networks
+also support collective startup from one or several selected leaves. Venous
+startup and terminal-count calibration currently require one process. Use a
+first-order mapping on an all-tetrahedral or all-hexahedral physical background.
+Geometry checks include the vessel wall and clearance. An ambiguous boundary
+separation at the finite geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.
 
 ## Arterial and venous trees
@@ -158,6 +159,22 @@ The supplied `discretize()` result already contains the global inside vessel
 volume, which is used once. Setting the service radius to zero disables coverage
 while retaining the global volume fraction.
 
+Imported arterial startup first refreshes native point/midpoint ownership and
+endpoint incidence. It validates terminal records at their node owners, adds
+missing non-port leaf records, and selects interior arterial endpoints.
+Explicit selections must name unique input terminal ids; an explicitly selected
+exterior leaf is rejected. Unselected and exterior input branches remain fixed,
+including input entries marked as generated.
+
+Containing-cell queries for all selected leaves use sparse batches. New roots
+inherit the incoming vessel's distal radius, viscosity and extra physical
+properties. Node owners propose roots in concurrent geometry rounds; the same
+batch checks and joint commit used during growth certify them before adoption.
+New identifiers use disjoint integer ranges. No artificial roots or full graph
+replicas are introduced. `attachment_roots` records each consumed terminal's
+new root id on the consumed terminal's native node owner; root-vessel ownership
+may differ after midpoint redistribution.
+
 ## Discretize across background partitions
 
 `discretize()` is collective and accepts owned physical vessels with their
@@ -203,8 +220,8 @@ For an existing distributed `NetworkData`, `redistribute()` migrates owned
 entities against a prepared parallel background and refreshes geometric ghosts.
 It is collective, including processes with no physical entities or no owned
 background cells. This operation does not generate branches. `generate()`
-currently supports MPI startup from an empty arterial input; startup from
-imported terminals and venous outlets still requires one process.
+supports MPI startup from an empty arterial input and from imported arterial
+terminals. Venous startup still requires one process.
 
 ```cpp
 #include <immersx/vascularization/distribution.h>
@@ -236,7 +253,10 @@ segment bounding box expanded by the maximum endpoint radius plus the supplied
 halo. The halo can include wall clearance and an additional candidate-search
 reach. It can span several cells or partitions and is independent of mesh
 adjacency. These are conservative recipient queries; callers must still check
-actual segment geometry before accepting an insertion.
+actual segment geometry before accepting an insertion. Vessel ghosts also reach
+both endpoint owners, including exterior endpoints beyond every background
+covering box. This supplies complete incidence for input-leaf validation and
+attachment selection.
 
 Authoritative node values replace stale ghost values before midpoint location.
 Ghost edits to geometry, radii or demand cannot override owned data. Sparse
@@ -372,9 +392,10 @@ Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
 serves both public arterial and venous generation and calibration. Distributed
-public seed/import startup, measurement and solver preparation remain to be
-connected. Scaling at the requested sizes has not yet been
-measured.
+venous startup, terminal-count calibration and the resistive reference solver
+remain to be connected to the public MPI path. Arterial seed/import startup,
+discretization, native mesh construction and tissue measurement support MPI.
+Scaling at the requested sizes has not yet been measured.
 
 Public arterial generation uses the batched engine with an explicit terminal
 count for each calibration attempt; it does not copy or re-register the

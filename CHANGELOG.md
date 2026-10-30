@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Complete imported arterial networks collectively from selected native MPI endpoints, preserving input geometry and properties. Discover missing leaf records, reserve stable integer identifiers by batch and retain incident vessel ghosts at exterior endpoint owners.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Start arterial generation from one real seed at its native background owner and grow it through the public API across MPI partitions. Certify the first branch collectively, preserve its fixed radius, and reject inconsistent controls without adopting a trial.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Measure global vascular volume fraction and arterial, venous and joint tissue coverage across MPI partitions. Exchange terminal service centres independently of vessel ghost halos, integrate owned background cells once, and retain mapping-aware domain volume independently of coverage quadrature.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Build native fully distributed vascular line meshes with background-aligned cell owners and vertex-adjacent ghosts. Preserve shared junction DoFs and physical-vessel references without gathering the complete graph or narrowing physical identifiers into mesh indices.

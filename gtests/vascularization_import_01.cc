@@ -1,10 +1,13 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
 
 #include <gtest/gtest.h>
+#include <immersx/vascularization/distribution.h>
 #include <immersx/vascularization/generation.h>
 
 #include <cmath>
@@ -325,4 +328,356 @@ TEST(VascularImported, RestartFreezesPreviouslyGeneratedData)
   ASSERT_TRUE(result.validation.valid());
   unchanged(initial.network, result.network);
   EXPECT_EQ(result.attachment_roots.size(), 1u);
+}
+
+namespace
+{
+  constexpr Id distributed_base = (Id{1} << 60) + 317;
+
+  NetworkData
+  distributed_input(bool with_terminals = true)
+  {
+    const auto  rank   = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    const auto  source = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) - 1;
+    NetworkData n;
+    if (rank != source)
+      return n;
+    for (unsigned int i = 0; i < 2; ++i)
+      {
+        const Id node     = distributed_base + 2 * i;
+        n.nodes[node]     = {Point<3>(i == 0 ? 9.2 : -.2, i == 0 ? .3 : .7, .5),
+                             source,
+                             Port::arterial_inlet,
+                         i == 0 ? Provenance::imported : Provenance::generated};
+        n.nodes[node + 1] = {Point<3>(i == 0 ? 6.5 : 1.5, i == 0 ? .3 : .7, .5),
+                             source,
+                             Port::none,
+                             Provenance::imported};
+        Vessel v;
+        v.nodes     = {{node, node + 1}};
+        v.radii     = {{.012 + .002 * i, .008 + .002 * i}};
+        v.viscosity = .003 + .002 * i;
+        v.physical_properties["Young modulus"] = 12345. + i;
+        v.owner                                = source;
+        v.provenance = i == 0 ? Provenance::imported : Provenance::generated;
+        n.vessels[distributed_base + 100 + i] = v;
+        if (with_terminals)
+          n.terminals[distributed_base + 200 + i] = {node + 1,
+                                                     distributed_base + 300 + i,
+                                                     System::arterial,
+                                                     source,
+                                                     2. + i};
+      }
+    return n;
+  }
+
+  void
+  distributed_background(parallel::distributed::Triangulation<3> &bg)
+  {
+    GridGenerator::subdivided_hyper_rectangle(bg,
+                                              {8, 1, 1},
+                                              Point<3>(0., 0., 0.),
+                                              Point<3>(8., 1., 1.));
+  }
+} // namespace
+
+TEST(VascularImported,
+     BOTH_PublicSelectedAttachmentCrossesPartitionsWithLargeIds)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> bg(comm);
+  distributed_background(bg);
+  const auto input = distributed_input();
+  Parameters p;
+  controls(p);
+  p.seed_direction     = Point<3>();
+  p.seed_length        = 5.5;
+  p.terminal_count     = 1;
+  p.reference_flow     = 1.e-9;
+  p.tissue_demand      = "1+x";
+  p.selected_terminals = {distributed_base + 200};
+  const auto generated = generate(bg, MappingQ1<3>(), input, p, comm);
+  ASSERT_TRUE(generated.validation.valid());
+  unsigned int attachments = 0, frozen = 0, fresh = 0, old_terminals = 0,
+               new_terminals    = 0;
+  unsigned int attachment_owner = size, root_owner = size;
+  for (const auto &[id, root] : generated.attachment_roots)
+    {
+      ++attachments;
+      EXPECT_EQ(id, distributed_base + 200);
+      EXPECT_GT(root, distributed_base + 101);
+      attachment_owner = rank;
+    }
+  for (const auto &[id, v] : generated.network.vessels)
+    if (v.owner == rank)
+      {
+        if (id == distributed_base + 100 || id == distributed_base + 101)
+          {
+            ++frozen;
+            const unsigned int i = id - distributed_base - 100;
+            EXPECT_EQ(v.nodes,
+                      (std::array<Id, 2>{{distributed_base + 2 * i,
+                                          distributed_base + 2 * i + 1}}));
+            EXPECT_EQ(v.radii,
+                      (std::array<double, 2>{
+                        {.012 + .002 * i, .008 + .002 * i}}));
+            EXPECT_DOUBLE_EQ(v.viscosity, .003 + .002 * i);
+            EXPECT_DOUBLE_EQ(v.physical_properties.at("Young modulus"),
+                             12345. + i);
+            EXPECT_EQ(v.provenance,
+                      i == 0 ? Provenance::imported : Provenance::generated);
+          }
+        else
+          {
+            ++fresh;
+            root_owner = rank;
+            EXPECT_EQ(v.nodes[0], distributed_base + 1);
+            EXPECT_DOUBLE_EQ(v.radii[0], .008);
+            EXPECT_DOUBLE_EQ(v.radii[1], .008);
+            EXPECT_DOUBLE_EQ(v.viscosity, .003);
+            EXPECT_DOUBLE_EQ(v.physical_properties.at("Young modulus"), 12345.);
+            EXPECT_NEAR(length(generated.network, id), 5.5, 1.e-13);
+            EXPECT_LT(generated.network.nodes.at(v.nodes[1])
+                        .position.distance(Point<3>(1., .3, .5)),
+                      1.e-13);
+          }
+      }
+  for (const auto &[id, t] : generated.network.terminals)
+    if (t.owner == rank)
+      {
+        EXPECT_NE(id, distributed_base + 200);
+        if (id == distributed_base + 201)
+          {
+            ++old_terminals;
+            EXPECT_EQ(t.territory, distributed_base + 301);
+            EXPECT_DOUBLE_EQ(t.demand, 3.);
+          }
+        else
+          {
+            ++new_terminals;
+            EXPECT_DOUBLE_EQ(t.demand, 2.);
+            EXPECT_GT(t.territory, distributed_base + 301);
+            EXPECT_NEAR(generated.target_terminal_flows.at(id) /
+                          p.reference_flow,
+                        1.,
+                        1.e-13);
+          }
+      }
+  EXPECT_EQ(Utilities::MPI::sum(attachments, comm), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(frozen, comm), 2u);
+  EXPECT_EQ(Utilities::MPI::sum(fresh, comm), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(old_terminals, comm), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(new_terminals, comm), 1u);
+  attachment_owner = Utilities::MPI::min(attachment_owner, comm);
+  root_owner       = Utilities::MPI::min(root_owner, comm);
+  if (size > 1)
+    {
+      EXPECT_NE(root_owner, attachment_owner);
+    }
+  unchanged(distributed_input(), input);
+}
+
+TEST(VascularImported, BOTH_PublicMultipleAttachmentsFeedConcurrentGrowth)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> bg(comm);
+  distributed_background(bg);
+  const auto input = distributed_input(false);
+  Parameters p;
+  controls(p);
+  p.seed_direction     = Point<3>();
+  p.seed_length        = .6;
+  p.terminal_count     = 6;
+  p.reference_flow     = 2.e-9;
+  p.tissue_demand      = "1+x";
+  const auto generated = generate(bg, MappingQ1<3>(), input, p, comm);
+  ASSERT_TRUE(generated.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                  generated.attachment_roots.size()),
+                                comm),
+            2u);
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(generated.territories.size()), comm),
+            6u);
+  EXPECT_EQ(generated.accepted_insertions, 4u);
+  unsigned int frozen = 0, fresh = 0, terminal_count = 0;
+  double       total_flow = 0.;
+  for (const auto &[id, v] : generated.network.vessels)
+    if (v.owner == rank)
+      {
+        if (id == distributed_base + 100 || id == distributed_base + 101)
+          ++frozen;
+        else
+          {
+            ++fresh;
+            EXPECT_GT(id, distributed_base + 101);
+            EXPECT_EQ(v.provenance, Provenance::generated);
+          }
+      }
+  for (const auto &[id, t] : generated.network.terminals)
+    if (t.owner == rank)
+      {
+        ++terminal_count;
+        total_flow += generated.target_terminal_flows.at(id);
+      }
+  EXPECT_EQ(Utilities::MPI::sum(frozen, comm), 2u);
+  EXPECT_EQ(Utilities::MPI::sum(fresh, comm), 10u);
+  EXPECT_EQ(Utilities::MPI::sum(terminal_count, comm), 6u);
+  EXPECT_NEAR(Utilities::MPI::sum(total_flow, comm) / p.reference_flow,
+              1.,
+              2.e-13);
+  const auto repeated = generate(bg, MappingQ1<3>(), input, p, comm);
+  ASSERT_TRUE(repeated.validation.valid());
+  unchanged(generated.network, repeated.network);
+  EXPECT_EQ(generated.sampled_points, repeated.sampled_points);
+  unchanged(distributed_input(false), input);
+}
+
+TEST(VascularImported, BOTH_PublicInvalidAttachmentIsRejectedCollectively)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> bg(comm);
+  distributed_background(bg);
+  auto       input = distributed_input();
+  Parameters p;
+  controls(p);
+  p.terminal_count     = 2;
+  p.selected_terminals = {distributed_base + 200, distributed_base + 200};
+  EXPECT_FALSE(generate(bg, MappingQ1<3>(), input, p, comm).validation.valid());
+  p.selected_terminals = {distributed_base + 999};
+  EXPECT_FALSE(generate(bg, MappingQ1<3>(), input, p, comm).validation.valid());
+  p.selected_terminals.clear();
+  p.terminal_count = 1;
+  EXPECT_FALSE(generate(bg, MappingQ1<3>(), input, p, comm).validation.valid());
+  p.terminal_count = 2;
+  // One real root is accepted in the first round; the other points back into
+  // its frozen incoming vessel. Failure must discard the whole startup.
+  p.seed_direction       = Point<3>(-1., 0., 0.);
+  const auto rolled_back = generate(bg, MappingQ1<3>(), input, p, comm);
+  EXPECT_FALSE(rolled_back.validation.valid());
+  unchanged(input, rolled_back.network);
+  EXPECT_EQ(rolled_back.network.vessels.size(), input.vessels.size());
+  EXPECT_TRUE(rolled_back.attachment_roots.empty());
+  p.seed_direction = Point<3>();
+  if (rank == size - 1)
+    input.terminals[distributed_base + 202] =
+      input.terminals.at(distributed_base + 200);
+  EXPECT_FALSE(generate(bg, MappingQ1<3>(), input, p, comm).validation.valid());
+  input = distributed_input();
+  if (rank == size - 1)
+    input.vessels.at(distributed_base + 100).radii[1] = -1.;
+  EXPECT_FALSE(generate(bg, MappingQ1<3>(), input, p, comm).validation.valid());
+}
+
+TEST(VascularImported, BOTH_PublicExteriorLeafKeepsRemoteIncidence)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> bg(comm);
+  distributed_background(bg);
+  auto     input = distributed_input();
+  const Id port = distributed_base + 500, leaf = port + 1, vessel = port + 2,
+           terminal = port + 3;
+  if (rank == 0 || rank == size - 1)
+    input.nodes[leaf] = {Point<3>(-2., .9, .5),
+                         size - 1,
+                         Port::none,
+                         Provenance::imported};
+  if (rank == 0)
+    {
+      input.nodes[port] = {Point<3>(.5, .9, .5),
+                           0,
+                           Port::arterial_inlet,
+                           Provenance::imported};
+      Vessel v;
+      v.nodes               = {{port, leaf}};
+      v.radii               = {{.01, .01}};
+      v.viscosity           = .004;
+      v.owner               = 0;
+      input.vessels[vessel] = v;
+    }
+  if (rank == size - 1)
+    input.terminals[terminal] = {
+      leaf, invalid_id, System::arterial, size - 1, 7.};
+  const auto relevant = redistribute(bg, MappingQ1<3>(), input, 0., comm);
+  if (rank == size - 1)
+    {
+      EXPECT_TRUE(relevant.vessels.count(vessel));
+      EXPECT_TRUE(relevant.nodes.count(port));
+    }
+  Parameters p;
+  controls(p);
+  p.seed_direction     = Point<3>();
+  p.terminal_count     = 2;
+  const auto generated = generate(bg, MappingQ1<3>(), input, p, comm);
+  ASSERT_TRUE(generated.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                  generated.attachment_roots.size()),
+                                comm),
+            2u);
+  if (rank == size - 1)
+    {
+      EXPECT_TRUE(generated.network.vessels.count(vessel));
+      EXPECT_DOUBLE_EQ(generated.network.terminals.at(terminal).demand, 7.);
+    }
+  p.selected_terminals = {terminal};
+  const auto rejected  = generate(bg, MappingQ1<3>(), input, p, comm);
+  EXPECT_FALSE(rejected.validation.valid());
+  unchanged(input, rejected.network);
+}
+
+TEST(VascularImported, BOTH_PublicImportedStartupWithEmptyBackgroundRanks)
+{
+  const auto comm   = MPI_COMM_WORLD;
+  const auto rank   = Utilities::MPI::this_mpi_process(comm);
+  const auto source = Utilities::MPI::n_mpi_processes(comm) - 1;
+  parallel::distributed::Triangulation<3> bg(comm);
+  GridGenerator::hyper_cube(bg);
+  NetworkData input;
+  if (rank == source)
+    {
+      input.nodes[10] = {Point<3>(.1, .5, .5),
+                         source,
+                         Port::arterial_inlet,
+                         Provenance::imported};
+      input.nodes[20] = {Point<3>(.3, .5, .5),
+                         source,
+                         Port::none,
+                         Provenance::imported};
+      Vessel v;
+      v.nodes              = {{10, 20}};
+      v.radii              = {{.01, .008}};
+      v.viscosity          = .004;
+      v.owner              = source;
+      input.vessels[100]   = v;
+      input.terminals[200] = {20, 300, System::arterial, source, 2.};
+    }
+  Parameters p;
+  controls(p);
+  p.seed_length        = .15;
+  p.terminal_count     = 3;
+  p.selected_terminals = {200};
+  p.reference_flow     = 1.e-9;
+  const auto result    = generate(bg, MappingQ1<3>(), input, p, comm);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(result.attachment_roots.size()), comm),
+            1u);
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(result.territories.size()), comm),
+            3u);
+  EXPECT_EQ(result.accepted_insertions, 2u);
+  EXPECT_NEAR(result.tissue.background_volume, 1., 1.e-13);
+  for (const auto &[id, v] : result.network.vessels)
+    if (id == 100)
+      {
+        EXPECT_EQ(v.radii, (std::array<double, 2>{{.01, .008}}));
+        EXPECT_EQ(v.provenance, Provenance::imported);
+      }
 }
