@@ -121,6 +121,26 @@ flows, not substitutes for the solved values. The reference problem is steady
 Poiseuille flow on complete physical vessels, including imported exterior
 parts. It is separate from transient hemodynamics and accepted solver state.
 
+`solve_reference()` is collective and uses native distributed vectors,
+`dealii::LinearOperator` and CG with Jacobi preconditioning for one or more
+processes. It assigns compact algebraic indices independently of physical ids
+and numerical cells. Sparse endpoint incidence builds owned graph rows and
+neighbor values; neither graph topology nor the solution is gathered.
+Pressure offsets follow the nearest explicit anchor in resistive distance,
+including across partitions, to retain small vascular drops beside large beds.
+
+Supply each `TerminalPair` on exactly one process; that process receives its
+territory flow. The solver resolves the two terminal identities and their
+nodes even when the bed's process owns no physical entities. Boundary maps may
+be distributed or repeated with identical values. Conflicting duplicates and
+pressure/flow overprescription fail collectively. Terminal owners must follow
+their nodes, and endpoint ghosts must match their authoritative nodes.
+Results contain owned vessel, terminal and boundary records, pressures at
+locally relevant nodes, and global scalar diagnostics. `reference_pressure()`
+evaluates owned physical vessels. The `demand_flow_conditions()` convenience
+function currently requires one process; distributed callers can provide
+owned terminal loads directly, as in the public generated-tree reference test.
+
 A nonzero `dissipation_weight` blends generated-vessel volume and dissipated
 power, each normalized by the current active forest value. Physical flow is
 split globally across the active system's roots by demand. Frozen imported
@@ -411,9 +431,9 @@ Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
 serves both public arterial and venous generation and calibration. Distributed
-venous startup and the resistive reference solver remain to be connected to
-the public MPI path. Arterial seed/import startup, terminal-count calibration,
-discretization, native mesh construction and tissue measurement support MPI.
+venous startup remains to be connected to the public MPI path. Arterial
+seed/import startup, terminal-count calibration, discretization, native mesh
+construction, tissue measurement and the resistive reference solve support MPI.
 Scaling at the requested sizes has not yet been measured.
 
 Public arterial generation uses the batched engine with an explicit terminal
