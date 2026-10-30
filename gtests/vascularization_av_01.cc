@@ -2,9 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <deal.II/base/numbers.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
+
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/tria_description.h>
+
+#include <boost/serialization/map.hpp>
 
 #include <gtest/gtest.h>
 #include <immersx/vascularization/generation.h>
@@ -629,4 +637,325 @@ TEST(VascularAV,
                                                            MPI_COMM_WORLD);
       EXPECT_FALSE(r.validation.valid()) << mode;
     }
+}
+
+namespace
+{
+  void
+  distributed_av_oracle(const GenerationResult &r, const Parameters &p)
+  {
+    const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    ASSERT_TRUE(r.validation.valid()) << issues(r);
+    ASSERT_TRUE(r.reference.validation.valid());
+    const auto global_count = [&](std::size_t n) {
+      return Utilities::MPI::sum(static_cast<Id>(n), MPI_COMM_WORLD);
+    };
+    EXPECT_EQ(global_count(r.territories.size()), p.terminal_count);
+    EXPECT_EQ(global_count(r.terminal_pairs.size()), p.terminal_count);
+    double demand = 0.;
+    for (const auto &t : r.territories)
+      {
+        EXPECT_EQ(t.owner, rank);
+        demand += t.demand;
+      }
+    demand = Utilities::MPI::sum(demand, MPI_COMM_WORLD);
+    std::map<Id, double> local_demand;
+    for (const auto &t : r.territories)
+      local_demand[t.id] = t.demand;
+    for (const auto &pair : r.terminal_pairs)
+      {
+        EXPECT_GT(pair.resistance, 0.);
+        EXPECT_NE(pair.arterial, pair.venous);
+        const double q = r.reference.territories.at(pair.territory).flow;
+        EXPECT_GT(q, 0.);
+        EXPECT_NEAR(q / (p.reference_flow * local_demand.at(pair.territory) /
+                         demand),
+                    1.,
+                    1.e-8);
+      }
+    std::array<Id, 2> counts{{0, 0}};
+    double            a_flow = 0., v_flow = 0.;
+    for (const auto &[id, t] : r.network.terminals)
+      if (t.owner == rank)
+        {
+          const double q = r.reference.terminal_outflows.at(id);
+          if (t.system == System::arterial)
+            {
+              ++counts[0];
+              a_flow += q;
+            }
+          else if (t.system == System::venous)
+            {
+              ++counts[1];
+              v_flow -= q;
+            }
+        }
+    EXPECT_EQ(global_count(counts[0]), p.terminal_count);
+    EXPECT_EQ(global_count(counts[1]), p.terminal_count);
+    EXPECT_NEAR(Utilities::MPI::sum(a_flow, MPI_COMM_WORLD) / p.reference_flow,
+                1.,
+                1.e-8);
+    EXPECT_NEAR(Utilities::MPI::sum(v_flow, MPI_COMM_WORLD) / p.reference_flow,
+                1.,
+                1.e-8);
+    for (const auto &[id, vessel] : r.network.vessels)
+      if (vessel.owner == rank)
+        {
+          const auto &flow = r.reference.vessels.at(id);
+          EXPECT_NEAR(flow.resistance / resistance(r.network, id), 1., 1.e-12);
+          const double dp = r.reference.pressures.at(vessel.nodes[0]) -
+                            r.reference.pressures.at(vessel.nodes[1]);
+          EXPECT_NEAR(dp / (flow.resistance * flow.flow), 1., 1.e-7);
+          if (vessel.system == System::arterial)
+            {
+              EXPECT_GT(flow.flow, 0.);
+            }
+          else if (vessel.system == System::venous)
+            {
+              EXPECT_LT(flow.flow, 0.);
+            }
+        }
+  }
+} // namespace
+TEST(VascularAV, BOTH_PublicDistributedStartupFromOneRealArterialAndVenousPort)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {4, 2, 2},
+                                            Point<3>(),
+                                            Point<3>(1., 1., 1.));
+  Parameters p;
+  controls(p);
+  p.seed_position        = Point<3>(.15, .25, .5);
+  p.seed_length          = .6;
+  p.venous.seed_position = Point<3>(.85, .75, .5);
+  p.terminal_count       = 4;
+  p.coverage             = {2., 2};
+  const auto r           = generate(background, MappingQ1<3>(), {}, p, comm);
+  distributed_av_oracle(r, p);
+  ASSERT_TRUE(r.validation.valid()) << issues(r);
+  unsigned int a_ports = 0, v_ports = 0;
+  for (const auto &[id, n] : r.network.nodes)
+    if (n.owner == rank)
+      {
+        if (n.port == Port::arterial_inlet)
+          {
+            ++a_ports;
+            EXPECT_EQ(id, 0u);
+            EXPECT_EQ(n.position, p.seed_position);
+          }
+        else if (n.port == Port::venous_outlet)
+          {
+            ++v_ports;
+            EXPECT_EQ(id, 2u);
+            EXPECT_EQ(n.position, p.venous.seed_position);
+          }
+      }
+  EXPECT_EQ(Utilities::MPI::sum(a_ports, comm), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(v_ports, comm), 1u);
+  EXPECT_NEAR(r.tissue.dual_coverage, 1., 1.e-12);
+  p.calibration.volume_fraction   = r.tissue.volume_fraction * 1.02;
+  p.calibration.minimum_coverage  = .9;
+  p.calibration.minimum_terminals = p.terminal_count;
+  p.calibration.maximum_terminals = p.terminal_count;
+  p.calibration.attempt_budget    = 1;
+  const auto again = generate(background, MappingQ1<3>(), {}, p, comm);
+  ASSERT_TRUE(again.validation.valid()) << issues(again);
+  EXPECT_EQ(again.calibration.status, CalibrationStatus::converged);
+  EXPECT_EQ(again.calibration.attempts.size(), 1u);
+  EXPECT_GE(again.tissue.dual_coverage, .9);
+  EXPECT_EQ(r.sampled_points, again.sampled_points);
+  EXPECT_EQ(r.network.nodes.size(), again.network.nodes.size());
+  for (const auto &[id, n] : r.network.nodes)
+    EXPECT_EQ(n.position, again.network.nodes.at(id).position);
+}
+TEST(VascularAV, BOTH_PublicDistributedMultipleImportedOutletsPreserveInput)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {4, 2, 2},
+                                            Point<3>(),
+                                            Point<3>(1., 1., 1.));
+  NetworkData initial;
+  if (rank == 0)
+    for (unsigned int i = 0; i < 4; ++i)
+      {
+        const bool   artery = i < 2;
+        const Id     a = 10 * i, b = a + 1;
+        const double y = artery ? (i % 2 ? .7 : .3) : .2 + .05 * (i - 2);
+        const double z = artery ? .5 : .45 + .1 * (i - 2);
+        initial.nodes[a].position = Point<3>(artery ? -.05 : 1.05, y, z);
+        initial.nodes[b].position = Point<3>(artery ? .15 : .85, y, z);
+        initial.nodes[a].port =
+          artery ? Port::arterial_inlet : Port::venous_outlet;
+        Vessel v;
+        v.nodes     = {{a, b}};
+        v.system    = artery ? System::arterial : System::venous;
+        v.radii     = {{.004, .003}};
+        v.viscosity = .004;
+        v.physical_properties["density"] = 1050. + i;
+        initial.vessels[100 + i]         = v;
+        initial.terminals[200 + i]       = {b, 300 + i, v.system, 0, 5. + i};
+      }
+  Parameters p;
+  controls(p);
+  p.seed_direction                 = {};
+  p.seed_length                    = .15;
+  p.terminal_count                 = 2;
+  p.selected_terminals             = {200, 201};
+  p.venous.selected_terminals      = {202, 203};
+  p.reference_conditions.pressures = {{0, 12000.},
+                                      {10, 12000.},
+                                      {20, 4000.},
+                                      {30, 4000.}};
+  const auto r = generate(background, MappingQ1<3>(), initial, p, comm);
+  distributed_av_oracle(r, p);
+  ASSERT_TRUE(r.validation.valid()) << issues(r);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<Id>(r.attachment_roots.size()),
+                                comm),
+            4u);
+  std::map<Id, Id> roots;
+  for (const auto &entries :
+       Utilities::MPI::all_gather(comm, r.attachment_roots))
+    for (const auto &[input, root] : entries)
+      EXPECT_TRUE(roots.emplace(root, input).second);
+  unsigned int fixed_nodes = 0;
+  for (const auto &[id, node] : r.network.nodes)
+    if (node.owner == rank && id < 32 && id % 10 <= 1)
+      {
+        const unsigned int i      = id / 10;
+        const bool         artery = i < 2, port = id % 10 == 0;
+        const double       y = artery ? (i % 2 ? .7 : .3) : .2 + .05 * (i - 2);
+        const double       z = artery ? .5 : .45 + .1 * (i - 2);
+        const double x = artery ? (port ? -.05 : .15) : (port ? 1.05 : .85);
+        ++fixed_nodes;
+        EXPECT_EQ(node.position, Point<3>(x, y, z));
+        EXPECT_EQ(node.provenance, Provenance::imported);
+        EXPECT_EQ(node.port,
+                  port ? (artery ? Port::arterial_inlet : Port::venous_outlet) :
+                         Port::none);
+      }
+  EXPECT_EQ(Utilities::MPI::sum(fixed_nodes, comm), 8u);
+  unsigned int inherited = 0;
+  for (const auto &[id, vessel] : r.network.vessels)
+    if (vessel.owner == rank && roots.count(id))
+      {
+        const unsigned int i = roots.at(id) - 200;
+        ++inherited;
+        EXPECT_EQ(vessel.nodes[0], 10 * i + 1);
+        EXPECT_EQ(vessel.radii, (std::array<double, 2>{{.003, .003}}));
+        EXPECT_DOUBLE_EQ(vessel.viscosity, .004);
+        EXPECT_DOUBLE_EQ(vessel.physical_properties.at("density"), 1050. + i);
+        EXPECT_EQ(vessel.system, i < 2 ? System::arterial : System::venous);
+      }
+  EXPECT_EQ(Utilities::MPI::sum(inherited, comm), 4u);
+  unsigned int imported = 0;
+  for (const auto &[id, v] : r.network.vessels)
+    if (v.owner == rank && id >= 100 && id < 104)
+      {
+        const unsigned int i = id - 100;
+        ++imported;
+        EXPECT_EQ(v.nodes, (std::array<Id, 2>{{10 * i, 10 * i + 1}}));
+        EXPECT_EQ(v.radii, (std::array<double, 2>{{.004, .003}}));
+        EXPECT_DOUBLE_EQ(v.viscosity, .004);
+        EXPECT_DOUBLE_EQ(v.physical_properties.at("density"), 1050. + i);
+        EXPECT_EQ(v.provenance, Provenance::imported);
+      }
+  EXPECT_EQ(Utilities::MPI::sum(imported, comm), 4u);
+  for (const auto &[id, t] : r.network.terminals)
+    EXPECT_FALSE(id >= 200 && id < 204);
+  if (rank == 0)
+    {
+      EXPECT_EQ(initial.nodes.at(0).position, Point<3>(-.05, .3, .5));
+      EXPECT_EQ(initial.terminals.size(), 4u);
+    }
+  p.venous.selected_terminals = {202, 202};
+  auto rejected = generate(background, MappingQ1<3>(), initial, p, comm);
+  EXPECT_FALSE(rejected.validation.valid());
+  EXPECT_TRUE(rejected.terminal_pairs.empty());
+  p.venous.selected_terminals = {202, 203};
+  if (rank == 0)
+    initial.nodes.at(21).position[0] = 1.1;
+  rejected = generate(background, MappingQ1<3>(), initial, p, comm);
+  EXPECT_FALSE(rejected.validation.valid());
+  EXPECT_TRUE(rejected.terminal_pairs.empty());
+}
+TEST(VascularAV, BOTH_PublicArterioVenousTetrahedronWithEmptyBackgroundRanks)
+{
+  const auto       comm = MPI_COMM_WORLD;
+  Triangulation<3> serial;
+  GridGenerator::reference_cell(serial, ReferenceCells::Tetrahedron);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  Parameters p;
+  controls(p);
+  p.seed_position              = Point<3>(.15, .15, .15);
+  p.seed_length                = .1;
+  p.venous.seed_position       = Point<3>(.15, .4, .15);
+  p.venous.terminal_separation = .03;
+  p.terminal_count             = 1;
+  p.coverage                   = {2., 2};
+  const auto r =
+    generate(background, MappingFE<3>(FE_SimplexP<3>(1)), {}, p, comm);
+  distributed_av_oracle(r, p);
+  ASSERT_TRUE(r.validation.valid()) << issues(r);
+  EXPECT_NEAR(r.tissue.background_volume, 1. / 6., 1.e-13);
+  EXPECT_NEAR(r.tissue.dual_coverage, 1., 1.e-12);
+}
+
+TEST(VascularAV, BOTH_PublicVenousStartupRejectsUnreachableOutletCollectively)
+{
+  const auto                              comm = MPI_COMM_WORLD;
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {4, 1, 1},
+                                            Point<3>(),
+                                            Point<3>(1., 1., 1.));
+  Parameters p;
+  controls(p);
+  p.terminal_count       = 1;
+  p.venous.seed_position = Point<3>(2., .5, .5);
+  auto r                 = generate(background, MappingQ1<3>(), {}, p, comm);
+  EXPECT_FALSE(r.validation.valid());
+  EXPECT_TRUE(r.terminal_pairs.empty());
+  p.venous.seed_position       = Point<3>(.8, .5, .5);
+  p.venous.terminal_separation = 3.;
+  r = generate(background, MappingQ1<3>(), {}, p, comm);
+  EXPECT_FALSE(r.validation.valid());
+  EXPECT_TRUE(r.terminal_pairs.empty());
+  p.venous.terminal_separation = .04;
+  p.selected_terminals         = {77};
+  r = generate(background, MappingQ1<3>(), {}, p, comm);
+  EXPECT_FALSE(r.validation.valid());
+  EXPECT_TRUE(r.terminal_pairs.empty());
+}
+TEST(VascularAV, MPI_PublicVenousStartupRejectsMismatchedControls)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  ASSERT_GT(Utilities::MPI::n_mpi_processes(comm), 1u);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {4, 1, 1},
+                                            Point<3>(),
+                                            Point<3>(1., 1., 1.));
+  Parameters p;
+  controls(p);
+  p.terminal_count = 1;
+  if (rank == 0)
+    p.venous.enabled = false;
+  EXPECT_THROW(generate(background, MappingQ1<3>(), {}, p, comm),
+               ExceptionBase);
+  p.venous.enabled = true;
+  if (rank == 0)
+    p.venous.selected_terminals = {17};
+  EXPECT_THROW(generate(background, MappingQ1<3>(), {}, p, comm),
+               ExceptionBase);
 }
