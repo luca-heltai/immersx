@@ -396,3 +396,100 @@ TEST(VascularGrowthBatch,
         EXPECT_EQ(accepted, x > 0.);
     }
 }
+
+TEST(VascularGrowthBatch, BOTH_SpatialConflictVotesMatchExhaustivePairs)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {4, 2, 2},
+                                            Point<3>(),
+                                            Point<3>(4., 4., 4.));
+  MappingQ1<3>               mapping;
+  BackgroundGeometry         geometry(bg, mapping);
+  Parameters                 controls;
+  std::vector<BatchProposal> proposals;
+  const auto                 edge =
+    [](Id id, const Point<3> &a, const Point<3> &b, double radius) {
+      return Edge{id, {{2 * id, 2 * id + 1}}, {{a, b}}, radius};
+    };
+  for (unsigned int i = 0; i < 72; ++i)
+    {
+      BatchProposal p;
+      p.id   = i;
+      p.cost = i % 5;
+      // Two distinct physical changes per proposal, with varied radii and
+      // envelopes that sometimes overlap although the segments do not.
+      for (unsigned int j = 0; j < 2; ++j)
+        {
+          const unsigned int k = 2 * i + j;
+          const Point<3>     a(.3 + .4 * (k % 8),
+                           .3 + .4 * ((k / 8) % 8),
+                           .4 + .65 * (k % 5));
+          p.changed.push_back(
+            edge(1000 + k,
+                 a,
+                 a + Point<3>(.25, .11 * (k % 3), -.08 * (k % 2)),
+                 .003 + .004 * (k % 4)));
+        }
+      proposals.push_back(p);
+    }
+  proposals[0].changed = {
+    edge(100, Point<3>(.3, 1., 1.), Point<3>(3.7, 1., 1.), .015)};
+  proposals[1].changed = {
+    edge(101, Point<3>(2., .3, 1.02), Point<3>(2., 3.7, 1.02), .01)};
+  proposals[2].changed = {
+    edge(102, Point<3>(.3, 1., 1.09), Point<3>(3.7, 1., 1.09), .004)};
+  proposals[3].changed = {
+    edge(103, Point<3>(.3, 1., 1.), Point<3>(1., 1.001, 1.), .006)};
+  proposals[3].changed[0].nodes[0] = proposals[0].changed[0].nodes[0];
+  // Writes to the same physical identifier must be compared even when their
+  // provisional envelopes are disjoint.
+  proposals[4].changed = {
+    edge(100, Point<3>(.3, 3.5, 3.5), Point<3>(1., 3.5, 3.5), .005)};
+  proposals[4].changed[0].nodes = {{9990, 9991}};
+  const auto producer           = [&](Id id) {
+    return id == 4 ? 0u : static_cast<unsigned int>(id % std::min(3u, size()));
+  };
+  for (double clearance : {0., .08})
+    {
+      controls.clearance = clearance;
+      // This exhaustive oracle has no spatial filtering. The exact segment
+      // predicate has independent geometric tests; this checks that broad
+      // phase pruning preserves every deterministic vote and tie break.
+      std::map<Id, bool> expected;
+      for (const auto &a : proposals)
+        {
+          bool accepted = true;
+          for (const auto &b : proposals)
+            if (std::make_tuple(b.cost, producer(b.id), b.id) <
+                std::make_tuple(a.cost, producer(a.id), a.id))
+              for (const auto &e : a.changed)
+                for (const auto &f : b.changed)
+                  if (e.id == f.id ||
+                      !compatible(e, f, controls.minimum_angle, clearance))
+                    accepted = false;
+          expected[a.id] = accepted;
+        }
+      std::vector<BatchProposal> local;
+      for (const auto &p : proposals)
+        if (producer(p.id) == rank())
+          local.push_back(p);
+      for (unsigned int order = 0; order < 2; ++order)
+        {
+          const auto   selected = select(geometry, {}, local, controls);
+          unsigned int accepted = 0;
+          for (const auto &[id, chosen] : selected.local)
+            {
+              EXPECT_EQ(chosen, expected.at(id))
+                << "proposal=" << id << " clearance=" << clearance;
+              accepted += chosen;
+            }
+          for (const auto &[key, chosen] : selected.relevant)
+            EXPECT_EQ(chosen, expected.at(key.second));
+          const auto count = Utilities::MPI::sum(accepted, MPI_COMM_WORLD);
+          EXPECT_GT(count, 0u);
+          EXPECT_LT(count, proposals.size());
+          std::reverse(local.begin(), local.end());
+        }
+    }
+}

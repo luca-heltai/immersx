@@ -296,23 +296,56 @@ namespace ImmersX::Vascularization::internal
                 }
           }
       }
-    for (auto a = proposals.begin(); a != proposals.end(); ++a)
-      for (auto b = std::next(a); b != proposals.end(); ++b)
+    std::vector<std::pair<BoundingBox<3>, ProposalKey>> changed_boxes;
+    std::map<Id, std::set<ProposalKey>> vessel_writers, node_writers;
+    for (const auto &[key, proposal] : proposals)
+      for (const auto &edge : proposal.changed)
         {
-          bool conflict = false;
-          for (const auto &e : a->second.changed)
-            for (const auto &f : b->second.changed)
-              if (e.id == f.id || !compatible(e,
-                                              f,
-                                              parameters.minimum_angle,
-                                              parameters.clearance))
-                conflict = true;
-          if (conflict)
-            {
-              votes[a->first].conflicts[b->first] = b->second.cost;
-              votes[b->first].conflicts[a->first] = a->second.cost;
-            }
+          changed_boxes.emplace_back(envelope_box(edge, parameters.clearance),
+                                     key);
+          vessel_writers[edge.id].insert(key);
+          for (Id node : edge.nodes)
+            node_writers[node].insert(key);
         }
+    const auto changed_tree = pack_rtree(changed_boxes);
+    for (const auto &[a, proposal] : proposals)
+      {
+        std::set<ProposalKey> nearby;
+        for (const auto &edge : proposal.changed)
+          {
+            for (const auto &[box, key] :
+                 changed_tree | bgi::adaptors::queried(bgi::intersects(
+                                  envelope_box(edge, parameters.clearance))))
+              nearby.insert(key);
+            // Identifier conflicts and shared-junction angles remain relevant
+            // independently of the provisional geometric descriptions.
+            const auto &writers = vessel_writers.at(edge.id);
+            nearby.insert(writers.begin(), writers.end());
+            for (Id node : edge.nodes)
+              {
+                const auto &incident = node_writers.at(node);
+                nearby.insert(incident.begin(), incident.end());
+              }
+          }
+        for (const auto &b : nearby)
+          if (a < b)
+            {
+              const auto &other    = proposals.at(b);
+              bool        conflict = false;
+              for (const auto &e : proposal.changed)
+                for (const auto &f : other.changed)
+                  if (e.id == f.id || !compatible(e,
+                                                  f,
+                                                  parameters.minimum_angle,
+                                                  parameters.clearance))
+                    conflict = true;
+              if (conflict)
+                {
+                  votes[a].conflicts[b] = other.cost;
+                  votes[b].conflicts[a] = proposal.cost;
+                }
+            }
+      }
     std::map<Rank, std::vector<Vote>> vote_packets;
     for (const auto &[key, vote] : votes)
       vote_packets[key.first].push_back(vote);
