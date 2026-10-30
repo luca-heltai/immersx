@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Complete vascular networks with their input territory and microvascular-bed metadata. Preserve untouched beds in both reference solves, size new beds against their actual pressure effects, and reject extension of only one endpoint of an existing pair.
@@ -407,6 +409,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #318](https://github.com/luca-heltai/immersx/pull/318) Restore serial and MPI coverage for segment-clustered point and tensor-product elasticity coupling. Check the inclusion mass matrix and recovery of nonzero imposed Fourier data instead of printing debug output.
 
 - [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Measure vascular MPI calls, posted payloads and time with optional benchmark-only PMPI profiling. Check native payload accounting and in-place forwarding in Debug and Release.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
 
