@@ -110,7 +110,10 @@ namespace ImmersX::Vascularization
    * Only the supplied explicit ports receive prescribed pressures; their
    * flows are reactions, so no inlet receives both pressure and flow.
    * Unselected terminals are left for the caller's boundary conditions.
-   * Current execution requires one rank.
+   * Collective for one or more processes. Only owned terminal records enter
+   * the per-system demand sums; output conditions belong to their node owners.
+   * Explicit selections and total_flow must match on every rank. Pressure
+   * controls may be distributed or repeated identically and must name ports.
    */
   ReferenceConditions
   demand_flow_conditions(const NetworkData          &network,
