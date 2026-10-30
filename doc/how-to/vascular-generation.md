@@ -11,9 +11,10 @@ when `validation.valid()` is true; input data are never modified.
 Generation from an empty arterial input is collective and supports one or
 several MPI processes. The background point owner creates the single real seed
 root; its branch may cross partitions immediately. Imported arterial networks
-also support collective startup from one or several selected leaves. Venous
-startup and terminal-count calibration currently require one process. Use a
-first-order mapping on an all-tetrahedral or all-hexahedral physical background.
+also support collective startup from one or several selected leaves and
+collective terminal-count calibration. Venous startup currently requires one
+process. Use a first-order mapping on an all-tetrahedral or all-hexahedral
+physical background.
 Geometry checks include the vessel wall and clearance. An ambiguous boundary
 separation at the finite geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.
@@ -158,6 +159,24 @@ quadrature weights are summed before normalization. Empty processes participate.
 The supplied `discretize()` result already contains the global inside vessel
 volume, which is used once. Setting the service radius to zero disables coverage
 while retaining the global volume fraction.
+
+Arterial terminal-count calibration is collective. Set a positive
+`calibration.volume_fraction` or `calibration.minimum_coverage` to enable it.
+Every process must supply the same targets, tolerance, terminal-count bounds,
+attempt budget and initial `terminal_count`. Each attempt grows from the
+unchanged input with native ownership and measures global volume and coverage.
+The finite count search makes the same decisions on every rank without
+collecting the graph. It does not assume that volume increases with terminal
+count. The defaults are 5% relative volume tolerance and at most 12 attempts.
+A volume match still fails when the requested coverage is missing.
+
+When the fixed imported inside volume alone exceeds the upper target tolerance,
+calibration reports `incompatible` before growing. Otherwise, exhausting the
+allowed counts or attempt budget reports `exhausted`, which does not prove
+incompatibility. A failed search can retain its best valid network for
+diagnostics, but its overall validation remains invalid. Trial sample counts
+are global and include discarded attempts. The supplied parameters are not
+modified.
 
 Imported arterial startup first refreshes native point/midpoint ownership and
 endpoint incidence. It validates terminal records at their node owners, adds
@@ -392,8 +411,8 @@ Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
 serves both public arterial and venous generation and calibration. Distributed
-venous startup, terminal-count calibration and the resistive reference solver
-remain to be connected to the public MPI path. Arterial seed/import startup,
+venous startup and the resistive reference solver remain to be connected to
+the public MPI path. Arterial seed/import startup, terminal-count calibration,
 discretization, native mesh construction and tissue measurement support MPI.
 Scaling at the requested sizes has not yet been measured.
 

@@ -154,7 +154,8 @@ namespace ImmersX::Vascularization
    * collective path starts an arterial tree from an empty input on its native
    * background owner and grows it across partitions. Imported arterial
    * attachments are selected and started collectively at their native node
-   * owners. Venous startup and terminal-count calibration currently require
+   * owners. Arterial terminal-count calibration uses global metrics and the
+   * same count decisions on all processes. Venous startup currently requires
    * one process.
    * Both paths use a degree-one mapping. Arterial
    * endpoints define the common territories; venous endpoints are separated
