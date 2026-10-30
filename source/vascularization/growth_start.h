@@ -41,6 +41,31 @@ namespace ImmersX::Vascularization::internal
                     unsigned int                     terminal_count,
                     MPI_Comm                         communicator);
 
+  struct VenousOutlet
+  {
+    NetworkData      network;
+    Id               port = invalid_id;
+    ValidationReport validation;
+  };
+
+  // Reserve a real outlet before arterial growth allocates further node ids.
+  VenousOutlet
+  reserve_venous_outlet(const dealii::Triangulation<3> &background,
+                        const dealii::Mapping<3>       &mapping,
+                        const NetworkData              &network,
+                        const Parameters               &parameters,
+                        MPI_Comm                        communicator);
+
+  AttachmentStartup
+  start_venous(const dealii::Triangulation<3> &background,
+               const dealii::Mapping<3>       &mapping,
+               const NetworkData              &network,
+               const NetworkData              &original,
+               const Parameters               &parameters,
+               const std::vector<Territory>   &owned_territories,
+               Id                              reserved_port,
+               MPI_Comm                        communicator);
+
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.
   GrowthCommit
