@@ -797,6 +797,7 @@ infer that its processes have stopped or restart it automatically. Keep failed
 runs and their diagnostics when reporting measured outcomes.
 
 
+(vascular-native-transfer)=
 ## Prepare a generated network for native MetricFlowX
 
 The generator has no MetricFlowX dependency. Applications that enable the
