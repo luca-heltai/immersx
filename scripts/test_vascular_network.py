@@ -148,6 +148,9 @@ def main():
                                    ('center', 'sphere', 'center')]:
             case = dict(generation)
             case['Domain'] = {'Shape': shape, 'Refinement focus': focus}
+            if name == 'sphere':
+                case['Domain']['Uniform refinements'] = 2
+                case['Growth'] = {'Seed length': '.15'}
             output, result = run(name, case)
             assert int(result['arterial_terminals']) == 1
             assert float(result['inside_volume']) > 0.

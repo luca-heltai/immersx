@@ -24,8 +24,50 @@ namespace ImmersX::Vascularization::internal
   namespace bgi = boost::geometry::index;
   using Patch   = std::vector<Point<3>>;
 
-  // MappingQ's inverse iteration terminates at about 1e-12 in reference space.
-  constexpr double inverse_mapping_tolerance = 1.e-12;
+  // MappingQ's inverse iteration terminates at about 1e-11 in reference space.
+  constexpr double inverse_mapping_tolerance = 1.e-11;
+
+  template <typename ReferenceCell>
+  auto
+  boundary_reference_distance(const ReferenceCell &reference,
+                              unsigned int         face,
+                              const Point<3>      &unit,
+                              int)
+    -> decltype(reference.template vertex<3>(0), double())
+  {
+    return (unit - reference.template face_vertex_location<3>(face, 0)) *
+           reference.template face_normal_vector<3>(face);
+  }
+
+  template <typename ReferenceCell>
+  auto
+  boundary_reference_distance(const ReferenceCell &reference,
+                              unsigned int         face,
+                              const Point<3>      &unit,
+                              long) -> decltype(reference.vertex(0), double())
+  {
+    return (unit - reference.face_vertex_location(face, 0)) *
+           reference.face_normal_vector(face);
+  }
+
+  inline bool
+  reference_contains(const Triangulation<3>::active_cell_iterator &cell,
+                     const Point<3>                               &unit,
+                     double boundary_tolerance)
+  {
+    const auto reference = cell->reference_cell();
+    if (!reference.contains_point(
+          unit, std::max(boundary_tolerance, inverse_mapping_tolerance)))
+      return false;
+    // Allow inverse-map error across interior faces only. A physical boundary
+    // keeps its strict half-space test, except at explicitly declared ports.
+    for (const auto face : cell->face_indices())
+      if (cell->face(face)->at_boundary() &&
+          boundary_reference_distance(reference, face, unit, 0) >
+            boundary_tolerance)
+        return false;
+    return true;
+  }
 
   inline Point<3>
   normalized_port_normal(const Point<3> &value)
@@ -150,7 +192,7 @@ namespace ImmersX::Vascularization::internal
     const BoundingBox<3> box(patch);
     // Linear triangular and bilinear quadrilateral patches are contained in
     // the convex hull of their corners. A separated box proves separation.
-    const double guard = 2. * inverse_mapping_tolerance *
+    const double guard = 64. * std::numeric_limits<double>::epsilon() *
                          std::max({1., s.first.norm(), s.second.norm()});
     const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
     // A cap is the intersection of the capsule with each declared inward
@@ -224,7 +266,6 @@ namespace ImmersX::Vascularization::internal
       Point<3>                                              lo = p, hi = p;
       // Inverse Q1 maps on warped cells can place a shared-face point just
       // outside the reference cell. Wall separation is certified separately.
-      tolerance = std::max(tolerance, inverse_mapping_tolerance);
       for (unsigned int d = 0; d < 3; ++d)
         {
           const double pad = 64. * std::numeric_limits<double>::epsilon() *
@@ -240,7 +281,7 @@ namespace ImmersX::Vascularization::internal
           try
             {
               const auto unit = mapping.transform_real_to_unit_cell(cell, p);
-              if (cell->reference_cell().contains_point(unit, tolerance) &&
+              if (reference_contains(cell, unit, tolerance) &&
                   (!result || cell->diameter() < (*result)->diameter() ||
                    (cell->diameter() == (*result)->diameter() &&
                     cell->id() < (*result)->id())))
@@ -320,7 +361,7 @@ namespace ImmersX::Vascularization::internal
                        unsigned int            work,
                        std::array<Point<3>, 2> port_normals = {}) const
     {
-      const double guard = 2. * inverse_mapping_tolerance *
+      const double guard = 64. * std::numeric_limits<double>::epsilon() *
                            std::max({1., s.first.norm(), s.second.norm()});
       const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
       for (auto &normal : port_normals)

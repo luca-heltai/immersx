@@ -191,8 +191,7 @@ namespace ImmersX::Vascularization::internal
           {
             const auto unit = geometry.mapping.transform_real_to_unit_cell(
               cell, particle->get_location());
-            if (cell->reference_cell().contains_point(
-                  unit, std::max(property[2], inverse_mapping_tolerance)))
+            if (reference_contains(cell, unit, property[2]))
               strict_found[static_cast<Rank>(property[0])].push_back(
                 static_cast<std::size_t>(property[1]));
           }
