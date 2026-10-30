@@ -5,6 +5,9 @@ executables listed in the [application reference](../reference/applications).
 They cover scalar and vector problems, time integration, reduced geometry,
 weak coupling, and a two-way vessel-wall interaction.
 
+[Vascular generation](vascular-generation) provides four native cube and sphere
+examples, an arterial–venous case, and a physical-graph rediscretization control.
+
 The introductory sequence is:
 
 1. [Poisson](poisson) — a scalar finite-element solve.
@@ -37,6 +40,7 @@ parameter files for the corrected residual equations.
 ```{toctree}
 :maxdepth: 1
 
+vascular-generation
 poisson
 elasticity
 elastodynamics
