@@ -735,25 +735,27 @@ TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressClusteredPoint)
                });
 }
 
-// Tensor-product coupling with the data 0.1 for the normalized modes 3 and 7,
-// i.e., the wall displacement 0.1 sqrt(2) (cos(theta), sin(theta)) with mean
-// normal value u_n = k (0.1 + 0.1), k = 1/sqrt(2) up to the polygonal
-// reference circle. The interior stress is 2 (lambda + mu) u_n / r with
-// lambda = mu = 1 and r = 0.2, the same at every support point and on every
-// vessel.
+// Tensor-product coupling with the data 0.1 for the modes 3 and 7. The data
+// follow the point-coupling convention, so they impose the wall displacement
+// 0.1 (cos(theta), sin(theta)) with mean normal value u_n = 0.1, and the
+// interior stress is the same as with point coupling, the same at every
+// support point and on every vessel. The cross section is refined three
+// times: on the coarser polygon of the other tests, u_n is 5% smaller.
 TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressTensorProduct)
 {
   with_problem(parameters(false,
                           reduced_grid("four_cells", {-1., -0.5, 0., 0.5, 1.},
                                        {0, 0, 1, 1}),
-                          "displacement, vessel_id"),
+                          "displacement, vessel_id",
+                          {{"Refinement level", "3"}}),
                [](auto &problem) {
                  solve_and_zero_multiplier(problem);
                  const auto by_point =
                    gather(problem.pressure_at_immersed_surface_by_inclusion);
                  ASSERT_EQ(by_point.size(), 5u);
-                 const double k = by_point[0] / (2. * (1. + 1.) * 0.2 / 0.2);
-                 EXPECT_NEAR(k, 1. / std::sqrt(2.), 2e-2);
+                 EXPECT_NEAR(by_point[0],
+                             point_interior_stress,
+                             1e-2 * point_interior_stress);
                  for (const auto p : by_point)
                    EXPECT_NEAR(p, by_point[0], 1e-8 * by_point[0]);
                  const auto by_vessel =
