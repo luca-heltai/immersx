@@ -77,6 +77,13 @@ namespace ImmersX::Vascularization
    * Native neighbor(f) is not a list of all branches at a junction: use vertex
    * incidence or physical connectivity there. No physical id is narrowed into
    * a native material id or vertex index.
+   *
+   * With parallel::fullydistributed::Triangulation<1,3> this is collective on
+   * its communicator. It transfers intervals to their execution owners and
+   * retains vertex-adjacent ghost cells, including all branches at a junction.
+   * The returned map covers locally owned and ghost cells; physical input
+   * remains unchanged. This does not require a complete graph or mesh on any
+   * rank.
    */
   CellVessels
   create_triangulation(const NetworkData           &network,

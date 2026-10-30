@@ -5,7 +5,6 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q.h>
 
-#include <deal.II/grid/cell_data.h>
 #include <deal.II/grid/grid_tools_cache.h>
 
 #include <deal.II/numerics/rtree.h>
@@ -636,72 +635,6 @@ namespace ImmersX::Vascularization
     result.short_cells = Utilities::MPI::sum(result.short_cells, communicator);
     result.exterior_cells =
       Utilities::MPI::sum(result.exterior_cells, communicator);
-    return result;
-  }
-
-  CellVessels
-  create_triangulation(const NetworkData           &network,
-                       const DiscretizationResult  &discretization,
-                       dealii::Triangulation<1, 3> &triangulation)
-  {
-    using namespace dealii;
-    AssertThrow(triangulation.n_active_cells() == 0,
-                ExcMessage("Vascular mesh destination must be empty."));
-    AssertThrow(discretization.validation.valid(),
-                ExcMessage("Cannot adopt an invalid vascular discretization."));
-    std::vector<Point<3>>                         vertices;
-    std::vector<CellData<1>>                      cells;
-    std::map<Id, unsigned int>                    endpoints;
-    std::map<std::pair<Id, double>, unsigned int> interior;
-    const auto vertex = [&](Id vessel, double t) {
-      const auto &e        = network.vessels.at(vessel);
-      const bool  endpoint = t == 0. || t == 1.;
-      const Id    node     = t == 0. ? e.nodes[0] : e.nodes[1];
-      auto       &index    = endpoint ? endpoints[node] : interior[{vessel, t}];
-      if (index == 0)
-        {
-          AssertThrow(vertices.size() <
-                        std::numeric_limits<unsigned int>::max(),
-                      ExcMessage("Too many vascular mesh vertices."));
-          const auto &a = network.nodes.at(e.nodes[0]).position;
-          const auto &b = network.nodes.at(e.nodes[1]).position;
-          vertices.push_back((1. - t) * a + t * b);
-          index = vertices.size();
-        }
-      return index - 1;
-    };
-    CellVessels references;
-    for (const auto &cell : discretization.cells)
-      {
-        CellData<1> data;
-        data.vertices[0] = vertex(cell.reference.vessel, cell.reference.begin);
-        data.vertices[1] = vertex(cell.reference.vessel, cell.reference.end);
-        references[cells.size()] = cell.reference;
-        cells.push_back(data);
-      }
-    if (!cells.empty())
-      triangulation.create_triangulation(vertices, cells, SubCellData());
-    return references;
-  }
-
-  VesselCell
-  physical_reference(const dealii::CellId &cell,
-                     const CellVessels    &coarse_cells)
-  {
-    auto result = coarse_cells.at(cell.get_coarse_cell_id());
-    for (const unsigned int child : cell.get_child_indices())
-      {
-        const double middle = .5 * (result.begin + result.end);
-        if (child == 0)
-          result.end = middle;
-        else if (child == 1)
-          result.begin = middle;
-        else
-          AssertThrow(
-            false,
-            dealii::ExcMessage(
-              "A vascular line cell can only have children 0 and 1."));
-      }
     return result;
   }
 } // namespace ImmersX::Vascularization
