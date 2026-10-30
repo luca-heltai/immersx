@@ -561,3 +561,291 @@ TEST(VascularDiscretization,
         EXPECT_EQ(cell.owner, rank);
       }
 }
+
+TEST(VascularDiscretization, BOTH_NativeDistributedBranchesShareJunctionDofs)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {8, 2, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(8., 2., 1.));
+  const Id                      base = (Id{1} << 60) + 19;
+  const std::array<Point<3>, 4> positions{{Point<3>(.2, 1., .5),
+                                           Point<3>(4., 1., .5),
+                                           Point<3>(7.8, .3, .5),
+                                           Point<3>(7.8, 1.7, .5)}};
+  NetworkData                   network;
+  for (unsigned int v = 0; v < 4; ++v)
+    if (v % size == rank)
+      {
+        network.nodes[base + v].position = positions[v];
+        network.nodes[base + v].owner    = rank;
+      }
+  for (unsigned int e = 0; e < 3; ++e)
+    if (e % size == rank)
+      {
+        const std::array<unsigned int, 2> nodes =
+          e == 0 ? std::array<unsigned int, 2>{{0, 1}} :
+                   std::array<unsigned int, 2>{{1, e + 1}};
+        Vessel vessel;
+        vessel.nodes              = {{base + nodes[0], base + nodes[1]}};
+        vessel.radii              = {{.01, .02}};
+        vessel.viscosity          = .004;
+        vessel.owner              = rank;
+        network.vessels[base + e] = vessel;
+        for (const auto v : nodes)
+          {
+            network.nodes[base + v].position = positions[v];
+            network.nodes[base + v].owner    = v % size;
+          }
+      }
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
+  const auto refs = create_triangulation(network, result, mesh);
+  const auto n_cells =
+    Utilities::MPI::sum(static_cast<std::uint64_t>(result.cells.size()), comm);
+  EXPECT_EQ(mesh.n_global_active_cells(), n_cells);
+  DoFHandler<1, 3> dofs(mesh);
+  dofs.distribute_dofs(FE_Q<1, 3>(1));
+  // A connected tree has one more vertex than edges, including numerical cuts.
+  EXPECT_EQ(dofs.n_dofs(), n_cells + 1);
+  double                  length_sum = 0., volume_sum = 0., resistance_sum = 0.;
+  unsigned int            junction_incidence = 0;
+  types::global_dof_index junction_min       = numbers::invalid_dof_index,
+                          junction_max       = 0;
+  for (const auto &cell : dofs.active_cell_iterators())
+    if (!cell->is_artificial())
+      {
+        const auto ref = physical_reference(cell->id(), refs);
+        ASSERT_GE(ref.vessel, base);
+        ASSERT_LT(ref.vessel, base + 3);
+        const auto     e = ref.vessel - base;
+        const Point<3> a = positions[e == 0 ? 0 : 1];
+        const Point<3> b = positions[e == 0 ? 1 : e + 1];
+        EXPECT_LT(cell->vertex(0).distance((1. - ref.begin) * a +
+                                           ref.begin * b),
+                  1.e-12);
+        EXPECT_LT(cell->vertex(1).distance((1. - ref.end) * a + ref.end * b),
+                  1.e-12);
+        if (cell->is_locally_owned())
+          {
+            const double l  = a.distance(b) * (ref.end - ref.begin);
+            const double r0 = .01 + .01 * ref.begin, r1 = .01 + .01 * ref.end;
+            length_sum += cell->measure();
+            volume_sum += numbers::PI * l * (r0 * r0 + r0 * r1 + r1 * r1) / 3.;
+            resistance_sum += 8. * .004 / numbers::PI * l / (3. * (r1 - r0)) *
+                              (std::pow(r0, -3.) - std::pow(r1, -3.));
+            for (unsigned int v = 0; v < 2; ++v)
+              if (cell->vertex(v) == positions[1])
+                {
+                  ++junction_incidence;
+                  const auto index = cell->vertex_dof_index(v, 0);
+                  junction_min     = std::min(junction_min, index);
+                  junction_max     = std::max(junction_max, index);
+                }
+          }
+      }
+  double expected_length = positions[0].distance(positions[1]) +
+                           positions[1].distance(positions[2]) +
+                           positions[1].distance(positions[3]);
+  const double expected_volume =
+    numbers::PI * expected_length * (.0001 + .0002 + .0004) / 3.;
+  const double expected_resistance = 8. * .004 / numbers::PI * expected_length /
+                                     .03 *
+                                     (std::pow(.01, -3.) - std::pow(.02, -3.));
+  EXPECT_NEAR(Utilities::MPI::sum(length_sum, comm) / expected_length,
+              1.,
+              1.e-12);
+  EXPECT_NEAR(Utilities::MPI::sum(volume_sum, comm) / expected_volume,
+              1.,
+              1.e-12);
+  EXPECT_NEAR(Utilities::MPI::sum(resistance_sum, comm) / expected_resistance,
+              1.,
+              1.e-12);
+  EXPECT_EQ(Utilities::MPI::sum(junction_incidence, comm), 3u);
+  EXPECT_EQ(Utilities::MPI::min(junction_min, comm),
+            Utilities::MPI::max(junction_max, comm));
+
+  DiscretizationParameters fine_parameters;
+  fine_parameters.target_factor = .25;
+  fine_parameters.lower_factor  = .125;
+  fine_parameters.upper_factor  = .5;
+  const auto fine =
+    discretize(background, MappingQ1<3>(), network, fine_parameters, comm);
+  ASSERT_TRUE(fine.validation.valid());
+  const auto fine_cells =
+    Utilities::MPI::sum(static_cast<std::uint64_t>(fine.cells.size()), comm);
+  EXPECT_GT(fine_cells, n_cells);
+  EXPECT_NEAR(fine.inside_volume / result.inside_volume, 1., 1.e-12);
+  parallel::fullydistributed::Triangulation<1, 3> fine_mesh(comm);
+  const auto       fine_refs = create_triangulation(network, fine, fine_mesh);
+  DoFHandler<1, 3> fine_dofs(fine_mesh);
+  fine_dofs.distribute_dofs(FE_Q<1, 3>(1));
+  EXPECT_EQ(fine_dofs.n_dofs(), fine_cells + 1);
+  for (const auto &cell : fine_mesh.active_cell_iterators())
+    if (!cell->is_artificial())
+      {
+        const auto ref = physical_reference(cell->id(), fine_refs);
+        EXPECT_GE(ref.vessel, base);
+        EXPECT_LT(ref.vessel, base + 3);
+      }
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<std::uint64_t>(network.vessels.size()), comm),
+            3u);
+}
+
+TEST(VascularDiscretization, BOTH_NativeDistributedMeshKeepsOnlyRelevantCells)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {16, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(16., 1., 1.));
+  NetworkData network;
+  const Id    base = Id{1} << 60;
+  for (unsigned int i = 0; i < 16; ++i)
+    if (i % size == rank)
+      {
+        const Id a = base + 2 * i, b = a + 1;
+        // Distinct physical nodes at x=8 remain separate DoFs, even across
+        // execution partitions. Geometric coincidence is not connectivity.
+        network.nodes[a].position = Point<3>(i == 8 ? 8. : i + .2, .4, .3);
+        network.nodes[b].position = Point<3>(i == 7 ? 8. : i + .8, .4, .3);
+        network.nodes[a].owner = network.nodes[b].owner = rank;
+        Vessel vessel;
+        vessel.nodes              = {{a, b}};
+        vessel.radii              = {{.01, .01}};
+        vessel.viscosity          = .004;
+        vessel.owner              = rank;
+        network.vessels[base + i] = vessel;
+      }
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
+  const auto refs = create_triangulation(network, result, mesh);
+  EXPECT_EQ(mesh.n_global_active_cells(), 16u);
+  EXPECT_EQ(refs.size(), mesh.n_locally_owned_active_cells());
+  if (size > 1)
+    {
+      EXPECT_LT(refs.size(), 16u);
+    }
+  DoFHandler<1, 3> dofs(mesh);
+  dofs.distribute_dofs(FE_Q<1, 3>(1));
+  EXPECT_EQ(dofs.n_dofs(), 32u);
+  EXPECT_EQ(Utilities::MPI::sum(dofs.n_locally_owned_dofs(), comm), 32u);
+}
+
+TEST(VascularDiscretization, BOTH_NativeDistributedMeshWithEmptyRanks)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  NetworkData network;
+  if (rank == size - 1)
+    {
+      network = line(Point<3>(.1, .4, .3), Point<3>(.9, .4, .3));
+      network.vessels.at(100).owner = rank;
+      for (auto &[id, node] : network.nodes)
+        node.owner = rank;
+    }
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
+  const auto refs = create_triangulation(network, result, mesh);
+  EXPECT_EQ(mesh.n_global_active_cells(), 1u);
+  EXPECT_EQ(refs.size(), mesh.n_locally_owned_active_cells());
+  if (refs.empty())
+    {
+      for (const auto &cell : mesh.active_cell_iterators())
+        EXPECT_TRUE(cell->is_artificial());
+    }
+  DoFHandler<1, 3> dofs(mesh);
+  dofs.distribute_dofs(FE_Q<1, 3>(1));
+  EXPECT_EQ(dofs.n_dofs(), 2u);
+  EXPECT_EQ(Utilities::MPI::sum(dofs.n_locally_owned_dofs(), comm), 2u);
+}
+
+TEST(VascularDiscretization, BOTH_NativeMeshForEmptyPhysicalNetwork)
+{
+  const auto                              comm = MPI_COMM_WORLD;
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  const auto empty = discretize(background, MappingQ1<3>(), {}, {}, comm);
+  parallel::fullydistributed::Triangulation<1, 3> empty_mesh(comm);
+  const auto empty_refs = create_triangulation({}, empty, empty_mesh);
+  EXPECT_TRUE(empty_refs.empty());
+  EXPECT_EQ(empty_mesh.n_global_active_cells(), 0u);
+}
+
+TEST(VascularDiscretization, BOTH_NativeMeshRejectsRemoteInvalidIntervals)
+{
+  const auto           comm = MPI_COMM_WORLD;
+  const auto           rank = Utilities::MPI::this_mpi_process(comm);
+  const auto           size = Utilities::MPI::n_mpi_processes(comm);
+  NetworkData          network;
+  DiscretizationResult result;
+  if (rank == size - 1)
+    {
+      network = line(Point<3>(.1, .4, .3), Point<3>(.9, .4, .3));
+      network.vessels.at(100).owner = rank;
+      for (auto &[id, node] : network.nodes)
+        node.owner = rank;
+      DiscretizationCell cell;
+      cell.reference = {100, .75, .25};
+      cell.owner     = rank;
+      result.cells.push_back(cell);
+    }
+  parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
+  EXPECT_THROW(create_triangulation(network, result, mesh), ExceptionBase);
+  EXPECT_EQ(mesh.n_active_cells(), 0u);
+  if (rank == size - 1)
+    {
+      network.nodes.at(10).position = Point<3>(1000., 0., 0.);
+      network.nodes.at(20).position = Point<3>(1001., 0., 0.);
+      result.cells[0].reference     = {100, .1, std::nextafter(.1, 1.)};
+    }
+  EXPECT_THROW(create_triangulation(network, result, mesh), ExceptionBase);
+  EXPECT_EQ(mesh.n_active_cells(), 0u);
+}
+
+TEST(VascularDiscretization, MPI_NativeMeshRejectsInconsistentJunction)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  ASSERT_GE(size, 2u);
+  NetworkData          network;
+  DiscretizationResult result;
+  if (rank < 2)
+    {
+      const Id a = rank == 0 ? 10 : 20, b = rank == 0 ? 20 : 30;
+      network.nodes[a].position = Point<3>(rank, .4, .3);
+      network.nodes[b].position = Point<3>(rank + 1., .4, .3);
+      network.nodes[a].owner = network.nodes[b].owner = rank;
+      network.nodes[20].owner                         = 0;
+      if (rank == 1)
+        network.nodes[a].position[1] += .01;
+      Vessel vessel;
+      vessel.nodes                = {{a, b}};
+      vessel.radii                = {{.01, .01}};
+      vessel.viscosity            = .004;
+      vessel.owner                = rank;
+      network.vessels[100 + rank] = vessel;
+      DiscretizationCell cell;
+      cell.reference = {100 + rank, 0., 1.};
+      cell.owner     = rank;
+      result.cells.push_back(cell);
+    }
+  parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
+  EXPECT_THROW(create_triangulation(network, result, mesh), ExceptionBase);
+  EXPECT_EQ(mesh.n_active_cells(), 0u);
+}
