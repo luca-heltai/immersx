@@ -33,10 +33,7 @@ using namespace dealii;
  * These tests exercise tensor-product counterparts of point-coupling cases.
  * They use a VTK centerline together with a reference cross section and
  * therefore verify the corresponding load, material, backend, and solve
- * paths with the tensor-product representation. Tensor-product coupling
- * currently supports one setup/solve cycle, so the ExactLambda counterpart
- * refines the cells crossed by the wall before a single solve instead of
- * using adaptive refinement cycles.
+ * paths with the tensor-product representation.
  */
 namespace
 {
@@ -427,6 +424,54 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
   par.default_material_properties.Lame_mu = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_tensor_product_case(par);
+}
+
+namespace
+{
+  // Number of cells after run() with n_cycles cycles of fixed_number
+  // refinement, with the given space post-refinement cycles of the
+  // co-refinement of the tensor-product coupling.
+  types::global_cell_index
+  n_cells_after_adaptive_run(const unsigned int n_cycles,
+                             const unsigned int space_post_refinement_cycles)
+  {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<3> par;
+    set_tensor_product_defaults(par,
+                                "tensor_product_adaptive_" +
+                                  std::to_string(n_cycles) + "_" +
+                                  std::to_string(space_post_refinement_cycles),
+                                {"0.1", "0", "0"});
+    par.refinement_strategy = "fixed_number";
+    par.refinement_fraction = 0.3;
+    par.n_refinement_cycles = n_cycles;
+    par.tensor_product_coupling_parameters.refinement_parameters
+      .space_post_refinement_cycles = space_post_refinement_cycles;
+    ElasticityProblem<3> problem(par);
+    initialize_parameters();
+    ParameterAcceptor::parse_all_parameters();
+    problem.run();
+    return problem.tria->n_global_active_cells();
+  }
+} // namespace
+
+// Adaptive refinement with tensor-product coupling: run() refines the mesh and
+// rebuilds the coupling on it. With the default co-refinement parameters the
+// rebuild does not refine the mesh again, which would invalidate the solution
+// transfer and throw.
+TEST(ElasticityTensorProductCouplingValidation,
+     AdaptiveRefinementRebuildsCoupling)
+{
+  EXPECT_GT(n_cells_after_adaptive_run(2, 0), n_cells_after_adaptive_run(1, 0));
+}
+
+// When the co-refinement of the tensor-product coupling has space pre- or
+// post-refinement cycles, it prevails over adaptive refinement: run() skips
+// the remaining refinement cycles, so three cycles give the mesh of one.
+TEST(ElasticityTensorProductCouplingValidation,
+     CoRefinementSkipsAdaptiveRefinement)
+{
+  EXPECT_EQ(n_cells_after_adaptive_run(3, 1), n_cells_after_adaptive_run(1, 1));
 }
 
 namespace
