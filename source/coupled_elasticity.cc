@@ -181,18 +181,14 @@ namespace ImmersX
             // coordinates.emplace_back(el);
             data_to_write.emplace_back(pressure[el]);
           }
-        if (pressure.locally_owned_size() > 0)
+        // The prefix sum is collective: every rank must call it, including
+        // ranks that own no vessel.
+        const hsize_t los = pressure.locally_owned_size();
+        const hsize_t prefix =
+          Utilities::MPI::partial_and_total_sum(los, this->mpi_communicator)
+            .first;
+        if (los > 0)
           {
-            hsize_t prefix = 0;
-            hsize_t los    = pressure.locally_owned_size();
-            int     ierr   = MPI_Exscan(&los,
-                                  &prefix,
-                                  1,
-                                  MPI_UNSIGNED_LONG_LONG,
-                                  MPI_SUM,
-                                  this->mpi_communicator);
-            AssertThrowMPI(ierr);
-
             std::vector<hsize_t> offset = {prefix, 1};
             std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
             // data.write_selection(data_to_write, coordinates);
