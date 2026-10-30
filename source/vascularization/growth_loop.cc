@@ -52,7 +52,8 @@ namespace ImmersX::Vascularization::internal
             const NetworkData             &network,
             const std::set<Id>            &ids,
             unsigned int                   k,
-            MPI_Comm                       comm)
+            MPI_Comm                       comm,
+            System                         system)
     {
       const unsigned int rank = Utilities::MPI::this_mpi_process(comm),
                          size = Utilities::MPI::n_mpi_processes(comm);
@@ -60,7 +61,7 @@ namespace ImmersX::Vascularization::internal
       for (Id id : ids)
         {
           const auto &v = network.vessels.at(id);
-          if (v.system == System::arterial)
+          if (v.system == system)
             leaves.push_back({{network.nodes.at(v.nodes[0]).position,
                                network.nodes.at(v.nodes[1]).position},
                               id});
@@ -269,7 +270,9 @@ namespace ImmersX::Vascularization::internal
               const std::map<Id, double>     &fixed_owned_roots,
               const Parameters               &p,
               MPI_Comm                        comm,
-              unsigned int                    requested_count)
+              unsigned int                    requested_count,
+              System                          system,
+              const std::vector<Territory>   &owned_territories)
   {
     using namespace dealii;
     GrowthRun          run;
@@ -284,7 +287,16 @@ namespace ImmersX::Vascularization::internal
         run.validation.issues.push_back({"growth", invalid_id, message});
       return all;
     };
-    bool valid = true;
+    bool   valid = system == System::arterial || system == System::venous;
+    double gamma = 0.;
+    if (system == System::arterial)
+      gamma = p.arterial_murray_exponent;
+    else if (system == System::venous)
+      gamma = p.venous.murray_exponent;
+    if (system == System::venous)
+      valid = valid && std::isfinite(p.venous.terminal_separation) &&
+              p.venous.terminal_separation > 0. && std::isfinite(gamma) &&
+              gamma > 0.;
     try
       {
         p.validate(false);
@@ -295,20 +307,22 @@ namespace ImmersX::Vascularization::internal
       }
     for (Id id : mutable_owned)
       valid = valid && initial.vessels.count(id) &&
-              initial.vessels.at(id).system == System::arterial;
+              initial.vessels.at(id).system == system;
     if (
       !phase(
         valid,
-        "Batched arterial growth requires valid controls and real arterial attachment trees."))
+        "Batched growth requires valid controls and real attachment trees of the active system."))
       return run;
     const auto controls = std::make_pair(
-      std::array<double, 7>{{static_cast<double>(terminal_count),
+      std::array<double, 9>{{static_cast<double>(terminal_count),
                              static_cast<double>(p.random_seed),
                              static_cast<double>(p.sample_budget),
                              static_cast<double>(p.candidate_count),
                              static_cast<double>(p.optimization_steps),
                              p.density_beta,
-                             p.terminal_weight_bound}},
+                             p.terminal_weight_bound,
+                             static_cast<double>(system),
+                             p.venous.terminal_separation}},
       std::array<std::string, 2>{{p.terminal_weight, p.tissue_demand}});
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
@@ -335,6 +349,77 @@ namespace ImmersX::Vascularization::internal
         count > 0 && count <= terminal_count,
         "Growth requires real roots and a target not smaller than the existing mutable forest."))
       return run;
+    std::map<Id, Territory> pending;
+    if (system == System::venous)
+      {
+        std::map<unsigned int, std::map<Id, double>> registration;
+        for (const auto &territory : owned_territories)
+          {
+            valid = valid && territory.id != invalid_id &&
+                    territory.owner == rank &&
+                    std::isfinite(territory.demand) && territory.demand > 0. &&
+                    pending.emplace(territory.id, territory).second;
+            for (unsigned int d = 0; d < 3; ++d)
+              valid = valid && std::isfinite(territory.position[d]);
+            registration[territory.id % size][territory.id] = territory.demand;
+          }
+        const auto n_territories = Utilities::MPI::sum(
+          static_cast<std::uint64_t>(owned_territories.size()), comm);
+        if (
+          !phase(
+            valid && n_territories == terminal_count,
+            "Venous growth requires exactly the requested number of owned common territories with finite positive demand."))
+          return run;
+        const auto registered =
+          Utilities::MPI::some_to_some(comm, registration);
+        std::map<Id, std::pair<unsigned int, double>> directory;
+        for (const auto &[owner, values] : registered)
+          for (const auto &[id, d] : values)
+            valid =
+              directory.emplace(id, std::make_pair(owner, d)).second && valid;
+        if (!phase(
+              valid,
+              "A common territory has more than one authoritative producer."))
+          return run;
+        using Claim = std::pair<Id, std::pair<Id, double>>;
+        std::map<unsigned int, std::vector<Claim>> claims;
+        for (Id tid : run.accepted.physiology.owned_leaf_terminals)
+          {
+            const auto &t = run.accepted.network.terminals.at(tid);
+            claims[t.territory % size].push_back(
+              {t.territory, {tid, t.demand}});
+          }
+        const auto   claimed = Utilities::MPI::some_to_some(comm, claims);
+        std::set<Id> seen;
+        std::map<unsigned int, std::map<Id, Id>> served;
+        for (const auto &[owner, values] : claimed)
+          for (const auto &[territory, terminal] : values)
+            {
+              const auto entry = directory.find(territory);
+              if (entry == directory.end() || !seen.insert(territory).second ||
+                  entry->second.second != terminal.second)
+                valid = false;
+              else
+                served[entry->second.first][territory] = terminal.first;
+            }
+        if (
+          !phase(
+            valid,
+            "Existing venous leaves must claim distinct common territories with exactly their shared demand."))
+          return run;
+        const auto received = Utilities::MPI::some_to_some(comm, served);
+        for (const auto &[shard, values] : received)
+          for (const auto &[territory, tid] : values)
+            {
+              valid = pending.erase(territory) == 1 && valid;
+              run.owned_venous_terminals.emplace(territory, tid);
+            }
+        if (
+          !phase(
+            valid,
+            "An existing venous claim has no authoritative common-territory owner."))
+          return run;
+      }
     double local_capacity = 0.;
     for (const auto &[id, radius] : run.accepted.fixed_owned_roots)
       local_capacity +=
@@ -342,9 +427,8 @@ namespace ImmersX::Vascularization::internal
           terminal_count :
           std::min<double>(
             terminal_count,
-            std::floor(
-              std::pow(radius / p.minimum_radius, p.arterial_murray_exponent) *
-              (1. + 32. * std::numeric_limits<double>::epsilon())));
+            std::floor(std::pow(radius / p.minimum_radius, gamma) *
+                       (1. + 32. * std::numeric_limits<double>::epsilon())));
     if (
       !phase(
         Utilities::MPI::sum(local_capacity, comm) >= terminal_count,
@@ -437,11 +521,24 @@ namespace ImmersX::Vascularization::internal
                    "The physical vascular identifier space is exhausted."))
           return run;
         std::optional<Point<3>> raw;
-        if (!first)
+        Id                      shared_territory = invalid_id;
+        if (system == System::arterial && !first)
           {
             raw.emplace();
             for (unsigned int d = 0; d < 3; ++d)
               (*raw)[d] = lo[d] + uniform() * (hi[d] - lo[d]);
+            ++run.sampled_points;
+          }
+        else if (system == System::venous && !pending.empty())
+          {
+            auto entry = pending.begin();
+            std::advance(entry, ((run.batches - 1) / 6) % pending.size());
+            shared_territory = entry->first;
+            raw              = entry->second.position;
+            const unsigned int direction =
+              ((run.batches - 1) % 6 + shared_territory % 6) % 6;
+            (*raw)[direction / 2] +=
+              (direction % 2 ? 1. : -1.) * p.venous.terminal_separation;
             ++run.sampled_points;
           }
         // Query actual containing cells for h(x), including MPI interfaces.
@@ -468,7 +565,12 @@ namespace ImmersX::Vascularization::internal
           }
         std::optional<Point<3>> target;
         double                  terminal_demand = 0.;
-        if (raw && point_owner == rank)
+        if (system == System::venous && raw && point_owner < size)
+          {
+            target          = raw;
+            terminal_demand = pending.at(shared_territory).demand;
+          }
+        else if (system == System::arterial && raw && point_owner == rank)
           {
             const double w = weight.value(*raw);
             valid          = valid && std::isfinite(w) && w >= 0. &&
@@ -492,7 +594,8 @@ namespace ImmersX::Vascularization::internal
                                     run.accepted.network,
                                     run.accepted.mutable_owned,
                                     p.candidate_count,
-                                    comm);
+                                    comm,
+                                    system);
         std::map<Id, unsigned int> requests;
         for (const auto &hit : nearby)
           requests[hit.id] = hit.owner;
@@ -664,8 +767,11 @@ namespace ImmersX::Vascularization::internal
             split.continuation      = allocated[1];
             split.leaf              = allocated[1] + 1;
             split.terminal          = allocated[2];
-            split.territory         = allocated[3];
-            split.demand            = best->terminal_demand;
+            if (system == System::arterial)
+              split.territory = allocated[3];
+            else if (system == System::venous)
+              split.territory = shared_territory;
+            split.demand = best->terminal_demand;
             splits.push_back(split);
           }
         const auto selected =
@@ -689,6 +795,12 @@ namespace ImmersX::Vascularization::internal
             ++failures;
             continue;
           }
+        if (system == System::venous && !splits.empty())
+          {
+            run.owned_venous_terminals.emplace(shared_territory,
+                                               splits.front().terminal);
+            pending.erase(shared_territory);
+          }
         run.accepted = std::move(committed);
         run.accepted_insertions += splits.size();
         run.maximum_batch_insertions =
@@ -696,8 +808,12 @@ namespace ImmersX::Vascularization::internal
         count += selected;
         failures = 0;
       }
+    std::uint64_t unserved = 0;
+    if (system == System::venous)
+      unserved =
+        Utilities::MPI::sum(static_cast<std::uint64_t>(pending.size()), comm);
     phase(
-      count == terminal_count,
+      count == terminal_count && unserved == 0,
       "The finite batched sampling budget was exhausted before reaching the terminal target.");
     return run;
   }

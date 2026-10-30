@@ -276,588 +276,6 @@ namespace ImmersX::Vascularization
       return first;
     }
 
-    // r_e = R*(D_e/D_root)^(1/gamma), with subtree demand D_e. The physical
-    // total tissue flow is split globally by demand, so power is proportional
-    // to sum_roots(1/R^4 * D_root^(4/gamma) * sum_e(mu_e*L_e*D_e^(2-4/gamma)))
-    // divided by total demand squared. The common total-flow squared factor
-    // cancels in the normalized objective. Counts remain separate for budgets.
-    // Trial demand changes touch one ancestral path; no candidate copies the
-    // complete network or materializes every normalized radius.
-    struct CCOGrowth
-    {
-      using Leaf = std::pair<Segment<3>, Id>;
-      using Edge = internal::Edge;
-      struct Tree
-      {
-        double radius;
-        double volume_sum, dissipation_sum;
-        double minimum_demand;
-      };
-      using Proposal = internal::GrowthCandidate;
-
-      CCOGrowth(GenerationResult        &result,
-                const Parameters        &parameters,
-                BackgroundGeometry      &geometry,
-                const std::vector<Id>   &roots,
-                unsigned int             terminal_count,
-                const FunctionParser<3> &demand_function,
-                System                   active_system)
-        : result(result)
-        , network(result.network)
-        , parameters(parameters)
-        , terminal_count(terminal_count)
-        , geometry(geometry)
-        , demand_function(demand_function)
-        , system(active_system)
-        , random(parameters.random_seed)
-        , murray_exponent(active_system == System::arterial ?
-                            parameters.arterial_murray_exponent :
-                            parameters.venous.murray_exponent)
-        , exponent(2. / murray_exponent)
-        , dissipation_exponent(2. - 4. / murray_exponent)
-      {
-        std::map<Id, double> leaf_demands;
-        for (const auto &[id, t] : network.terminals)
-          leaf_demands[t.node] = t.demand;
-        for (Id root : roots)
-          demand_scale =
-            std::max(demand_scale,
-                     leaf_demands.at(network.vessels.at(root).nodes[1]));
-        for (Id root : roots)
-          {
-            const auto  &e = network.vessels.at(root);
-            const double d = leaf_demands.at(e.nodes[1]) / demand_scale;
-            AssertThrow(
-              std::isfinite(d) && d > 0.,
-              ExcMessage(
-                "Initial relative tissue demand is not representable."));
-            counts[root]  = 1;
-            demands[root] = d;
-            total_demand += d;
-            parents[root] = invalid_id;
-            tree_of[root] = root;
-            trees[root]   = {e.radii[0],
-                             length(network, root) * std::pow(d, exponent),
-                           parameters.dissipation_weight > 0. ?
-                               e.viscosity * length(network, root) *
-                               std::pow(d, dissipation_exponent) :
-                               0.,
-                             d};
-            forest_volume +=
-              tree_volume(trees.at(root), trees.at(root).volume_sum, d);
-            forest_power_numerator +=
-              tree_power_numerator(trees.at(root),
-                                   trees.at(root).dissipation_sum,
-                                   d);
-          }
-        AssertThrow(std::isfinite(forest_volume) && forest_volume > 0. &&
-                      (parameters.dissipation_weight == 0. ||
-                       (std::isfinite(forest_power_numerator) &&
-                        forest_power_numerator > 0.)),
-                    ExcMessage(
-                      "Initial vascular objective is not representable."));
-        for (const auto &[id, e] : network.vessels)
-          maximum_radius = std::max({maximum_radius, e.radii[0], e.radii[1]});
-        next_node     = next_identifier(network.nodes);
-        next_vessel   = next_identifier(network.vessels);
-        next_terminal = next_identifier(network.terminals);
-        for (const auto &territory : result.territories)
-          next_territory = std::max(next_territory, territory.id + 1);
-        weight.initialize("x,y,z", parameters.terminal_weight, {});
-        bool first = true;
-        for (const auto &[box, cell] :
-             geometry.cache.get_locally_owned_cell_bounding_boxes_rtree())
-          {
-            const auto &[a, b] = box.get_boundary_points();
-            for (unsigned int d = 0; d < 3; ++d)
-              {
-                lower[d] = first ? a[d] : std::min(lower[d], a[d]);
-                upper[d] = first ? b[d] : std::max(upper[d], b[d]);
-              }
-            minimum_h = std::min(minimum_h, cell->diameter());
-            maximum_h = std::max(maximum_h, cell->diameter());
-            first     = false;
-          }
-        active_terminal_count = roots.size();
-        rebuild_index();
-      }
-
-      double
-      uniform()
-      {
-        return static_cast<double>(random() >> 11) * 0x1.0p-53;
-      }
-
-      Segment<3>
-      segment(Id id) const
-      {
-        const auto &e = network.vessels.at(id);
-        return {network.nodes.at(e.nodes[0]).position,
-                network.nodes.at(e.nodes[1]).position};
-      }
-
-      double
-      tree_volume(const Tree &tree, double sum, double root_demand) const
-      {
-        return numbers::PI * tree.radius * tree.radius * sum /
-               std::pow(root_demand, exponent);
-      }
-
-      double
-      tree_power_numerator(const Tree &tree,
-                           double      sum,
-                           double      root_demand) const
-      {
-        if (parameters.dissipation_weight == 0.)
-          return 0.;
-        // Numerator of generated-forest power divided by the common Q^2.
-        return 8. / numbers::PI / std::pow(tree.radius, 4) * sum *
-               std::pow(root_demand, 4. / murray_exponent);
-      }
-
-      double
-      radius(Id id) const
-      {
-        const auto found = tree_of.find(id);
-        if (found == tree_of.end())
-          return std::max(network.vessels.at(id).radii[0],
-                          network.vessels.at(id).radii[1]);
-        const Id root = found->second;
-        return trees.at(root).radius *
-               std::pow(demands.at(id) / demands.at(root),
-                        1. / murray_exponent);
-      }
-
-      void
-      rebuild_index()
-      {
-        std::vector<Leaf> all, growing;
-        for (const auto &[id, e] : network.vessels)
-          {
-            all.emplace_back(segment(id), id);
-            const auto found = tree_of.find(id);
-            if (found != tree_of.end())
-              {
-                const Id root = found->second;
-                if (trees.at(root).radius *
-                      std::pow(1. / (counts.at(root) + 1.),
-                               1. / murray_exponent) >=
-                    parameters.minimum_radius)
-                  growing.emplace_back(segment(id), id);
-              }
-          }
-        vessels           = pack_rtree(all);
-        candidate_vessels = pack_rtree(growing);
-      }
-
-      Edge
-      edge(Id id, double r) const
-      {
-        const auto &e = network.vessels.at(id);
-        const auto  s = segment(id);
-        return {id, e.nodes, {{s.first, s.second}}, r};
-      }
-
-      static bool
-      compatible(const Edge &a, const Edge &b, const Parameters &parameters)
-      {
-        return internal::compatible(a,
-                                    b,
-                                    parameters.minimum_angle,
-                                    parameters.clearance);
-      }
-
-      std::optional<Proposal>
-      optimize(Id id, const Point<3> &terminal, double terminal_demand) const
-      {
-        const Id                         root = tree_of.at(id);
-        const auto                      &tree = trees.at(root);
-        internal::GrowthCandidateContext context;
-        context.system                 = system;
-        context.root                   = root;
-        context.next_node              = next_node;
-        context.next_vessel            = next_vessel;
-        context.root_radius            = tree.radius;
-        context.root_demand            = demands.at(root);
-        context.minimum_demand         = tree.minimum_demand;
-        context.volume_sum             = tree.volume_sum;
-        context.dissipation_sum        = tree.dissipation_sum;
-        context.total_demand           = total_demand;
-        context.demand_scale           = demand_scale;
-        context.murray_exponent        = murray_exponent;
-        context.forest_volume          = forest_volume;
-        context.forest_power_numerator = forest_power_numerator;
-        std::set<Id> increased;
-        for (Id branch = id; branch != invalid_id; branch = parents.at(branch))
-          {
-            internal::GrowthPathBranch record;
-            const auto                &v = network.vessels.at(branch);
-            record.edge                  = edge(branch, radius(branch));
-            record.demand                = demands.at(branch);
-            record.viscosity             = v.viscosity;
-            record.owner                 = v.owner;
-            for (unsigned int end = 0; end < 2; ++end)
-              {
-                const auto &node         = network.nodes.at(v.nodes[end]);
-                record.port_normals[end] = node.inward_port_normal;
-                record.node_owners[end]  = node.owner;
-              }
-            context.path.push_back(record);
-            increased.insert(branch);
-          }
-        const double total         = context.root_demand,
-                     w             = terminal_demand / demand_scale;
-        const auto proposed_radius = [&](Id e) {
-          const auto found = tree_of.find(e);
-          if (found == tree_of.end() || found->second != root)
-            return radius(e);
-          const double demand = demands.at(e) + (increased.count(e) ? w : 0.);
-          return tree.radius *
-                 std::pow(demand / (total + w), 1. / murray_exponent);
-        };
-        const auto geometry_check = [&](const std::vector<Edge> &changed) {
-          double guard = 0.;
-          for (const auto &e : changed)
-            for (const auto &point : e.points)
-              guard = std::max(guard,
-                               64. * std::numeric_limits<double>::epsilon() *
-                                 std::max(1., point.norm()));
-          std::set<Id> replaced;
-          for (const auto &e : changed)
-            replaced.insert(e.id);
-          for (std::size_t i = 0; i < changed.size(); ++i)
-            {
-              const auto             &e = changed[i];
-              std::array<Point<3>, 2> port_normals;
-              for (unsigned int end = 0; end < 2; ++end)
-                if (const auto node = network.nodes.find(e.nodes[end]);
-                    node != network.nodes.end())
-                  port_normals[end] = node->second.inward_port_normal;
-              if (!geometry.contains({e.points[0], e.points[1]},
-                                     e.radius + parameters.clearance,
-                                     parameters.geometry_depth,
-                                     parameters.geometry_work,
-                                     port_normals))
-                return false;
-              for (std::size_t j = 0; j < i; ++j)
-                if (!compatible(e, changed[j], parameters))
-                  return false;
-              Point<3>     lo, hi;
-              const double pad =
-                e.radius + maximum_radius + parameters.clearance + guard;
-              for (unsigned int d = 0; d < 3; ++d)
-                {
-                  lo[d] = std::min(e.points[0][d], e.points[1][d]) - pad;
-                  hi[d] = std::max(e.points[0][d], e.points[1][d]) + pad;
-                }
-              const BoundingBox<3> box(std::make_pair(lo, hi));
-              for (const auto &[s, other] :
-                   vessels | bgi::adaptors::queried(bgi::intersects(box)))
-                if (!replaced.count(other) &&
-                    !compatible(e,
-                                edge(other, proposed_radius(other)),
-                                parameters))
-                  return false;
-            }
-          return true;
-        };
-        return internal::optimize_growth(
-          context, parameters, terminal, terminal_demand, geometry_check);
-      }
-
-      void
-      accept(const Proposal &p, const Territory *shared_territory = nullptr)
-      {
-        const auto  old       = network.vessels.at(p.vessel);
-        const Id    tid       = take_identifiers(next_terminal);
-        const Id    territory = shared_territory ?
-                                  shared_territory->id :
-                                  take_identifiers(next_territory);
-        GrowthSplit split;
-        split.vessel            = p.vessel;
-        split.owner             = old.owner;
-        split.old_nodes         = old.nodes;
-        split.old_points        = {{network.nodes.at(old.nodes[0]).position,
-                                    network.nodes.at(old.nodes[1]).position}};
-        split.junction          = next_node;
-        split.tip               = next_node + 1;
-        split.junction_position = p.junction;
-        split.tip_position      = p.terminal;
-        split.continuation      = next_vessel;
-        split.leaf              = next_vessel + 1;
-        split.terminal          = tid;
-        split.territory         = territory;
-        split.demand            = p.terminal_demand;
-        AssertThrow(apply_growth_split(network, split),
-                    ExcMessage(
-                      "An accepted CCO split no longer matches its snapshot."));
-        if (!shared_territory)
-          result.territories.push_back(
-            {territory, p.terminal, 0, p.terminal_demand});
-        ++active_terminal_count;
-        for (auto &[child, parent] : parents)
-          if (parent == p.vessel)
-            parent = next_vessel;
-        const Id root = tree_of.at(p.vessel);
-        auto    &tree = trees.at(root);
-        forest_volume -= tree_volume(tree, tree.volume_sum, demands.at(root));
-        forest_power_numerator -=
-          tree_power_numerator(tree, tree.dissipation_sum, demands.at(root));
-        tree_of[next_vessel] = tree_of[next_vessel + 1] = root;
-        counts[next_vessel]                             = counts.at(p.vessel);
-        counts[next_vessel + 1]                         = 1;
-        parents[next_vessel] = parents[next_vessel + 1] = p.vessel;
-        const double w           = p.terminal_demand / demand_scale;
-        demands[next_vessel]     = demands.at(p.vessel);
-        demands[next_vessel + 1] = w;
-        demands.at(p.vessel) += w;
-        total_demand += w;
-        tree.minimum_demand = std::min(tree.minimum_demand, w);
-        ++counts.at(p.vessel);
-        for (Id ancestor : p.ancestors)
-          {
-            ++counts.at(ancestor);
-            demands.at(ancestor) += w;
-          }
-        tree.volume_sum      = p.volume_sum;
-        tree.dissipation_sum = p.dissipation_sum;
-        forest_volume += tree_volume(tree, tree.volume_sum, demands.at(root));
-        forest_power_numerator +=
-          tree_power_numerator(tree, tree.dissipation_sum, demands.at(root));
-        take_identifiers(next_node, 2);
-        take_identifiers(next_vessel, 2);
-        ++result.accepted_insertions;
-        rebuild_index();
-      }
-
-      void
-      run()
-      {
-        double capacity = 0.;
-        for (const auto &[id, tree] : trees)
-          capacity +=
-            parameters.minimum_radius == 0. ?
-              terminal_count :
-              std::min<double>(
-                terminal_count,
-                std::floor(
-                  std::pow(tree.radius / parameters.minimum_radius,
-                           murray_exponent) *
-                  (1. + 32. * std::numeric_limits<double>::epsilon())));
-        if (capacity < terminal_count)
-          {
-            result.validation.issues.push_back(
-              {"growth",
-               invalid_id,
-               "Requested terminal count is incompatible with the minimum radius at the fixed attachment radii."});
-            return;
-          }
-        std::map<Id, Territory> pending;
-        if (system == System::venous)
-          {
-            for (const auto &t : result.territories)
-              pending.emplace(t.id, t);
-            for (const auto &[id, t] : network.terminals)
-              if (t.system == system)
-                pending.erase(t.territory);
-          }
-        while (active_terminal_count < terminal_count)
-          {
-            AssertThrow(next_node < invalid_id - 1 &&
-                          next_vessel < invalid_id - 1,
-                        ExcMessage("Vascular identifier space exhausted."));
-            bool inserted = false;
-            for (unsigned int attempt = 0; attempt < parameters.sample_budget;
-                 ++attempt)
-              {
-                ++result.sampled_points;
-                Point<3>         target;
-                const Territory *shared          = nullptr;
-                double           terminal_demand = 0.;
-                if (system == System::venous)
-                  {
-                    AssertThrow(!pending.empty(), ExcInternalError());
-                    auto entry = pending.begin();
-                    std::advance(entry, (attempt / 6) % pending.size());
-                    shared                       = &entry->second;
-                    target                       = shared->position;
-                    const unsigned int direction = (attempt + shared->id) % 6;
-                    target[direction / 2] +=
-                      (direction % 2 ? 1. : -1.) *
-                      parameters.venous.terminal_separation;
-                    terminal_demand = shared->demand;
-                    if (!geometry.containing(target))
-                      continue;
-                  }
-                else if (system == System::arterial)
-                  {
-                    for (unsigned int d = 0; d < 3; ++d)
-                      target[d] = lower[d] + uniform() * (upper[d] - lower[d]);
-                    const auto cell = geometry.containing(target);
-                    if (!cell)
-                      continue;
-                    const double w = weight.value(target);
-                    AssertThrow(
-                      std::isfinite(w) && w >= 0. &&
-                        w <= parameters.terminal_weight_bound,
-                      ExcMessage(
-                        "Spatial terminal weight violates its declared nonnegative bound."));
-                    const double h = (*cell)->diameter();
-                    const double scale =
-                      parameters.density_beta >= 0. ? minimum_h : maximum_h;
-                    if (uniform() >=
-                        w / parameters.terminal_weight_bound *
-                          std::pow(scale / h, parameters.density_beta))
-                      continue;
-                    terminal_demand = demand_function.value(target);
-                    AssertThrow(
-                      std::isfinite(terminal_demand) && terminal_demand > 0.,
-                      ExcMessage(
-                        "Tissue demand must be positive and finite at every proposed terminal."));
-                  }
-                std::vector<Leaf> candidates;
-                candidate_vessels.query(
-                  bgi::nearest(target, parameters.candidate_count),
-                  std::back_inserter(candidates));
-                std::sort(candidates.begin(),
-                          candidates.end(),
-                          [&](const auto &a, const auto &b) {
-                            const double da = point_distance_square(target,
-                                                                    a.first),
-                                         db = point_distance_square(target,
-                                                                    b.first);
-                            return da < db || (da == db && a.second < b.second);
-                          });
-                std::optional<Proposal> best;
-                for (const auto &[s, id] : candidates)
-                  if (auto p = optimize(id, target, terminal_demand);
-                      p && (!best || p->cost < best->cost))
-                    best = std::move(p);
-                if (best)
-                  {
-                    BatchProposal candidate;
-                    candidate.id      = 0;
-                    candidate.cost    = best->cost;
-                    candidate.changed = best->changed;
-                    for (const auto &e : candidate.changed)
-                      {
-                        if (network.vessels.count(e.id))
-                          {
-                            candidate.owners[e.id] =
-                              network.vessels.at(e.id).owner;
-                            candidate.old_nodes[e.id] =
-                              network.vessels.at(e.id).nodes;
-                          }
-                        for (Id node : e.nodes)
-                          if (network.nodes.count(node) &&
-                              std::max({std::abs(network.nodes.at(node)
-                                                   .inward_port_normal[0]),
-                                        std::abs(network.nodes.at(node)
-                                                   .inward_port_normal[1]),
-                                        std::abs(network.nodes.at(node)
-                                                   .inward_port_normal[2])}) >
-                                0.)
-                            {
-                              candidate.normals[node] =
-                                network.nodes.at(node).inward_port_normal;
-                              candidate.port_owners[node] =
-                                network.nodes.at(node).owner;
-                            }
-                      }
-                    const Id     root = tree_of.at(best->vessel);
-                    const double shrink =
-                      std::pow(demands.at(root) /
-                                 (demands.at(root) +
-                                  best->terminal_demand / demand_scale),
-                               1. / murray_exponent);
-                    const auto selected =
-                      select_growth_batch(geometry,
-                                          network,
-                                          {candidate},
-                                          parameters,
-                                          MPI_COMM_SELF,
-                                          [&](Id id) {
-                                            const auto tree = tree_of.find(id);
-                                            return radius(id) *
-                                                   (tree != tree_of.end() &&
-                                                        tree->second == root ?
-                                                      shrink :
-                                                      1.);
-                                          });
-                    if (!selected.local.at(0))
-                      continue;
-                    const Id shared_id = shared ? shared->id : invalid_id;
-                    accept(*best, shared);
-                    if (shared)
-                      pending.erase(shared_id);
-                    inserted = true;
-                    break;
-                  }
-              }
-            if (!inserted)
-              {
-                result.validation.issues.push_back(
-                  {"growth",
-                   invalid_id,
-                   "No admissible insertion was found within the finite sample and optimization budgets."});
-                break;
-              }
-          }
-        if (result.validation.valid())
-          {
-            std::set<Id>         mutable_owned;
-            std::map<Id, double> fixed_roots;
-            for (const auto &[id, root] : tree_of)
-              mutable_owned.insert(id);
-            for (const auto &[id, tree] : trees)
-              fixed_roots[id] = tree.radius;
-            const auto state = evaluate_forest(
-              network, mutable_owned, fixed_roots, parameters, MPI_COMM_SELF);
-            result.validation.issues.insert(result.validation.issues.end(),
-                                            state.validation.issues.begin(),
-                                            state.validation.issues.end());
-            if (state.validation.valid())
-              {
-                for (const auto &[id, b] : state.owned)
-                  network.vessels.at(id).radii = {{b.radius, b.radius}};
-                result.target_terminal_flows.insert(
-                  state.terminal_flows.begin(), state.terminal_flows.end());
-                if (parameters.reference_flow > 0.)
-                  for (const auto &[id, r] : fixed_roots)
-                    result.target_attachment_flows[id] =
-                      state.owned.at(id).flow;
-              }
-          }
-        else
-          for (const auto &[id, root] : tree_of)
-            network.vessels.at(id).radii = {{radius(id), radius(id)}};
-      }
-
-      GenerationResult        &result;
-      NetworkData             &network;
-      const Parameters        &parameters;
-      const unsigned int       terminal_count;
-      BackgroundGeometry      &geometry;
-      const FunctionParser<3> &demand_function;
-      const System             system;
-      unsigned int             active_terminal_count = 0;
-      std::mt19937_64          random;
-      FunctionParser<3>        weight;
-      Point<3>                 lower, upper;
-      double minimum_h = std::numeric_limits<double>::infinity(),
-             maximum_h = 0.;
-      const double murray_exponent, exponent, dissipation_exponent;
-      double       forest_volume = 0., forest_power_numerator = 0.,
-             maximum_radius = 0.;
-      Id next_node = 0, next_vessel = 0, next_terminal = 0, next_territory = 0;
-      std::map<Id, Tree>         trees;
-      std::map<Id, Id>           tree_of;
-      std::map<Id, unsigned int> counts;
-      std::map<Id, double>       demands;
-      double                     demand_scale = 0., total_demand = 0.;
-      std::map<Id, Id>           parents;
-      RTree<Leaf>                vessels, candidate_vessels;
-    };
 
   } // namespace
 
@@ -976,7 +394,7 @@ namespace ImmersX::Vascularization
         "Terminal count is smaller than the number of selected attachments.");
     if (!result.validation.valid())
       return result;
-    std::vector<CCOGrowth::Leaf> obstacles;
+    std::vector<std::pair<Segment<3>, Id>> obstacles;
     double maximum_radius = creating_seed ? parameters.seed_radius : 0.;
     for (const auto &[id, e] : initial.vessels)
       {
@@ -1073,11 +491,11 @@ namespace ImmersX::Vascularization
                                       {{new_port ? seed_normal : Point<3>(),
                                    Point<3>()}}))
             continue;
-          const CCOGrowth::Edge edge{next_vessel,
-                                          {{start, end_node}},
-                                          {{position, end}},
-                                     radius};
-          Point<3>              lo, hi;
+          const internal::Edge edge{next_vessel,
+                                         {{start, end_node}},
+                                         {{position, end}},
+                                    radius};
+          Point<3>             lo, hi;
           const double pad = radius + maximum_radius + parameters.clearance +
                              64. * std::numeric_limits<double>::epsilon() *
                                std::max({1., position.norm(), end.norm()});
@@ -1091,12 +509,15 @@ namespace ImmersX::Vascularization
                index | bgi::adaptors::queried(bgi::intersects(
                          BoundingBox<3>(std::make_pair(lo, hi)))))
             {
-              const auto           &e = result.network.vessels.at(id);
-              const CCOGrowth::Edge other{id,
-                                          e.nodes,
-                                               {{s.first, s.second}},
-                                          std::max(e.radii[0], e.radii[1])};
-              if (!CCOGrowth::compatible(edge, other, parameters))
+              const auto          &e = result.network.vessels.at(id);
+              const internal::Edge other{id,
+                                         e.nodes,
+                                              {{s.first, s.second}},
+                                         std::max(e.radii[0], e.radii[1])};
+              if (!internal::compatible(edge,
+                                        other,
+                                        parameters.minimum_angle,
+                                        parameters.clearance))
                 {
                   compatible = false;
                   break;
@@ -1195,46 +616,57 @@ namespace ImmersX::Vascularization
                 parameters.venous.seed_inward_port_normal)};
           }
       }
-    std::set<Id>         mutable_roots(roots.begin(), roots.end());
-    std::map<Id, double> fixed_roots;
-    for (Id root : roots)
-      fixed_roots[root] = result.network.vessels.at(root).radii[0];
-    auto growth = internal::grow_forest(background,
-                                        mapping,
-                                        result.network,
-                                        mutable_roots,
-                                        fixed_roots,
-                                        parameters,
-                                        communicator,
-                                        terminal_count);
-    result.validation.issues.insert(result.validation.issues.end(),
-                                    growth.validation.issues.begin(),
-                                    growth.validation.issues.end());
-    result.sampled_points +=
-      Utilities::MPI::sum(growth.sampled_points, communicator);
-    result.accepted_insertions +=
-      Utilities::MPI::sum(static_cast<unsigned int>(growth.accepted_insertions),
-                          communicator);
-    if (growth.accepted.committed)
-      {
-        result.network = std::move(growth.accepted.network);
-        result.territories.clear();
-        for (Id tid : growth.accepted.physiology.owned_leaf_terminals)
-          {
-            const auto &t = result.network.terminals.at(tid);
-            result.territories.push_back(
-              {t.territory,
-               result.network.nodes.at(t.node).position,
-               t.owner,
-               t.demand});
-          }
-        result.target_terminal_flows =
-          std::move(growth.accepted.physiology.terminal_flows);
-        if (parameters.reference_flow > 0.)
-          for (const auto &[root, radius] : growth.accepted.fixed_owned_roots)
-            result.target_attachment_flows[root] =
-              growth.accepted.physiology.owned.at(root).flow;
-      }
+    const auto run_growth = [&](System system) {
+      std::set<Id>         mutable_roots(roots.begin(), roots.end());
+      std::map<Id, double> fixed_roots;
+      for (Id root : roots)
+        fixed_roots[root] = result.network.vessels.at(root).radii[0];
+      const std::vector<Territory> empty;
+      auto                         growth =
+        internal::grow_forest(background,
+                              mapping,
+                              result.network,
+                              mutable_roots,
+                              fixed_roots,
+                              parameters,
+                              communicator,
+                              terminal_count,
+                              system,
+                              system == System::venous ? result.territories :
+                                                         empty);
+      result.validation.issues.insert(result.validation.issues.end(),
+                                      growth.validation.issues.begin(),
+                                      growth.validation.issues.end());
+      result.sampled_points +=
+        Utilities::MPI::sum(growth.sampled_points, communicator);
+      result.accepted_insertions += Utilities::MPI::sum(
+        static_cast<unsigned int>(growth.accepted_insertions), communicator);
+      if (growth.accepted.committed)
+        {
+          result.network = std::move(growth.accepted.network);
+          if (system == System::arterial)
+            {
+              result.territories.clear();
+              for (Id tid : growth.accepted.physiology.owned_leaf_terminals)
+                {
+                  const auto &t = result.network.terminals.at(tid);
+                  result.territories.push_back(
+                    {t.territory,
+                     result.network.nodes.at(t.node).position,
+                     t.owner,
+                     t.demand});
+                }
+            }
+          result.target_terminal_flows.insert(
+            growth.accepted.physiology.terminal_flows.begin(),
+            growth.accepted.physiology.terminal_flows.end());
+          if (parameters.reference_flow > 0.)
+            for (const auto &[root, radius] : growth.accepted.fixed_owned_roots)
+              result.target_attachment_flows[root] =
+                growth.accepted.physiology.owned.at(root).flow;
+        }
+    };
+    run_growth(System::arterial);
     if (parameters.venous.enabled && result.validation.valid())
       {
         // Arterial geometry remains an obstacle throughout venous growth.
@@ -1346,14 +778,7 @@ namespace ImmersX::Vascularization
                 return result;
               }
           }
-        CCOGrowth venous_growth(result,
-                                parameters,
-                                geometry,
-                                roots,
-                                terminal_count,
-                                demand_function,
-                                System::venous);
-        venous_growth.run();
+        run_growth(System::venous);
       }
     if (parameters.venous.enabled && result.validation.valid())
       {

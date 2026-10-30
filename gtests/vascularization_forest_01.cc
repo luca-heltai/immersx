@@ -7,6 +7,7 @@
 #include <deal.II/grid/grid_generator.h>
 
 #include <boost/serialization/array.hpp>
+#include <boost/serialization/utility.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include <gtest/gtest.h>
@@ -1260,4 +1261,298 @@ TEST(VascularForest, BOTH_PreliminaryVotesCannotAdoptAnAncestorRadiusCollision)
     {
       EXPECT_NEAR(n.vessels.at(base + 12).radii[0], old_radius, 1.e-15);
     }
+}
+
+namespace
+{
+  NetworkData
+  paired_seed()
+  {
+    NetworkData n;
+    if (rank() != size() - 1)
+      return n;
+    const double x[4] = {.8, 1., 2.6, 3.4};
+    // Four frozen arterial supply branches and one real venous outlet.
+    for (unsigned int i = 0; i < 4; ++i)
+      {
+        const Id off = base + 100 * i;
+        n.nodes[off] = {Point<3>(x[i], .2, .7), rank(), Port::arterial_inlet};
+        n.nodes[off + 1] = {Point<3>(x[i], .7, .7), rank()};
+        Vessel v;
+        v.nodes               = {{off, off + 1}};
+        v.radii               = {{.001, .001}};
+        v.viscosity           = .004;
+        v.owner               = rank();
+        n.vessels[off + 10]   = v;
+        n.terminals[off + 30] = {
+          off + 1, off + 40, System::arterial, rank(), 1. + i};
+      }
+    n.nodes[base + 10000] = {Point<3>(.2, 1.5, .7),
+                             rank(),
+                             Port::venous_outlet,
+                             Provenance::generated};
+    n.nodes[base + 10001] = {Point<3>(.8, .74, .7),
+                             rank(),
+                             Port::none,
+                             Provenance::generated};
+    Vessel v;
+    v.nodes                   = {{base + 10000, base + 10001}};
+    v.radii                   = {{.003, .003}};
+    v.viscosity               = .004;
+    v.system                  = System::venous;
+    v.provenance              = Provenance::generated;
+    v.owner                   = rank();
+    n.vessels[base + 10010]   = v;
+    n.terminals[base + 10030] = {
+      base + 10001, base + 40, System::venous, rank(), 1.};
+    return n;
+  }
+  std::vector<Territory>
+  common_territories(const NetworkData &n)
+  {
+    std::vector<Territory> result;
+    for (const auto &[id, t] : n.terminals)
+      if (t.owner == rank() && t.system == System::arterial)
+        result.push_back(
+          {t.territory, n.nodes.at(t.node).position, rank(), t.demand});
+    return result;
+  }
+  std::set<Id>
+  venous_seed_ids(const NetworkData &n)
+  {
+    std::set<Id> result;
+    if (n.vessels.count(base + 10010) &&
+        n.vessels.at(base + 10010).owner == rank())
+      result.insert(base + 10010);
+    return result;
+  }
+  std::map<Id, double>
+  venous_seed_roots(const NetworkData &n)
+  {
+    std::map<Id, double> result;
+    for (Id id : venous_seed_ids(n))
+      result[id] = .003;
+    return result;
+  }
+  void
+  venous_controls(Parameters &p)
+  {
+    p.seed_length                     = .2;
+    p.terminal_count                  = 4;
+    p.sample_budget                   = 200;
+    p.candidate_count                 = 4;
+    p.optimization_steps              = 5;
+    p.minimum_angle                   = 10.;
+    p.venous.enabled                  = true;
+    p.venous.murray_exponent          = 3.2;
+    p.venous.terminal_separation      = .04;
+    p.venous.microvascular_resistance = 1.e13;
+    // The offset point must never reevaluate the arterial tissue demand.
+    p.tissue_demand = "1000";
+  }
+} // namespace
+TEST(VascularForest, BOTH_VenousGrowthClaimsCommonTerritoriesAcrossTheirOwners)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, paired_seed(), 0., MPI_COMM_WORLD);
+  const auto   common = common_territories(n);
+  Parameters   p;
+  venous_controls(p);
+  const auto run = grow_forest(bg,
+                               mapping,
+                               n,
+                               venous_seed_ids(n),
+                               venous_seed_roots(n),
+                               p,
+                               MPI_COMM_WORLD,
+                               4,
+                               System::venous,
+                               common);
+  EXPECT_TRUE(run.validation.valid());
+  for (const auto &i : run.validation.issues)
+    ADD_FAILURE() << i.message;
+  EXPECT_EQ(Utilities::MPI::sum(run.accepted_insertions, MPI_COMM_WORLD), 3u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  run.owned_venous_terminals.size()),
+                                MPI_COMM_WORLD),
+            4u);
+  EXPECT_TRUE(run.accepted.physiology.terminal_flows.empty());
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  run.accepted.fixed_owned_roots.size()),
+                                MPI_COMM_WORLD),
+            1u);
+  for (const auto &[id, branch] : run.accepted.physiology.owned)
+    {
+      EXPECT_EQ(branch.root, base + 10010);
+      EXPECT_EQ(run.accepted.network.vessels.at(id).system, System::venous);
+    }
+  std::array<unsigned int, 4> owners;
+  for (unsigned int i = 0; i < 4; ++i)
+    {
+      const Id     tid = base + 100 * i + 30;
+      unsigned int owner =
+        n.terminals.count(tid) && n.terminals.at(tid).owner == rank() ? rank() :
+                                                                        size();
+      owners[i] = Utilities::MPI::min(owner, MPI_COMM_WORLD);
+    }
+  using Received = std::pair<Id, std::pair<Id, std::pair<Point<3>, double>>>;
+  std::map<unsigned int, std::vector<Received>> send;
+  for (Id tid : run.accepted.physiology.owned_leaf_terminals)
+    {
+      const auto &t     = run.accepted.network.terminals.at(tid);
+      const auto  index = (t.territory - base - 40) / 100;
+      EXPECT_LT(index, 4u);
+      if (index < 4)
+        send[owners[index]].push_back(
+          {t.territory,
+           {tid, {run.accepted.network.nodes.at(t.node).position, t.demand}}});
+    }
+  const auto received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+  std::map<Id, Territory> centres;
+  for (const auto &t : common)
+    centres[t.id] = t;
+  std::set<Id> served;
+  for (const auto &[owner, entries] : received)
+    for (const auto &[territory, terminal] : entries)
+      {
+        EXPECT_TRUE(served.insert(territory).second);
+        EXPECT_TRUE(centres.count(territory));
+        if (centres.count(territory))
+          {
+            EXPECT_EQ(run.owned_venous_terminals.at(territory), terminal.first);
+            EXPECT_DOUBLE_EQ(terminal.second.second,
+                             centres.at(territory).demand);
+            EXPECT_NEAR(terminal.second.first.distance(
+                          centres.at(territory).position) /
+                          p.venous.terminal_separation,
+                        1.,
+                        1.e-12);
+            if (territory == base + 140)
+              {
+                EXPECT_NEAR(terminal.second.first[0], 1.04, 1.e-14);
+                if (size() == 4)
+                  {
+                    EXPECT_NE(owner, rank());
+                  }
+              }
+          }
+      }
+  EXPECT_EQ(served.size(), common.size());
+  for (const auto &[id, v] : n.vessels)
+    if (v.owner == rank() && v.system == System::arterial)
+      {
+        EXPECT_TRUE(run.accepted.network.vessels.count(id));
+        if (run.accepted.network.vessels.count(id))
+          {
+            const auto &after = run.accepted.network.vessels.at(id);
+            EXPECT_EQ(after.nodes, v.nodes);
+            EXPECT_EQ(after.radii, v.radii);
+          }
+      }
+}
+TEST(VascularForest,
+     BOTH_InvalidCommonTerritoryClaimsFailWithoutPartialAdoption)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, paired_seed(), 0., MPI_COMM_WORLD);
+  const auto   common = common_territories(n);
+  Parameters   p;
+  venous_controls(p);
+  auto wrong = common;
+  for (auto &t : wrong)
+    if (t.id == base + 40)
+      t.demand = 2.;
+  EXPECT_FALSE(grow_forest(bg,
+                           mapping,
+                           n,
+                           venous_seed_ids(n),
+                           venous_seed_roots(n),
+                           p,
+                           MPI_COMM_WORLD,
+                           4,
+                           System::venous,
+                           wrong)
+                 .validation.valid());
+  wrong = common;
+  for (auto &t : wrong)
+    if (t.id == base + 40)
+      t.owner = size();
+  EXPECT_FALSE(grow_forest(bg,
+                           mapping,
+                           n,
+                           venous_seed_ids(n),
+                           venous_seed_roots(n),
+                           p,
+                           MPI_COMM_WORLD,
+                           4,
+                           System::venous,
+                           wrong)
+                 .validation.valid());
+  wrong = common;
+  for (auto &t : wrong)
+    if (t.id == base + 140)
+      t.id = base + 40;
+  EXPECT_FALSE(grow_forest(bg,
+                           mapping,
+                           n,
+                           venous_seed_ids(n),
+                           venous_seed_roots(n),
+                           p,
+                           MPI_COMM_WORLD,
+                           4,
+                           System::venous,
+                           wrong)
+                 .validation.valid());
+  auto duplicate_input = paired_seed();
+  if (rank() == size() - 1)
+    {
+      duplicate_input.nodes[base + 11000] = {Point<3>(.2, 1.8, 1.2),
+                                             rank(),
+                                             Port::venous_outlet,
+                                             Provenance::generated};
+      duplicate_input.nodes[base + 11001] = {Point<3>(.8, .7, .74),
+                                             rank(),
+                                             Port::none,
+                                             Provenance::generated};
+      Vessel v;
+      v.nodes                                 = {{base + 11000, base + 11001}};
+      v.radii                                 = {{.003, .003}};
+      v.viscosity                             = .004;
+      v.system                                = System::venous;
+      v.provenance                            = Provenance::generated;
+      v.owner                                 = rank();
+      duplicate_input.vessels[base + 11010]   = v;
+      duplicate_input.terminals[base + 11030] = {
+        base + 11001, base + 40, System::venous, rank(), 1.};
+    }
+  const auto duplicate =
+    redistribute(bg, mapping, duplicate_input, 0., MPI_COMM_WORLD);
+  auto ids           = venous_seed_ids(duplicate);
+  auto root_controls = venous_seed_roots(duplicate);
+  if (duplicate.vessels.count(base + 11010) &&
+      duplicate.vessels.at(base + 11010).owner == rank())
+    {
+      ids.insert(base + 11010);
+      root_controls[base + 11010] = .003;
+    }
+  const auto double_claim = grow_forest(bg,
+                                        mapping,
+                                        duplicate,
+                                        ids,
+                                        root_controls,
+                                        p,
+                                        MPI_COMM_WORLD,
+                                        4,
+                                        System::venous,
+                                        common_territories(duplicate));
+  // Both roots are geometrically valid, but distinct endpoints cannot claim
+  // the same tissue territory twice.
+  EXPECT_TRUE(double_claim.accepted.committed);
+  EXPECT_FALSE(double_claim.validation.valid());
+  EXPECT_EQ(double_claim.batches, 0u);
+  EXPECT_EQ(n.nodes.count(base + 10002), 0u);
 }

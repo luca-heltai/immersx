@@ -290,8 +290,8 @@ candidate selection still need to be connected to the public generation loop.
 
 ## Grow a prepared forest in MPI batches
 
-The internal arterial growth loop operates on already prepared real attachment
-trees with one or several processes. Each process draws raw samples in the
+The growth loop operates on already prepared real attachment trees with one
+or several processes. For arteries, each process draws raw samples in the
 bounding box of its owned background cells. Acceptance includes the ratio of
 its box volume to the largest box volume; this avoids prescribing the same
 number of accepted terminals to partitions with different physical volumes.
@@ -318,9 +318,9 @@ consecutive sampling budget, and incomplete runs are reported as failures.
 Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
-now also serves public arterial generation and calibration. Distributed public
-seed/import startup, shared venous execution, measurement and solver preparation
-remain to be connected. Scaling at the requested sizes has not yet been
+serves both public arterial and venous generation and calibration. Distributed
+public seed/import startup, measurement and solver preparation remain to be
+connected. Scaling at the requested sizes has not yet been
 measured.
 
 Public arterial generation uses the batched engine with an explicit terminal
@@ -339,3 +339,24 @@ compare these trials against obsolete snapshot radii; final confirmation always
 checks the complete jointly normalized geometry. A regression places a frozen
 obstacle outside an old parent's wall and verifies rollback when an insertion
 makes that parent's radius reach the obstacle.
+
+
+The same execution loop grows veins from their actual outlet or attachment
+roots. Each common territory has one authoritative producer at the arterial
+terminal owner. That producer selects an offset endpoint and optimizes across
+nearby venous physical vessels. The offset may belong to another background
+process; it is not confined to the producer's partition. Its demand is copied
+exactly from the arterial territory, without evaluating the tissue-demand
+expression again at the offset point.
+
+A distributed identifier registry checks that common territories have unique
+owners. Existing venous leaves claim their territories through this registry;
+duplicate claims, missing territories and mismatched demand fail collectively.
+Successful new insertions remove only their producer's pending territory and
+return the venous terminal identity to that owner, even if the terminal migrates
+to another process. No process needs the complete set of territory positions.
+This enforces one venous endpoint per territory in addition to geometric
+collision checks. The previous separate serial growth implementation has been
+removed. Public paired reference solves retain their existing checks for
+positive beds and actual demand-matched flows; their MPI execution is still to
+be completed.
