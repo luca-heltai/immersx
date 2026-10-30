@@ -1,3 +1,4 @@
+#include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
 
 #include <deal.II/lac/vector.h>
@@ -10,6 +11,7 @@
 #include <array>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -29,7 +31,8 @@ using namespace dealii;
  * therefore verify the corresponding load, material, backend, and solve
  * paths with the tensor-product representation. Tensor-product coupling
  * currently supports one setup/solve cycle, so the ExactLambda counterpart
- * uses a single solve instead of adaptive refinement.
+ * refines the cells crossed by the wall before a single solve instead of
+ * using adaptive refinement cycles.
  */
 namespace
 {
@@ -42,6 +45,35 @@ namespace
     const ElasticityTensorProductCouplingTriangulationTypeTest &test_instance)
   {
     return test_instance.GetParam();
+  }
+
+  // Refine, n_times, the locally owned cells crossed by the cylinder of the
+  // given radius around the x axis, i.e., the cells with vertices on both
+  // sides of it.
+  void
+  refine_cells_crossed_by_cylinder(Triangulation<3>  &tria,
+                                   const double       radius,
+                                   const unsigned int n_times)
+  {
+    for (unsigned int i = 0; i < n_times; ++i)
+      {
+        for (const auto &cell : tria.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              double min_radius = std::numeric_limits<double>::max();
+              double max_radius = 0.;
+              for (const auto v : cell->vertex_indices())
+                {
+                  const double r =
+                    std::hypot(cell->vertex(v)[1], cell->vertex(v)[2]);
+                  min_radius = std::min(min_radius, r);
+                  max_radius = std::max(max_radius, r);
+                }
+              if (min_radius <= radius && radius <= max_radius)
+                cell->set_refine_flag();
+            }
+        tria.execute_coarsening_and_refinement();
+      }
   }
 
   template <int dim, int spacedim>
@@ -339,44 +371,84 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
   run_tensor_product_case(par);
 }
 
-// Tensor-product counterpart of ElasticityValidation.ExactLambda. A straight
-// vessel of radius ri = 0.2 along the axis of the cylinder of radius re = 2
-// and half length 2 around the x axis is inflated by di = 0.2. With u_x = 0
-// on the end faces and no x dependence, the problem is plane strain in
-// (y, z), and the exact displacement is the radial Lame solution
-// u_r = ri di / (re^2 - ri^2) (re^2 / r - r) outside the vessel and
-// u_r = di r / ri inside. It vanishes on the hull, where the Dirichlet data
-// is zero.
-//
-// Selected indices 3 and 7 are the modes x e_x and y e_y of the reference
-// disk. Each mode is normalized to mean square one over the unit disk, so the
-// radial combination is about 2 (x, y), and the coefficients 0.1 give the
-// inflation di = 0.2.
-TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
+namespace
 {
-  ParameterAcceptor::clear();
-  ElasticityProblemParameters<3> par;
-  ElasticityProblem<3>           problem(par);
-  initialize_parameters();
-  ParameterAcceptor::prm.parse_input_from_string(
-    TestPaths::expand_configured_paths(R"(
+  // Errors of an InflatedVessel solution against the exact solution, and the
+  // mean radial displacement of the solution on the wall.
+  struct InflatedVesselResult
+  {
+    double l2;
+    double linfty;
+    double h1;
+    double wall_displacement;
+  };
+
+  // A straight vessel of radius ri = 0.2 along the axis of the cylinder of
+  // radius re = 2 and half length 2 around the x axis is inflated by
+  // di = 0.1. With u_x = 0 on the end faces and no x dependence, the problem
+  // is plane strain in (y, z), and the exact displacement is the radial Lame
+  // solution u_r = ri di / (re^2 - ri^2) (re^2 / r - r) outside the vessel
+  // and u_r = di r / ri inside. It vanishes on the hull, where the Dirichlet
+  // data is zero.
+  //
+  // With tensor-product coupling the selected indices 3 and 7 are the modes
+  // cos(theta) e_x and sin(theta) e_y of the reference circle; with point
+  // coupling they are the same Fourier coefficients of 100 inclusions of
+  // length 0.04. In both cases the data 0.1 give the inflation di = 0.1.
+  //
+  // The exact solution has a kink at the wall, which a mesh that does not
+  // resolve the wall smooths over a cell: the solution then looks like the
+  // one of a larger vessel, about 25% too large everywhere with Initial
+  // refinement 2 or 3, and refining only along the axis does not reduce
+  // this. The cells crossed by the wall are therefore refined
+  // n_wall_refinements times after the Initial refinement 2.
+  //
+  // With tensor-product coupling the quadrature along the axis has 32
+  // repetitions of a 3-point Gauss rule per reduced cell of length 1, so each
+  // repetition lies inside one bulk cell, of length 1/32 after three
+  // refinements of the wall, and the coupling is integrated exactly. With 16
+  // repetitions and three refinements, the mean wall displacement is 2% below
+  // the imposed one.
+  InflatedVesselResult
+  solve_inflated_vessel(const bool         point_coupling,
+                        const unsigned int n_wall_refinements)
+  {
+    std::string inclusions;
+    for (unsigned int i = 0; i < 100; ++i)
+      inclusions += (i == 0 ? "" : "; ") + std::to_string(-1.98 + 0.04 * i) +
+                    ", 0, 0, 0.04, 0, 0, 0.2, 0";
+    const std::string name =
+      std::string(point_coupling ? "point" : "tensor_product") +
+      "_inflated_vessel_" + std::to_string(n_wall_refinements);
+
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<3> par;
+    ElasticityProblem<3>           problem(par);
+    initialize_parameters();
+    ParameterAcceptor::prm.parse_input_from_string(
+      TestPaths::expand_configured_paths(R"(
     subsection Functions
       subsection Dirichlet boundary conditions
         set Function expression = 0; 0; 0
       end
       subsection Exact solution
-        set Function constants  = ri=0.2, re=2, di=0.2
+        set Function constants  = ri=0.2, re=2, di=0.1
         set Function expression = 0; if((y^2+z^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*y/(y^2+z^2) - y), di*y/ri); if((y^2+z^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*z/(y^2+z^2) - z), di*z/ri)
         set Variable names      = x,y,z,t
       end
     end
     subsection Immersed Problem
-      set Coupling type                      = TensorProduct
+      set Coupling type                      = )" +
+                                         std::string(point_coupling ?
+                                                       "Point" :
+                                                       "TensorProduct") +
+                                         R"(
       set Dirichlet boundary ids             = 0
       set Normal flux boundary ids           = 1,2
       set FE degree                          = 1
-      set Initial refinement                 = 3
-      set Output name                        = tensor_product_exact_solution
+      set Initial refinement                 = 2
+      set Output name                        = )" +
+                                         name + R"(
       set Output results also before solving = false
       subsection Grid generation
         set Domain type              = generate
@@ -384,22 +456,26 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
         set Grid generator arguments = 4: 2: 2
         set Triangulation type       = distributed
       end
+      subsection Immersed inclusions
+        set Inclusions                        = )" +
+                                         (point_coupling ? inclusions : "") +
+                                         R"(
+        set Inclusions refinement             = 400
+        set Selection of Fourier coefficients = 3,7
+        set Reference inclusion data          = 0,0,0,0.1,0,0,0,0.1,0
+      end
       subsection Material properties
         subsection default
           set Lame lambda = 1
           set Lame mu     = 1
         end
       end
-      subsection Refinement and remeshing
-        set Number of refinement cycles = 1
-        set Strategy                    = global
-      end
     end
     subsection Tensor product coupling
       subsection Cross section
         set Inclusion type           = hyper_ball
         set Maximum inclusion degree = 1
-        set Refinement level         = 1
+        set Refinement level         = 3
         set Selected indices         = 3, 7
       end
       subsection Particle coupling
@@ -408,7 +484,7 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
       subsection Representative domain
         set Finite element degree            = 1
         set Number of quadrature points      = 3
-        set Number of quadrature repetitions = 4
+        set Number of quadrature repetitions = 32
         set Reduced grid name                = @TEST_DATA_DIR@/tests/one_cylinder_rotation_x.vtk
         set Reduced right hand side          = 0.1; 0.1
         set Thickness                        = 0.2
@@ -427,39 +503,106 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
       end
     end
     )"));
-  ParameterAcceptor::parse_all_parameters();
-  par.output_directory =
-    TestPaths::output_directory("elasticity-tensor-product-point");
-  problem.run();
+    ParameterAcceptor::parse_all_parameters();
+    par.output_directory =
+      TestPaths::output_directory("elasticity-tensor-product-point");
 
-  // In 3D, run() measures the errors against the Dirichlet function, so they
-  // are computed here against the exact solution.
-  const QGauss<3> quadrature(par.fe_degree + 2);
-  Vector<float>   cellwise_errors(problem.tria->n_active_cells());
-  const auto      error = [&](const VectorTools::NormType norm) {
-    VectorTools::integrate_difference(problem.dh,
-                                      problem.locally_relevant_solution.block(
-                                        0),
-                                      par.exact_solution,
-                                      cellwise_errors,
-                                      quadrature,
-                                      norm);
-    return VectorTools::compute_global_error(*problem.tria,
-                                             cellwise_errors,
-                                             norm);
-  };
-  const double l2     = error(VectorTools::L2_norm);
-  const double linfty = error(VectorTools::Linfty_norm);
-  const double h1     = error(VectorTools::H1_norm);
-  problem.pcout << std::setprecision(10) << "L2 " << l2 << " Linfty " << linfty
-                << " H1 " << h1 << std::endl;
+    // The steps of run() with one cycle, with the cells crossed by the wall
+    // refined after make_grid().
+    problem.make_grid();
+    refine_cells_crossed_by_cylinder(*problem.tria, 0.2, n_wall_refinements);
+    problem.setup_fe();
+    if (point_coupling)
+      problem.inclusions.setup_inclusions_particles(*problem.tria);
+    problem.setup_dofs();
+    problem.assemble_elasticity_system();
+    problem.assemble_coupling();
+    problem.solve_static();
 
-  // Regression values: the errors this test computed (10240 cells, 33363
-  // dofs) in a serial Debug run with deal.II 9.7.1. They are not theoretical
-  // bounds.
-  ASSERT_NEAR(l2, 5.721614137e-02, 1e-6 * 5.721614137e-02);
-  ASSERT_NEAR(linfty, 6.395307928e-02, 1e-6 * 6.395307928e-02);
-  ASSERT_NEAR(h1, 7.070031762e-01, 1e-6 * 7.070031762e-01);
+    // In 3D, run() measures the errors against the Dirichlet function, so they
+    // are computed here against the exact solution. They are measured away
+    // from the end faces x = -2 and x = 2: there the vessel ends on the
+    // boundary of the domain, which the plane-strain solution does not
+    // describe.
+    const auto     &u = problem.locally_relevant_solution.block(0);
+    const QGauss<3> quadrature(par.fe_degree + 2);
+    Vector<float>   cellwise_errors(problem.tria->n_active_cells());
+    const ScalarFunctionFromFunctionObject<3> weight(
+      [](const Point<3> &p) { return std::abs(p[0]) <= 1.5 ? 1. : 0.; });
+    const auto error = [&](const VectorTools::NormType norm) {
+      VectorTools::integrate_difference(problem.dh,
+                                        u,
+                                        par.exact_solution,
+                                        cellwise_errors,
+                                        quadrature,
+                                        norm,
+                                        &weight);
+      return VectorTools::compute_global_error(*problem.tria,
+                                               cellwise_errors,
+                                               norm);
+    };
+
+    // Mean radial displacement on the wall in the plane x = 0. The points are
+    // evaluated in serial: VectorTools::point_value() needs the cell that
+    // contains the point.
+    double             wall_displacement = 0.;
+    const unsigned int n_points          = 64;
+    for (unsigned int k = 0; k < n_points; ++k)
+      {
+        const double   theta = 2. * numbers::PI * (k + 0.5) / n_points;
+        const Point<3> p(0., 0.2 * std::cos(theta), 0.2 * std::sin(theta));
+        Vector<double> value(3);
+        VectorTools::point_value(problem.dh, u, p, value);
+        wall_displacement +=
+          (value[1] * std::cos(theta) + value[2] * std::sin(theta)) / n_points;
+      }
+
+    InflatedVesselResult result{error(VectorTools::L2_norm),
+                                error(VectorTools::Linfty_norm),
+                                error(VectorTools::H1_norm),
+                                wall_displacement};
+    problem.pcout << std::setprecision(10) << name << ": L2 " << result.l2
+                  << " Linfty " << result.linfty << " H1 " << result.h1
+                  << " wall displacement " << result.wall_displacement
+                  << std::endl;
+    return result;
+  }
+} // namespace
+
+// Tensor-product counterpart of ElasticityValidation.ExactLambda: the
+// inflated vessel of solve_inflated_vessel(), with two and three refinements
+// of the cells crossed by the wall. The errors decrease at the rates of an
+// immersed method with a kink at the wall, about h^(3/2) in L2 and h^(1/2) in
+// H1, and the wall moves by the imposed 0.1 on average.
+TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
+{
+  const auto coarse = solve_inflated_vessel(false, 2);
+  const auto fine   = solve_inflated_vessel(false, 3);
+
+  EXPECT_GT(coarse.l2 / fine.l2, 2.);
+  EXPECT_GT(coarse.h1 / fine.h1, 1.25);
+  EXPECT_NEAR(fine.wall_displacement, 0.1, 3e-3);
+
+  // Upper bounds on the errors of the finer solve, not theoretical estimates.
+  // A serial Debug run with deal.II 9.7.1 (63243 dofs) gave L2 7.12e-3, Linfty
+  // 6.39e-3 and H1 0.182; the bounds leave at least 20% margin.
+  EXPECT_LT(fine.l2, 8.6e-3);
+  EXPECT_LT(fine.linfty, 9.2e-3);
+  EXPECT_LT(fine.h1, 0.235);
+}
+
+// On the same mesh, point and tensor-product coupling impose the same
+// inflation of the vessel and approximate the exact solution equally well.
+TEST(ElasticityTensorProductCouplingValidation, PointAndTensorProductExactSolution)
+{
+  const auto point  = solve_inflated_vessel(true, 2);
+  const auto tensor = solve_inflated_vessel(false, 2);
+
+  EXPECT_NEAR(point.wall_displacement, 0.1, 1e-3);
+  EXPECT_NEAR(tensor.wall_displacement, 0.1, 1e-3);
+  EXPECT_NEAR(tensor.l2, point.l2, 0.1 * point.l2);
+  EXPECT_NEAR(tensor.linfty, point.linfty, 0.1 * point.linfty);
+  EXPECT_NEAR(tensor.h1, point.h1, 0.1 * point.h1);
 }
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
