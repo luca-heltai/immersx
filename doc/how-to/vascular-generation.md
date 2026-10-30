@@ -569,3 +569,100 @@ collision checks. The previous separate serial growth implementation has been
 removed. Public paired reference solves retain their existing checks for
 positive beds and actual demand-matched flows; their MPI execution is still to
 be completed.
+
+## Standalone application
+
+The `vascular_network` executable uses the same library implementation and needs
+no MetricFlowX installation. In Debug builds its name is
+`vascular_network_debug`. In a `DebugRelease` build both names are available.
+Print the complete parameter interface into a new file:
+
+```bash
+build-debug/vascular_network_debug --write-parameters vascular.prm
+```
+
+The following synthetic SI configuration generates one physical vessel with a
+fixed radius. It prescribes inlet pressure and total tissue outflow at distinct
+nodes. It is an analytic CLI test case, not an organ calibration.
+
+```text
+subsection Vascularization
+  subsection Input and ports
+    set Mode = generate
+    set Seed position = .2,.5,.5
+    set Seed direction = 1,0,0
+    set Seed radius = .005
+  end
+  subsection Growth
+    set Seed length = .4
+  end
+  subsection Sampling
+    set Terminal count = 1
+  end
+  subsection Physiology
+    set Dynamic viscosity = .004
+    set Total new-tissue reference flow = 2e-9
+    set Reference pressures = 0:12000
+  end
+  subsection Objectives
+    set Maximum service distance = 2
+  end
+  subsection Output
+    set Directory = generated
+  end
+end
+```
+
+Run it with one or several processes:
+
+```bash
+mpirun -np 2 build-debug/vascular_network_debug vascular.prm
+```
+
+Input archive and output paths are relative to the parameter file. The output
+directory must be new. Missing parameter files are errors and are never created
+implicitly. `parameters.prm` records the effective configuration with resolved
+paths. Invalid generation or reference results return a nonzero exit code and
+write `summary.csv` and `errors-RANK.txt`; they are not saved as valid archives.
+
+`Mode = complete` requires `Input archive = generated/network`. It preserves
+physical input vessels and extends the selected terminal ids. Supply `Seed
+length` for new attachment branches and `Total new-tissue reference flow` for
+the new tissue. Viscosity and attachment radii can be inherited from the input.
+Retained territories and paired beds follow the library completion rules above.
+
+`Mode = load` requires the same archive path, performs no growth and does not
+require seed parameters or viscosity defaults. Choose a new background or
+`Discretization/Target length factor` to rediscretize the physical network.
+For arterial networks without paired beds, `Physiology/Loaded tissue reference
+flow` applies a total demand-based outflow across all loaded terminals. Zero
+uses only explicit reference boundary data. `Input and ports/Evaluate reference`
+can disable this additional solve. Generated arterio-venous networks always
+validate their paired reference solve.
+
+`Domain/Shape` selects `cube` or `sphere`. Configure the cube origin and side
+length or the sphere center and radius. `Uniform refinements` prepares the
+background before growth. For a cube, `Refinement focus = edge` selects an edge
+using `Edge axis` and two `Edge sides` (lower=0, upper=1, in transverse coordinate
+order). For a sphere, `Refinement focus = center` selects its center. Each
+`Refinement fractions` entry adds one normal deal.II refinement pass where cell
+centers lie within that fraction of the side length or sphere radius. The
+initial fractions are `.5,.25,.125`. The prepared background remains fixed
+during generation.
+
+Each rank writes owned physical nodes, vessels, terminals, territories and pairs
+as CSV. Vessel tables include full physical volume, resistance and, when solved,
+flow and shear. Interval tables describe numerical subdivisions separately;
+background tables record owned cells, vertices and quadrature volumes. Optional
+native parallel VTU files include normal mesh ghost cells. Use owned CSV records
+for counts and statistics. `summary.csv` contains global metrics, calibration
+status and phase times. `ranks.csv` contains ownership counts and per-rank phase
+times, resident memory and high-water resident memory in kB. Memory fields are
+zero on platforms where deal.II does not provide them. The generation phase
+includes its internal discretization, metrics and paired reference solve;
+`additional_reference_seconds` measures only the optional subsequent solve.
+
+Library callers can use `ApplicationParameters` and the collective `run()` in
+`immersx/vascularization/application.h` for these prepared domains and outputs.
+Supply absolute archive/output paths. Use `generate()` directly when the calling
+application already owns its final background.
