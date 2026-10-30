@@ -7,6 +7,7 @@ shorter version, see [First run](first-run).
 :maxdepth: 1
 
 installation
+containers
 first-run
 ```
 

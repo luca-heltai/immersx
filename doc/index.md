@@ -29,6 +29,7 @@ ownership boundaries used throughout the documentation.
 :hidden:
 
 getting-started/index
+getting-started/containers
 how-to/index
 how-to/local-co-refinement
 how-to/lifted-poisson
