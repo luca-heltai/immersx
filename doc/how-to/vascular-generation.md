@@ -249,6 +249,47 @@ New branches pass the common geometry selection and joint commit before any
 territory claim is retained. Input vessels and completed arterial geometry
 remain fixed obstacles throughout venous startup and growth.
 
+## Save and reload physical data
+
+Save a validated result in a new directory on a filesystem visible to all ranks:
+
+```cpp
+#include <immersx/vascularization/io.h>
+
+const auto archive_directory = output_directory / "physical-network";
+save_network(archive_directory, result.network, result.territories,
+             result.terminal_pairs, communicator);
+const auto restored = load_network(archive_directory, background, mapping,
+                                   parameters.clearance, communicator);
+```
+
+`save_network()` is collective. Each writer stores its owned vessels and
+terminals, relevant endpoint nodes, and its supplied territory/bed records.
+Files contain at most 1024 owned records of each kind, plus endpoint nodes.
+Even an archive with one writer can therefore distribute its parts among many
+readers without loading the entire physical graph on one process.
+A versioned manifest is published only after every part closes successfully.
+The target directory must not already exist. An interrupted or failed write
+can leave parts without a manifest; `load_network()` rejects that directory.
+Existing archives are never overwritten.
+
+`NetworkArchive` contains physical `network`, `territories` and
+`terminal_pairs`. Integer identifiers, coordinates, endpoint order, taper,
+viscosity, additional named properties, arterial/venous classification,
+provenance, port roles and normals, tissue demand and bed resistance survive the
+round trip. Numerical subdivisions and solved reference states are recomputed.
+No growth history or solver state is restored. Treat `restored.network` as an
+imported input when completing it; its existing physical vessels remain fixed.
+
+Readers need not have the writer count. They read old parts cyclically, check
+unique authority and matching endpoint data, then use `redistribute()` against
+the prepared background. Interior points and vessel midpoints acquire their
+native owners. Exterior entities retain their assigned reader. Territories and
+beds move to the restored arterial endpoint owner. Only file counts and coarse
+background boxes are replicated; no process must gather the complete graph.
+Empty writers and readers join all phases. Invalid records, missing or truncated
+parts, unsupported versions and filesystem errors fail collectively.
+
 ## Discretize across background partitions
 
 `discretize()` is collective and accepts owned physical vessels with their
