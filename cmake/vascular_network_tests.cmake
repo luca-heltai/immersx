@@ -27,3 +27,29 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
     endif()
   endforeach()
 endforeach()
+
+# Keep complete native example runs below the build tree for figure publication.
+foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
+  if(NOT _target MATCHES "^vascular_network(_debug)?$")
+    continue()
+  endif()
+  add_test(NAME "ImmersX.Application.${_target}.IllustratedExamples"
+    COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/run_vascular_examples.py"
+      --executable "$<TARGET_FILE:${_target}>"
+      --parameters "${CMAKE_BINARY_DIR}/data/vascularization"
+      --output-parent "${TEST_OUTPUT_DIR}/vascularization/examples/${_target}")
+  set_tests_properties("ImmersX.Application.${_target}.IllustratedExamples"
+    PROPERTIES LABELS "application" TIMEOUT 900)
+endforeach()
+if(_vascular_mpiexec AND TARGET vascular_network)
+  add_test(NAME "ImmersX.Application.vascular_network.IllustratedExamples.MPI2"
+    COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/run_vascular_examples.py"
+      --executable "$<TARGET_FILE:vascular_network>"
+      --parameters "${CMAKE_BINARY_DIR}/data/vascularization"
+      --output-parent "${TEST_OUTPUT_DIR}/vascularization/examples/vascular_network_mpi2"
+      --ranks 2 --mpiexec "${_vascular_mpiexec}")
+  set_tests_properties("ImmersX.Application.vascular_network.IllustratedExamples.MPI2"
+    PROPERTIES LABELS "application;mpi" PROCESSORS 2 TIMEOUT 900)
+endif()
