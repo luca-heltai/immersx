@@ -428,3 +428,290 @@ TEST(VascularDemand, ArterialAndVenousDemandConditionsYieldMatchedPositiveBeds)
   EXPECT_THROW(demand_flow_conditions(n, {{0, 12000.}}, 0., {}, MPI_COMM_WORLD),
                ExceptionBase);
 }
+
+namespace
+{
+  constexpr Id demand_base = (Id{1} << 60) + 75;
+
+  NetworkData
+  distributed_demand_network()
+  {
+    const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    const auto active =
+      std::max(1u, Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) - 1);
+    NetworkData                   full, local;
+    const std::array<Point<3>, 6> positions{{{.1, .3, .5},
+                                             {.3, .3, .5},
+                                             {.3, .5, .5},
+                                             {.9, .3, .5},
+                                             {.7, .3, .5},
+                                             {.7, .5, .5}}};
+    for (unsigned int i = 0; i < positions.size(); ++i)
+      {
+        auto &n    = full.nodes[demand_base + i];
+        n.position = positions[i];
+        n.owner    = i % active;
+      }
+    full.nodes.at(demand_base).port     = Port::arterial_inlet;
+    full.nodes.at(demand_base + 3).port = Port::venous_outlet;
+    for (unsigned int i = 0; i < 4; ++i)
+      {
+        Vessel v;
+        v.nodes     = i < 2 ?
+                        std::array<Id, 2>{{demand_base, demand_base + i + 1}} :
+                        std::array<Id, 2>{{demand_base + 3, demand_base + i + 2}};
+        v.radii     = {{.002, .002}};
+        v.viscosity = .004;
+        v.system    = i < 2 ? System::arterial : System::venous;
+        v.owner     = (i + 1) % active;
+        full.vessels[demand_base + 100 + i] = v;
+      }
+    full.terminals[demand_base + 10] = {
+      demand_base + 1, demand_base + 77, System::arterial, 1 % active, 1.};
+    full.terminals[demand_base + 11] = {
+      demand_base + 2, demand_base + 78, System::arterial, 2 % active, 3.};
+    full.terminals[demand_base + 20] = {
+      demand_base + 4, demand_base + 77, System::venous, 4 % active, 1.};
+    full.terminals[demand_base + 21] = {
+      demand_base + 5, demand_base + 78, System::venous, 5 % active, 3.};
+    for (const auto &[id, n] : full.nodes)
+      if (n.owner == rank)
+        local.nodes.emplace(id, n);
+    for (const auto &[id, v] : full.vessels)
+      if (v.owner == rank)
+        {
+          local.vessels.emplace(id, v);
+          for (Id node : v.nodes)
+            local.nodes.emplace(node, full.nodes.at(node));
+        }
+    for (const auto &[id, t] : full.terminals)
+      if (t.owner == rank)
+        {
+          local.terminals.emplace(id, t);
+          local.nodes.emplace(t.node, full.nodes.at(t.node));
+        }
+    return local;
+  }
+
+  std::map<Id, double>
+  demand_pressures(bool replicated = false)
+  {
+    if (replicated || Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) ==
+                        Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) - 1)
+      return {{demand_base, 12000.}, {demand_base + 3, 4000.}};
+    return {};
+  }
+} // namespace
+
+TEST(VascularDemand, BOTH_GlobalConditionsYieldActualMatchedPositiveBeds)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  const auto n    = distributed_demand_network();
+  if (size > 1 && rank == size - 1)
+    {
+      EXPECT_TRUE(n.nodes.empty());
+      EXPECT_TRUE(n.terminals.empty());
+    }
+  constexpr double q         = 2.e-9;
+  const auto       pressures = demand_pressures();
+  const auto       bc = demand_flow_conditions(n, pressures, q, {}, comm);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(bc.pressures.size()),
+                                comm),
+            2u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(bc.inflows.size()),
+                                comm),
+            4u);
+  double arterial = 0., venous = 0.;
+  for (const auto &[id, t] : n.terminals)
+    {
+      const double expected = t.demand / 4.;
+      const double sign     = t.system == System::arterial ? -1. : 1.;
+      EXPECT_NEAR(bc.inflows.at(t.node) / (sign * q), expected, 1.e-13);
+      if (t.system == System::arterial)
+        arterial -= bc.inflows.at(t.node);
+      else if (t.system == System::venous)
+        venous += bc.inflows.at(t.node);
+    }
+  EXPECT_NEAR(Utilities::MPI::sum(arterial, comm) / q, 1., 1.e-13);
+  EXPECT_NEAR(Utilities::MPI::sum(venous, comm) / q, 1., 1.e-13);
+  for (const auto &[id, p] : bc.pressures)
+    {
+      EXPECT_EQ(n.nodes.at(id).owner, rank);
+      EXPECT_FALSE(bc.inflows.count(id));
+    }
+  const auto design = solve_reference(n, {}, bc, {}, comm);
+  ASSERT_TRUE(design.validation.valid());
+  std::vector<TerminalPair> pairs;
+  for (const auto &[id, t] : n.terminals)
+    if (t.system == System::arterial)
+      {
+        const auto  &v    = n.terminals.at(id + 10);
+        const double flow = -bc.inflows.at(t.node);
+        const double resistance =
+          (design.pressures.at(t.node) - design.pressures.at(v.node)) / flow;
+        const double vessel_length =
+          id == demand_base + 10 ? .2 : std::sqrt(.08);
+        const double expected =
+          8000. / flow -
+          2. * 8. * .004 * vessel_length / (numbers::PI * std::pow(.002, 4));
+        EXPECT_GT(resistance, 0.);
+        EXPECT_NEAR(resistance / expected, 1., 1.e-12);
+        pairs.push_back({t.territory, id, id + 10, resistance});
+      }
+  const auto actual = solve_reference(n, pairs, {pressures, {}}, {}, comm);
+  ASSERT_TRUE(actual.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(actual.territories.size()), comm),
+            2u);
+  for (const auto &[id, t] : n.terminals)
+    if (t.system == System::arterial)
+      {
+        EXPECT_NEAR(actual.territories.at(t.territory).flow / q,
+                    t.demand / 4.,
+                    1.e-9);
+      }
+  EXPECT_LE(actual.relative_flow_defect, 1.e-9);
+}
+
+TEST(VascularDemand, BOTH_ExplicitSelectionAndRepeatedPortControlsStayOwned)
+{
+  const auto            comm = MPI_COMM_WORLD;
+  const auto            rank = Utilities::MPI::this_mpi_process(comm);
+  const auto            n    = distributed_demand_network();
+  constexpr double      q    = 2.e-9;
+  const std::vector<Id> selected{demand_base + 11, demand_base + 21};
+  const auto            bc =
+    demand_flow_conditions(n, demand_pressures(true), q, selected, comm);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(bc.pressures.size()),
+                                comm),
+            2u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(bc.inflows.size()),
+                                comm),
+            2u);
+  for (const auto &[id, p] : bc.pressures)
+    EXPECT_EQ(n.nodes.at(id).owner, rank);
+  const auto actual = solve_reference(n, {}, bc, {}, comm);
+  ASSERT_TRUE(actual.validation.valid());
+  for (const auto &[id, t] : n.terminals)
+    {
+      const bool chosen = id == demand_base + 11 || id == demand_base + 21;
+      EXPECT_EQ(bc.inflows.count(t.node), chosen ? 1u : 0u);
+      const double sign = t.system == System::arterial ? 1. : -1.;
+      EXPECT_NEAR(actual.terminal_outflows.at(id) / (sign * q),
+                  chosen ? 1. : 0.,
+                  1.e-12);
+    }
+}
+
+TEST(VascularDemand, BOTH_ExtremeDemandScalesPreserveRepresentableFlows)
+{
+  const auto comm = MPI_COMM_WORLD;
+  auto       n    = distributed_demand_network();
+  for (auto &[id, t] : n.terminals)
+    t.demand = 1.e308;
+  const auto equal =
+    demand_flow_conditions(n, demand_pressures(), 2.e-9, {}, comm);
+  for (const auto &[id, q] : equal.inflows)
+    EXPECT_NEAR(std::abs(q) / 1.e-9, 1., 1.e-13);
+  for (auto &[id, t] : n.terminals)
+    t.demand =
+      id == demand_base + 10 || id == demand_base + 20 ? 1.e-300 : 1.e300;
+  const auto scaled =
+    demand_flow_conditions(n, demand_pressures(), 1.e300, {}, comm);
+  for (const auto &[id, t] : n.terminals)
+    {
+      const double expected =
+        id == demand_base + 10 || id == demand_base + 20 ? 1.e-300 : 1.e300;
+      EXPECT_GT(std::abs(scaled.inflows.at(t.node)), 0.);
+      EXPECT_NEAR(std::abs(scaled.inflows.at(t.node)) / expected, 1., 1.e-13);
+    }
+  EXPECT_THROW(demand_flow_conditions(n, demand_pressures(), 1.e-300, {}, comm),
+               ExceptionBase);
+}
+
+TEST(VascularDemand,
+     BOTH_InvalidSelectionsPortsAndTerminalAuthorityFailCollectively)
+{
+  const auto       comm = MPI_COMM_WORLD;
+  auto             n    = distributed_demand_network();
+  constexpr double q    = 2.e-9;
+  EXPECT_THROW(
+    demand_flow_conditions(n, demand_pressures(), q, {demand_base + 999}, comm),
+    ExceptionBase);
+  EXPECT_THROW(demand_flow_conditions(n,
+                                      demand_pressures(),
+                                      q,
+                                      {demand_base + 10, demand_base + 10},
+                                      comm),
+               ExceptionBase);
+  EXPECT_THROW(
+    demand_flow_conditions(n, {{demand_base + 1, 12000.}}, q, {}, comm),
+    ExceptionBase);
+  EXPECT_THROW(
+    demand_flow_conditions(n, {{demand_base + 999, 12000.}}, q, {}, comm),
+    ExceptionBase);
+  auto bad = n;
+  if (bad.terminals.count(demand_base + 10))
+    bad.terminals.at(demand_base + 10).demand = 0.;
+  EXPECT_THROW(demand_flow_conditions(bad, demand_pressures(), q, {}, comm),
+               ExceptionBase);
+  bad = n;
+  if (bad.terminals.count(demand_base + 10))
+    bad.terminals[demand_base + 999] = bad.terminals.at(demand_base + 10);
+  EXPECT_THROW(demand_flow_conditions(bad, demand_pressures(), q, {}, comm),
+               ExceptionBase);
+  bad = n;
+  bad.terminals.clear();
+  EXPECT_THROW(demand_flow_conditions(bad, demand_pressures(), q, {}, comm),
+               ExceptionBase);
+  EXPECT_THROW(demand_flow_conditions(n, demand_pressures(), 0., {}, comm),
+               ExceptionBase);
+}
+
+TEST(VascularDemand,
+     MPI_InconsistentDemandControlsAndDuplicateOwnersFailCollectively)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  ASSERT_GT(size, 1u);
+  const auto n = distributed_demand_network();
+  EXPECT_THROW(demand_flow_conditions(n,
+                                      demand_pressures(),
+                                      rank == size - 1 ? 3.e-9 : 2.e-9,
+                                      {},
+                                      comm),
+               ExceptionBase);
+  const std::vector<Id> selected =
+    rank == size - 1 ? std::vector<Id>{demand_base + 10} : std::vector<Id>{};
+  EXPECT_THROW(
+    demand_flow_conditions(n, demand_pressures(), 2.e-9, selected, comm),
+    ExceptionBase);
+  auto pressures = demand_pressures(true);
+  if (rank == size - 1)
+    pressures.at(demand_base) = 13000.;
+  EXPECT_THROW(demand_flow_conditions(n, pressures, 2.e-9, {}, comm),
+               ExceptionBase);
+  NetworkData duplicate;
+  duplicate.nodes[demand_base + 2000 + rank] = {Point<3>(rank, .5, .5),
+                                                rank,
+                                                Port::none,
+                                                Provenance::imported};
+  duplicate.terminals[demand_base + 3000]    = {
+    demand_base + 2000 + rank, invalid_id, System::arterial, rank, 1.};
+  EXPECT_THROW(demand_flow_conditions(duplicate, {}, 2.e-9, {}, comm),
+               ExceptionBase);
+  NetworkData foreign;
+  if (rank == 0 || rank == size - 1)
+    foreign.nodes[demand_base] = {Point<3>(.5, .5, .5),
+                                  0,
+                                  Port::none,
+                                  Provenance::imported};
+  if (rank == size - 1)
+    foreign.terminals[demand_base + 10] = {
+      demand_base, invalid_id, System::arterial, rank, 1.};
+  EXPECT_THROW(demand_flow_conditions(foreign, {}, 2.e-9, {}, comm),
+               ExceptionBase);
+}
