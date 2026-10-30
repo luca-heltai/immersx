@@ -8,12 +8,19 @@
 #include <deal.II/grid/cell_data.h>
 #include <deal.II/grid/grid_tools_cache.h>
 
+#include <deal.II/numerics/rtree.h>
+
+#include <boost/serialization/array.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/vector.hpp>
+
 #include <immersx/vascularization/discretization.h>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <set>
 
 namespace ImmersX::Vascularization
 {
@@ -27,6 +34,13 @@ namespace ImmersX::Vascularization
     {
       double              begin, end, h;
       types::subdomain_id owner;
+
+      template <class Archive>
+      void
+      serialize(Archive &ar, const unsigned int)
+      {
+        ar &begin &end &h &owner;
+      }
     };
 
     Point<3>
@@ -232,6 +246,104 @@ namespace ImmersX::Vascularization
       return result;
     }
 
+    // Only coarse background boxes are replicated. Physical owners obtain
+    // exact positive-arclength intersections from the relevant cell owners.
+    std::map<Id, std::vector<Interval>>
+    distributed_intervals(const GridTools::Cache<3> &cache,
+                          const Mapping<3>          &mapping,
+                          const NetworkData         &network,
+                          MPI_Comm                   comm)
+    {
+      const auto  rank = Utilities::MPI::this_mpi_process(comm);
+      const auto  size = Utilities::MPI::n_mpi_processes(comm);
+      const auto &tree = cache.get_locally_owned_cell_bounding_boxes_rtree();
+      std::vector<BoundingBox<3>> local_boxes;
+      if (!tree.empty())
+        local_boxes = extract_rtree_level(tree, 1);
+      const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
+      for (unsigned int r = 0; r < size; ++r)
+        for (const auto &box : boxes[r])
+          covering.emplace_back(box, r);
+      const auto covering_tree = pack_rtree(covering);
+      using Query              = std::pair<Id, std::array<Point<3>, 2>>;
+      std::map<unsigned int, std::vector<Query>> queries;
+      std::map<Id, std::vector<Interval>>        result;
+      for (const auto &[id, vessel] : network.vessels)
+        if (vessel.owner == rank)
+          {
+            const std::array<Point<3>, 2> endpoints{
+              {network.nodes.at(vessel.nodes[0]).position,
+               network.nodes.at(vessel.nodes[1]).position}};
+            const Segment<3> segment(endpoints[0], endpoints[1]);
+            result[id];
+            std::set<unsigned int> recipients;
+            for (const auto &[box, source] :
+                 covering_tree |
+                   bgi::adaptors::queried(bgi::intersects(segment)))
+              recipients.insert(source);
+            for (const auto source : recipients)
+              queries[source].push_back({id, endpoints});
+          }
+      const auto incoming = Utilities::MPI::some_to_some(comm, queries);
+      std::map<unsigned int, std::map<Id, std::vector<Interval>>> replies;
+      for (const auto &[source, requests] : incoming)
+        for (const auto &[id, endpoints] : requests)
+          for (const auto &interval : traversed(
+                 cache, mapping, Segment<3>(endpoints[0], endpoints[1]), rank))
+            if (interval.h > 0.)
+              replies[source][id].push_back(interval);
+      const auto received = Utilities::MPI::some_to_some(comm, replies);
+      for (const auto &[source, vessels] : received)
+        for (const auto &[id, intervals] : vessels)
+          result.at(id).insert(result.at(id).end(),
+                               intervals.begin(),
+                               intervals.end());
+      for (auto &[id, intervals] : result)
+        {
+          std::vector<double> cuts{0., 1.};
+          for (const auto &interval : intervals)
+            {
+              cuts.push_back(interval.begin);
+              cuts.push_back(interval.end);
+            }
+          sort_cuts(cuts);
+          std::vector<Interval> combined;
+          for (std::size_t i = 1; i < cuts.size(); ++i)
+            {
+              const double middle = .5 * (cuts[i - 1] + cuts[i]);
+              Interval     selected{cuts[i - 1],
+                                cuts[i],
+                                0.,
+                                network.vessels.at(id).owner};
+              for (const auto &interval : intervals)
+                if (interval.begin < middle && middle < interval.end)
+                  {
+                    // On a background interface use the finest crossed cell
+                    // and the lowest containing rank for execution ownership.
+                    if (selected.h == 0.)
+                      {
+                        selected.h     = interval.h;
+                        selected.owner = interval.owner;
+                      }
+                    else
+                      {
+                        selected.h = std::min(selected.h, interval.h);
+                        selected.owner =
+                          std::min(selected.owner, interval.owner);
+                      }
+                  }
+              if (!combined.empty() && combined.back().h == selected.h &&
+                  combined.back().owner == selected.owner)
+                combined.back().end = selected.end;
+              else
+                combined.push_back(selected);
+            }
+          intervals = std::move(combined);
+        }
+      return result;
+    }
+
     DiscretizationCell
     cell_resolution(Id                           vessel,
                     double                       begin,
@@ -239,9 +351,10 @@ namespace ImmersX::Vascularization
                     const std::vector<Interval> &intervals)
     {
       DiscretizationCell result;
-      result.reference    = {vessel, begin, end};
-      result.h_min        = std::numeric_limits<double>::infinity();
-      const double middle = .5 * (begin + end);
+      result.reference            = {vessel, begin, end};
+      result.h_min                = std::numeric_limits<double>::infinity();
+      const double middle         = .5 * (begin + end);
+      bool         midpoint_found = false;
       for (const auto &interval : intervals)
         if (interval.begin < end && interval.end > begin)
           {
@@ -252,7 +365,12 @@ namespace ImmersX::Vascularization
                 result.h_max  = std::max(result.h_max, interval.h);
               }
             if (interval.begin <= middle && middle <= interval.end)
-              result.owner = interval.owner;
+              {
+                result.owner   = midpoint_found ?
+                                   std::min(result.owner, interval.owner) :
+                                   interval.owner;
+                midpoint_found = true;
+              }
           }
       if (!result.inside)
         result.h_min = 0.;
@@ -281,170 +399,243 @@ namespace ImmersX::Vascularization
              MPI_Comm                        communicator)
   {
     using namespace dealii;
-    AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
-                ExcMessage(
-                  "The current vascular discretization requires one rank."));
+    const auto rank        = Utilities::MPI::this_mpi_process(communicator);
+    const auto size        = Utilities::MPI::n_mpi_processes(communicator);
+    const auto require_all = [&](bool valid, const std::string &message) {
+      AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                      communicator) == 1,
+                  ExcMessage(message));
+    };
+    const std::array<double, 5> controls{
+      {parameters.target_factor,
+       parameters.lower_factor,
+       parameters.upper_factor,
+       parameters.exterior_length,
+       static_cast<double>(parameters.cell_budget)}};
+    const auto all_controls =
+      Utilities::MPI::all_gather(communicator, controls);
+    require_all(std::all_of(all_controls.begin(),
+                            all_controls.end(),
+                            [&](const auto &other) {
+                              return other == controls;
+                            }),
+                "Vascular discretization parameters must agree across ranks.");
     parameters.validate();
-    const auto *q  = dynamic_cast<const MappingQ<3> *>(&mapping);
-    const auto *fe = dynamic_cast<const MappingFE<3> *>(&mapping);
-    AssertThrow((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1),
-                ExcMessage(
-                  "Vascular discretization requires a first-order mapping."));
+    const auto *q          = dynamic_cast<const MappingQ<3> *>(&mapping);
+    const auto *fe         = dynamic_cast<const MappingFE<3> *>(&mapping);
+    int         comparison = MPI_UNEQUAL;
+    MPI_Comm_compare(background.get_mpi_communicator(),
+                     communicator,
+                     &comparison);
+    require_all(
+      ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1)) &&
+        (comparison == MPI_IDENT || comparison == MPI_CONGRUENT),
+      "Vascular discretization requires a first-order mapping and congruent communicators.");
     DiscretizationResult result;
-    result.validation = validate_data(network, 1);
-    if (!result.validation.valid())
-      return result;
+    result.validation = validate_data(network, size);
+    if (Utilities::MPI::min(static_cast<unsigned int>(
+                              result.validation.valid()),
+                            communicator) == 0)
+      {
+        if (result.validation.valid())
+          result.validation.issues.push_back(
+            {"discretization",
+             invalid_id,
+             "Invalid vascular data on another rank."});
+        return result;
+      }
+    std::map<unsigned int, std::vector<Id>> owned_ids;
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == rank)
+        owned_ids[id % size].push_back(id);
+    std::set<Id> seen;
+    bool         unique = true;
+    for (const auto &[source, ids] :
+         Utilities::MPI::some_to_some(communicator, owned_ids))
+      for (const auto id : ids)
+        unique = seen.insert(id).second && unique;
+    require_all(unique,
+                "Physical vessels must have unique authoritative owners.");
     GridTools::Cache<3> cache(background, mapping);
-    double              exterior_h = parameters.exterior_length;
+    double              exterior_h      = parameters.exterior_length;
+    bool                supported_cells = true;
     for (const auto &cell : background.active_cell_iterators())
       if (cell->is_locally_owned())
         {
-          AssertThrow(
-            cell->reference_cell().is_simplex() ||
-              cell->reference_cell().is_hyper_cube(),
-            ExcMessage(
-              "Vascular discretization requires tetrahedra or hexahedra."));
+          supported_cells = (cell->reference_cell().is_simplex() ||
+                             cell->reference_cell().is_hyper_cube()) &&
+                            supported_cells;
           if (parameters.exterior_length == 0.)
             exterior_h = std::max(exterior_h, cell->diameter());
         }
+    require_all(supported_cells,
+                "Vascular discretization requires tetrahedra or hexahedra.");
+    exterior_h = Utilities::MPI::max(exterior_h, communicator);
     AssertThrow(
       exterior_h > 0.,
       ExcMessage(
         "A nonempty background or an explicit exterior target length is required."));
-    for (const auto &[id, e] : network.vessels)
-      {
-        const Segment<3> s(network.nodes.at(e.nodes[0]).position,
-                           network.nodes.at(e.nodes[1]).position);
-        const double     l         = length(network, id);
-        const auto       intervals = traversed(cache, mapping, s, e.owner);
-        double           metric    = 0.;
-        for (const auto &interval : intervals)
-          {
-            metric += (interval.end - interval.begin) * l /
-                      (interval.h > 0. ? interval.h : exterior_h);
-            if (interval.h > 0.)
-              result.inside_volume +=
-                volume(network, id, interval.begin, interval.end);
-          }
-        const double wanted =
-          std::max(1., std::round(metric / parameters.target_factor));
-        if (wanted > parameters.cell_budget ||
-            result.cells.size() + wanted > parameters.cell_budget)
-          {
-            result.validation.issues.push_back(
-              {"discretization", id, "Numerical cell budget exhausted."});
-            return result;
-          }
-        const unsigned int  count = static_cast<unsigned int>(wanted);
-        std::vector<double> cuts{0., 1.};
-        for (unsigned int i = 1; i < count; ++i)
-          {
-            const double target      = metric * i / count;
-            double       accumulated = 0.;
-            for (const auto &interval : intervals)
-              {
-                const double h     = interval.h > 0. ? interval.h : exterior_h;
-                const double piece = (interval.end - interval.begin) * l / h;
-                if (target <= accumulated + piece)
-                  {
-                    cuts.push_back(interval.begin +
-                                   (target - accumulated) * h / l);
-                    break;
-                  }
-                accumulated += piece;
-              }
-          }
-        // An exterior part is preserved, but never merged across the physical
-        // boundary into an interior numerical cell.
-        for (std::size_t i = 1; i < intervals.size(); ++i)
-          if ((intervals[i - 1].h > 0.) != (intervals[i].h > 0.))
-            cuts.push_back(intervals[i].begin);
-        sort_cuts(cuts);
-        if (result.cells.size() + cuts.size() - 1 > parameters.cell_budget)
-          {
-            result.validation.issues.push_back(
-              {"discretization",
-               id,
-               "Boundary-conforming numerical cell budget exhausted."});
-            return result;
-          }
-        for (std::size_t i = 1; i < cuts.size();)
-          {
-            const auto cell =
-              cell_resolution(id, cuts[i - 1], cuts[i], intervals);
-            const double h = cell.inside ? cell.h_min : exterior_h;
-            if ((cuts[i] - cuts[i - 1]) * l >
-                parameters.upper_factor * h * (1. + 1.e-12))
-              {
-                if (result.cells.size() + cuts.size() >
-                      parameters.cell_budget ||
-                    .5 * (cuts[i - 1] + cuts[i]) == cuts[i - 1])
-                  {
-                    result.validation.issues.push_back(
-                      {"discretization",
-                       id,
-                       "Cannot meet the upper length bound within the numerical cell budget."});
-                    return result;
-                  }
-                cuts.insert(cuts.begin() + i, .5 * (cuts[i - 1] + cuts[i]));
-              }
-            else
+    const auto crossings =
+      distributed_intervals(cache, mapping, network, communicator);
+    const auto subdivide_owned = [&]() {
+      for (const auto &[id, e] : network.vessels)
+        {
+          if (e.owner != rank)
+            continue;
+          const double l         = length(network, id);
+          const auto  &intervals = crossings.at(id);
+          double       metric    = 0.;
+          for (const auto &interval : intervals)
+            {
+              metric += (interval.end - interval.begin) * l /
+                        (interval.h > 0. ? interval.h : exterior_h);
+              if (interval.h > 0.)
+                result.inside_volume +=
+                  volume(network, id, interval.begin, interval.end);
+            }
+          const double wanted =
+            std::max(1., std::round(metric / parameters.target_factor));
+          if (wanted > parameters.cell_budget ||
+              result.cells.size() + wanted > parameters.cell_budget)
+            {
+              result.validation.issues.push_back(
+                {"discretization", id, "Numerical cell budget exhausted."});
+              return;
+            }
+          const unsigned int  count = static_cast<unsigned int>(wanted);
+          std::vector<double> cuts{0., 1.};
+          for (unsigned int i = 1; i < count; ++i)
+            {
+              const double target      = metric * i / count;
+              double       accumulated = 0.;
+              for (const auto &interval : intervals)
+                {
+                  const double h = interval.h > 0. ? interval.h : exterior_h;
+                  const double piece = (interval.end - interval.begin) * l / h;
+                  if (target <= accumulated + piece)
+                    {
+                      cuts.push_back(interval.begin +
+                                     (target - accumulated) * h / l);
+                      break;
+                    }
+                  accumulated += piece;
+                }
+            }
+          // An exterior part is preserved, but never merged across the physical
+          // boundary into an interior numerical cell.
+          for (std::size_t i = 1; i < intervals.size(); ++i)
+            if ((intervals[i - 1].h > 0.) != (intervals[i].h > 0.))
+              cuts.push_back(intervals[i].begin);
+          sort_cuts(cuts);
+          if (result.cells.size() + cuts.size() - 1 > parameters.cell_budget)
+            {
+              result.validation.issues.push_back(
+                {"discretization",
+                 id,
+                 "Boundary-conforming numerical cell budget exhausted."});
+              return;
+            }
+          for (std::size_t i = 1; i < cuts.size();)
+            {
+              const auto cell =
+                cell_resolution(id, cuts[i - 1], cuts[i], intervals);
+              const double h = cell.inside ? cell.h_min : exterior_h;
+              if ((cuts[i] - cuts[i - 1]) * l >
+                  parameters.upper_factor * h * (1. + 1.e-12))
+                {
+                  if (result.cells.size() + cuts.size() >
+                        parameters.cell_budget ||
+                      .5 * (cuts[i - 1] + cuts[i]) == cuts[i - 1])
+                    {
+                      result.validation.issues.push_back(
+                        {"discretization",
+                         id,
+                         "Cannot meet the upper length bound within the numerical cell budget."});
+                      return;
+                    }
+                  cuts.insert(cuts.begin() + i, .5 * (cuts[i - 1] + cuts[i]));
+                }
+              else
+                ++i;
+            }
+          // Merge avoidable short pieces without violating any crossed cell's
+          // upper bound or joining interior and exterior pieces.
+          for (std::size_t i = 1; i < cuts.size();)
+            {
+              const auto cell =
+                cell_resolution(id, cuts[i - 1], cuts[i], intervals);
+              if (cell.inside && (cuts[i] - cuts[i - 1]) * l <
+                                   parameters.lower_factor * cell.h_max)
+                {
+                  bool merged = false;
+                  for (int offset : {-1, 1})
+                    {
+                      if ((offset == -1 && i == 1) ||
+                          (offset == 1 && i + 1 == cuts.size()))
+                        continue;
+                      const auto neighbor =
+                        cell_resolution(id,
+                                        offset == -1 ? cuts[i - 2] : cuts[i],
+                                        offset == -1 ? cuts[i - 1] :
+                                                       cuts[i + 1],
+                                        intervals);
+                      const double begin =
+                                     offset == -1 ? cuts[i - 2] : cuts[i - 1],
+                                   end = offset == -1 ? cuts[i] : cuts[i + 1];
+                      const auto combined =
+                        cell_resolution(id, begin, end, intervals);
+                      if (neighbor.inside == cell.inside &&
+                          (end - begin) * l <=
+                            parameters.upper_factor * combined.h_min &&
+                          (end - begin) * l >=
+                            parameters.lower_factor * combined.h_max)
+                        {
+                          cuts.erase(cuts.begin() + (offset == -1 ? i - 1 : i));
+                          if (i > 1)
+                            --i;
+                          merged = true;
+                          break;
+                        }
+                    }
+                  if (merged)
+                    continue;
+                }
               ++i;
-          }
-        // Merge avoidable short pieces without violating any crossed cell's
-        // upper bound or joining interior and exterior pieces.
-        for (std::size_t i = 1; i < cuts.size();)
-          {
-            const auto cell =
-              cell_resolution(id, cuts[i - 1], cuts[i], intervals);
-            if (cell.inside && (cuts[i] - cuts[i - 1]) * l <
-                                 parameters.lower_factor * cell.h_max)
-              {
-                bool merged = false;
-                for (int offset : {-1, 1})
-                  {
-                    if ((offset == -1 && i == 1) ||
-                        (offset == 1 && i + 1 == cuts.size()))
-                      continue;
-                    const auto neighbor =
-                      cell_resolution(id,
-                                      offset == -1 ? cuts[i - 2] : cuts[i],
-                                      offset == -1 ? cuts[i - 1] : cuts[i + 1],
-                                      intervals);
-                    const double begin =
-                                   offset == -1 ? cuts[i - 2] : cuts[i - 1],
-                                 end = offset == -1 ? cuts[i] : cuts[i + 1];
-                    const auto combined =
-                      cell_resolution(id, begin, end, intervals);
-                    if (neighbor.inside == cell.inside &&
-                        (end - begin) * l <=
-                          parameters.upper_factor * combined.h_min &&
-                        (end - begin) * l >=
-                          parameters.lower_factor * combined.h_max)
-                      {
-                        cuts.erase(cuts.begin() + (offset == -1 ? i - 1 : i));
-                        if (i > 1)
-                          --i;
-                        merged = true;
-                        break;
-                      }
-                  }
-                if (merged)
-                  continue;
-              }
-            ++i;
-          }
-        for (std::size_t i = 1; i < cuts.size(); ++i)
-          {
-            auto cell = cell_resolution(id, cuts[i - 1], cuts[i], intervals);
-            cell.short_cell = cell.inside && (cuts[i] - cuts[i - 1]) * l <
-                                               parameters.lower_factor *
-                                                 cell.h_max * (1. - 1.e-12);
-            result.short_cells += cell.short_cell;
-            result.exterior_cells += !cell.inside;
-            result.cells.push_back(cell);
-          }
-      }
+            }
+          for (std::size_t i = 1; i < cuts.size(); ++i)
+            {
+              auto cell = cell_resolution(id, cuts[i - 1], cuts[i], intervals);
+              cell.short_cell = cell.inside && (cuts[i] - cuts[i - 1]) * l <
+                                                 parameters.lower_factor *
+                                                   cell.h_max * (1. - 1.e-12);
+              result.short_cells += cell.short_cell;
+              result.exterior_cells += !cell.inside;
+              result.cells.push_back(cell);
+            }
+        }
+    };
+    subdivide_owned();
+    const auto count =
+      Utilities::MPI::sum(static_cast<std::uint64_t>(result.cells.size()),
+                          communicator);
+    if (count > parameters.cell_budget)
+      result.validation.issues.push_back(
+        {"discretization",
+         invalid_id,
+         "Global numerical cell budget exhausted."});
+    if (Utilities::MPI::min(static_cast<unsigned int>(
+                              result.validation.valid()),
+                            communicator) == 0 &&
+        result.validation.valid())
+      result.validation.issues.push_back(
+        {"discretization",
+         invalid_id,
+         "Numerical subdivision failed on another rank."});
+    result.inside_volume =
+      Utilities::MPI::sum(result.inside_volume, communicator);
+    result.short_cells = Utilities::MPI::sum(result.short_cells, communicator);
+    result.exterior_cells =
+      Utilities::MPI::sum(result.exterior_cells, communicator);
     return result;
   }
 
