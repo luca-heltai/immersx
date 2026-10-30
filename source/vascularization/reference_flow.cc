@@ -1,5 +1,6 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#include <deal.II/base/array_view.h>
 #include <deal.II/base/numbers.h>
 
 #include <deal.II/lac/diagonal_matrix.h>
@@ -811,36 +812,86 @@ namespace ImmersX::Vascularization
                          MPI_Comm                    communicator)
   {
     using namespace dealii;
-    AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
-                ExcMessage(
-                  "The current demand-flow construction requires one rank."));
-    AssertThrow(
-      validate_data(network, 1).valid() && std::isfinite(total_flow) &&
+    const Rank rank        = Utilities::MPI::this_mpi_process(communicator),
+               size        = Utilities::MPI::n_mpi_processes(communicator);
+    const auto require_all = [&](bool valid, const std::string &message) {
+      AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                      communicator) == 1,
+                  ExcMessage(message));
+    };
+    require_all(
+      validate_data(network, size).valid() && std::isfinite(total_flow) &&
         total_flow > 0.,
-      ExcMessage(
-        "Demand-flow construction requires valid physical data and a positive finite total flow."));
-    ReferenceConditions result;
+      "Demand-flow construction requires valid physical data and a positive finite total flow.");
+    const auto controls = std::make_pair(total_flow, selected_terminals);
+    bool       valid    = true;
+    for (const auto &other : Utilities::MPI::all_gather(communicator, controls))
+      valid = other == controls && valid;
+    const std::set<Id> requested(selected_terminals.begin(),
+                                 selected_terminals.end());
+    require_all(
+      valid && requested.size() == selected_terminals.size(),
+      "Demand-flow totals and terminal selections must agree on all processes; selected ids must be unique.");
+
+    // Resolve port roles and selected identities without replicating the graph
+    // or gathering the automatically selected terminal registry.
+    using PortInfo = std::pair<Rank, Port>;
+    std::map<Rank, std::map<Id, PortInfo>> node_send;
+    std::map<Rank, std::vector<Id>>        terminal_send;
+    std::set<Id>                           tissue_nodes;
+    for (const auto &[id, n] : network.nodes)
+      if (n.owner == rank)
+        node_send[id % size].emplace(id, PortInfo{rank, n.port});
+    for (const auto &[id, t] : network.terminals)
+      if (t.owner == rank)
+        {
+          valid = network.nodes.at(t.node).owner == rank &&
+                  tissue_nodes.insert(t.node).second && valid;
+          terminal_send[id % size].push_back(id);
+        }
+    std::map<Id, PortInfo> node_registry;
+    for (const auto &[source, nodes] :
+         Utilities::MPI::some_to_some(communicator, node_send))
+      for (const auto &[id, n] : nodes)
+        valid = node_registry.emplace(id, n).second && valid;
+    std::set<Id> terminal_registry;
+    for (const auto &[source, ids] :
+         Utilities::MPI::some_to_some(communicator, terminal_send))
+      for (Id id : ids)
+        valid = terminal_registry.insert(id).second && valid;
+    for (Id id : requested)
+      if (id % size == rank)
+        valid = terminal_registry.count(id) && valid;
+    require_all(
+      valid,
+      "Demand-flow identities require unique authoritative nodes and terminals, colocated terminal authority, and existing selected ids.");
+
+    std::map<Rank, std::map<Id, double>> pressure_send;
     for (const auto &[id, p] : port_pressures)
-      {
-        const auto node = network.nodes.find(id);
-        AssertThrow(
-          node != network.nodes.end() && node->second.port != Port::none &&
-            std::isfinite(p),
-          ExcMessage(
-            "Demand-flow pressure data require explicit physical port nodes and finite pressures."));
-        result.pressures[id] = p;
-      }
-    std::vector<Id> selected = selected_terminals;
-    if (selected.empty())
-      for (const auto &[id, t] : network.terminals)
-        selected.push_back(id);
-    AssertThrow(
-      !selected.empty(),
-      ExcMessage(
-        "Demand-flow construction requires at least one selected tissue terminal."));
-    std::set<Id>          unique;
-    std::array<double, 2> scale{{0., 0.}}, sum{{0., 0.}};
-    const auto            system_index = [](System system) {
+      pressure_send[id % size].emplace(id, p);
+    std::map<Id, double> registered_pressures;
+    for (const auto &[source, pressures] :
+         Utilities::MPI::some_to_some(communicator, pressure_send))
+      for (const auto &[id, p] : pressures)
+        {
+          const auto [it, inserted] = registered_pressures.emplace(id, p);
+          valid = std::isfinite(p) && node_registry.count(id) &&
+                  (inserted || it->second == p) && valid;
+          if (node_registry.count(id))
+            valid = node_registry.at(id).second != Port::none && valid;
+        }
+    require_all(
+      valid,
+      "Demand-flow pressure data require explicit physical ports and consistent finite pressures.");
+    pressure_send.clear();
+    for (const auto &[id, p] : registered_pressures)
+      pressure_send[node_registry.at(id).first].emplace(id, p);
+    ReferenceConditions result;
+    for (const auto &[source, pressures] :
+         Utilities::MPI::some_to_some(communicator, pressure_send))
+      result.pressures.insert(pressures.begin(), pressures.end());
+
+    const auto system_index = [](System system) {
       if (system == System::arterial)
         return 0u;
       else if (system == System::venous)
@@ -848,41 +899,55 @@ namespace ImmersX::Vascularization
       AssertThrow(false, ExcMessage("Unknown demand-flow system."));
       return 0u;
     };
-    for (Id id : selected)
-      {
-        AssertThrow(
-          network.terminals.count(id) && unique.insert(id).second,
-          ExcMessage(
-            "Selected demand-flow terminal ids must exist and be unique."));
-        const auto &t = network.terminals.at(id);
-        const auto  i = system_index(t.system);
-        scale[i]      = std::max(scale[i], t.demand);
-      }
+    std::vector<Id>       selected;
+    std::array<double, 2> scale{{0., 0.}}, sum{{0., 0.}};
+    for (const auto &[id, t] : network.terminals)
+      if (t.owner == rank && (requested.empty() || requested.count(id)))
+        {
+          selected.push_back(id);
+          const auto i = system_index(t.system);
+          scale[i]     = std::max(scale[i], t.demand);
+        }
+    require_all(
+      Utilities::MPI::sum(static_cast<Id>(selected.size()), communicator) > 0,
+      "Demand-flow construction requires at least one selected tissue terminal.");
+    Utilities::MPI::max(ArrayView<const double>(scale.data(), scale.size()),
+                        communicator,
+                        make_array_view(scale));
     for (Id id : selected)
       {
         const auto &t = network.terminals.at(id);
         const auto  i = system_index(t.system);
         sum[i] += t.demand / scale[i];
       }
+    Utilities::MPI::sum(ArrayView<const double>(sum.data(), sum.size()),
+                        communicator,
+                        make_array_view(sum));
     for (Id id : selected)
       {
-        const auto  &t = network.terminals.at(id);
-        const auto   i = system_index(t.system);
-        const double q = total_flow * ((t.demand / scale[i]) / sum[i]);
-        AssertThrow(
-          std::isfinite(q) && q > 0.,
-          ExcMessage(
-            "Desired tissue flow is not representable; no demand clipping is applied."));
+        const auto &t = network.terminals.at(id);
+        const auto  i = system_index(t.system);
+        // Separate mantissas and exponents: an intermediate demand ratio may
+        // underflow even when the final SI flow is representable.
+        int flow_exponent, demand_exponent, scale_exponent, sum_exponent;
+        const double mantissa = std::frexp(total_flow, &flow_exponent) *
+                                std::frexp(t.demand, &demand_exponent) /
+                                (std::frexp(scale[i], &scale_exponent) *
+                                 std::frexp(sum[i], &sum_exponent));
+        const double q     = std::ldexp(mantissa,
+                                    flow_exponent + demand_exponent -
+                                      scale_exponent - sum_exponent);
+        valid              = std::isfinite(q) && q > 0. && valid;
         double signed_flow = 0.;
         if (t.system == System::arterial)
           signed_flow = -q;
         else if (t.system == System::venous)
           signed_flow = q;
-        AssertThrow(
-          result.inflows.emplace(t.node, signed_flow).second,
-          ExcMessage(
-            "A demand-flow terminal node must have one terminal identity."));
+        valid = result.inflows.emplace(t.node, signed_flow).second && valid;
       }
+    require_all(
+      valid,
+      "Desired tissue flow must be positive and representable, with one terminal identity per node; no demand clipping is applied.");
     return result;
   }
 

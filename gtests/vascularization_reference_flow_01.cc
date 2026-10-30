@@ -783,8 +783,7 @@ TEST(VascularReferenceFlow,
 
 TEST(VascularReferenceFlow, BOTH_PublicGeneratedTreeRealizesNonzeroDemandFlows)
 {
-  const auto comm = MPI_COMM_WORLD;
-  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto                              comm = MPI_COMM_WORLD;
   parallel::distributed::Triangulation<3> background(comm);
   GridGenerator::subdivided_hyper_rectangle(background,
                                             {8, 1, 1},
@@ -802,11 +801,8 @@ TEST(VascularReferenceFlow, BOTH_PublicGeneratedTreeRealizesNonzeroDemandFlows)
   p.tissue_demand      = "1+x";
   const auto generated = generate(background, MappingQ1<3>(), {}, p, comm);
   ASSERT_TRUE(generated.validation.valid());
-  ReferenceConditions bc;
-  bc.pressures[0] = 12000.;
-  for (const auto &[id, t] : generated.network.terminals)
-    if (t.owner == rank)
-      bc.inflows[t.node] = -generated.target_terminal_flows.at(id);
+  const auto bc = demand_flow_conditions(
+    generated.network, {{0, 12000.}}, p.reference_flow, {}, comm);
   const auto state = solve_reference(generated.network, {}, bc, {}, comm);
   ASSERT_TRUE(state.validation.valid());
   double perfusion = 0., reaction = 0.;
