@@ -137,9 +137,20 @@ pressure/flow overprescription fail collectively. Terminal owners must follow
 their nodes, and endpoint ghosts must match their authoritative nodes.
 Results contain owned vessel, terminal and boundary records, pressures at
 locally relevant nodes, and global scalar diagnostics. `reference_pressure()`
-evaluates owned physical vessels. The `demand_flow_conditions()` convenience
-function currently requires one process; distributed callers can provide
-owned terminal loads directly, as in the public generated-tree reference test.
+evaluates owned physical vessels.
+
+`demand_flow_conditions()` constructs collective conditions for an arterial or
+unpaired arterial/venous design solve. It uses owned terminals, normalizes
+arterial sinks and venous sources independently to the same positive total
+flow, and returns conditions on their node owners. Pass its result directly
+to `solve_reference()`. An empty selection includes all terminals; an explicit
+selection must contain the same unique physical terminal ids on every rank.
+Only explicitly supplied physical ports receive pressure data. Pressure maps
+may be distributed or repeated identically. Demand scaling avoids overflow in
+the global sum and retains representable flows even when an intermediate
+relative demand would underflow. Nonrepresentable terminal flows are rejected.
+The public generated-tree reference test exercises this complete path with
+nonzero tissue demand and checks actual solved flows against the requested split.
 
 A nonzero `dissipation_weight` blends generated-vessel volume and dissipated
 power, each normalized by the current active forest value. Physical flow is
