@@ -193,146 +193,57 @@ run. Pass `--ranks 2 --mpiexec /path/to/mpirun` to the runner for an MPI run; it
 invariant checks apply to the combined owned records. MPI scaling benchmarks
 are separate from these small illustrated cases.
 
-(vascular-measured-mpi-growth)=
-## Measured MPI growth
 
-These measurements use three random seeds (`23`, `24`, `25`) for every
-process-count and size combination: 1,000 and 10,000 terminals at
-`P=1,2,4,8` for strong scaling, and 1,000 terminals per process at
-`P=1,8` for weak scaling. Every one of the 30 native runs passed the
-independent table checks described in the generation guide. The figures
-show medians and full observed seed ranges; they do not fit a model.
+## Generate before the coupled transient solve
 
-| Protocol | MPI ranks | Generation time: median [min, max], seconds |
-|---|---:|---:|
-| strong, T=1,000 | 1 | 144.3 [143.2, 144.8] |
-| strong, T=1,000 | 2 | 46.52 [44.08, 48.44] |
-| strong, T=1,000 | 4 | 15.24 [15.21, 15.32] |
-| strong, T=1,000 | 8 | 5.549 [5.466, 5.996] |
-| strong, T=10,000 | 1 | 1.418e+04 [1.415e+04, 1.427e+04] |
-| strong, T=10,000 | 2 | 3691 [3631, 4069] |
-| strong, T=10,000 | 4 | 997 [994.2, 1000] |
-| strong, T=10,000 | 8 | 283.9 [273.5, 285.4] |
-| weak, T=1,000 per rank | 1 | 142.4 [140.5, 145.2] |
-| weak, T=1,000 per rank | 8 | 227.9 [227.1, 229.2] |
+With a compatible MetricFlowX package installed, `metric_flow_x_elastodynamics`
+can generate a validated internal network on the solid's final background
+before distributing native flow DoFs and constructing the existing wall
+coupling. The generator itself still builds without MetricFlowX.
 
-```{image} ../_static/vascular-benchmarks/scaling.svg
-:alt: Measured generation times and same-seed elapsed-time ratios with full three-seed ranges
-:width: 100%
-```
+The {download}`small coupled configuration <../../gtests/parameters/metric_flow_x_generated_coupled.prm.in>`
+uses a unit cube with 64 solid cells and a four-terminal arterial tree.
+Its seed, viscosity and reference-flow data match the synthetic values above;
+the terminal count is fixed, with no volume calibration or minimum-coverage
+target. Native Square root walls use Young modulus `5e5 Pa`, wall thickness
+`0.0003 m`, and reference pressure `125 Pa`. Each tissue outlet uses native
+`R1=0`, `R2=1e8 Pa s/m^3`, `C=0` and the same `125 Pa` reservoir pressure.
+The equal nonzero reference and outlet pressures balance at rest; the pressure
+reference is assigned once to native `p_d`, with native `p0=0`.
 
-The strong protocol keeps terminal count and physical controls fixed,
-but changing the number of processes changes batch size, sampled geometry
-and the number of global physiological updates. Ratios above the process
-count therefore include changes in algorithmic work; they are not hardware
-speedups for an identical sequence of insertions. The weak protocol grows
-one connected tree from one real inlet as the domain and terminal count
-increase. It does not create independent roots to give every rank work.
+The inherited time-dependent inflow is
+$Q(t)=5\times10^{-8}(1-\cos(100\pi t))\ \mathrm{m^3/s}$.
+Both $Q(0)$ and $Q'(0)$ vanish, matching the initially resting solid; the inflow
+is nonzero at subsequent times. This transient forcing is distinct from the
+`2e-9 m^3/s` resistive design flow used during generation. IDA advances from
+zero to `0.002 s`, with flow, solid and pressure-jump output at
+`0`, `0.001` and `0.002 s`.
 
-```{image} ../_static/vascular-benchmarks/resources.svg
-:alt: Measured peak resident memory, ownership imbalance, MPI activity, physiological updates and startup writer ownership
-:width: 100%
-```
-
-Peak RSS is the maximum per-rank high-water mark. The CSV also retains
-the sum of individual peaks; that sum counts shared pages repeatedly and
-does not measure simultaneous node memory. MPI bytes are logical posted
-sends plus collective input, not wire traffic. MPI seconds sum rank time
-inside the instrumented calls and can exceed elapsed time. The first-range
-writer fraction measures ownership of mutable branches across rank-batches;
-it does not count all CPU-active proposal producers. The separate first-range
-proposer fraction counts ranks with at least one proposal. Whole-growth phase
-times use the maximum of per-rank totals rather than a sum of range maxima.
-
-```{image} ../_static/vascular-benchmarks/quality.svg
-:alt: Observed volume fraction, geometric coverage, physical branch lengths and junction angles across seeds and partitions
-:width: 100%
-```
-
-| Protocol | MPI ranks | Volume fraction: median [min, max] | Arterial coverage: median [min, max] |
-|---|---:|---:|---:|
-| strong, T=1,000 | 1 | 6.905e-05 [6.847e-05, 6.96e-05] | 1 [1, 1] |
-| strong, T=1,000 | 2 | 6.846e-05 [6.806e-05, 6.853e-05] | 1 [0.9998, 1] |
-| strong, T=1,000 | 4 | 6.819e-05 [6.807e-05, 6.943e-05] | 1 [1, 1] |
-| strong, T=1,000 | 8 | 6.85e-05 [6.7e-05, 6.865e-05] | 1 [1, 1] |
-| strong, T=10,000 | 1 | 8.913e-05 [8.842e-05, 8.955e-05] | 1 [1, 1] |
-| strong, T=10,000 | 2 | 8.875e-05 [8.866e-05, 8.879e-05] | 1 [1, 1] |
-| strong, T=10,000 | 4 | 8.898e-05 [8.851e-05, 8.905e-05] | 1 [1, 1] |
-| strong, T=10,000 | 8 | 8.889e-05 [8.884e-05, 8.906e-05] | 1 [1, 1] |
-| weak, T=1,000 per rank | 1 | 6.905e-05 [6.847e-05, 6.96e-05] | 1 [1, 1] |
-| weak, T=1,000 per rank | 8 | 8.684e-05 [8.665e-05, 8.708e-05] | 1 [1, 1] |
-
-All runs satisfy the same topology, Murray, wall-containment, junction-angle,
-flow and subdivision checks. The plotted distributions describe the
-observed seed and partition variability. Three seeds do not establish
-statistical equivalence, and these synthetic geometric measurements do
-not establish physiological perfusion. The benchmarks prescribe terminal
-counts; they do not calibrate a target volume fraction or enforce a
-minimum coverage.
-
-The smallest recorded reference area across these trees is 6.0915206e-08 m².
-The native transfer requires an area strictly above `1e-10 m²` and
-rejects smaller physical radii instead of clipping them. This comparison
-uses the generated radii; the generation benchmarks do not advance the
-transient flow solver.
-
-[Per-seed measurements](../_static/vascular-benchmarks/measurements.csv)
-include radius and terminal-distance quantiles in addition to the plotted
-metrics, plus per-rank sample, proposal and accepted-insertion counts and
-their maximum-to-mean ratios. The [manifest](../_static/vascular-benchmarks/manifest.json)
-records the source and binary identities, input hashes and asset hashes.
-
-### Recorded environment
-
-The recorded runs use an Intel Xeon E5-2650 v4 host, GCC 11.4.0,
-deal.II 9.8.0 and Open MPI 5.0.10. They use the Release targets of a
-`DebugRelease` configuration with one OpenMP and one OpenBLAS thread per
-process. Effective compilation includes `-DNDEBUG -O2 -fopenmp`,
-`-fopenmp-simd -march=znver3 -mtune=znver3`; the architecture flags come
-from the installed SDK and are recorded as used, despite the Intel host.
-The frozen benchmark executables and library use the gold linker. These
-are recorded local build conditions, not required project flags.
-
-MPI processes use `--bind-to core --report-bindings`. Other local builds,
-functional tests and documentation work used separate cores where
-possible, while the host also served unrelated work. Memory bandwidth,
-cache and storage remained shared. Treat the timings as shared-host
-measurements rather than isolated machine performance.
-
-The frozen generator source is `76bb381187285e57bdc281a09f2bdd4c09a70703`.
-The executable SHA-256 is `d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca` and the
-library SHA-256 is `559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082`. These files were
-copied before the experiments and were not rebuilt between cases.
-
-### Regenerate the measured assets
-
-The measurements were run as three experiments. With a compatible
-Release profiling build, run:
+Configure both packages against the same deal.II installation and linear
+algebra backend. This checkout selects Trilinos, so configure the native
+package with `-DMETRIC_FLOW_X_BACKEND=Trilinos`. For example:
 
 ```bash
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 scripts/run_vascular_benchmarks.py \
-  --executable build-release/benchmarks/vascular_network_profile \
-  --library build-release/libimmersx_lib.so \
-  --output build-release/vascular-measurements/strong-1000 \
-  --kind strong --terminals 1000 --ranks 1,2,4,8 --seeds 23,24,25
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 scripts/run_vascular_benchmarks.py \
-  --executable build-release/benchmarks/vascular_network_profile \
-  --library build-release/libimmersx_lib.so \
-  --output build-release/vascular-measurements/weak-1000 \
-  --kind weak --terminals 1000 --ranks 1,8 --seeds 23,24,25
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 scripts/run_vascular_benchmarks.py \
-  --executable build-release/benchmarks/vascular_network_profile \
-  --library build-release/libimmersx_lib.so \
-  --output build-release/vascular-measurements/strong-10000 \
-  --kind strong --terminals 10000 --ranks 1,2,4,8 --seeds 23,24,25
-python3 scripts/update_vascular_benchmarks.py \
-  build-release/vascular-measurements/strong-1000 \
-  build-release/vascular-measurements/weak-1000 \
-  build-release/vascular-measurements/strong-10000 --check
+cmake -S . -B build-coupled -DCMAKE_BUILD_TYPE=DebugRelease \
+  -DMetricFlowX_DIR=/path/to/metric-flow-x-install/lib/cmake/MetricFlowX \
+  -DENABLE_GOOGLE_TESTING=ON
+cmake --build build-coupled --target \
+  metric_flow_x_elastodynamics metric_flow_x_elastodynamics_debug -j
+ctest --test-dir build-coupled \
+  -R 'application\.MetricFlowXGenerated\.' --output-on-failure
 ```
 
-The publisher independently rechecks native tables and frozen binary
-hashes. It rejects any incomplete experiment. Omit `--check` to update
-selected assets after reviewing new measurements. Repeated timings need
-not match; `--check` checks the publication against the supplied completed
-dataset, not against an assumed performance target.
+CTest creates separate parameter and output paths for each build variant and
+solver mode. The checks require actual accepted IDA steps, nonempty internal
+vessel geometry, the three output times, positive flow-state change and
+positive solid displacement. Available direct-solver cases include serial
+UMFPACK and serial/two-rank/four-rank MUMPS. An older MetricFlowX package
+without the native in-memory input API skips these generated-input cases.
+
+For a new application, follow the
+[native transfer example](../how-to/vascular-generation#prepare-a-generated-network-for-native-metricflowx).
+It explains owner-local material callbacks, explicit terminal data, native
+coefficient replication, stable physical IDs and reversed venous execution
+orientation. Partially external imported networks remain supported by the
+standalone generator; adapting their multiplier space for partial wall coupling
+is deferred.

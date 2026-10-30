@@ -22,6 +22,26 @@
 
 namespace ImmersX
 {
+  namespace detail
+  {
+    template <typename Flow, typename = void>
+    struct has_external_pressure_state_jacobian : std::false_type
+    {};
+
+    template <typename Flow>
+    struct has_external_pressure_state_jacobian<
+      Flow,
+      std::void_t<decltype(std::declval<const Flow &>()
+                             .add_external_pressure_state_jacobian(
+                               std::declval<double>(),
+                               std::declval<const MetricFlowX::VectorType &>(),
+                               std::declval<const typename Flow::
+                                              ExternalPressureProvider &>(),
+                               std::declval<MetricFlowX::MatrixType &>()))>>
+      : std::true_type
+    {};
+  } // namespace detail
+
   /** Evaluate a scalar value observable at native pressure evaluation points.
    * CellId selects the DG trace at faces and junctions. Referenced spaces must
    * outlive the provider; coefficients are copied into a relevant vector.
@@ -65,6 +85,59 @@ namespace ImmersX
                  fe.shape_value(j, unit);
       return scale * value;
     };
+  }
+
+  /** Linearize the native pressure contribution at fixed pressure coefficients.
+   * HLL weights depend on the flow state even when pressure is prescribed.
+   * The returned actions retain the assembled matrix for their full lifetime.
+   */
+  template <typename Flow, typename Pressure>
+  MaterializedOperator<MetricFlowX::VectorType, MetricFlowX::MatrixType>
+  metric_flow_x_pressure_state_operator(
+    Flow                          &problem,
+    const Pressure                &pressure,
+    const MetricFlowX::VectorType &pressure_coefficients,
+    const MetricFlowX::VectorType &flow_state,
+    const double                   time)
+  {
+    using Vector      = MetricFlowX::VectorType;
+    using Matrix      = MetricFlowX::MatrixType;
+    const auto matrix = detail::clone_matrix(problem.state_jacobian_matrix());
+    *matrix           = 0.;
+    if constexpr (detail::has_external_pressure_state_jacobian<Flow>::value)
+      problem.add_external_pressure_state_jacobian(
+        time,
+        flow_state,
+        metric_flow_x_pressure_provider(pressure, pressure_coefficients),
+        *matrix);
+    else
+      AssertThrow(
+        false,
+        dealii::ExcMessage(
+          "The installed MetricFlowX does not expose the prescribed-pressure state Jacobian."));
+    MaterializedOperator<Vector, Matrix> result;
+    result.view.reinit_range_vector = [&problem, matrix](Vector &dst,
+                                                         const bool) {
+      problem.reinit_state(dst);
+    };
+    result.view.reinit_domain_vector = result.view.reinit_range_vector;
+    result.view.vmult = [matrix](Vector &dst, const Vector &src) {
+      matrix->vmult(dst, src);
+    };
+    result.view.vmult_add = [matrix](Vector &dst, const Vector &src) {
+      matrix->vmult_add(dst, src);
+    };
+    result.view.Tvmult = [matrix](Vector &dst, const Vector &src) {
+      matrix->Tvmult(dst, src);
+    };
+    result.view.Tvmult_add = [matrix](Vector &dst, const Vector &src) {
+      matrix->Tvmult_add(dst, src);
+    };
+    result.materialize = [matrix]() { return detail::clone_matrix(*matrix); };
+    result.materialize_into = [matrix](Matrix &dst) {
+      detail::copy_matrix(dst, *matrix);
+    };
+    return result;
   }
 
   /** Linearize native pressure with respect to its scalar coefficients.
