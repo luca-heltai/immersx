@@ -442,11 +442,10 @@ system; zero leaves desired flows unspecified. Common physiological controls
 must agree across processes. Invalid connectivity, unrooted cycles, missing
 terminal roles and unrepresentable positive demands or radii fail collectively.
 
-The kernel changes no physical data. A caller adopts its radii only after
-validation and the required geometric checks. Tests exercise joint ancestor
-and descendant splits across partitions, but the public generator still needs
-a distributed growth and commit loop before it can generate with multiple
-processes.
+The kernel changes no physical data. The public growth loop uses its result
+to normalize a tentative batch, then adopts the radii only after validation
+and the required geometric checks. Tests exercise joint ancestor and descendant
+splits across partitions through this same commit path.
 
 ## Confirm or discard a batch
 
@@ -466,10 +465,9 @@ The caller can resample within its finite budget; it never adopts part of a
 failed batch. Staging copies locally relevant data once per batch, rather than
 once per candidate.
 
-This path provides distributed physical updates and rollback. It still needs
-to be connected to distributed sampling and nearest-vessel selection in the
-public generation loop. Certifying all mutable vessels after each batch is a
-correctness check whose cost must be included in scaling measurements.
+The public generation loop connects this commit path to distributed sampling
+and nearest-vessel selection. Certifying all mutable vessels after each batch
+is a correctness check; the growth statistics record its cost separately.
 
 ## Optimize from distributed ancestor paths
 
@@ -492,8 +490,8 @@ Geometry checks supplied during optimization are preliminary. A candidate from
 a local background partition can cross other partitions and must pass final
 owner consent, joint normalization and global geometry certification. An MPI
 test performs this sequence and compares the candidate cost with independently
-recomputed physical volume and dissipation. Distributed sampling and nearest
-candidate selection still need to be connected to the public generation loop.
+recomputed physical volume and dissipation. The public generation loop invokes
+this candidate evaluation after distributed sampling and nearest-vessel search.
 
 ## Grow a prepared forest in MPI batches
 
