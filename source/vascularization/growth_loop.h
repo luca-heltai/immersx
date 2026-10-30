@@ -9,9 +9,10 @@ namespace ImmersX::Vascularization::internal
 {
   struct GrowthRun
   {
-    ValidationReport validation;
-    GrowthCommit     accepted;
-    std::uint64_t    sampled_points = 0, proposed_insertions = 0,
+    ValidationReport                         validation;
+    GrowthCommit                             accepted;
+    std::map<unsigned int, GrowthStatistics> statistics;
+    std::uint64_t sampled_points = 0, proposed_insertions = 0,
                   accepted_insertions = 0, batches = 0, rejected_batches = 0;
     unsigned int maximum_batch_insertions = 0;
     /** Venous terminal ids on the authoritative common-territory owner. */

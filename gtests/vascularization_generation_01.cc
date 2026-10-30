@@ -389,3 +389,96 @@ TEST(VascularGeneration, BOTH_PublicTetrahedralSeedWithEmptyBackgroundRanks)
               1.e-13);
   EXPECT_NEAR(result.tissue.arterial_coverage, 1., 1.e-13);
 }
+
+TEST(VascularGeneration, BOTH_GrowthStatisticsCountActualOwnedWork)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bg);
+  bg.refine_global(2);
+  Parameters p;
+  p.seed_position   = Point<3>(.2, .5, .5);
+  p.seed_direction  = Point<3>(1., 0., 0.);
+  p.seed_radius     = .003;
+  p.seed_length     = .15;
+  p.viscosity       = .004;
+  p.reference_flow  = 2.e-9;
+  p.terminal_count  = 12;
+  const auto result = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(result.validation.valid());
+  ASSERT_FALSE(result.growth_statistics.empty());
+  EXPECT_LE(result.growth_statistics.size(), 4u);
+  std::uint64_t sampled = 0, accepted = 0, first_owned = 0, final_owned = 0;
+  for (const auto &s : result.growth_statistics)
+    {
+      EXPECT_EQ(s.system, System::arterial);
+      EXPECT_EQ(s.requested_terminals, 12u);
+      EXPECT_GT(s.batches, 0u);
+      EXPECT_LE(s.first_terminals, s.last_terminals);
+      EXPECT_LE(s.last_terminals, 12u);
+      EXPECT_LE(s.accepted_insertions, s.proposed_insertions);
+      EXPECT_LE(s.active_writer_batches, s.batches);
+      EXPECT_LE(s.committed_batches + s.rejected_batches, s.batches);
+      EXPECT_GE(s.owned_vessels_maximum, s.owned_vessels_first);
+      EXPECT_GE(s.owned_vessels_maximum, s.owned_vessels_last);
+      EXPECT_GE(s.sampling_seconds, 0.);
+      EXPECT_GE(s.search_seconds, 0.);
+      EXPECT_GE(s.optimization_seconds, 0.);
+      EXPECT_GE(s.selection_seconds, 0.);
+      EXPECT_GE(s.commit_seconds, 0.);
+      EXPECT_GE(s.redistribution_seconds, 0.);
+      EXPECT_GE(s.physiology_seconds, 0.);
+      EXPECT_GE(s.certification_seconds, 0.);
+      EXPECT_LE(s.sampling_seconds + s.search_seconds + s.optimization_seconds +
+                  s.selection_seconds + s.commit_seconds,
+                s.total_seconds + 1.e-6);
+      EXPECT_LE(s.redistribution_seconds + s.physiology_seconds +
+                  s.certification_seconds,
+                s.commit_seconds + 1.e-6);
+      sampled += s.sampled_points;
+      accepted += s.accepted_insertions;
+      if (s.first_terminals == 1)
+        {
+          first_owned = s.owned_vessels_first;
+          EXPECT_GT(s.initialization_seconds, 0.);
+        }
+      if (s.last_terminals == 12)
+        final_owned = s.owned_vessels_last;
+    }
+  // A single real seed is owned once, including when other ranks initially
+  // have no vessels. Final counts exclude all native geometric ghosts.
+  EXPECT_EQ(Utilities::MPI::sum(first_owned, MPI_COMM_WORLD), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(final_owned, MPI_COMM_WORLD), 23u);
+  EXPECT_EQ(Utilities::MPI::sum(accepted, MPI_COMM_WORLD), 11u);
+  EXPECT_EQ(Utilities::MPI::sum(sampled, MPI_COMM_WORLD),
+            result.sampled_points);
+}
+
+TEST(VascularGeneration, BOTH_StatisticsRetainAllCalibrationTrials)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bg);
+  bg.refine_global(1);
+  Parameters p;
+  p.seed_position                 = Point<3>(.2, .5, .5);
+  p.seed_direction                = Point<3>(1., 0., 0.);
+  p.seed_radius                   = .003;
+  p.seed_length                   = .15;
+  p.viscosity                     = .004;
+  p.terminal_count                = 4;
+  p.calibration.volume_fraction   = 1.e-7;
+  p.calibration.minimum_terminals = 2;
+  p.calibration.maximum_terminals = 8;
+  p.calibration.attempt_budget    = 3;
+  const auto result = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  EXPECT_EQ(result.calibration.status, CalibrationStatus::exhausted);
+  std::set<unsigned int> measured, attempted;
+  for (const auto &s : result.growth_statistics)
+    measured.insert(s.requested_terminals);
+  for (const auto &a : result.calibration.attempts)
+    {
+      EXPECT_TRUE(a.generation_validation.valid());
+      attempted.insert(a.terminal_count);
+    }
+  EXPECT_EQ(attempted.size(), 3u);
+  EXPECT_EQ(measured, attempted);
+}

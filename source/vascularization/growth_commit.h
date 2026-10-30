@@ -41,6 +41,8 @@ namespace ImmersX::Vascularization::internal
     std::set<Id>         mutable_owned;
     std::map<Id, double> fixed_owned_roots;
     ForestState          physiology;
+    double               redistribution_seconds = 0., physiology_seconds = 0.,
+           certification_seconds = 0.;
   };
   // Input remains immutable. Splits are sent to their writing owners. After
   // joint normalization, ALL generated geometry is certified on one snapshot.

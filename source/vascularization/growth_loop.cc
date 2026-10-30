@@ -3,6 +3,7 @@
 #include "growth_loop.h"
 
 #include <deal.II/base/function_parser.h>
+#include <deal.II/base/timer.h>
 
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
@@ -275,6 +276,7 @@ namespace ImmersX::Vascularization::internal
               const std::vector<Territory>   &owned_territories)
   {
     using namespace dealii;
+    Timer              timer;
     GrowthRun          run;
     const unsigned int terminal_count =
       requested_count == 0 ? p.terminal_count : requested_count;
@@ -505,9 +507,66 @@ namespace ImmersX::Vascularization::internal
         id = Utilities::MPI::max(id, comm);
         ++id;
       }
-    unsigned int failures = 0;
+    const auto bucket = [&](std::uint64_t leaves) -> GrowthStatistics & {
+      unsigned int exponent = 0;
+      for (auto n = leaves; n > 1; n >>= 1)
+        ++exponent;
+      auto [entry, inserted] = run.statistics.try_emplace(exponent);
+      auto &statistics       = entry->second;
+      if (inserted)
+        {
+          statistics.system              = system;
+          statistics.requested_terminals = terminal_count;
+          statistics.first_terminals = statistics.last_terminals = leaves;
+          statistics.owned_vessels_first = statistics.owned_vessels_last =
+            statistics.owned_vessels_maximum =
+              run.accepted.mutable_owned.size();
+        }
+      return statistics;
+    };
+    bucket(count).initialization_seconds = timer.wall_time();
+    unsigned int failures                = 0;
     while (count < terminal_count && failures < p.sample_budget)
       {
+        auto        &statistics       = bucket(count);
+        const auto   owned_before     = run.accepted.mutable_owned.size();
+        const auto   samples_before   = run.sampled_points;
+        const auto   proposals_before = run.proposed_insertions;
+        const auto   accepted_before  = run.accepted_insertions;
+        const double batch_begin      = timer.wall_time();
+        double       sampling_end = batch_begin, search_end = batch_begin,
+               optimization_end = batch_begin, selection_end = batch_begin;
+        const auto record = [&](const GrowthCommit *commit) {
+          const double end = timer.wall_time();
+          ++statistics.batches;
+          statistics.sampled_points += run.sampled_points - samples_before;
+          statistics.proposed_insertions +=
+            run.proposed_insertions - proposals_before;
+          statistics.accepted_insertions +=
+            run.accepted_insertions - accepted_before;
+          statistics.active_writer_batches += owned_before > 0;
+          statistics.last_terminals        = count;
+          statistics.owned_vessels_last    = run.accepted.mutable_owned.size();
+          statistics.owned_vessels_maximum = std::max<std::uint64_t>(
+            statistics.owned_vessels_maximum,
+            std::max<std::uint64_t>(owned_before,
+                                    statistics.owned_vessels_last));
+          statistics.sampling_seconds += sampling_end - batch_begin;
+          statistics.search_seconds += search_end - sampling_end;
+          statistics.optimization_seconds += optimization_end - search_end;
+          statistics.selection_seconds += selection_end - optimization_end;
+          statistics.total_seconds += end - batch_begin;
+          if (commit)
+            {
+              statistics.commit_seconds += end - selection_end;
+              statistics.redistribution_seconds +=
+                commit->redistribution_seconds;
+              statistics.physiology_seconds += commit->physiology_seconds;
+              statistics.certification_seconds += commit->certification_seconds;
+              statistics.committed_batches += commit->committed;
+              statistics.rejected_batches += !commit->committed;
+            }
+        };
         ++run.batches;
         std::array<Id, 4> allocated;
         for (unsigned int kind = 0; kind < 4; ++kind)
@@ -590,6 +649,7 @@ namespace ImmersX::Vascularization::internal
             valid,
             "Spatial weight violates its bound, or tissue demand is not positive and finite."))
           return run;
+        sampling_end                      = timer.wall_time();
         const auto                 nearby = nearest(target,
                                     run.accepted.network,
                                     run.accepted.mutable_owned,
@@ -611,12 +671,13 @@ namespace ImmersX::Vascularization::internal
             run.validation = paths.validation;
             return run;
           }
-        const auto        obstacles = candidate_obstacles(run.accepted.network,
+        const auto obstacles = candidate_obstacles(run.accepted.network,
                                                    run.accepted.physiology,
                                                    paths.contexts,
                                                    target,
                                                    p,
                                                    comm);
+        search_end           = timer.wall_time();
         std::vector<Leaf> obstacle_leaves;
         double            obstacle_radius = 0.;
         for (const auto &[id, obstacle] : obstacles)
@@ -707,6 +768,7 @@ namespace ImmersX::Vascularization::internal
                     chosen = &x;
                   }
             }
+        optimization_end = timer.wall_time();
         unsigned int has = best ? 1 : 0, prefix = 0;
         MPI_Exscan(&has, &prefix, 1, MPI_UNSIGNED, MPI_SUM, comm);
         if (rank == 0)
@@ -776,9 +838,11 @@ namespace ImmersX::Vascularization::internal
           }
         const auto selected =
           Utilities::MPI::sum(static_cast<unsigned int>(splits.size()), comm);
+        selection_end = timer.wall_time();
         if (selected == 0)
           {
             ++failures;
+            record(nullptr);
             continue;
           }
         auto committed = commit_growth_splits(bg,
@@ -793,6 +857,7 @@ namespace ImmersX::Vascularization::internal
           {
             ++run.rejected_batches;
             ++failures;
+            record(&committed);
             continue;
           }
         if (system == System::venous && !splits.empty())
@@ -807,6 +872,7 @@ namespace ImmersX::Vascularization::internal
           std::max(run.maximum_batch_insertions, selected);
         count += selected;
         failures = 0;
+        record(&run.accepted);
       }
     std::uint64_t unserved = 0;
     if (system == System::venous)
