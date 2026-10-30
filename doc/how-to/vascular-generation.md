@@ -421,9 +421,8 @@ cannot block valid neighbors. All geometric participants and writing owners
 receive the same final decisions through sparse exchanges.
 
 This phase evaluates a common snapshot and changes no accepted network or
-history. The public generator currently submits single-process batches. MPI
-validation of simultaneous proposals does not yet provide a distributed
-generation/commit loop.
+history. The public generation loop uses its decisions to confirm or discard
+the provisional distributed batch after physiological and geometric checks.
 
 ## Normalize generated forests
 
@@ -566,9 +565,8 @@ return the venous terminal identity to that owner, even if the terminal migrates
 to another process. No process needs the complete set of territory positions.
 This enforces one venous endpoint per territory in addition to geometric
 collision checks. The previous separate serial growth implementation has been
-removed. Public paired reference solves retain their existing checks for
-positive beds and actual demand-matched flows; their MPI execution is still to
-be completed.
+removed. Public paired reference solves check positive beds and actual demand-matched
+flows through the same distributed execution path.
 
 ## Standalone application
 
@@ -797,6 +795,112 @@ arguments to recheck completed cases and continue an experiment. A case left
 running, timed out or failed requires an explicit audit; the runner does not
 infer that its processes have stopped or restart it automatically. Keep failed
 runs and their diagnostics when reporting measured outcomes.
+
+
+## Prepare a generated network for native MetricFlowX
+
+The generator has no MetricFlowX dependency. Applications that enable the
+optional package can include `<immersx/vascularization/metric_flow_x.h>` and
+call `prepare_metric_flow_x()` after generation succeeds. This requires a
+MetricFlowX installation providing `BloodFlowSystem::NetworkPhysics` and
+`setup(const NetworkPhysics &)`. Older installations continue to support the
+ordinary imported-input application path; selecting generation reports the
+missing native API before growing a network. Build MetricFlowX with
+`-DMETRIC_FLOW_X_BACKEND=Trilinos` for this checkout, whose ImmersX linear
+algebra configuration selects Trilinos. Both packages must use the same backend
+and deal.II installation. The supporting native API is proposed in
+[MetricFlowX #86](https://github.com/luca-heltai/metric-flow-x/pull/86).
+
+Construct the final background first, then generate, validate and prepare the
+flow problem. For example, with a configured native Square root wall model:
+
+```cpp
+using namespace ImmersX::Vascularization;
+using Flow = MetricFlowX::BloodFlowSystem<1, 3>;
+Flow flow(comm);
+flow.initialize_params(parameter_file);
+auto result = generate(background, mapping, {}, parameters, comm);
+AssertThrow(result.validation.valid(), dealii::ExcMessage("Generation failed"));
+auto transfer = prepare_metric_flow_x(
+  flow, result,
+  [](Id, const Vessel &) {
+    Flow::VesselProperties material;
+    material.E = 5.e5;       // Pa, synthetic
+    material.h_wall = .0003; // m, synthetic
+    material.p_d = material.p0 = 0.;
+    return material;
+  },
+  [](Id, const Node &, const Terminal *) {
+    // R1, R2 [Pa s/m^3], C [m^3/Pa], outlet pressure [Pa], label.
+    return Flow::RCRPhysics{0., 1.e8, 0., 0., "synthetic"};
+  });
+```
+
+Both callbacks run only at physical owners. The first receives a physical
+vessel ID and its immutable attributes; geometry, length, endpoint radii,
+reference areas and viscosity come from the result. The second receives a
+physical node ID and a terminal pointer, or a null pointer at a real outlet.
+Arterial inlets retain native boundary zero and need no terminal callback.
+Material and wall choices must match the native configured model. These
+synthetic values illustrate the API; they are not an organ calibration.
+
+The helper constructs the native fully distributed line mesh with execution
+owners following the background. It exchanges coefficient tables, identifiers
+and endpoint boundary flags, without gathering the complete physical geometry
+or interior incidence. The native solver currently replicates coefficient and
+terminal tables. This is a remaining memory cost even though the vascular
+network and numerical mesh stay distributed.
+
+Physical IDs remain unchanged and may exceed native material-ID capacity in
+value. `transfer.vessel_ids`, `boundary_ids` and `terminal_ids` map them to
+compact execution IDs. Venous cells and tapered radii are reversed into flow
+direction in a temporary mesh input; the physical network retains its original
+growth orientation. `transfer.reference(cell->id())` returns the original
+physical interval, including after native binary refinement. In a reversed
+vessel, local coordinate zero corresponds to the interval's end. Supplied
+arteriovenous terminal pairs become native terminal resistive connections;
+there is no second 0D model or extra line-cell volume.
+
+The helper rejects a reference area at or below the native numerical floor
+`1e-10 m^2`; it does not clip a physical radius. Native setup validates the
+material law, terminal records and prepared mesh before distributing flow DoFs.
+Use the native `rest` initial-state source. The native VTK-based steady-network
+initializer is not available for this in-memory path. Subsequent native
+consistent initialization and the ImmersX IDA adapter use the transferred data.
+
+In `metric_flow_x_elastodynamics`, set `/MetricFlowX coupling/Generate vascular
+network = true` and provide `/Vascularization/` parameters. The solid domain is
+the generator's background; standalone domain and output settings do not create
+a second background in this application. Supply the coupling parameters
+`Generated vessel Young modulus`, `Generated vessel wall thickness`,
+`Generated vessel reference pressure`, `Generated terminal resistance` and
+`Generated outlet pressure` in SI units. Young modulus, thickness and terminal
+resistance must be positive. The terminal option supplies native R2 with R1 and
+C zero; the library callback permits more general native RCR data. The vessel
+reference pressure sets native `p_d` once; native `p0` remains zero.
+
+Generation and validation occur before native flow setup, multiplier-space
+construction, existing wall coupling and IDA initialization. A quadratic DG
+reference-area field represents the physical squared linear radius exactly.
+The example uses fully internal walls. Adapting the multiplier to couple only
+internal portions of an imported external network remains deferred.
+
+The configured fixture
+`gtests/parameters/metric_flow_x_generated_coupled.prm` uses an internal
+four-terminal tree, explicitly declared synthetic wall and terminal data, and
+nonzero time-dependent inflow. The `MetricFlowXGenerated` application CTest
+cases require accepted IDA steps, the requested output times, a nonempty
+internal mesh, positive final flow change and positive solid displacement.
+The fixture permits 30 nonlinear iterations per IDA corrector, retaining the
+same error tolerances. HLL can need more than the imported example's budget
+of eight iterations when IDA reuses its Newton matrix. The pressure term
+registers both its pressure-coefficient derivative and, with the supporting
+native API, the flow-state derivative of HLL weights at fixed pressure.
+The separate `MetricFlowX.Vascular` integration cases exercise tapered arterial
+and reversed venous inputs, stable large physical IDs, native terminal beds and
+nonzero consistent inlet flow on one, two and four ranks. Tests requiring the
+new native API are skipped explicitly with an older installed package.
+
 
 ## Publish measured MPI figures
 

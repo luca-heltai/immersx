@@ -15,7 +15,7 @@
 set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
-list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
+list(FILTER _test_files EXCLUDE REGEX "(vascularization_)?metric_flow_x_01\\.cc$")
 list(FILTER _test_files EXCLUDE REGEX "mms_convergence_main\\.cc$")
 
 include(GoogleTest)
@@ -26,6 +26,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 # directive: a failure here is a public-header dependency or namespace error,
 # not a runtime test failure.
 set(_public_headers
+    immersx/vascularization/metric_flow_x.h
     immersx/vascularization/application.h
     immersx/vascularization/io.h
     immersx/vascularization/distribution.h
@@ -121,7 +122,7 @@ foreach(_build_type ${_d2_build_types})
                              $<$<CXX_COMPILER_ID:Clang>:-Wno-cpp>
                              $<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>)
       if(IMMERSX_WITH_METRIC_FLOW_X AND
-         _public_header MATCHES "^immersx/physics/metric_flow_x")
+         _public_header MATCHES "^immersx/(physics|vascularization)/metric_flow_x")
         target_link_libraries(${_public_header_target}
                               ${IMMERSX_METRIC_FLOW_X_TARGET_${_build_type}})
       endif()
@@ -341,6 +342,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       add_executable(
         ${_metric_flow_x_test_target}
         metric_flow_x_01.cc
+        vascularization_metric_flow_x_01.cc
         gtest_main.cc)
       target_include_directories(
         ${_metric_flow_x_test_target}
@@ -374,7 +376,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       set_tests_properties(${_metric_flow_x_serial_test}
                            PROPERTIES LABELS "integration;quick" TIMEOUT 300
                                       RESOURCE_LOCK ImmersX.TestOutput
-                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*-*.MPI_*")
+                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*-*.MPI_*:MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds")
       find_program(_immersx_mpiexec NAMES mpirun mpiexec)
       if(_immersx_mpiexec)
         set(_metric_flow_x_mpi_test
@@ -386,7 +388,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                              PROPERTIES LABELS "integration;quick;mpi"
                                         TIMEOUT 300 PROCESSORS 2
                                         RESOURCE_LOCK ImmersX.TestOutput
-                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*")
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*-MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds")
         set(_metric_flow_x_rcr_mpi4_test
             "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.RCR.MPI4")
         add_test(NAME ${_metric_flow_x_rcr_mpi4_test}
@@ -398,14 +400,32 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                                         RESOURCE_LOCK ImmersX.TestOutput
                                         ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal")
       endif()
-      foreach(_case Coupled MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
+      foreach(_ranks 1 2 4)
+        if(_ranks GREATER 1 AND NOT _immersx_mpiexec)
+          continue()
+        endif()
+        set(_vascular_name "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.Vascular.${_ranks}Rank")
+        if(_ranks EQUAL 1)
+          add_test(NAME ${_vascular_name} COMMAND $<TARGET_FILE:${_metric_flow_x_test_target}>)
+        else()
+          add_test(NAME ${_vascular_name}
+            COMMAND ${_immersx_mpiexec} -np ${_ranks} $<TARGET_FILE:${_metric_flow_x_test_target}>)
+        endif()
+        set_tests_properties(${_vascular_name} PROPERTIES LABELS "integration;quick"
+          TIMEOUT 300 PROCESSORS ${_ranks} RESOURCE_LOCK ImmersX.TestOutput
+          ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds")
+        if(_ranks GREATER 1)
+          set_property(TEST ${_vascular_name} APPEND PROPERTY LABELS mpi)
+        endif()
+      endforeach()
+      foreach(_case Coupled Generated MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
         set(_coupled_modes Serial MPI)
         if(DEAL_II_WITH_UMFPACK)
           list(APPEND _coupled_modes SerialUMFPACK)
         endif()
         if(DEAL_II_WITH_MUMPS)
           list(APPEND _coupled_modes SerialMUMPS MPIMUMPS)
-          if(_case MATCHES "^RCR")
+          if(_case MATCHES "^RCR" OR _case STREQUAL "Generated")
             list(APPEND _coupled_modes MPI4MUMPS)
           endif()
         endif()
@@ -420,6 +440,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           if(_case STREQUAL "Coupled")
             set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-elastodynamics")
             set(_coupled_output_times "0;0.01;0.02")
+          elseif(_case STREQUAL "Generated")
+            set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-generated")
+            set(_coupled_output_times "0;0.001;0.002")
           elseif(_case STREQUAL "MMS")
             set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-mms-cube-resolved")
             set(_coupled_output_times "0;0.05;0.1")
@@ -431,7 +454,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_output_times "0;0.001;0.002")
           endif()
           set(_coupled_input "${CMAKE_CURRENT_BINARY_DIR}/parameters/metric_${_case}_${_build_type}_${_mode}.prm")
-          if(_case STREQUAL "MMS")
+          if(_case STREQUAL "Generated")
+            set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_generated_coupled.prm.in")
+          elseif(_case STREQUAL "MMS")
             set(_coupled_template "${CMAKE_SOURCE_DIR}/tutorials/metric_flow_x_elastodynamics/mms_cube.prm.in")
           elseif(_case STREQUAL "MMSNeumann")
             set(_coupled_template "${CMAKE_SOURCE_DIR}/tutorials/metric_flow_x_elastodynamics/mms_cube_neumann.prm.in")
@@ -472,6 +497,12 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_mpiexec "${_immersx_mpiexec}")
             set(_coupled_labels "application;mpi")
           endif()
+          set(_coupled_timeout 600)
+          if(_case STREQUAL "Generated" AND _build_type STREQUAL "Debug")
+            # Debug materialization of the coupled Jacobian is substantially slower.
+            set(_coupled_timeout 1800)
+          endif()
+          math(EXPR _coupled_application_timeout "${_coupled_timeout} - 10")
           add_test(NAME "${_coupled_name}"
             COMMAND "${CMAKE_COMMAND}"
               "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"
@@ -480,9 +511,15 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DEXPECTED_TIMES=${_coupled_output_times}"
               "-DMPIEXEC=${_coupled_mpiexec}"
               "-DMPI_RANKS=${_coupled_ranks}"
+              "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
+              "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_coupled.cmake")
           set_tests_properties("${_coupled_name}" PROPERTIES
-                               TIMEOUT 600 LABELS "${_coupled_labels}")
+                               TIMEOUT ${_coupled_timeout} LABELS "${_coupled_labels}")
+          if(_case STREQUAL "Generated")
+            set_tests_properties("${_coupled_name}" PROPERTIES
+              SKIP_REGULAR_EXPRESSION "Generated flow requires MetricFlowX with in-memory NetworkPhysics input")
+          endif()
           if(_mode MATCHES "^MPI")
             set_property(TEST "${_coupled_name}" PROPERTY PROCESSORS ${_coupled_ranks})
           endif()

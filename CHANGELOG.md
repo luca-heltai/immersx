@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
@@ -219,6 +221,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assign a generated vessel's reference pressure once in native MetricFlowX data and balance the coupled example against a nonzero outlet reference pressure.
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Include the flow-state derivative of prescribed-pressure HLL fluxes in MetricFlowX wall coupling when the native package provides it, keeping it separate from the derivative with respect to pressure coefficients.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
@@ -378,6 +384,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Exercise native vascular transfer and nonzero coupled IDA evolution in Debug and Release, including two- and four-rank MPI runs. Keep independent geometry and output checks and allow the generated Debug application time for Jacobian materialization.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
 
