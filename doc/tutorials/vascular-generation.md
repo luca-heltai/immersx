@@ -241,7 +241,7 @@ UMFPACK and serial/two-rank/four-rank MUMPS. An older MetricFlowX package
 without the native in-memory input API skips these generated-input cases.
 
 For a new application, follow the
-[native transfer example](../how-to/vascular-generation#prepare-a-generated-network-for-native-metricflowx).
+[native transfer example](vascular-native-transfer).
 It explains owner-local material callbacks, explicit terminal data, native
 coefficient replication, stable physical IDs and reversed venous execution
 orientation. Partially external imported networks remain supported by the
