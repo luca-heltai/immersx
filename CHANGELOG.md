@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Complete vascular networks with their input territory and microvascular-bed metadata. Preserve untouched beds in both reference solves, size new beds against their actual pressure effects, and reject extension of only one endpoint of an existing pair.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Save physical vascular networks, common territories and positive terminal beds in distributed archives, preserving stable integer ids and all physical attributes. Reload with a different process count through native background ownership, without gathering the graph, and reject incomplete files or inconsistent authority collectively.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Start arterio-venous generation collectively from real outlets and selected imported venous leaves, preserving fixed input properties and stable port ids. Assign common territories exclusively, certify concurrent initial branches, and calibrate against global volume and dual coverage.
