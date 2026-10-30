@@ -20,6 +20,12 @@ Geometry checks include the vessel wall and clearance. An ambiguous boundary
 separation at the finite geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.
 
+The algorithmic references are the
+[OpenCCO article and implementation](https://www.ipol.im/pub/art/2023/477/)
+and [svVascularize](https://github.com/SimVascular/svVascularize).
+ImmersX implements the background-owned MPI growth and commit protocol described
+below using deal.II ownership, spatial search and sparse exchanges.
+
 ## Arterial and venous trees
 
 This synthetic example uses metres, pascals, seconds and cubic metres per

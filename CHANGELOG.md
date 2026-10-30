@@ -320,7 +320,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
-- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Describe the completed connection between distributed vascular sampling, candidate optimization, forest normalization and batch adoption in the generation guide.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Describe the completed connection between distributed vascular sampling, candidate optimization, forest normalization and batch adoption in the generation guide. Link the OpenCCO and svVascularize algorithmic references.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality, and reject incomplete inputs or stale published assets.
 
