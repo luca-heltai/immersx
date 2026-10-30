@@ -371,6 +371,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #303](https://github.com/luca-heltai/immersx/pull/303) Distribute precompiled Release applications in AMD64 and ARM64 OCI images for Docker, Podman, and Apptainer, with default help, application selection, a standalone MPI launcher, and tested GHCR publication.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Generate valid C++ for the optional 1dsolver link probe, include deal.II dependencies, and report incompatible libraries without claiming that RTTI is missing. Compile both driver bodies during Linux OpenMP test builds even when the external archive cannot link.
 
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Use the unified solution-transfer header so legacy applications build with deal.II 9.9.

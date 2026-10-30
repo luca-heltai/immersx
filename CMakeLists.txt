@@ -593,6 +593,7 @@ ENDIF()
 # Register CTest before adding test subdirectories so their add_test() calls
 # are included in the top-level test manifest.
 ENABLE_TESTING()
+include(cmake/container_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
 include(cmake/vascular_network_tests.cmake)
 include(cmake/harmonic_fiber_tests.cmake)
