@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
@@ -384,6 +386,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
 
