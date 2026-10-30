@@ -1,6 +1,10 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
+#include <deal.II/fe/fe_values_extractors.h>
+
 #include <deal.II/lac/vector.h>
 
 #include <deal.II/numerics/vector_tools.h>
@@ -334,6 +338,60 @@ TEST(ElasticityTensorProductCouplingValidation,
   run_tensor_product_case(par);
 }
 
+// assemble_tensor_product_coupling() divides the datum of each mode by the
+// maximum of the mode on the cross section, so that a datum is the
+// displacement amplitude of its mode, as with point coupling. Without
+// solving, check that the assembled rhs is the unscaled one divided by that
+// maximum, and that the selected modes cos(theta) e_x and sin(theta) e_y still
+// have the normalization sqrt(2) cos(theta) that the scaling assumes.
+TEST(ElasticityTensorProductCouplingValidation, BOTH_RhsScaledByModeMaximum)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<3> par;
+  set_issue_165_parameters(par,
+                           "tensor_product_rhs_scaling",
+                           "one_cylinder_rotation_x.vtk",
+                           {2, 3, 4, 5},
+                           {0, 1});
+  par.initial_refinement = 2;
+  par.tensor_product_coupling_parameters.tensor_product_space_parameters
+    .section.refinement_level = 3;
+  ElasticityProblem<3> problem(par);
+  initialize_parameters();
+  ParameterAcceptor::parse_all_parameters();
+
+  problem.make_grid();
+  problem.setup_fe();
+  problem.setup_dofs();
+  problem.assemble_coupling();
+
+  const auto &coupling = *problem.tensor_product_coupling;
+  const auto &basis =
+    coupling.get_reference_cross_section().get_basis_functions();
+  const auto &reduced_dh = coupling.get_dof_handler();
+  ASSERT_EQ(basis.size(), 2u);
+
+  const auto &scaled   = problem.force_rhs.block(1);
+  auto        unscaled = scaled;
+  unscaled             = 0;
+  coupling.assemble_reduced_rhs(unscaled);
+  ASSERT_GT(unscaled.l2_norm(), 0.);
+
+  for (unsigned int c = 0; c < basis.size(); ++c)
+    {
+      // On the 32-sided polygon of Refinement level 3 the maximum is 1.4188.
+      const double max_value = basis[c].linfty_norm();
+      EXPECT_NEAR(max_value, std::sqrt(2.), 1e-2) << "mode " << c;
+      for (const auto i : DoFTools::extract_dofs(
+             reduced_dh,
+             reduced_dh.get_fe().component_mask(FEValuesExtractors::Scalar(c))))
+        EXPECT_NEAR(scaled[i] * max_value,
+                    unscaled[i],
+                    1e-12 * std::abs(unscaled[i]))
+          << "mode " << c << ", dof " << i;
+    }
+}
+
 TEST(ElasticityTensorProductCouplingValidation, ExactLambdaSingleSolve)
 {
   ParameterAcceptor::clear();
@@ -520,15 +578,15 @@ namespace
     problem.solve_static();
 
     // In 3D, run() measures the errors against the Dirichlet function, so they
-    // are computed here against the exact solution. They are measured away
-    // from the end faces x = -2 and x = 2: there the vessel ends on the
-    // boundary of the domain, which the plane-strain solution does not
-    // describe.
+    // are computed here against the exact solution. They are measured for
+    // |x| <= 1.9, away from the end faces x = -2 and x = 2: there the vessel
+    // ends on the boundary of the domain, which the plane-strain solution does
+    // not describe.
     const auto     &u = problem.locally_relevant_solution.block(0);
     const QGauss<3> quadrature(par.fe_degree + 2);
     Vector<float>   cellwise_errors(problem.tria->n_active_cells());
     const ScalarFunctionFromFunctionObject<3> weight(
-      [](const Point<3> &p) { return std::abs(p[0]) <= 1.5 ? 1. : 0.; });
+      [](const Point<3> &p) { return std::abs(p[0]) <= 1.9 ? 1. : 0.; });
     const auto error = [&](const VectorTools::NormType norm) {
       VectorTools::integrate_difference(problem.dh,
                                         u,
@@ -584,11 +642,11 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
   EXPECT_NEAR(fine.wall_displacement, 0.1, 3e-3);
 
   // Upper bounds on the errors of the finer solve, not theoretical estimates.
-  // A serial Debug run with deal.II 9.7.1 (63243 dofs) gave L2 7.12e-3, Linfty
-  // 6.39e-3 and H1 0.182; the bounds leave at least 20% margin.
-  EXPECT_LT(fine.l2, 8.6e-3);
-  EXPECT_LT(fine.linfty, 9.2e-3);
-  EXPECT_LT(fine.h1, 0.235);
+  // A serial Debug run with deal.II 9.7.1 (63243 dofs) gave L2 8.04e-3, Linfty
+  // 6.39e-3 and H1 0.204; the bounds leave at least 20% margin.
+  EXPECT_LT(fine.l2, 1.0e-2);
+  EXPECT_LT(fine.linfty, 8.0e-3);
+  EXPECT_LT(fine.h1, 0.256);
 }
 
 // On the same mesh, point and tensor-product coupling impose the same
