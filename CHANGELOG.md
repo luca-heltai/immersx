@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Complete vascular networks with their input territory and microvascular-bed metadata. Preserve untouched beds in both reference solves, size new beds against their actual pressure effects, and reject extension of only one endpoint of an existing pair.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Save physical vascular networks, common territories and positive terminal beds in distributed archives, preserving stable integer ids and all physical attributes. Reload with a different process count through native background ownership, without gathering the graph, and reject incomplete files or inconsistent authority collectively.
@@ -212,6 +214,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Locate vascular endpoints on warped shared cell faces within inverse-mapping accuracy, while retaining independent wall-separation checks.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
 

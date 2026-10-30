@@ -1,0 +1,18 @@
+# Synthetic SI configuration for the standalone application checks.
+# Paths are resolved relative to this file, including when invoked elsewhere.
+subsection Vascularization
+  subsection Input and ports
+    set Mode = load
+  end
+  subsection Domain
+    set Shape = cube
+    set Uniform refinements = 1
+  end
+  subsection Objectives
+    set Maximum service distance = 2
+  end
+  subsection Physiology
+    set Reference pressures = 0:12000
+    set Loaded tissue reference flow = 2e-9
+  end
+end

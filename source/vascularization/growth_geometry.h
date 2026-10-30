@@ -24,6 +24,9 @@ namespace ImmersX::Vascularization::internal
   namespace bgi = boost::geometry::index;
   using Patch   = std::vector<Point<3>>;
 
+  // MappingQ's inverse iteration terminates at about 1e-12 in reference space.
+  constexpr double inverse_mapping_tolerance = 1.e-12;
+
   inline Point<3>
   normalized_port_normal(const Point<3> &value)
   {
@@ -147,7 +150,7 @@ namespace ImmersX::Vascularization::internal
     const BoundingBox<3> box(patch);
     // Linear triangular and bilinear quadrilateral patches are contained in
     // the convex hull of their corners. A separated box proves separation.
-    const double guard = 64. * std::numeric_limits<double>::epsilon() *
+    const double guard = 2. * inverse_mapping_tolerance *
                          std::max({1., s.first.norm(), s.second.norm()});
     const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
     // A cap is the intersection of the capsule with each declared inward
@@ -219,14 +222,16 @@ namespace ImmersX::Vascularization::internal
     {
       std::optional<Triangulation<3>::active_cell_iterator> result;
       Point<3>                                              lo = p, hi = p;
-      if (tolerance > 0.)
-        for (unsigned int d = 0; d < 3; ++d)
-          {
-            const double pad = 64. * std::numeric_limits<double>::epsilon() *
-                               std::max(1., p.norm());
-            lo[d] -= pad;
-            hi[d] += pad;
-          }
+      // Inverse Q1 maps on warped cells can place a shared-face point just
+      // outside the reference cell. Wall separation is certified separately.
+      tolerance = std::max(tolerance, inverse_mapping_tolerance);
+      for (unsigned int d = 0; d < 3; ++d)
+        {
+          const double pad = 64. * std::numeric_limits<double>::epsilon() *
+                             std::max(1., p.norm());
+          lo[d] -= pad;
+          hi[d] += pad;
+        }
       const BoundingBox<3> query(std::make_pair(lo, hi));
       for (const auto &[box, cell] :
            cache.get_locally_owned_cell_bounding_boxes_rtree() |
@@ -315,7 +320,7 @@ namespace ImmersX::Vascularization::internal
                        unsigned int            work,
                        std::array<Point<3>, 2> port_normals = {}) const
     {
-      const double guard = 64. * std::numeric_limits<double>::epsilon() *
+      const double guard = 2. * inverse_mapping_tolerance *
                            std::max({1., s.first.norm(), s.second.norm()});
       const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
       for (auto &normal : port_normals)
