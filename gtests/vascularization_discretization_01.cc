@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <deal.II/base/numbers.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe_q.h>
@@ -11,11 +14,13 @@
 
 #include <deal.II/grid/cell_data.h>
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <gtest/gtest.h>
 #include <immersx/vascularization/generation.h>
 
 #include <cmath>
+#include <limits>
 #include <set>
 
 using namespace dealii;
@@ -317,4 +322,242 @@ TEST(VascularDiscretization,
                 coarse.discretization.inside_volume,
               1.,
               1.e-13);
+}
+
+TEST(VascularDiscretization,
+     BOTH_OwnedCrossingsMatchAnalyticalPhysicsAndResolution)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {8, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(8., 1., 1.));
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned() && cell->center()[0] < 2.)
+      cell->set_refine_flag();
+  background.execute_coarsening_and_refinement();
+  const Id    base = Id{1} << 60;
+  NetworkData network;
+  // The sole physical owner is deliberately unrelated to midpoint ownership.
+  // Other ranks have neither the physical graph nor its endpoint nodes.
+  if (rank == size - 1)
+    {
+      network = line(Point<3>(-1., .32, .31), Point<3>(9., .32, .31));
+      network.vessels[base] = network.vessels.at(100);
+      network.vessels.erase(100);
+      network.vessels.at(base).owner = rank;
+      for (auto &[id, node] : network.nodes)
+        node.owner = rank;
+    }
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.cells.empty(), rank != size - 1);
+  const double a = .011, b = .019;
+  const double expected_inside =
+    numbers::PI * 8. * (a * a + a * b + b * b) / 3.;
+  EXPECT_NEAR(result.inside_volume / expected_inside, 1., 1.e-12);
+  double       v = 0., r = 0., l = 0.;
+  unsigned int owner_mismatches = 0, remote_numerical_cells = 0;
+  // Independent global cell boxes are a test oracle only; production exchanges
+  // segments sparsely and does not replicate the background or vascular graph.
+  using Cell = std::pair<BoundingBox<3>, unsigned int>;
+  std::vector<Cell> local;
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned())
+      local.push_back({cell->bounding_box(), rank});
+  const auto boxes = Utilities::MPI::all_gather(comm, local);
+  for (const auto &cell : result.cells)
+    {
+      EXPECT_EQ(cell.reference.vessel, base);
+      v += volume(network, base, cell.reference.begin, cell.reference.end);
+      r += resistance(network, base, cell.reference.begin, cell.reference.end);
+      const double length = 10. * (cell.reference.end - cell.reference.begin);
+      l += length;
+      const double   middle = .5 * (cell.reference.begin + cell.reference.end);
+      const Point<3> point(-1. + 10. * middle, .32, .31);
+      unsigned int   owner = size;
+      double h_min = std::numeric_limits<double>::infinity(), h_max = 0.;
+      for (const auto &partition : boxes)
+        for (const auto &[box, source] : partition)
+          {
+            if (box.point_inside(point))
+              owner = std::min(owner, source);
+            const auto &bounds = box.get_boundary_points();
+            if (bounds.first[1] < .32 && .32 < bounds.second[1] &&
+                bounds.first[2] < .31 && .31 < bounds.second[2] &&
+                bounds.first[0] < -1. + 10. * cell.reference.end - 1.e-12 &&
+                bounds.second[0] > -1. + 10. * cell.reference.begin + 1.e-12)
+              {
+                const double h = bounds.first.distance(bounds.second);
+                h_min          = std::min(h_min, h);
+                h_max          = std::max(h_max, h);
+              }
+          }
+      if (owner == size)
+        owner = size - 1;
+      owner_mismatches += owner != cell.owner;
+      remote_numerical_cells += cell.owner != rank;
+      if (cell.inside)
+        {
+          EXPECT_NEAR(cell.h_min, h_min, 1.e-12);
+          EXPECT_NEAR(cell.h_max, h_max, 1.e-12);
+          EXPECT_LE(length, 2. * h_min * (1. + 1.e-12));
+        }
+    }
+  EXPECT_EQ(Utilities::MPI::sum(owner_mismatches, comm), 0u);
+  if (size > 1)
+    EXPECT_GT(Utilities::MPI::sum(remote_numerical_cells, comm), 0u);
+  EXPECT_NEAR(Utilities::MPI::sum(l, comm), 10., 1.e-12);
+  const double expected_v = numbers::PI * 10. * (.0001 + .0002 + .0004) / 3.;
+  const double expected_r = 8. * .004 / numbers::PI * 10. / .03 *
+                            (std::pow(.01, -3.) - std::pow(.02, -3.));
+  EXPECT_NEAR(Utilities::MPI::sum(v, comm) / expected_v, 1., 1.e-12);
+  EXPECT_NEAR(Utilities::MPI::sum(r, comm) / expected_r, 1., 1.e-12);
+  EXPECT_EQ(network.vessels.size(), rank == size - 1 ? 1u : 0u);
+}
+
+TEST(VascularDiscretization, BOTH_GlobalBudgetAndRemoteInvalidData)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {8, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(8., 1., 1.));
+  auto n = line(Point<3>(rank + .2, .4, .4), Point<3>(rank + .3, .4, .4));
+  for (auto &[id, node] : n.nodes)
+    node.owner = rank;
+  n.vessels[100 + rank] = n.vessels.at(100);
+  if (rank != 0)
+    n.vessels.erase(100);
+  n.vessels.at(100 + rank).owner = rank;
+  const auto first = n.nodes.at(10), second = n.nodes.at(20);
+  n.nodes.clear();
+  n.nodes[10 + 100 * rank]       = first;
+  n.nodes[20 + 100 * rank]       = second;
+  n.vessels.at(100 + rank).nodes = {{10 + 100 * rank, 20 + 100 * rank}};
+  DiscretizationParameters p;
+  p.cell_budget     = size > 1 ? size - 1 : 1;
+  const auto budget = discretize(background, MappingQ1<3>(), n, p, comm);
+  EXPECT_EQ(budget.validation.valid(), size == 1);
+  if (rank == size - 1)
+    n.vessels.at(100 + rank).radii[0] = -1.;
+  const auto invalid = discretize(background, MappingQ1<3>(), n, {}, comm);
+  EXPECT_FALSE(invalid.validation.valid());
+  if (size > 1)
+    {
+      p.cell_budget = 10 + rank;
+      EXPECT_THROW(discretize(background, MappingQ1<3>(), n, p, comm),
+                   ExceptionBase);
+    }
+}
+
+TEST(VascularDiscretization, BOTH_InterfaceVolumeCountsOwnedVesselsOnce)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {8, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(8., 1., 1.));
+  // This line lies on a cell face and, for P=2/4, a partition interface.
+  // Replicated ghosts must not multiply its volume or numerical cells.
+  auto network = line(Point<3>(4., .1, .4), Point<3>(4., .9, .4));
+  network.vessels.at(100).owner = size - 1;
+  for (auto &[id, node] : network.nodes)
+    node.owner = size - 1;
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.cells.empty(), rank != size - 1);
+  EXPECT_EQ(result.exterior_cells, 0u);
+  EXPECT_NEAR(result.inside_volume / volume(network, 100), 1., 1.e-12);
+  unsigned int   owner = size;
+  const Point<3> midpoint(4., .5, .4);
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned() && cell->bounding_box().point_inside(midpoint))
+      owner = rank;
+  owner = Utilities::MPI::min(owner, comm);
+  EXPECT_LT(owner, size);
+  for (const auto &cell : result.cells)
+    EXPECT_EQ(cell.owner, owner);
+}
+
+TEST(VascularDiscretization, BOTH_EmptyBackgroundRanksStillParticipate)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  NetworkData network;
+  if (rank == size - 1)
+    {
+      network = line(Point<3>(.1, .4, .3), Point<3>(.9, .4, .3));
+      network.vessels.at(100).owner = rank;
+      for (auto &[id, node] : network.nodes)
+        node.owner = rank;
+    }
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_GT(result.inside_volume, 0.);
+  EXPECT_EQ(result.exterior_cells, 0u);
+  EXPECT_EQ(result.cells.empty(), rank != size - 1);
+  unsigned int cell_owner = size;
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned())
+      cell_owner = rank;
+  cell_owner = Utilities::MPI::min(cell_owner, comm);
+  for (const auto &cell : result.cells)
+    EXPECT_EQ(cell.owner, cell_owner);
+}
+
+TEST(VascularDiscretization,
+     BOTH_TetrahedralClippingRejectsBoxOnlyIntersections)
+{
+  const auto       comm = MPI_COMM_WORLD;
+  const auto       rank = Utilities::MPI::this_mpi_process(comm);
+  const auto       size = Utilities::MPI::n_mpi_processes(comm);
+  Triangulation<3> serial;
+  GridGenerator::reference_cell(serial, ReferenceCells::Tetrahedron);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  NetworkData network;
+  if (rank == size - 1)
+    {
+      // x+y+z<=1 clips the first segment at x=.6. The second lies
+      // entirely in the tetrahedron's bounding box, but outside its volume.
+      network = line(Point<3>(-.2, .2, .2), Point<3>(.8, .2, .2));
+      network.nodes[30].position    = Point<3>(.6, .6, .6);
+      network.nodes[40].position    = Point<3>(.8, .6, .6);
+      network.vessels[200]          = network.vessels.at(100);
+      network.vessels.at(200).nodes = {{30, 40}};
+      for (auto &[id, node] : network.nodes)
+        node.owner = rank;
+      for (auto &[id, vessel] : network.vessels)
+        vessel.owner = rank;
+    }
+  const auto result =
+    discretize(background, MappingFE<3>(FE_SimplexP<3>(1)), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  const double a = .012, b = .018;
+  const double expected = numbers::PI * .6 * (a * a + a * b + b * b) / 3.;
+  EXPECT_NEAR(result.inside_volume / expected, 1., 1.e-12);
+  for (const auto &cell : result.cells)
+    if (cell.reference.vessel == 200)
+      {
+        EXPECT_FALSE(cell.inside);
+        EXPECT_DOUBLE_EQ(cell.h_min, 0.);
+        EXPECT_DOUBLE_EQ(cell.h_max, 0.);
+        EXPECT_EQ(cell.owner, rank);
+      }
 }

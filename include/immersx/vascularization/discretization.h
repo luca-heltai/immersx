@@ -41,11 +41,14 @@ namespace ImmersX::Vascularization
 
   struct DiscretizationResult
   {
+    /** Numerical intervals of locally owned physical vessels. Their execution
+     * owner may differ from the physical vessel owner. */
     std::vector<DiscretizationCell> cells;
     ValidationReport                validation;
-    double                          inside_volume  = 0.;
-    unsigned int                    short_cells    = 0;
-    unsigned int                    exterior_cells = 0;
+    /** Global additive volume and global exception counts on every rank. */
+    double       inside_volume  = 0.;
+    unsigned int short_cells    = 0;
+    unsigned int exterior_cells = 0;
   };
 
   /**
@@ -53,7 +56,11 @@ namespace ImmersX::Vascularization
    * tetrahedral/hexahedral background cells. Preserve the complete physical
    * graph, including exterior input portions. Integrate inside volume with
    * additive vessel volumes, counting junction overlaps once per vessel.
-   * Current execution requires one rank; no source geometry is changed.
+   * Collective: query locally owned background cells through sparse exchanges.
+   * Return intervals at physical owners, with numerical owners determined by
+   * midpoint containment (lowest rank on an interface); exterior pieces retain
+   * the physical owner. No source geometry is changed. The cell budget is
+   * global.
    */
   DiscretizationResult
   discretize(const dealii::Triangulation<3> &background,
