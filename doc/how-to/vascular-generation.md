@@ -12,9 +12,10 @@ Generation from an empty arterial input is collective and supports one or
 several MPI processes. The background point owner creates the single real seed
 root; its branch may cross partitions immediately. Imported arterial networks
 also support collective startup from one or several selected leaves and
-collective terminal-count calibration. Venous startup currently requires one
-process. Use a first-order mapping on an all-tetrahedral or all-hexahedral
-physical background.
+collective terminal-count calibration. Arterio-venous generation starts from
+real venous outlets or selected input venous leaves and uses the same MPI
+path with one or several processes. Use a first-order mapping on an
+all-tetrahedral or all-hexahedral physical background.
 Geometry checks include the vessel wall and clearance. An ambiguous boundary
 separation at the finite geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.
@@ -235,7 +236,18 @@ Only new tissue terminals enter the demand normalization. Boundary conditions
 on unpaired input terminals remain in both reference solves. The final paired
 solve must produce positive perfusion and the requested demand split; desired
 flows are never substituted for its measured flow. This finalization is
-collective, while venous startup retains the one-process restriction above.
+collective, including processes with no vascular entities or background cells.
+
+A new venous outlet receives its stable node id before arterial CCO insertions.
+For imported networks, selected venous leaves retain their incoming distal
+radius, viscosity and additional physical properties. Outlet owners query
+available common territories in batches; each territory producer returns one
+nearest candidate. Its writer grants competing requests deterministically.
+A losing outlet retries after committed claims are removed. A geometric
+failure tries the remaining Cartesian terminal offsets, then another territory.
+New branches pass the common geometry selection and joint commit before any
+territory claim is retained. Input vessels and completed arterial geometry
+remain fixed obstacles throughout venous startup and growth.
 
 ## Discretize across background partitions
 
@@ -283,7 +295,8 @@ entities against a prepared parallel background and refreshes geometric ghosts.
 It is collective, including processes with no physical entities or no owned
 background cells. This operation does not generate branches. `generate()`
 supports MPI startup from an empty arterial input and from imported arterial
-terminals. Venous startup still requires one process.
+terminals, together with real venous outlets or selected venous leaves in
+arterio-venous mode.
 
 ```cpp
 #include <immersx/vascularization/distribution.h>
@@ -454,9 +467,10 @@ Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
 serves both public arterial and venous generation and calibration. Distributed
-venous startup remains to be connected to the public MPI path. Arterial
-seed/import startup, terminal-count calibration, discretization, native mesh
-construction, tissue measurement and the resistive reference solve support MPI.
+venous startup, exclusive common-territory assignment, positive bed derivation
+and actual paired reference validation use the public MPI path. Seed/import
+startup, terminal-count calibration, discretization, native mesh construction,
+tissue measurement and the resistive reference solve support MPI.
 Scaling at the requested sizes has not yet been measured.
 
 Public arterial generation uses the batched engine with an explicit terminal

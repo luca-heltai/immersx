@@ -3,29 +3,17 @@
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/numbers.h>
 
-#include <deal.II/boost_adaptors/segment.h>
-
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q.h>
-
-#include <deal.II/grid/grid_tools_cache.h>
-
-#include <deal.II/numerics/rtree.h>
 
 #include <immersx/vascularization/generation.h>
 
 #include <algorithm>
 #include <cmath>
 #include <optional>
-#include <random>
 #include <set>
 
-#include "forest_state.h"
 #include "generation_pairs.h"
-#include "growth_batch.h"
-#include "growth_candidate.h"
-#include "growth_commit.h"
-#include "growth_geometry.h"
 #include "growth_loop.h"
 #include "growth_start.h"
 
@@ -251,36 +239,6 @@ namespace ImmersX::Vascularization
                     "Seed coordinates and directions must be finite."));
   }
 
-  namespace
-  {
-    using namespace dealii;
-    using namespace internal;
-    namespace bgi = boost::geometry::index;
-
-    template <typename T>
-    Id
-    next_identifier(const std::map<Id, T> &data)
-    {
-      if (data.empty())
-        return 0;
-      AssertThrow(data.rbegin()->first < invalid_id - 1,
-                  ExcMessage("Vascular identifier space exhausted."));
-      return data.rbegin()->first + 1;
-    }
-
-    Id
-    take_identifiers(Id &next, const Id count = 1)
-    {
-      AssertThrow(next <= invalid_id - count,
-                  ExcMessage("Vascular identifier space exhausted."));
-      const Id first = next;
-      next += count;
-      return first;
-    }
-
-
-  } // namespace
-
   static GenerationResult
   generate_count(const dealii::Triangulation<3> &background,
                  const dealii::Mapping<3>       &mapping,
@@ -296,12 +254,6 @@ namespace ImmersX::Vascularization
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(local_empty),
                           communicator) == 1;
-    const bool any_venous =
-      Utilities::MPI::max(static_cast<unsigned int>(parameters.venous.enabled),
-                          communicator) > 0;
-    AssertThrow(size == 1 || !any_venous,
-                ExcMessage(
-                  "Distributed venous startup still requires one rank."));
     bool valid_controls = true;
     try
       {
@@ -353,6 +305,14 @@ namespace ImmersX::Vascularization
                                     communicator) == 1,
                 ExcMessage(
                   "All processes must select the same input terminal ids."));
+    if (creating_seed && !parameters.selected_terminals.empty())
+      {
+        result.validation.issues.push_back(
+          {"attachment",
+           invalid_id,
+           "Cannot select input terminal ids from an empty network."});
+        return result;
+      }
     int comparison = MPI_UNEQUAL;
     MPI_Comm_compare(background.get_mpi_communicator(),
                      communicator,
@@ -374,265 +334,19 @@ namespace ImmersX::Vascularization
                           communicator) == 1,
       ExcMessage(
         "Vascular generation requires compatible first-order background mappings and congruent communicators."));
-    BackgroundGeometry geometry(background, mapping);
-    const auto         fail = [&](Id id, const std::string &message) {
+    const auto fail = [&](Id id, const std::string &message) {
       result.validation.issues.push_back({"attachment", id, message});
     };
-    std::map<Id, std::vector<Id>> incoming, outgoing;
-    std::vector<Id>               selected;
-    Id next_node = 0, next_vessel = 0, next_terminal = 0, next_territory = 0;
-    if (parameters.venous.enabled)
-      {
-        next_node     = next_identifier(initial.nodes);
-        next_vessel   = next_identifier(initial.vessels);
-        next_terminal = next_identifier(initial.terminals);
-        for (const auto &[id, t] : initial.terminals)
-          if (t.territory != invalid_id)
-            {
-              AssertThrow(t.territory < invalid_id - 1,
-                          ExcMessage(
-                            "Vascular territory identifier space exhausted."));
-              next_territory = std::max(next_territory, t.territory + 1);
-            }
-        for (const auto &[id, e] : initial.vessels)
-          {
-            outgoing[e.nodes[0]].push_back(id);
-            incoming[e.nodes[1]].push_back(id);
-          }
-        std::set<Id> recorded_nodes;
-        for (const auto &[id, t] : initial.terminals)
-          {
-            if (!recorded_nodes.insert(t.node).second ||
-                incoming[t.node].size() != 1 || !outgoing[t.node].empty())
-              fail(
-                id,
-                "A tissue terminal must uniquely identify an outward leaf of the input network.");
-            else if (t.system != initial.vessels.at(incoming[t.node][0]).system)
-              fail(id, "Terminal system disagrees with its incoming vessel.");
-          }
-        if (!result.validation.valid())
-          return result;
-        if (creating_seed && !parameters.selected_terminals.empty())
-          {
-            fail(invalid_id,
-                 "Cannot select input terminal ids from an empty network.");
-            return result;
-          }
-        if (!creating_seed)
-          for (const auto &[node, edges] : incoming)
-            if (edges.size() == 1 && outgoing[node].empty() &&
-                initial.nodes.at(node).port == Port::none &&
-                !recorded_nodes.count(node))
-              {
-                const Id tid                  = take_identifiers(next_terminal);
-                result.network.terminals[tid] = {
-                  node,
-                  invalid_id,
-                  initial.vessels.at(edges[0]).system,
-                  initial.nodes.at(node).owner,
-                  1.};
-              }
-        selected = parameters.selected_terminals;
-        if (selected.empty() && !creating_seed)
-          for (const auto &[id, t] : result.network.terminals)
-            if (t.system == System::arterial &&
-                geometry.containing(result.network.nodes.at(t.node).position))
-              selected.push_back(id);
-        if (!parameters.selected_terminals.empty())
-          {
-            std::set<Id> seen;
-            for (Id id : selected)
-              {
-                const auto t = initial.terminals.find(id);
-                if (!seen.insert(id).second)
-                  fail(id, "An input terminal may be selected only once.");
-                else if (t == initial.terminals.end())
-                  fail(
-                    id,
-                    "Selected terminal id is absent from the input terminal registry.");
-                else if (t->second.system != System::arterial)
-                  fail(
-                    id,
-                    "Arterial generation requires an arterial attachment terminal.");
-                else if (!geometry.containing(
-                           initial.nodes.at(t->second.node).position))
-                  fail(
-                    id,
-                    "An explicitly selected exterior terminal cannot be extended by interior vessels.");
-              }
-          }
-        if (!creating_seed && selected.empty())
-          fail(invalid_id,
-               "No available interior arterial terminal was found.");
-        if (terminal_count < (creating_seed ? 1 : selected.size()))
-          fail(
-            invalid_id,
-            "Terminal count is smaller than the number of selected attachments.");
-        if (!result.validation.valid())
-          return result;
-      }
-    else if (creating_seed && !parameters.selected_terminals.empty())
-      {
+    const auto collective_valid = [&]() {
+      const bool valid = Utilities::MPI::min(static_cast<unsigned int>(
+                                               result.validation.valid()),
+                                             communicator) == 1;
+      if (!valid && result.validation.valid())
         fail(invalid_id,
-             "Cannot select input terminal ids from an empty network.");
-        return result;
-      }
-    std::vector<std::pair<Segment<3>, Id>> obstacles;
-    double maximum_radius = creating_seed ? parameters.seed_radius : 0.;
-    for (const auto &[id, e] : initial.vessels)
-      {
-        obstacles.emplace_back(
-          Segment<3>(initial.nodes.at(e.nodes[0]).position,
-                     initial.nodes.at(e.nodes[1]).position),
-          id);
-        maximum_radius = std::max({maximum_radius, e.radii[0], e.radii[1]});
-      }
-    auto            index = pack_rtree(obstacles);
-    std::vector<Id> roots;
-    const auto      append_root = [&](Id               start,
-                                 const Vessel    &properties,
-                                 Id               input_terminal,
-                                 bool             new_port,
-                                 const Node      &port,
-                                 const Point<3>  &seed_direction,
-                                 const Territory *shared = nullptr,
-                                 bool             diagnose = true) -> bool {
-      const auto reject = [&](const std::string &message) {
-        if (diagnose)
-          fail(input_terminal, message);
-        return false;
-      };
-      const auto seed_normal = normalized_port_normal(port.inward_port_normal);
-      const Point<3> position =
-        new_port ? port.position : result.network.nodes.at(start).position;
-      const auto cell = geometry.containing(
-        position, new_port && seed_normal.norm_square() > 0. ? 1.e-12 : 0.);
-      if (!cell)
-        {
-          return reject("Seed or attachment is outside the background.");
-        }
-      if (new_port && seed_normal.norm_square() > 0. &&
-          !geometry.planar_section(position, seed_normal))
-        {
-          return reject(
-            "The declared planar port does not match a planar background boundary section.");
-        }
-      const double radius = properties.radii[1];
-      if (radius < parameters.minimum_radius)
-        {
-          return reject(
-            "Fixed attachment radius is below the minimum admissible new radius.");
-        }
-      std::vector<Point<3>> vertices;
-      for (const auto v : (*cell)->vertex_indices())
-        vertices.push_back((*cell)->vertex(v));
-      const auto directions = internal::initial_root_directions(
-        position,
-        (*cell)->center(),
-        vertices,
-        seed_direction,
-        new_port ? std::optional<Point<3>>() :
-                        std::optional<Point<3>>(
-                     position - initial.nodes.at(properties.nodes[0]).position),
-        shared,
-        parameters.venous.terminal_separation);
-      const bool allocate_port = new_port && !result.network.nodes.count(start);
-      AssertThrow(next_node < invalid_id - (allocate_port ? 1 : 0) &&
-                    next_vessel < invalid_id,
-                  ExcMessage("Vascular identifier space exhausted."));
-      const Id end_node = next_node + (allocate_port ? 1 : 0);
-      for (const auto &direction : directions)
-        {
-          const double norm = direction.norm();
-          if (!(norm > 0.) || !std::isfinite(norm))
-            continue;
-          const Point<3> end =
-            shared ? position + direction :
-                          position + parameters.seed_length / norm * direction;
-          if (position.distance(end) <= parameters.minimum_length)
-            continue;
-          if (!geometry.contains({position, end},
-                                 radius + parameters.clearance,
-                                 parameters.geometry_depth,
-                                 parameters.geometry_work,
-                                      {{new_port ? seed_normal : Point<3>(),
-                                   Point<3>()}}))
-            continue;
-          const internal::Edge edge{next_vessel,
-                                         {{start, end_node}},
-                                         {{position, end}},
-                                    radius};
-          Point<3>             lo, hi;
-          const double pad = radius + maximum_radius + parameters.clearance +
-                             64. * std::numeric_limits<double>::epsilon() *
-                               std::max({1., position.norm(), end.norm()});
-          for (unsigned int d = 0; d < 3; ++d)
-            {
-              lo[d] = std::min(position[d], end[d]) - pad;
-              hi[d] = std::max(position[d], end[d]) + pad;
-            }
-          bool compatible = true;
-          for (const auto &[s, id] :
-               index | bgi::adaptors::queried(bgi::intersects(
-                         BoundingBox<3>(std::make_pair(lo, hi)))))
-            {
-              const auto          &e = result.network.vessels.at(id);
-              const internal::Edge other{id,
-                                         e.nodes,
-                                              {{s.first, s.second}},
-                                         std::max(e.radii[0], e.radii[1])};
-              if (!internal::compatible(edge,
-                                        other,
-                                        parameters.minimum_angle,
-                                        parameters.clearance))
-                {
-                  compatible = false;
-                  break;
-                }
-            }
-          if (!compatible)
-            continue;
-          const double terminal_demand =
-            shared ? shared->demand : demand_function.value(end);
-          AssertThrow(
-            std::isfinite(terminal_demand) && terminal_demand > 0.,
-            ExcMessage(
-              "Tissue demand must be positive and finite at every initial terminal."));
-          if (new_port)
-            result.network.nodes[start] = {
-              position, 0, port.port, Provenance::generated, seed_normal};
-          result.network.nodes[end_node] = {end,
-                                            0,
-                                            Port::none,
-                                            Provenance::generated};
-          auto vessel                    = properties;
-          vessel.nodes                   = {{start, end_node}};
-          vessel.radii                   = {{radius, radius}};
-          vessel.provenance              = Provenance::generated;
-          vessel.owner                   = 0;
-          const Id vid                   = take_identifiers(next_vessel);
-          result.network.vessels[vid]    = vessel;
-          const Id tid                   = take_identifiers(next_terminal),
-                   territory =
-                     shared ? shared->id : take_identifiers(next_territory);
-          result.network.terminals[tid] = {
-            end_node, territory, properties.system, 0, terminal_demand};
-          if (!shared)
-            result.territories.push_back({territory, end, 0, terminal_demand});
-          take_identifiers(next_node, allocate_port ? 2 : 1);
-          if (input_terminal != invalid_id)
-            {
-              result.attachment_roots[input_terminal] = vid;
-              result.network.terminals.erase(input_terminal);
-            }
-          roots.push_back(vid);
-          index.insert({{position, end}, vid});
-          maximum_radius = std::max(maximum_radius, radius);
-          return true;
-        }
-      return reject(
-        "No admissible initial subtree direction was found within the deterministic geometry budget.");
+             "Vascular generation failed validation on another process.");
+      return valid;
     };
+    std::vector<Id> roots;
     if (creating_seed)
       {
         auto startup = internal::start_seed(
@@ -645,7 +359,7 @@ namespace ImmersX::Vascularization
               roots.push_back(id);
           }
       }
-    else if (!parameters.venous.enabled)
+    else
       {
         auto startup      = internal::start_attachments(background,
                                                    mapping,
@@ -663,43 +377,20 @@ namespace ImmersX::Vascularization
               roots.push_back(id);
           }
       }
-    else
-      for (Id id : selected)
-        {
-          const auto &terminal = result.network.terminals.at(id);
-          append_root(terminal.node,
-                      initial.vessels.at(incoming[terminal.node][0]),
-                      id,
-                      false,
-                      {},
-                      parameters.seed_direction);
-          if (!result.validation.valid())
-            break;
-        }
-    if (!result.validation.valid())
+    if (!collective_valid())
       return result;
     Id reserved_venous_port = invalid_id;
-    if (parameters.venous.enabled &&
-        parameters.venous.selected_terminals.empty())
+    if (parameters.venous.enabled)
       {
-        bool has_venous_attachment = false;
-        for (const auto &[id, t] : result.network.terminals)
-          if (t.system == System::venous &&
-              geometry.containing(result.network.nodes.at(t.node).position))
-            has_venous_attachment = true;
-        if (!has_venous_attachment)
-          {
-            // Reserve the port before CCO insertions so its id is independent
-            // of terminal-count calibration and the number of accepted trials.
-            reserved_venous_port = next_identifier(result.network.nodes);
-            result.network.nodes[reserved_venous_port] = {
-              parameters.venous.seed_position,
-              0,
-              Port::venous_outlet,
-              Provenance::generated,
-              normalized_port_normal(
-                parameters.venous.seed_inward_port_normal)};
-          }
+        auto outlet = internal::reserve_venous_outlet(
+          background, mapping, result.network, parameters, communicator);
+        result.validation.issues.insert(result.validation.issues.end(),
+                                        outlet.validation.issues.begin(),
+                                        outlet.validation.issues.end());
+        if (!collective_valid())
+          return result;
+        result.network       = std::move(outlet.network);
+        reserved_venous_port = outlet.port;
       }
     const auto run_growth = [&](System system) {
       std::set<Id>         mutable_roots(roots.begin(), roots.end());
@@ -752,118 +443,38 @@ namespace ImmersX::Vascularization
         }
     };
     run_growth(System::arterial);
-    if (parameters.venous.enabled && result.validation.valid())
+    if (!collective_valid())
+      return result;
+    if (parameters.venous.enabled)
       {
-        // Arterial geometry remains an obstacle throughout venous growth.
-        obstacles.clear();
-        maximum_radius = parameters.venous.seed_radius;
-        for (const auto &[id, e] : result.network.vessels)
-          {
-            obstacles.emplace_back(
-              Segment<3>(result.network.nodes.at(e.nodes[0]).position,
-                         result.network.nodes.at(e.nodes[1]).position),
-              id);
-            maximum_radius = std::max({maximum_radius, e.radii[0], e.radii[1]});
-          }
-        index = pack_rtree(obstacles);
-        roots.clear();
-        next_node     = next_identifier(result.network.nodes);
-        next_vessel   = next_identifier(result.network.vessels);
-        next_terminal = next_identifier(result.network.terminals);
-        std::vector<Id> venous_selected = parameters.venous.selected_terminals;
-        if (venous_selected.empty())
-          for (const auto &[id, t] : result.network.terminals)
-            if (t.system == System::venous &&
-                geometry.containing(result.network.nodes.at(t.node).position))
-              venous_selected.push_back(id);
-        std::set<Id> seen;
-        for (Id id : venous_selected)
-          {
-            const auto t = result.network.terminals.find(id);
-            if (!seen.insert(id).second ||
-                t == result.network.terminals.end() ||
-                t->second.system != System::venous ||
-                !geometry.containing(
-                  result.network.nodes.at(t->second.node).position))
-              fail(
-                id,
-                "Selected venous terminals must exist, be unique interior venous leaves, and belong to the input network.");
-          }
-        if (venous_selected.size() > terminal_count)
-          fail(
-            invalid_id,
-            "Territory count is smaller than the number of selected venous attachments.");
-        const bool create_venous_port = venous_selected.empty();
-        if (create_venous_port && (!(parameters.venous.seed_radius > 0.) ||
-                                   !(parameters.viscosity > 0.)))
-          fail(
-            invalid_id,
-            "A new venous outlet requires an explicit positive radius and dynamic viscosity.");
-        if (!result.validation.valid())
+        auto startup = internal::start_venous(background,
+                                              mapping,
+                                              result.network,
+                                              initial,
+                                              parameters,
+                                              result.territories,
+                                              reserved_venous_port,
+                                              communicator);
+        result.validation.issues.insert(
+          result.validation.issues.end(),
+          startup.accepted.validation.issues.begin(),
+          startup.accepted.validation.issues.end());
+        if (!collective_valid())
           return result;
-        std::map<Id, Territory> unassigned;
-        for (const auto &t : result.territories)
-          unassigned.emplace(t.id, t);
-        const unsigned int root_count =
-          create_venous_port ? 1 : venous_selected.size();
-        for (unsigned int i = 0; i < root_count; ++i)
+        if (!startup.accepted.committed)
           {
-            const Id input_terminal =
-              create_venous_port ? invalid_id : venous_selected[i];
-            const Id start = create_venous_port ?
-                               reserved_venous_port :
-                               result.network.terminals.at(input_terminal).node;
-            Node     port;
-            port.position           = parameters.venous.seed_position;
-            port.port               = Port::venous_outlet;
-            port.inward_port_normal = parameters.venous.seed_inward_port_normal;
-            Vessel properties;
-            if (create_venous_port)
-              {
-                properties.system    = System::venous;
-                properties.viscosity = parameters.viscosity;
-                properties.radii     = {{parameters.venous.seed_radius,
-                                         parameters.venous.seed_radius}};
-              }
-            else
-              properties = initial.vessels.at(incoming.at(start).at(0));
-            const Point<3>         position = create_venous_port ?
-                                                port.position :
-                                                result.network.nodes.at(start).position;
-            std::vector<Territory> ordered;
-            for (const auto &[id, t] : unassigned)
-              ordered.push_back(t);
-            std::sort(ordered.begin(),
-                      ordered.end(),
-                      [&](const auto &a, const auto &b) {
-                        const auto da = position.distance_square(a.position),
-                                   db = position.distance_square(b.position);
-                        return da < db || (da == db && a.id < b.id);
-                      });
-            bool attached = false;
-            for (const auto &t : ordered)
-              if (append_root(start,
-                              properties,
-                              input_terminal,
-                              create_venous_port,
-                              port,
-                              {},
-                              &t,
-                              false))
-                {
-                  unassigned.erase(t.id);
-                  attached = true;
-                  break;
-                }
-            if (!attached)
-              {
-                fail(
-                  input_terminal,
-                  "No admissible connection from the venous outlet or attachment to a common tissue territory was found.");
-                return result;
-              }
+            fail(invalid_id, "No venous startup batch was committed.");
+            return result;
           }
+        result.network = std::move(startup.accepted.network);
+        result.attachment_roots.insert(startup.attachment_roots.begin(),
+                                       startup.attachment_roots.end());
+        roots.clear();
+        for (const auto &[id, radius] : startup.accepted.fixed_owned_roots)
+          roots.push_back(id);
         run_growth(System::venous);
+        if (!collective_valid())
+          return result;
       }
     if (parameters.venous.enabled && result.validation.valid())
       internal::pair_territories(result, parameters, communicator);
@@ -908,14 +519,15 @@ namespace ImmersX::Vascularization
   {
     using namespace dealii;
     const auto                 &p = parameters.calibration;
-    const std::array<double, 7> modes{
+    const std::array<double, 8> modes{
       {p.volume_fraction,
        p.minimum_coverage,
        p.relative_tolerance,
        static_cast<double>(p.minimum_terminals),
        static_cast<double>(p.maximum_terminals),
        static_cast<double>(p.attempt_budget),
-       static_cast<double>(parameters.terminal_count)}};
+       static_cast<double>(parameters.terminal_count),
+       static_cast<double>(parameters.venous.enabled)}};
     bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
@@ -932,12 +544,6 @@ namespace ImmersX::Vascularization
                             communicator,
                             parameters.terminal_count);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
-    const bool any_venous =
-      Utilities::MPI::max(static_cast<unsigned int>(parameters.venous.enabled),
-                          communicator) > 0;
-    AssertThrow(size == 1 || !any_venous,
-                ExcMessage(
-                  "Distributed venous startup still requires one rank."));
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
                                                     initial.vessels.empty() &&
