@@ -498,8 +498,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_labels "application;mpi")
           endif()
           set(_coupled_timeout 600)
-          if(_case STREQUAL "Generated" AND _build_type STREQUAL "Debug")
-            # Debug materialization of the coupled Jacobian is substantially slower.
+          if(_build_type STREQUAL "Debug")
+            # Allow for Debug assembly and materialization in every coupled case.
             set(_coupled_timeout 1800)
           endif()
           math(EXPR _coupled_application_timeout "${_coupled_timeout} - 10")
