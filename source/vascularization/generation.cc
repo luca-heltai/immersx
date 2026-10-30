@@ -21,6 +21,7 @@
 #include <set>
 
 #include "forest_state.h"
+#include "generation_pairs.h"
 #include "growth_batch.h"
 #include "growth_candidate.h"
 #include "growth_commit.h"
@@ -865,116 +866,7 @@ namespace ImmersX::Vascularization
         run_growth(System::venous);
       }
     if (parameters.venous.enabled && result.validation.valid())
-      {
-        std::map<Id, std::array<Id, 2>> paired;
-        for (const auto &t : result.territories)
-          paired[t.id] = {{invalid_id, invalid_id}};
-        std::vector<Id> selected_tissue;
-        for (const auto &[id, t] : result.network.terminals)
-          if (paired.count(t.territory))
-            {
-              unsigned int slot = 0;
-              if (t.system == System::arterial)
-                slot = 0;
-              else if (t.system == System::venous)
-                slot = 1;
-              if (paired.at(t.territory)[slot] != invalid_id)
-                fail(
-                  id,
-                  "A common territory has more than one terminal of the same system.");
-              paired.at(t.territory)[slot] = id;
-              selected_tissue.push_back(id);
-            }
-        for (const auto &[id, terminals] : paired)
-          if (terminals[0] == invalid_id || terminals[1] == invalid_id)
-            fail(
-              id,
-              "Every new territory requires exactly one arterial and one venous terminal.");
-        if (!result.validation.valid())
-          return result;
-        ReferenceResult design;
-        if (parameters.venous.microvascular_resistance == 0.)
-          {
-            std::map<Id, double> port_pressures;
-            for (const auto &[id, pressure] :
-                 parameters.reference_conditions.pressures)
-              if (result.network.nodes.count(id) &&
-                  result.network.nodes.at(id).port != Port::none)
-                port_pressures[id] = pressure;
-            auto       conditions = parameters.reference_conditions;
-            const auto demand_bc =
-              demand_flow_conditions(result.network,
-                                     port_pressures,
-                                     parameters.reference_flow,
-                                     selected_tissue,
-                                     communicator);
-            for (const auto &[id, flow] : demand_bc.inflows)
-              if (!conditions.inflows.emplace(id, flow).second)
-                fail(
-                  id,
-                  "A paired tissue terminal cannot also have an independent external load.");
-            if (!result.validation.valid())
-              return result;
-            design = solve_reference(result.network,
-                                     {},
-                                     conditions,
-                                     parameters.reference_parameters,
-                                     communicator);
-            result.validation.issues.insert(result.validation.issues.end(),
-                                            design.validation.issues.begin(),
-                                            design.validation.issues.end());
-            if (!result.validation.valid())
-              return result;
-          }
-        for (const auto &[id, terminals] : paired)
-          {
-            double bed_resistance = parameters.venous.microvascular_resistance;
-            if (bed_resistance == 0.)
-              {
-                const auto a = result.network.terminals.at(terminals[0]).node;
-                const auto v = result.network.terminals.at(terminals[1]).node;
-                bed_resistance =
-                  (design.pressures.at(a) - design.pressures.at(v)) /
-                  result.target_terminal_flows.at(terminals[0]);
-              }
-            if (!std::isfinite(bed_resistance) || bed_resistance <= 0.)
-              fail(
-                id,
-                "The requested reference flow and pressures leave no positive microvascular resistance.");
-            result.terminal_pairs.push_back(
-              {id, terminals[0], terminals[1], bed_resistance});
-          }
-        if (!result.validation.valid())
-          return result;
-        result.reference = solve_reference(result.network,
-                                           result.terminal_pairs,
-                                           parameters.reference_conditions,
-                                           parameters.reference_parameters,
-                                           communicator);
-        result.validation.issues.insert(
-          result.validation.issues.end(),
-          result.reference.validation.issues.begin(),
-          result.reference.validation.issues.end());
-        if (result.reference.validation.valid() &&
-            parameters.reference_flow > 0.)
-          for (const auto &[id, desired] : result.target_terminal_flows)
-            {
-              // Compare the requested supply to the actual 0D territory flow.
-              // Terminal Kirchhoff defects have their separate global-flow
-              // tolerance.
-              const Id territory = result.network.terminals.at(id).territory;
-              const double actual =
-                result.reference.territories.at(territory).flow;
-              if (std::abs(actual - desired) >
-                  parameters.reference_parameters.absolute_flow_tolerance +
-                    parameters.reference_parameters
-                        .conservation_relative_tolerance *
-                      desired)
-                fail(
-                  id,
-                  "The supplied bed resistances, pressures and reference flow do not realize the requested tissue-demand split.");
-            }
-      }
+      internal::pair_territories(result, parameters, communicator);
     const auto report = validate_data(result.network, size);
     result.validation.issues.insert(result.validation.issues.end(),
                                     report.issues.begin(),
