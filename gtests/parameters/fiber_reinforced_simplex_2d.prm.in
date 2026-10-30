@@ -30,10 +30,12 @@ subsection Fiber Reinforced Elastodynamics
       set Grid generator = @TEST_DATA_DIR@/tests/simplex_square.msh
       set Initial refinement = 0
     end
-    subsection Material
-      set Density = 1
-      set Lame mu = 1
-      set Lame lambda = 1
+    subsection Material properties
+      subsection default
+        set Density = 1
+        set Lame mu = 1
+        set Lame lambda = 1
+      end
     end
     subsection Functions
       subsection Body force
@@ -54,10 +56,12 @@ subsection Fiber Reinforced Elastodynamics
       set Grid generator = @TEST_DATA_DIR@/tests/simplex_interior_line_2d.vtk
       set Initial refinement = 0
     end
-    subsection Material
-      set Density = 1
-      set Lame mu = 1
-      set Lame lambda = 1
+    subsection Material properties
+      subsection default
+        set Density = 1
+        set Lame mu = 1
+        set Lame lambda = 1
+      end
     end
     subsection Functions
       subsection Body force
