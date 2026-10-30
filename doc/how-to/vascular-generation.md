@@ -225,6 +225,18 @@ replicas are introduced. `attachment_roots` records each consumed terminal's
 new root id on the consumed terminal's native node owner; root-vessel ownership
 may differ after midpoint redistribution.
 
+The final arterio-venous pairing uses sparse exchanges independently of
+endpoint ownership. Each common territory has one writer and exactly one
+arterial and one venous terminal, with distinct positions and matching demand.
+Pair records and actual bed-flow results stay at the territory writer; the
+venous terminal need not be present there as a ghost. For derived beds, an
+unpaired design solve supplies endpoint pressures from their native owners.
+Only new tissue terminals enter the demand normalization. Boundary conditions
+on unpaired input terminals remain in both reference solves. The final paired
+solve must produce positive perfusion and the requested demand split; desired
+flows are never substituted for its measured flow. This finalization is
+collective, while venous startup retains the one-process restriction above.
+
 ## Discretize across background partitions
 
 `discretize()` is collective and accepts owned physical vessels with their

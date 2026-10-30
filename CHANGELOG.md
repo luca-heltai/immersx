@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Build common-territory terminal pairs through sparse MPI exchanges, derive positive beds from remote endpoint pressures, and verify actual paired flow at each territory owner while preserving boundary data on unpaired input terminals.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Construct demand-based terminal loads collectively from owned arterial and venous records, with independent global flow normalization, remote port pressures and consistent explicit selections. Preserve representable flows across extreme demand scales without clipping.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve physical vascular Poiseuille networks and positive 0D beds collectively with native distributed algebra. Resolve remote bed endpoints, preserve small pressure drops with resistive-distance offsets, and report actual flow, shear, perfusion and independent global conservation checks without gathering the graph.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Calibrate arterial terminal counts across MPI partitions using global volume and coverage, preserving nonmonotone bounded search, immutable imported geometry and failed-trial diagnostics. Reject inconsistent controls and remote input failures collectively.
