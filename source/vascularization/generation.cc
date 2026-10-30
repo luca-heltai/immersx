@@ -413,6 +413,8 @@ namespace ImmersX::Vascularization
                               system,
                               system == System::venous ? result.territories :
                                                          empty);
+      for (const auto &[bucket, statistics] : growth.statistics)
+        result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),
                                       growth.validation.issues.begin(),
                                       growth.validation.issues.end());
@@ -651,6 +653,7 @@ namespace ImmersX::Vascularization
         return baseline;
       }
     CalibrationReport               report;
+    std::vector<GrowthStatistics>   statistics;
     std::set<unsigned int>          tried;
     std::optional<GenerationResult> best;
     std::pair<double, double>       best_score{
@@ -670,6 +673,9 @@ namespace ImmersX::Vascularization
                                         count,
                                         initial_territories,
                                         initial_pairs);
+        statistics.insert(statistics.end(),
+                          candidate.growth_statistics.begin(),
+                          candidate.growth_statistics.end());
         collective_valid(candidate.validation);
         report.sampled_points += candidate.sampled_points;
         report.attempts.push_back({count,
@@ -692,8 +698,9 @@ namespace ImmersX::Vascularization
                             candidate.tissue.arterial_coverage));
             if (error <= p.relative_tolerance && deficit == 0.)
               {
-                report.status         = CalibrationStatus::converged;
-                candidate.calibration = std::move(report);
+                report.status               = CalibrationStatus::converged;
+                candidate.calibration       = std::move(report);
+                candidate.growth_statistics = std::move(statistics);
                 return candidate;
               }
             const std::pair<double, double> score{deficit, error};
@@ -783,9 +790,10 @@ namespace ImmersX::Vascularization
           break;
         count = *next;
       }
-    auto result        = best ? std::move(*best) : std::move(baseline);
-    report.status      = CalibrationStatus::exhausted;
-    result.calibration = std::move(report);
+    auto result              = best ? std::move(*best) : std::move(baseline);
+    report.status            = CalibrationStatus::exhausted;
+    result.calibration       = std::move(report);
+    result.growth_statistics = std::move(statistics);
     result.validation.issues.push_back(
       {"calibration",
        invalid_id,

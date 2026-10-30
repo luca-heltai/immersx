@@ -668,3 +668,53 @@ Library callers can use `ApplicationParameters` and the collective `run()` in
 `immersx/vascularization/application.h` for these prepared domains and outputs.
 Supply absolute archive/output paths. Use `generate()` directly when the calling
 application already owns its final background.
+
+`GenerationResult::growth_statistics` records local growth work in ranges grouped
+by the power of two of the leaf count before each batch. Each row identifies the
+active arterial or venous system and requested terminal count. Calibration keeps
+rows from all trials, including unsuccessful trials. `first_terminals` and
+`last_terminals` are the actual observed counts; a concurrent insertion can cross
+a range boundary. Sampling, proposals and accepted insertions count local
+producers. Owned-vessel counts include only mutable vessels of the active system,
+not geometric ghosts or frozen input vessels. Summing the first owned counts
+across ranks therefore shows the real seed/attachment startup, rather than
+assuming that every process owns a root.
+
+The standalone writes these rows to `growth-RANK.csv`, even when physical table
+output is disabled. Initialization covers preparation inside the forest-growth
+call; seed/attachment construction before that call remains part of the overall
+generation time. Local sampling, search, optimization, selection and commit times
+include communication waits. Redistribution, physiology and certification are
+subphases of commit and must not be added to commit again. Physiology measures
+native distributed forest evaluation and radius updates. Certification includes
+its geometry-index construction and joint owner votes. The data cover completed
+batch attempts; an error that exits midway through a batch does not add a partial
+row. Collection adds no graph gathering or collective reductions. It stores only
+a logarithmic number of rows per system and calibration trial.
+
+For communication measurements, configure with `-DIMMERSX_BUILD_BENCHMARKS=ON`
+and build `vascular_network_profile` (or `vascular_network_profile_debug`). On
+Unix MPI builds, these optional executables run the same standalone entry point
+with standard PMPI interposition. The normal application and library do not link
+the interposition code. Set `IMMERSX_MPI_PROFILE_DIRECTORY` to an existing,
+absolute output directory before launching. Each process writes `mpi-RANK.csv`
+before MPI finalization; existing files are never overwritten. An unset or empty
+value disables profiling. A measurement is incomplete if any rank's file is
+missing or the application reports an output error.
+
+The counters cover the explicitly listed functions in that CSV, from completed
+MPI initialization to the start of finalization, including application setup and
+output. They record successful calls, time inside those calls, point-to-point
+posted send bytes and collective input bytes. Bytes count logical datatype
+contents; they are not measured wire traffic. Collective input counts each
+process's contribution, including the root's broadcast/scatter input, without
+estimating the MPI implementation's communication algorithm. Receive calls and
+waits contribute call counts and time, not additional send bytes. Nonblocking
+call time measures initiation; completion time appears in the corresponding
+wait/test. Unlisted MPI functions and MPI initialization/finalization are not
+included. Counter updates and datatype queries add profiling overhead to the
+application's wall time. Compare measurements made with the same instrumentation.
+
+The focused CTest tests `ImmersX.VascularProfile.*.MPI2` compare counters against
+known native MPI payloads, including in-place collectives and disabled forwarding.
+The profiler adds no mandatory dependency and does not collect physical graphs.

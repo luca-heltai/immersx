@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "growth_commit.h"
 
+#include <deal.II/base/timer.h>
+
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
@@ -164,17 +166,25 @@ namespace ImmersX::Vascularization::internal
           valid && validate_data(trial, size).valid(),
           "A split is stale, duplicates a write, or changes a frozen vessel."))
       return result;
-    trial      = migrate(bg, mapping, trial, ids, roots, p.clearance, comm);
-    auto state = evaluate_forest(trial, ids, roots, p, comm);
+    Timer timer;
+    trial = migrate(bg, mapping, trial, ids, roots, p.clearance, comm);
+    result.redistribution_seconds = timer.wall_time();
+    const double physiology_begin = timer.wall_time();
+    auto         state            = evaluate_forest(trial, ids, roots, p, comm);
     if (!state.validation.valid())
       {
-        result.validation = state.validation;
+        result.physiology_seconds = timer.wall_time() - physiology_begin;
+        result.validation         = state.validation;
         return result;
       }
     for (const auto &[id, b] : state.owned)
       trial.vessels.at(id).radii = {{b.radius, b.radius}};
+    result.physiology_seconds = timer.wall_time() - physiology_begin;
     // Enlarged radii need refreshed multi-partition geometric ghosts.
+    const double migration_begin = timer.wall_time();
     trial = migrate(bg, mapping, trial, ids, roots, p.clearance, comm);
+    result.redistribution_seconds += timer.wall_time() - migration_begin;
+    const double               certification_begin = timer.wall_time();
     BackgroundGeometry         geometry(bg, mapping);
     std::vector<BatchProposal> checks;
     for (Id id : ids)
@@ -209,10 +219,11 @@ namespace ImmersX::Vascularization::internal
       });
     for (const auto &[id, accepted] : certified.local)
       valid = valid && accepted;
-    if (
-      !phase(
-        valid,
-        "Joint radius normalization invalidates final vessel geometry; the entire batch was discarded."))
+    const bool certified_all = phase(
+      valid,
+      "Joint radius normalization invalidates final vessel geometry; the entire batch was discarded.");
+    result.certification_seconds = timer.wall_time() - certification_begin;
+    if (!certified_all)
       return result;
     result.committed         = true;
     result.network           = std::move(trial);

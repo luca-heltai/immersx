@@ -124,6 +124,30 @@ namespace ImmersX::Vascularization
     double                      demand = 1.;
   };
 
+  /** Local measurements for batches starting in one power-of-two leaf-count
+   * range. No graph data or extra reductions are collected. Counts of samples,
+   * proposals and accepted insertions belong to their producers; vessel counts
+   * include only owned mutable vessels of the active system, never ghosts.
+   * Timings are local wall seconds, including communication waits. Commit
+   * subphases are included in commit_seconds, not added to it.
+   */
+  struct GrowthStatistics
+  {
+    System        system              = System::arterial;
+    unsigned int  requested_terminals = 0;
+    std::uint64_t first_terminals = 0, last_terminals = 0;
+    std::uint64_t batches = 0, sampled_points = 0, proposed_insertions = 0,
+                  accepted_insertions = 0, committed_batches = 0,
+                  rejected_batches = 0, active_writer_batches = 0;
+    std::uint64_t owned_vessels_first = 0, owned_vessels_last = 0,
+                  owned_vessels_maximum = 0;
+    double initialization_seconds = 0., sampling_seconds = 0.,
+           search_seconds = 0., optimization_seconds = 0.,
+           selection_seconds = 0., commit_seconds = 0.,
+           redistribution_seconds = 0., physiology_seconds = 0.,
+           certification_seconds = 0., total_seconds = 0.;
+  };
+
   struct GenerationResult
   {
     NetworkData               network;
@@ -132,7 +156,9 @@ namespace ImmersX::Vascularization
     ValidationReport          validation;
     DiscretizationResult      discretization;
     TissueMetrics             tissue;
-    CalibrationReport         calibration;
+    /** Includes completed batch attempts from every calibration trial. */
+    std::vector<GrowthStatistics> growth_statistics;
+    CalibrationReport             calibration;
     /** Actual paired Poiseuille solution, evaluated in arterio-venous mode. */
     ReferenceResult reference;
     /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
