@@ -9,6 +9,10 @@
 
 namespace ImmersX::Vascularization
 {
+  /**
+   * Entries may be distributed or repeated identically on several ranks.
+   * Conflicting values and pressure/flow overprescription are invalid.
+   */
   struct ReferenceConditions
   {
     /** Node id -> pressure in Pa; one pressure anchor per component is
@@ -51,20 +55,25 @@ namespace ImmersX::Vascularization
   struct ReferenceResult
   {
     ValidationReport validation;
-    /** Physical node id -> pressure in Pa. */
-    std::map<Id, double>             pressures;
-    std::map<Id, VesselReference>    vessels;
+    /** Locally relevant physical node id -> pressure in Pa. */
+    std::map<Id, double> pressures;
+    /** Owned physical vessels only. */
+    std::map<Id, VesselReference> vessels;
+    /** Beds supplied on this process. */
     std::map<Id, TerritoryReference> territories;
-    /** Net 1D outflow into tissue: positive arterial, negative venous. */
+    /** Owned terminals: net 1D outflow into tissue, positive arterial and
+     * negative venous. */
     std::map<Id, double> terminal_outflows;
-    /** Prescribed fluxes or pressure reactions, positive into the network. */
+    /** Owned boundary nodes: prescribed fluxes or pressure reactions, positive
+     * into the network. */
     std::map<Id, double> boundary_inflows;
-    double               dissipated_power      = 0.;
-    double               maximum_flow_defect   = 0.;
-    double               relative_flow_defect  = 0.;
-    double               boundary_flow_balance = 0.;
-    double               linear_residual       = 0.;
-    unsigned int         iterations            = 0;
+    /** Scalar diagnostics are global on every process. */
+    double       dissipated_power      = 0.;
+    double       maximum_flow_defect   = 0.;
+    double       relative_flow_defect  = 0.;
+    double       boundary_flow_balance = 0.;
+    double       linear_residual       = 0.;
+    unsigned int iterations            = 0;
   };
 
   /**
@@ -75,11 +84,17 @@ namespace ImmersX::Vascularization
    * paired tissue nodes cannot also receive external boundary conditions.
    * Unspecified nodes satisfy Kirchhoff balance with zero external inflow.
    *
-   * Uses native deal.II sparse algebra and CG/Jacobi. An independent physical
+   * Collective on the communicator, using the same native deal.II
+   * LinearOperator, distributed vectors and CG/Jacobi with one or more ranks.
+   * Supply each bed on exactly one process; its endpoint identities are
+   * resolved sparsely, so local terminal ghosts are not required. Nodes and
+   * vessels must have unique authoritative owners; terminal authority follows
+   * its node. Endpoint ghosts must match their authoritative nodes.
+   * An independent physical
    * balance check follows the solve. Reversed vessel reference flow and
    * nonpositive paired perfusion invalidate the result; a zero arterial-only
    * equilibrium is allowed. Candidate evaluation changes no accepted state.
-   * Current execution requires one rank. Physical identifiers, geometry,
+   * Physical identifiers, geometry,
    * taper, numerical subdivisions and all input attributes remain unchanged.
    */
   ReferenceResult
@@ -104,7 +119,7 @@ namespace ImmersX::Vascularization
                          const std::vector<Id>      &selected_terminals,
                          MPI_Comm                    communicator);
 
-  /** Exact Poiseuille pressure profile on a physical reference interval. */
+  /** Exact Poiseuille pressure profile on an owned physical vessel interval. */
   double
   reference_pressure(const NetworkData     &network,
                      const ReferenceResult &reference,
