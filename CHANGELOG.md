@@ -337,6 +337,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Check that standalone MetricFlowX evolves on one-dimensional simplex cells and run the application linked to the installed package with its nonzero inflow fixture.
