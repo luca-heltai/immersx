@@ -13,6 +13,8 @@
 #include <cmath>
 #include <functional>
 #include <set>
+
+#include "../source/vascularization/generation_pairs.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 namespace
@@ -432,4 +434,199 @@ TEST(VascularAV, CalibrationRequiresCoverageByBothSystems)
   ASSERT_EQ(failed.calibration.attempts.size(), 1u);
   EXPECT_GE(failed.tissue.arterial_coverage, p.calibration.minimum_coverage);
   EXPECT_LT(failed.tissue.dual_coverage, p.calibration.minimum_coverage);
+}
+
+namespace
+{
+  GenerationResult
+  distributed_pair_fixture()
+  {
+    const auto         rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    const auto         size = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+    const unsigned int active = std::min(size, 2u);
+    GenerationResult   r;
+    for (unsigned int i = 0; i < 2; ++i)
+      {
+        const Id           base    = (Id{1} << 60) + 100 * i;
+        const unsigned int a_owner = i % active, v_owner = (i + 1) % active;
+        const double       demand = 1. + 2. * i;
+        if (rank == a_owner)
+          {
+            r.network.nodes[base]     = {Point<3>(0., i, 0.),
+                                         rank,
+                                         Port::arterial_inlet};
+            r.network.nodes[base + 1] = {Point<3>(1., i, 0.), rank};
+            Vessel v;
+            v.nodes                        = {{base, base + 1}};
+            v.radii                        = {{.001, .001}};
+            v.viscosity                    = .004;
+            v.owner                        = rank;
+            r.network.vessels[base]        = v;
+            r.network.terminals[base + 10] = {
+              base + 1, base + 20, System::arterial, rank, demand};
+            r.territories.push_back(
+              {base + 20, Point<3>(1., i, 0.), rank, demand});
+            r.target_terminal_flows[base + 10] = demand * 1.e-9;
+          }
+        if (rank == v_owner)
+          {
+            r.network.nodes[base + 2] = {Point<3>(3., i, 0.),
+                                         rank,
+                                         Port::venous_outlet};
+            r.network.nodes[base + 3] = {Point<3>(2., i, 0.), rank};
+            Vessel v;
+            v.nodes                        = {{base + 2, base + 3}};
+            v.radii                        = {{.0015, .0015}};
+            v.viscosity                    = .004;
+            v.system                       = System::venous;
+            v.owner                        = rank;
+            r.network.vessels[base + 1]    = v;
+            r.network.terminals[base + 11] = {
+              base + 3, base + 20, System::venous, rank, demand};
+            r.target_terminal_flows[base + 11] = demand * 1.e-9;
+          }
+      }
+    // This pre-existing component must retain its independent tissue pressure.
+    if (rank == 0)
+      {
+        r.network.nodes[500] = {Point<3>(0., 4., 0.),
+                                rank,
+                                Port::arterial_inlet};
+        r.network.nodes[501] = {Point<3>(1., 4., 0.), rank};
+        Vessel v;
+        v.nodes                  = {{500, 501}};
+        v.radii                  = {{.001, .001}};
+        v.viscosity              = .004;
+        r.network.vessels[500]   = v;
+        r.network.terminals[600] = {501, 700, System::arterial, rank, 999.};
+      }
+    return r;
+  }
+  void
+  pairing_controls(Parameters &p)
+  {
+    p.venous.enabled = true;
+    p.reference_flow = 4.e-9;
+    // Pressure input can reside on a rank that owns no vascular entity.
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) + 1 ==
+        Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
+      {
+        for (unsigned int i = 0; i < 2; ++i)
+          {
+            const Id base                          = (Id{1} << 60) + 100 * i;
+            p.reference_conditions.pressures[base] = 12000.;
+            p.reference_conditions.pressures[base + 2] = 4000.;
+          }
+        p.reference_conditions.pressures[500] = 9000.;
+        p.reference_conditions.pressures[501] = 5000.;
+      }
+  }
+} // namespace
+TEST(VascularAV, BOTH_DistributedPairingDerivesBedsFromRemoteEndpointPressures)
+{
+  Parameters p;
+  pairing_controls(p);
+  auto       r              = distributed_pair_fixture();
+  const auto original_nodes = r.network.nodes;
+  ImmersX::Vascularization::internal::pair_territories(r, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(r.validation.valid()) << issues(r);
+  ASSERT_TRUE(r.reference.validation.valid());
+  EXPECT_EQ(r.terminal_pairs.size(), r.territories.size());
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                  r.terminal_pairs.size()),
+                                MPI_COMM_WORLD),
+            2u);
+  const double ra = 8. * .004 / (numbers::PI * std::pow(.001, 4));
+  const double rv = 8. * .004 / (numbers::PI * std::pow(.0015, 4));
+  for (const auto &pair : r.terminal_pairs)
+    {
+      const unsigned int i        = (pair.territory - (Id{1} << 60) - 20) / 100;
+      const double       desired  = (1. + 2. * i) * 1.e-9;
+      const double       expected = 8000. / desired - ra - rv;
+      EXPECT_NEAR(pair.resistance / expected, 1., 1.e-12);
+      EXPECT_NEAR(r.reference.territories.at(pair.territory).flow / desired,
+                  1.,
+                  1.e-10);
+      if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) > 1)
+        {
+          EXPECT_EQ(r.network.terminals.count(pair.venous), 0u);
+        }
+    }
+  for (const auto &[id, v] : r.network.vessels)
+    {
+      const double q = r.reference.vessels.at(id).flow;
+      if (id == 500)
+        {
+          EXPECT_NEAR(q / (4000. / ra), 1., 1.e-12);
+        }
+      else if (v.system == System::arterial)
+        {
+          EXPECT_GT(q, 0.);
+        }
+      else if (v.system == System::venous)
+        {
+          EXPECT_LT(q, 0.);
+        }
+    }
+  EXPECT_EQ(r.network.nodes.size(), original_nodes.size());
+  for (const auto &[id, n] : original_nodes)
+    EXPECT_EQ(r.network.nodes.at(id).position, n.position);
+}
+TEST(VascularAV, BOTH_DistributedSuppliedBedsCheckActualFlowAgainstDemand)
+{
+  Parameters p;
+  pairing_controls(p);
+  p.venous.microvascular_resistance = 4.e12;
+  p.reference_flow                  = 0.;
+  auto r                            = distributed_pair_fixture();
+  ImmersX::Vascularization::internal::pair_territories(r, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(r.validation.valid()) << issues(r);
+  const double resistance_sum =
+    4.e12 + 8. * .004 / numbers::PI *
+              (1. / std::pow(.001, 4) + 1. / std::pow(.0015, 4));
+  for (const auto &pair : r.terminal_pairs)
+    {
+      EXPECT_DOUBLE_EQ(pair.resistance, 4.e12);
+      EXPECT_NEAR(r.reference.territories.at(pair.territory).flow /
+                    (8000. / resistance_sum),
+                  1.,
+                  1.e-12);
+    }
+  p.reference_flow = 4.e-9;
+  r                = distributed_pair_fixture();
+  ImmersX::Vascularization::internal::pair_territories(r, p, MPI_COMM_WORLD);
+  EXPECT_FALSE(r.validation.valid());
+  EXPECT_TRUE(r.reference.validation.valid());
+}
+TEST(VascularAV,
+     BOTH_DistributedPairingRejectsRemoteMissingOrConflictingTerritories)
+{
+  Parameters p;
+  pairing_controls(p);
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const Id   base = Id{1} << 60;
+  for (unsigned int mode = 0; mode < 7; ++mode)
+    {
+      auto r = distributed_pair_fixture();
+      if (mode == 0)
+        r.network.terminals.erase(base + 11);
+      else if (mode == 1 && r.network.terminals.count(base + 11))
+        r.network.terminals.at(base + 11).demand = 2.;
+      else if (mode == 2 && rank == 0)
+        r.territories.push_back(r.territories.front());
+      else if (mode == 3 && rank == 0)
+        r.target_terminal_flows.at(base + 10) = 0.;
+      else if (mode == 4 && r.network.terminals.count(base + 11))
+        r.network.terminals[base + 12] = r.network.terminals.at(base + 11);
+      else if (mode == 5 && rank == 0)
+        r.network.nodes.at(base + 1).owner =
+          Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+      else if (mode == 6 &&
+               rank + 1 == Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
+        p.reference_conditions.inflows[base + 1] = -1.e-9;
+      ImmersX::Vascularization::internal::pair_territories(r,
+                                                           p,
+                                                           MPI_COMM_WORLD);
+      EXPECT_FALSE(r.validation.valid()) << mode;
+    }
 }
