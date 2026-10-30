@@ -140,7 +140,10 @@ namespace ImmersX::Vascularization
     /** Desired m^3/s by NEW attachment Vessel id, using the same demand split.
      */
     std::map<Id, double> target_attachment_flows;
-    /** Consumed input terminal id -> newly generated attachment vessel id. */
+    /**
+     * Consumed input terminal id -> new attachment vessel id, recorded on the
+     * consumed terminal's native node owner. The vessel may belong elsewhere.
+     */
     std::map<Id, Id> attachment_roots;
     std::uint64_t    sampled_points      = 0;
     unsigned int     accepted_insertions = 0;
@@ -149,8 +152,10 @@ namespace ImmersX::Vascularization
   /**
    * Grow a CCO tree from an initial seed without changing the input. The
    * collective path starts an arterial tree from an empty input on its native
-   * background owner and grows it across partitions. Imported and venous
-   * startup and terminal-count calibration currently require one process.
+   * background owner and grows it across partitions. Imported arterial
+   * attachments are selected and started collectively at their native node
+   * owners. Venous startup and terminal-count calibration currently require
+   * one process.
    * Both paths use a degree-one mapping. Arterial
    * endpoints define the common territories; venous endpoints are separated
    * from them by the configured distance. Both forests use the same CCO engine,
