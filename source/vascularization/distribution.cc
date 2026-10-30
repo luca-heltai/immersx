@@ -300,6 +300,11 @@ namespace ImmersX::Vascularization
           continue;
         const BoundingBox<3> envelope(std::make_pair(lo, hi));
         std::set<Rank>       recipients;
+        // Endpoint owners need complete incidence even for imported vessels
+        // outside the background, where no geometric covering box exists.
+        for (Id node : v.nodes)
+          if (result.nodes.at(node).owner != rank)
+            recipients.insert(result.nodes.at(node).owner);
         for (const auto &[box, target] :
              covering_tree | bgi::adaptors::queried(bgi::intersects(envelope)))
           if (target != rank)
