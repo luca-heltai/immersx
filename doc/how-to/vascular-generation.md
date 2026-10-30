@@ -8,9 +8,12 @@ radii, viscosity, system, orientation, ownership and provenance. A successful
 common tissue territories and validation reports. The caller adopts it only
 when `validation.valid()` is true; input data are never modified.
 
-The current execution path requires one MPI rank and a first-order mapping on
-an all-tetrahedral or all-hexahedral background. Geometry checks include the
-vessel wall and clearance. An ambiguous boundary separation at the finite
+Generation from an empty arterial input is collective and supports one or
+several MPI processes. The background point owner creates the single real seed
+root; its branch may cross partitions immediately. Imported and venous startup
+and terminal-count calibration currently require one process. Use a first-order
+mapping on an all-tetrahedral or all-hexahedral physical background. Geometry
+checks include the vessel wall and clearance. An ambiguous boundary separation at the finite
 geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.
 
@@ -199,8 +202,9 @@ The serial destination continues to support native binary refinement.
 For an existing distributed `NetworkData`, `redistribute()` migrates owned
 entities against a prepared parallel background and refreshes geometric ghosts.
 It is collective, including processes with no physical entities or no owned
-background cells. This operation does not generate branches; `generate()` still
-requires one rank in the current implementation.
+background cells. This operation does not generate branches. `generate()`
+currently supports MPI startup from an empty arterial input; startup from
+imported terminals and venous outlets still requires one process.
 
 ```cpp
 #include <immersx/vascularization/distribution.h>
