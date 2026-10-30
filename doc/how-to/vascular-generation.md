@@ -145,6 +145,22 @@ quadrature estimate of finite service balls. In arterio-venous mode calibration
 uses dual coverage: quadrature points must lie within service distance of both
 systems. This geometric coverage is not a proof of physiological perfusion.
 
+## Discretize across background partitions
+
+`discretize()` is collective and accepts owned physical vessels with their
+endpoint nodes, plus optional ghosts. It sends each owned segment to the
+background partitions whose coarse boxes it intersects. Exact tetrahedral or
+bilinear hexahedral crossings determine resolution; bounding-box overlaps alone
+do not count as crossings. Interface portions contribute volume once.
+
+Numerical intervals stay at their physical vessel owner. Each interval records
+its execution owner from midpoint containment, choosing the lowest containing
+rank on interfaces; exterior intervals retain the physical owner. Inside volume
+and short/exterior-cell counts are global on every rank, and the numerical cell
+budget applies to the whole network. Processes with no owned background cells or
+vessels still participate. This distributed interval calculation does not yet
+provide a distributed native line mesh through `create_triangulation()`.
+
 ## Redistribute physical ownership
 
 For an existing distributed `NetworkData`, `redistribute()` migrates owned
