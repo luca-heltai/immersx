@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve physical vascular Poiseuille networks and positive 0D beds collectively with native distributed algebra. Resolve remote bed endpoints, preserve small pressure drops with resistive-distance offsets, and report actual flow, shear, perfusion and independent global conservation checks without gathering the graph.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Calibrate arterial terminal counts across MPI partitions using global volume and coverage, preserving nonmonotone bounded search, immutable imported geometry and failed-trial diagnostics. Reject inconsistent controls and remote input failures collectively.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Complete imported arterial networks collectively from selected native MPI endpoints, preserving input geometry and properties. Discover missing leaf records, reserve stable integer identifiers by batch and retain incident vessel ghosts at exterior endpoint owners.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Start arterial generation from one real seed at its native background owner and grow it through the public API across MPI partitions. Certify the first branch collectively, preserve its fixed radius, and reject inconsistent controls without adopting a trial.

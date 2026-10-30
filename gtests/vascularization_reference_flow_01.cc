@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <deal.II/base/numbers.h>
 
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -462,4 +464,372 @@ TEST(VascularReferenceFlow, ResistiveLiftingPreservesTinyDropsBesideLargeBeds)
       EXPECT_NEAR(r.vessels.at(id).flow / (direction * q), 1., 1.e-10);
     }
   EXPECT_LE(r.relative_flow_defect, 1.e-9);
+}
+
+namespace
+{
+  NetworkData
+  reference_partition(const NetworkData &full, unsigned int active_ranks = 0)
+  {
+    const auto  rank   = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    const auto  size   = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+    const auto  active = active_ranks == 0 ? size : active_ranks;
+    NetworkData result;
+    const auto  add_node = [&](Id id) {
+      auto node        = full.nodes.at(id);
+      node.owner       = id % active;
+      result.nodes[id] = node;
+    };
+    for (const auto &[id, node] : full.nodes)
+      if (id % active == rank)
+        add_node(id);
+    for (const auto &[id, v] : full.vessels)
+      if ((id + 1) % active == rank)
+        {
+          auto owned         = v;
+          owned.owner        = rank;
+          result.vessels[id] = owned;
+          for (Id node : v.nodes)
+            add_node(node);
+        }
+    for (const auto &[id, t] : full.terminals)
+      if (t.node % active == rank)
+        {
+          auto owned           = t;
+          owned.owner          = rank;
+          result.terminals[id] = owned;
+          add_node(t.node);
+        }
+    return result;
+  }
+
+  NetworkData
+  large_id_chain()
+  {
+    constexpr Id base     = (Id{1} << 60) + 37;
+    const auto   original = chain();
+    NetworkData  n;
+    for (const auto &[id, node] : original.nodes)
+      n.nodes[base + id] = node;
+    for (const auto &[id, v] : original.vessels)
+      {
+        auto moved           = v;
+        moved.nodes          = {{base + v.nodes[0], base + v.nodes[1]}};
+        n.vessels[base + id] = moved;
+      }
+    return n;
+  }
+} // namespace
+
+TEST(VascularReferenceFlow, BOTH_DistributedTaperedSeriesUsesPhysicalLargeIds)
+{
+  constexpr Id        base = (Id{1} << 60) + 37;
+  const auto          comm = MPI_COMM_WORLD;
+  const auto          rank = Utilities::MPI::this_mpi_process(comm);
+  const auto          size = Utilities::MPI::n_mpi_processes(comm);
+  const auto          full = large_id_chain();
+  const auto          n    = reference_partition(full);
+  ReferenceConditions bc;
+  if (rank == size - 1)
+    bc.pressures[base + 10] = 12000.;
+  if (rank == 0)
+    bc.pressures[base + 30] = 4000.;
+  const auto state = solve_reference(n, {}, bc, {}, comm);
+  ASSERT_TRUE(state.validation.valid());
+  const double r0 = taper(.03, .001, .0008), r1 = taper(.02, .0008, .0006);
+  const double q             = 8000. / (r0 + r1);
+  unsigned int owned_vessels = 0;
+  for (const auto &[id, v] : n.vessels)
+    {
+      ASSERT_TRUE(state.vessels.count(id));
+      ++owned_vessels;
+      EXPECT_NEAR(state.vessels.at(id).flow / q, 1., 1.e-12);
+      EXPECT_NEAR(state.vessels.at(id).resistance /
+                    (id == base + 100 ? r0 : r1),
+                  1.,
+                  1.e-13);
+      EXPECT_EQ(v.radii, full.vessels.at(id).radii);
+      const double expected = id == base + 100 ?
+                                12000. - q * taper(.015, .001, .0009) :
+                                12000. - q * (r0 + taper(.01, .0008, .0007));
+      EXPECT_NEAR(reference_pressure(n, state, id, .5), expected, 1.e-8);
+      for (unsigned int end = 0; end < 2; ++end)
+        EXPECT_NEAR(state.vessels.at(id).wall_shear[end] /
+                      (4. * v.viscosity * q /
+                       (numbers::PI * std::pow(v.radii[end], 3))),
+                    1.,
+                    1.e-12);
+    }
+  EXPECT_EQ(Utilities::MPI::sum(owned_vessels, comm), 2u);
+  if (state.pressures.count(base + 20))
+    {
+      EXPECT_NEAR(state.pressures.at(base + 20), 12000. - q * r0, 1.e-8);
+    }
+  EXPECT_NEAR(state.dissipated_power / (8000. * q), 1., 1.e-12);
+  EXPECT_LT(state.relative_flow_defect, 1.e-11);
+  EXPECT_NEAR(state.boundary_flow_balance / q, 0., 1.e-11);
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(state.boundary_inflows.size()), comm),
+            2u);
+  for (const auto &[id, flow] : state.boundary_inflows)
+    EXPECT_NEAR(flow / q, id == base + 10 ? 1. : -1., 1.e-12);
+}
+
+TEST(VascularReferenceFlow,
+     BOTH_SparseBedLookupPreservesStiffPerfusionAndEmptyRanks)
+{
+  const auto  comm = MPI_COMM_WORLD;
+  const auto  rank = Utilities::MPI::this_mpi_process(comm);
+  const auto  size = Utilities::MPI::n_mpi_processes(comm);
+  NetworkData full;
+  for (Id i = 0; i < 3; ++i)
+    full.nodes[i].position = Point<3>(.01 * i, 0., 0.);
+  full.nodes[0].port = Port::arterial_inlet;
+  edge(full, 0, 0, 1, .004, .01);
+  edge(full, 1, 1, 2, .004, .01);
+  for (Id i = 0; i < 6; ++i)
+    full.nodes[10 + i].position = Point<3>(.1 - .01 * i, .02, 0.);
+  full.nodes[10].port = Port::venous_outlet;
+  for (Id i = 0; i < 5; ++i)
+    edge(full, 10 + i, 10 + i, 11 + i, .004, .01, System::venous);
+  full.terminals[100] = {2, 500, System::arterial, 0, 1.};
+  full.terminals[200] = {15, 500, System::venous, 0, 1.};
+  const auto n        = reference_partition(full, std::max(1u, size - 1));
+  std::vector<TerminalPair> pairs;
+  if (rank == size - 1)
+    pairs.push_back({500, 100, 200, 4.e12});
+  if (size > 1 && rank == size - 1)
+    {
+      EXPECT_TRUE(n.nodes.empty());
+      EXPECT_TRUE(n.vessels.empty());
+      EXPECT_TRUE(n.terminals.empty());
+    }
+  const ReferenceConditions bc{{{0, 12000.}, {10, 4000.}}, {}};
+  const auto                state = solve_reference(n, pairs, bc, {}, comm);
+  ASSERT_TRUE(state.validation.valid());
+  const double resistance =
+    4.e12 + 7. * (8. * .004 * .01 / (numbers::PI * std::pow(.01, 4)));
+  const double q = 8000. / resistance;
+  for (const auto &[id, v] : n.vessels)
+    {
+      const double sign = v.system == System::arterial ? 1. : -1.;
+      EXPECT_NEAR(state.vessels.at(id).flow / (sign * q), 1., 1.e-10);
+    }
+  if (rank == size - 1)
+    {
+      EXPECT_NEAR(state.territories.at(500).flow / q, 1., 1.e-12);
+      EXPECT_GT(state.territories.at(500).flow, 0.);
+      EXPECT_NEAR(state.pressures.at(2),
+                  12000. - q * (2. * 8. * .004 * .01 /
+                                (numbers::PI * std::pow(.01, 4))),
+                  1.e-8);
+      EXPECT_NEAR(state.pressures.at(15),
+                  4000. + q * (5. * 8. * .004 * .01 /
+                               (numbers::PI * std::pow(.01, 4))),
+                  1.e-8);
+    }
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(state.territories.size()), comm),
+            1u);
+  for (const auto &[id, t] : n.terminals)
+    EXPECT_NEAR(state.terminal_outflows.at(id) / q,
+                t.system == System::arterial ? 1. : -1.,
+                1.e-9);
+  EXPECT_NEAR(state.dissipated_power / (8000. * q), 1., 1.e-12);
+  EXPECT_LE(state.relative_flow_defect, 1.e-9);
+}
+
+TEST(VascularReferenceFlow, BOTH_DisconnectedAnchoredNetworksKeepSparseResults)
+{
+  const auto          comm = MPI_COMM_WORLD;
+  const auto          size = Utilities::MPI::n_mpi_processes(comm);
+  NetworkData         full;
+  ReferenceConditions bc;
+  for (Id component = 0; component < 16; ++component)
+    {
+      const auto original = chain();
+      const Id   shift    = component * 1000;
+      for (const auto &[id, node] : original.nodes)
+        full.nodes[shift + id] = node;
+      for (const auto &[id, v] : original.vessels)
+        {
+          auto moved               = v;
+          moved.nodes              = {{shift + v.nodes[0], shift + v.nodes[1]}};
+          full.vessels[shift + id] = moved;
+        }
+      bc.pressures[shift + 10] = 12000.;
+      bc.pressures[shift + 30] = 4000.;
+    }
+  const auto n     = reference_partition(full);
+  const auto state = solve_reference(n, {}, bc, {}, comm);
+  ASSERT_TRUE(state.validation.valid());
+  const double q = 8000. / (taper(.03, .001, .0008) + taper(.02, .0008, .0006));
+  EXPECT_NEAR(state.dissipated_power / (16. * 8000. * q), 1., 1.e-12);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(state.vessels.size()),
+                                comm),
+            32u);
+  if (size > 1)
+    {
+      EXPECT_LT(Utilities::MPI::min(
+                  static_cast<unsigned int>(state.pressures.size()), comm),
+                full.nodes.size());
+    }
+  for (const auto &[id, v] : state.vessels)
+    EXPECT_NEAR(v.flow / q, 1., 1.e-12);
+  const auto repeated = solve_reference(n, {}, bc, {}, comm);
+  ASSERT_TRUE(repeated.validation.valid());
+  for (const auto &[id, v] : state.vessels)
+    EXPECT_DOUBLE_EQ(v.flow, repeated.vessels.at(id).flow);
+}
+
+TEST(VascularReferenceFlow, BOTH_ReferenceFailuresAreCollective)
+{
+  const auto          comm = MPI_COMM_WORLD;
+  const auto          rank = Utilities::MPI::this_mpi_process(comm);
+  const auto          size = Utilities::MPI::n_mpi_processes(comm);
+  auto                n    = reference_partition(chain());
+  ReferenceConditions bc{{{10, 12000.}, {30, 4000.}}, {}};
+  auto                bad_bc = bc;
+  if (rank == size - 1)
+    bad_bc.pressures[999] = 0.;
+  EXPECT_FALSE(solve_reference(n, {}, bad_bc, {}, comm).validation.valid());
+  bad_bc = bc;
+  if (rank == size - 1)
+    bad_bc.inflows[10] = 1.e-9;
+  EXPECT_FALSE(solve_reference(n, {}, bad_bc, {}, comm).validation.valid());
+  EXPECT_FALSE(
+    solve_reference(n, {}, {{}, {{10, 1.e-9}, {30, -1.e-9}}}, {}, comm)
+      .validation.valid());
+  if (rank == size - 1)
+    n.nodes[99] = {Point<3>(0., 1., 0.),
+                   rank,
+                   Port::arterial_outlet,
+                   Provenance::imported};
+  bad_bc               = bc;
+  bad_bc.pressures[99] = 4000.;
+  EXPECT_FALSE(solve_reference(n, {}, bad_bc, {}, comm).validation.valid());
+  n = reference_partition(chain());
+  if (rank == size - 1)
+    n.nodes[99] = {Point<3>(std::numeric_limits<double>::quiet_NaN(), 1., 0.),
+                   rank,
+                   Port::arterial_outlet,
+                   Provenance::imported};
+  EXPECT_FALSE(solve_reference(n, {}, bc, {}, comm).validation.valid());
+  const auto                a = reference_partition(av());
+  std::vector<TerminalPair> pairs;
+  if (rank == size - 1)
+    {
+      pairs = bed();
+      pairs.push_back(pairs[0]);
+    }
+  const ReferenceConditions av_bc{{{0, 12000.}, {2, 4000.}}, {}};
+  EXPECT_FALSE(solve_reference(a, pairs, av_bc, {}, comm).validation.valid());
+  pairs.clear();
+  if (rank == size - 1)
+    pairs = {{99, 999, 12, 1.e12}};
+  EXPECT_FALSE(solve_reference(a, pairs, av_bc, {}, comm).validation.valid());
+}
+
+TEST(VascularReferenceFlow, BOTH_ParallelBudgetAndZeroEquilibrium)
+{
+  const auto  comm = MPI_COMM_WORLD;
+  NetworkData full;
+  for (Id i = 0; i < 10; ++i)
+    full.nodes[i].position = Point<3>(.1 * i, 0., 0.);
+  for (Id i = 0; i < 9; ++i)
+    edge(full, 100 + i, i, i + 1, .004 * (i + 1));
+  full.nodes[0].port    = Port::arterial_inlet;
+  full.nodes[9].port    = Port::arterial_outlet;
+  const auto          n = reference_partition(full);
+  ReferenceParameters p;
+  p.maximum_iterations = 1;
+  const auto exhausted =
+    solve_reference(n, {}, {{{9, 0.}}, {{0, 1.e-9}}}, p, comm);
+  EXPECT_FALSE(exhausted.validation.valid());
+  EXPECT_EQ(exhausted.iterations, 1u);
+  const auto zero =
+    solve_reference(n, {}, {{{0, 5000.}, {9, 5000.}}, {}}, {}, comm);
+  ASSERT_TRUE(zero.validation.valid());
+  EXPECT_DOUBLE_EQ(zero.dissipated_power, 0.);
+  EXPECT_DOUBLE_EQ(zero.maximum_flow_defect, 0.);
+  EXPECT_EQ(zero.iterations, 0u);
+}
+
+TEST(VascularReferenceFlow,
+     MPI_InconsistentReferenceControlsAndGhostsAreRejected)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  ASSERT_GT(size, 1u);
+  auto                n = reference_partition(chain());
+  ReferenceConditions bc{{{10, 12000.}, {30, 4000.}}, {}};
+  ReferenceParameters p;
+  if (rank == size - 1)
+    p.maximum_iterations = 0;
+  EXPECT_THROW(solve_reference(n, {}, bc, p, comm), ExceptionBase);
+  p = {};
+  if (rank == size - 1)
+    p.maximum_iterations = 20;
+  EXPECT_THROW(solve_reference(n, {}, bc, p, comm), ExceptionBase);
+  if (rank == size - 1)
+    bc.pressures[10] = 13000.;
+  EXPECT_FALSE(solve_reference(n, {}, bc, {}, comm).validation.valid());
+  bc.pressures[10] = 12000.;
+  if (rank == 101 % size)
+    n.nodes.at(10).position[1] = .01;
+  EXPECT_FALSE(solve_reference(n, {}, bc, {}, comm).validation.valid());
+}
+
+TEST(VascularReferenceFlow, BOTH_PublicGeneratedTreeRealizesNonzeroDemandFlows)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {8, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(8., 1., 1.));
+  Parameters p;
+  p.seed_position      = Point<3>(6.5, .5, .5);
+  p.seed_direction     = Point<3>(-1., 0., 0.);
+  p.seed_length        = .5;
+  p.seed_radius        = .005;
+  p.viscosity          = .004;
+  p.terminal_count     = 4;
+  p.optimization_steps = 3;
+  p.reference_flow     = 2.e-9;
+  p.tissue_demand      = "1+x";
+  const auto generated = generate(background, MappingQ1<3>(), {}, p, comm);
+  ASSERT_TRUE(generated.validation.valid());
+  ReferenceConditions bc;
+  bc.pressures[0] = 12000.;
+  for (const auto &[id, t] : generated.network.terminals)
+    if (t.owner == rank)
+      bc.inflows[t.node] = -generated.target_terminal_flows.at(id);
+  const auto state = solve_reference(generated.network, {}, bc, {}, comm);
+  ASSERT_TRUE(state.validation.valid());
+  double perfusion = 0., reaction = 0.;
+  for (const auto &[id, q] : state.terminal_outflows)
+    {
+      EXPECT_GT(q, 0.);
+      EXPECT_NEAR(q / generated.target_terminal_flows.at(id), 1., 1.e-9);
+      perfusion += q;
+    }
+  for (const auto &[id, q] : state.boundary_inflows)
+    if (id == 0)
+      reaction += q;
+  EXPECT_NEAR(Utilities::MPI::sum(perfusion, comm) / p.reference_flow,
+              1.,
+              1.e-9);
+  EXPECT_NEAR(Utilities::MPI::sum(reaction, comm) / p.reference_flow,
+              1.,
+              1.e-9);
+  EXPECT_GT(state.dissipated_power, 0.);
+  EXPECT_LE(state.relative_flow_defect, 1.e-9);
+  for (const auto &[id, pressure] : state.pressures)
+    {
+      EXPECT_GT(pressure, 0.);
+      EXPECT_LE(pressure, 12000. + 1.e-8);
+    }
 }
