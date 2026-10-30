@@ -280,8 +280,13 @@ namespace ImmersX::Vascularization
         for (unsigned int v = 0; v < 8; ++v)
           out << ",x" << v << ",y" << v << ",z" << v;
         out << '\n';
+        auto quadrature = output(name("quadrature"));
+        quadrature << "cell,x,y,z,weight\n";
         FE_Nothing<3> fe;
-        FEValues<3>   values(mapping, fe, QGauss<3>(2), update_JxW_values);
+        FEValues<3>   values(mapping,
+                           fe,
+                           QGauss<3>(2),
+                           update_JxW_values | update_quadrature_points);
         for (const auto &cell : bg.active_cell_iterators())
           if (cell->is_locally_owned())
             {
@@ -298,6 +303,12 @@ namespace ImmersX::Vascularization
                   point(out, cell->vertex(v));
                 }
               out << '\n';
+              for (unsigned int q = 0; q < values.n_quadrature_points; ++q)
+                {
+                  quadrature << std::quoted(cell->id().to_string()) << ',';
+                  point(quadrature, values.quadrature_point(q));
+                  quadrature << ',' << values.JxW(q) << '\n';
+                }
             }
       }
     }

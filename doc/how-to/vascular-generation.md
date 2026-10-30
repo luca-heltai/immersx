@@ -653,7 +653,9 @@ during generation.
 Each rank writes owned physical nodes, vessels, terminals, territories and pairs
 as CSV. Vessel tables include full physical volume, resistance and, when solved,
 flow and shear. Interval tables describe numerical subdivisions separately;
-background tables record owned cells, vertices and quadrature volumes. Optional
+background tables record owned cells, vertices and quadrature volumes. Separate
+`quadrature-RANK.csv` tables contain native background quadrature positions and
+physical weights for spatial statistics. Optional
 native parallel VTU files include normal mesh ghost cells. Use owned CSV records
 for counts and statistics. `summary.csv` contains global metrics, calibration
 status and phase times. `ranks.csv` contains ownership counts and per-rank phase
