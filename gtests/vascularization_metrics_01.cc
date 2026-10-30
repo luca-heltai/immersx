@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <deal.II/base/numbers.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
+#include <deal.II/distributed/tria.h>
+
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/mapping_fe.h>
+#include <deal.II/fe/mapping_q.h>
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/cell_data.h>
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <gtest/gtest.h>
 #include <immersx/vascularization/generation.h>
@@ -247,4 +252,274 @@ TEST(VascularMetrics, InvalidControlsAndDataAreRejected)
   EXPECT_THROW(
     measure_tissue(background, MappingQ1<3>(), {}, invalid, {}, MPI_COMM_WORLD),
     ExceptionBase);
+}
+
+TEST(VascularMetrics, BOTH_ServiceBallsCrossPartitionsWithoutVesselGhosts)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::subdivided_hyper_rectangle(background,
+                                            {16, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(16., 1., 1.));
+  NetworkData n;
+  const Id    base = Id{1} << 60;
+  for (unsigned int i = 0; i < 2; ++i)
+    {
+      const Point<3> position(i == 0 ? 4.5 : 8.5, .5, .5);
+      unsigned int   owner = size;
+      for (const auto &cell : background.active_cell_iterators())
+        if (cell->is_locally_owned() &&
+            cell->bounding_box().point_inside(position))
+          owner = rank;
+      owner = Utilities::MPI::min(owner, comm);
+      ASSERT_LT(owner, size);
+      if (rank == owner)
+        {
+          n.nodes[base + i].position = position;
+          n.nodes[base + i].owner    = owner;
+          n.terminals[base + i]      = {base + i,
+                                        base + i,
+                                   i == 0 ? System::arterial : System::venous,
+                                        owner,
+                                        1.};
+        }
+    }
+  const auto subdivision = discretize(background, MappingQ1<3>(), n, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  const auto result =
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {4.01, 1}, comm);
+  EXPECT_TRUE(n.vessels.empty());
+  EXPECT_TRUE(result.coverage_evaluated);
+  EXPECT_NEAR(result.background_volume, 16., 1.e-12);
+  EXPECT_NEAR(result.coverage_quadrature_volume, 16., 1.e-12);
+  // Midpoints x=.5,...,15.5: artery serves .5,...,8.5, vein 4.5,...,12.5.
+  EXPECT_NEAR(result.arterial_coverage, 9. / 16., 1.e-13);
+  EXPECT_NEAR(result.venous_coverage, 9. / 16., 1.e-13);
+  EXPECT_NEAR(result.dual_coverage, 5. / 16., 1.e-13);
+  EXPECT_DOUBLE_EQ(result.volume_fraction, 0.);
+  const auto off =
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {}, comm);
+  EXPECT_FALSE(off.coverage_evaluated);
+  EXPECT_DOUBLE_EQ(off.coverage_quadrature_volume, 0.);
+  EXPECT_DOUBLE_EQ(off.arterial_coverage, 0.);
+  EXPECT_DOUBLE_EQ(off.venous_coverage, 0.);
+  EXPECT_DOUBLE_EQ(off.dual_coverage, 0.);
+}
+
+TEST(VascularMetrics, BOTH_GlobalInsideVolumeIsNotReducedTwice)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  NetworkData n;
+  if (rank == size - 1)
+    {
+      n.nodes[0].position = Point<3>(-.2, .3, .4);
+      n.nodes[1].position = Point<3>(.4, .3, .4);
+      n.nodes[0].owner = n.nodes[1].owner = rank;
+      Vessel e;
+      e.nodes        = {{0, 1}};
+      e.radii        = {{.01, .02}};
+      e.viscosity    = .004;
+      e.owner        = rank;
+      n.vessels[0]   = e;
+      n.terminals[0] = {1, 0, System::arterial, rank, 1.};
+    }
+  const auto subdivision = discretize(background, MappingQ1<3>(), n, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  const auto result =
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {2., 2}, comm);
+  const double r        = .01 + .01 / 3.;
+  const double expected = numbers::PI * .4 * (r * r + r * .02 + .0004) / 3.;
+  EXPECT_NEAR(result.background_volume, 1., 1.e-13);
+  EXPECT_NEAR(result.inside_vessel_volume / expected, 1., 1.e-13);
+  EXPECT_NEAR(result.volume_fraction / expected, 1., 1.e-13);
+  EXPECT_NEAR(result.coverage_quadrature_volume, 1., 1.e-13);
+  EXPECT_NEAR(result.arterial_coverage, 1., 1.e-13);
+  EXPECT_DOUBLE_EQ(result.venous_coverage, 0.);
+  EXPECT_DOUBLE_EQ(result.dual_coverage, 0.);
+}
+
+TEST(VascularMetrics, BOTH_LocallyRefinedCoverageUsesGlobalPhysicalWeights)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned() && cell->center()[0] < .5)
+      cell->set_refine_flag();
+  background.execute_coarsening_and_refinement();
+  NetworkData n;
+  if (rank == size - 1)
+    {
+      n.nodes[0].position = Point<3>(.25, .5, .5);
+      n.nodes[0].owner    = rank;
+      n.terminals[0]      = {0, 0, System::arterial, rank, 1.};
+    }
+  const auto subdivision = discretize(background, MappingQ1<3>(), n, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  const auto result =
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {.61, 1}, comm);
+  EXPECT_EQ(background.n_global_active_cells(), 36u);
+  EXPECT_NEAR(result.background_volume, 1., 1.e-13);
+  EXPECT_NEAR(result.coverage_quadrature_volume, 1., 1.e-13);
+  EXPECT_NEAR(result.arterial_coverage, .5, 1.e-13);
+  EXPECT_GT(32. / 36., result.arterial_coverage + .3);
+}
+
+TEST(VascularMetrics, BOTH_TetrahedralCoverageWithEmptyBackgroundRanks)
+{
+  const auto       comm = MPI_COMM_WORLD;
+  const auto       rank = Utilities::MPI::this_mpi_process(comm);
+  const auto       size = Utilities::MPI::n_mpi_processes(comm);
+  Triangulation<3> serial;
+  GridGenerator::reference_cell(serial, ReferenceCells::Tetrahedron);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  NetworkData n;
+  if (rank == size - 1)
+    {
+      n.nodes[0].position = Point<3>(.25, .25, .25);
+      n.nodes[0].owner    = rank;
+      n.terminals[0]      = {0, 0, System::venous, rank, 1.};
+    }
+  const MappingFE<3> mapping(FE_SimplexP<3>(1));
+  const auto         subdivision = discretize(background, mapping, n, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  const auto result =
+    measure_tissue(background, mapping, n, subdivision, {2., 2}, comm);
+  EXPECT_NEAR(result.background_volume, 1. / 6., 1.e-13);
+  EXPECT_NEAR(result.coverage_quadrature_volume, 1. / 6., 1.e-13);
+  EXPECT_DOUBLE_EQ(result.arterial_coverage, 0.);
+  EXPECT_NEAR(result.venous_coverage, 1., 1.e-13);
+  EXPECT_DOUBLE_EQ(result.dual_coverage, 0.);
+  EXPECT_THROW(
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {}, comm),
+    ExceptionBase);
+}
+
+TEST(VascularMetrics, BOTH_WarpedVolumeIsIndependentOfCoverageQuadrature)
+{
+  const auto       comm = MPI_COMM_WORLD;
+  const auto       rank = Utilities::MPI::this_mpi_process(comm);
+  const auto       size = Utilities::MPI::n_mpi_processes(comm);
+  Triangulation<3> serial;
+  GridGenerator::hyper_cube(serial);
+  for (const auto v : serial.begin_active()->vertex_indices())
+    {
+      const auto p = serial.begin_active()->vertex(v);
+      serial.begin_active()->vertex(v) =
+        Point<3>(p[0] + .4 * p[1] * p[2], p[1] + .4 * p[0] * p[2], p[2]);
+    }
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  NetworkData n;
+  if (rank == size - 1)
+    {
+      n.nodes[0].position = Point<3>(.25, .25, .25);
+      n.nodes[1].position = Point<3>(.2, .2, .4);
+      n.nodes[2].position = Point<3>(.4, .2, .4);
+      for (auto &[id, node] : n.nodes)
+        node.owner = rank;
+      n.terminals[0] = {0, 0, System::arterial, rank, 1.};
+      Vessel e;
+      e.nodes      = {{1, 2}};
+      e.radii      = {{.01, .01}};
+      e.viscosity  = .004;
+      e.owner      = rank;
+      n.vessels[0] = e;
+    }
+  const auto subdivision = discretize(background, MappingQ1<3>(), n, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  const auto midpoint =
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {2., 1}, comm);
+  const auto gauss =
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {2., 2}, comm);
+  const double exact_volume = 1. - .16 / 3.;
+  EXPECT_NEAR(midpoint.background_volume, exact_volume, 1.e-13);
+  EXPECT_NEAR(gauss.background_volume, exact_volume, 1.e-13);
+  EXPECT_NEAR(midpoint.coverage_quadrature_volume, 1. - .16 / 4., 1.e-13);
+  EXPECT_NEAR(gauss.coverage_quadrature_volume, exact_volume, 1.e-13);
+  EXPECT_NEAR(midpoint.arterial_coverage, 1., 1.e-13);
+  EXPECT_NEAR(gauss.arterial_coverage, 1., 1.e-13);
+  EXPECT_DOUBLE_EQ(midpoint.volume_fraction, gauss.volume_fraction);
+  EXPECT_NEAR(midpoint.volume_fraction /
+                (numbers::PI * .0001 * .2 / exact_volume),
+              1.,
+              1.e-13);
+}
+
+TEST(VascularMetrics, BOTH_RemoteInvalidDataAndMappingsAreRejected)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  auto subdivision = discretize(background, MappingQ1<3>(), {}, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  if (rank == size - 1)
+    subdivision.validation.issues.push_back(
+      {"test", invalid_id, "Remote invalid discretization."});
+  EXPECT_THROW(
+    measure_tissue(background, MappingQ1<3>(), {}, subdivision, {}, comm),
+    ExceptionBase);
+  subdivision.validation.issues.clear();
+  NetworkData n;
+  if (rank == size - 1)
+    n.nodes[0].position[0] = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(
+    measure_tissue(background, MappingQ1<3>(), n, subdivision, {}, comm),
+    ExceptionBase);
+  CoverageParameters parameters;
+  parameters.quadrature_order = 0;
+  EXPECT_THROW(measure_tissue(
+                 background, MappingQ1<3>(), {}, subdivision, parameters, comm),
+               ExceptionBase);
+  const MappingQ<3> bad_mapping(rank == size - 1 ? 2 : 1);
+  EXPECT_THROW(
+    measure_tissue(background, bad_mapping, {}, subdivision, {}, comm),
+    ExceptionBase);
+}
+
+TEST(VascularMetrics, MPI_ControlDisagreementIsRejectedBeforeCoverageBranch)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto size = Utilities::MPI::n_mpi_processes(comm);
+  ASSERT_GE(size, 2u);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  auto subdivision = discretize(background, MappingQ1<3>(), {}, {}, comm);
+  ASSERT_TRUE(subdivision.validation.valid());
+  CoverageParameters parameters;
+  parameters.service_radius = rank == size - 1 ? 1. : 0.;
+  EXPECT_THROW(measure_tissue(
+                 background, MappingQ1<3>(), {}, subdivision, parameters, comm),
+               ExceptionBase);
+  parameters                  = {};
+  parameters.quadrature_order = rank == size - 1 ? 1 : 2;
+  EXPECT_THROW(measure_tissue(
+                 background, MappingQ1<3>(), {}, subdivision, parameters, comm),
+               ExceptionBase);
+  parameters = {};
+  if (rank == size - 1)
+    subdivision.inside_volume = 1.;
+  EXPECT_THROW(measure_tissue(
+                 background, MappingQ1<3>(), {}, subdivision, parameters, comm),
+               ExceptionBase);
 }

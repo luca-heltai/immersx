@@ -145,6 +145,16 @@ quadrature estimate of finite service balls. In arterio-venous mode calibration
 uses dual coverage: quadrature points must lie within service distance of both
 systems. This geometric coverage is not a proof of physiological perfusion.
 
+`measure_tissue()` is collective on the background communicator and returns
+all metrics globally on each process. Only owners of terminal records supply
+service centres. Centres travel to every background partition within service
+reach, independently of the vessel ghost halo; a service ball can cross several
+partitions. Each process integrates its own background cells, then the physical
+quadrature weights are summed before normalization. Empty processes participate.
+The supplied `discretize()` result already contains the global inside vessel
+volume, which is used once. Setting the service radius to zero disables coverage
+while retaining the global volume fraction.
+
 ## Discretize across background partitions
 
 `discretize()` is collective and accepts owned physical vessels with their
