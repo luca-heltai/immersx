@@ -1966,10 +1966,27 @@ namespace ImmersX
   void
   ElasticityProblem<dim, spacedim>::refine_and_transfer()
   {
-    AssertThrow(
-      !uses_tensor_product_coupling(),
-      ExcNotImplemented(
-        "Adaptive refinement is not yet supported with tensor-product coupling."));
+#ifdef DEAL_II_WITH_VTK
+    // Space pre- and post-refinement cycles of the co-refinement refine the
+    // background every time the tensor-product coupling is built, which
+    // happens again after each adaptive refinement. The co-refinement
+    // prevails: the remaining refinement cycles are skipped.
+    if (uses_tensor_product_coupling())
+      {
+        const auto &co_refinement =
+          par.tensor_product_coupling_parameters.refinement_parameters;
+        if (co_refinement.space_pre_refinement_cycles > 0 ||
+            co_refinement.space_post_refinement_cycles > 0)
+          {
+            pcout << " The co-refinement of the tensor-product coupling "
+                     "refines the background mesh: skipping the remaining "
+                     "refinement cycles."
+                  << std::endl;
+            cycle = par.n_refinement_cycles;
+            return;
+          }
+      }
+#endif
     if (!uses_fully_distributed_triangulation())
       {
         TimerOutput::Scope t(computing_timer, "Refine");
@@ -2032,15 +2049,39 @@ namespace ImmersX
         SolutionTransfer<spacedim, LA::MPI::Vector> transfer(dh);
         std::get<DistributedTriangulation>(triangulation_storage)
           .prepare_coarsening_and_refinement();
-        inclusions.inclusions_as_particles
-          .prepare_for_coarsening_and_refinement();
+        // The inclusion particles exist only with point coupling.
+        if (!uses_tensor_product_coupling())
+          inclusions.inclusions_as_particles
+            .prepare_for_coarsening_and_refinement();
         transfer.prepare_for_coarsening_and_refinement(
           locally_relevant_solution.block(0));
         std::get<DistributedTriangulation>(triangulation_storage)
           .execute_coarsening_and_refinement();
-        inclusions.inclusions_as_particles
-          .unpack_after_coarsening_and_refinement();
+        if (!uses_tensor_product_coupling())
+          inclusions.inclusions_as_particles
+            .unpack_after_coarsening_and_refinement();
+#ifdef DEAL_II_WITH_VTK
+        // The tensor-product quadrature particles were sorted into the cells
+        // of the old mesh. Drop the coupling so that setup_dofs() builds it
+        // again on the refined mesh. Building it runs the co-refinement of
+        // the background, which must not change the mesh any more: the
+        // solution transfer was prepared for the mesh refined above. Without
+        // pre- or post-refinement cycles (see refine_and_transfer()), only
+        // the diameter criterion can refine, and refinement alone keeps it
+        // satisfied.
+        const auto n_refined_cells = tria->n_global_active_cells();
+        if (uses_tensor_product_coupling())
+          tensor_product_coupling.reset();
+#endif
         setup_dofs();
+#ifdef DEAL_II_WITH_VTK
+        AssertThrow(tria->n_global_active_cells() == n_refined_cells,
+                    ExcMessage(
+                      "Rebuilding the tensor-product coupling after adaptive "
+                      "refinement refined the background mesh again. Check "
+                      "the co-refinement parameters of the tensor-product "
+                      "coupling."));
+#endif
         transfer.interpolate(solution.block(0));
         constraints.distribute(solution.block(0));
         locally_relevant_solution.block(0) = solution.block(0);
