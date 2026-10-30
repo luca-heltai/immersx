@@ -228,6 +228,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #301](https://github.com/luca-heltai/immersx/pull/301) Write the HDF5 vessel pressure on every rank, so parallel coupled elasticity runs where some rank owns no vessel no longer hang.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Locate vascular endpoints on warped shared cell faces within inverse-mapping accuracy, while retaining independent wall-separation checks.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
 
