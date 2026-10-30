@@ -221,6 +221,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep newly generated untapered networks at exactly zero initial wall displacement by matching the native area basis. Retain quadratic reference areas when the physical geometry tapers.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assign a generated vessel's reference pressure once in native MetricFlowX data and balance the coupled example against a nonzero outlet reference pressure.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Include the flow-state derivative of prescribed-pressure HLL fluxes in MetricFlowX wall coupling when the native package provides it, keeping it separate from the derivative with respect to pressure coefficients.

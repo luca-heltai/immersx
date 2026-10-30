@@ -880,8 +880,10 @@ C zero; the library callback permits more general native RCR data. The vessel
 reference pressure sets native `p_d` once; native `p0` remains zero.
 
 Generation and validation occur before native flow setup, multiplier-space
-construction, existing wall coupling and IDA initialization. A quadratic DG
-reference-area field represents the physical squared linear radius exactly.
+construction, existing wall coupling and IDA initialization. Constant-radius
+networks use the native area basis for their reference field, so the initial
+wall displacement is exactly zero. When a physical vessel tapers, the reference
+degree is at least two to represent the squared linear radius exactly.
 The example uses fully internal walls. Adapting the multiplier to couple only
 internal portions of an imported external network remains deferred.
 
