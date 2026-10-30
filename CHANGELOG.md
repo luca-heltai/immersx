@@ -318,6 +318,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality, and reject incomplete inputs or stale published assets.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
 
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Document simplex meshes in the elastodynamics tutorial and reading the solid mesh from a file in the MetricFlowX–elastodynamics tutorial.

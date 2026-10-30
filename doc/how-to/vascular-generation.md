@@ -797,3 +797,51 @@ arguments to recheck completed cases and continue an experiment. A case left
 running, timed out or failed requires an explicit audit; the runner does not
 infer that its processes have stopped or restart it automatically. Keep failed
 runs and their diagnostics when reporting measured outcomes.
+
+## Publish measured MPI figures
+
+After all planned cases in each experiment have completed, regenerate the
+selected benchmark assets from their native outputs:
+
+```bash
+python3 scripts/update_vascular_benchmarks.py \
+  build-release/vascular-strong build-release/vascular-weak
+python3 scripts/update_vascular_benchmarks.py \
+  build-release/vascular-strong build-release/vascular-weak --check
+```
+
+Supply multiple experiment directories when strong terminal counts were run
+separately. A repeated case name is rejected. Each plotted group and seed must
+have its one-rank reference case. `--destination /path/to/build/figures`
+creates draft assets outside the documentation. The publisher rejects a
+destination that overlaps an input experiment, so it cannot overwrite native
+measurement manifests.
+
+The publisher verifies the frozen executable and library hashes, requires every
+planned case to be complete, reruns the independent native-table checks, and
+compares the recomputed measurements with each saved `case.json`. Only then
+does it render SVGs and the small `measurements.csv` and `manifest.json`
+summaries. Full meshes, tables, profiles and logs remain in the build tree.
+`--check` rerenders and compares selected asset bytes against the destination;
+it rejects a changed figure or changed native measurements. Use the same
+measured run directories for this check. A new benchmark execution yields new
+timing samples for review and publication, rather than identical timing figures.
+
+Curves show medians across the supplied seeds; whiskers span their complete
+observed ranges. The CSV retains each seed and physical-quality quantiles.
+Strong and weak protocols are labeled separately. In strong scaling the plotted
+`T(1)/T(P)` is a speedup for this distributed generation protocol. Concurrent
+batching changes geometry, accepted work per batch and the number of global
+physiological updates across partitions, so it is not an identical-work hardware
+scaling experiment. In weak scaling the same ratio compares increasing global
+problem sizes under the declared single-inlet protocol.
+
+Resource figures report the maximum per-rank peak RSS, physical ownership
+imbalance, summed logical posted-send and collective-input bytes, summed rank
+time inside the selected MPI functions, the maximum rank physiological-update
+time and startup writer ownership. Logical bytes are not wire traffic; MPI
+rank time is not elapsed wall time. The sum of per-rank peaks in the CSV is not a simultaneous node-memory
+measurement and double-counts shared pages. Startup writer ownership counts mutable vessel owners, not every rank
+that samples or produces proposals. Quality figures show observed volume,
+coverage, physical lengths and angles, without fitted physiological acceptance
+thresholds or a claim of statistical equivalence from a small seed sample.
