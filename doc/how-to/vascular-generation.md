@@ -96,10 +96,44 @@ satisfies $r_e=R_{\mathrm{root}}(D_e/D_{\mathrm{root}})^{1/\gamma}$, where
 $D_e$ is the sum of downstream territory demands. Root radii stay fixed. The
 minimum-radius check includes existing leaves when a new demand is added.
 `terminal_weight` and `density_beta` control where territories are sampled;
-`tissue_demand` controls supply and radii independently. Numerical subdivision
-uses diameters of background cells actually crossed by each segment. Refining
-these 1D cells changes neither the physical graph nor integrated volume and
-resistance.
+`tissue_demand` controls supply and radii independently.
+
+## Terminal sampling and numerical resolution
+
+Arterial territory proposals use the relative density
+
+$$
+\rho_T(x)=\lambda\,w(x)
+\left(\frac{h_{\mathrm{ref}}}{h(x)}\right)^\beta.
+$$
+
+Here $h(x)$ is the diameter of an actual containing background cell. On cell
+and MPI interfaces the smallest containing diameter is used; equal diameters
+are resolved by cell identity, and the lowest containing process owns the point.
+`terminal_weight` supplies the nonnegative dimensionless expression $w(x)$,
+bounded by `terminal_weight_bound`. The corresponding standalone parameters
+are `Sampling/Spatial weight` and `Sampling/Spatial weight bound`.
+`density_beta` (`Sampling/Density mesh exponent`) is zero by default, making
+the sampling density independent of mesh size. Setting it to three gives
+relative weight proportional to $h(x)^{-3}$ in refined regions.
+
+The implementation uses the global minimum cell diameter as $h_{\mathrm{ref}}$
+for nonnegative $\beta$, and the maximum for negative $\beta$, so the mesh
+factor in rejection sampling stays at most one. This global constant affects
+normalization, not the relative spatial weights. There is no separate
+$\lambda$ parameter: `terminal_count` fixes the number of new tissue terminals,
+and terminal-count calibration changes that number to seek the volume target.
+Containment, collision and growth constraints can bias the accepted terminal
+distribution away from the proposal density. The illustrated density plots use
+actual accepted physical terminals.
+
+Numerical subdivision has separate controls. By default it targets interval
+length $h$, with desired range $0.5h$–$2h$, using the smallest diameter of
+background cells actually crossed by each segment. Short vessels and crossing
+fragments can prevent the lower bound; the discretization report records these
+exceptions. Refining these 1D cells changes neither physical topology nor
+integrated volume and resistance, and does not change which physical vessels
+are selected as growth candidates.
 
 ## Reference pressures, supply and microvascular beds
 
