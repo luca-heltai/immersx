@@ -796,6 +796,14 @@ listed MPI functions and can exceed elapsed wall time. `ranks` retains per-rank
 resident and peak resident memory. `owned_vessel_max_over_mean` measures final
 physical ownership imbalance; it does not describe startup activity.
 
+The benchmark publisher also reports cumulative per-rank sample, proposal and
+accepted-insertion counts and their maximum-to-mean ratios. These measure
+recorded producer work independently of final physical ownership. The startup
+proposer fraction counts ranks that produced at least one proposal in the
+first leaf-count range; it differs from the writer rank-batch fraction and does
+not measure CPU utilization. The published manifest hashes the native growth
+counter files used for these summaries.
+
 A new run never overwrites an existing directory. Pass `--resume` with identical
 arguments to recheck completed cases and continue an experiment. A case left
 running, timed out or failed requires an explicit audit; the runner does not
