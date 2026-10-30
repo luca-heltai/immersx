@@ -99,7 +99,7 @@ def chart(svg, origin, title, series, logarithmic=False):
         assert min(ys) > 0
     lower = min(map(transform, ys)) if logarithmic else 0.
     upper = max(map(transform, ys))
-    span = max(upper-lower, .1 if logarithmic else max(upper, 1.)*.1)
+    span = max(upper-lower, .1) if logarithmic else (upper or 1.)
     lower -= .03*span if logarithmic else 0.
     upper += .08*span
     px = lambda x: x0 + width*(math.log2(x)-math.log2(xs[0])) / max(math.log2(xs[-1]/xs[0]), 1.)
