@@ -352,6 +352,22 @@ namespace
                                                    context.time());
           };
         pressure_term.state(id, std::move(pressure_jacobian));
+        if constexpr (detail::has_external_pressure_state_jacobian<
+                        std::decay_t<decltype(flow)>>::value)
+          {
+            typename std::decay_t<decltype(builder)>::Model::
+              MatrixOperatorFactory pressure_state_jacobian =
+                [&, pressure, flow_id, id](const auto &context) {
+                  return metric_flow_x_pressure_state_operator(
+                    flow,
+                    pressure,
+                    context.state(id),
+                    context.state(flow_id),
+                    context.time());
+                };
+            pressure_term.state(flow_id, std::move(pressure_state_jacobian));
+          }
+
         builder.saddle_point(id,
                                      {solid_fields.fields().displacement.id(),
                               solid_fields.fields().velocity.id(),
@@ -390,6 +406,11 @@ namespace
 
     // Check the complete state/derivative linearization at a nonzero multiplier
     // and an expanded area, so the nonlinear radius derivative is exercised.
+    auto &pressure_coefficients =
+      adapter.field(state, wall.fields().multiplier);
+    for (const auto index : pressure_coefficients.locally_owned_elements())
+      pressure_coefficients[index] = 0.5 + 0.05 * (index % 7);
+    pressure_coefficients.compress(VectorOperation::insert);
     auto  direction      = adapter.make_state();
     auto &flow_direction = adapter.field(direction, flow_fields.fields().state);
     auto &flow_state     = adapter.field(state, flow_fields.fields().state);
@@ -399,6 +420,16 @@ namespace
           flow_state[index] *= 1.1;
           flow_direction[index] = 0.1 * flow_state[index];
         }
+    for (const auto component :
+         {Problem::Component::velocity, Problem::Component::velocity_trace})
+      for (const auto index : flow.component_dofs(component))
+        if (flow.locally_owned_dofs().is_element(index))
+          {
+            flow_state[index]     = 0.02 * (1 + index % 3);
+            flow_direction[index] = 0.01 * (1 + index % 2);
+          }
+    flow_state.compress(VectorOperation::insert);
+    flow_direction.compress(VectorOperation::insert);
     for (const auto &field :
          {solid_fields.fields().displacement, solid_fields.fields().velocity})
       for (const auto index : field.locally_owned_dofs())

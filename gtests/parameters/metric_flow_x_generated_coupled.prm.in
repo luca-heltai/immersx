@@ -1,0 +1,58 @@
+# Fully internal synthetic SI network; generation precedes flow DoFs and IDA.
+include @IMMERSX_BINARY_DIR@/gtests/parameters/metric_flow_x_elastodynamics.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-generated
+  subsection Domain
+    set Grid generator = hyper_cube
+    set Grid generator arguments = 0:1:false
+    set Initial refinement = 2
+  end
+end
+
+subsection MetricFlowSystem<1, 3>
+  set Vtk file path for mesh input = @IMMERSX_BINARY_DIR@/unused-generated-network.vtk
+  set Finite element degree = 1
+  set Wall model = Square root
+  set Initial state source = rest
+  set Initial consistency tolerance = 1e-5
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-generated
+  subsection IDA parameters
+    set Final time = 0.002
+    set Time interval between each output = 0.001
+    subsection Running parameters
+      # Allow additional corrector iterations when IDA reuses its Jacobian.
+      set Maximum number of nonlinear iterations = 30
+    end
+  end
+end
+
+subsection MetricFlowX coupling
+  set Generate vascular network = true
+  set Generated vessel Young modulus = 5e5
+  set Generated vessel wall thickness = .0003
+  set Generated vessel reference pressure = 125
+  set Generated terminal resistance = 1e8
+  set Generated outlet pressure = 125
+end
+
+subsection Vascularization
+  subsection Input and ports
+    set Seed position = .2,.5,.5
+    set Seed direction = 1,0,0
+    set Seed radius = .003
+  end
+  subsection Sampling
+    set Terminal count = 4
+    set Random seed = 23
+    set Density mesh exponent = 0
+  end
+  subsection Growth
+    set Seed length = .15
+  end
+  subsection Physiology
+    set Dynamic viscosity = .004
+    set Total new-tissue reference flow = 2e-9
+    set Reference pressures = 0:12000
+  end
+end
