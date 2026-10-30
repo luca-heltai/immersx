@@ -236,6 +236,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Locate vascular endpoints on warped shared cell faces within inverse-mapping accuracy, while retaining independent wall-separation checks.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check the actual linear residual before IDA accepts an FGMRES solve. Correct residual drift within the existing total iteration budget so small coupled vascular loads advance without changing solver tolerances.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep newly generated untapered networks at exactly zero initial wall displacement by matching the native area basis. Retain quadratic reference areas when the physical geometry tapers.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assign a generated vessel's reference pressure once in native MetricFlowX data and balance the coupled example against a nonzero outlet reference pressure.
