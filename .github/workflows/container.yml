@@ -1,0 +1,258 @@
+name: Container
+
+on:
+  pull_request:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+      timezone: Europe/Rome
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check launcher and build fingerprint
+        run: |
+          bash -n scripts/run_container.sh scripts/run_docker.sh
+          bash -n scripts/container_entrypoint.sh
+          python3 -B -m unittest discover -s tests/containers -p 'test_*.py'
+
+  prepare:
+    if: github.event_name == 'pull_request' || github.repository == 'luca-heltai/immersx' && ((github.event_name == 'schedule' && github.ref == 'refs/heads/master') || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'))
+    needs: check
+    runs-on: ubuntu-24.04
+    outputs:
+      fingerprint: ${{ steps.inputs.outputs.fingerprint }}
+      build: ${{ steps.registry.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Fingerprint installed image and runtime checks
+        id: inputs
+        run: echo "fingerprint=$(python3 scripts/container_inputs.py)" >> "$GITHUB_OUTPUT"
+      - name: Check whether a tested image already exists
+        id: registry
+        env:
+          FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # Release tags must build their exact source revision, even if an
+            # equivalent nightly input fingerprint is already published.
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            version=${GITHUB_REF_NAME#v}
+            grep -Fx "project(ImmersX VERSION $version LANGUAGES CXX)" CMakeLists.txt
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          token_status=$(curl --silent --show-error --retry 2 --connect-timeout 20 --max-time 60 \
+            -o "$RUNNER_TEMP/container-token.json" -w '%{http_code}' \
+            'https://ghcr.io/token?scope=repository:luca-heltai/immersx:pull&service=ghcr.io')
+          if [[ "$token_status" == 403 ]]; then
+            # GHCR denies anonymous tokens before a package's first publication.
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$token_status" == 200 ]]
+          token=$(jq -er .token "$RUNNER_TEMP/container-token.json")
+          status=$(curl --silent --show-error --retry 2 --connect-timeout 20 --max-time 60 \
+            -H "Authorization: Bearer $token" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            -o "$RUNNER_TEMP/container-manifest.json" -w '%{http_code}' \
+            "https://ghcr.io/v2/luca-heltai/immersx/manifests/inputs-$FINGERPRINT")
+          case "$status" in
+            200)
+              jq -e '.manifests | length >= 2' "$RUNNER_TEMP/container-manifest.json" >/dev/null
+              echo 'build=false' >> "$GITHUB_OUTPUT"
+              echo 'Runtime inputs already have a tested image; compilation skipped.' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            404) echo 'build=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo "Registry check failed (HTTP $status); refusing an unnecessary rebuild." >&2; exit 1 ;;
+          esac
+
+  reuse:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'false'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point master to the existing tested image
+        env:
+          FINGERPRINT: ${{ needs.prepare.outputs.fingerprint }}
+        run: |
+          image=ghcr.io/luca-heltai/immersx
+          digest=$(docker buildx imagetools inspect "$image:inputs-$FINGERPRINT" --format '{{.Manifest.Digest}}')
+          current=$(docker buildx imagetools inspect "$image:master" --format '{{.Manifest.Digest}}')
+          if [[ "$digest" != "$current" ]]; then
+            docker buildx imagetools create --tag "$image:master" "$image@$digest"
+          fi
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/luca-heltai/immersx:sha-${{ github.sha }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reserve space for the deal.II SDK image
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'master' }}
+          cache-from: type=gha,scope=immersx-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=immersx-${{ matrix.arch }}
+      - name: Check default entry point and installed applications
+        run: |
+          docker run --rm "$IMAGE" | tee "$RUNNER_TEMP/immersx-help.txt"
+          grep -Fx '  poisson' "$RUNNER_TEMP/immersx-help.txt"
+          docker run --rm "$IMAGE" --help
+          if docker run --rm "$IMAGE" unknown-application; then exit 1; fi
+          bash scripts/run_container.sh --runtime docker --image "$IMAGE"
+          for ranks in 1 2; do
+            mkdir -p "$RUNNER_TEMP/poisson-$ranks"
+            cp tests/containers/poisson.prm "$RUNNER_TEMP/poisson-$ranks/input.prm"
+            bash scripts/run_container.sh --runtime docker --image "$IMAGE" --ranks "$ranks" \
+              --workdir "$RUNNER_TEMP/poisson-$ranks" poisson input.prm
+            test -f "$RUNNER_TEMP/poisson-$ranks/results/solution.pvd"
+            test "$(stat -c %u "$RUNNER_TEMP/poisson-$ranks/results/solution.pvd")" = "$(id -u)"
+          done
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request' && github.repository == 'luca-heltai/immersx'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install alternative container runtimes
+        if: matrix.arch == 'amd64'
+        run: |
+          # Use only the official HTTPS archives for these ephemeral CI commands.
+          cat > "$RUNNER_TEMP/immersx-apt.list" <<'SOURCES'
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+          SOURCES
+          container_apt_options=(
+            -o "Dir::Etc::sourcelist=$RUNNER_TEMP/immersx-apt.list"
+            -o Dir::Etc::sourceparts=- -o Acquire::Languages=none
+            -o APT::Update::Error-Mode=any
+            -o Acquire::Retries=1 -o Acquire::http::Timeout=20
+            -o Acquire::https::Timeout=20)
+          timeout 180 sudo apt-get "${container_apt_options[@]}" update
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            https://github.com/apptainer/apptainer/releases/download/v1.5.4/apptainer_1.5.4_amd64.deb \
+            --output /tmp/apptainer.deb
+          timeout 300 sudo apt-get "${container_apt_options[@]}" install -y podman /tmp/apptainer.deb
+      - name: Check rootful Podman interoperability
+        if: matrix.arch == 'amd64'
+        run: |
+          docker save "$IMAGE" | sudo podman load
+          sudo podman run --rm "$IMAGE"
+          mkdir -p "$RUNNER_TEMP/podman"
+          cp tests/containers/poisson.prm "$RUNNER_TEMP/podman/input.prm"
+          sudo bash scripts/run_container.sh --runtime podman --image "$IMAGE" \
+            --workdir "$RUNNER_TEMP/podman" poisson input.prm
+          test -f "$RUNNER_TEMP/podman/results/solution.pvd"
+          sudo podman image rm "$IMAGE"
+      - name: Check Apptainer entry point and two-rank execution
+        if: matrix.arch == 'amd64'
+        run: |
+          apptainer build "$RUNNER_TEMP/immersx.sif" "docker-daemon://$IMAGE"
+          apptainer run "$RUNNER_TEMP/immersx.sif"
+          mkdir -p "$RUNNER_TEMP/apptainer"
+          cp tests/containers/poisson.prm "$RUNNER_TEMP/apptainer/input.prm"
+          bash scripts/run_container.sh --runtime apptainer --image "$RUNNER_TEMP/immersx.sif" \
+            --workdir "$RUNNER_TEMP/apptainer" --ranks 2 poisson input.prm
+          test "$(stat -c %u "$RUNNER_TEMP/apptainer/results/solution.pvd")" = "$(id -u)"
+      - name: Publish tested architecture
+        if: github.event_name != 'pull_request' && github.repository == 'luca-heltai/immersx'
+        run: docker push "$IMAGE"
+
+  publish:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.build == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/luca-heltai/immersx
+      FINGERPRINT: ${{ needs.prepare.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the tested multi-architecture index
+        run: |
+          tags=(--tag "$IMAGE:sha-$GITHUB_SHA" --tag "$IMAGE:inputs-$FINGERPRINT")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+            tags+=(--tag "$IMAGE:$GITHUB_REF_NAME" --tag "$IMAGE:$version"
+                   --tag "$IMAGE:${version%.*}" --tag "$IMAGE:${version%%.*}" --tag "$IMAGE:latest")
+          else
+            tags+=(--tag "$IMAGE:master")
+          fi
+          docker buildx imagetools create "${tags[@]}" \
+            "$IMAGE:sha-$GITHUB_SHA-amd64" "$IMAGE:sha-$GITHUB_SHA-arm64"
+          digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{.Manifest.Digest}}')
+          printf '%s@%s\n' "$IMAGE" "$digest" > container-image.txt
+          sed "s|ghcr.io/luca-heltai/immersx:master|$IMAGE@$digest|g" \
+            scripts/run_container.sh > run_container.sh
+          sha256sum run_container.sh container-image.txt > container-SHA256SUMS
+          printf '### Published container\n\n`%s@%s`\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Require anonymous access
+        run: |
+          # Verify package access independently of repository visibility. A private
+          # package requires its administrator to enable public access in settings.
+          DOCKER_CONFIG=$(mktemp -d) docker manifest inspect "$IMAGE:sha-$GITHUB_SHA" > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: container-launcher
+          path: |
+            run_container.sh
+            container-image.txt
+            container-SHA256SUMS

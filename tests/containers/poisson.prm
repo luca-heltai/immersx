@@ -1,0 +1,25 @@
+set dimension = 2
+set space dimension = 2
+subsection Poisson
+  set Dirichlet boundary ids = 0
+  set Output directory = results
+  set Output name = solution
+  subsection Domain
+    set Grid generator = hyper_cube
+    set Grid generator arguments = -1: 1: false
+    set Initial refinement = 2
+    set Triangulation type = distributed
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+    set Strategy = global
+  end
+  subsection Right hand side
+    set Function expression = 1
+    set Variable names = x,y,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 0
+    set Variable names = x,y,t
+  end
+end
