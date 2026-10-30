@@ -32,6 +32,7 @@
 #  include <immersx/physics/metric_flow_x_pressure.h>
 #  include <immersx/vascularization/metric_flow_x.h>
 
+#  include <algorithm>
 #  include <cmath>
 #  include <filesystem>
 #  include <fstream>
@@ -312,17 +313,26 @@ namespace
                            "basis as MetricFlowX area."));
     const auto lambda_view = lambda_space.view();
     const auto lambda      = lambda_view.field("lambda");
-    // A separate quadratic DG field represents pi*r(s)^2 exactly, including
-    // a tapered physical vessel. Its storage remains alive throughout IDA.
+    // Match the native basis to avoid a rounded initial wall displacement.
+    // Raise the reference degree when a physical linear radius needs it.
     std::unique_ptr<FiniteElementSpace<1, 3>>   generated_reference_space;
     std::optional<FiniteElementSpaceView<1, 3>> generated_reference_view;
     FieldVector                                 reference_area;
     const auto                                  reference_field = [&]() {
       if (generate_network)
         {
+          unsigned int reference_degree = area_fe->degree;
+          unsigned int local_taper = 0;
+          const auto   rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+          for (const auto &[id, vessel] : generated.network.vessels)
+            if (vessel.owner == rank && vessel.radii[0] != vessel.radii[1])
+              local_taper = 1;
+          if (Utilities::MPI::max(local_taper, MPI_COMM_WORLD) != 0)
+            reference_degree = std::max(2u, reference_degree);
           generated_reference_space =
             std::make_unique<FiniteElementSpace<1, 3>>(
-              flow_problem.triangulation(), std::make_unique<FE_DGQ<1, 3>>(2));
+              flow_problem.triangulation(),
+              std::make_unique<FE_DGQ<1, 3>>(reference_degree));
           generated_reference_view.emplace(generated_reference_space->view());
           const auto &reference_view = *generated_reference_view;
           reference_area.reinit(reference_view.locally_owned_dofs(),
@@ -351,7 +361,9 @@ namespace
                     const double t =
                       interval.begin + xi * (interval.end - interval.begin);
                     const double radius =
-                      (1. - t) * properties.r_in + t * properties.r_out;
+                      properties.r_in == properties.r_out ?
+                                                         properties.r_in :
+                                                         (1. - t) * properties.r_in + t * properties.r_out;
                     owned_reference_area[indices[i]] =
                       numbers::PI * radius * radius;
                   }
