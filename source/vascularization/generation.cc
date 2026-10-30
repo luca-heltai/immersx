@@ -1016,13 +1016,15 @@ namespace ImmersX::Vascularization
   {
     using namespace dealii;
     const auto                 &p = parameters.calibration;
-    const std::array<double, 6> modes{{p.volume_fraction,
-                                       p.minimum_coverage,
-                                       p.relative_tolerance,
-                                       static_cast<double>(p.minimum_terminals),
-                                       static_cast<double>(p.maximum_terminals),
-                                       static_cast<double>(p.attempt_budget)}};
-    bool                        matching_modes = true;
+    const std::array<double, 7> modes{
+      {p.volume_fraction,
+       p.minimum_coverage,
+       p.relative_tolerance,
+       static_cast<double>(p.minimum_terminals),
+       static_cast<double>(p.maximum_terminals),
+       static_cast<double>(p.attempt_budget),
+       static_cast<double>(parameters.terminal_count)}};
+    bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
     AssertThrow(
@@ -1037,20 +1039,54 @@ namespace ImmersX::Vascularization
                             parameters,
                             communicator,
                             parameters.terminal_count);
-    AssertThrow(Utilities::MPI::n_mpi_processes(communicator) == 1,
+    const auto size = Utilities::MPI::n_mpi_processes(communicator);
+    const bool any_venous =
+      Utilities::MPI::max(static_cast<unsigned int>(parameters.venous.enabled),
+                          communicator) > 0;
+    AssertThrow(size == 1 || !any_venous,
                 ExcMessage(
-                  "The current vascular calibration requires one rank."));
-    parameters.validate(initial.nodes.empty() && initial.vessels.empty() &&
-                        initial.terminals.empty());
+                  "Distributed venous startup still requires one rank."));
+    const bool creating_seed =
+      Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
+                                                    initial.vessels.empty() &&
+                                                    initial.terminals.empty()),
+                          communicator) == 1;
+    bool valid_controls = true;
+    try
+      {
+        parameters.validate(creating_seed);
+      }
+    catch (const std::exception &)
+      {
+        if (size == 1)
+          throw;
+        valid_controls = false;
+      }
+    AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(valid_controls),
+                                    communicator) == 1,
+                ExcMessage("Invalid vascular calibration controls."));
+    // All adaptive count choices depend on the same validity and global
+    // metrics. A local failure must be shared before entering those branches.
+    const auto collective_valid = [&](ValidationReport &validation) {
+      const bool valid =
+        Utilities::MPI::min(static_cast<unsigned int>(validation.valid()),
+                            communicator) == 1;
+      if (!valid && validation.valid())
+        validation.issues.push_back(
+          {"calibration",
+           invalid_id,
+           "Vascular calibration failed validation on another process."});
+      return valid;
+    };
     GenerationResult baseline;
     baseline.network    = initial;
-    baseline.validation = validate_data(initial, 1);
-    if (!baseline.validation.valid())
+    baseline.validation = validate_data(initial, size);
+    if (!collective_valid(baseline.validation))
       return baseline;
     baseline.discretization = discretize(
       background, mapping, initial, parameters.discretization, communicator);
     baseline.validation = baseline.discretization.validation;
-    if (!baseline.validation.valid())
+    if (!collective_valid(baseline.validation))
       return baseline;
     baseline.tissue = measure_tissue(
       background, mapping, initial, baseline.discretization, {}, communicator);
@@ -1079,6 +1115,7 @@ namespace ImmersX::Vascularization
       {
         auto candidate = generate_count(
           background, mapping, initial, parameters, communicator, count);
+        collective_valid(candidate.validation);
         report.sampled_points += candidate.sampled_points;
         report.attempts.push_back({count,
                                    candidate.tissue,
