@@ -89,9 +89,12 @@ namespace ImmersX
         using Preconditioner = ::MetricFlowX::LA::MPI::PreconditionILU;
         typename Preconditioner::AdditionalData data;
 #  ifdef METRIC_FLOW_X_WITH_TRILINOS
-        // Algebraic face traces have zero diagonal entries in the native
-        // matrix.
+        // Algebraic traces have zero diagonal entries and couple neighboring
+        // cells. Overlap and first-level fill retain those couplings in the
+        // local inverses across MPI cuts.
         data.ilu_atol = 1.e-5;
+        data.overlap  = 1;
+        data.ilu_fill = 1;
 #  endif
         return make_local_preconditioner<Vector, Matrix, Preconditioner>(
           matrix, prototype, data);
