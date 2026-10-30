@@ -13,24 +13,11 @@
 #include <fstream>
 #include <set>
 
+#include "archive_internal.h"
 #include "network_serialization.h"
 
 namespace boost::serialization
 {
-  template <class Archive>
-  void
-  serialize(Archive &ar, ImmersX::Vascularization::Territory &t, unsigned int)
-  {
-    ar &t.id &t.position &t.owner &t.demand;
-  }
-  template <class Archive>
-  void
-  serialize(Archive                                &ar,
-            ImmersX::Vascularization::TerminalPair &p,
-            unsigned int)
-  {
-    ar &p.territory &p.arterial &p.venous &p.resistance;
-  }
   template <class Archive>
   void
   serialize(Archive                                  &ar,
@@ -142,153 +129,157 @@ namespace ImmersX::Vascularization
         ar &id &terminal &position;
       }
     };
-    void
-    validate_archive(const NetworkData               &n,
-                     const std::vector<Territory>    &territories,
-                     const std::vector<TerminalPair> &pairs,
-                     MPI_Comm                         comm)
-    {
-      const Rank rank = Utilities::MPI::this_mpi_process(comm),
-                 size = Utilities::MPI::n_mpi_processes(comm);
-      require_all(validate_data(n, size).valid(),
-                  comm,
-                  "Cannot archive invalid physical vascular data.");
-      std::set<Id> owned_nodes;
-      for (const auto &[id, node] : n.nodes)
-        if (node.owner == rank)
-          owned_nodes.insert(id);
-      resolve_nodes(n.nodes, owned_nodes, comm);
-      std::map<Rank, std::vector<std::pair<unsigned int, Id>>> identities;
-      for (const auto &[id, v] : n.vessels)
-        if (v.owner == rank)
-          identities[id % size].emplace_back(0, id);
-      std::set<Id>                        tissue_nodes;
-      bool                                valid = true;
-      std::map<Rank, std::vector<Tissue>> tissue_send;
-      for (const auto &[id, t] : n.terminals)
-        if (t.owner == rank)
+  } // namespace
+
+  void
+  internal::validate_archive_data(const NetworkData               &n,
+                                  const std::vector<Territory>    &territories,
+                                  const std::vector<TerminalPair> &pairs,
+                                  MPI_Comm                         comm)
+  {
+    const Rank rank = Utilities::MPI::this_mpi_process(comm),
+               size = Utilities::MPI::n_mpi_processes(comm);
+    require_all(validate_data(n, size).valid(),
+                comm,
+                "Cannot archive invalid physical vascular data.");
+    std::set<Id> owned_nodes;
+    for (const auto &[id, node] : n.nodes)
+      if (node.owner == rank)
+        owned_nodes.insert(id);
+    resolve_nodes(n.nodes, owned_nodes, comm);
+    std::map<Rank, std::vector<std::pair<unsigned int, Id>>> identities;
+    for (const auto &[id, v] : n.vessels)
+      if (v.owner == rank)
+        identities[id % size].emplace_back(0, id);
+    std::set<Id>                        tissue_nodes;
+    bool                                valid = true;
+    std::map<Rank, std::vector<Tissue>> tissue_send;
+    for (const auto &[id, t] : n.terminals)
+      if (t.owner == rank)
+        {
+          valid = n.nodes.at(t.node).owner == rank &&
+                  tissue_nodes.insert(t.node).second && valid;
+          identities[id % size].emplace_back(1, id);
+          if (t.territory != invalid_id)
+            tissue_send[t.territory % size].push_back(
+              {id, t, n.nodes.at(t.node).position});
+        }
+    std::set<std::pair<unsigned int, Id>> registered_ids;
+    for (const auto &[source, ids] :
+         Utilities::MPI::some_to_some(comm, identities))
+      for (const auto &id : ids)
+        valid = registered_ids.insert(id).second && valid;
+    require_all(
+      valid,
+      comm,
+      "Archive vessel/terminal ids must be unique, with one native terminal per tissue node.");
+    using End = std::pair<System, bool>;
+    std::map<Rank, std::vector<std::pair<Id, End>>>    incidence_send;
+    std::map<Rank, std::vector<std::pair<Id, System>>> leaf_send;
+    for (const auto &[id, v] : n.vessels)
+      if (v.owner == rank)
+        for (unsigned int end = 0; end < 2; ++end)
+          incidence_send[v.nodes[end] % size].push_back(
+            {v.nodes[end], {v.system, end == 1}});
+    for (const auto &[id, t] : n.terminals)
+      if (t.owner == rank)
+        leaf_send[t.node % size].emplace_back(t.node, t.system);
+    std::map<Id, std::vector<End>> incidence;
+    for (const auto &[source, entries] :
+         Utilities::MPI::some_to_some(comm, incidence_send))
+      for (const auto &[node, end] : entries)
+        incidence[node].push_back(end);
+    for (const auto &[source, entries] :
+         Utilities::MPI::some_to_some(comm, leaf_send))
+      for (const auto &[node, system] : entries)
+        {
+          const auto &ends = incidence[node];
+          valid            = ends.size() == 1 && ends[0].first == system &&
+                  ends[0].second && valid;
+        }
+    require_all(
+      valid,
+      comm,
+      "Archived terminals must end exactly one outward vessel of their declared system.");
+    std::map<Rank, Metadata> metadata_send;
+    for (const auto &t : territories)
+      {
+        valid = t.id != invalid_id && t.owner == rank &&
+                std::isfinite(t.demand) && t.demand > 0. && valid;
+        for (unsigned int d = 0; d < 3; ++d)
+          valid = std::isfinite(t.position[d]) && valid;
+        metadata_send[t.id % size].first.push_back(t);
+      }
+    for (const auto &p : pairs)
+      {
+        valid = p.territory != invalid_id && p.arterial != p.venous &&
+                std::isfinite(p.resistance) && p.resistance > 0. && valid;
+        metadata_send[p.territory % size].second.push_back(p);
+      }
+    std::map<Id, Territory>    registered;
+    std::map<Id, TerminalPair> beds;
+    for (const auto &[source, metadata] :
+         Utilities::MPI::some_to_some(comm, metadata_send))
+      {
+        for (const auto &t : metadata.first)
+          valid = registered.emplace(t.id, t).second && valid;
+        for (const auto &p : metadata.second)
+          valid = beds.emplace(p.territory, p).second && valid;
+      }
+    std::map<Id, std::vector<Tissue>> tissue;
+    for (const auto &[source, records] :
+         Utilities::MPI::some_to_some(comm, tissue_send))
+      for (const auto &t : records)
+        if (registered.count(t.terminal.territory))
+          tissue[t.terminal.territory].push_back(t);
+    for (const auto &[id, territory] : registered)
+      {
+        const Tissue *a = nullptr, *v = nullptr;
+        for (const auto &t : tissue[id])
           {
-            valid = n.nodes.at(t.node).owner == rank &&
-                    tissue_nodes.insert(t.node).second && valid;
-            identities[id % size].emplace_back(1, id);
-            if (t.territory != invalid_id)
-              tissue_send[t.territory % size].push_back(
-                {id, t, n.nodes.at(t.node).position});
+            if (t.terminal.system == System::arterial)
+              {
+                valid = a == nullptr && valid;
+                a     = &t;
+              }
+            else if (t.terminal.system == System::venous)
+              {
+                valid = v == nullptr && valid;
+                v     = &t;
+              }
           }
-      std::set<std::pair<unsigned int, Id>> registered_ids;
-      for (const auto &[source, ids] :
-           Utilities::MPI::some_to_some(comm, identities))
-        for (const auto &id : ids)
-          valid = registered_ids.insert(id).second && valid;
-      require_all(
-        valid,
-        comm,
-        "Archive vessel/terminal ids must be unique, with one native terminal per tissue node.");
-      using End = std::pair<System, bool>;
-      std::map<Rank, std::vector<std::pair<Id, End>>>    incidence_send;
-      std::map<Rank, std::vector<std::pair<Id, System>>> leaf_send;
-      for (const auto &[id, v] : n.vessels)
-        if (v.owner == rank)
-          for (unsigned int end = 0; end < 2; ++end)
-            incidence_send[v.nodes[end] % size].push_back(
-              {v.nodes[end], {v.system, end == 1}});
-      for (const auto &[id, t] : n.terminals)
-        if (t.owner == rank)
-          leaf_send[t.node % size].emplace_back(t.node, t.system);
-      std::map<Id, std::vector<End>> incidence;
-      for (const auto &[source, entries] :
-           Utilities::MPI::some_to_some(comm, incidence_send))
-        for (const auto &[node, end] : entries)
-          incidence[node].push_back(end);
-      for (const auto &[source, entries] :
-           Utilities::MPI::some_to_some(comm, leaf_send))
-        for (const auto &[node, system] : entries)
+        if (!a)
           {
-            const auto &ends = incidence[node];
-            valid            = ends.size() == 1 && ends[0].first == system &&
-                    ends[0].second && valid;
+            valid = false;
+            continue;
           }
-      require_all(
-        valid,
-        comm,
-        "Archived terminals must end exactly one outward vessel of their declared system.");
-      std::map<Rank, Metadata> metadata_send;
-      for (const auto &t : territories)
-        {
-          valid = t.id != invalid_id && t.owner == rank &&
-                  std::isfinite(t.demand) && t.demand > 0. && valid;
-          for (unsigned int d = 0; d < 3; ++d)
-            valid = std::isfinite(t.position[d]) && valid;
-          metadata_send[t.id % size].first.push_back(t);
-        }
-      for (const auto &p : pairs)
-        {
-          valid = p.territory != invalid_id && p.arterial != p.venous &&
-                  std::isfinite(p.resistance) && p.resistance > 0. && valid;
-          metadata_send[p.territory % size].second.push_back(p);
-        }
-      std::map<Id, Territory>    registered;
-      std::map<Id, TerminalPair> beds;
-      for (const auto &[source, metadata] :
-           Utilities::MPI::some_to_some(comm, metadata_send))
-        {
-          for (const auto &t : metadata.first)
-            valid = registered.emplace(t.id, t).second && valid;
-          for (const auto &p : metadata.second)
-            valid = beds.emplace(p.territory, p).second && valid;
-        }
-      std::map<Id, std::vector<Tissue>> tissue;
-      for (const auto &[source, records] :
-           Utilities::MPI::some_to_some(comm, tissue_send))
-        for (const auto &t : records)
-          if (registered.count(t.terminal.territory))
-            tissue[t.terminal.territory].push_back(t);
-      for (const auto &[id, territory] : registered)
-        {
-          const Tissue *a = nullptr, *v = nullptr;
-          for (const auto &t : tissue[id])
-            {
-              if (t.terminal.system == System::arterial)
-                {
-                  valid = a == nullptr && valid;
-                  a     = &t;
-                }
-              else if (t.terminal.system == System::venous)
-                {
-                  valid = v == nullptr && valid;
-                  v     = &t;
-                }
-            }
-          if (!a)
-            {
-              valid = false;
-              continue;
-            }
-          valid = a->terminal.owner == territory.owner &&
-                  a->terminal.demand == territory.demand &&
-                  a->position == territory.position && valid;
-          if (v || beds.count(id))
-            {
-              if (!v || !beds.count(id))
-                {
-                  valid = false;
-                  continue;
-                }
-              const auto &bed = beds.at(id);
-              valid = tissue[id].size() == 2 && a->id == bed.arterial &&
-                      v->id == bed.venous &&
-                      a->terminal.demand == v->terminal.demand &&
-                      a->terminal.node != v->terminal.node &&
-                      a->position != v->position && valid;
-            }
-        }
-      for (const auto &[id, pair] : beds)
-        valid = registered.count(id) && valid;
-      require_all(
-        valid,
-        comm,
-        "Archive territories and beds must be unique, positive and match their arterial/venous terminal identities, demand and writer.");
-    }
+        valid = a->terminal.owner == territory.owner &&
+                a->terminal.demand == territory.demand &&
+                a->position == territory.position && valid;
+        if (v || beds.count(id))
+          {
+            if (!v || !beds.count(id))
+              {
+                valid = false;
+                continue;
+              }
+            const auto &bed = beds.at(id);
+            valid           = tissue[id].size() == 2 && a->id == bed.arterial &&
+                    v->id == bed.venous &&
+                    a->terminal.demand == v->terminal.demand &&
+                    a->terminal.node != v->terminal.node &&
+                    a->position != v->position && valid;
+          }
+      }
+    for (const auto &[id, pair] : beds)
+      valid = registered.count(id) && valid;
+    require_all(
+      valid,
+      comm,
+      "Archive territories and beds must be unique, positive and match their arterial/venous terminal identities, demand and writer.");
+  }
+  namespace
+  {
     constexpr std::size_t records_per_part = 1024;
     Counts
     counts(const NetworkArchive &a, const std::set<Id> &owned_nodes)
@@ -317,7 +308,7 @@ namespace ImmersX::Vascularization
     const auto path = common_directory(directory, comm);
     const Rank rank = dealii::Utilities::MPI::this_mpi_process(comm),
                size = dealii::Utilities::MPI::n_mpi_processes(comm);
-    validate_archive(network, territories, pairs, comm);
+    internal::validate_archive_data(network, territories, pairs, comm);
     bool valid = true;
     try
       {
@@ -630,10 +621,10 @@ namespace ImmersX::Vascularization
                                      metadata.second.begin(),
                                      metadata.second.end());
       }
-    validate_archive(result.network,
-                     result.territories,
-                     result.terminal_pairs,
-                     comm);
+    internal::validate_archive_data(result.network,
+                                    result.territories,
+                                    result.terminal_pairs,
+                                    comm);
     std::sort(result.territories.begin(),
               result.territories.end(),
               [](const auto &a, const auto &b) { return a.id < b.id; });
