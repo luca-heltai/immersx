@@ -182,5 +182,27 @@ namespace ImmersX::Vascularization
            const NetworkData              &initial,
            const Parameters               &parameters,
            MPI_Comm                        communicator);
+  /**
+   * Complete a network with supplied physical territory and bed metadata.
+   * Each input record is supplied once globally; territories belong to their
+   * arterial endpoint owner. Untouched records and resistances are retained.
+   * The two endpoints of an existing bed must be extended together. Its bed
+   * and territory are then replaced by the newly generated territories.
+   * Remaining input beds enter both the design and final reference solves.
+   * reference_flow specifies the total through NEW terminals only. In a valid
+   * result, territories and pairs include untouched input records, while
+   * desired-flow maps still refer only to new terminals and attachments. Input
+   * beds require venous.enabled. Invalid input metadata throws collectively;
+   * unsuccessful growth or incompatible reference flow returns an invalid
+   * result.
+   */
+  GenerationResult
+  generate(const dealii::Triangulation<3>  &background,
+           const dealii::Mapping<3>        &mapping,
+           const NetworkData               &initial,
+           const Parameters                &parameters,
+           MPI_Comm                         communicator,
+           const std::vector<Territory>    &initial_territories,
+           const std::vector<TerminalPair> &initial_pairs);
 } // namespace ImmersX::Vascularization
 #endif

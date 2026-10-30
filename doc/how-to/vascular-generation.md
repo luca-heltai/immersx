@@ -278,8 +278,26 @@ Existing archives are never overwritten.
 viscosity, additional named properties, arterial/venous classification,
 provenance, port roles and normals, tissue demand and bed resistance survive the
 round trip. Numerical subdivisions and solved reference states are recomputed.
-No growth history or solver state is restored. Treat `restored.network` as an
-imported input when completing it; its existing physical vessels remain fixed.
+No growth history or solver state is restored. To complete a restored network,
+pass its physical metadata as well as its graph:
+
+```cpp
+const auto completed = generate(background, mapping, restored.network,
+                                parameters, communicator,
+                                restored.territories, restored.terminal_pairs);
+```
+
+Every input vessel remains fixed. Select both endpoints of any existing bed
+that will be extended, using the arterial and venous selected-terminal lists.
+The consumed bed and territory are replaced by new tissue territories.
+Untouched territories and beds remain in the valid result. Existing beds
+require venous growth to be enabled and enter both the design solve and the
+final paired solve. Their flows can change when new branches share upstream
+vessels; their resistances remain fixed. The specified `reference_flow` and
+returned desired-flow maps apply only to new terminals. Volume and coverage
+still include the whole physical network. A half-extended bed is rejected
+rather than losing its terminal relation. The same rules hold in terminal-count
+calibration and on processes with no local metadata.
 
 Readers need not have the writer count. They read old parts cyclically, check
 unique authority and matching endpoint data, then use `redistribute()` against

@@ -13,6 +13,7 @@
 #include <optional>
 #include <set>
 
+#include "archive_internal.h"
 #include "generation_pairs.h"
 #include "growth_loop.h"
 #include "growth_start.h"
@@ -240,12 +241,14 @@ namespace ImmersX::Vascularization
   }
 
   static GenerationResult
-  generate_count(const dealii::Triangulation<3> &background,
-                 const dealii::Mapping<3>       &mapping,
-                 const NetworkData              &initial,
-                 const Parameters               &parameters,
-                 MPI_Comm                        communicator,
-                 unsigned int                    terminal_count)
+  generate_count(const dealii::Triangulation<3>  &background,
+                 const dealii::Mapping<3>        &mapping,
+                 const NetworkData               &initial,
+                 const Parameters                &parameters,
+                 MPI_Comm                         communicator,
+                 unsigned int                     terminal_count,
+                 const std::vector<Territory>    &initial_territories,
+                 const std::vector<TerminalPair> &initial_pairs)
   {
     using namespace dealii;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -476,8 +479,24 @@ namespace ImmersX::Vascularization
         if (!collective_valid())
           return result;
       }
-    if (parameters.venous.enabled && result.validation.valid())
-      internal::pair_territories(result, parameters, communicator);
+    auto retained = internal::retain_metadata(initial,
+                                              initial_territories,
+                                              initial_pairs,
+                                              result.network,
+                                              communicator);
+    result.validation.issues.insert(result.validation.issues.end(),
+                                    retained.validation.issues.begin(),
+                                    retained.validation.issues.end());
+    if (!collective_valid())
+      return result;
+    if (parameters.venous.enabled)
+      internal::pair_territories(result,
+                                 parameters,
+                                 communicator,
+                                 retained.pairs);
+    result.territories.insert(result.territories.end(),
+                              retained.territories.begin(),
+                              retained.territories.end());
     const auto report = validate_data(result.network, size);
     result.validation.issues.insert(result.validation.issues.end(),
                                     report.issues.begin(),
@@ -517,6 +536,19 @@ namespace ImmersX::Vascularization
            const Parameters               &parameters,
            MPI_Comm                        communicator)
   {
+    return generate(
+      background, mapping, initial, parameters, communicator, {}, {});
+  }
+
+  GenerationResult
+  generate(const dealii::Triangulation<3>  &background,
+           const dealii::Mapping<3>        &mapping,
+           const NetworkData               &initial,
+           const Parameters                &parameters,
+           MPI_Comm                         communicator,
+           const std::vector<Territory>    &initial_territories,
+           const std::vector<TerminalPair> &initial_pairs)
+  {
     using namespace dealii;
     const auto                 &p = parameters.calibration;
     const std::array<double, 8> modes{
@@ -536,13 +568,32 @@ namespace ImmersX::Vascularization
                           communicator) == 1,
       ExcMessage(
         "All processes must use the same vascular calibration controls."));
+    const bool has_metadata =
+      Utilities::MPI::sum(static_cast<Id>(initial_territories.size() +
+                                          initial_pairs.size()),
+                          communicator) > 0;
+    if (has_metadata)
+      {
+        AssertThrow(
+          Utilities::MPI::sum(static_cast<Id>(initial_pairs.size()),
+                              communicator) == 0 ||
+            parameters.venous.enabled,
+          ExcMessage(
+            "Completing input beds requires venous growth to be enabled."));
+        internal::validate_archive_data(initial,
+                                        initial_territories,
+                                        initial_pairs,
+                                        communicator);
+      }
     if (p.volume_fraction == 0. && p.minimum_coverage == 0.)
       return generate_count(background,
                             mapping,
                             initial,
                             parameters,
                             communicator,
-                            parameters.terminal_count);
+                            parameters.terminal_count,
+                            initial_territories,
+                            initial_pairs);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
@@ -611,8 +662,14 @@ namespace ImmersX::Vascularization
                                     p.maximum_terminals);
     for (unsigned int attempt = 0; attempt < p.attempt_budget; ++attempt)
       {
-        auto candidate = generate_count(
-          background, mapping, initial, parameters, communicator, count);
+        auto candidate = generate_count(background,
+                                        mapping,
+                                        initial,
+                                        parameters,
+                                        communicator,
+                                        count,
+                                        initial_territories,
+                                        initial_pairs);
         collective_valid(candidate.validation);
         report.sampled_points += candidate.sampled_points;
         report.attempts.push_back({count,

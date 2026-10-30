@@ -43,7 +43,10 @@ namespace ImmersX::Vascularization::internal
   } // namespace
 
   void
-  pair_territories(GenerationResult &r, const Parameters &p, MPI_Comm comm)
+  pair_territories(GenerationResult                &r,
+                   const Parameters                &p,
+                   MPI_Comm                         comm,
+                   const std::vector<TerminalPair> &retained_pairs)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -59,8 +62,8 @@ namespace ImmersX::Vascularization::internal
         fail(invalid_id, "Terminal pairing failed on another process.");
       return all;
     };
-    r.terminal_pairs.clear();
-    r.reference = {};
+    r.terminal_pairs = retained_pairs;
+    r.reference      = {};
     if (!valid())
       return;
     bool       matching = true;
@@ -251,8 +254,10 @@ namespace ImmersX::Vascularization::internal
               "A paired tissue terminal cannot also have an independent external load.");
         if (!valid())
           return;
+        // Retained beds can share input trunks with new branches. Their
+        // currents therefore change the new endpoints' design pressures.
         const auto design = solve_reference(
-          r.network, {}, conditions, p.reference_parameters, comm);
+          r.network, retained_pairs, conditions, p.reference_parameters, comm);
         r.validation.issues.insert(r.validation.issues.end(),
                                    design.validation.issues.begin(),
                                    design.validation.issues.end());

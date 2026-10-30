@@ -6,11 +6,12 @@
 namespace ImmersX::Vascularization::internal
 {
   // Pair at the common territory's writer, independently of endpoint ownership.
-  // Derive beds from an unpaired design solve, then check the actual paired
-  // flow.
+  // Keep input beds active while deriving new beds from terminal flow loads,
+  // then check the actual paired flow.
   void
-  pair_territories(GenerationResult &result,
-                   const Parameters &parameters,
-                   MPI_Comm          communicator);
+  pair_territories(GenerationResult                &result,
+                   const Parameters                &parameters,
+                   MPI_Comm                         communicator,
+                   const std::vector<TerminalPair> &retained_pairs = {});
 } // namespace ImmersX::Vascularization::internal
 #endif
