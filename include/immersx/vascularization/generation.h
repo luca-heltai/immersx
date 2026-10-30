@@ -148,8 +148,10 @@ namespace ImmersX::Vascularization
 
   /**
    * Grow a CCO tree from an initial seed without changing the input. The
-   * current serial path grows arterial trees and optional venous forests from
-   * seeds or selected input terminals, with a degree-one mapping. Arterial
+   * collective path starts an arterial tree from an empty input on its native
+   * background owner and grows it across partitions. Imported and venous
+   * startup and terminal-count calibration currently require one process.
+   * Both paths use a degree-one mapping. Arterial
    * endpoints define the common territories; venous endpoints are separated
    * from them by the configured distance. Both forests use the same CCO engine,
    * and all new vessels are checked against both systems. Every input node and
