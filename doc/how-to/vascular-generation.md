@@ -158,8 +158,31 @@ its execution owner from midpoint containment, choosing the lowest containing
 rank on interfaces; exterior intervals retain the physical owner. Inside volume
 and short/exterior-cell counts are global on every rank, and the numerical cell
 budget applies to the whole network. Processes with no owned background cells or
-vessels still participate. This distributed interval calculation does not yet
-provide a distributed native line mesh through `create_triangulation()`.
+vessels still participate.
+
+Pass a native fully distributed destination to build the line mesh collectively:
+
+```cpp
+#include <deal.II/distributed/fully_distributed_tria.h>
+
+parallel::fullydistributed::Triangulation<1, 3> vessels(communicator);
+const auto references = create_triangulation(local_network, subdivision, vessels);
+```
+
+Here `subdivision` is the result of `discretize()`. Numerical cells migrate to
+their execution owners. A sparse directory of physical endpoint and numerical
+cut identities supplies vertex-adjacent ghost cells, including all branches at
+a bifurcation. No complete physical graph or mesh is gathered. Compact native
+cell and vertex indices are independent of physical identifiers, including
+identifiers larger than the exact integer range of a `double`.
+
+`references` maps every locally owned or ghost coarse cell to its physical
+vessel and parameter interval. Use `physical_reference(cell->id(), references)`
+to recover that interval; skip artificial cells on empty ranks. The physical
+network and its attributes remain unchanged. To change distributed numerical
+resolution, call `discretize()` again and build a new mesh: native
+`parallel::fullydistributed::Triangulation` does not implement refinement flags.
+The serial destination continues to support native binary refinement.
 
 ## Redistribute physical ownership
 
