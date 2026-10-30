@@ -595,6 +595,7 @@ ENDIF()
 ENABLE_TESTING()
 include(cmake/container_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
+include(cmake/vascular_network_tests.cmake)
 include(cmake/harmonic_fiber_tests.cmake)
 include(cmake/metric_flow_x_package_tests.cmake)
 

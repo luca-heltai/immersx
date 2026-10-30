@@ -35,7 +35,7 @@ namespace ImmersX::Vascularization::internal
     {
       const double pad =
         e.radius + clearance +
-        64. * std::numeric_limits<double>::epsilon() *
+        inverse_mapping_tolerance *
           std::max({1., e.points[0].norm(), e.points[1].norm()});
       Point<3> lo, hi;
       for (unsigned int d = 0; d < 3; ++d)
@@ -178,9 +178,10 @@ namespace ImmersX::Vascularization::internal
                                          3);
     points.insert_global_particles(positions, boxes, point_properties);
     // The native search tolerance selects candidate cells. Recheck physical
-    // locations without its clamped reference coordinates: a very thin vessel
-    // entirely outside the domain need not intersect a boundary patch.
-    // Properties contain only producer/index/tolerance, never physical ids.
+    // locations without its clamped reference coordinates, allowing only
+    // inverse mapping accuracy at shared faces: a very thin vessel entirely
+    // outside the domain need not intersect a boundary patch. Properties
+    // contain only producer/index/tolerance, never physical ids.
     std::map<Rank, std::vector<std::size_t>> strict_found;
     for (auto particle = points.begin(); particle != points.end(); ++particle)
       {
@@ -190,7 +191,8 @@ namespace ImmersX::Vascularization::internal
           {
             const auto unit = geometry.mapping.transform_real_to_unit_cell(
               cell, particle->get_location());
-            if (cell->reference_cell().contains_point(unit, property[2]))
+            if (cell->reference_cell().contains_point(
+                  unit, std::max(property[2], inverse_mapping_tolerance)))
               strict_found[static_cast<Rank>(property[0])].push_back(
                 static_cast<std::size_t>(property[1]));
           }

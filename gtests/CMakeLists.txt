@@ -26,6 +26,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 # directive: a failure here is a public-header dependency or namespace error,
 # not a runtime test failure.
 set(_public_headers
+    immersx/vascularization/application.h
     immersx/vascularization/io.h
     immersx/vascularization/distribution.h
     immersx/vascularization/reference_flow.h
