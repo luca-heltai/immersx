@@ -718,3 +718,82 @@ application's wall time. Compare measurements made with the same instrumentation
 The focused CTest tests `ImmersX.VascularProfile.*.MPI2` compare counters against
 known native MPI payloads, including in-place collectives and disabled forwarding.
 The profiler adds no mandatory dependency and does not collect physical graphs.
+
+## Reproducible MPI measurements
+
+`scripts/run_vascular_benchmarks.py` launches the instrumented C++ application
+sequentially across declared process counts and random seeds. It copies the
+executable and ImmersX shared library into a new build-tree run directory so a
+later rebuild cannot change an experiment already running. The manifest records
+binary and script hashes, source revision and changes, MPI version, linked
+libraries, CPU information, affinity and thread settings. Each case retains the
+exact command, binding report, input and effective parameters, native tables,
+per-rank profiles and independently checked measurements in `case.json`.
+
+For example, with OpenMPI and a Release build:
+
+```bash
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release \
+  -DIMMERSX_BUILD_BENCHMARKS=ON
+cmake --build build-release --target vascular_network_profile -j
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+python3 scripts/run_vascular_benchmarks.py \
+  --executable build-release/benchmarks/vascular_network_profile \
+  --library build-release/libimmersx_lib.so \
+  --output build-release/vascular-strong \
+  --kind strong --terminals 1000,10000 --ranks 1,2,4,8 --seeds 23,24,25
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+python3 scripts/run_vascular_benchmarks.py \
+  --executable build-release/benchmarks/vascular_network_profile \
+  --library build-release/libimmersx_lib.so \
+  --output build-release/vascular-weak \
+  --kind weak --terminals 1000 --ranks 1,8 --seeds 23,24,25
+```
+
+Use `--mpiexec` to select the MPI launcher matching deal.II. The default launch
+arguments are OpenMPI's `--bind-to core --report-bindings`; repeat
+`--mpi-argument=VALUE` to replace them for another MPI implementation. Use enough
+allocated cores and avoid competing jobs while measuring. These experiments can
+be expensive: the per-case timeout defaults to four hours and is configurable
+with `--timeout` in seconds. Use smaller terminal counts for a driver smoke test.
+
+Strong scaling keeps the unit cube, 512 background cells, terminal count,
+fixed seed radius `0.003 m`, reference flow `2e-9 m^3/s` and other parameters
+unchanged across process counts. Weak scaling uses cube process counts
+`P=1,8,64,...`: side length `P^(1/3) m`, `512P` background cells, `TP` terminals
+for the supplied base count `T`, flow `2e-9 P m^3/s`, and seed radius
+`0.003 P^(1/3) m`. This preserves background cell size, terminal density, flow
+per terminal and Murray leaf radius across the weak cases. Each individual run
+keeps its seed radius fixed and starts from exactly one real inlet at the same
+relative position `(0.2,0.5,0.5)`. The seed length remains `0.15 m`, service
+distance `0.2 m`, viscosity `0.004 Pa s`, density exponent zero, Murray exponent
+three and inlet reference pressure `12000 Pa`. These are declared synthetic
+experiments, with fixed terminal counts and no volume-fraction calibration or
+minimum-coverage target. The growing domain and single-root propagation make
+weak scaling a measurement of this protocol, not an assumption of independent
+per-rank trees.
+
+Validation checks unique owned identifiers, connected acyclic single-inlet
+topology, exact leaf counts, Murray normalization, positive lengths, cube wall
+containment, junction angles, uniform terminal flow, pressure drops and exact
+volume/resistance preservation after subdivision. It also checks ownership and
+growth counters and requires an MPI profile from every process. The recorded
+quality distributions include physical vessel lengths, radii, junction angles
+and terminal distances from the cube centre. Coverage and volume fraction come
+from the native background integration. No claim of physiological adequacy is
+made from those geometric measures.
+
+`growth` in `case.json` reports maxima of local phase times in each leaf-count
+range and the fraction of rank-batches owning mutable vessels. The separate
+`growth_rank_totals` retain local sums across ranges; use their maximum when
+reporting a whole-growth phase time. Do not sum per-range maxima as if they were
+a single rank's elapsed time. `mpi.seconds` is a sum of rank times inside the
+listed MPI functions and can exceed elapsed wall time. `ranks` retains per-rank
+resident and peak resident memory. `owned_vessel_max_over_mean` measures final
+physical ownership imbalance; it does not describe startup activity.
+
+A new run never overwrites an existing directory. Pass `--resume` with identical
+arguments to recheck completed cases and continue an experiment. A case left
+running, timed out or failed requires an explicit audit; the runner does not
+infer that its processes have stopped or restart it automatically. Keep failed
+runs and their diagnostics when reporting measured outcomes.
