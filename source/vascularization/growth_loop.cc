@@ -68,12 +68,7 @@ namespace ImmersX::Vascularization::internal
         std::map<unsigned int, std::vector<Hit>> replies;
         for (const auto &[source, point] : incoming)
           {
-            std::vector<Leaf> candidates;
-            count_work(work, GrowthOperation::network_index_queries);
-            tree.query(bgi::nearest(point, k), std::back_inserter(candidates));
-            count_work(work,
-                       GrowthOperation::network_index_hits,
-                       candidates.size());
+            const auto candidates = nearest_centerlines(tree, point, k, work);
             for (const auto &[segment, id] : candidates)
               replies[source].push_back(
                 {id, rank, point_distance_square(point, segment)});
@@ -117,9 +112,18 @@ namespace ImmersX::Vascularization::internal
                                   hits.back().distance :
                                   std::numeric_limits<double>::infinity();
           for (unsigned int owner = 0; owner < size; ++owner)
-            if (!queried.count(owner) && !boxes[owner].empty() &&
-                lower_bound(*target, boxes[owner][0]) <= cutoff)
-              send[owner] = *target;
+            if (!queried.count(owner) && !boxes[owner].empty())
+              {
+                const auto &[lo, hi] = boxes[owner][0].get_boundary_points();
+                const double guard   = 128. *
+                                     std::numeric_limits<double>::epsilon() *
+                                     std::max({1.,
+                                               target->norm_square(),
+                                               lo.norm_square(),
+                                               hi.norm_square()});
+                if (lower_bound(*target, boxes[owner][0]) <= cutoff + guard)
+                  send[owner] = *target;
+              }
         }
       exchange(send);
       return hits;

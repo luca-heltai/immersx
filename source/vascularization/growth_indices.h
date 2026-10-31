@@ -12,6 +12,51 @@ namespace ImmersX::Vascularization::internal
     std::set<Id> changed_owned, released_owned;
   };
 
+  // Incremental native query iteration stops after the nearest cutoff and
+  // its ties; bulk query(k) may choose different tied ids after tree updates.
+  inline std::vector<std::pair<Segment<3>, Id>>
+  nearest_centerlines(const RTree<std::pair<Segment<3>, Id>> &tree,
+                      const Point<3>                         &point,
+                      unsigned int                            count,
+                      GrowthWork                             *work)
+  {
+    using Leaf = std::pair<Segment<3>, Id>;
+    if (count == 0 || tree.empty())
+      return {};
+    BoundingBox<3> box;
+    boost::geometry::convert(tree.bounds(), box);
+    const auto &[lo, hi] = box.get_boundary_points();
+    const double guard =
+      128. * std::numeric_limits<double>::epsilon() *
+      std::max({1., point.norm_square(), lo.norm_square(), hi.norm_square()});
+    double                               cutoff = 0.;
+    std::vector<std::pair<double, Leaf>> hits;
+    count_work(work, GrowthOperation::network_index_queries);
+    for (auto it = tree.qbegin(bgi::nearest(point, tree.size()));
+         it != tree.qend();
+         ++it)
+      {
+        count_work(work, GrowthOperation::network_index_hits);
+        const double distance = point_distance_square(point, it->first);
+        if (hits.size() >= count && distance > cutoff + guard)
+          break;
+        hits.emplace_back(distance, *it);
+        if (hits.size() <= count)
+          cutoff = std::max(cutoff, distance);
+      }
+    std::sort(hits.begin(), hits.end(), [](const auto &a, const auto &b) {
+      return a.first < b.first ||
+             (a.first == b.first && a.second.second < b.second.second);
+    });
+    if (hits.size() > count)
+      hits.resize(count);
+    std::vector<Leaf> result;
+    result.reserve(hits.size());
+    for (const auto &[distance, leaf] : hits)
+      result.push_back(leaf);
+    return result;
+  }
+
   // Centerline indices have no radius dependency. A fixed maximum over the
   // real root controls and frozen input radii bounds every Murray radius.
   struct GrowthIndices
