@@ -163,7 +163,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
     parser.add_argument("result", type=Path)
-    parser.add_argument("--pairs", type=int, default=32)
+    parser.add_argument("--pairs", type=int, default=1000)
     parser.add_argument("--separation", type=float, default=.003)
     parser.add_argument("--viscosity", type=float, default=.004)
     parser.add_argument("--report", type=Path)
