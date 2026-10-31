@@ -11,6 +11,7 @@
 #include "demand_mass.h"
 #include "forest_state.h"
 #include "growth_demand.h"
+#include "growth_geometry.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -53,14 +54,32 @@ namespace ImmersX::Vascularization::internal
   {
     GrowthDemandSummary        summary;
     std::array<long double, 6> other_local{};
-    double                     radius = 0.;
+    double                     radius = 0., gamma = 3.;
     unsigned int               system = 0;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      ar &summary &other_local &radius &system;
+      ar &summary &other_local &radius &gamma &system;
     }
+  };
+
+  struct GrowthDemandEdge
+  {
+    Edge        edge;
+    Id          root   = invalid_id;
+    long double demand = 0., root_demand = 0.;
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
+    {
+      ar &edge &root &demand &root_demand;
+    }
+  };
+  struct GrowthDemandEdges
+  {
+    ValidationReport               validation;
+    std::map<Id, GrowthDemandEdge> records;
   };
 
   class GrowthDemandState
@@ -90,6 +109,12 @@ namespace ImmersX::Vascularization::internal
 
     GrowthDemandPreview
     preview(const GrowthDemandUpdate &) const;
+
+    // Resolve only requested vessels and their current root controls.
+    GrowthDemandEdges
+    physical_edges(const NetworkData &,
+                   const GrowthDemandPreview &,
+                   const std::map<Id, unsigned int> &) const;
 
     // One collective overlay for one globally ordered tissue proposal. Only
     // its producer requests paths; owners must not use different previews.
@@ -136,6 +161,7 @@ namespace ImmersX::Vascularization::internal
     ValidationReport                        report;
     std::map<Id, Branch>                    branches;
     std::map<Id, DirectoryEntry>            directory;
+    std::map<Id, unsigned int>              root_directory;
     std::map<Id, std::size_t>               root_positions;
     std::vector<std::array<long double, 6>> root_sums;
     std::array<long double, 6>              accepted_totals{};
