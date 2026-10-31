@@ -25,8 +25,8 @@ namespace ImmersX::Vascularization::internal
   // to owned background cells. Venous proposals belong to owned common tissue
   // territories, with their shared demand. No per-rank roots are added.
   // Counters for points/proposals/accepted insertions are local to producers.
-  // Callers may supply collective demand updates and shared geometry.
-  // Otherwise accepted leaves retain their supplied physical weights.
+  // The public generator supplies collective tissue callbacks and shared
+  // geometry. Algebraic callers may instead supply already weighted leaves.
   GrowthRun
   grow_forest(const dealii::Triangulation<3> &background,
               const dealii::Mapping<3>       &mapping,
