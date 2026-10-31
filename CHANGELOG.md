@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Certify walls and physical endpoint containment through shared native background searches for edited or enlarged vessels, with physical padding and reusable domains for unchanged geometry.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage native vascular rows with sparse before-images and endpoint reference counts. Restore original map nodes on rejection and remove endpoint ghosts when no owned vessel or terminal needs them.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Select pending venous territories by sorted identifier rank in logarithmic time, preserving the proposal order after served territories are removed.

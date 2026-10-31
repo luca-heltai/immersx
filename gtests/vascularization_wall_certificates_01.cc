@@ -73,7 +73,8 @@ namespace
     BackgroundGeometry geometry(bg, mapping, &original);
     const auto         saved = original.counts;
     Parameters         p("/Sparse wall checks/");
-    p.clearance = 10.;
+    p.length_scale = "local mesh size";
+    p.clearance    = 10.;
     std::map<Id, GrowthWallRequest> local;
     if (rank == size - 1)
       local = cases;
@@ -95,6 +96,7 @@ namespace
     EXPECT_EQ(work[GrowthOperation::network_index_builds], 0u);
     EXPECT_EQ(work[GrowthOperation::pair_checks], 0u);
     Parameters oracle("/Full wall oracle/");
+    oracle.length_scale   = "meter";
     oracle.minimum_length = 0.;
     oracle.minimum_radius = 0.;
     oracle.geometry_depth = p.geometry_depth;
