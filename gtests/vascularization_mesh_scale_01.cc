@@ -16,6 +16,8 @@
 #include <cmath>
 #include <limits>
 
+#include "../source/vascularization/growth_geometry.h"
+
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 
@@ -227,4 +229,99 @@ TEST(VascularGeneration, MPI_LengthScaleModeDisagreementFailsCollectively)
                                                             "local mesh size";
   EXPECT_THROW(mesh_length_scale(background, mode, MPI_COMM_WORLD),
                ExceptionBase);
+}
+TEST(VascularGeneration,
+     BOTH_RuntimeGeometryMeasuresUseExactProfilesAndPolicies)
+{
+  using namespace ImmersX::Vascularization::internal;
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  refined_pair(background);
+  MappingQ1<3>           mapping;
+  BackgroundGeometry     geometry(background, mapping);
+  GrowthGeometrySegments requests;
+  const auto rank     = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto producer = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) - 1;
+  if (rank == producer)
+    {
+      requests.emplace(1, Segment<3>({.125, .25, .25}, {.875, .25, .25}));
+      requests.emplace(2, Segment<3>({.5, .125, .25}, {.5, .875, .25}));
+      requests.emplace(3, Segment<3>({-.25, .25, .25}, {.25, .25, .25}));
+      requests.emplace(4, Segment<3>({-.75, .25, .25}, {-.25, .25, .25}));
+    }
+  GrowthGeometryMeasureFunction measure =
+    [&](const GrowthGeometrySegments &segments) {
+      return geometry.measure_segments(segments, MPI_COMM_WORLD);
+    };
+  GrowthGeometryReleaseFunction release =
+    [&](const GrowthGeometrySegments &segments) {
+      geometry.release_profiles(segments);
+    };
+  EXPECT_THROW(measure(requests), ExceptionBase);
+  const auto cells = background.n_global_active_cells();
+  for (const auto &policy :
+       {"local mesh size", "meter", "min mesh size", "max mesh size"})
+    {
+      geometry.configure_length_scale(policy, MPI_COMM_WORLD);
+      const auto values = measure(requests);
+      EXPECT_EQ(values.size(), requests.size());
+      if (rank == producer)
+        {
+          if (std::string(policy) == "local mesh size")
+            {
+              EXPECT_NEAR(values.at(1).normalized_length, .75, 2.e-13);
+              EXPECT_EQ(values.at(1).radius_scale, 1.5);
+              EXPECT_EQ(values.at(1).clearance_scale, 1.5);
+              EXPECT_TRUE(values.at(1).complete);
+              EXPECT_NEAR(values.at(2).normalized_length, 1., 2.e-13);
+              EXPECT_EQ(values.at(2).radius_scale, .75);
+              EXPECT_EQ(values.at(2).clearance_scale, .75);
+              EXPECT_TRUE(values.at(2).complete);
+              EXPECT_NEAR(values.at(3).normalized_length, 1. / 3., 2.e-13);
+              EXPECT_EQ(values.at(3).radius_scale, .75);
+              EXPECT_EQ(values.at(3).clearance_scale, .75);
+              EXPECT_FALSE(values.at(3).complete);
+              EXPECT_EQ(values.at(4).normalized_length, 0.);
+              EXPECT_EQ(values.at(4).radius_scale, 0.);
+              EXPECT_EQ(values.at(4).clearance_scale, 0.);
+              EXPECT_FALSE(values.at(4).complete);
+            }
+          else if (std::string(policy) == "meter" ||
+                   std::string(policy) == "min mesh size" ||
+                   std::string(policy) == "max mesh size")
+            {
+              const double h = std::string(policy) == "meter"         ? 1. :
+                               std::string(policy) == "min mesh size" ? .75 :
+                                                                        1.5;
+              for (const auto &[id, segment] : requests)
+                {
+                  EXPECT_NEAR(values.at(id).normalized_length,
+                              segment.first.distance(segment.second) / h,
+                              2.e-13);
+                  EXPECT_EQ(values.at(id).radius_scale, h);
+                  EXPECT_EQ(values.at(id).clearance_scale, h);
+                  EXPECT_TRUE(values.at(id).complete);
+                }
+            }
+        }
+      release(requests);
+      const auto repeated = measure(requests);
+      for (const auto &[id, value] : values)
+        {
+          EXPECT_EQ(repeated.at(id).normalized_length, value.normalized_length);
+          EXPECT_EQ(repeated.at(id).radius_scale, value.radius_scale);
+          EXPECT_EQ(repeated.at(id).clearance_scale, value.clearance_scale);
+          EXPECT_EQ(repeated.at(id).complete, value.complete);
+        }
+    }
+  geometry.configure_length_scale("local mesh size", MPI_COMM_WORLD);
+  release(requests);
+  if (rank == producer)
+    requests.at(1) = Segment<3>({.125, .25, .25}, {.375, .25, .25});
+  const auto changed = measure(requests);
+  if (rank == producer)
+    {
+      EXPECT_NEAR(changed.at(1).normalized_length, 1. / 3., 2.e-13);
+      EXPECT_EQ(changed.at(1).radius_scale, .75);
+    }
+  EXPECT_EQ(background.n_global_active_cells(), cells);
 }

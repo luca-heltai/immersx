@@ -143,6 +143,63 @@ namespace ImmersX::Vascularization
     return result;
   }
 
+  namespace
+  {
+    ScaledVesselMeasure
+    measure_profile(double                       physical_length,
+                    const std::array<double, 2> *radii,
+                    const std::vector<internal::BackgroundInterval> &intervals,
+                    const MeshLengthScale                           &scale)
+    {
+      ScaledVesselMeasure measure;
+      for (const auto &interval : intervals)
+        {
+          const double piece =
+            physical_length * (interval.end - interval.begin);
+          if (interval.h > 0.)
+            measure.inside_length += piece;
+          else
+            measure.exterior_length += piece;
+          if (interval.h == 0. &&
+              scale.policy == LengthScalePolicy::local_mesh_size)
+            {
+              measure.complete = false;
+              continue;
+            }
+          const double h = scale.value(interval.h);
+          measure.normalized_length += piece / h;
+          double lo = 0., hi = 0.;
+          if (radii)
+            {
+              const double a =
+                (*radii)[0] + interval.begin * ((*radii)[1] - (*radii)[0]);
+              const double b =
+                (*radii)[0] + interval.end * ((*radii)[1] - (*radii)[0]);
+              lo = std::min(a, b) / h;
+              hi = std::max(a, b) / h;
+            }
+          if (!measure.has_normalized_part)
+            {
+              measure.minimum_scale = measure.maximum_scale = h;
+              measure.minimum_normalized_radius             = lo;
+              measure.maximum_normalized_radius             = hi;
+              measure.has_normalized_part                   = true;
+            }
+          else
+            {
+              measure.minimum_scale = std::min(measure.minimum_scale, h);
+              measure.maximum_scale = std::max(measure.maximum_scale, h);
+              measure.minimum_normalized_radius =
+                std::min(measure.minimum_normalized_radius, lo);
+              measure.maximum_normalized_radius =
+                std::max(measure.maximum_normalized_radius, hi);
+            }
+        }
+      return measure;
+    }
+
+  } // namespace
+
   ScaledVesselMeasure
   internal::measure_background_profile(
     double                                 physical_length,
@@ -150,43 +207,16 @@ namespace ImmersX::Vascularization
     const std::vector<BackgroundInterval> &intervals,
     const MeshLengthScale                 &scale)
   {
-    ScaledVesselMeasure measure;
-    for (const auto &interval : intervals)
-      {
-        const double piece = physical_length * (interval.end - interval.begin);
-        if (interval.h > 0.)
-          measure.inside_length += piece;
-        else
-          measure.exterior_length += piece;
-        if (interval.h == 0. &&
-            scale.policy == LengthScalePolicy::local_mesh_size)
-          {
-            measure.complete = false;
-            continue;
-          }
-        const double h = scale.value(interval.h);
-        const double a = radii[0] + interval.begin * (radii[1] - radii[0]);
-        const double b = radii[0] + interval.end * (radii[1] - radii[0]);
-        measure.normalized_length += piece / h;
-        const double lo = std::min(a, b) / h, hi = std::max(a, b) / h;
-        if (!measure.has_normalized_part)
-          {
-            measure.minimum_scale = measure.maximum_scale = h;
-            measure.minimum_normalized_radius             = lo;
-            measure.maximum_normalized_radius             = hi;
-            measure.has_normalized_part                   = true;
-          }
-        else
-          {
-            measure.minimum_scale = std::min(measure.minimum_scale, h);
-            measure.maximum_scale = std::max(measure.maximum_scale, h);
-            measure.minimum_normalized_radius =
-              std::min(measure.minimum_normalized_radius, lo);
-            measure.maximum_normalized_radius =
-              std::max(measure.maximum_normalized_radius, hi);
-          }
-      }
-    return measure;
+    return measure_profile(physical_length, &radii, intervals, scale);
+  }
+
+  ScaledVesselMeasure
+  internal::measure_background_profile(
+    double                                 physical_length,
+    const std::vector<BackgroundInterval> &intervals,
+    const MeshLengthScale                 &scale)
+  {
+    return measure_profile(physical_length, nullptr, intervals, scale);
   }
 
   std::map<Id, ScaledVesselMeasure>

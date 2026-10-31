@@ -22,6 +22,7 @@
 #include <optional>
 
 #include "background_intersections.h"
+#include "growth_geometry_measure.h"
 namespace ImmersX::Vascularization::internal
 {
   using namespace dealii;
@@ -453,6 +454,11 @@ namespace ImmersX::Vascularization::internal
     configure_length_scale(const std::string &policy, MPI_Comm communicator);
     std::map<Id, std::vector<BackgroundInterval>>
     crossings(const std::map<Id, Segment<3>> &segments, MPI_Comm communicator);
+    GrowthGeometryMeasures
+    measure_segments(const GrowthGeometrySegments &segments,
+                     MPI_Comm                      communicator);
+    void
+    release_profiles(const GrowthGeometrySegments &segments) noexcept;
     void
                                    retain_profiles(const NetworkData &snapshot);
     std::optional<MeshLengthScale> length_scale;
