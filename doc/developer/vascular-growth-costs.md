@@ -118,3 +118,14 @@ alone therefore does not remove the repeated background work. The next
 migration milestone must retain native search state and avoid these paths;
 cache-construction counters alone are insufficient evidence while fresh
 ParticleHandlers remain in the insertion loop.
+
+Nearest-candidate queries use the native incremental RTree query iterator,
+stopping after the requested cutoff and its equal-distance results. Sorting
+these results by distance and physical identifier makes candidate ties
+independent of the tree's insertion history. A conservative floating-point
+guard only broadens the queried results; the final ordering uses the physical
+distance without changing it. Work includes the returned cutoff ties and the
+first result beyond the cutoff. No bounding-box expansion scans distant rank
+partitions to find ties. The exact historical graph can change where the old
+bulk nearest query chose an arbitrary subset of equal-distance vessels;
+benchmark comparisons must retain attempt and geometric-work counts.
