@@ -83,7 +83,7 @@ namespace ImmersX::Vascularization::internal
                 valid = false;
                 continue;
               }
-            send[node->second.owner].push_back({node->first, id, end});
+            send[node->second.owner].push_back({{node->first, id, end}});
           }
       }
     if (

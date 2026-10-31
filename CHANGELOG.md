@@ -431,6 +431,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Verify integrated seed demands, joint territorial proposals and atomic tissue rollback through the growth callback protocol in serial and MPI.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Exercise adaptive tissue quadrature on hexahedra and tetrahedra, including cross-rank finest-cell ownership, rollback, invalid density and budget exhaustion before allocation.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check sparse common-territory quadrature reassignment against exhaustive nearest-centre results, including stable-id MPI ties, exact demand conservation and staged rollback.
