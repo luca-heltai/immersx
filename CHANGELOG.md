@@ -420,6 +420,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check physical tissue-demand quadrature against analytical integrals on locally refined hexahedra and tetrahedra, including empty ranks and integration-budget exhaustion before allocation.
+
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Exercise native vascular transfer and nonzero coupled IDA evolution in Debug and Release, including two- and four-rank MPI runs. Keep independent geometry and output checks and allow the generated Debug application time for Jacobian materialization.
