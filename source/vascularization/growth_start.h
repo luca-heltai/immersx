@@ -7,11 +7,6 @@
 #include <optional>
 
 #include "growth_commit.h"
-namespace dealii
-{
-  template <int dim>
-  class FunctionParser;
-}
 namespace ImmersX::Vascularization::internal
 {
   // Shared deterministic direction policy for real seeds and attachments.
@@ -25,22 +20,39 @@ namespace ImmersX::Vascularization::internal
     const Territory                       *shared,
     double                                 separation);
 
+  struct GrowthPreparation
+  {
+    bool                 prepared = false;
+    ValidationReport     validation;
+    NetworkData          network;
+    std::set<Id>         mutable_owned;
+    std::map<Id, double> fixed_owned_roots;
+  };
+  // For geometrically accepted, unbranched startup subtrees with known fixed
+  // radii. This establishes native authority without interpreting leaf labels
+  // as integrated demands and without any physiological evaluation.
+  GrowthPreparation
+  prepare_growth_start(const dealii::Triangulation<3> &background,
+                       const dealii::Mapping<3>       &mapping,
+                       const NetworkData              &network,
+                       const std::set<Id>             &mutable_owned,
+                       const std::map<Id, double>     &fixed_owned_roots,
+                       double                          halo,
+                       MPI_Comm                        communicator);
   struct AttachmentStartup
   {
-    GrowthCommit accepted;
+    GrowthPreparation accepted;
     // Records remain at the consumed input terminal's native node owner.
     std::map<Id, Id> attachment_roots;
   };
 
   AttachmentStartup
-  start_attachments(const dealii::Triangulation<3>  &background,
-                    const dealii::Mapping<3>        &mapping,
-                    const NetworkData               &initial,
-                    const Parameters                &parameters,
-                    const dealii::FunctionParser<3> &demand,
-                    unsigned int                     terminal_count,
-                    MPI_Comm                         communicator,
-                    BackgroundGeometry              *shared_geometry = nullptr);
+  start_attachments(const dealii::Triangulation<3> &background,
+                    const dealii::Mapping<3>       &mapping,
+                    const NetworkData              &initial,
+                    const Parameters               &parameters,
+                    unsigned int                    terminal_count,
+                    MPI_Comm                        communicator);
 
   struct VenousOutlet
   {
@@ -71,12 +83,10 @@ namespace ImmersX::Vascularization::internal
 
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.
-  GrowthCommit
-  start_seed(const dealii::Triangulation<3>  &background,
-             const dealii::Mapping<3>        &mapping,
-             const Parameters                &parameters,
-             const dealii::FunctionParser<3> &demand,
-             MPI_Comm                         communicator,
-             BackgroundGeometry              *shared_geometry = nullptr);
+  GrowthPreparation
+  start_seed(const dealii::Triangulation<3> &background,
+             const dealii::Mapping<3>       &mapping,
+             const Parameters               &parameters,
+             MPI_Comm                        communicator);
 } // namespace ImmersX::Vascularization::internal
 #endif

@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "growth_start.h"
 
-#include <deal.II/base/function_parser.h>
-
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/string.hpp>
 #include <boost/serialization/utility.hpp>
@@ -15,7 +13,7 @@
 
 #include "distribution_internal.h"
 #include "growth_batch.h"
-#include "growth_work.h"
+#include "growth_demand_callbacks.h"
 namespace ImmersX::Vascularization::internal
 {
   std::vector<dealii::Point<3>>
@@ -75,13 +73,55 @@ namespace ImmersX::Vascularization::internal
     };
   } // namespace
 
-  GrowthCommit
-  start_seed(const dealii::Triangulation<3>  &bg,
-             const dealii::Mapping<3>        &mapping,
-             const Parameters                &p,
-             const dealii::FunctionParser<3> &demand,
-             MPI_Comm                         comm,
-             BackgroundGeometry              *shared_geometry)
+  GrowthPreparation
+  prepare_growth_start(const dealii::Triangulation<3> &bg,
+                       const dealii::Mapping<3>       &mapping,
+                       const NetworkData              &network,
+                       const std::set<Id>             &mutable_owned,
+                       const std::map<Id, double>     &fixed_owned_roots,
+                       double                          halo,
+                       MPI_Comm                        comm)
+  {
+    using namespace dealii;
+    GrowthPreparation result;
+    const auto        rank = Utilities::MPI::this_mpi_process(comm);
+    const auto        size = Utilities::MPI::n_mpi_processes(comm);
+    bool              valid =
+      validate_data(network, size).valid() && std::isfinite(halo) && halo >= 0.;
+    for (Id id : mutable_owned)
+      valid = valid && network.vessels.count(id) &&
+              network.vessels.at(id).owner == rank;
+    for (const auto &[id, radius] : fixed_owned_roots)
+      valid = valid && mutable_owned.count(id) && std::isfinite(radius) &&
+              radius > 0.;
+    if (Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 0)
+      {
+        result.validation.issues.push_back(
+          {"startup",
+           invalid_id,
+           "Startup requires valid geometry and native mutable root controls."});
+        return result;
+      }
+    auto ids   = mutable_owned;
+    auto roots = fixed_owned_roots;
+    auto trial =
+      migrate_growth_forest(bg, mapping, network, ids, roots, halo, comm);
+    auto leaves       = collect_growth_leaf_terminals(trial, ids, comm);
+    result.validation = std::move(leaves.validation);
+    if (!result.validation.valid())
+      return result;
+    result.network           = std::move(trial);
+    result.mutable_owned     = std::move(ids);
+    result.fixed_owned_roots = std::move(roots);
+    result.prepared          = true;
+    return result;
+  }
+
+  GrowthPreparation
+  start_seed(const dealii::Triangulation<3> &bg,
+             const dealii::Mapping<3>       &mapping,
+             const Parameters               &p,
+             MPI_Comm                        comm)
   {
     using namespace dealii;
     const auto rank        = Utilities::MPI::this_mpi_process(comm);
@@ -129,8 +169,8 @@ namespace ImmersX::Vascularization::internal
     require_all(
       valid,
       "Seed writers require matching controls, a first-order background mapping and congruent communicators.");
-    GrowthCommit result;
-    const auto   fail = [&](const std::string &message) {
+    GrowthPreparation result;
+    const auto        fail = [&](const std::string &message) {
       result.validation.issues.push_back({"seed", 0, message});
     };
     const auto normal = normalized_port_normal(p.seed_inward_port_normal);
@@ -239,24 +279,8 @@ namespace ImmersX::Vascularization::internal
         const bool accepted = selected.local.count(0) && selected.local.at(0);
         if (Utilities::MPI::max(static_cast<unsigned int>(accepted), comm) == 0)
           continue;
-        double value        = 0.;
-        bool   valid_demand = true;
-        if (producer)
-          {
-            try
-              {
-                value = demand.value(end);
-              }
-            catch (const std::exception &)
-              {
-                valid_demand = false;
-              }
-            valid_demand = valid_demand && std::isfinite(value) && value > 0.;
-          }
-        require_all(
-          valid_demand,
-          "Tissue demand must be positive and finite at every initial terminal.");
-        count_copy(work, port);
+        // A positive schema label is provisional until the collective tissue
+        // bootstrap assigns every initial leaf its integrated physical demand.
         auto                 trial = port;
         std::set<Id>         mutable_owned;
         std::map<Id, double> roots;
@@ -270,13 +294,20 @@ namespace ImmersX::Vascularization::internal
             vessel.provenance  = Provenance::generated;
             vessel.owner       = rank;
             trial.vessels[0]   = vessel;
-            trial.terminals[0] = {1, 0, System::arterial, rank, value};
+            trial.terminals[0] = {1, 0, System::arterial, rank, 1.};
             mutable_owned.insert(0);
             roots[0] = p.seed_radius;
           }
-        auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, roots, {}, p, comm, &geometry);
-        if (committed.committed)
+        auto committed =
+          prepare_growth_start(bg,
+                               mapping,
+                               trial,
+                               mutable_owned,
+                               roots,
+                               scale.physical_length(p.clearance,
+                                                     scale.maximum()),
+                               comm);
+        if (committed.prepared)
           return committed;
       }
     fail(
@@ -284,14 +315,12 @@ namespace ImmersX::Vascularization::internal
     return result;
   }
   AttachmentStartup
-  start_attachments(const dealii::Triangulation<3>  &bg,
-                    const dealii::Mapping<3>        &mapping,
-                    const NetworkData               &initial,
-                    const Parameters                &p,
-                    const dealii::FunctionParser<3> &demand,
-                    unsigned int                     terminal_count,
-                    MPI_Comm                         comm,
-                    BackgroundGeometry              *shared_geometry)
+  start_attachments(const dealii::Triangulation<3> &bg,
+                    const dealii::Mapping<3>       &mapping,
+                    const NetworkData              &initial,
+                    const Parameters               &p,
+                    unsigned int                    terminal_count,
+                    MPI_Comm                        comm)
   {
     using namespace dealii;
     const auto        rank = Utilities::MPI::this_mpi_process(comm);
@@ -308,7 +337,7 @@ namespace ImmersX::Vascularization::internal
         fail(invalid_id,
              "An input attachment failed validation on another process.");
       if (!all_valid)
-        result.accepted.committed = false;
+        result.accepted.prepared = false;
       return all_valid;
     };
     // Check controls before any rank decides how many geometry rounds to run.
@@ -603,22 +632,11 @@ namespace ImmersX::Vascularization::internal
         for (const auto &proposal : proposals)
           if (selection.local.at(proposal.id))
             {
-              const Id    id    = proposal.id;
-              const auto &item  = pending.at(id);
-              const auto &t     = snapshot.terminals.at(id);
-              auto        v     = snapshot.vessels.at(incoming.at(t.node)[0]);
-              const auto &end   = proposal.changed[0].points[1];
-              double      value = 0.;
-              try
-                {
-                  value = demand.value(end);
-                }
-              catch (const std::exception &)
-                {}
-              if (!std::isfinite(value) || !(value > 0.))
-                fail(
-                  id,
-                  "Tissue demand must be positive and finite at every initial terminal.");
+              const Id    id   = proposal.id;
+              const auto &item = pending.at(id);
+              const auto &t    = snapshot.terminals.at(id);
+              auto        v    = snapshot.vessels.at(incoming.at(t.node)[0]);
+              const auto &end  = proposal.changed[0].points[1];
               trial.nodes[item.node]     = {end,
                                             rank,
                                             Port::none,
@@ -630,7 +648,7 @@ namespace ImmersX::Vascularization::internal
               trial.vessels[item.vessel] = v;
               trial.terminals.erase(id);
               trial.terminals[item.terminal] = {
-                item.node, item.territory, System::arterial, rank, value};
+                item.node, item.territory, System::arterial, rank, 1.};
               mutable_owned.insert(item.vessel);
               roots[item.vessel] = v.radii[0];
               accepted.push_back(id);
@@ -639,9 +657,16 @@ namespace ImmersX::Vascularization::internal
           return result;
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
-        auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, roots, {}, p, comm, &geometry);
-        if (!committed.committed)
+        auto committed =
+          prepare_growth_start(bg,
+                               mapping,
+                               trial,
+                               mutable_owned,
+                               roots,
+                               scale.physical_length(p.clearance,
+                                                     scale.maximum()),
+                               comm);
+        if (!committed.prepared)
           {
             result.accepted = std::move(committed);
             return result;

@@ -13,6 +13,15 @@
 namespace ImmersX::Vascularization::internal
 {
   struct BackgroundGeometry;
+  // Move private mutability and fixed root controls with native vessel owners.
+  NetworkData
+  migrate_growth_forest(const dealii::Triangulation<3> &background,
+                        const dealii::Mapping<3>       &mapping,
+                        const NetworkData              &network,
+                        std::set<Id>                   &mutable_owned,
+                        std::map<Id, double>           &roots,
+                        double                          halo,
+                        MPI_Comm                        communicator);
   struct GrowthSplit
   {
     Id                vessel = invalid_id;

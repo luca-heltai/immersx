@@ -171,3 +171,138 @@ TEST(VascularTissueDemand, BOTH_CallbacksExhaustedPreviewCanBeDiscarded)
   callbacks.prepare_adopt(joint.update.quadrature_revision, 2);
   callbacks.adopt();
 }
+TEST(VascularTissueDemand, BOTH_GeneratorBootstrapsOneSeedBeforePhysiology)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {2, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(2., 1., 1.));
+  Parameters p("/Integrated generator seed/");
+  p.terminal_count_multiplier_factor = "none";
+  p.length_scale                     = "meter";
+  p.seed_position                    = {.2, .5, .5};
+  p.seed_direction                   = {1., 0., 0.};
+  p.seed_length                      = .15;
+  p.seed_radius                      = .01;
+  p.viscosity                        = .004;
+  p.minimum_length                   = 0.;
+  p.coverage.service_radius          = 0.;
+  p.tissue_demand                    = "1+3*x";
+  p.reference_flow                   = 3.e-9;
+  const auto result = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.effective_terminal_count, 1u);
+  EXPECT_EQ(result.accepted_insertions, 0u);
+  const auto   rank   = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  unsigned int leaves = 0;
+  for (const auto &[id, t] : result.network.terminals)
+    if (t.owner == rank)
+      {
+        ++leaves;
+        EXPECT_NEAR(t.demand, 8., 2.e-13);
+        EXPECT_NEAR(result.target_terminal_flows.at(id) / p.reference_flow,
+                    1.,
+                    1.e-13);
+      }
+  EXPECT_EQ(Utilities::MPI::sum(leaves, MPI_COMM_WORLD), 1u);
+  for (const auto &[id, v] : result.network.vessels)
+    if (v.owner == rank)
+      {
+        EXPECT_EQ(v.radii, (std::array<double, 2>{{.01, .01}}));
+        EXPECT_EQ(v.viscosity, .004);
+      }
+  EXPECT_EQ(bg.n_global_active_cells(), 2u);
+}
+TEST(VascularTissueDemand, BOTH_GeneratorBootstrapsAllImportedRootsTogether)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {2, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(2., 1., 1.));
+  const auto  rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  NetworkData input;
+  if (rank == 0)
+    for (Id k = 0; k < 2; ++k)
+      {
+        const Id port = 10 * k, leaf = port + 1;
+        input.nodes[port] = {{.1 + k, .5, .5},
+                             0,
+                             Port::arterial_inlet,
+                             Provenance::imported};
+        input.nodes[leaf] = {{.3 + k, .5, .5},
+                             0,
+                             Port::none,
+                             Provenance::imported};
+        Vessel vessel;
+        vessel.nodes             = {{port, leaf}};
+        vessel.radii             = {{.01, .01}};
+        vessel.viscosity         = .004;
+        input.vessels[100 + k]   = vessel;
+        input.terminals[200 + k] = {
+          leaf, 300 + k, System::arterial, 0, 23. + k};
+      }
+  Parameters p("/Integrated imported generator/");
+  p.terminal_count_multiplier_factor = "none";
+  p.terminal_count                   = 2;
+  p.length_scale                     = "meter";
+  p.seed_direction                   = {1., 0., 0.};
+  p.seed_length                      = .2;
+  p.minimum_length                   = 0.;
+  p.coverage.service_radius          = 0.;
+  p.tissue_demand                    = "1+x";
+  p.reference_flow                   = 4.e-9;
+  const auto result = generate(bg, MappingQ1<3>(), input, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.effective_terminal_count, 2u);
+  EXPECT_EQ(result.accepted_insertions, 0u);
+  unsigned int leaves = 0;
+  double       mass   = 0.;
+  for (const auto &[id, t] : result.network.terminals)
+    if (t.owner == rank)
+      {
+        ++leaves;
+        const auto  &point    = result.network.nodes.at(t.node).position;
+        const double expected = point[0] < 1. ? 1.5 : 2.5;
+        EXPECT_NEAR(t.demand, expected, 2.e-13);
+        EXPECT_NEAR(result.target_terminal_flows.at(id) / (expected * 1.e-9),
+                    1.,
+                    1.e-13);
+        mass += t.demand;
+      }
+  EXPECT_EQ(Utilities::MPI::sum(leaves, MPI_COMM_WORLD), 2u);
+  EXPECT_NEAR(Utilities::MPI::sum(mass, MPI_COMM_WORLD), 4., 2.e-13);
+  for (const auto &[id, v] : result.network.vessels)
+    if (v.owner == rank && (id == 100 || id == 101))
+      {
+        EXPECT_EQ(v.nodes,
+                  (std::array<Id, 2>{{10 * (id - 100), 10 * (id - 100) + 1}}));
+        EXPECT_EQ(v.radii, (std::array<double, 2>{{.01, .01}}));
+        EXPECT_EQ(v.viscosity, .004);
+      }
+}
+TEST(VascularTissueDemand,
+     BOTH_GeneratorBudgetFailureDoesNotPublishProvisionalLeaves)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bg);
+  Parameters p("/Integrated generator failed bootstrap/");
+  p.terminal_count_multiplier_factor  = "none";
+  p.length_scale                      = "meter";
+  p.seed_position                     = {.2, .5, .5};
+  p.seed_direction                    = {1., 0., 0.};
+  p.seed_length                       = .15;
+  p.seed_radius                       = .01;
+  p.viscosity                         = .004;
+  p.minimum_length                    = 0.;
+  p.coverage.service_radius           = 0.;
+  p.tissue_integration.maximum_points = 8;
+  const auto failed = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  EXPECT_FALSE(failed.validation.valid());
+  EXPECT_TRUE(failed.network.nodes.empty());
+  EXPECT_TRUE(failed.network.vessels.empty());
+  EXPECT_TRUE(failed.network.terminals.empty());
+  EXPECT_TRUE(failed.target_terminal_flows.empty());
+  EXPECT_TRUE(failed.territories.empty());
+}
