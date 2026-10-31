@@ -861,13 +861,16 @@ and deal.II installation. The supporting native API is proposed in
 [MetricFlowX #86](https://github.com/luca-heltai/metric-flow-x/pull/86).
 
 Construct the final background first, then generate, validate and prepare the
-flow problem. For example, with a configured native Square root wall model:
+flow problem. For `parameter_snapshot_file`, pass an absolute build-tree filename
+inside the selected output directory. The native overload creates its parents
+and avoids a parameter snapshot in the working directory. For example, with a
+configured native Square root wall model:
 
 ```cpp
 using namespace ImmersX::Vascularization;
 using Flow = MetricFlowX::BloodFlowSystem<1, 3>;
 Flow flow(comm);
-flow.initialize_params(parameter_file);
+flow.initialize_params(parameter_file, parameter_snapshot_file);
 auto result = generate(background, mapping, {}, parameters, comm);
 AssertThrow(result.validation.valid(), dealii::ExcMessage("Generation failed"));
 auto transfer = prepare_metric_flow_x(

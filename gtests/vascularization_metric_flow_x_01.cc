@@ -32,8 +32,12 @@ namespace
         GridGenerator::hyper_cube(background);
         background.refine_global(2);
         Flow flow(comm);
-        flow.initialize_params(ImmersX::TestPaths::parameter_path(
-          "gtests/parameters/vascularization_metric_flow_x.prm"));
+        flow.initialize_params(
+          ImmersX::TestPaths::parameter_path(
+            "gtests/parameters/vascularization_metric_flow_x.prm"),
+          ImmersX::TestPaths::output_path(
+            "vascular-metric-flow-x/last_used_parameters.prm")
+            .string());
         GenerationResult result;
         if (rank == 0 || rank == last)
           {
