@@ -494,6 +494,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Mark unsupported native MetricFlowX input and generated-flow checks as skipped using stable capability messages, including exceptions whose text wraps onto another line.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Verify integrated seed demands, joint territorial proposals and atomic tissue rollback through the growth callback protocol in serial and MPI.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Exercise adaptive tissue quadrature on hexahedra and tetrahedra, including cross-rank finest-cell ownership, rollback, invalid density and budget exhaustion before allocation.
