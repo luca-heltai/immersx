@@ -31,6 +31,7 @@ set(_public_headers
     immersx/vascularization/io.h
     immersx/vascularization/distribution.h
     immersx/vascularization/reference_flow.h
+    immersx/vascularization/mesh_scale.h
     immersx/vascularization/metrics.h
     immersx/vascularization/discretization.h
     immersx/vascularization/generation.h

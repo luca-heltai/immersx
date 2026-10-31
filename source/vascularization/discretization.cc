@@ -21,6 +21,8 @@
 #include <optional>
 #include <set>
 
+#include "background_intersections.h"
+
 namespace ImmersX::Vascularization
 {
   namespace
@@ -29,18 +31,7 @@ namespace ImmersX::Vascularization
     namespace bgi                        = boost::geometry::index;
     constexpr double reference_tolerance = 1.e-12;
 
-    struct Interval
-    {
-      double              begin, end, h;
-      types::subdomain_id owner;
-
-      template <class Archive>
-      void
-      serialize(Archive &ar, const unsigned int)
-      {
-        ar &begin &end &h &owner;
-      }
-    };
+    using Interval = internal::BackgroundInterval;
 
     Point<3>
     point(const Segment<3> &s, double t)
@@ -248,10 +239,10 @@ namespace ImmersX::Vascularization
     // Only coarse background boxes are replicated. Physical owners obtain
     // exact positive-arclength intersections from the relevant cell owners.
     std::map<Id, std::vector<Interval>>
-    distributed_intervals(const GridTools::Cache<3> &cache,
-                          const Mapping<3>          &mapping,
-                          const NetworkData         &network,
-                          MPI_Comm                   comm)
+    distributed_intervals(const GridTools::Cache<3>      &cache,
+                          const Mapping<3>               &mapping,
+                          const std::map<Id, Segment<3>> &segments,
+                          MPI_Comm                        comm)
     {
       const auto  rank = Utilities::MPI::this_mpi_process(comm);
       const auto  size = Utilities::MPI::n_mpi_processes(comm);
@@ -268,22 +259,18 @@ namespace ImmersX::Vascularization
       using Query              = std::pair<Id, std::array<Point<3>, 2>>;
       std::map<unsigned int, std::vector<Query>> queries;
       std::map<Id, std::vector<Interval>>        result;
-      for (const auto &[id, vessel] : network.vessels)
-        if (vessel.owner == rank)
-          {
-            const std::array<Point<3>, 2> endpoints{
-              {network.nodes.at(vessel.nodes[0]).position,
-               network.nodes.at(vessel.nodes[1]).position}};
-            const Segment<3> segment(endpoints[0], endpoints[1]);
-            result[id];
-            std::set<unsigned int> recipients;
-            for (const auto &[box, source] :
-                 covering_tree |
-                   bgi::adaptors::queried(bgi::intersects(segment)))
-              recipients.insert(source);
-            for (const auto source : recipients)
-              queries[source].push_back({id, endpoints});
-          }
+      for (const auto &[id, segment] : segments)
+        {
+          const std::array<Point<3>, 2> endpoints{
+            {segment.first, segment.second}};
+          result[id];
+          std::set<unsigned int> recipients;
+          for (const auto &[box, source] :
+               covering_tree | bgi::adaptors::queried(bgi::intersects(segment)))
+            recipients.insert(source);
+          for (const auto source : recipients)
+            queries[source].push_back({id, endpoints});
+        }
       const auto incoming = Utilities::MPI::some_to_some(comm, queries);
       std::map<unsigned int, std::map<Id, std::vector<Interval>>> replies;
       for (const auto &[source, requests] : incoming)
@@ -311,10 +298,7 @@ namespace ImmersX::Vascularization
           for (std::size_t i = 1; i < cuts.size(); ++i)
             {
               const double middle = .5 * (cuts[i - 1] + cuts[i]);
-              Interval     selected{cuts[i - 1],
-                                cuts[i],
-                                0.,
-                                network.vessels.at(id).owner};
+              Interval     selected{cuts[i - 1], cuts[i], 0., rank};
               for (const auto &interval : intervals)
                 if (interval.begin < middle && middle < interval.end)
                   {
@@ -376,6 +360,16 @@ namespace ImmersX::Vascularization
       return result;
     }
   } // namespace
+
+  std::map<Id, std::vector<internal::BackgroundInterval>>
+  internal::intersect_background(
+    const dealii::GridTools::Cache<3>      &cache,
+    const dealii::Mapping<3>               &mapping,
+    const std::map<Id, dealii::Segment<3>> &segments,
+    MPI_Comm                                communicator)
+  {
+    return distributed_intervals(cache, mapping, segments, communicator);
+  }
 
   void
   DiscretizationParameters::validate() const
@@ -474,8 +468,17 @@ namespace ImmersX::Vascularization
       exterior_h > 0.,
       ExcMessage(
         "A nonempty background or an explicit exterior target length is required."));
-    const auto crossings =
-      distributed_intervals(cache, mapping, network, communicator);
+    std::map<Id, Segment<3>> owned_segments;
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == rank)
+        owned_segments.emplace(
+          id,
+          Segment<3>(network.nodes.at(vessel.nodes[0]).position,
+                     network.nodes.at(vessel.nodes[1]).position));
+    const auto crossings       = internal::intersect_background(cache,
+                                                          mapping,
+                                                          owned_segments,
+                                                          communicator);
     const auto subdivide_owned = [&]() {
       for (const auto &[id, e] : network.vessels)
         {
