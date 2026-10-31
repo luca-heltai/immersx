@@ -249,9 +249,9 @@ namespace ImmersX::Vascularization::internal
       return;
     for (const auto &[id, b] : branches)
       if (b.topology.parent == invalid_id)
-        root_positions.emplace(id, root_positions.size());
+        owned_roots.insert(id);
     std::map<unsigned int, std::map<Id, unsigned int>> root_registrations;
-    for (const auto &[id, position] : root_positions)
+    for (Id id : owned_roots)
       root_registrations[id % size].emplace(id, rank);
     const auto registered_roots =
       Utilities::MPI::some_to_some(comm, root_registrations);
@@ -264,18 +264,33 @@ namespace ImmersX::Vascularization::internal
                comm,
                "Each physical root needs one authoritative directory entry."))
       return;
-    while (root_capacity < root_positions.size())
-      root_capacity *= 2;
-    root_sums.resize(2 * root_capacity);
-    for (const auto &[id, position] : root_positions)
-      root_sums[root_capacity + position] =
-        root_value(id, branches.at(id).value);
-    for (std::size_t i = root_capacity; i-- > 1;)
+    // Prefix keys retain physical identifiers. Root migration can remove or
+    // insert one leaf without renumbering or rebuilding the other roots.
+    constexpr auto bits = std::numeric_limits<Id>::digits;
+    std::set<GrowthRootSumKey, std::greater<GrowthRootSumKey>> parents;
+    for (Id id : owned_roots)
+      {
+        root_sums[{bits, id}] = root_value(id, branches.at(id).value);
+        for (auto key = GrowthRootSumKey{bits, id}; key.first > 0;)
+          {
+            --key.first;
+            key.second >>= 1;
+            parents.insert(key);
+          }
+      }
+    const std::array<long double, 6> zero{};
+    const auto                       get =
+      [&](GrowthRootSumKey key) -> const std::array<long double, 6> & {
+      const auto found = root_sums.find(key);
+      return found == root_sums.end() ? zero : found->second;
+    };
+    for (auto key : parents)
       for (unsigned int j = 0; j < 6; ++j)
-        root_sums[i][j] = root_sums[2 * i][j] + root_sums[2 * i + 1][j];
+        root_sums[key][j] = get({key.first + 1, key.second << 1})[j] +
+                            get({key.first + 1, (key.second << 1) | Id{1}})[j];
     for (unsigned int j = 0; j < 6; ++j)
       {
-        accepted_totals[j] = Utilities::MPI::sum(root_sums[1][j], comm);
+        accepted_totals[j] = Utilities::MPI::sum(get({0, 0})[j], comm);
         valid = std::isfinite(accepted_totals[j]) && accepted_totals[j] >= 0. &&
                 valid;
       }
@@ -351,22 +366,27 @@ namespace ImmersX::Vascularization::internal
   {
     AssertThrow(
       report.valid() && preview.validation.valid() &&
-        preview.snapshot_revision == revision && root_positions.count(id),
+        preview.snapshot_revision == revision && owned_roots.count(id),
       dealii::ExcMessage(
         "A root view requires a current valid preview on its authoritative root owner."));
     GrowthDemandRootView result;
-    result.summary = summary(id, preview);
-    result.radius  = branches.at(id).topology.root_radius;
-    result.gamma   = branches.at(id).gamma;
-    result.system  = branches.at(id).system;
-    for (auto i = root_capacity + root_positions.at(id); i > 1; i /= 2)
+    result.summary      = summary(id, preview);
+    result.radius       = branches.at(id).topology.root_radius;
+    result.gamma        = branches.at(id).gamma;
+    result.system       = branches.at(id).system;
+    constexpr auto bits = std::numeric_limits<Id>::digits;
+    for (auto key = GrowthRootSumKey{bits, id}; key.first > 0;)
       {
-        const auto  sibling = i ^ std::size_t(1);
-        const auto  found   = preview.root_sums.find(sibling);
-        const auto &value =
-          found == preview.root_sums.end() ? root_sums[sibling] : found->second;
+        const GrowthRootSumKey sibling{key.first, key.second ^ Id{1}};
+        const auto             changed  = preview.root_sums.find(sibling);
+        const auto             accepted = root_sums.find(sibling);
         for (unsigned int j = 0; j < 6; ++j)
-          result.other_local[j] += value[j];
+          result.other_local[j] +=
+            changed != preview.root_sums.end() ? changed->second[j] :
+            accepted != root_sums.end()        ? accepted->second[j] :
+                                                 0.;
+        --key.first;
+        key.second >>= 1;
       }
     return result;
   }
@@ -553,24 +573,35 @@ namespace ImmersX::Vascularization::internal
       return result;
     // Patch only the paths of changed roots in the positive sum tree. A
     // disappearing dominant contribution cannot erase small retained roots.
-    auto &changed_sums = result.root_sums;
-    std::set<std::size_t, std::greater<std::size_t>> parents;
+    auto          &changed_sums = result.root_sums;
+    constexpr auto bits         = std::numeric_limits<Id>::digits;
+    std::set<GrowthRootSumKey, std::greater<GrowthRootSumKey>> parents;
     for (const auto &[id, value] : result.owned)
-      if (root_positions.count(id))
+      if (owned_roots.count(id))
         {
-          const auto position    = root_capacity + root_positions.at(id);
-          changed_sums[position] = root_value(id, value);
-          for (auto i = position / 2; i > 0; i /= 2)
-            parents.insert(i);
+          changed_sums[{bits, id}] = root_value(id, value);
+          for (auto key = GrowthRootSumKey{bits, id}; key.first > 0;)
+            {
+              --key.first;
+              key.second >>= 1;
+              parents.insert(key);
+            }
         }
-    const auto get = [&](std::size_t i) -> const std::array<long double, 6> & {
-      const auto found = changed_sums.find(i);
-      return found == changed_sums.end() ? root_sums[i] : found->second;
+    const std::array<long double, 6> zero{};
+    const auto                       get =
+      [&](GrowthRootSumKey key) -> const std::array<long double, 6> & {
+      const auto changed = changed_sums.find(key);
+      if (changed != changed_sums.end())
+        return changed->second;
+      const auto accepted = root_sums.find(key);
+      return accepted == root_sums.end() ? zero : accepted->second;
     };
-    for (auto i : parents)
+    for (auto key : parents)
       for (unsigned int j = 0; j < 6; ++j)
-        changed_sums[i][j] = get(2 * i)[j] + get(2 * i + 1)[j];
-    result.rank_totals = Utilities::MPI::all_gather(comm, get(1));
+        changed_sums[key][j] =
+          get({key.first + 1, key.second << 1})[j] +
+          get({key.first + 1, (key.second << 1) | Id{1}})[j];
+    result.rank_totals = Utilities::MPI::all_gather(comm, get({0, 0}));
     for (const auto &rank_sum : result.rank_totals)
       for (unsigned int j = 0; j < 6; ++j)
         result.totals[j] += rank_sum[j];
