@@ -23,7 +23,9 @@
 #include "../source/vascularization/growth_demand.h"
 #include "../source/vascularization/growth_demand_callbacks.h"
 #include "../source/vascularization/growth_demand_state.h"
+#include "../source/vascularization/growth_execution.h"
 #include "../source/vascularization/growth_loop.h"
+#include "../source/vascularization/growth_ownership_delta.h"
 #include "../source/vascularization/growth_paths.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
@@ -2507,4 +2509,183 @@ TEST(VascularForest, BOTH_DemandStateTracksPowerWithoutObjectiveWeight)
   const long double power =
     p.reference_flow * p.reference_flow * totals[2] / totals[0] / totals[0];
   EXPECT_NEAR(static_cast<double>(power / accepted.power[0]), 1., 2.e-13);
+}
+
+TEST(VascularForest,
+     BOTH_PhysicalDemandJournalStagesConcurrentEditsAndRollsBack)
+{
+  for (unsigned int scenario : {0u, 1u, 2u})
+    {
+      const bool                              concurrent = scenario == 1;
+      parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+      background(bg);
+      MappingQ1<3> mapping;
+      auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+      Parameters   p;
+      p.reference_flow     = 2.e-9;
+      p.dissipation_weight = .3;
+      const auto accepted  = evaluate(n, p);
+      ASSERT_TRUE(accepted.validation.valid());
+      GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
+      ASSERT_TRUE(state.validation().valid());
+      GrowthWork                        work;
+      GrowthExecution                   execution(state, &work);
+      std::map<Id, GrowthDemandSummary> original;
+      for (const auto &[id, b] : accepted.owned)
+        original.emplace(id, state.summary(id));
+      std::vector<GrowthSplit> written;
+      for (unsigned int j = 0; j < (concurrent ? 2u : 1u); ++j)
+        {
+          const Id   id     = base + (scenario == 2 ? 14 : 11 + j);
+          const auto vessel = n.vessels.find(id);
+          if (vessel == n.vessels.end() || vessel->second.owner != rank())
+            continue;
+          GrowthSplit s;
+          s.vessel            = id;
+          s.owner             = rank();
+          s.old_nodes         = vessel->second.nodes;
+          s.old_points        = {{n.nodes.at(s.old_nodes[0]).position,
+                                  n.nodes.at(s.old_nodes[1]).position}};
+          s.junction          = base + 1000 + 10 * j;
+          s.tip               = s.junction + 1;
+          s.continuation      = s.junction;
+          s.leaf              = s.junction + 1;
+          s.terminal          = s.junction;
+          s.territory         = s.junction;
+          s.junction_position = .5 * (s.old_points[0] + s.old_points[1]);
+          s.tip_position      = s.junction_position + Point<3>(.1, .15, .1);
+          s.demand            = 2.5 + j;
+          written.push_back(s);
+        }
+      std::vector<GrowthSplit> splits;
+      for (const auto &part :
+           Utilities::MPI::all_gather(MPI_COMM_WORLD, written))
+        splits.insert(splits.end(), part.begin(), part.end());
+      ASSERT_EQ(splits.size(), concurrent ? 2u : 1u);
+      std::vector<GrowthSplit> local;
+      if (rank() == 0)
+        local = splits;
+      BackgroundGeometry geometry(bg, mapping);
+      const auto         delta =
+        prepare_growth_ownership(n, local, geometry, MPI_COMM_WORLD);
+      ASSERT_TRUE(delta.validation.valid());
+      GrowthGeometryMeasures measures;
+      for (Id id : delta.changed_owned)
+        measures.emplace(
+          id, GrowthGeometryMeasure{length(delta.owned, id), 1., 1., true});
+      GrowthDemandJointUpdate joint;
+      joint.update.snapshot_revision = 7;
+      if (rank() == size() - 1)
+        {
+          joint.update.terminals = {{base + 30, .5},
+                                    {base + 31, .75},
+                                    {base + 131, 2.25}};
+          for (const auto &s : splits)
+            joint.new_terminals.push_back({s.terminal, s.demand});
+        }
+      auto full = n;
+      for (auto &[id, terminal] : full.terminals)
+        if (terminal.owner == rank())
+          {
+            if (id == base + 30)
+              terminal.demand = .5;
+            if (id == base + 31)
+              terminal.demand = .75;
+            if (id == base + 131)
+              terminal.demand = 2.25;
+          }
+      for (const auto &s : splits)
+        if (rank() == s.owner)
+          {
+            ASSERT_TRUE(apply_growth_split(full, s));
+          }
+      full              = redistribute(bg, mapping, full, 0., MPI_COMM_WORLD);
+      auto mutable_full = mutable_ids(full);
+      for (const auto &[id, vessel] : full.vessels)
+        if (vessel.owner == rank() && delta.vessel_owners.count(id))
+          mutable_full.insert(id);
+      const auto oracle =
+        evaluate_forest(full, mutable_full, roots(full), p, MPI_COMM_WORLD);
+      ASSERT_TRUE(oracle.validation.valid()) << issues(oracle);
+      auto check = [&](const GrowthDemandPreview &preview) {
+        ASSERT_TRUE(preview.validation.valid());
+        std::map<Id, unsigned int> requests;
+        for (Id id : mutable_full)
+          requests.emplace(id, rank());
+        const auto edges = state.physical_edges(full, preview, requests);
+        ASSERT_TRUE(edges.validation.valid());
+        for (const auto &[id, branch] : oracle.owned)
+          {
+            const auto &actual = edges.records.at(id);
+            EXPECT_NEAR(static_cast<double>(
+                          actual.demand /
+                          (branch.demand * oracle.demand_scale)),
+                        1.,
+                        2.e-13);
+            EXPECT_NEAR(actual.edge.radius / branch.radius, 1., 2.e-13);
+            EXPECT_EQ(state.topology(id).parent, branch.parent);
+            EXPECT_EQ(state.topology(id).parent_owner, branch.parent_owner);
+            EXPECT_EQ(state.topology(id).children, branch.children);
+            EXPECT_EQ(state.topology(id).terminal, branch.terminal);
+            if (branch.terminal != invalid_id)
+              {
+                EXPECT_EQ(state.topology(id).terminal_owner,
+                          branch.terminal_owner);
+              }
+          }
+        EXPECT_NEAR(static_cast<double>(preview.totals[1] / oracle.volume[0]),
+                    1.,
+                    2.e-13);
+        const long double power = p.reference_flow * p.reference_flow *
+                                  preview.totals[2] / preview.totals[0] /
+                                  preview.totals[0];
+        EXPECT_NEAR(static_cast<double>(power / oracle.power[0]), 1., 2.e-13);
+      };
+      const auto &initial = execution.prepare(delta, joint, measures);
+      check(initial);
+      EXPECT_EQ(work[GrowthOperation::physiology_branch_visits],
+                initial.recomputed_branches);
+      EXPECT_GE(work[GrowthOperation::transaction_records],
+                initial.recomputed_branches);
+      execution.discard();
+      EXPECT_GT(Utilities::MPI::sum(work[GrowthOperation::rollback_records],
+                                    MPI_COMM_WORLD),
+                0u);
+      for (const auto &[id, value] : original)
+        {
+          const auto &actual = state.summary(id);
+          EXPECT_EQ(actual.mass, value.mass);
+          EXPECT_EQ(actual.volume_length, value.volume_length);
+          EXPECT_EQ(actual.resistance_length, value.resistance_length);
+          EXPECT_EQ(actual.minimum_ratio, value.minimum_ratio);
+          EXPECT_EQ(actual.minimum_scaled_ratio, value.minimum_scaled_ratio);
+          EXPECT_EQ(actual.leaves, value.leaves);
+        }
+      GrowthDemandUpdate old;
+      old.snapshot_revision = 7;
+      const auto restored   = state.preview(old);
+      ASSERT_TRUE(restored.validation.valid());
+      EXPECT_EQ(restored.totals, state.totals());
+      auto malformed = measures;
+      if (!malformed.empty())
+        malformed.begin()->second.complete = false;
+      EXPECT_FALSE(
+        execution.prepare(delta, joint, malformed).validation.valid());
+      execution.discard();
+      check(execution.prepare(delta, joint, measures));
+      execution.adopt();
+      old.snapshot_revision = 8;
+      const auto adopted    = state.preview(old);
+      check(adopted);
+      EXPECT_EQ(adopted.totals, state.totals());
+      // A later absolute update must reach the newly remapped native leaf.
+      GrowthDemandUpdate later;
+      later.snapshot_revision = 8;
+      if (rank() == 0)
+        {
+          later.terminals.push_back({splits.front().terminal, 1.75});
+          later.terminals.push_back({base + 31, .875});
+        }
+      EXPECT_TRUE(state.preview(later).validation.valid());
+    }
 }

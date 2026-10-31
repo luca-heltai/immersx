@@ -652,6 +652,14 @@ namespace ImmersX::Vascularization::internal
     auto          &changed_sums = result.root_sums;
     constexpr auto bits         = std::numeric_limits<Id>::digits;
     std::set<GrowthRootSumKey, std::greater<GrowthRootSumKey>> parents;
+    for (const auto &[key, value] : changed_sums)
+      if (key.first == bits)
+        for (auto parent = key; parent.first > 0;)
+          {
+            --parent.first;
+            parent.second >>= 1;
+            parents.insert(parent);
+          }
     for (const auto &[id, value] : result.owned)
       if (owned_roots.count(id))
         {

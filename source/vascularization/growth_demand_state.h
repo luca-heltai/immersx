@@ -151,6 +151,15 @@ namespace ImmersX::Vascularization::internal
       bool                              with_resistance = false;
       std::map<Id, GrowthDemandSummary> children;
       GrowthDemandSummary               value;
+      template <class Archive>
+      void
+      serialize(Archive &ar, unsigned int)
+      {
+        ar &topology &length &viscosity &gamma &leaf_demand &system;
+        ar &geometry.normalized_length &geometry.radius_scale;
+        ar &geometry.clearance_scale  &geometry.complete;
+        ar &with_resistance &children &value;
+      }
     };
     struct DirectoryEntry
     {
