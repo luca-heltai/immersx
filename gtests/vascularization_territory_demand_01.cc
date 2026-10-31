@@ -307,3 +307,18 @@ TEST(VascularTissueDemand,
   EXPECT_THROW(TerritoryDemand(points, {duplicate}, MPI_COMM_WORLD),
                ExceptionBase);
 }
+TEST(VascularTissueDemand, BOTH_SingleSeedDoesNotGatherTheQuadratureCloud)
+{
+  const auto      points = samples(2048);
+  const auto      seed   = centre(1, .25, 0);
+  TerritoryDemand state(points, local({seed}), MPI_COMM_WORLD);
+  EXPECT_EQ(Utilities::MPI::sum(state.initialization_work().nearest_queries,
+                                MPI_COMM_WORLD),
+            0u);
+  EXPECT_EQ(Utilities::MPI::sum(state.initialization_work().nearest_hits,
+                                MPI_COMM_WORLD),
+            0u);
+  bootstrap(state);
+  EXPECT_DOUBLE_EQ(state.total_demand(), 1.);
+  oracle(state, points, {seed});
+}

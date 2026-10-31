@@ -76,6 +76,9 @@ namespace ImmersX::Vascularization::internal
     void
     discard();
 
+    const TerritoryDemandWork &
+    initialization_work() const;
+
     // Bootstrap/final diagnostics, not per-insertion scans. Demands belong to
     // terminalId % P, independently of physical terminal migration.
     std::vector<TerminalDemandUpdate>

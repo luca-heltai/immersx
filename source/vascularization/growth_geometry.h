@@ -237,12 +237,14 @@ namespace ImmersX::Vascularization::internal
     double                diameter = 0., volume = 0.;
     Point<3>              center;
     std::vector<Point<3>> vertices;
-    unsigned int          point_owner = numbers::invalid_unsigned_int;
+    // The lowest containing rank need not own the selected finest cell.
+    unsigned int point_owner = numbers::invalid_unsigned_int;
+    unsigned int cell_owner  = numbers::invalid_unsigned_int;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      ar &id &diameter &volume &center &vertices &point_owner;
+      ar &id &diameter &volume &center &vertices &point_owner &cell_owner;
     }
   };
 

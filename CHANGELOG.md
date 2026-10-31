@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add mesh-owned tissue quadrature refinement with explicit global point and refinement budgets. Preserve the background mesh and stage resolution changes with territorial demand journals.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply one background length policy to vascular seeds and imported attachments, whole-branch minimum length and radius, symmetric variable clearance, venous separation and tissue-local coverage. Preserve physical input and solver units, and report mesh bounds, count decisions and normalized vessel geometry.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Evaluate geometric vascular coverage with a service distance relative to each tissue quadrature point, preserving physical volume weights and routing remote terminals across the largest service reach.
@@ -428,6 +430,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Exercise adaptive tissue quadrature on hexahedra and tetrahedra, including cross-rank finest-cell ownership, rollback, invalid density and budget exhaustion before allocation.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check sparse common-territory quadrature reassignment against exhaustive nearest-centre results, including stable-id MPI ties, exact demand conservation and staged rollback.
 
