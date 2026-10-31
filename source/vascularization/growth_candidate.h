@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #ifndef immersx_internal_growth_candidate_h
 #define immersx_internal_growth_candidate_h
+#include <immersx/vascularization/growth_work.h>
+
 #include <functional>
 #include <limits>
 
@@ -25,6 +27,22 @@ namespace ImmersX::Vascularization
         ar &edge &demand &viscosity &owner &port_normals &node_owners;
       }
     };
+    // Physical demand and moments relative to this subtree demand.
+    struct GrowthSubtreePhysiology
+    {
+      long double demand = 0., volume_length = 0., resistance_length = 0.;
+      long double minimum_ratio = 1.;
+    };
+    struct GrowthCandidatePhysiology
+    {
+      std::vector<GrowthSubtreePhysiology>               path;
+      std::vector<std::map<Id, GrowthSubtreePhysiology>> children;
+      long double other_volume = 0., other_power_coefficient = 0.;
+      long double final_system_demand = 0.;
+      double      reference_volume    = 0.;
+      // Accepted power / Q^2, evaluated without dividing underflowed SI power.
+      long double reference_resistance = 0.;
+    };
     // Only the selected branch and its actual ancestors, ordered towards the
     // physical root. Root moments include ALL branches of that rooted tree.
     struct GrowthCandidateContext
@@ -36,13 +54,15 @@ namespace ImmersX::Vascularization
       double volume_sum = 0., dissipation_sum = 0.;
       double total_demand = 0., demand_scale = 1., murray_exponent = 3.;
       double forest_volume = 0., forest_power_numerator = 0.;
+      double minimum_scale = 1.;
+      std::optional<GrowthCandidatePhysiology> physiology;
     };
     struct GrowthCandidate
     {
       Id                vessel = invalid_id;
       dealii::Point<3>  junction, terminal;
       std::vector<Id>   ancestors;
-      double            volume_sum = 0., dissipation_sum = 0.;
+      long double       volume_sum = 0., dissipation_sum = 0.;
       double            cost = std::numeric_limits<double>::infinity();
       double            terminal_demand = 1.;
       std::vector<Edge> changed;
