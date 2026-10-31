@@ -193,6 +193,7 @@ run. Pass `--ranks 2 --mpiexec /path/to/mpirun` to the runner for an MPI run; it
 invariant checks apply to the combined owned records. MPI scaling benchmarks
 are separate from these small illustrated cases.
 
+(vascular-measured-mpi-growth)=
 ## Measured MPI growth
 
 These measurements use three random seeds (`23`, `24`, `25`) for every
