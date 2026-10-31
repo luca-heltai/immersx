@@ -5,6 +5,59 @@
 #include <immersx/vascularization/generation.h>
 namespace ImmersX::Vascularization::internal
 {
+  std::optional<GrowthCandidateRadii>
+  candidate_radii(const GrowthCandidateContext &x,
+                  double                        new_demand,
+                  GrowthWork                   *work)
+  {
+    AssertThrow(!x.path.empty() && x.path.back().edge.id == x.root &&
+                  (!x.physiology || x.physiology->path.size() == x.path.size()),
+                dealii::ExcMessage(
+                  "Trial radii require a complete current ancestral path."));
+    if (!std::isfinite(new_demand) || new_demand <= 0. ||
+        !std::isfinite(x.root_radius) || x.root_radius <= 0. ||
+        !std::isfinite(x.murray_exponent) || x.murray_exponent <= 0.)
+      return {};
+    const auto build =
+      [&](auto        root_demand,
+          auto        increment,
+          const auto &demand_at) -> std::optional<GrowthCandidateRadii> {
+      using Scalar       = decltype(root_demand);
+      const Scalar total = root_demand + increment;
+      if (!std::isfinite(root_demand) || root_demand <= 0. ||
+          !std::isfinite(increment) || increment <= 0. ||
+          !std::isfinite(total) || total <= 0.)
+        return {};
+      const Scalar         exponent = Scalar(1) / Scalar(x.murray_exponent);
+      GrowthCandidateRadii result;
+      result.root               = x.root;
+      result.physical_precision = x.physiology.has_value();
+      result.sibling_scale      = std::pow(root_demand / total, exponent);
+      if (!std::isfinite(result.sibling_scale) || result.sibling_scale <= 0.)
+        return {};
+      for (std::size_t i = 0; i < x.path.size(); ++i)
+        {
+          count_work(work, GrowthOperation::candidate_path_visits);
+          const Scalar demand = demand_at(i);
+          const double radius =
+            Scalar(x.root_radius) *
+            std::pow((demand + increment) / total, exponent);
+          if (!std::isfinite(demand) || demand <= 0. ||
+              !std::isfinite(radius) || radius <= 0.)
+            return {};
+          result.path_radii.emplace(x.path[i].edge.id, radius);
+        }
+      return result;
+    };
+    if (x.physiology)
+      return build(x.physiology->path.back().demand,
+                   static_cast<long double>(new_demand),
+                   [&](std::size_t i) { return x.physiology->path[i].demand; });
+    return build(x.root_demand,
+                 new_demand / x.demand_scale,
+                 [&](std::size_t i) { return x.path[i].demand; });
+  }
+
   namespace
   {
     std::optional<GrowthCandidate>

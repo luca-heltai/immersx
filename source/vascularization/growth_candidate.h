@@ -57,6 +57,31 @@ namespace ImmersX::Vascularization
       double minimum_scale = 1.;
       std::optional<GrowthCandidatePhysiology> physiology;
     };
+    // Trial obstacle radii for a single insertion. Baseline obstacle radii
+    // must already describe the same old-demand preview as the context.
+    struct GrowthCandidateRadii
+    {
+      Id                   root               = invalid_id;
+      long double          sibling_scale      = 1.;
+      bool                 physical_precision = false;
+      std::map<Id, double> path_radii;
+      double
+      operator()(Id vessel, Id obstacle_root, double baseline_radius) const
+      {
+        if (obstacle_root != root)
+          return baseline_radius;
+        const auto found = path_radii.find(vessel);
+        if (found != path_radii.end())
+          return found->second;
+        if (physical_precision)
+          return static_cast<long double>(baseline_radius) * sibling_scale;
+        return baseline_radius * static_cast<double>(sibling_scale);
+      }
+    };
+    std::optional<GrowthCandidateRadii>
+    candidate_radii(const GrowthCandidateContext &context,
+                    double                        new_demand,
+                    GrowthWork                   *work = nullptr);
     struct GrowthCandidate
     {
       Id                vessel = invalid_id;

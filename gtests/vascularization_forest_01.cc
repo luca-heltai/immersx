@@ -2980,3 +2980,202 @@ TEST(VascularForest,
   EXPECT_EQ(Utilities::pack(execution.materialize().network, false),
             Utilities::pack(direct.materialize().network, false));
 }
+
+TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.minimum_angle = 1.;
+  auto accepted   = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  for (const auto &[id, branch] : accepted.owned)
+    n.vessels.at(id).radii = {{branch.radius, branch.radius}};
+  n                = redistribute(bg, mapping, n, 0., MPI_COMM_WORLD);
+  accepted         = evaluate(n, p);
+  const auto meter = [](const GrowthGeometrySegments &segments) {
+    GrowthGeometryMeasures result;
+    for (const auto &[id, s] : segments)
+      result.emplace(
+        id, GrowthGeometryMeasure{s.first.distance(s.second), 1., 1., true});
+    return result;
+  };
+  GrowthGeometrySegments     segments;
+  std::map<Id, unsigned int> native;
+  for (const auto &[id, v] : n.vessels)
+    if (v.owner == rank())
+      {
+        segments.emplace(id,
+                         Segment<3>{n.nodes.at(v.nodes[0]).position,
+                                    n.nodes.at(v.nodes[1]).position});
+        native.emplace(id, rank());
+      }
+  std::map<Id, unsigned int> owners;
+  for (const auto &part : Utilities::MPI::all_gather(MPI_COMM_WORLD, native))
+    owners.insert(part.begin(), part.end());
+  GrowthWork         work;
+  BackgroundGeometry geometry(bg, mapping);
+  GrowthExecution    execution(n,
+                            accepted,
+                            p,
+                            7,
+                            geometry,
+                            meter(segments),
+                            meter,
+                               {},
+                            0.,
+                            MPI_COMM_WORLD,
+                            &work);
+  ASSERT_TRUE(execution.validation().valid());
+  const auto                 snapshot = execution.accepted_snapshot();
+  const unsigned int         producer = size() - 1;
+  std::map<Id, unsigned int> requests;
+  if (rank() == producer)
+    requests.emplace(base + 13, owners.at(base + 13));
+  for (unsigned int scenario = 0; scenario < 4; ++scenario)
+    {
+      GrowthDemandUpdate update;
+      update.snapshot_revision = 7;
+      if (rank() == 0 && scenario != 0)
+        {
+          update.terminals = {{base + 30, .5}, {base + 131, 2.25}};
+          if (scenario == 2)
+            update.terminals = {{base + 30, 1.e6}, {base + 131, .01}};
+          if (scenario == 3)
+            update.terminals = {{base + 30, .01},
+                                {base + 31, .01},
+                                {base + 32, .01},
+                                {base + 131, 1.e6}};
+        }
+      const auto preview = snapshot.demand().preview(update);
+      ASSERT_TRUE(preview.validation.valid());
+      const double new_demand = scenario == 3 ? .005 : 2.5;
+      const auto   paths = snapshot.demand().candidate_paths(snapshot.network(),
+                                                           preview,
+                                                           requests,
+                                                           base + 1000,
+                                                           base + 1000,
+                                                           new_demand,
+                                                           1.,
+                                                           &work);
+      ASSERT_TRUE(paths.validation.valid());
+      const std::optional<Point<3>> target =
+        rank() == producer ? std::optional<Point<3>>(Point<3>(3., .8, .7)) :
+                             std::nullopt;
+      const auto before = work;
+      const auto obstacles =
+        execution.candidate_obstacles(snapshot,
+                                      preview,
+                                      paths.contexts,
+                                      target,
+                                      rank() == producer ? new_demand : 0.,
+                                      producer);
+      ASSERT_TRUE(obstacles.validation.valid());
+      EXPECT_TRUE(snapshot.current());
+      EXPECT_EQ(work[GrowthOperation::materialized_vessels],
+                before[GrowthOperation::materialized_vessels]);
+      EXPECT_EQ(work[GrowthOperation::validation_record_visits],
+                before[GrowthOperation::validation_record_visits]);
+      auto full = n;
+      for (const auto &part :
+           Utilities::MPI::all_gather(MPI_COMM_WORLD, update.terminals))
+        for (const auto &change : part)
+          {
+            const auto found = full.terminals.find(change.terminal);
+            if (found != full.terminals.end())
+              found->second.demand = change.demand;
+          }
+      const auto oracle = evaluate(full, p);
+      ASSERT_TRUE(oracle.validation.valid());
+      std::map<Id, GrowthDemandEdge> local_edges;
+      for (const auto &[id, v] : full.vessels)
+        if (v.owner == rank())
+          {
+            const auto       branch = oracle.owned.find(id);
+            GrowthDemandEdge value;
+            value.edge = {id,
+                          v.nodes,
+                          {{full.nodes.at(v.nodes[0]).position,
+                            full.nodes.at(v.nodes[1]).position}},
+                          branch == oracle.owned.end() ?
+                            std::max(v.radii[0], v.radii[1]) :
+                            branch->second.radius};
+            if (branch != oracle.owned.end())
+              value.root = branch->second.root;
+            local_edges.emplace(id, value);
+          }
+      std::map<Id, GrowthDemandEdge> all_edges;
+      for (const auto &part :
+           Utilities::MPI::all_gather(MPI_COMM_WORLD, local_edges))
+        all_edges.insert(part.begin(), part.end());
+      if (rank() == producer)
+        {
+          ASSERT_EQ(paths.contexts.size(), 1u);
+          const auto &context     = paths.contexts.at(base + 13);
+          const auto  trial_radii = candidate_radii(context, new_demand);
+          ASSERT_TRUE(trial_radii);
+          for (const auto &[id, record] : obstacles.records)
+            {
+              EXPECT_EQ(obstacles.owners.at(id), owners.at(id));
+              EXPECT_EQ(record.root, all_edges.at(id).root);
+              EXPECT_NEAR(record.edge.radius / all_edges.at(id).edge.radius,
+                          1.,
+                          2.e-12);
+            }
+          const auto &ends = context.path.front().edge.points;
+          const auto  candidate =
+            propose_growth(context,
+                           p,
+                           .5 * (ends[0] + ends[1]),
+                           *target,
+                           std::numeric_limits<double>::infinity(),
+                           new_demand,
+                           [](const auto &) { return true; });
+          ASSERT_TRUE(candidate);
+          for (const auto &changed : candidate->changed)
+            {
+              const auto &mask = obstacles.covered_ancestors.at(base + 13);
+              if (mask.count(changed.id))
+                continue;
+              for (const auto &[id, baseline] : all_edges)
+                {
+                  if (id == base + 13 || id == changed.id)
+                    continue;
+                  auto edge   = baseline.edge;
+                  edge.radius = (*trial_radii)(id, baseline.root, edge.radius);
+                  if (!compatible(changed, edge, p.minimum_angle, 0.))
+                    {
+                      EXPECT_TRUE(obstacles.records.count(id))
+                        << scenario << " " << id;
+                    }
+                }
+            }
+          if (scenario == 3)
+            {
+              EXPECT_TRUE(obstacles.covered_ancestors.at(base + 13).empty());
+            }
+        }
+      else
+        {
+          EXPECT_TRUE(obstacles.records.empty());
+          EXPECT_TRUE(obstacles.owners.empty());
+          EXPECT_TRUE(obstacles.covered_ancestors.empty());
+        }
+      auto stale              = preview;
+      stale.snapshot_revision = 6;
+      EXPECT_FALSE(
+        execution
+          .candidate_obstacles(
+            snapshot, stale, paths.contexts, target, new_demand, producer)
+          .validation.valid());
+    }
+  GrowthDemandUpdate unchanged;
+  unchanged.snapshot_revision = 7;
+  const auto preview          = snapshot.demand().preview(unchanged);
+  const auto empty =
+    execution.candidate_obstacles(snapshot, preview, {}, {}, 0., producer);
+  EXPECT_TRUE(empty.validation.valid());
+  EXPECT_TRUE(empty.records.empty());
+}
