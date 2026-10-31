@@ -411,7 +411,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 
