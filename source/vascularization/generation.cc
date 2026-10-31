@@ -40,6 +40,17 @@ namespace ImmersX::Vascularization
         "Invalid vascular calibration targets, tolerance, terminal limits or attempt budget."));
   }
 
+  void
+  TissueIntegrationParameters::validate() const
+  {
+    AssertThrow(
+      quadrature_order > 0 && quadrature_order <= 8 &&
+        samples_per_terminal > 0 && maximum_points > 0 &&
+        refinement_budget <= 20,
+      dealii::ExcMessage(
+        "Tissue integration requires quadrature order 1 through 8, positive sampling and point budgets, and at most 20 refinement rounds."));
+  }
+
   Parameters::Parameters(const std::string &section)
     : dealii::ParameterAcceptor(section)
   {
@@ -154,6 +165,20 @@ namespace ImmersX::Vascularization
       "Tissue demand",
       tissue_demand,
       "Positive finite relative demand at new territory positions; independent of sampling density.");
+    add_parameter("Demand quadrature order",
+                  tissue_integration.quadrature_order);
+    add_parameter(
+      "Demand samples per requested terminal",
+      tissue_integration.samples_per_terminal,
+      "Initial physical quadrature resolution; dyadic subdivisions reach this global target without changing the background mesh.");
+    add_parameter(
+      "Demand integration point budget",
+      tissue_integration.maximum_points,
+      "Global limit on active tissue quadrature points; exhaustion does not reduce the requested terminal count.");
+    add_parameter(
+      "Demand integration refinement budget",
+      tissue_integration.refinement_budget,
+      "Maximum additional integration subdivision rounds per territorial preview.");
     add_parameter(
       "Total new-tissue reference flow",
       reference_flow,
@@ -213,6 +238,7 @@ namespace ImmersX::Vascularization
     discretization.validate();
     coverage.validate();
     calibration.validate();
+    tissue_integration.validate();
     AssertThrow(
       calibration.minimum_coverage == 0. || coverage.service_radius > 0.,
       dealii::ExcMessage(

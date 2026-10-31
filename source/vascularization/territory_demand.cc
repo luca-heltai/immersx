@@ -125,6 +125,7 @@ namespace ImmersX::Vascularization::internal
     RTree<CentreLeaf>          centre_index;
     RTree<SampleLeaf>          influence_index;
     Demands                    demands;
+    TerritoryDemandWork        initial_work;
     Mass                       total;
     std::shared_ptr<Journal>   staged;
 
@@ -200,19 +201,32 @@ namespace ImmersX::Vascularization::internal
             }
           local_boxes.emplace_back(std::make_pair(lo, hi));
         }
-      const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      // A singleton is exact coarse geometry, not a tissue query destination.
+      // Sharing this bounded metadata avoids routing the complete initial
+      // quadrature cloud to the owner of the first seed.
+      std::vector<TissueCentre> singleton;
+      if (centres.size() == 1)
+        singleton.push_back(centres.begin()->second);
+      const auto routing =
+        Utilities::MPI::all_gather(comm,
+                                   std::make_pair(local_boxes, singleton));
       std::map<Id, TissueCentre>                     result;
       std::map<unsigned int, std::map<Id, Point<3>>> send;
       for (const auto &[id, point] : points)
         {
-          const auto local = nearest(point, work);
+          auto local = centres.size() > 1 ? nearest(point, work) :
+                                            std::optional<TissueCentre>{};
+          for (const auto &packet : routing)
+            for (const auto &centre : packet.second)
+              if (!local || prefer(point, centre, *local))
+                local = centre;
           if (local)
             result[id] = *local;
           const double reach = local ? point.distance(local->position) :
                                        std::numeric_limits<double>::infinity();
           for (unsigned int owner = 0; owner < size; ++owner)
-            if (owner != rank)
-              for (const auto &box : boxes[owner])
+            if (owner != rank && routing[owner].second.empty())
+              for (const auto &box : routing[owner].first)
                 {
                   const double guard =
                     128. * std::numeric_limits<double>::epsilon() *
@@ -314,9 +328,8 @@ namespace ImmersX::Vascularization::internal
     std::vector<CentreLeaf> leaves;
     for (const auto &[id, centre] : s.centres)
       leaves.emplace_back(centre.position, id);
-    s.centre_index = pack_rtree(leaves);
-    TerritoryDemandWork     work;
-    const auto              located = s.locate(points, work);
+    s.centre_index                  = pack_rtree(leaves);
+    const auto              located = s.locate(points, s.initial_work);
     std::vector<SampleLeaf> influences;
     Mass                    local_total = 0;
     for (const auto &[id, point] : owned_samples)
@@ -523,7 +536,8 @@ namespace ImmersX::Vascularization::internal
         {"tissue quadrature",
          invalid_id,
          "A territory has no quadrature mass; refine integration or report an exhausted integration budget."});
-    journal->valid = result.validation.valid();
+    journal->valid           = result.validation.valid();
+    result.demand.validation = result.validation;
     return result;
   }
 
@@ -600,6 +614,12 @@ namespace ImmersX::Vascularization::internal
     s.total = p->old_total;
     s.staged.reset();
   }
+  const TerritoryDemandWork &
+  TerritoryDemand::initialization_work() const
+  {
+    return state->initial_work;
+  }
+
   std::vector<TerminalDemandUpdate>
   TerritoryDemand::owned_demands() const
   {
