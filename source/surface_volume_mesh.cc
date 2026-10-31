@@ -3,9 +3,12 @@
 #include "surface_volume_mesh.h"
 
 #include <deal.II/base/numbers.h>
+#include <deal.II/base/scope_exit.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_tools_topology.h>
 
+#include <array>
 #include <cmath>
 #include <map>
 #include <queue>
@@ -76,8 +79,22 @@ namespace ImmersX::detail
       ExcMessage(
         "Surface must consist of one connected shell; cavities and separate organs require separate domains."));
 
-    // deal.II initializes Gmsh through MPI_InitFinalize. Like GridIn's API
-    // reader, this operation uses Gmsh's process-global current model.
+    // Older GridIn readers finalize their own Gmsh session. Keep an existing
+    // session (including MPI_InitFinalize's) alive, and release only our own.
+    const bool owns_gmsh = gmsh::isInitialized() == 0;
+    if (owns_gmsh)
+      gmsh::initialize();
+    const ScopeExit finalize_gmsh([owns_gmsh]() {
+      if (owns_gmsh)
+        gmsh::finalize();
+    });
+    double          subdivision = 0., second_order_linear = 0.;
+    gmsh::option::getNumber("Mesh.SubdivisionAlgorithm", subdivision);
+    gmsh::option::getNumber("Mesh.SecondOrderLinear", second_order_linear);
+    const ScopeExit restore_options([subdivision, second_order_linear]() {
+      gmsh::option::setNumber("Mesh.SubdivisionAlgorithm", subdivision);
+      gmsh::option::setNumber("Mesh.SecondOrderLinear", second_order_linear);
+    });
     gmsh::clear();
     gmsh::model::add("ImmersX surface volume");
     const int                tag = gmsh::model::addDiscreteEntity(2);
@@ -115,7 +132,23 @@ namespace ImmersX::detail
                                 parameters.surface_mesh_size);
         gmsh::option::setNumber("Mesh.ElementOrder", 1);
         gmsh::option::setNumber("Mesh.RecombineAll", 0);
+        gmsh::option::setNumber("Mesh.SubdivisionAlgorithm", 0);
         gmsh::model::mesh::generate(3);
+        const bool hexahedra = parameters.surface_volume_cells == "hexahedra";
+        AssertThrow(hexahedra ||
+                      parameters.surface_volume_cells == "tetrahedra",
+                    ExcMessage("Unknown surface volume cell type."));
+        if (hexahedra)
+          {
+            // Gmsh's conforming subdivision is also available with deal.II 9.7,
+            // which has no simplex-to-hypercube conversion helper.
+            gmsh::option::setNumber("Mesh.SubdivisionAlgorithm", 2);
+            // Projecting new boundary nodes onto the parametrized geometry
+            // can distort cells and change the original tetrahedral volume.
+            gmsh::option::setNumber("Mesh.SecondOrderLinear", 1);
+            gmsh::model::mesh::refine();
+            gmsh::option::setNumber("Mesh.SubdivisionAlgorithm", 0);
+          }
 
         std::vector<double> parametric;
         gmsh::model::mesh::getNodes(node_tags, coordinates, parametric);
@@ -127,22 +160,28 @@ namespace ImmersX::detail
             for (unsigned int d = 0; d < 3; ++d)
               vertices[v][d] = coordinates[3 * v + d];
           }
-        std::vector<std::size_t> element_tags, tetrahedra;
-        gmsh::model::mesh::getElementsByType(4, element_tags, tetrahedra);
+        std::vector<std::size_t> element_tags, cell_nodes;
+        gmsh::model::mesh::getElementsByType(hexahedra ? 5 : 4,
+                                             element_tags,
+                                             cell_nodes);
         AssertThrow(!element_tags.empty(),
-                    ExcMessage("Gmsh generated no tetrahedra."));
-        std::vector<CellData<3>> cells(element_tags.size(), CellData<3>(4));
+                    ExcMessage("Gmsh generated no volume cells."));
+        const unsigned int                vertices_per_cell = hexahedra ? 8 : 4;
+        const std::array<unsigned int, 8> gmsh_hex_vertices{
+          {0, 1, 3, 2, 4, 5, 7, 6}};
+        std::vector<CellData<3>> cells(element_tags.size(),
+                                       CellData<3>(vertices_per_cell));
         for (unsigned int c = 0; c < cells.size(); ++c)
-          for (unsigned int v = 0; v < 4; ++v)
-            cells[c].vertices[v] = vertex_index.at(tetrahedra[4 * c + v]);
-        Triangulation<3> tetrahedral;
-        tetrahedral.create_triangulation(vertices, cells, SubCellData());
-        if (parameters.surface_volume_cells == "tetrahedra")
-          volume.copy_triangulation(tetrahedral);
-        else if (parameters.surface_volume_cells == "hexahedra")
-          GridGenerator::convert_simplex_to_hypercube_mesh(tetrahedral, volume);
-        else
-          AssertThrow(false, ExcMessage("Unknown surface volume cell type."));
+          for (unsigned int v = 0; v < vertices_per_cell; ++v)
+            cells[c].vertices[v] = vertex_index.at(
+              cell_nodes[vertices_per_cell * c +
+                         (hexahedra ? gmsh_hex_vertices[v] : v)]);
+        if (hexahedra)
+          {
+            GridTools::invert_all_negative_measure_cells(vertices, cells);
+            GridTools::consistently_order_cells(cells);
+          }
+        volume.create_triangulation(vertices, cells, SubCellData());
       }
     catch (const std::exception &error)
       {
