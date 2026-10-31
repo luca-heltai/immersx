@@ -1,10 +1,6 @@
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
 
-#include <deal.II/dofs/dof_tools.h>
-
-#include <deal.II/fe/fe_values_extractors.h>
-
 #include <deal.II/lac/vector.h>
 
 #include <deal.II/numerics/vector_tools.h>
@@ -305,18 +301,17 @@ TEST(ElasticityTensorProductCouplingValidation,
   run_tensor_product_case(par);
 }
 
-// assemble_tensor_product_coupling() divides the datum of each mode by the
-// maximum of the mode on the cross section, so that a datum is the
-// displacement amplitude of its mode, as with point coupling. Without
-// solving, check that the assembled rhs is the unscaled one divided by that
-// maximum, and that the selected modes cos(theta) e_x and sin(theta) e_y still
-// have the normalization sqrt(2) cos(theta) that the scaling assumes.
-TEST(ElasticityTensorProductCouplingValidation, BOTH_RhsScaledByModeMaximum)
+// The cross-section modes have maximum one, as the Fourier modes of point
+// coupling, so that a datum is the displacement amplitude of its mode. Without
+// solving, check the maximum and the mean square of the selected modes
+// cos(theta) e_x and sin(theta) e_y, and that ElasticityProblem uses the rhs
+// of the tensor-product coupling as it is.
+TEST(ElasticityTensorProductCouplingValidation, BOTH_ModesHaveUnitMaximum)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> par;
   set_issue_165_parameters(par,
-                           "tensor_product_rhs_scaling",
+                           "tensor_product_unit_modes",
                            "one_cylinder_rotation_x.vtk",
                            {2, 3, 4, 5},
                            {0, 1});
@@ -333,30 +328,25 @@ TEST(ElasticityTensorProductCouplingValidation, BOTH_RhsScaledByModeMaximum)
   problem.assemble_coupling();
 
   const auto &coupling = *problem.tensor_product_coupling;
-  const auto &basis =
-    coupling.get_reference_cross_section().get_basis_functions();
-  const auto &reduced_dh = coupling.get_dof_handler();
+  const auto &section  = coupling.get_reference_cross_section();
+  const auto &basis    = section.get_basis_functions();
   ASSERT_EQ(basis.size(), 2u);
-
-  const auto &scaled   = problem.force_rhs.block(1);
-  auto        unscaled = scaled;
-  unscaled             = 0;
-  coupling.assemble_reduced_rhs(unscaled);
-  ASSERT_GT(unscaled.l2_norm(), 0.);
-
+  ASSERT_EQ(section.get_basis_mean_squares().size(), 2u);
   for (unsigned int c = 0; c < basis.size(); ++c)
     {
-      // On the 32-sided polygon of Refinement level 3 the maximum is 1.4188.
-      const double max_value = basis[c].linfty_norm();
-      EXPECT_NEAR(max_value, std::sqrt(2.), 1e-2) << "mode " << c;
-      for (const auto i : DoFTools::extract_dofs(
-             reduced_dh,
-             reduced_dh.get_fe().component_mask(FEValuesExtractors::Scalar(c))))
-        EXPECT_NEAR(scaled[i] * max_value,
-                    unscaled[i],
-                    1e-12 * std::abs(unscaled[i]))
-          << "mode " << c << ", dof " << i;
+      EXPECT_NEAR(basis[c].linfty_norm(), 1., 1e-12) << "mode " << c;
+      // 1/2 for cos(theta) on the circle; 0.4996 on the 32-sided polygon of
+      // Refinement level 3.
+      EXPECT_NEAR(section.get_basis_mean_squares()[c], 0.5, 1e-2)
+        << "mode " << c;
     }
+
+  auto reduced_rhs = problem.force_rhs.block(1);
+  reduced_rhs      = 0;
+  coupling.assemble_reduced_rhs(reduced_rhs);
+  ASSERT_GT(reduced_rhs.l2_norm(), 0.);
+  reduced_rhs -= problem.force_rhs.block(1);
+  EXPECT_LT(reduced_rhs.l2_norm(), 1e-14);
 }
 
 TEST(ElasticityTensorProductCouplingValidation, ExactLambdaSingleSolve)

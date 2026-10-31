@@ -49,8 +49,10 @@ TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
   const auto first = space.get_entity_property_values(0);
   ASSERT_EQ(first.size(), 4u);
   EXPECT_DOUBLE_EQ(first[0], 1.0);
-  EXPECT_DOUBLE_EQ(first[1], 2.0 / std::sqrt(2.));
-  EXPECT_DOUBLE_EQ(first[2], 3.0 / std::sqrt(2.));
+  // The reference modes have maximum one, as the legacy Fourier modes, so the
+  // legacy coefficients are used as they are.
+  EXPECT_DOUBLE_EQ(first[1], 2.0);
+  EXPECT_DOUBLE_EQ(first[2], 3.0);
   EXPECT_DOUBLE_EQ(first[3], 0.25);
 
   double local_measure = 0.;
@@ -162,14 +164,15 @@ TEST(LegacyInclusions, BOTH_Segment3DMeasureUsesCellJacobian)
   check_segment_3d_measure();
 }
 
+
 TEST(LegacyInclusions, FourierNormalizationIsExplicit)
 {
+  // The legacy Fourier modes and the reference modes both have maximum one.
   EXPECT_DOUBLE_EQ(LegacyInclusions::fourier_to_reference_scale(0), 1.);
-  EXPECT_DOUBLE_EQ(LegacyInclusions::fourier_to_reference_scale(1),
-                   1. / std::sqrt(2.));
-  EXPECT_DOUBLE_EQ(LegacyInclusions::fourier_to_reference_scale(2),
-                   1. / std::sqrt(2.));
+  EXPECT_DOUBLE_EQ(LegacyInclusions::fourier_to_reference_scale(1), 1.);
+  EXPECT_DOUBLE_EQ(LegacyInclusions::fourier_to_reference_scale(2), 1.);
 }
+
 
 TEST(LegacyInclusions, ReferenceBasisFollowsFourierOrdering)
 {
@@ -188,22 +191,28 @@ TEST(LegacyInclusions, ReferenceBasisFollowsFourierOrdering)
       return 1.;
     const auto frequency = (mode + 1) / 2;
     const auto angle     = std::atan2(point[1], point[0]);
-    return std::sqrt(2.) * (mode % 2 == 1 ? std::cos(frequency * angle) :
-                                               std::sin(frequency * angle));
+    return mode % 2 == 1 ? std::cos(frequency * angle) :
+                           std::sin(frequency * angle);
   };
 
+  // The reference modes have maximum one, as the Fourier modes, so each one
+  // correlates with its Fourier mode as the Fourier mode with itself.
   for (unsigned int basis = 0; basis < 5; ++basis)
     for (unsigned int mode = 0; mode < 5; ++mode)
       {
         double correlation = 0.;
+        double norm_square = 0.;
         for (unsigned int q = 0; q < quadrature.size(); ++q)
-          correlation += reference.shape_value(basis, q, 0) *
-                         expected(mode, quadrature.point(q)) *
-                         quadrature.weight(q);
+          {
+            const double value = expected(mode, quadrature.point(q));
+            correlation += reference.shape_value(basis, q, 0) * value *
+                           quadrature.weight(q);
+            norm_square += value * value * quadrature.weight(q);
+          }
 
         if (basis == mode)
-          EXPECT_GT(correlation, 0.95 * reference.measure());
+          EXPECT_GT(correlation, 0.95 * norm_square);
         else
-          EXPECT_LT(std::abs(correlation), 0.15 * reference.measure());
+          EXPECT_LT(std::abs(correlation), 0.15 * norm_square);
       }
 }

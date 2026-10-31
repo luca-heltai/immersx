@@ -178,39 +178,11 @@ namespace ImmersX
                                                       dh,
                                                       constraints);
 
-    // Assemble the tensor-product rhs and copy it into the system rhs.
+    // Assemble the tensor-product rhs and copy it into the system rhs. The
+    // cross-section modes have maximum one, as in point coupling, so the data
+    // are the amplitudes of the modes (see
+    // ReducedCoupling::assemble_reduced_rhs()).
     tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
-
-    // The data follow the convention of point coupling (see Inclusions): each
-    // mode has maximum value one on the cross section, so the datum of a mode
-    // is the displacement amplitude of that mode. The tensor-product modes
-    // phi_c are instead normalized with 1/|D| int_D phi_c^2 = 1 (on a circle,
-    // sqrt(2) cos(theta) and sqrt(2) sin(theta) for the non-constant modes),
-    // and the assembled rhs imposes 1/|D| int_D u . phi_c = g_c. Dividing g_c
-    // by max |phi_c| makes u = g_c phi_c / max |phi_c| the imposed field.
-    {
-      const auto &basis = tensor_product_coupling->get_reference_cross_section()
-                            .get_basis_functions();
-      const auto &reduced_dh = tensor_product_coupling->get_dof_handler();
-      const auto &reduced_fe = reduced_dh.get_fe();
-      AssertDimension(basis.size(), reduced_fe.n_components());
-
-      LA::MPI::Vector scaling(force_rhs.block(1).locally_owned_elements(),
-                              mpi_communicator);
-      for (unsigned int c = 0; c < basis.size(); ++c)
-        {
-          const double max_value = basis[c].linfty_norm();
-          AssertThrow(max_value > 0.,
-                      ExcMessage("Selected cross-section mode " +
-                                 std::to_string(c) + " is zero."));
-          for (const auto i : DoFTools::extract_dofs(
-                 reduced_dh,
-                 reduced_fe.component_mask(FEValuesExtractors::Scalar(c))))
-            scaling[i] = 1. / max_value;
-        }
-      scaling.compress(VectorOperation::insert);
-      force_rhs.block(1).scale(scaling);
-    }
     system_rhs.block(1) = force_rhs.block(1);
 
     // Assemble the tensor-product mass matrix.

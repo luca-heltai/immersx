@@ -623,8 +623,10 @@ TEST(CoupledElasticity, BOTH_PressureIndependentOfInclusionSpacingPoint)
 // Tensor-product coupling on four reduced cells, two per vessel, with the
 // selected modes 3 and 7. The multiplier components are set to the linear
 // functions lambda_3(x) = 1 + x and lambda_7(x) = 2 + 3x. The pressure at
-// each support point is k (lambda_3 + lambda_7) with k = 1/sqrt(2) up to the
-// polygonal approximation of the reference circle, and the pressure of each
+// each support point is k (lambda_3 + lambda_7) with k = 1/2, since the modes
+// are cos(theta) e_x and sin(theta) e_y, up to the polygonal approximation of
+// the reference circle (k = 0.475 on the 8-sided polygon of Refinement level
+// 1), and the pressure of each
 // vessel is the mean of k (lambda_3 + lambda_7) over its cells.
 TEST(CoupledElasticity, BOTH_PressureFromMultiplierTensorProduct)
 {
@@ -665,7 +667,7 @@ TEST(CoupledElasticity, BOTH_PressureFromMultiplierTensorProduct)
       ASSERT_EQ(by_point.size(), vertices.size());
       std::sort(by_point.begin(), by_point.end());
       const double k = by_point[0] / (lambda_3(-1.) + lambda_7(-1.));
-      EXPECT_NEAR(k, 1. / std::sqrt(2.), 2e-2);
+      EXPECT_NEAR(k, 0.5, 3e-2);
       for (unsigned int n = 0; n < vertices.size(); ++n)
         EXPECT_NEAR(by_point[n],
                     k * (lambda_3(vertices[n]) + lambda_7(vertices[n])),
