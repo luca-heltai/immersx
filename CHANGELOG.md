@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Query the native cached cell index for vascular crossing containment and sweep overlapping MPI interval replies instead of rescanning all cells and intervals for every cut. Preserve finest-cell length scales and lowest-rank execution ownership.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Reuse the latest isolated tissue-demand journal when a growth batch selects only that proposal. Retain one journal at most and recompute joint territories for multiple selected proposals.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Prepare vascular seeds and imported attachment branches without physiological evaluation, then assign all initial territorial integrals before the first Murray normalization and flow calculation, including single-terminal requests.

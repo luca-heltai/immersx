@@ -26,8 +26,6 @@
 
 #include "background_intersections.h"
 
-#include "background_intersections.h"
-
 namespace ImmersX::Vascularization
 {
   namespace
@@ -275,7 +273,8 @@ namespace ImmersX::Vascularization
     distributed_intervals(const GridTools::Cache<3>      &cache,
                           const Mapping<3>               &mapping,
                           const std::map<Id, Segment<3>> &segments,
-                          MPI_Comm                        comm)
+                          MPI_Comm                        comm,
+                          GrowthWork                     *work)
     {
       const auto  rank = Utilities::MPI::this_mpi_process(comm);
       const auto  size = Utilities::MPI::n_mpi_processes(comm);
@@ -358,24 +357,38 @@ namespace ImmersX::Vascularization
           for (std::size_t i = 1; i < cuts.size(); ++i)
             {
               const double middle = .5 * (cuts[i - 1] + cuts[i]);
-              Interval     selected{cuts[i - 1], cuts[i], 0., rank};
-              for (const auto &interval : intervals)
-                if (interval.begin < middle && middle < interval.end)
-                  {
-                    // On a background interface use the finest crossed cell
-                    // and the lowest containing rank for execution ownership.
-                    if (selected.h == 0.)
-                      {
-                        selected.h     = interval.h;
-                        selected.owner = interval.owner;
-                      }
-                    else
-                      {
-                        selected.h = std::min(selected.h, interval.h);
-                        selected.owner =
-                          std::min(selected.owner, interval.owner);
-                      }
-                  }
+              // Remove exits at the midpoint before admitting entries there:
+              // the original containment predicate is strict at both ends.
+              while (
+                event < events.size() &&
+                (events[event].coordinate < middle ||
+                 (events[event].coordinate == middle && !events[event].enter)))
+                {
+                  const auto &entry    = events[event++];
+                  const auto &interval = intervals[entry.index];
+                  const auto  h = std::make_pair(interval.h, entry.index);
+                  const auto  owner =
+                    std::make_pair(interval.owner, entry.index);
+                  if (entry.enter)
+                    {
+                      diameters.insert(h);
+                      owners.insert(owner);
+                    }
+                  else
+                    {
+                      diameters.erase(h);
+                      owners.erase(owner);
+                    }
+                  count_work(work, GrowthOperation::interval_record_visits);
+                }
+              Interval selected{cuts[i - 1], cuts[i], 0., rank};
+              // Mesh scale and execution ownership have distinct tie rules.
+              if (!diameters.empty())
+                {
+                  selected.h     = diameters.begin()->first;
+                  selected.owner = owners.begin()->first;
+                }
+              count_work(work, GrowthOperation::interval_record_visits);
               if (!combined.empty() && combined.back().h == selected.h &&
                   combined.back().owner == selected.owner)
                 combined.back().end = selected.end;
@@ -440,9 +453,10 @@ namespace ImmersX::Vascularization
     const dealii::GridTools::Cache<3>      &cache,
     const dealii::Mapping<3>               &mapping,
     const std::map<Id, dealii::Segment<3>> &segments,
-    MPI_Comm                                communicator)
+    MPI_Comm                                communicator,
+    GrowthWork                             *work)
   {
-    return distributed_intervals(cache, mapping, segments, communicator);
+    return distributed_intervals(cache, mapping, segments, communicator, work);
   }
 
   void
@@ -551,10 +565,8 @@ namespace ImmersX::Vascularization
           id,
           Segment<3>(network.nodes.at(vessel.nodes[0]).position,
                      network.nodes.at(vessel.nodes[1]).position));
-    const auto crossings       = internal::intersect_background(cache,
-                                                          mapping,
-                                                          owned_segments,
-                                                          communicator);
+    const auto crossings = internal::intersect_background(
+      cache, mapping, owned_segments, communicator, work);
     const auto subdivide_owned = [&]() {
       for (const auto &[id, e] : network.vessels)
         {
