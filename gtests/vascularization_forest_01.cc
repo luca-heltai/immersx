@@ -2015,14 +2015,31 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
         EXPECT_EQ(paths.retained_branches, rank() == producer ? 4u : 0u);
         EXPECT_EQ(work[GrowthOperation::validation_record_visits], 0u);
         EXPECT_EQ(work[GrowthOperation::physical_copy_attempts], 0u);
-        std::optional<GrowthCandidate> candidate;
-        std::vector<GrowthSplit>       splits;
+        auto weighted = n;
+        for (auto &[id, terminal] : weighted.terminals)
+          if (terminal.owner == rank() && changed.count(id))
+            terminal.demand = changed.at(id);
+        const auto old_updated = evaluate(weighted, p);
+        ASSERT_TRUE(old_updated.validation.valid()) << issues(old_updated);
+        std::map<unsigned int, std::map<Id, std::pair<Id, double>>>
+          baseline_send;
+        for (const auto &[id, branch] : old_updated.owned)
+          baseline_send[producer].emplace(id,
+                                          std::make_pair(branch.root,
+                                                         branch.radius));
+        const auto baseline =
+          Utilities::MPI::some_to_some(MPI_COMM_WORLD, baseline_send);
+        std::optional<GrowthCandidateRadii> trial_radii;
+        std::optional<GrowthCandidate>      candidate;
+        std::vector<GrowthSplit>            splits;
         if (rank() == producer)
           {
             const auto &context = paths.contexts.at(base + 14);
             ASSERT_TRUE(context.physiology.has_value());
             EXPECT_EQ(context.physiology->final_system_demand, final_demand);
             EXPECT_EQ(context.physiology->reference_volume, accepted.volume[0]);
+            trial_radii = candidate_radii(context, new_demand, &work);
+            EXPECT_TRUE(trial_radii.has_value());
             const auto &selected = context.path.front();
             const auto  junction =
               .5 * (selected.edge.points[0] + selected.edge.points[1]);
@@ -2105,6 +2122,24 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
           send[producer].emplace(id, branch.radius);
         const auto received =
           Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+        if (trial_radii)
+          for (const auto &[old_owner, records] : baseline)
+            for (const auto &[id, value] : records)
+              {
+                bool found = false;
+                for (const auto &[new_owner, radii] : received)
+                  if (radii.count(id))
+                    {
+                      EXPECT_NEAR((*trial_radii)(id,
+                                                 value.first,
+                                                 value.second) /
+                                    radii.at(id),
+                                  1.,
+                                  2.e-12);
+                      found = true;
+                    }
+                EXPECT_TRUE(found);
+              }
         if (candidate)
           for (const auto &edge : candidate->changed)
             {

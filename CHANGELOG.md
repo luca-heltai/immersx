@@ -505,6 +505,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Compare predicted obstacle radii on selected ancestor paths, siblings and other roots with an independent full physiological transaction after territorial demand updates.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Compare finite tissue quadrature with analytical Voronoi integrals and verify convergence as integration resolution increases while the background mesh stays fixed.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Verify integrated seed demands, joint territorial proposals and atomic tissue rollback through the growth callback protocol in serial and MPI.
