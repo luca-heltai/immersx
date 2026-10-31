@@ -13,10 +13,12 @@
 
 namespace ImmersX
 {
-  /** Assemble a physical modal mass and a section-measure-weighted datum.
+  /** Assemble a physical modal mass and the load of a modal datum.
    * The datum is a modal coefficient on the representative curve, matching
    * ReducedCoupling's static right-hand-side convention, not a physical
-   * vector evaluated around the cross section. Accept either a deal.II
+   * vector evaluated around the cross section. The modes have maximum one, so
+   * the datum is the amplitude of the mode, and the load is the integral of
+   * (datum phi) . phi, weighted like the mass matrix. Accept either a deal.II
    * Function or a callback taking the retained point and component; the latter
    * can evaluate imported fields on the known source cell without point search.
    */
@@ -64,7 +66,8 @@ namespace ImmersX
         }();
         for (unsigned int i = 0; i < n; ++i)
           {
-            load[i] = point.weight * point.source_basis_values[i] * datum;
+            load[i] = point.weight * mode_squared *
+                      point.source_basis_values[i] * datum;
             for (unsigned int j = 0; j < n; ++j)
               local(i, j) = point.weight * mode_squared *
                             point.source_basis_values[i] *

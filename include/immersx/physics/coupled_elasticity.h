@@ -59,17 +59,17 @@ namespace ImmersX
      *
      * <b>Tensor-product coupling.</b> The multiplier is a finite element field
      * on the reduced grid whose component @f$c@f$ is the coefficient
-     * @f$\Lambda_c(s)@f$ of the normalized cross-section mode @f$\phi_c@f$
-     * (@f$\int_D \phi_c^2 = |D|@f$, so the radial modes are
-     * @f$\sqrt2\cos\theta\,\mathbf{e}_x@f$ and
-     * @f$\sqrt2\sin\theta\,\mathbf{e}_y@f$). The mean normal stress on the
-     * cross section at @f$s@f$ and on vessel @f$v@f$ are
+     * @f$\Lambda_c(s)@f$ of the cross-section mode @f$\phi_c@f$, scaled to
+     * maximum one as in point coupling, so the radial modes are
+     * @f$\cos\theta\,\mathbf{e}_x@f$ and @f$\sin\theta\,\mathbf{e}_y@f$.
+     * The mean normal stress on the cross section at @f$s@f$ and on vessel
+     * @f$v@f$ are
      * @f[
-     *   p(s) = \frac{\Lambda_3(s) + \Lambda_7(s)}{\sqrt2},
+     *   p(s) = \frac{\Lambda_3(s) + \Lambda_7(s)}{2},
      *   \qquad
      *   p_v = \frac{1}{|\gamma_v|} \int_{\gamma_v} p(s)\, ds .
      * @f]
-     * The factor @f$1/\sqrt2@f$ is computed with the quadrature of the
+     * The factor @f$1/2@f$ is computed with the quadrature of the
      * reference cross section. The value stored per support point is the
      * nodal value of @f$p@f$, and @f$p_v@f$ is a mean of these values
      * weighted by @f$\int_{\gamma_v} \psi_n\, ds@f$.

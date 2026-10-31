@@ -23,12 +23,11 @@ namespace ImmersX
 {
   namespace LegacyInclusions
   {
-    /** Convert a legacy Fourier coefficient to the normalized reference basis.
+    /** Convert a legacy Fourier coefficient to the reference basis.
      *
-     * The constant mode is already normalized. Every non-constant sine/cosine
-     * mode has L2 norm sqrt(pi) on the unit circle, while the reference basis
-     * is normalized to have norm sqrt(2*pi). Therefore a legacy coefficient is
-     * divided by sqrt(2) for all non-constant modes.
+     * The legacy sine/cosine modes and the reference modes both have maximum
+     * one, so a legacy coefficient is the amplitude of the same mode and the
+     * factor is one for every mode.
      */
     double
     fourier_to_reference_scale(const unsigned int mode);

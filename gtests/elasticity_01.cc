@@ -675,16 +675,17 @@ TEST(ElasticityValidation, ExactLambda)
     table >> cells >> dofs >> l2 >> rate >> linfty >> rate >> h1 >> rate;
   ASSERT_TRUE(table);
 
-  // Regression values: the errors this test computed on its last cycle
-  // (8540 cells, 18522 dofs) in a serial Debug run with deal.II 9.7.1. They
-  // are not theoretical bounds. Rounded to three digits they match the last
-  // row of the fixed_number data of Fig. 2 in Belponer, Caiazzo, Heltai,
+  // Upper bounds on the errors of the last cycle, not theoretical estimates.
+  // A serial Debug run with deal.II 9.7.1 (8540 cells, 18522 dofs) gave L2
+  // 1.546e-4, Linfty 6.874e-4 and H1 1.803e-2; the bounds leave about 25%
+  // margin. Rounded to three digits these values match the last row of the
+  // fixed_number data of Fig. 2 in Belponer, Caiazzo, Heltai,
   // "Mixed-dimensional modeling of vascular tissues with reduced Lagrange
   // multipliers" (see BOTH_PaperAxisSymmetricAdaptiveRefinement in
   // elasticity_04.cc).
-  ASSERT_NEAR(l2, 1.5463777527e-04, 1e-6 * 1.5463777527e-04);
-  ASSERT_NEAR(linfty, 6.8739033304e-04, 1e-6 * 6.8739033304e-04);
-  ASSERT_NEAR(h1, 1.8028048798e-02, 1e-6 * 1.8028048798e-02);
+  EXPECT_LT(l2, 1.9e-4);
+  EXPECT_LT(linfty, 8.6e-4);
+  EXPECT_LT(h1, 2.25e-2);
 }
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,

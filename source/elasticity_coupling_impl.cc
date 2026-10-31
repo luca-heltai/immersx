@@ -178,7 +178,10 @@ namespace ImmersX
                                                       dh,
                                                       constraints);
 
-    // Assemble the tensor-product rhs and copy it into the system rhs.
+    // Assemble the tensor-product rhs and copy it into the system rhs. The
+    // cross-section modes have maximum one, as in point coupling, so the data
+    // are the amplitudes of the modes (see
+    // ReducedCoupling::assemble_reduced_rhs()).
     tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
     system_rhs.block(1) = force_rhs.block(1);
 

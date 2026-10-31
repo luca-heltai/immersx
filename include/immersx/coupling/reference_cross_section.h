@@ -115,9 +115,19 @@ namespace ImmersX
     const Quadrature<spacedim> &
     get_global_quadrature() const;
 
-    /// Returns the list of selected basis functions.
+    /// Returns the list of selected basis functions. They are orthogonal on
+    /// the reference cross section and scaled to a maximum absolute value of
+    /// one, as the Fourier modes of point coupling, so that the coefficient of
+    /// a mode is its amplitude.
     const std::vector<Vector<double>> &
     get_basis_functions() const;
+
+    /// Mean square 1/|D| int_D phi_i . phi_i of each selected basis function
+    /// on the reference cross section D, e.g. 1 for a constant mode and about
+    /// 1/2 for cos(theta) on a circle. It is the factor between the Gram
+    /// matrix of the selected modes and |D| times the identity.
+    const std::vector<double> &
+    get_basis_mean_squares() const;
 
     /// the component comp of the ith selected reference basis function, at the
     /// quadrature point index q,
@@ -206,6 +216,9 @@ namespace ImmersX
 
     /// Subset of selected basis functions.
     std::vector<Vector<double>> selected_basis_functions;
+
+    /// Mean square of each selected basis function.
+    std::vector<double> selected_basis_mean_squares;
 
     /// Sparsity pattern used for assembling the mass matrix.
     SparsityPattern sparsity_pattern;
