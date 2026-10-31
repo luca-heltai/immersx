@@ -15,7 +15,6 @@
 #include <array>
 #include <cmath>
 #include <iomanip>
-#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -46,35 +45,6 @@ namespace
     const ElasticityTensorProductCouplingTriangulationTypeTest &test_instance)
   {
     return test_instance.GetParam();
-  }
-
-  // Refine, n_times, the locally owned cells crossed by the cylinder of the
-  // given radius around the x axis, i.e., the cells with vertices on both
-  // sides of it.
-  void
-  refine_cells_crossed_by_cylinder(Triangulation<3>  &tria,
-                                   const double       radius,
-                                   const unsigned int n_times)
-  {
-    for (unsigned int i = 0; i < n_times; ++i)
-      {
-        for (const auto &cell : tria.active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              double min_radius = std::numeric_limits<double>::max();
-              double max_radius = 0.;
-              for (const auto v : cell->vertex_indices())
-                {
-                  const double r =
-                    std::hypot(cell->vertex(v)[1], cell->vertex(v)[2]);
-                  min_radius = std::min(min_radius, r);
-                  max_radius = std::max(max_radius, r);
-                }
-              if (min_radius <= radius && radius <= max_radius)
-                cell->set_refine_flag();
-            }
-        tria.execute_coarsening_and_refinement();
-      }
   }
 
   template <int dim, int spacedim>
@@ -503,18 +473,18 @@ namespace
   // resolve the wall smooths over a cell: the solution then looks like the
   // one of a larger vessel, about 25% too large everywhere with Initial
   // refinement 2 or 3, and refining only along the axis does not reduce
-  // this. The cells crossed by the wall are therefore refined
-  // n_wall_refinements times after the Initial refinement 2.
+  // this. The mesh is therefore refined n_cycles - 1 times with the Kelly
+  // estimator and fixed_number refinement, which marks the cells crossed by
+  // the wall. The result of every cycle is returned.
   //
   // With tensor-product coupling the quadrature along the axis has 32
   // repetitions of a 3-point Gauss rule per reduced cell of length 1, so each
   // repetition lies inside one bulk cell, of length 1/32 after three
-  // refinements of the wall, and the coupling is integrated exactly. With 16
-  // repetitions and three refinements, the mean wall displacement is 2% below
-  // the imposed one.
-  InflatedVesselResult
-  solve_inflated_vessel(const bool         point_coupling,
-                        const unsigned int n_wall_refinements)
+  // refinements, and the coupling is integrated exactly. With 16 repetitions
+  // on cells of length 1/32, the mean wall displacement is 2% below the
+  // imposed one.
+  std::vector<InflatedVesselResult>
+  solve_inflated_vessel(const bool point_coupling, const unsigned int n_cycles)
   {
     std::string inclusions;
     for (unsigned int i = 0; i < 100; ++i)
@@ -522,7 +492,7 @@ namespace
                     ", 0, 0, 0.04, 0, 0, 0.2, 0";
     const std::string name =
       std::string(point_coupling ? "point" : "tensor_product") +
-      "_inflated_vessel_" + std::to_string(n_wall_refinements);
+      "_inflated_vessel_" + std::to_string(n_cycles);
 
     ParameterAcceptor::clear();
     ElasticityProblemParameters<3> par;
@@ -573,6 +543,14 @@ namespace
           set Lame mu     = 1
         end
       end
+      subsection Refinement and remeshing
+        set Strategy                    = fixed_number
+        set Refinement fraction         = 0.3
+        set Coarsening fraction         = 0
+        set Maximum number of cells     = 2000000
+        set Number of refinement cycles = )" +
+                                         std::to_string(n_cycles) + R"(
+      end
     end
     subsection Tensor product coupling
       subsection Cross section
@@ -610,31 +588,26 @@ namespace
     par.output_directory =
       TestPaths::output_directory("elasticity-tensor-product-point");
 
-    // The steps of run() with one cycle, with the cells crossed by the wall
-    // refined after make_grid().
+    // The steps of run(), without the output and the stresses of each cycle.
     problem.make_grid();
-    refine_cells_crossed_by_cylinder(*problem.tria, 0.2, n_wall_refinements);
     problem.setup_fe();
     if (point_coupling)
       problem.inclusions.setup_inclusions_particles(*problem.tria);
     problem.setup_dofs();
-    problem.assemble_elasticity_system();
-    problem.assemble_coupling();
-    problem.solve_static();
 
-    // In 3D, run() measures the errors against the Dirichlet function, so they
-    // are computed here against the exact solution. They are measured for
-    // |x| <= 1.9, away from the end faces x = -2 and x = 2: there the vessel
-    // ends on the boundary of the domain, which the plane-strain solution does
-    // not describe.
-    const auto     &u = problem.locally_relevant_solution.block(0);
+    // The errors against the exact solution are measured for |x| <= 1.9, away
+    // from the end faces x = -2 and x = 2: there the vessel ends on the
+    // boundary of the domain, which the plane-strain solution does not
+    // describe. setup_dofs() reinitializes the solution after each
+    // refinement, so it is looked up at every evaluation.
     const QGauss<3> quadrature(par.fe_degree + 2);
-    Vector<float>   cellwise_errors(problem.tria->n_active_cells());
     const ScalarFunctionFromFunctionObject<3> weight(
       [](const Point<3> &p) { return std::abs(p[0]) <= 1.9 ? 1. : 0.; });
     const auto error = [&](const VectorTools::NormType norm) {
+      Vector<float> cellwise_errors(problem.tria->n_active_cells());
       VectorTools::integrate_difference(problem.dh,
-                                        u,
+                                        problem.locally_relevant_solution.block(
+                                          0),
                                         par.exact_solution,
                                         cellwise_errors,
                                         quadrature,
@@ -648,58 +621,84 @@ namespace
     // Mean radial displacement on the wall in the plane x = 0. The points are
     // evaluated in serial: VectorTools::point_value() needs the cell that
     // contains the point.
-    double             wall_displacement = 0.;
-    const unsigned int n_points          = 64;
-    for (unsigned int k = 0; k < n_points; ++k)
-      {
-        const double   theta = 2. * numbers::PI * (k + 0.5) / n_points;
-        const Point<3> p(0., 0.2 * std::cos(theta), 0.2 * std::sin(theta));
-        Vector<double> value(3);
-        VectorTools::point_value(problem.dh, u, p, value);
-        wall_displacement +=
-          (value[1] * std::cos(theta) + value[2] * std::sin(theta)) / n_points;
-      }
+    const auto wall_displacement = [&]() {
+      double             mean     = 0.;
+      const unsigned int n_points = 64;
+      for (unsigned int k = 0; k < n_points; ++k)
+        {
+          const double   theta = 2. * numbers::PI * (k + 0.5) / n_points;
+          const Point<3> p(0., 0.2 * std::cos(theta), 0.2 * std::sin(theta));
+          Vector<double> value(3);
+          VectorTools::point_value(problem.dh,
+                                   problem.locally_relevant_solution.block(0),
+                                   p,
+                                   value);
+          mean +=
+            (value[1] * std::cos(theta) + value[2] * std::sin(theta)) / n_points;
+        }
+      return mean;
+    };
 
-    InflatedVesselResult result{error(VectorTools::L2_norm),
-                                error(VectorTools::Linfty_norm),
-                                error(VectorTools::H1_norm),
-                                wall_displacement};
-    problem.pcout << std::setprecision(10) << name << ": L2 " << result.l2
-                  << " Linfty " << result.linfty << " H1 " << result.h1
-                  << " wall displacement " << result.wall_displacement
-                  << std::endl;
-    return result;
+    std::vector<InflatedVesselResult> results;
+    for (problem.cycle = 0; problem.cycle < par.n_refinement_cycles;
+         ++problem.cycle)
+      {
+        problem.assemble_elasticity_system();
+        problem.assemble_coupling();
+        problem.solve_static();
+
+        results.push_back({error(VectorTools::L2_norm),
+                           error(VectorTools::Linfty_norm),
+                           error(VectorTools::H1_norm),
+                           wall_displacement()});
+        const auto &result = results.back();
+        problem.pcout << std::setprecision(10) << name << ", cycle "
+                      << problem.cycle << ": " << problem.dh.n_dofs()
+                      << " dofs, L2 " << result.l2 << " Linfty "
+                      << result.linfty << " H1 " << result.h1
+                      << " wall displacement " << result.wall_displacement
+                      << std::endl;
+
+        if (problem.cycle != par.n_refinement_cycles - 1)
+          problem.refine_and_transfer();
+      }
+    return results;
   }
 } // namespace
 
 // Tensor-product counterpart of ElasticityValidation.ExactLambda: the
-// inflated vessel of solve_inflated_vessel(), with two and three refinements
-// of the cells crossed by the wall. The errors decrease at the rates of an
-// immersed method with a kink at the wall, about h^(3/2) in L2 and h^(1/2) in
-// H1, and the wall moves by the imposed 0.1 on average.
+// inflated vessel of solve_inflated_vessel(), with four cycles of adaptive
+// refinement. From the third to the fourth cycle the errors decrease at the
+// rates of an immersed method with a kink at the wall, and the wall moves by
+// the imposed 0.1 on average. The test runs in serial only, because the wall
+// mean uses VectorTools::point_value(), so adaptive refinement with
+// tensor-product coupling is not tested here on more than one rank.
 TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
 {
-  const auto coarse = solve_inflated_vessel(false, 2);
-  const auto fine   = solve_inflated_vessel(false, 3);
+  const auto results = solve_inflated_vessel(false, 4);
+  ASSERT_EQ(results.size(), 4u);
+  const auto &coarse = results[2];
+  const auto &fine   = results[3];
 
   EXPECT_GT(coarse.l2 / fine.l2, 2.);
   EXPECT_GT(coarse.h1 / fine.h1, 1.25);
   EXPECT_NEAR(fine.wall_displacement, 0.1, 3e-3);
 
   // Upper bounds on the errors of the finer solve, not theoretical estimates.
-  // A serial Debug run with deal.II 9.7.1 (63243 dofs) gave L2 8.04e-3, Linfty
-  // 6.39e-3 and H1 0.204; the bounds leave at least 20% margin.
-  EXPECT_LT(fine.l2, 1.0e-2);
-  EXPECT_LT(fine.linfty, 8.0e-3);
-  EXPECT_LT(fine.h1, 0.256);
+  // A serial Debug run with deal.II 9.7.1 (142215 dofs) gave L2 6.56e-3,
+  // Linfty 5.63e-3 and H1 0.188; the bounds leave at least 20% margin.
+  EXPECT_LT(fine.l2, 8.2e-3);
+  EXPECT_LT(fine.linfty, 7.0e-3);
+  EXPECT_LT(fine.h1, 0.235);
 }
 
-// On the same mesh, point and tensor-product coupling impose the same
-// inflation of the vessel and approximate the exact solution equally well.
+// With the same adaptive refinement, point and tensor-product coupling impose
+// the same inflation of the vessel and approximate the exact solution equally
+// well.
 TEST(ElasticityTensorProductCouplingValidation, PointAndTensorProductExactSolution)
 {
-  const auto point  = solve_inflated_vessel(true, 2);
-  const auto tensor = solve_inflated_vessel(false, 2);
+  const auto point  = solve_inflated_vessel(true, 2).back();
+  const auto tensor = solve_inflated_vessel(false, 2).back();
 
   EXPECT_NEAR(point.wall_displacement, 0.1, 1e-3);
   EXPECT_NEAR(tensor.wall_displacement, 0.1, 1e-3);
