@@ -843,3 +843,108 @@ TEST(VascularReferenceFlow, BOTH_PublicGeneratedTreeRealizesNonzeroDemandFlows)
       EXPECT_LE(pressure, 12000. + 1.e-8);
     }
 }
+
+TEST(VascularReferenceFlow,
+     BOTH_ArterialPortalVenousCompartmentHasAnalyticBalance)
+{
+  const auto                    comm = MPI_COMM_WORLD;
+  const auto                    rank = Utilities::MPI::this_mpi_process(comm);
+  const auto                    size = Utilities::MPI::n_mpi_processes(comm);
+  NetworkData                   n;
+  const std::array<Id, 6>       ids{{10, 11, 20, 22, 30, 33}};
+  const std::array<Point<3>, 6> positions{{Point<3>(0., .2, .2),
+                                           Point<3>(.2, .2, .2),
+                                           Point<3>(0., .5, .2),
+                                           Point<3>(.2, .5, .2),
+                                           Point<3>(.8, .35, .2),
+                                           Point<3>(.6, .35, .2)}};
+  for (unsigned int i = 0; i < ids.size(); ++i)
+    n.nodes[ids[i]] = {positions[i], static_cast<unsigned int>(ids[i] % size)};
+  n.nodes[10].port = Port::arterial_inlet;
+  n.nodes[20].port = Port::portal_inlet;
+  n.nodes[30].port = Port::venous_outlet;
+  const std::array<System, 3> systems{
+    {System::arterial, System::portal, System::venous}};
+  const std::array<double, 3> vascular{{1.e10, 2.e9, 1.e9}};
+  const std::array<double, 3> arms{{3.e11, 4.e10, 2.e10}};
+  for (unsigned int i = 0; i < 3; ++i)
+    {
+      const double radius =
+        std::pow(8. * .004 * .2 / (numbers::PI * vascular[i]), .25);
+      edge(n, 100 + i, ids[2 * i], ids[2 * i + 1], .004, radius, systems[i]);
+      n.vessels.at(100 + i).owner = (100 + i) % size;
+      const Id   terminal         = 200 + i;
+      const auto owner            = n.nodes.at(ids[2 * i + 1]).owner;
+      if (owner == rank)
+        n.terminals[terminal] = {ids[2 * i + 1], 99, systems[i], owner, 2.};
+    }
+  std::vector<TerminalTriplet> triplets;
+  if (rank == 0)
+    triplets.push_back({99, 200, 201, 202, arms});
+  const ReferenceConditions bc{{{10, 12000.}, {20, 5000.}, {30, 1000.}}, {}};
+  const auto state = solve_reference(n, {}, triplets, bc, {}, comm);
+  ASSERT_TRUE(state.validation.valid());
+  const std::array<double, 3> total{
+    {vascular[0] + arms[0], vascular[1] + arms[1], vascular[2] + arms[2]}};
+  const double pressure =
+    (12000. / total[0] + 5000. / total[1] + 1000. / total[2]) /
+    (1. / total[0] + 1. / total[1] + 1. / total[2]);
+  const double qa = (12000. - pressure) / total[0],
+               qp = (5000. - pressure) / total[1],
+               qv = (pressure - 1000.) / total[2];
+  EXPECT_GT(qa, 0.);
+  EXPECT_GT(qp, 0.);
+  EXPECT_GT(qv, 0.);
+  for (const auto &[id, reference] : state.vessels)
+    EXPECT_NEAR(reference.flow / (id == 100 ? qa :
+                                  id == 101 ? qp :
+                                              -qv),
+                1.,
+                2.e-11);
+  if (rank == 0)
+    {
+      const auto &t = state.territories.at(99);
+      EXPECT_NEAR(t.arterial_flow / qa, 1., 2.e-11);
+      EXPECT_NEAR(t.portal_flow / qp, 1., 2.e-11);
+      EXPECT_NEAR(t.venous_flow / qv, 1., 2.e-11);
+      EXPECT_NEAR(t.flow / qv, 1., 2.e-11);
+      EXPECT_NEAR(t.compartment_pressure, pressure, 1.e-8);
+      EXPECT_NEAR(t.arterial_flow + t.portal_flow, t.venous_flow, 1.e-18);
+    }
+  else
+    EXPECT_TRUE(state.territories.empty());
+  EXPECT_NEAR(state.boundary_flow_balance, 0., 1.e-18);
+  EXPECT_NEAR(state.dissipated_power / (qa * 11000. + qp * 4000.), 1., 2.e-11);
+  const std::map<System, double> totals{{System::arterial, qa},
+                                        {System::portal, qp},
+                                        {System::venous, qv}};
+  const auto loads  = demand_flow_conditions(n, bc.pressures, totals, {}, comm);
+  const auto design = solve_reference(n, {}, loads, {}, comm);
+  ASSERT_TRUE(design.validation.valid());
+  for (const auto &[id, terminal] : n.terminals)
+    {
+      const double expected = terminal.system == System::arterial ? qa :
+                              terminal.system == System::portal   ? qp :
+                                                                    -qv;
+      EXPECT_NEAR(design.terminal_outflows.at(id) / expected, 1., 2.e-11);
+      EXPECT_NEAR(design.pressures.at(terminal.node),
+                  state.pressures.at(terminal.node),
+                  1.e-8);
+    }
+  EXPECT_THROW(demand_flow_conditions(n, bc.pressures, 1.e-9, {}, comm),
+               ExceptionBase);
+  auto invalid = triplets;
+  if (rank == 0)
+    invalid[0].resistances[1] = 0.;
+  EXPECT_FALSE(
+    solve_reference(n, {}, invalid, bc, {}, comm).validation.valid());
+  invalid = triplets;
+  if (rank == 0)
+    invalid[0].portal = invalid[0].arterial;
+  EXPECT_FALSE(
+    solve_reference(n, {}, invalid, bc, {}, comm).validation.valid());
+  auto reversed          = bc;
+  reversed.pressures[20] = 100.;
+  EXPECT_FALSE(
+    solve_reference(n, {}, triplets, reversed, {}, comm).validation.valid());
+}

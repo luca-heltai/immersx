@@ -124,12 +124,13 @@ namespace ImmersX::Vascularization
     };
   } // namespace
 
-  ReferenceResult
-  solve_reference(const NetworkData               &network,
-                  const std::vector<TerminalPair> &pairs,
-                  const ReferenceConditions       &conditions,
-                  const ReferenceParameters       &parameters,
-                  MPI_Comm                         communicator)
+  static ReferenceResult
+  solve_reference_impl(const NetworkData                  &network,
+                       const std::vector<TerminalPair>    &pairs,
+                       const std::vector<TerminalTriplet> &triplets,
+                       const ReferenceConditions          &conditions,
+                       const ReferenceParameters          &parameters,
+                       MPI_Comm                            communicator)
   {
     using namespace dealii;
     const Rank rank       = Utilities::MPI::this_mpi_process(communicator),
@@ -197,6 +198,20 @@ namespace ImmersX::Vascularization
           "terminal pair",
           p.territory,
           "A bed requires valid identifiers and a positive finite resistance.");
+    for (const auto &t : triplets)
+      {
+        if (t.territory == invalid_id || t.arterial == invalid_id ||
+            t.portal == invalid_id || t.venous == invalid_id)
+          issue("terminal triplet",
+                t.territory,
+                "A triplet needs valid identifiers.");
+        for (const double r : t.resistances)
+          if (!std::isfinite(r) || !(r > 0.))
+            issue(
+              "terminal triplet",
+              t.territory,
+              "All three microvascular star arms must be positive and finite.");
+      }
     if (!phase())
       return result;
     Id offset = 0;
@@ -230,6 +245,12 @@ namespace ImmersX::Vascularization
         registration[p.territory % size].territories.push_back(p.territory);
         registration[p.arterial % size].paired_terminals.push_back(p.arterial);
         registration[p.venous % size].paired_terminals.push_back(p.venous);
+      }
+    for (const auto &t : triplets)
+      {
+        registration[t.territory % size].territories.push_back(t.territory);
+        for (Id id : {t.arterial, t.portal, t.venous})
+          registration[id % size].paired_terminals.push_back(id);
       }
     std::map<Id, ReferenceNode>     node_registry;
     std::map<Id, ReferenceTerminal> terminal_registry;
@@ -301,6 +322,9 @@ namespace ImmersX::Vascularization
         needed_terminals.insert(p.arterial);
         needed_terminals.insert(p.venous);
       }
+    for (const auto &t : triplets)
+      for (Id id : {t.arterial, t.portal, t.venous})
+        needed_terminals.insert(id);
     const auto pair_terminals = lookup(terminal_registry, needed_terminals);
     if (!phase())
       return result;
@@ -342,6 +366,7 @@ namespace ImmersX::Vascularization
       bool                         vascular;
       Id                           id;
       double                       demand;
+      bool                         paired;
     };
     std::vector<Resistor> resistors;
     const auto            append = [&](Id     a,
@@ -349,7 +374,8 @@ namespace ImmersX::Vascularization
                             double r,
                             bool   vascular,
                             Id     id,
-                            double demand) {
+                            double demand,
+                            bool   paired = true) {
       if (!std::isfinite(r) || r <= 0. || !std::isfinite(1. / r) ||
           1. / r <= 0.)
         issue(
@@ -358,7 +384,7 @@ namespace ImmersX::Vascularization
           "Resistance and conductance must be positive and representable; no radius clipping is applied.");
       else
         resistors.push_back(
-          {{{nodes.at(a), nodes.at(b)}}, r, vascular, id, demand});
+          {{{nodes.at(a), nodes.at(b)}}, r, vascular, id, demand, paired});
     };
     for (const auto &[id, v] : network.vessels)
       if (v.owner == rank)
@@ -381,6 +407,52 @@ namespace ImmersX::Vascularization
         append(a.node, v.node, p.resistance, false, p.territory, a.demand);
         paired_send[nodes.at(a.node).owner].emplace_back(a.node, a.system);
         paired_send[nodes.at(v.node).owner].emplace_back(v.node, v.system);
+      }
+    for (const auto &t : triplets)
+      {
+        const std::array<Id, 3>     ids{{t.arterial, t.portal, t.venous}};
+        const std::array<System, 3> systems{
+          {System::arterial, System::portal, System::venous}};
+        const double               demand = pair_terminals.at(ids[0]).demand;
+        std::array<Id, 3>          endpoints;
+        std::array<long double, 3> conductance;
+        long double                sum = 0.;
+        for (unsigned int i = 0; i < 3; ++i)
+          {
+            const auto &terminal = pair_terminals.at(ids[i]);
+            endpoints[i]         = terminal.node;
+            if (terminal.system != systems[i] ||
+                terminal.territory != t.territory || terminal.demand != demand)
+              issue(
+                "terminal triplet",
+                t.territory,
+                "A triplet needs arterial, portal and venous terminals in one territory with common demand.");
+            paired_send[nodes.at(terminal.node).owner].emplace_back(
+              terminal.node, terminal.system);
+            conductance[i] = 1.L / t.resistances[i];
+            sum += conductance[i];
+          }
+        for (unsigned int i = 0; i < 3; ++i)
+          for (unsigned int j = i + 1; j < 3; ++j)
+            {
+              if (ids[i] == ids[j] || endpoints[i] == endpoints[j] ||
+                  !(nodes.at(endpoints[i])
+                      .position.distance(nodes.at(endpoints[j]).position) > 0.))
+                issue(
+                  "terminal triplet",
+                  t.territory,
+                  "A triplet needs three geometrically distinct endpoints.");
+              // Schur complement of the common compartment pressure.
+              const double r =
+                static_cast<double>(sum / conductance[i] / conductance[j]);
+              append(endpoints[i],
+                     endpoints[j],
+                     r,
+                     false,
+                     t.territory,
+                     demand,
+                     false);
+            }
       }
     if (!phase())
       return result;
@@ -719,15 +791,56 @@ namespace ImmersX::Vascularization
               }
             result.vessels[r.id] = state;
           }
-        else
+        else if (r.paired)
           {
-            result.territories[r.id] = {q, q / r.demand};
+            result.territories[r.id] = {q, q / r.demand, q, 0., q};
             if (!std::isfinite(q / r.demand) || !(q > 0.))
               issue(
                 "territory",
                 r.id,
                 "Microvascular perfusion must be positive and representable from artery to vein.");
           }
+      }
+    for (const auto &t : triplets)
+      {
+        const std::array<Id, 3> ids{{t.arterial, t.portal, t.venous}};
+        const Index origin = nodes.at(pair_terminals.at(t.venous).node).index;
+        std::array<long double, 3> differences, conductance;
+        long double                sum = 0., weighted = 0.;
+        for (unsigned int i = 0; i < 3; ++i)
+          {
+            const Index index = nodes.at(pair_terminals.at(ids[i]).node).index;
+            differences[i]    = static_cast<long double>(work_values[index]) -
+                             work_values[origin] +
+                             static_cast<long double>(lifting_values[index]) -
+                             lifting_values[origin];
+            conductance[i] = 1.L / t.resistances[i];
+            sum += conductance[i];
+            weighted += conductance[i] * differences[i];
+          }
+        const long double excess = weighted / sum;
+        const double      qa =
+          static_cast<double>((differences[0] - excess) * conductance[0]);
+        const double qp =
+          static_cast<double>((differences[1] - excess) * conductance[1]);
+        const double qv = static_cast<double>(excess * conductance[2]);
+        const double pressure =
+          static_cast<double>(static_cast<long double>(work_values[origin]) +
+                              lifting_values[origin] + excess);
+        const double demand             = pair_terminals.at(t.arterial).demand;
+        result.territories[t.territory] = {
+          qv, qv / demand, qa, qp, qv, pressure};
+        if (!(qa > 0.) || !(qp > 0.) || !(qv > 0.) || !std::isfinite(qa) ||
+            !std::isfinite(qp) || !std::isfinite(qv) ||
+            !std::isfinite(pressure) || !std::isfinite(qv / demand))
+          issue(
+            "terminal triplet",
+            t.territory,
+            "Arterial and portal perfusion and venous drainage must be positive and representable.");
+        result.maximum_flow_defect =
+          std::max(result.maximum_flow_defect, std::abs(qa + qp - qv));
+        flow_scale =
+          std::max({flow_scale, std::abs(qa), std::abs(qp), std::abs(qv)});
       }
     for (std::size_t i = 0; i < rows.size(); ++i)
       {
@@ -786,7 +899,8 @@ namespace ImmersX::Vascularization
     for (const auto &[id, state] : result.vessels)
       {
         const auto system = network.vessels.at(id).system;
-        if ((system == System::arterial && state.flow < -allowance) ||
+        if (((system == System::arterial || system == System::portal) &&
+             state.flow < -allowance) ||
             (system == System::venous && state.flow > allowance))
           issue(
             "vessel",
@@ -804,12 +918,50 @@ namespace ImmersX::Vascularization
     return result;
   }
 
+  ReferenceResult
+  solve_reference(const NetworkData               &network,
+                  const std::vector<TerminalPair> &pairs,
+                  const ReferenceConditions       &conditions,
+                  const ReferenceParameters       &parameters,
+                  MPI_Comm                         communicator)
+  {
+    return solve_reference_impl(
+      network, pairs, {}, conditions, parameters, communicator);
+  }
+
+  ReferenceResult
+  solve_reference(const NetworkData                  &network,
+                  const std::vector<TerminalPair>    &pairs,
+                  const std::vector<TerminalTriplet> &triplets,
+                  const ReferenceConditions          &conditions,
+                  const ReferenceParameters          &parameters,
+                  MPI_Comm                            communicator)
+  {
+    return solve_reference_impl(
+      network, pairs, triplets, conditions, parameters, communicator);
+  }
+
   ReferenceConditions
   demand_flow_conditions(const NetworkData          &network,
                          const std::map<Id, double> &port_pressures,
                          double                      total_flow,
                          const std::vector<Id>      &selected_terminals,
                          MPI_Comm                    communicator)
+  {
+    return demand_flow_conditions(network,
+                                  port_pressures,
+                                  {{System::arterial, total_flow},
+                                   {System::venous, total_flow}},
+                                  selected_terminals,
+                                  communicator);
+  }
+
+  ReferenceConditions
+  demand_flow_conditions(const NetworkData              &network,
+                         const std::map<Id, double>     &port_pressures,
+                         const std::map<System, double> &total_flows,
+                         const std::vector<Id>          &selected_terminals,
+                         MPI_Comm                        communicator)
   {
     using namespace dealii;
     const Rank rank        = Utilities::MPI::this_mpi_process(communicator),
@@ -820,11 +972,15 @@ namespace ImmersX::Vascularization
                   ExcMessage(message));
     };
     require_all(
-      validate_data(network, size).valid() && std::isfinite(total_flow) &&
-        total_flow > 0.,
+      validate_data(network, size).valid() && !total_flows.empty(),
       "Demand-flow construction requires valid physical data and a positive finite total flow.");
-    const auto controls = std::make_pair(total_flow, selected_terminals);
+    const auto controls = std::make_pair(total_flows, selected_terminals);
     bool       valid    = true;
+    for (const auto &[system, rate] : total_flows)
+      valid = valid &&
+              (system == System::arterial || system == System::portal ||
+               system == System::venous) &&
+              std::isfinite(rate) && rate > 0.;
     for (const auto &other : Utilities::MPI::all_gather(communicator, controls))
       valid = other == controls && valid;
     const std::set<Id> requested(selected_terminals.begin(),
@@ -896,21 +1052,26 @@ namespace ImmersX::Vascularization
         return 0u;
       else if (system == System::venous)
         return 1u;
+      else if (system == System::portal)
+        return 2u;
       AssertThrow(false, ExcMessage("Unknown demand-flow system."));
       return 0u;
     };
     std::vector<Id>       selected;
-    std::array<double, 2> scale{{0., 0.}}, sum{{0., 0.}};
+    std::array<double, 3> scale{}, sum{};
     for (const auto &[id, t] : network.terminals)
       if (t.owner == rank && (requested.empty() || requested.count(id)))
         {
+          valid = total_flows.count(t.system) && valid;
           selected.push_back(id);
           const auto i = system_index(t.system);
           scale[i]     = std::max(scale[i], t.demand);
         }
+    const auto selected_count =
+      Utilities::MPI::sum(static_cast<Id>(selected.size()), communicator);
     require_all(
-      Utilities::MPI::sum(static_cast<Id>(selected.size()), communicator) > 0,
-      "Demand-flow construction requires at least one selected tissue terminal.");
+      valid && selected_count > 0,
+      "Demand-flow construction requires selected tissue terminals and an explicit positive total for every selected system.");
     Utilities::MPI::max(ArrayView<const double>(scale.data(), scale.size()),
                         communicator,
                         make_array_view(scale));
@@ -930,16 +1091,17 @@ namespace ImmersX::Vascularization
         // Separate mantissas and exponents: an intermediate demand ratio may
         // underflow even when the final SI flow is representable.
         int flow_exponent, demand_exponent, scale_exponent, sum_exponent;
-        const double mantissa = std::frexp(total_flow, &flow_exponent) *
-                                std::frexp(t.demand, &demand_exponent) /
-                                (std::frexp(scale[i], &scale_exponent) *
-                                 std::frexp(sum[i], &sum_exponent));
+        const double mantissa =
+          std::frexp(total_flows.at(t.system), &flow_exponent) *
+          std::frexp(t.demand, &demand_exponent) /
+          (std::frexp(scale[i], &scale_exponent) *
+           std::frexp(sum[i], &sum_exponent));
         const double q     = std::ldexp(mantissa,
                                     flow_exponent + demand_exponent -
                                       scale_exponent - sum_exponent);
         valid              = std::isfinite(q) && q > 0. && valid;
         double signed_flow = 0.;
-        if (t.system == System::arterial)
+        if (t.system == System::arterial || t.system == System::portal)
           signed_flow = -q;
         else if (t.system == System::venous)
           signed_flow = q;
