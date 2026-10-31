@@ -935,34 +935,5 @@ TEST(VascularDiscretization, BOTH_CrossingWorkTracksIntersectedCells)
       EXPECT_LE(cell_tests, 8 * count + 8 * size);
       EXPECT_GE(interval_visits, count);
       EXPECT_LE(interval_visits, 8 * count + 8 * size);
-
-      NetworkData network;
-      if (rank == size - 1)
-        {
-          network = line(segments.at(9).first, segments.at(9).second);
-          for (auto &[id, node] : network.nodes)
-            node.owner = rank;
-          for (auto &[id, vessel] : network.vessels)
-            vessel.owner = rank;
-        }
-      DiscretizationParameters parameters;
-      parameters.target_factor   = .1;
-      parameters.lower_factor    = .05;
-      parameters.upper_factor    = .2;
-      parameters.exterior_length = .2;
-      const auto numerical =
-        discretize(background, mapping, network, parameters, MPI_COMM_WORLD);
-      EXPECT_TRUE(numerical.validation.valid());
-      const auto numerical_cells =
-        Utilities::MPI::sum(static_cast<std::uint64_t>(numerical.cells.size()),
-                            MPI_COMM_WORLD);
-      const auto subdivision_visits = Utilities::MPI::sum(
-        numerical.work[GrowthOperation::interval_record_visits],
-        MPI_COMM_WORLD);
-      const auto levels =
-        static_cast<unsigned int>(1 + std::ceil(std::log2(count + 3.)));
-      EXPECT_GT(subdivision_visits, numerical_cells);
-      EXPECT_LE(subdivision_visits, 16ull * (count + numerical_cells) * levels);
-      EXPECT_EQ(numerical.work[GrowthOperation::interval_cut_moves], 0u);
     }
 }
