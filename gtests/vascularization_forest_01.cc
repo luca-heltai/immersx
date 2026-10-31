@@ -1646,24 +1646,12 @@ TEST(VascularForest, BOTH_PersistentCenterlineIndicesFollowCommittedDeltas)
           distances.emplace_back(
             point_distance_square(p, Segment<3>(points[0], points[1])), id);
         for (const auto &[segment, id] :
-             indices.owned | bgi::adaptors::queried(bgi::nearest(p, 3)))
+             nearest_centerlines(indices.owned, p, 3, nullptr))
           hits.emplace_back(point_distance_square(p, segment), id);
         std::sort(distances.begin(), distances.end());
         std::sort(hits.begin(), hits.end());
         distances.resize(std::min<std::size_t>(3, distances.size()));
-        // Native nearest queries may choose any id at a tied cutoff.
-        // The exhaustive distances still determine the exact nearest set.
-        std::vector<double> expected_distances, actual_distances;
-        std::set<Id>        unique_hits;
-        for (const auto &[distance, id] : distances)
-          expected_distances.push_back(distance);
-        for (const auto &[distance, id] : hits)
-          {
-            actual_distances.push_back(distance);
-            EXPECT_TRUE(expected.count(id));
-            EXPECT_TRUE(unique_hits.insert(id).second);
-          }
-        EXPECT_EQ(actual_distances, expected_distances);
+        EXPECT_EQ(hits, distances);
       }
   };
   check(initial, mutable_ids(initial));
@@ -1700,4 +1688,38 @@ TEST(VascularForest, BOTH_PersistentCenterlineIndicesFollowCommittedDeltas)
   EXPECT_TRUE(rejected.geometry_changes.changed_owned.empty());
   EXPECT_TRUE(rejected.geometry_changes.released_owned.empty());
   check(committed.network, committed.mutable_owned);
+}
+
+TEST(VascularForest, CanonicalNearestStopsAfterCutoffTies)
+{
+  constexpr unsigned int ties = 20;
+  for (unsigned int population : {1000u, 2000u, 4000u})
+    {
+      std::vector<GrowthIndices::Leaf> leaves;
+      for (unsigned int i = 0; i < ties; ++i)
+        leaves.push_back(
+          {{Point<3>(), Point<3>(1., 1. + i, 0.)}, base + 100 + i});
+      for (unsigned int i = 0; i < population; ++i)
+        leaves.push_back(
+          {{Point<3>(100. + 2 * i, 0., 0.), Point<3>(101. + 2 * i, 1., 0.)},
+           base + 1000 + i});
+      auto tree = pack_rtree(leaves);
+      for (unsigned int history = 0; history < 2; ++history)
+        {
+          GrowthWork work;
+          const auto nearest =
+            nearest_centerlines(tree, Point<3>(-1., 0., 0.), 1, &work);
+          ASSERT_EQ(nearest.size(), 1u);
+          EXPECT_EQ(nearest.front().second, base + 100);
+          EXPECT_GE(work[GrowthOperation::network_index_hits], ties);
+          EXPECT_LE(work[GrowthOperation::network_index_hits], ties + 1);
+          // A different native tree layout must preserve the physical-id tie.
+          if (history == 0)
+            for (auto it = leaves.rbegin(); it != leaves.rend(); ++it)
+              {
+                ASSERT_EQ(tree.remove(*it), 1u);
+                tree.insert(*it);
+              }
+        }
+    }
 }
