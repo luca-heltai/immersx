@@ -16,11 +16,12 @@ namespace ImmersX::Vascularization::internal
 
   // Incremental native query iteration stops after the nearest cutoff and
   // its ties; bulk query(k) may choose different tied ids after tree updates.
+  template <typename Tree>
   inline std::vector<std::pair<Segment<3>, Id>>
-  nearest_centerlines(const RTree<std::pair<Segment<3>, Id>> &tree,
-                      const Point<3>                         &point,
-                      unsigned int                            count,
-                      GrowthWork                             *work)
+  nearest_centerlines(const Tree     &tree,
+                      const Point<3> &point,
+                      unsigned int    count,
+                      GrowthWork     *work)
   {
     using Leaf = std::pair<Segment<3>, Id>;
     if (count == 0 || tree.empty())
@@ -64,7 +65,19 @@ namespace ImmersX::Vascularization::internal
   struct GrowthIndices
   {
     using Leaf = std::pair<Segment<3>, Id>;
-    using Tree = RTree<Leaf>;
+    struct EqualLeaf
+    {
+      bool
+      operator()(const Leaf &a, const Leaf &b) const
+      {
+        // Removal uses the exact stored record. Boost 1.83's geometric
+        // equality does not support three-dimensional segments.
+        return a.second == b.second && a.first.first == b.first.first &&
+               a.first.second == b.first.second;
+      }
+    };
+    using Tree =
+      bgi::rtree<Leaf, bgi::linear<16>, bgi::indexable<Leaf>, EqualLeaf>;
     struct Record
     {
       Leaf   leaf;
@@ -98,12 +111,13 @@ namespace ImmersX::Vascularization::internal
       for (const auto &[id, radius] : roots)
         radius_bound = std::max(radius_bound, radius);
       radius_bound = Utilities::MPI::max(radius_bound, comm);
-      owned        = pack_rtree(all);
+      owned        = Tree(all.begin(), all.end());
       count_work(work, GrowthOperation::network_index_builds);
       count_work(work, GrowthOperation::network_index_insertions, all.size());
       for (unsigned int system = 0; system < 2; ++system)
         {
-          mutable_trees[system] = pack_rtree(candidates[system]);
+          mutable_trees[system] =
+            Tree(candidates[system].begin(), candidates[system].end());
           count_work(work, GrowthOperation::network_index_builds);
           count_work(work,
                      GrowthOperation::network_index_insertions,

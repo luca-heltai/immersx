@@ -10,7 +10,7 @@ provides it, subject to the element types supported by its Assimp reader.
 
 ```text
 subsection Domain
-  set Grid generator = /absolute/path/to/liver.stl
+  set Grid generator = liver.stl
   set Triangulation type = fullydistributed
   set Grid scale = 0.001
   subsection Surface mesh
@@ -39,16 +39,16 @@ Gmsh classifies the triangulated surface into patches using `Feature angle`,
 constructs a parametrization and a closed surface loop, and meshes its interior.
 `Target edge length` sets both Gmsh mesh-size bounds; curvature and patch
 boundaries can still require smaller edges. This requires deal.II built with
-the Gmsh API and initialized through `Utilities::MPI::MPI_InitFinalize`.
+the Gmsh API. Domain initializes a Gmsh session when needed and preserves
+an existing caller-owned session.
 The implementation follows [Gmsh tutorial t13](https://gmsh.info/doc/texinfo/#t13).
 It uses the process-global Gmsh model, as does deal.II's API reader, and must
 not run concurrently with another Gmsh operation in the same process.
 
 For an all-hexahedral mesh, use `Volume cells = hexahedra`. Gmsh first generates
-tetrahedra; deal.II's `GridGenerator::convert_simplex_to_hypercube_mesh` divides
-each tetrahedron into four conforming hexahedra without changing the
-piecewise-planar boundary. This gives an unstructured mesh with more cells,
-rather than a structured mesh aligned with the organ. Hexahedra support both
+tetrahedra, then its native all-hexahedral subdivision divides each
+tetrahedron into four conforming hexahedra. This also works with deal.II 9.7.
+The resulting unstructured mesh has more cells. Hexahedra support both
 Domain triangulation types. Tetrahedra require `fullydistributed`.
 
 Existing volume meshes retain their cells, ids and supported input fields;
