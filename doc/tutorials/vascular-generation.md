@@ -193,6 +193,61 @@ run. Pass `--ranks 2 --mpiexec /path/to/mpirun` to the runner for an MPI run; it
 invariant checks apply to the combined owned records. MPI scaling benchmarks
 are separate from these small illustrated cases.
 
+
+## Generate before the coupled transient solve
+
+With a compatible MetricFlowX package installed, `metric_flow_x_elastodynamics`
+can generate a validated internal network on the solid's final background
+before distributing native flow DoFs and constructing the existing wall
+coupling. The generator itself still builds without MetricFlowX.
+
+The {download}`small coupled configuration <../../gtests/parameters/metric_flow_x_generated_coupled.prm.in>`
+uses a unit cube with 64 solid cells and a four-terminal arterial tree.
+Its seed, viscosity and reference-flow data match the synthetic values above;
+the terminal count is fixed, with no volume calibration or minimum-coverage
+target. Native Square root walls use Young modulus `5e5 Pa`, wall thickness
+`0.0003 m`, and reference pressure `125 Pa`. Each tissue outlet uses native
+`R1=0`, `R2=1e8 Pa s/m^3`, `C=0` and the same `125 Pa` reservoir pressure.
+The equal nonzero reference and outlet pressures balance at rest; the pressure
+reference is assigned once to native `p_d`, with native `p0=0`.
+
+The inherited time-dependent inflow is
+$Q(t)=5\times10^{-8}(1-\cos(100\pi t))\ \mathrm{m^3/s}$.
+Both $Q(0)$ and $Q'(0)$ vanish, matching the initially resting solid; the inflow
+is nonzero at subsequent times. This transient forcing is distinct from the
+`2e-9 m^3/s` resistive design flow used during generation. IDA advances from
+zero to `0.002 s`, with flow, solid and pressure-jump output at
+`0`, `0.001` and `0.002 s`.
+
+Configure both packages against the same deal.II installation and linear
+algebra backend. This checkout selects Trilinos, so configure the native
+package with `-DMETRIC_FLOW_X_BACKEND=Trilinos`. For example:
+
+```bash
+cmake -S . -B build-coupled -DCMAKE_BUILD_TYPE=DebugRelease \
+  -DMetricFlowX_DIR=/path/to/metric-flow-x-install/lib/cmake/MetricFlowX \
+  -DENABLE_GOOGLE_TESTING=ON
+cmake --build build-coupled --target \
+  metric_flow_x_elastodynamics metric_flow_x_elastodynamics_debug -j
+ctest --test-dir build-coupled \
+  -R 'application\.MetricFlowXGenerated\.' --output-on-failure
+```
+
+CTest creates separate parameter and output paths for each build variant and
+solver mode. The checks require actual accepted IDA steps, nonempty internal
+vessel geometry, the three output times, positive flow-state change and
+positive solid displacement. Available direct-solver cases include serial
+UMFPACK and serial/two-rank/four-rank MUMPS. An older MetricFlowX package
+without the native in-memory input API skips these generated-input cases.
+
+For a new application, follow the
+[native transfer example](vascular-native-transfer).
+It explains owner-local material callbacks, explicit terminal data, native
+coefficient replication, stable physical IDs and reversed venous execution
+orientation. Partially external imported networks remain supported by the
+standalone generator; adapting their multiplier space for partial wall coupling
+is deferred.
+
 (vascular-measured-mpi-growth)=
 ## Measured MPI growth
 

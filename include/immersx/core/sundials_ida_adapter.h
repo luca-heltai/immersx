@@ -653,9 +653,38 @@ namespace ImmersX
                                         dst,
                                         rhs,
                                         *current_preconditioner_);
-                  pcout << "IDAAdapter: FGMRES converged in "
-                        << control.last_step() << " iteration(s), residual "
-                        << control.last_value() << "." << std::endl;
+                  // An inexact Schur preconditioner can give a small projected
+                  // residual while the original system is still inaccurate.
+                  // Solve defect equations within the same iteration budget.
+                  const auto   maximum_iterations = control.max_steps();
+                  unsigned int iterations         = control.last_step();
+                  auto         defect             = composition_.make_state();
+                  current_jacobian_->vmult(defect, dst);
+                  defect.sadd(-1., 1., rhs);
+                  while (defect.l2_norm() > control.tolerance() &&
+                         iterations < maximum_iterations)
+                    {
+                      auto correction = composition_.make_state();
+                      correction      = 0.;
+                      control.set_max_steps(maximum_iterations - iterations);
+                      flexible_solver.solve(*current_jacobian_,
+                                            correction,
+                                            defect,
+                                            *current_preconditioner_);
+                      AssertThrow(control.last_step() > 0,
+                                  dealii::SolverControl::NoConvergence(
+                                    iterations, defect.l2_norm()));
+                      iterations += control.last_step();
+                      dst += correction;
+                      current_jacobian_->vmult(defect, dst);
+                      defect.sadd(-1., 1., rhs);
+                    }
+                  AssertThrow(defect.l2_norm() <= control.tolerance(),
+                              dealii::SolverControl::NoConvergence(
+                                iterations, defect.l2_norm()));
+                  pcout << "IDAAdapter: FGMRES converged in " << iterations
+                        << " iteration(s), true residual " << defect.l2_norm()
+                        << "." << std::endl;
                 }
               else
                 {

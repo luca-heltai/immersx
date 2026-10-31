@@ -38,12 +38,30 @@ namespace
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
+  template <class Flow>
+  auto
+  initialize_native_parameters(Flow &flow, const std::string &filename, int)
+    -> decltype(flow.initialize_params(filename, std::string()), void())
+  {
+    flow.initialize_params(filename,
+                           ImmersX::TestPaths::output_path(
+                             "metric-flow-x/last_used_parameters.prm")
+                             .string());
+  }
+
+  template <class Flow>
+  void
+  initialize_native_parameters(Flow &flow, const std::string &filename, long)
+  {
+    flow.initialize_params(filename);
+  }
+
   void
   initialize_problem(Problem &problem)
   {
     const auto parameter_file =
       ImmersX::TestPaths::parameter_path("gtests/parameters/metric_flow_x.prm");
-    problem.initialize_params(parameter_file);
+    initialize_native_parameters(problem, parameter_file, 0);
     problem.setup();
   }
 
@@ -281,7 +299,7 @@ namespace
                                       partitioning_policy);
     const auto input = TestPaths::parameter_path(parameter_file);
     initialize_parameters(input);
-    flow.initialize_params(input);
+    initialize_native_parameters(flow, input, 0);
     flow.setup();
     multiplier_parameters.finite_element = "FE_DGQ(2)";
     ElastodynamicsSolver<3> solid(parameters);
@@ -352,6 +370,22 @@ namespace
                                                    context.time());
           };
         pressure_term.state(id, std::move(pressure_jacobian));
+        if constexpr (detail::has_external_pressure_state_jacobian<
+                        std::decay_t<decltype(flow)>>::value)
+          {
+            typename std::decay_t<decltype(builder)>::Model::
+              MatrixOperatorFactory pressure_state_jacobian =
+                [&, pressure, flow_id, id](const auto &context) {
+                  return metric_flow_x_pressure_state_operator(
+                    flow,
+                    pressure,
+                    context.state(id),
+                    context.state(flow_id),
+                    context.time());
+                };
+            pressure_term.state(flow_id, std::move(pressure_state_jacobian));
+          }
+
         builder.saddle_point(id,
                                      {solid_fields.fields().displacement.id(),
                               solid_fields.fields().velocity.id(),
@@ -390,6 +424,11 @@ namespace
 
     // Check the complete state/derivative linearization at a nonzero multiplier
     // and an expanded area, so the nonlinear radius derivative is exercised.
+    auto &pressure_coefficients =
+      adapter.field(state, wall.fields().multiplier);
+    for (const auto index : pressure_coefficients.locally_owned_elements())
+      pressure_coefficients[index] = 0.5 + 0.05 * (index % 7);
+    pressure_coefficients.compress(VectorOperation::insert);
     auto  direction      = adapter.make_state();
     auto &flow_direction = adapter.field(direction, flow_fields.fields().state);
     auto &flow_state     = adapter.field(state, flow_fields.fields().state);
@@ -399,6 +438,16 @@ namespace
           flow_state[index] *= 1.1;
           flow_direction[index] = 0.1 * flow_state[index];
         }
+    for (const auto component :
+         {Problem::Component::velocity, Problem::Component::velocity_trace})
+      for (const auto index : flow.component_dofs(component))
+        if (flow.locally_owned_dofs().is_element(index))
+          {
+            flow_state[index]     = 0.02 * (1 + index % 3);
+            flow_direction[index] = 0.01 * (1 + index % 2);
+          }
+    flow_state.compress(VectorOperation::insert);
+    flow_direction.compress(VectorOperation::insert);
     for (const auto &field :
          {solid_fields.fields().displacement, solid_fields.fields().velocity})
       for (const auto index : field.locally_owned_dofs())
@@ -485,8 +534,11 @@ TEST(MetricFlowX, BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal)
   using namespace ImmersX;
   ParameterAcceptor::clear();
   Problem flow(MPI_COMM_WORLD);
-  flow.initialize_params(TestPaths::parameter_path(
-    "gtests/parameters/metric_flow_x_rcr_partition.prm"));
+  initialize_native_parameters(
+    flow,
+    TestPaths::parameter_path(
+      "gtests/parameters/metric_flow_x_rcr_partition.prm"),
+    0);
   DomainParameters<3> background_parameters("/RCR ownership/background/");
   background_parameters.arguments_for_grid = "-0.2:0.2:false";
   background_parameters.initial_refinement = 2;
@@ -700,8 +752,10 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
   IDAParameters          ida("/MetricFlowSystem<1, 3>/IDA parameters/", &time);
   FiniteElementSpaceParameters<1, 3> parameters("/Pressure space/",
                                                 "FE_DGQ(1)");
-  problem.initialize_params(
-    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"));
+  initialize_native_parameters(
+    problem,
+    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"),
+    0);
   problem.setup();
   FiniteElementSpace<1, 3> space(problem.triangulation(), parameters);
   const auto               view  = space.view();

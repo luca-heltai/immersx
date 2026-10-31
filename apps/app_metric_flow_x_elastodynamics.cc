@@ -30,10 +30,15 @@
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
 #  include <immersx/physics/metric_flow_x_pressure.h>
+#  include <immersx/vascularization/metric_flow_x.h>
 
+#  include <algorithm>
+#  include <cmath>
 #  include <filesystem>
 #  include <fstream>
 #  include <iostream>
+#  include <memory>
+#  include <optional>
 #  include <set>
 #  include <stdexcept>
 #  include <string>
@@ -103,6 +108,65 @@ namespace
       }
   }
 
+  template <class Flow>
+  auto
+  initialize_flow_parameters(Flow              &flow,
+                             const std::string &input_filename,
+                             const std::string &output_filename,
+                             int)
+    -> decltype(flow.initialize_params(input_filename, output_filename), void())
+  {
+    flow.initialize_params(input_filename, output_filename);
+  }
+
+  template <class Flow>
+  void
+  initialize_flow_parameters(Flow              &flow,
+                             const std::string &input_filename,
+                             const std::string &,
+                             long)
+  {
+    flow.initialize_params(input_filename);
+  }
+
+  template <class Flow>
+  Vascularization::MetricFlowXTransfer
+  prepare_generated_flow(Flow                                    &flow,
+                         const Vascularization::GenerationResult &generation,
+                         const double                             young_modulus,
+                         const double wall_thickness,
+                         const double reference_pressure,
+                         const double terminal_resistance,
+                         const double outlet_pressure)
+  {
+    if constexpr (Vascularization::has_metric_flow_x_network_input<Flow>)
+      return Vascularization::prepare_metric_flow_x(
+        flow,
+        generation,
+        [&](Vascularization::Id, const Vascularization::Vessel &) {
+          typename Flow::VesselProperties properties;
+          properties.E      = young_modulus;
+          properties.h_wall = wall_thickness;
+          properties.p_d    = reference_pressure;
+          properties.p0     = 0.;
+          return properties;
+        },
+        [&](Vascularization::Id,
+            const Vascularization::Node &,
+            const Vascularization::Terminal *) {
+          return typename Flow::RCRPhysics{
+            0., terminal_resistance, 0., outlet_pressure, "generated"};
+        });
+    else
+      {
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Generated flow requires MetricFlowX with in-memory NetworkPhysics input."));
+        return {};
+      }
+  }
+
   void
   run_coupled_problem(const std::string &parameter_file)
   {
@@ -146,8 +210,42 @@ namespace
       ParameterAcceptor::prm,
       Patterns::Selection("default|immersed"));
 
+    Vascularization::Parameters generation_parameters;
+    bool                        generate_network = false;
+    double vessel_young_modulus = 0., vessel_wall_thickness = 0.,
+           vessel_reference_pressure = 0., terminal_resistance = 0.,
+           outlet_pressure = 0.;
+    coupling.add_parameter(
+      "Generate vascular network",
+      generate_network,
+      "Generate and validate on the final solid background before flow setup.");
+    coupling.add_parameter(
+      "Generated vessel Young modulus",
+      vessel_young_modulus,
+      "Explicit synthetic or measured vessel Young modulus in Pa.");
+    coupling.add_parameter("Generated vessel wall thickness",
+                           vessel_wall_thickness,
+                           "Explicit vessel wall thickness in m.");
+    coupling.add_parameter(
+      "Generated vessel reference pressure",
+      vessel_reference_pressure,
+      "Vessel reference pressure in Pa, applied once at the rest area.");
+    coupling.add_parameter("Generated terminal resistance",
+                           terminal_resistance,
+                           "Native RCR R2 in Pa s/m^3; R1 and C are zero.");
+    coupling.add_parameter("Generated outlet pressure",
+                           outlet_pressure,
+                           "Native terminal outlet pressure in Pa.");
+
     initialize_parameters(parameter_file);
-    flow_problem.initialize_params(parameter_file);
+    const auto flow_output_directory =
+      metric_flow_parameter("Output directory");
+    initialize_flow_parameters(flow_problem,
+                               parameter_file,
+                               (std::filesystem::path(flow_output_directory) /
+                                "last_used_parameters.prm")
+                                 .string(),
+                               0);
 
     AssertThrow(linear_solver != "umfpack" ||
                   Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
@@ -167,26 +265,64 @@ namespace
 #  endif
     SolidProblem solid_problem(solid_parameters);
     solid_problem.make_grid();
+    solid_problem.setup_fe();
 
     DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
     flow_domain_parameters.name_of_grid =
       metric_flow_parameter("Vtk file path for mesh input");
     flow_domain_parameters.read_vtk_fields = true;
-    Domain<1, 3> flow_domain(flow_domain_parameters,
+    Domain<1, 3>                         flow_domain(flow_domain_parameters,
                              flow_problem.triangulation());
-    flow_problem.setup(
-      [&](const auto &coarse_mesh, const unsigned int refinement) {
-        flow_domain_parameters.initial_refinement = refinement;
-        flow_domain.prepare_grid(coarse_mesh);
-        if (embedded_partitioning == "default")
-          flow_domain.finalize_grid();
-        else if (embedded_partitioning == "immersed")
-          {
-            const ImmersedRepartitioner<1, 3> policy(
-              solid_problem.triangulation());
-            flow_domain.finalize_grid(policy);
-          }
-      });
+    Vascularization::GenerationResult    generated;
+    Vascularization::MetricFlowXTransfer transfer;
+    if (generate_network)
+      {
+        AssertThrow(
+          Vascularization::has_metric_flow_x_network_input<FlowProblem>,
+          ExcMessage(
+            "Generated flow requires MetricFlowX with in-memory NetworkPhysics input."));
+        AssertThrow(
+          std::isfinite(vessel_young_modulus) && vessel_young_modulus > 0. &&
+            std::isfinite(vessel_wall_thickness) &&
+            vessel_wall_thickness > 0. && std::isfinite(terminal_resistance) &&
+            terminal_resistance > 0. &&
+            std::isfinite(vessel_reference_pressure) &&
+            std::isfinite(outlet_pressure),
+          ExcMessage(
+            "Generated flow requires explicit positive wall material and terminal resistance, and finite pressures."));
+        generated = Vascularization::generate(solid_problem.triangulation(),
+                                              solid_problem.mapping(),
+                                              {},
+                                              generation_parameters,
+                                              MPI_COMM_WORLD);
+        AssertThrow(
+          generated.validation.valid(),
+          ExcMessage(
+            "Vascular generation failed; the result cannot be adopted."));
+        transfer = prepare_generated_flow(flow_problem,
+                                          generated,
+                                          vessel_young_modulus,
+                                          vessel_wall_thickness,
+                                          vessel_reference_pressure,
+                                          terminal_resistance,
+                                          outlet_pressure);
+      }
+    else
+      {
+        flow_problem.setup(
+          [&](const auto &coarse_mesh, const unsigned int refinement) {
+            flow_domain_parameters.initial_refinement = refinement;
+            flow_domain.prepare_grid(coarse_mesh);
+            if (embedded_partitioning == "default")
+              flow_domain.finalize_grid();
+            else if (embedded_partitioning == "immersed")
+              {
+                const ImmersedRepartitioner<1, 3> policy(
+                  solid_problem.triangulation());
+                flow_domain.finalize_grid(policy);
+              }
+          });
+      }
     if (lambda_parameters.finite_element == "auto")
       lambda_parameters.finite_element =
         "FE_DGQ(" +
@@ -203,18 +339,78 @@ namespace
                   area_fe->n_dofs_per_cell() == lambda_fe->n_dofs_per_cell(),
                 ExcMessage("The multiplier FE must have the same local "
                            "basis as MetricFlowX area."));
-    const auto  lambda_view = lambda_space.view();
-    const auto  lambda      = lambda_view.field("lambda");
-    const auto  a0          = flow_domain.field("a0");
-    FieldVector reference_area;
-    reference_area.reinit(flow_domain.vtk_fields().locally_owned_dofs(),
-                          flow_domain.vtk_fields().locally_relevant_dofs(),
-                          MPI_COMM_WORLD);
-    reference_area = a0.coefficients();
-    reference_area.update_ghost_values();
-    const auto A0 = frozen(a0.field(), reference_area);
+    const auto lambda_view = lambda_space.view();
+    const auto lambda      = lambda_view.field("lambda");
+    // Match the native basis to avoid a rounded initial wall displacement.
+    // Raise the reference degree when a physical linear radius needs it.
+    std::unique_ptr<FiniteElementSpace<1, 3>>   generated_reference_space;
+    std::optional<FiniteElementSpaceView<1, 3>> generated_reference_view;
+    FieldVector                                 reference_area;
+    const auto                                  reference_field = [&]() {
+      if (generate_network)
+        {
+          unsigned int reference_degree = area_fe->degree;
+          unsigned int local_taper = 0;
+          const auto   rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+          for (const auto &[id, vessel] : generated.network.vessels)
+            if (vessel.owner == rank && vessel.radii[0] != vessel.radii[1])
+              local_taper = 1;
+          if (Utilities::MPI::max(local_taper, MPI_COMM_WORLD) != 0)
+            reference_degree = std::max(2u, reference_degree);
+          generated_reference_space =
+            std::make_unique<FiniteElementSpace<1, 3>>(
+              flow_problem.triangulation(),
+              std::make_unique<FE_DGQ<1, 3>>(reference_degree));
+          generated_reference_view.emplace(generated_reference_space->view());
+          const auto &reference_view = *generated_reference_view;
+          reference_area.reinit(reference_view.locally_owned_dofs(),
+                                reference_view.locally_relevant_dofs(),
+                                MPI_COMM_WORLD);
+          // Trilinos ghosted vectors are read-only. Assemble owned values,
+          // then import them into the field used by lifted evaluation.
+          FieldVector owned_reference_area;
+          owned_reference_area.reinit(reference_view.locally_owned_dofs(),
+                                      MPI_COMM_WORLD);
+          std::vector<types::global_dof_index> indices(
+            reference_view.finite_element().n_dofs_per_cell());
+          for (const auto &cell :
+               reference_view.dof_handler().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                cell->get_dof_indices(indices);
+                const auto interval =
+                  Vascularization::physical_reference(cell->id(),
+                                                      transfer.flow_cells);
+                const auto &properties =
+                  flow_problem.vessel_properties(cell->material_id());
+                for (unsigned int i = 0; i < indices.size(); ++i)
+                  {
+                    const double xi = cell->get_fe().unit_support_point(i)[0];
+                    const double t =
+                      interval.begin + xi * (interval.end - interval.begin);
+                    const double radius =
+                      properties.r_in == properties.r_out ?
+                                                         properties.r_in :
+                                                         (1. - t) * properties.r_in + t * properties.r_out;
+                    owned_reference_area[indices[i]] =
+                      numbers::PI * radius * radius;
+                  }
+              }
+          owned_reference_area.compress(VectorOperation::insert);
+          reference_area = owned_reference_area;
+          reference_area.update_ghost_values();
+          return reference_view.field("a0");
+        }
+      const auto a0 = flow_domain.field("a0");
+      reference_area.reinit(flow_domain.vtk_fields().locally_owned_dofs(),
+                            flow_domain.vtk_fields().locally_relevant_dofs(),
+                            MPI_COMM_WORLD);
+      reference_area = a0.coefficients();
+      reference_area.update_ghost_values();
+      return a0.field();
+    }();
+    const auto A0 = frozen(reference_field, reference_area);
 
-    solid_problem.setup_fe();
     solid_problem.setup_system();
     solid_problem.assemble_operators();
     solid_problem.set_initial_conditions();
@@ -281,6 +477,22 @@ namespace
                                                    context.time());
           };
         pressure_term.state(id, std::move(pressure_jacobian));
+        if constexpr (detail::has_external_pressure_state_jacobian<
+                        std::decay_t<decltype(flow_problem)>>::value)
+          {
+            typename std::decay_t<decltype(builder)>::Model::
+              MatrixOperatorFactory pressure_state_jacobian =
+                [&, pressure, flow_id, id](const auto &context) {
+                  return metric_flow_x_pressure_state_operator(
+                    flow_problem,
+                    pressure,
+                    context.state(id),
+                    context.state(flow_id),
+                    context.time());
+                };
+            pressure_term.state(flow_id, std::move(pressure_state_jacobian));
+          }
+
 
         builder.saddle_point(id,
                              {solid_fields.fields().displacement.id(),
@@ -304,8 +516,6 @@ namespace
     adapter.field(state, coupling_fields.fields().multiplier)     = 0.;
     adapter.field(state_dot, coupling_fields.fields().multiplier) = 0.;
 
-    const auto flow_output_directory =
-      metric_flow_parameter("Output directory");
     const auto flow_output_name = metric_flow_parameter("Output filename");
     std::vector<std::pair<double, std::string>> multiplier_output_records;
     std::vector<std::pair<double, std::string>> flow_output_records;
@@ -385,7 +595,23 @@ namespace
       (void)solution_dot;
     });
 
+    auto initial_flow_state = flow_problem.make_state();
+    if (generate_network)
+      initial_flow_state = adapter.field(state, flow_fields.fields().state);
     const auto accepted_steps = adapter.solve(state, state_dot);
+    if (generate_network)
+      {
+        auto flow_change = flow_problem.make_state();
+        flow_change      = adapter.field(state, flow_fields.fields().state);
+        flow_change -= initial_flow_state;
+        const double flow_norm = flow_change.l2_norm();
+        const double solid_norm =
+          adapter.field(state, solid_fields.fields().displacement).l2_norm();
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << "Generated coupled flow change: " << flow_norm
+                    << "\nGenerated coupled solid displacement: " << solid_norm
+                    << std::endl;
+      }
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << "MetricFlowX elastodynamics accepted IDA steps: "
                 << accepted_steps << std::endl;
