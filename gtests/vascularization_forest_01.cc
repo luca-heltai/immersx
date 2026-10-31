@@ -21,6 +21,7 @@
 #include "../source/vascularization/growth_batch.h"
 #include "../source/vascularization/growth_commit.h"
 #include "../source/vascularization/growth_demand.h"
+#include "../source/vascularization/growth_demand_callbacks.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_paths.h"
 using namespace dealii;
@@ -1840,4 +1841,54 @@ TEST(VascularForest, ExactMassRejectsInvalidInputs)
     EXPECT_THROW(demand_mass_units(value), dealii::ExceptionBase);
   EXPECT_THROW(physical_demand_mass(boost::multiprecision::cpp_int(-1)),
                dealii::ExceptionBase);
+}
+
+TEST(VascularForest, BOTH_IntegratedBootstrapReplacesAllNativeSeedDemands)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  const auto   leaves =
+    collect_growth_leaf_terminals(n, mutable_ids(n), MPI_COMM_WORLD);
+  ASSERT_TRUE(leaves.validation.valid());
+  Parameters p;
+  const auto before = evaluate(n, p);
+  EXPECT_EQ(leaves.owned, before.owned_leaf_terminals);
+  GrowthDemandJointUpdate weights;
+  weights.update.snapshot_revision = 7;
+  for (Id id : leaves.owned)
+    weights.new_terminals.push_back({id, 2. + double(id % 7)});
+  const auto valid =
+    initialize_growth_demands(n, leaves.owned, weights, 7, MPI_COMM_WORLD);
+  ASSERT_TRUE(valid.valid());
+  for (Id id : leaves.owned)
+    EXPECT_EQ(n.terminals.at(id).demand, 2. + double(id % 7));
+  const auto after = evaluate(n, p);
+  EXPECT_TRUE(after.validation.valid());
+  double local = 0.;
+  for (Id id : leaves.owned)
+    local += n.terminals.at(id).demand;
+  EXPECT_NEAR(after.total_demand[0] * after.demand_scale,
+              Utilities::MPI::sum(local, MPI_COMM_WORLD),
+              1.e-12);
+  auto missing = weights;
+  for (auto &entry : missing.new_terminals)
+    entry.demand += 100.;
+  for (auto it = missing.new_terminals.begin();
+       it != missing.new_terminals.end();)
+    if (it->terminal == base + 30)
+      it = missing.new_terminals.erase(it);
+    else
+      ++it;
+  const auto rejected =
+    initialize_growth_demands(n, leaves.owned, missing, 7, MPI_COMM_WORLD);
+  EXPECT_FALSE(rejected.valid());
+  for (Id id : leaves.owned)
+    EXPECT_EQ(n.terminals.at(id).demand, 2. + double(id % 7));
+  auto stale                     = weights;
+  stale.update.snapshot_revision = 6;
+  EXPECT_FALSE(
+    initialize_growth_demands(n, leaves.owned, stale, 7, MPI_COMM_WORLD)
+      .valid());
 }
