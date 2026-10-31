@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance candidates by physical identifier.
 
@@ -284,6 +284,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
 
@@ -448,11 +449,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Illustrate the liver tutorial with native before-and-after vascular trees and a tissue-volume section; provide a renderer and a manifest of the checked source data.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Illustrate the liver tutorial with native before-and-after vascular trees and a tissue-volume section; provide a renderer and a manifest of the checked source data.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Request 1,000 tissue territories with paired arterial and venous terminals in the liver tutorial, with 16 candidate vessels per insertion and a verified 32-rank run; keep a 32-pair option for short trials.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Request 1,000 tissue territories with paired arterial and venous terminals in the liver tutorial, with 16 candidate vessels per insertion and a verified 32-rank run; keep a 32-pair option for short trials.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Prepare an IRCAD liver surface and rooted vessel meshes, generate the tissue volume with Gmsh, and grow paired arterial and venous extensions through a runnable tutorial with physical-data checks and ParaView output.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Prepare an IRCAD liver surface and rooted vessel meshes, generate the tissue volume with Gmsh, and grow paired arterial and venous extensions through a runnable tutorial with physical-data checks and ParaView output.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Publish three-seed MPI generation benchmarks at 1,000 and 10,000 terminals, with measured runtime, memory, communication, producer work and geometric quality.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run native vascular cube and sphere examples with local refinement, common-territory arterial and venous networks, and a fixed-graph rediscretization control. Publish reproducible SVG views and measured density, length, volume and coverage plots from owned C++ output.

@@ -318,8 +318,7 @@ controls. The smaller 32-pair case was also verified on two and four ranks.
 
 ## Reproduce the illustrations
 
-The published figures come from the checked 32-rank run, rather than an
-illustrative reconstruction of its output. Their
+The published figures come from the checked 32-rank run. Their
 [manifest](../_static/liver-vascularization/manifest.json) records the simulation
 source revision, input and output SHA-256 hashes, software versions, camera,
 section plane and independent verification results. The anatomical source is
