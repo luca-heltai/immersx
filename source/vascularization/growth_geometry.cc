@@ -146,6 +146,7 @@ namespace ImmersX::Vascularization::internal
             found.volume      = (*cell)->measure();
             found.center      = (*cell)->center();
             found.point_owner = rank;
+            found.cell_owner  = rank;
             for (const auto vertex : (*cell)->vertex_indices())
               found.vertices.push_back((*cell)->vertex(vertex));
             replies[source].emplace(id, std::move(found));

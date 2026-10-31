@@ -35,6 +35,16 @@ namespace ImmersX::Vascularization
     unsigned int attempt_budget    = 12;
   };
 
+  struct TissueIntegrationParameters
+  {
+    void
+                 validate() const;
+    unsigned int quadrature_order     = 2;
+    unsigned int samples_per_terminal = 64;
+    unsigned int maximum_points       = 4000000;
+    unsigned int refinement_budget    = 8;
+  };
+
   enum class CalibrationStatus
   {
     not_requested,
@@ -78,10 +88,11 @@ namespace ImmersX::Vascularization
     void
     validate(bool creating_seed = true) const;
 
-    DiscretizationParameters discretization;
-    CoverageParameters       coverage;
-    CalibrationParameters    calibration;
-    VenousParameters         venous;
+    DiscretizationParameters    discretization;
+    CoverageParameters          coverage;
+    CalibrationParameters       calibration;
+    TissueIntegrationParameters tissue_integration;
+    VenousParameters            venous;
     /** Explicit port pressures and optional loads on unpaired input terminals.
      */
     ReferenceConditions reference_conditions;
