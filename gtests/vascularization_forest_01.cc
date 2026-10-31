@@ -16,6 +16,7 @@
 
 #include <functional>
 
+#include "../source/vascularization/demand_mass.h"
 #include "../source/vascularization/forest_state.h"
 #include "../source/vascularization/growth_batch.h"
 #include "../source/vascularization/growth_commit.h"
@@ -1793,4 +1794,50 @@ TEST(VascularForest, BOTH_SharedBackgroundSurvivesRepeatedFullCommits)
   EXPECT_EQ(work[GrowthOperation::background_cache_constructions], 1u);
   EXPECT_EQ(work[GrowthOperation::background_cell_visits], bg.n_active_cells());
   EXPECT_EQ(work[GrowthOperation::boundary_index_builds], 1u);
+}
+
+TEST(VascularForest, ExactMassRetainsTinyContributionsAfterReassignment)
+{
+  const auto tiny  = demand_mass_units(1.e-300);
+  const auto large = demand_mass_units(1.e300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny + large), 1.e300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny + large - large), 1.e-300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny + large - tiny), 1.e300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny - tiny), 0.);
+  for (const double mass : {0.,
+                            std::numeric_limits<double>::denorm_min(),
+                            std::numeric_limits<double>::min(),
+                            1.e-300,
+                            .1,
+                            1.,
+                            1.e300,
+                            std::numeric_limits<double>::max()})
+    EXPECT_DOUBLE_EQ(physical_demand_mass(demand_mass_units(mass)), mass);
+}
+TEST(VascularForest, ExactMassRoundsTiesToEvenWithoutPartitionDependence)
+{
+  const double step = std::ldexp(1., -52), half = step / 2.;
+  const auto   one     = demand_mass_units(1.);
+  const auto   epsilon = demand_mass_units(step);
+  const auto   tie     = demand_mass_units(half);
+  const auto   subnormal =
+    demand_mass_units(std::numeric_limits<double>::denorm_min());
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + tie), 1.);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + tie + subnormal), 1. + step);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + epsilon + tie), 1. + 2. * step);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + epsilon + tie - subnormal),
+                   1. + step);
+  EXPECT_DOUBLE_EQ(physical_demand_mass((one + tie) + (epsilon - tie)),
+                   1. + step);
+  EXPECT_TRUE(std::isinf(physical_demand_mass(
+    demand_mass_units(std::numeric_limits<double>::max()) * 2)));
+}
+TEST(VascularForest, ExactMassRejectsInvalidInputs)
+{
+  for (double value : {-1.,
+                       std::numeric_limits<double>::infinity(),
+                       std::numeric_limits<double>::quiet_NaN()})
+    EXPECT_THROW(demand_mass_units(value), dealii::ExceptionBase);
+  EXPECT_THROW(physical_demand_mass(boost::multiprecision::cpp_int(-1)),
+               dealii::ExceptionBase);
 }
