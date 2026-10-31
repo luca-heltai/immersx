@@ -8,6 +8,10 @@ weak coupling, and a two-way vessel-wall interaction.
 [Vascular generation](vascular-generation) provides four native cube and sphere
 examples, an arterial–venous case, and a physical-graph rediscretization control.
 
+[Liver vascularization](liver-vascularization) starts from an IRCAD organ
+surface and two rooted 1D vessel meshes, generates a volume with Gmsh and
+grows paired arterial and venous extensions.
+
 The introductory sequence is:
 
 1. [Poisson](poisson) — a scalar finite-element solve.
@@ -41,6 +45,7 @@ parameter files for the corrected residual equations.
 :maxdepth: 1
 
 vascular-generation
+liver-vascularization
 poisson
 elasticity
 elastodynamics

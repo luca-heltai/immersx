@@ -38,6 +38,7 @@ how-to/lifted-poisson
 how-to/lifted-static-elasticity
 tutorials/index
 tutorials/vascular-generation
+tutorials/liver-vascularization
 tutorials/fiber-reinforced-frequency
 tutorials/fiber-in-3d-frequency
 tutorials/metric-flow-x-elastostatic-onboarding

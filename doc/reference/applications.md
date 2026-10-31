@@ -7,6 +7,7 @@ and `space dimension` entries select the template instantiation.
 
 | Executable | Entry point and problem | Dimensions or composition | Dependencies and input |
 | --- | --- | --- | --- |
+| `liver_vascular` | `apps/app_liver_vascular.cc`; surface-to-volume `Domain` and paired vascular growth | 3D tissue with two rooted 1D-in-3D vessel trees | MPI, deal.II Gmsh API, VTK and simplex support; `data/vascularization/liver.prm.in` |
 | `poisson` | `apps/app_poisson.cc`; `PoissonSolver` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | MPI; `tutorials/poisson/poisson_2d.prm.in` |
 | `poisson_adapter` | `apps/app_poisson_adapter.cc`; `PoissonSolver` through `LinearAdapter` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | MPI; `gtests/parameters/poisson_simple_2d.prm.in` |
 | `elastic_static` | `apps/app_elastic_static.cc`; `ElasticStaticProblem` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | MPI; `tutorials/elastic_static/elastic_static.prm.in` |
