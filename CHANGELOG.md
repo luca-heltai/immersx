@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Evaluate geometric vascular coverage with a service distance relative to each tissue quadrature point, preserving physical volume weights and routing remote terminals across the largest service reach.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Measure vascular length and tapered radii relative to a metre, local active-cell diameter, or global diameter bounds, using exact background crossings and explicit exterior portions without changing physical data.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default the initial vascular terminal count to a multiple of the global active background cell count, with optional used-vertex or absolute-count modes, with shared MPI vertices counted once and absolute calibration limits preserved.
