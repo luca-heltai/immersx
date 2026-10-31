@@ -126,7 +126,7 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[producer, ids] : controls_requested)
       for (Id root : ids)
         {
-          if (!root_positions.count(root))
+          if (!owned_roots.count(root))
             {
               valid = false;
               continue;
