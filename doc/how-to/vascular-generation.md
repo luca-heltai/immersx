@@ -343,6 +343,63 @@ exceptions. Refining these 1D cells changes neither physical topology nor
 integrated volume and resistance, and does not change which physical vessels
 are selected as growth candidates.
 
+## Arterial, portal and venous reference networks
+
+Three distinct geometric networks can feed and drain the same tissue territory.
+Use `System::portal` for the portal vessels and terminals, and
+`Port::portal_inlet` for their pressure-controlled root. Physical vessel endpoint
+order runs from each root toward tissue for all three systems; solved venous
+flow has the opposite sign.
+
+Register one terminal from each network with the same territory identifier and
+positive tissue demand. A `TerminalTriplet` identifies those three terminals and
+three positive resistances in arterial, portal, venous order:
+
+```cpp
+std::vector<TerminalTriplet> triplets;
+// Supply each territory once globally, on a rank of the caller's choice.
+if (rank == territory_owner)
+  triplets.push_back({territory_id, arterial_terminal, portal_terminal,
+                     venous_terminal, {{3.e11, 4.e10, 2.e10}}});
+auto reference = solve_reference(network, {}, triplets, conditions,
+                                 reference_parameters, communicator);
+```
+
+Each resistance connects its terminal pressure to one common microvascular
+pressure `p_t`. The equations are
+
+```text
+Q_a = (p_a - p_t) / R_a
+Q_p = (p_p - p_t) / R_p
+Q_v = (p_t - p_v) / R_v
+Q_a + Q_p = Q_v
+```
+
+The common pressure is eliminated from the distributed graph operator. It does
+not create a geometric vessel, contribute vessel volume or split the territory
+between the two supplies. The reported territory record contains
+`arterial_flow`, `portal_flow`, `venous_flow` and `compartment_pressure`;
+`flow` remains total venous drainage. Nonpositive supply or drainage invalidates
+the result, including portal backflow caused by an incompatible pressure or
+resistance choice. The supplied resistances and pressures are model inputs,
+not patient-specific physiological estimates.
+
+For an uncoupled demand-flow design solve, use the overload of
+`demand_flow_conditions()` taking a `std::map<System, double>` with explicit
+arterial, portal and venous totals. Choose `Q_v = Q_a + Q_p`. The scalar-flow
+overload retains its arterial/venous behavior and rejects selected portal
+terminals rather than silently assigning the full tissue flow to each supply.
+The coupled reference solve determines the actual split from resistances and
+pressures; prescribing desired totals does not calibrate those resistances.
+
+The triplet overload also accepts ordinary two-terminal pairs, with unique
+territory and terminal identifiers across both lists. Each triplet is supplied
+once globally and resolved through sparse owner exchanges; terminal ghosts are
+not required on the supplying rank. The existing CCO generator, physical archive
+and MetricFlowX bed transfer currently accept two-terminal beds. Prepare the
+three geometric networks and their common-territory registration before using
+this reference API.
+
 ## Reference pressures, supply and microvascular beds
 
 With `venous.microvascular_resistance == 0`, supply is distributed by relative

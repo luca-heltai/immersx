@@ -22,7 +22,8 @@ namespace ImmersX::Vascularization
   enum class System : unsigned int
   {
     arterial,
-    venous
+    venous,
+    portal
   };
 
   enum class Provenance : unsigned int
@@ -36,7 +37,9 @@ namespace ImmersX::Vascularization
     none,
     arterial_inlet,
     venous_outlet,
-    arterial_outlet
+    arterial_outlet,
+    portal_inlet,
+    portal_outlet
   };
 
   struct Node
@@ -87,6 +90,18 @@ namespace ImmersX::Vascularization
     Id     arterial   = invalid_id;
     Id     venous     = invalid_id;
     double resistance = 0.;
+  };
+
+  /** Three distinct terminals feeding/draining one microvascular compartment.
+   * Resistances are positive star arms in arterial, portal, venous order.
+   * The compartment pressure satisfies Kirchhoff balance; it is not an
+   * additional physical vessel or a geometric junction of the three trees.
+   */
+  struct TerminalTriplet
+  {
+    Id territory = invalid_id, arterial = invalid_id, portal = invalid_id,
+       venous = invalid_id;
+    std::array<double, 3> resistances{{0., 0., 0.}};
   };
 
   /**

@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system.
+
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance vascular and venous-territory candidates by physical identifier. Reuse native nearest cursors while venous outlets reject or claim candidate territories.

@@ -22,7 +22,8 @@ namespace ImmersX::Vascularization
     bool
     known(const System system)
     {
-      return system == System::arterial || system == System::venous;
+      return system == System::arterial || system == System::venous ||
+             system == System::portal;
     }
 
     bool
@@ -82,7 +83,8 @@ namespace ImmersX::Vascularization
           issue("node", id, "Owner is outside the communicator.");
         if (node.port != Port::none && node.port != Port::arterial_inlet &&
             node.port != Port::venous_outlet &&
-            node.port != Port::arterial_outlet)
+            node.port != Port::arterial_outlet &&
+            node.port != Port::portal_inlet && node.port != Port::portal_outlet)
           issue("node", id, "Unknown port role.");
         if (!known(node.provenance))
           issue("node", id, "Unknown provenance.");
