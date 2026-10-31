@@ -2607,6 +2607,25 @@ TEST(VascularForest,
       const auto oracle =
         evaluate_forest(full, mutable_full, roots(full), p, MPI_COMM_WORLD);
       ASSERT_TRUE(oracle.validation.valid()) << issues(oracle);
+      std::array<double, 2> minimum_resistance{
+        {std::numeric_limits<double>::infinity(),
+         std::numeric_limits<double>::infinity()}},
+        maximum_resistance{{0., 0.}};
+      for (const auto &[id, branch] : oracle.owned)
+        {
+          const unsigned int tree = branch.root == base + 11 ? 0 : 1;
+          minimum_resistance[tree] =
+            std::min(minimum_resistance[tree], branch.resistance);
+          maximum_resistance[tree] =
+            std::max(maximum_resistance[tree], branch.resistance);
+        }
+      for (unsigned int tree = 0; tree < 2; ++tree)
+        {
+          minimum_resistance[tree] =
+            Utilities::MPI::min(minimum_resistance[tree], MPI_COMM_WORLD);
+          maximum_resistance[tree] =
+            Utilities::MPI::max(maximum_resistance[tree], MPI_COMM_WORLD);
+        }
       auto check = [&](const GrowthDemandPreview &preview) {
         ASSERT_TRUE(preview.validation.valid());
         std::map<Id, unsigned int> requests;
@@ -2627,6 +2646,27 @@ TEST(VascularForest,
             EXPECT_EQ(state.topology(id).parent_owner, branch.parent_owner);
             EXPECT_EQ(state.topology(id).children, branch.children);
             EXPECT_EQ(state.topology(id).terminal, branch.terminal);
+            if (branch.parent == invalid_id)
+              {
+                const auto        &summary = state.summary(id, preview);
+                const unsigned int tree    = branch.root == base + 11 ? 0 : 1;
+                const long double  factor =
+                  8.L / numbers::PI /
+                  std::pow(static_cast<long double>(branch.root_radius), 4);
+                EXPECT_NEAR(static_cast<double>(
+                              factor * summary.minimum_resistance_length /
+                              minimum_resistance[tree]),
+                            1.,
+                            2.e-13);
+                EXPECT_NEAR(static_cast<double>(
+                              factor * summary.maximum_resistance_length /
+                              maximum_resistance[tree]),
+                            1.,
+                            2.e-13);
+                EXPECT_DOUBLE_EQ(physical_demand_mass(
+                                   summary.minimum_leaf_mass),
+                                 tree == 0 ? .5 : 2.);
+              }
             if (branch.terminal != invalid_id)
               {
                 EXPECT_EQ(state.topology(id).terminal_owner,
@@ -2675,6 +2715,11 @@ TEST(VascularForest,
         {
           const auto &actual = state.summary(id);
           EXPECT_EQ(actual.mass, value.mass);
+          EXPECT_EQ(actual.minimum_leaf_mass, value.minimum_leaf_mass);
+          EXPECT_EQ(actual.minimum_resistance_length,
+                    value.minimum_resistance_length);
+          EXPECT_EQ(actual.maximum_resistance_length,
+                    value.maximum_resistance_length);
           EXPECT_EQ(actual.volume_length, value.volume_length);
           EXPECT_EQ(actual.resistance_length, value.resistance_length);
           EXPECT_EQ(actual.minimum_ratio, value.minimum_ratio);

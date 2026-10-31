@@ -326,17 +326,27 @@ namespace ImmersX::Vascularization::internal
     AssertThrow(active && staged.validation.valid(),
                 dealii::ExcMessage(
                   "Only a valid physical journal may be adopted."));
-    for (const auto &[id, summary] : staged.owned)
+    for (auto &[id, summary] : staged.owned)
       {
         auto &branch        = state.branches.at(id);
-        branch.value        = summary;
+        branch.value        = std::move(summary);
         const auto children = staged.child_summaries.find(id);
         if (children != staged.child_summaries.end())
-          for (const auto &[child, value] : children->second)
-            branch.children.at(child) = value;
+          for (auto &[child, value] : children->second)
+            branch.children.at(child) = std::move(value);
       }
-    for (const auto &[key, value] : staged.root_sums)
-      state.root_sums[key] = value;
+    for (auto position = staged.root_sums.begin();
+         position != staged.root_sums.end();)
+      {
+        const auto existing = state.root_sums.find(position->first);
+        if (existing == state.root_sums.end())
+          state.root_sums.insert(staged.root_sums.extract(position++));
+        else
+          {
+            existing->second = position->second;
+            ++position;
+          }
+      }
     state.accepted_totals = staged.totals;
     for (unsigned int system = 0; system < 2; ++system)
       {

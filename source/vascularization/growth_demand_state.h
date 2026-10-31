@@ -24,16 +24,19 @@ namespace ImmersX::Vascularization::internal
   // system normalization therefore does not rewrite its descendants.
   struct GrowthDemandSummary
   {
-    boost::multiprecision::cpp_int mass;
+    boost::multiprecision::cpp_int mass, minimum_leaf_mass;
     long double volume_length = 0., resistance_length = 0., minimum_ratio = 1.;
-    long double minimum_scaled_ratio = 1.;
-    std::uint64_t leaves             = 0;
+    long double minimum_scaled_ratio      = 1.;
+    long double minimum_resistance_length = 0., maximum_resistance_length = 0.;
+    std::uint64_t leaves = 0;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      ar &mass &volume_length &resistance_length &minimum_ratio
-        &minimum_scaled_ratio &leaves;
+      ar &mass &minimum_leaf_mass &volume_length &resistance_length
+        &minimum_ratio;
+      ar &minimum_scaled_ratio &minimum_resistance_length
+        &maximum_resistance_length &leaves;
     }
   };
 
@@ -139,6 +142,10 @@ namespace ImmersX::Vascularization::internal
     friend class GrowthExecution;
     friend class GrowthDemandJournal;
 
+    std::map<Id, GrowthDemandRootView>
+    root_controls(const std::set<Id> &,
+                  const GrowthDemandPreview &,
+                  ValidationReport &) const;
     GrowthDemandPreview
     route_demands(const GrowthDemandUpdate &) const;
     GrowthDemandPreview
