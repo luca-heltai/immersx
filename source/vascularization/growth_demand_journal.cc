@@ -1,6 +1,6 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#include "growth_execution.h"
+#include "growth_demand_journal.h"
 
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
@@ -10,16 +10,17 @@
 #include "growth_ownership_delta.h"
 namespace ImmersX::Vascularization::internal
 {
-  GrowthExecution::GrowthExecution(GrowthDemandState &value, GrowthWork *counts)
+  GrowthDemandJournal::GrowthDemandJournal(GrowthDemandState &value,
+                                           GrowthWork        *counts)
     : state(value)
     , work(counts)
   {}
-  GrowthExecution::~GrowthExecution()
+  GrowthDemandJournal::~GrowthDemandJournal()
   {
     discard();
   }
   void
-  GrowthExecution::save(Id id)
+  GrowthDemandJournal::save(Id id)
   {
     if (!before.count(id))
       {
@@ -34,14 +35,14 @@ namespace ImmersX::Vascularization::internal
       }
   }
   const GrowthDemandPreview &
-  GrowthExecution::preview() const
+  GrowthDemandJournal::preview() const
   {
     return staged;
   }
   const GrowthDemandPreview &
-  GrowthExecution::prepare(const GrowthOwnershipDelta    &ownership,
-                           const GrowthDemandJointUpdate &joint,
-                           const GrowthGeometryMeasures  &measures)
+  GrowthDemandJournal::prepare(const GrowthOwnershipDelta    &ownership,
+                               const GrowthDemandJointUpdate &joint,
+                               const GrowthGeometryMeasures  &measures)
   {
     using namespace dealii;
     discard();
@@ -75,7 +76,8 @@ namespace ImmersX::Vascularization::internal
       for (const auto &item : items)
         valid = std::isfinite(item.demand) && item.demand > 0. &&
                 new_demands.emplace(item.terminal, item.demand).second && valid;
-    valid = valid && new_demands.size() == splits.size();
+    valid = valid && new_demands.size() == splits.size() &&
+            measures.size() == ownership.written.vessels.size();
     for (const auto &[id, s] : splits)
       valid = valid && new_demands.count(s.terminal) &&
               new_demands.at(s.terminal) == s.demand &&
@@ -114,12 +116,35 @@ namespace ImmersX::Vascularization::internal
               valid = false;
               continue;
             }
+          bool complete = true;
+          for (Id vessel : {s.vessel, s.continuation, s.leaf})
+            {
+              const auto measure = measures.find(vessel);
+              if (measure == measures.end())
+                complete = false;
+              else
+                {
+                  const auto &g = measure->second;
+                  complete =
+                    complete && g.complete &&
+                    std::isfinite(g.normalized_length) &&
+                    g.normalized_length > 0. && std::isfinite(g.radius_scale) &&
+                    g.radius_scale > 0. && std::isfinite(g.clearance_scale) &&
+                    g.clearance_scale > 0.;
+                }
+            }
+          valid = valid && complete;
+          if (!complete)
+            continue;
           count_work(work, GrowthOperation::metadata_copy_attempts, 4);
           const Branch old    = found->second;
           const auto   native = [&](Id vessel) {
             return ownership.vessel_owners.at(vessel);
           };
           Branch original = old, continuation = old, leaf = old;
+          original.geometry                = measures.at(s.vessel);
+          continuation.geometry            = measures.at(s.continuation);
+          leaf.geometry                    = measures.at(s.leaf);
           original.topology.terminal       = invalid_id;
           original.topology.terminal_owner = numbers::invalid_unsigned_int;
           original.topology.children       = {{s.continuation,
@@ -178,30 +203,24 @@ namespace ImmersX::Vascularization::internal
           state.branches.erase(id);
           changed.erase(id);
         }
-    if (!phase("Selected branches must exist at their old native writers."))
+    if (
+      !phase(
+        "Selected branches need current old writers and complete geometric measures."))
       return prepared();
     const auto   incoming = Utilities::MPI::some_to_some(comm, send);
     std::set<Id> arrived;
     for (const auto &[writer, records] : incoming)
       for (const auto &[id, value] : records)
         {
-          const auto geometry = measures.find(id);
-          const auto vessel   = ownership.owned.vessels.find(id);
-          valid = arrived.insert(id).second && geometry != measures.end() &&
+          const auto vessel = ownership.owned.vessels.find(id);
+          valid             = arrived.insert(id).second &&
                   vessel != ownership.owned.vessels.end() && valid;
-          if (geometry == measures.end() ||
-              vessel == ownership.owned.vessels.end())
+          if (vessel == ownership.owned.vessels.end())
             continue;
-          const auto &g = geometry->second;
-          valid = valid && g.complete && std::isfinite(g.normalized_length) &&
-                  g.normalized_length > 0. && std::isfinite(g.radius_scale) &&
-                  g.radius_scale > 0. && std::isfinite(g.clearance_scale) &&
-                  g.clearance_scale > 0.;
           save(id);
           state.branches[id] = value;
           auto &branch       = state.branches.at(id);
           branch.length      = length(ownership.owned, id);
-          branch.geometry    = g;
           changed.insert(id);
           if (branch.topology.parent == invalid_id)
             {
@@ -209,8 +228,7 @@ namespace ImmersX::Vascularization::internal
               state.owned_roots.insert(id);
             }
         }
-    valid = valid && arrived == ownership.changed_owned &&
-            measures.size() == arrived.size();
+    valid                     = valid && arrived == ownership.changed_owned;
     const auto received_edits = Utilities::MPI::some_to_some(comm, edits);
     for (const auto &[writer, records] : received_edits)
       for (const auto &edit : records)
@@ -271,7 +289,7 @@ namespace ImmersX::Vascularization::internal
     return prepared();
   }
   const GrowthDemandPreview &
-  GrowthExecution::prepared()
+  GrowthDemandJournal::prepared()
   {
     count_work(work,
                GrowthOperation::transaction_records,
@@ -284,7 +302,7 @@ namespace ImmersX::Vascularization::internal
     return staged;
   }
   void
-  GrowthExecution::adopt()
+  GrowthDemandJournal::adopt()
   {
     AssertThrow(active && staged.validation.valid(),
                 dealii::ExcMessage(
@@ -319,7 +337,7 @@ namespace ImmersX::Vascularization::internal
     owned_roots_before.clear();
   }
   void
-  GrowthExecution::discard() noexcept
+  GrowthDemandJournal::discard() noexcept
   {
     if (!active)
       return;

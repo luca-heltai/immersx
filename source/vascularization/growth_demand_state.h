@@ -18,6 +18,7 @@ namespace ImmersX::Vascularization::internal
 {
   struct GrowthCandidatePaths;
   class GrowthExecution;
+  class GrowthDemandJournal;
   using GrowthRootSumKey = std::pair<unsigned int, Id>;
   // Moments are relative to this subtree's own demand. Changing a root or
   // system normalization therefore does not rewrite its descendants.
@@ -136,6 +137,7 @@ namespace ImmersX::Vascularization::internal
 
   private:
     friend class GrowthExecution;
+    friend class GrowthDemandJournal;
 
     GrowthDemandPreview
     route_demands(const GrowthDemandUpdate &) const;
