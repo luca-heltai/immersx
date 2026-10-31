@@ -8,6 +8,7 @@
 
 #include <deal.II/grid/grid_tools_cache.h>
 
+#include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/network.h>
 
@@ -44,6 +45,7 @@ namespace ImmersX::Vascularization::internal
   intersect_background(const dealii::GridTools::Cache<3>      &cache,
                        const dealii::Mapping<3>               &mapping,
                        const std::map<Id, dealii::Segment<3>> &segments,
-                       MPI_Comm                                communicator);
+                       MPI_Comm                                communicator,
+                       GrowthWork                             *work = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif
