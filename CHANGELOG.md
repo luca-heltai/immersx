@@ -446,6 +446,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Request 1,000 tissue territories with paired arterial and venous terminals in the liver tutorial, with 16 candidate vessels per insertion and a verified 32-rank run; keep a 32-pair option for short trials.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Prepare an IRCAD liver surface and rooted vessel meshes, generate the tissue volume with Gmsh, and grow paired arterial and venous extensions through a runnable tutorial with physical-data checks and ParaView output.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Publish three-seed MPI generation benchmarks at 1,000 and 10,000 terminals, with measured runtime, memory, communication, producer work and geometric quality.

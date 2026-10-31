@@ -50,7 +50,8 @@ namespace
       domain.surface_feature_angle      = 60.;
       growth.viscosity                  = .004;
       growth.seed_length                = .003;
-      growth.terminal_count             = 32;
+      growth.terminal_count             = 1000;
+      growth.candidate_count            = 16;
       growth.venous.enabled             = true;
       growth.venous.terminal_separation = .003;
     }

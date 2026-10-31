@@ -160,15 +160,19 @@ subsection Liver
   subsection Vascularization
     subsection Growth
       set Seed length = .003
+      set Minimum vessel length = .0002
+      set Candidate vessels = 16
+      set Local optimization steps = 5
     end
     subsection Sampling
-      set Terminal count = 32
+      set Terminal count = 1000
       set Random seed = 23
     end
     subsection Physiology
       set Dynamic viscosity = .004
       set Total new-tissue reference flow = 2e-9
       set Reference pressures = 83:12000,177:2000
+      set Minimum radius = .00005
     end
     subsection Venous network
       set Enabled = true
@@ -208,15 +212,20 @@ failed venous startup on this case; 3 mm passed the same geometry checks.
 Increasing a finite search budget does not make a geometrically blocked
 connection admissible.
 
-Run the example:
+The recipe requests 1,000 common tissue territories, each with one new
+arterial and one new venous terminal. For a short trial, set `Terminal count`
+to `32` and pass `--pairs 32` to the checker below.
+
+Run the full recipe in Release on 32 MPI processes, as in the verified
+1,000-pair calculation:
 
 ```bash
-/tmp/immersx-liver-build/liver_vascular \
+mpirun -np 32 /tmp/immersx-liver-build/liver_vascular \
   /tmp/immersx-liver-build/data/vascularization/liver.prm
 ```
 
-For two MPI processes, choose a new output directory in a copy of the parameter
-file, then run:
+For a short two-process trial, set `Terminal count = 32` and choose a new
+output directory in a copy of the parameter file, then run:
 
 ```bash
 mpirun -np 2 /tmp/immersx-liver-build/liver_vascular /absolute/path/to/liver-mpi.prm
@@ -258,7 +267,7 @@ Check the physical result independently of the generator:
 micromamba run -n ircad-prep python scripts/check_liver_vascular.py \
   /tmp/immersx-liver-build/data/ircad-case12 \
   /tmp/immersx-liver-build/test_output/liver-vascularization \
-  --pairs 32 --separation .003 \
+  --pairs 1000 --separation .003 \
   --report /tmp/immersx-liver-build/test_output/liver-vascularization/verification.json
 ```
 
@@ -269,10 +278,17 @@ requested separation. It also samples each new vessel against the exported
 volume. This sample check supplements the generator's continuous geometry
 certification; it does not replace it.
 
-The verified two-rank Release run produced **32 tissue pairs and 1,384 physical
-vessels**: the 1,260 fixed input segments plus 62 new arterial and 62 new venous
-segments. Numerical subdivision of these physical vessels is a separate step
+The verified 32-rank Release run produced **1,000 tissue pairs and 5,256
+physical vessels**: the 1,260 fixed input segments plus 1,998 new arterial and
+1,998 new venous segments. The independent check preserved all input nodes,
+ports, edges and radii and found a positive sampled wall margin for every new
+vessel. Numerical subdivision of these physical vessels is a separate step
 and can produce more 1D cells.
+
+The dense recipe uses 16 candidate vessels per insertion; eight candidates
+exhausted the finite sampling budget on this case. MPI partitions change the
+sampled growth paths, so another process count can need different search
+controls. The smaller 32-pair case was also verified on two and four ranks.
 
 A successful growth calculation demonstrates a paired geometric network on
 this tissue mesh. It does not establish physiological accuracy, resolve
