@@ -2482,11 +2482,15 @@ TEST(VascularForest,
       ASSERT_TRUE(accepted.validation.valid());
       GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
       ASSERT_TRUE(state.validation().valid());
-      GrowthWork                        work;
-      GrowthDemandJournal               execution(state, &work);
-      std::map<Id, GrowthDemandSummary> original;
+      GrowthWork                                work;
+      GrowthDemandJournal                       execution(state, &work);
+      std::map<Id, GrowthDemandSummary>         original;
+      std::map<Id, const GrowthDemandSummary *> addresses;
       for (const auto &[id, b] : accepted.owned)
-        original.emplace(id, state.summary(id));
+        {
+          original.emplace(id, state.summary(id));
+          addresses.emplace(id, &state.summary(id));
+        }
       std::vector<GrowthSplit> written;
       for (unsigned int j = 0; j < (concurrent ? 2u : 1u); ++j)
         {
@@ -2668,6 +2672,7 @@ TEST(VascularForest,
       for (const auto &[id, value] : original)
         {
           const auto &actual = state.summary(id);
+          EXPECT_EQ(&actual, addresses.at(id));
           EXPECT_EQ(actual.mass, value.mass);
           EXPECT_EQ(actual.minimum_leaf_mass, value.minimum_leaf_mass);
           EXPECT_EQ(actual.minimum_resistance_length,
