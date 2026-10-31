@@ -44,11 +44,16 @@ namespace ImmersX::Vascularization::internal
     bool
     valid_summary(const GrowthDemandSummary &value)
     {
-      return value.mass > 0 && value.leaves > 0 &&
-             positive(value.volume_length) && positive(value.minimum_ratio) &&
+      return value.mass > 0 && value.minimum_leaf_mass > 0 &&
+             value.leaves > 0 && positive(value.volume_length) &&
+             positive(value.minimum_ratio) &&
              positive(value.minimum_scaled_ratio) &&
              std::isfinite(value.resistance_length) &&
-             value.resistance_length >= 0.;
+             value.resistance_length >= 0. &&
+             std::isfinite(value.minimum_resistance_length) &&
+             std::isfinite(value.maximum_resistance_length) &&
+             value.minimum_resistance_length >= 0. &&
+             value.maximum_resistance_length >= value.minimum_resistance_length;
     }
   } // namespace
 
@@ -62,17 +67,23 @@ namespace ImmersX::Vascularization::internal
     result.volume_length = branch.length;
     result.resistance_length =
       branch.with_resistance ? branch.viscosity * branch.length : 0.;
-    result.minimum_scaled_ratio = 1.L / branch.geometry.radius_scale;
+    result.minimum_scaled_ratio      = 1.L / branch.geometry.radius_scale;
+    result.minimum_resistance_length = result.maximum_resistance_length =
+      result.resistance_length;
     if (children.empty())
       {
-        result.mass   = demand_mass_units(leaf);
-        result.leaves = 1;
+        result.mass              = demand_mass_units(leaf);
+        result.minimum_leaf_mass = result.mass;
+        result.leaves            = 1;
         return result;
       }
     for (const auto &[id, child] : children)
       {
         result.mass += child.mass;
         result.leaves += child.leaves;
+        if (result.minimum_leaf_mass == 0 ||
+            child.minimum_leaf_mass < result.minimum_leaf_mass)
+          result.minimum_leaf_mass = child.minimum_leaf_mass;
       }
     for (const auto &[id, child] : children)
       {
@@ -82,8 +93,18 @@ namespace ImmersX::Vascularization::internal
         result.volume_length +=
           std::pow(ratio, 2.L / branch.gamma) * child.volume_length;
         if (branch.with_resistance)
-          result.resistance_length +=
-            std::pow(ratio, 2.L - 4.L / branch.gamma) * child.resistance_length;
+          {
+            result.resistance_length +=
+              std::pow(ratio, 2.L - 4.L / branch.gamma) *
+              child.resistance_length;
+            const long double scaling = std::pow(ratio, -4.L / branch.gamma);
+            result.minimum_resistance_length =
+              std::min(result.minimum_resistance_length,
+                       scaling * child.minimum_resistance_length);
+            result.maximum_resistance_length =
+              std::max(result.maximum_resistance_length,
+                       scaling * child.maximum_resistance_length);
+          }
         result.minimum_scaled_ratio =
           std::min(result.minimum_scaled_ratio,
                    std::pow(ratio, 1.L / branch.gamma) *

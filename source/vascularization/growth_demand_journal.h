@@ -19,6 +19,7 @@ namespace ImmersX::Vascularization::internal
     operator=(const GrowthDemandJournal &) = delete;
     // Measures belong to delta.written at old writers and migrate with
     // branches.
+    // The returned preview is borrowed until adopt/discard or another prepare.
     const GrowthDemandPreview &
     prepare(const GrowthOwnershipDelta &,
             const GrowthDemandJointUpdate &,
