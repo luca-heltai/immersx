@@ -258,15 +258,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Ignore unassigned imported territories when reserving fresh vascular identifiers, and reject exhausted identifier namespaces without wrapping or changing the accepted network.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Keep fresh vascular identifiers above existing valid identities when frozen terminals have no territory, and reject exhausted node, vessel, terminal or territory namespaces before sampling without changing accepted data.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Sample weighted native background cells directly so local refinement does not exhaust the growth budget through global density-rejection draws. Preserve physical cell density, MPI ownership and mapped-cell volume weights.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Restore physiology metadata after rejected growth with retained map and set nodes, avoiding allocations while restoring migrated branches and root authorities.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
 
