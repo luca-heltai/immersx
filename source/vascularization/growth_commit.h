@@ -6,6 +6,8 @@
 
 #include <deal.II/grid/tria.h>
 
+#include <immersx/vascularization/growth_work.h>
+
 #include "forest_state.h"
 namespace ImmersX::Vascularization::internal
 {
@@ -56,6 +58,7 @@ namespace ImmersX::Vascularization::internal
                        const std::map<Id, double>     &fixed_owned_roots,
                        const std::vector<GrowthSplit> &local,
                        const Parameters               &parameters,
-                       MPI_Comm                        communicator);
+                       MPI_Comm                        communicator,
+                       GrowthWork                     *work = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif

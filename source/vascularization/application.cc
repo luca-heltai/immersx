@@ -548,21 +548,38 @@ namespace ImmersX::Vascularization
           auto stats =
             output(directory / ("growth-" + std::to_string(rank) + ".csv"));
           stats
-            << "system,requested_terminals,first_terminals,last_terminals,batches,sampled_points,proposed_insertions,accepted_insertions,committed_batches,rejected_batches,active_writer_batches,owned_vessels_first,owned_vessels_last,owned_vessels_maximum,initialization_seconds,sampling_seconds,search_seconds,optimization_seconds,selection_seconds,commit_seconds,redistribution_seconds,physiology_seconds,certification_seconds,total_seconds\n";
+            << "system,requested_terminals,first_terminals,last_terminals,batches,sampled_points,proposed_insertions,accepted_insertions,committed_batches,rejected_batches,active_writer_batches,owned_vessels_first,owned_vessels_last,owned_vessels_maximum,initialization_seconds,sampling_seconds,search_seconds,optimization_seconds,selection_seconds,commit_seconds,redistribution_seconds,physiology_seconds,certification_seconds,total_seconds";
+          for (const auto name : growth_operation_names)
+            stats << ',' << name;
+          stats << '\n';
           for (const auto &s : result.growth_statistics)
-            stats << system_name(s.system) << ',' << s.requested_terminals
-                  << ',' << s.first_terminals << ',' << s.last_terminals << ','
-                  << s.batches << ',' << s.sampled_points << ','
-                  << s.proposed_insertions << ',' << s.accepted_insertions
-                  << ',' << s.committed_batches << ',' << s.rejected_batches
-                  << ',' << s.active_writer_batches << ','
-                  << s.owned_vessels_first << ',' << s.owned_vessels_last << ','
-                  << s.owned_vessels_maximum << ',' << s.initialization_seconds
-                  << ',' << s.sampling_seconds << ',' << s.search_seconds << ','
-                  << s.optimization_seconds << ',' << s.selection_seconds << ','
-                  << s.commit_seconds << ',' << s.redistribution_seconds << ','
-                  << s.physiology_seconds << ',' << s.certification_seconds
-                  << ',' << s.total_seconds << '\n';
+            {
+              stats << system_name(s.system) << ',' << s.requested_terminals
+                    << ',' << s.first_terminals << ',' << s.last_terminals
+                    << ',' << s.batches << ',' << s.sampled_points << ','
+                    << s.proposed_insertions << ',' << s.accepted_insertions
+                    << ',' << s.committed_batches << ',' << s.rejected_batches
+                    << ',' << s.active_writer_batches << ','
+                    << s.owned_vessels_first << ',' << s.owned_vessels_last
+                    << ',' << s.owned_vessels_maximum << ','
+                    << s.initialization_seconds << ',' << s.sampling_seconds
+                    << ',' << s.search_seconds << ',' << s.optimization_seconds
+                    << ',' << s.selection_seconds << ',' << s.commit_seconds
+                    << ',' << s.redistribution_seconds << ','
+                    << s.physiology_seconds << ',' << s.certification_seconds
+                    << ',' << s.total_seconds;
+              for (const auto count : s.work.counts)
+                stats << ',' << count;
+              stats << '\n';
+            }
+        }
+        {
+          auto final_work = output(directory / ("discretization-work-" +
+                                                std::to_string(rank) + ".csv"));
+          final_work << "operation,count\n";
+          for (unsigned int i = 0; i < growth_operation_names.size(); ++i)
+            final_work << growth_operation_names[i] << ','
+                       << result.discretization.work.counts[i] << '\n';
         }
         if (result.validation.valid() && p.write_tables)
           tables(directory, result, bg, mapping, rank);

@@ -22,6 +22,7 @@
 #include <set>
 
 #include "distribution_internal.h"
+#include "growth_work.h"
 #include "network_serialization.h"
 
 namespace ImmersX::Vascularization
@@ -49,8 +50,9 @@ namespace ImmersX::Vascularization
     }
 
     bool
-    merge(NetworkData &to, const NetworkData &from)
+    merge(NetworkData &to, const NetworkData &from, GrowthWork *work)
     {
+      internal::count_copy(work, from);
       bool valid = true;
       for (const auto &[id, n] : from.nodes)
         {
@@ -65,7 +67,10 @@ namespace ImmersX::Vascularization
     }
 
     NetworkData
-    authoritative_data(const NetworkData &initial, Rank rank, MPI_Comm comm)
+    authoritative_data(const NetworkData &initial,
+                       Rank               rank,
+                       MPI_Comm           comm,
+                       GrowthWork        *work)
     {
       std::map<Rank, std::vector<Id>> requests;
       NetworkData                     result;
@@ -102,11 +107,23 @@ namespace ImmersX::Vascularization
       for (const auto &[id, t] : initial.terminals)
         if (t.owner == rank)
           result.terminals.emplace(id, t);
+      count_work(work,
+                 GrowthOperation::ghost_vessels_removed,
+                 initial.vessels.size() - result.vessels.size());
+      internal::count_copy(work, result);
+      for (const auto &[rank, packet] : replies)
+        count_work(work,
+                   GrowthOperation::physical_copy_attempts,
+                   packet.size());
       return result;
     }
 
     void
-    unique_owned_ids(const NetworkData &n, Rank rank, Rank size, MPI_Comm comm)
+    unique_owned_ids(const NetworkData &n,
+                     Rank               rank,
+                     Rank               size,
+                     MPI_Comm           comm,
+                     GrowthWork        *work)
     {
       // Hash-sharded id checks replicate neither the registry nor the graph.
       using Key = std::pair<unsigned int, Id>;
@@ -119,6 +136,8 @@ namespace ImmersX::Vascularization
       add(n.nodes, 0);
       add(n.vessels, 1);
       add(n.terminals, 2);
+      for (const auto &[rank, keys] : send)
+        count_work(work, GrowthOperation::metadata_copy_attempts, keys.size());
       const auto    received = Utilities::MPI::some_to_some(comm, send);
       std::set<Key> seen;
       bool          valid = true;
@@ -132,8 +151,12 @@ namespace ImmersX::Vascularization
     }
 
     void
-    add_vessel(NetworkData &packet, const NetworkData &network, Id id)
+    add_vessel(NetworkData       &packet,
+               const NetworkData &network,
+               Id                 id,
+               GrowthWork        *work)
     {
+      count_work(work, GrowthOperation::physical_copy_attempts, 3);
       const auto &v = network.vessels.at(id);
       packet.vessels.emplace(id, v);
       for (Id node : v.nodes)
@@ -148,7 +171,8 @@ namespace ImmersX::Vascularization
     const NetworkData                           &initial,
     double                                       halo,
     MPI_Comm                                     communicator,
-    const std::function<void(Id, unsigned int)> &notify)
+    const std::function<void(Id, unsigned int)> &notify,
+    GrowthWork                                  *work)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(communicator),
@@ -163,15 +187,16 @@ namespace ImmersX::Vascularization
       (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
         std::isfinite(halo) && halo >= 0. &&
         ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1)) &&
-        validate_data(initial, size).valid(),
+        internal::validate_counted_data(initial, size, work).valid(),
       communicator,
       "Vascular redistribution requires valid local data, a nonnegative finite halo, a first-order mapping and congruent communicators.");
-    unique_owned_ids(initial, rank, size, communicator);
-    auto source = authoritative_data(initial, rank, communicator);
+    unique_owned_ids(initial, rank, size, communicator, work);
+    auto source = authoritative_data(initial, rank, communicator, work);
     require_all(
-      validate_data(source, size).valid(),
+      internal::validate_counted_data(source, size, work).valid(),
       communicator,
       "Authoritative vascular endpoints invalidate an owned vessel or terminal.");
+    count_work(work, GrowthOperation::background_cache_constructions);
     GridTools::Cache<3> cache(background, mapping);
     const auto &cell_tree = cache.get_locally_owned_cell_bounding_boxes_rtree();
     std::vector<BoundingBox<3>> local_boxes;
@@ -204,6 +229,10 @@ namespace ImmersX::Vascularization
     Particles::ParticleHandler<3> points(background, mapping, 0);
     // No explicit Particle ids or floating point physical-id properties.
     // All ranks use the same native insertion path, including empty ranks.
+    count_work(work, GrowthOperation::node_localizations, source.nodes.size());
+    count_work(work,
+               GrowthOperation::vessel_midpoint_localizations,
+               source.vessels.size());
     const auto located = points.insert_global_particles(positions, boxes);
     const auto destinations =
       Utilities::MPI::some_to_some(communicator, located);
@@ -228,12 +257,22 @@ namespace ImmersX::Vascularization
       if (n.owner == rank)
         {
           const auto &updated = source.nodes.at(id);
+          count_work(work, GrowthOperation::physical_copy_attempts);
+          if (updated.owner != rank)
+            count_work(work, GrowthOperation::nodes_migrated);
           send[updated.owner].nodes.emplace(id, updated);
         }
     for (const auto &[id, v] : source.vessels)
-      add_vessel(send[v.owner], source, id);
+      {
+        if (v.owner != rank)
+          count_work(work, GrowthOperation::vessels_migrated);
+        add_vessel(send[v.owner], source, id, work);
+      }
     for (const auto &[id, t] : source.terminals)
       {
+        count_work(work, GrowthOperation::physical_copy_attempts, 2);
+        if (t.owner != rank)
+          count_work(work, GrowthOperation::terminals_migrated);
         send[t.owner].terminals.emplace(id, t);
         send[t.owner].nodes.emplace(t.node, source.nodes.at(t.node));
       }
@@ -241,7 +280,7 @@ namespace ImmersX::Vascularization
     NetworkData result;
     bool        valid = true;
     for (const auto &[sender, packet] : migrated)
-      valid = merge(result, packet) && valid;
+      valid = merge(result, packet, work) && valid;
     require_all(valid,
                 communicator,
                 "Vascular migration received inconsistent authoritative data.");
@@ -280,17 +319,24 @@ namespace ImmersX::Vascularization
           if (target != rank)
             recipients.insert(target);
         for (Rank target : recipients)
-          add_vessel(send[target], result, id);
+          add_vessel(send[target], result, id, work);
       }
     require_all(valid,
                 communicator,
                 "A vascular geometric halo is not representable.");
+    for (const auto &[rank, packet] : send)
+      count_work(work,
+                 GrowthOperation::ghost_vessels_sent,
+                 packet.vessels.size());
     const auto ghosts = Utilities::MPI::some_to_some(communicator, send);
     for (const auto &[sender, packet] : ghosts)
       {
+        count_work(work,
+                   GrowthOperation::ghost_vessels_updated,
+                   packet.vessels.size());
         for (const auto &[id, v] : packet.vessels)
           valid = (v.owner == sender) && valid;
-        valid = merge(result, packet) && valid;
+        valid = merge(result, packet, work) && valid;
       }
     require_all(valid,
                 communicator,
@@ -324,7 +370,7 @@ namespace ImmersX::Vascularization
         valid =
           (t.owner == owner && result.terminals.emplace(id, t).second) && valid;
     require_all(
-      valid && validate_data(result, size).valid(),
+      valid && internal::validate_counted_data(result, size, work).valid(),
       communicator,
       "Vascular endpoint/terminal ghosts disagree with their authoritative owner.");
     return result;

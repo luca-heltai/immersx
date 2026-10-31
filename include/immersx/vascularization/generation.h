@@ -11,6 +11,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <immersx/vascularization/discretization.h>
+#include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/metrics.h>
 #include <immersx/vascularization/network.h>
 #include <immersx/vascularization/reference_flow.h>
@@ -133,6 +134,7 @@ namespace ImmersX::Vascularization
    */
   struct GrowthStatistics
   {
+    GrowthWork    work;
     System        system              = System::arterial;
     unsigned int  requested_terminals = 0;
     std::uint64_t first_terminals = 0, last_terminals = 0;

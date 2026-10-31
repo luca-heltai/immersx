@@ -45,6 +45,7 @@ concepts/index
 reference/index
 dealiiX-platform/index
 developer/index
+developer/vascular-growth-costs
 performance/index
 performance/pipeline
 performance/particle-penalty
