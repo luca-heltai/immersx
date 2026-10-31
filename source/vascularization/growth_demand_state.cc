@@ -97,9 +97,22 @@ namespace ImmersX::Vascularization::internal
     , report(forest.validation)
   {
     using namespace dealii;
+    accepted_volume = forest.volume;
+    for (unsigned int system = 0; system < 2; ++system)
+      if (forest.total_demand[system] > 0.)
+        accepted_resistance[system] =
+          forest.power_numerator[system] /
+          std::pow(static_cast<long double>(forest.total_demand[system]), 2);
     const auto rank  = Utilities::MPI::this_mpi_process(comm);
     const auto size  = Utilities::MPI::n_mpi_processes(comm);
     bool       valid = report.valid();
+    for (auto other : Utilities::MPI::all_gather(comm, snapshot))
+      valid = valid && other == snapshot;
+    const std::array<double, 3> controls{{parameters.arterial_murray_exponent,
+                                          parameters.venous.murray_exponent,
+                                          parameters.dissipation_weight}};
+    for (const auto &other : Utilities::MPI::all_gather(comm, controls))
+      valid = valid && other == controls;
     std::map<unsigned int, std::vector<std::pair<Id, Id>>> requests;
     std::map<unsigned int, std::map<Id, DirectoryEntry>>   registrations;
     for (const auto &[id, topology] : forest.owned)
@@ -258,14 +271,20 @@ namespace ImmersX::Vascularization::internal
           "Accepted root aggregates must be finite and nonnegative.");
   }
 
-  std::array<long double, 6>
-  GrowthDemandState::root_value(Id id, const GrowthDemandSummary &value) const
+  long double
+  GrowthDemandState::demand_value(const GrowthDemandSummary &value)
   {
-    const auto                               &branch = branches.at(id);
     const boost::multiprecision::cpp_rational physical_mass =
       boost::multiprecision::cpp_rational(value.mass) /
       (boost::multiprecision::cpp_int(1) << 1074);
-    const long double          mass   = physical_mass.convert_to<long double>();
+    return physical_mass.convert_to<long double>();
+  }
+
+  std::array<long double, 6>
+  GrowthDemandState::root_value(Id id, const GrowthDemandSummary &value) const
+  {
+    const auto                &branch = branches.at(id);
+    const long double          mass   = demand_value(value);
     const long double          radius = branch.topology.root_radius;
     std::array<long double, 6> result{};
     result[3 * branch.system] = mass;
@@ -344,9 +363,23 @@ namespace ImmersX::Vascularization::internal
     const auto          comm = communicator;
     const auto          size = Utilities::MPI::n_mpi_processes(comm);
     GrowthDemandPreview result;
-    result.snapshot_revision = revision;
-    result.validation        = report;
+    result.snapshot_revision      = revision;
+    result.canonical_total_demand = update.canonical_total_demand;
+    result.validation             = report;
     bool valid = report.valid() && update.snapshot_revision == revision;
+    const std::array<std::uint64_t, 4> tokens{
+      {update.snapshot_revision,
+       update.base_quadrature_revision,
+       update.quadrature_revision,
+       static_cast<std::uint64_t>(update.canonical_total_demand.has_value())}};
+    for (const auto &other : Utilities::MPI::all_gather(comm, tokens))
+      valid = valid && other == tokens;
+    const auto canonical =
+      update.canonical_total_demand.value_or(std::array<double, 2>{{0., 0.}});
+    for (double value : canonical)
+      valid = valid && std::isfinite(value) && value >= 0.;
+    for (const auto &other : Utilities::MPI::all_gather(comm, canonical))
+      valid = valid && other == canonical;
     std::map<unsigned int, std::vector<TerminalDemandUpdate>> send;
     for (const auto &entry : update.terminals)
       {
