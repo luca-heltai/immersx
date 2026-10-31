@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Reuse prepared background routing for cell queries and retain ancestor port metadata during candidate optimization instead of rebuilding or rescanning it for each trial.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Certify walls and physical endpoint containment through shared native background searches for edited or enlarged vessels, with physical padding and reusable domains for unchanged geometry.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage native vascular rows with sparse before-images and endpoint reference counts. Restore original map nodes on rejection and remove endpoint ghosts when no owned vessel or terminal needs them.

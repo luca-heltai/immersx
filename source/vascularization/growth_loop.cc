@@ -927,6 +927,11 @@ namespace ImmersX::Vascularization::internal
               const auto  radii = candidate_radii(x, terminal_demand);
               if (!radii)
                 continue;
+              std::map<Id, Point<3>> port_normals;
+              for (const auto &branch : x.path)
+                for (unsigned int end = 0; end < 2; ++end)
+                  port_normals[branch.edge.nodes[end]] =
+                    branch.port_normals[end];
               const auto cheap_geometry = [&](
                                             const std::vector<Edge> &changed) {
                 std::set<Id> replaced;
@@ -935,11 +940,11 @@ namespace ImmersX::Vascularization::internal
                 for (std::size_t i = 0; i < changed.size(); ++i)
                   {
                     std::array<Point<3>, 2> normals;
-                    for (const auto &branch : x.path)
-                      for (unsigned int end = 0; end < 2; ++end)
-                        for (unsigned int old = 0; old < 2; ++old)
-                          if (changed[i].nodes[end] == branch.edge.nodes[old])
-                            normals[end] = branch.port_normals[old];
+                    for (unsigned int end = 0; end < 2; ++end)
+                      if (const auto normal =
+                            port_normals.find(changed[i].nodes[end]);
+                          normal != port_normals.end())
+                        normals[end] = normal->second;
                     if (!geometry.boundary_separated(
                           {changed[i].points[0], changed[i].points[1]},
                           changed[i].radius + clearance_lower,
