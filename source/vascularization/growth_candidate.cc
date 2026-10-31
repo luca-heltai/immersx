@@ -12,7 +12,8 @@ namespace ImmersX::Vascularization::internal
                  const dealii::Point<3>       &terminal,
                  double                        ceiling,
                  double                        terminal_demand,
-                 const CandidateGeometry      &geometry)
+                 const CandidateGeometry      &geometry,
+                 GrowthWork                   *work)
   {
     using namespace dealii;
     AssertThrow(
@@ -25,6 +26,7 @@ namespace ImmersX::Vascularization::internal
     p.junction               = junction;
     p.terminal               = terminal;
     p.terminal_demand        = terminal_demand;
+    count_work(work, GrowthOperation::candidate_path_visits, x.path.size() - 1);
     for (std::size_t i = 1; i < x.path.size(); ++i)
       p.ancestors.push_back(x.path[i].edge.id);
     const auto  &old = selected.edge.points;
@@ -48,6 +50,9 @@ namespace ImmersX::Vascularization::internal
         original + mu * (-old[0].distance(old[1]) * std::pow(n, power) +
                          a * std::pow(n + w, power) + b * std::pow(n, power) +
                          c * std::pow(w, power));
+      count_work(work,
+                 GrowthOperation::candidate_path_visits,
+                 x.path.size() - 1);
       for (std::size_t i = 1; i < x.path.size(); ++i)
         {
           const auto &branch = x.path[i];
@@ -110,6 +115,7 @@ namespace ImmersX::Vascularization::internal
                           {{x.next_node, x.next_node + 1}},
                           {{junction, terminal}},
                           radius(w)}};
+    count_work(work, GrowthOperation::candidate_path_visits, x.path.size() - 1);
     for (std::size_t i = 1; i < x.path.size(); ++i)
       {
         const auto  &branch   = x.path[i];
@@ -131,7 +137,8 @@ namespace ImmersX::Vascularization::internal
                   const Parameters             &parameters,
                   const dealii::Point<3>       &terminal,
                   double                        terminal_demand,
-                  const CandidateGeometry      &geometry)
+                  const CandidateGeometry      &geometry,
+                  GrowthWork                   *work)
   {
     AssertThrow(!x.path.empty(),
                 dealii::ExcMessage(
@@ -143,7 +150,8 @@ namespace ImmersX::Vascularization::internal
                                terminal,
                                std::numeric_limits<double>::infinity(),
                                terminal_demand,
-                               geometry);
+                               geometry,
+                               work);
     if (!best)
       best = propose_growth(x,
                             parameters,
@@ -151,7 +159,8 @@ namespace ImmersX::Vascularization::internal
                             terminal,
                             std::numeric_limits<double>::infinity(),
                             terminal_demand,
-                            geometry);
+                            geometry,
+                            work);
     if (!best)
       return {};
     double step = .25 * s[0].distance(s[1]);
@@ -170,7 +179,8 @@ namespace ImmersX::Vascularization::internal
                                                   terminal,
                                                   best->cost - 1.e-14,
                                                   terminal_demand,
-                                                  geometry))
+                                                  geometry,
+                                                  work))
                 {
                   best     = std::move(candidate);
                   improved = true;

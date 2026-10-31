@@ -13,6 +13,7 @@
 
 #include <deal.II/numerics/rtree.h>
 
+#include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/network.h>
 
 #include <algorithm>
@@ -184,10 +185,12 @@ namespace ImmersX::Vascularization::internal
             const double                   radius,
             const unsigned int             depth,
             unsigned int                  &work,
-            const std::array<Point<3>, 2> &port_normals)
+            const std::array<Point<3>, 2> &port_normals,
+            GrowthWork                    *counts = nullptr)
   {
     if (work == 0)
       return false;
+    count_work(counts, GrowthOperation::boundary_patch_tests);
     --work;
     const BoundingBox<3> box(patch);
     // Linear triangular and bilinear quadrilateral patches are contained in
@@ -220,7 +223,7 @@ namespace ImmersX::Vascularization::internal
     if (depth == 0)
       return false;
     for (const auto &child : children(patch))
-      if (!separated(child, s, radius, depth - 1, work, port_normals))
+      if (!separated(child, s, radius, depth - 1, work, port_normals, counts))
         return false;
     return true;
   }
@@ -228,10 +231,13 @@ namespace ImmersX::Vascularization::internal
   struct BackgroundGeometry
   {
     BackgroundGeometry(const Triangulation<3> &background,
-                       const Mapping<3>       &mapping)
+                       const Mapping<3>       &mapping,
+                       GrowthWork             *counts = nullptr)
       : cache(background, mapping)
       , mapping(mapping)
+      , counts(counts)
     {
+      count_work(counts, GrowthOperation::background_cache_constructions);
       const auto *q  = dynamic_cast<const MappingQ<3> *>(&mapping);
       const auto *fe = dynamic_cast<const MappingFE<3> *>(&mapping);
       AssertThrow((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1),
@@ -239,29 +245,37 @@ namespace ImmersX::Vascularization::internal
                     "Vascular generation requires a first-order mapping."));
       std::vector<std::pair<BoundingBox<3>, std::size_t>> boxes;
       for (const auto &cell : background.active_cell_iterators())
-        if (cell->is_locally_owned())
-          {
-            AssertThrow(
-              cell->reference_cell().is_hyper_cube() ||
-                cell->reference_cell().is_simplex(),
-              ExcMessage(
-                "Only tetrahedral and hexahedral background cells are supported."));
-            for (const auto face : cell->face_indices())
-              if (cell->face(face)->at_boundary())
+        {
+          count_work(counts, GrowthOperation::background_cell_visits);
+          if (cell->is_locally_owned())
+            {
+              AssertThrow(
+                cell->reference_cell().is_hyper_cube() ||
+                  cell->reference_cell().is_simplex(),
+                ExcMessage(
+                  "Only tetrahedral and hexahedral background cells are supported."));
+              for (const auto face : cell->face_indices())
                 {
-                  Patch patch;
-                  for (const auto v : cell->face(face)->vertex_indices())
-                    patch.push_back(cell->face(face)->vertex(v));
-                  boxes.emplace_back(BoundingBox<3>(patch), patches.size());
-                  patches.push_back(std::move(patch));
+                  count_work(counts, GrowthOperation::boundary_face_visits);
+                  if (cell->face(face)->at_boundary())
+                    {
+                      Patch patch;
+                      for (const auto v : cell->face(face)->vertex_indices())
+                        patch.push_back(cell->face(face)->vertex(v));
+                      boxes.emplace_back(BoundingBox<3>(patch), patches.size());
+                      patches.push_back(std::move(patch));
+                    }
                 }
-          }
+            }
+        }
+      count_work(counts, GrowthOperation::boundary_index_builds);
       boundary = pack_rtree(boxes);
     }
 
     std::optional<Triangulation<3>::active_cell_iterator>
     containing(const Point<3> &p, double tolerance = 0.) const
     {
+      count_work(counts, GrowthOperation::point_cell_queries);
       std::optional<Triangulation<3>::active_cell_iterator> result;
       Point<3>                                              lo = p, hi = p;
       // Inverse Q1 maps on warped cells can place a shared-face point just
@@ -278,6 +292,7 @@ namespace ImmersX::Vascularization::internal
            cache.get_locally_owned_cell_bounding_boxes_rtree() |
              bgi::adaptors::queried(bgi::intersects(query)))
         {
+          count_work(counts, GrowthOperation::point_cell_hits);
           try
             {
               const auto unit = mapping.transform_real_to_unit_cell(cell, p);
@@ -361,6 +376,7 @@ namespace ImmersX::Vascularization::internal
                        unsigned int            work,
                        std::array<Point<3>, 2> port_normals = {}) const
     {
+      count_work(counts, GrowthOperation::wall_queries);
       const double guard = 64. * std::numeric_limits<double>::epsilon() *
                            std::max({1., s.first.norm(), s.second.norm()});
       const std::array<Point<3>, 2> endpoints{{s.first, s.second}};
@@ -380,7 +396,8 @@ namespace ImmersX::Vascularization::internal
       const BoundingBox<3> query(std::make_pair(lo, hi));
       for (const auto &[box, index] :
            boundary | bgi::adaptors::queried(bgi::intersects(query)))
-        if (!separated(patches[index], s, radius, depth, work, port_normals))
+        if (!separated(
+              patches[index], s, radius, depth, work, port_normals, counts))
           return false;
       // With an interior anchor, boundary separation keeps the connected
       // retained envelope inside, including in nonconvex domains; only its
@@ -391,6 +408,7 @@ namespace ImmersX::Vascularization::internal
     const Mapping<3>                             &mapping;
     std::vector<Patch>                            patches;
     RTree<std::pair<BoundingBox<3>, std::size_t>> boundary;
+    GrowthWork                                   *counts;
   };
   // Boost's installed segment distance reduces to endpoint projections after
   // an intersection check. Skew 3D segments also need an interior minimum.
@@ -450,8 +468,10 @@ namespace ImmersX::Vascularization::internal
   compatible(const Edge &a,
              const Edge &b,
              double      minimum_angle,
-             double      clearance)
+             double      clearance,
+             GrowthWork *counts = nullptr)
   {
+    count_work(counts, GrowthOperation::pair_checks);
     for (unsigned int i = 0; i < 2; ++i)
       for (unsigned int j = 0; j < 2; ++j)
         if (a.nodes[i] == b.nodes[j])
