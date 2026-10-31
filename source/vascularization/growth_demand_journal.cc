@@ -39,6 +39,11 @@ namespace ImmersX::Vascularization::internal
   {
     return staged;
   }
+  const std::map<Id, double> &
+  GrowthDemandJournal::native_terminal_demands() const noexcept
+  {
+    return native_demands;
+  }
   const GrowthDemandPreview &
   GrowthDemandJournal::prepare(const GrowthOwnershipDelta    &ownership,
                                const GrowthDemandJointUpdate &joint,
@@ -88,6 +93,20 @@ namespace ImmersX::Vascularization::internal
     if (
       !phase(
         "Each physical split needs its exact joint terminal demand and native destination."))
+      return prepared();
+    std::map<unsigned int, std::map<Id, double>> terminal_packets;
+    for (const auto &[id, demand] : staged.leaf_demands)
+      {
+        const auto &leaf = state.branches.at(id).topology;
+        terminal_packets[leaf.terminal_owner].emplace(leaf.terminal, demand);
+      }
+    for (const auto &[source, records] :
+         Utilities::MPI::some_to_some(comm, terminal_packets))
+      for (const auto &[id, demand] : records)
+        valid = native_demands.emplace(id, demand).second && valid;
+    if (
+      !phase(
+        "Native terminal demands must be delivered once before topology edits."))
       return prepared();
     std::set<Id> changed;
     for (const auto &[id, demand] : staged.leaf_demands)
@@ -331,6 +350,7 @@ namespace ImmersX::Vascularization::internal
     state.branch_count += 2 * batch_size;
     ++state.revision;
     active = false;
+    native_demands.clear();
     before.clear();
     directory_before.clear();
     roots_before.clear();
@@ -369,6 +389,7 @@ namespace ImmersX::Vascularization::internal
     directory_before.clear();
     roots_before.clear();
     owned_roots_before.clear();
+    native_demands.clear();
     active = false;
   }
 } // namespace ImmersX::Vascularization::internal
