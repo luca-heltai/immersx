@@ -46,10 +46,14 @@ namespace ImmersX::Vascularization
 
   struct TerritoryReference
   {
-    /** m^3/s from artery to vein through the specified 0D resistance. */
+    /** m^3/s drained by the vein through the specified 0D compartment. */
     double flow = 0.;
     /** m^3/s divided by dimensionless tissue demand, not by tissue volume. */
     double flow_per_demand = 0.;
+    /** Positive arterial/portal supply and venous drainage in m^3/s. */
+    double arterial_flow = 0., portal_flow = 0., venous_flow = 0.;
+    /** Pa; defined for a three-terminal common compartment. */
+    double compartment_pressure = std::numeric_limits<double>::quiet_NaN();
   };
 
   struct ReferenceResult
@@ -61,8 +65,8 @@ namespace ImmersX::Vascularization
     std::map<Id, VesselReference> vessels;
     /** Beds supplied on this process. */
     std::map<Id, TerritoryReference> territories;
-    /** Owned terminals: net 1D outflow into tissue, positive arterial and
-     * negative venous. */
+    /** Owned terminals: net 1D outflow into tissue, positive arterial/portal
+     * and negative venous. */
     std::map<Id, double> terminal_outflows;
     /** Owned boundary nodes: prescribed fluxes or pressure reactions, positive
      * into the network. */
@@ -104,6 +108,21 @@ namespace ImmersX::Vascularization
                   const ReferenceParameters       &parameters,
                   MPI_Comm                         communicator);
   /**
+   * Solve two- and three-terminal territories together. Each triplet has one
+   * arterial and one portal supply plus one venous drain, all with the same
+   * tissue demand. Positive star-arm resistances determine the common
+   * microvascular pressure. Its algebraic row is eliminated locally, leaving
+   * the same distributed native graph operator and no artificial 1D vessel.
+   * Pair/triplet ids and terminal membership must be unique collectively.
+   */
+  ReferenceResult
+  solve_reference(const NetworkData                  &network,
+                  const std::vector<TerminalPair>    &pairs,
+                  const std::vector<TerminalTriplet> &triplets,
+                  const ReferenceConditions          &conditions,
+                  const ReferenceParameters          &parameters,
+                  MPI_Comm                            communicator);
+  /**
    * Prescribe total_flow (m^3/s) through selected tissue terminals, distributed
    * by their relative demand. Empty selection means all terminals. Arterial
    * sinks and venous sources are normalized independently to the same total.
@@ -121,6 +140,18 @@ namespace ImmersX::Vascularization
                          double                      total_flow,
                          const std::vector<Id>      &selected_terminals,
                          MPI_Comm                    communicator);
+  /** As above, with explicit per-system total rates. This overload is required
+   * for portal supply: arterial and portal tissue outflows are positive into
+   * tissue, whereas venous tissue outflow is negative. Supply a positive rate
+   * for every selected system; balance of a common territory is checked by
+   * its subsequent coupled reference solve.
+   */
+  ReferenceConditions
+  demand_flow_conditions(const NetworkData              &network,
+                         const std::map<Id, double>     &port_pressures,
+                         const std::map<System, double> &total_flows,
+                         const std::vector<Id>          &selected_terminals,
+                         MPI_Comm                        communicator);
 
   /** Exact Poiseuille pressure profile on an owned physical vessel interval. */
   double
