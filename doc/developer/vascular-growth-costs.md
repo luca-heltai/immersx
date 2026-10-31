@@ -141,3 +141,36 @@ simultaneous reassignment can change those values relative to isolated previews.
 Canonical system totals already include new demand and must not add it twice.
 These data types do not mutate accepted graph or tissue state; incremental
 propagation and joint adoption belong to the execution transaction.
+
+## Retained native point search
+
+The background context retains native cache and coarse rank routing across
+migration and endpoint certification. These consumers call the same native
+`GridTools::distributed_compute_point_locations` kernel used by
+`ParticleHandler::insert_global_particles`, preserving its unique physical
+ownership search. Temporary particles, their cell-indexed storage and their
+internal cache constructions are removed. A standalone public redistribution
+still creates independent search state and remains a full correctness oracle.
+
+Endpoint certification recomputes reference coordinates from the returned
+physical point. It ignores the native clamped reference coordinates and
+returns separate admissibility bits for ordinary endpoints and declared ports.
+The producer applies exactly the previous zero or `1e-12` boundary tolerance.
+This removes temporary floating-point properties without changing physical
+identifiers or the strict exterior-vessel check. The background constructor
+remains noncollective; first routing use is explicitly collective.
+
+Repeated shared-context commits now construct one background cache and one
+boundary index even while the independent full migration and physiology still
+visit the whole network. This removes repeated background setup, not the
+remaining quadratic work on physical entities.
+
+For the same canonical-nearest synthetic runs, explicit cache constructions
+fall from 66, 130 and 258 at N=32,64,128 to 4 at every size and seed. The four
+include independent startup state; repeated shared-context commits add none.
+The earlier counter excluded temporary ParticleHandler-internal caches; those
+constructors are also removed by the native-kernel path. All seven physical,
+territorial and numerical CSV files match the preceding canonical execution
+byte for byte for all nine serial cases and for the N=32,seed23 MPI2/MPI4 cases,
+including the per-rank ownership partition. Full midpoint relocation and
+certification counts remain `2*N*N` and `N*N` at this milestone.

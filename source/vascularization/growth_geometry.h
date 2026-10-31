@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #ifndef immersx_internal_growth_geometry_h
 #define immersx_internal_growth_geometry_h
+#include <deal.II/base/mpi.h>
 #include <deal.II/base/numbers.h>
 
 #include <deal.II/boost_adaptors/segment.h>
@@ -228,6 +229,32 @@ namespace ImmersX::Vascularization::internal
     return true;
   }
 
+  struct BackgroundRouting
+  {
+    BackgroundRouting(const GridTools::Cache<3> &cache,
+                      MPI_Comm                   comm,
+                      GrowthWork                *work)
+      : communicator(comm)
+    {
+      const auto &cells = cache.get_locally_owned_cell_bounding_boxes_rtree();
+      std::vector<BoundingBox<3>> local_boxes;
+      if (!cells.empty())
+        local_boxes = extract_rtree_level(cells, 1);
+      boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
+      for (unsigned int rank = 0; rank < boxes.size(); ++rank)
+        for (const auto &box : boxes[rank])
+          covering.emplace_back(box, rank);
+      count_work(work,
+                 GrowthOperation::metadata_copy_attempts,
+                 covering.size());
+      covering_tree = pack_rtree(covering);
+    }
+    MPI_Comm                                       communicator;
+    std::vector<std::vector<BoundingBox<3>>>       boxes;
+    RTree<std::pair<BoundingBox<3>, unsigned int>> covering_tree;
+  };
+
   struct BackgroundGeometry
   {
     BackgroundGeometry(const Triangulation<3> &background,
@@ -270,6 +297,24 @@ namespace ImmersX::Vascularization::internal
         }
       count_work(counts, GrowthOperation::boundary_index_builds);
       boundary = pack_rtree(boxes);
+    }
+
+    // Collective on first use; background and mapping remain fixed throughout
+    // the context lifetime. The constructor itself performs no MPI operation.
+    const BackgroundRouting &
+    routing(MPI_Comm comm, GrowthWork *work = nullptr) const
+    {
+      if (!routing_data)
+        routing_data.emplace(cache, comm, work ? work : counts);
+      else
+        {
+          int comparison = MPI_UNEQUAL;
+          MPI_Comm_compare(routing_data->communicator, comm, &comparison);
+          AssertThrow(
+            comparison == MPI_IDENT || comparison == MPI_CONGRUENT,
+            ExcMessage("Background routing requires congruent communicators."));
+        }
+      return *routing_data;
     }
 
     std::optional<Triangulation<3>::active_cell_iterator>
@@ -409,6 +454,7 @@ namespace ImmersX::Vascularization::internal
     std::vector<Patch>                            patches;
     RTree<std::pair<BoundingBox<3>, std::size_t>> boundary;
     GrowthWork                                   *counts;
+    mutable std::optional<BackgroundRouting>      routing_data;
   };
   // Boost's installed segment distance reduces to endpoint projections after
   // an intersection check. Skew 3D segments also need an interior minimum.
