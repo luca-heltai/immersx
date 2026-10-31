@@ -46,6 +46,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ElasticStaticDimensions
     ElasticStaticExecution
     ElasticStaticProblem
+    ElasticityProblem
     ElasticityCouplingParameters
     ElasticityCouplingConstruction
     ElasticityCouplingIntegration
