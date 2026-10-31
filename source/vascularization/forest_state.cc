@@ -390,6 +390,7 @@ namespace ImmersX::Vascularization::internal
                 double maximum_child = 0.;
                 for (const auto &[child, u] : values)
                   {
+                    valid = valid && positive(u.demand);
                     b.demand += u.demand;
                     b.terminals += u.count;
                     b.volume_moment += u.volume_moment;
@@ -398,7 +399,9 @@ namespace ImmersX::Vascularization::internal
                       std::min(b.minimum_demand, u.minimum_demand);
                     maximum_child = std::max(maximum_child, u.demand);
                   }
-                valid = valid && b.demand > maximum_child;
+                // A positive smaller child can be below the sum's precision.
+                // Its own radius and flow must still remain representable.
+                valid = valid && b.demand >= maximum_child;
                 ready.push_back(id);
               }
           }

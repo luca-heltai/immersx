@@ -67,7 +67,7 @@ namespace ImmersX::Vascularization::internal
       for (std::size_t i = 0; i < x.path.size(); ++i)
         {
           const long double demand = physics.path[i].demand + new_demand;
-          if (!std::isfinite(demand) || demand <= physics.path[i].demand)
+          if (!std::isfinite(demand) || demand < physics.path[i].demand)
             return {};
           if (i == 0)
             proposed.push_back(aggregate(a,

@@ -241,6 +241,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve native trace couplings in local flow preconditioning across MPI partitions, so generated vascular networks advance with the iterative coupled solver and unchanged error tolerances.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
+
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Preserve native trace couplings in local flow preconditioning across MPI partitions, so generated vascular networks advance with the iterative coupled solver and unchanged error tolerances.
@@ -455,6 +457,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 
