@@ -26,8 +26,6 @@
 
 #include "background_intersections.h"
 
-#include "background_intersections.h"
-
 namespace ImmersX::Vascularization
 {
   namespace
