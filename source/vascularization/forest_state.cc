@@ -98,7 +98,8 @@ namespace ImmersX::Vascularization::internal
                   const std::set<Id>         &mutable_owned,
                   const std::map<Id, double> &fixed_owned_roots,
                   const Parameters           &parameters,
-                  MPI_Comm                    comm)
+                  MPI_Comm                    comm,
+                  const MeshLengthScale      &scale)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -112,8 +113,21 @@ namespace ImmersX::Vascularization::internal
       return all;
     };
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
-    bool       valid =
-      validate_data(network, size).valid() &&
+    bool       valid_scale             = true;
+    double     physical_minimum_radius = 0.;
+    try
+      {
+        scale.validate();
+        valid_scale = scale.name() == parameters.length_scale;
+        physical_minimum_radius =
+          scale.physical_length(parameters.minimum_radius, scale.minimum());
+      }
+    catch (const std::exception &)
+      {
+        valid_scale = false;
+      }
+    bool valid =
+      valid_scale && validate_data(network, size).valid() &&
       positive(parameters.arterial_murray_exponent) &&
       positive(parameters.venous.murray_exponent) &&
       std::isfinite(parameters.minimum_radius) &&
@@ -129,7 +143,7 @@ namespace ImmersX::Vascularization::internal
               network.vessels.at(id).owner == rank;
     for (const auto &[id, r] : fixed_owned_roots)
       valid = valid && mutable_owned.count(id) && positive(r) &&
-              r >= parameters.minimum_radius &&
+              r >= physical_minimum_radius &&
               network.vessels.at(id).radii == std::array<double, 2>{{r, r}};
     for (const auto &[id, t] : network.terminals)
       if (t.owner == rank)
@@ -139,11 +153,15 @@ namespace ImmersX::Vascularization::internal
         valid,
         "Forest evaluation requires valid owned mutable ids, fixed roots, colocated terminal authority and finite physiological controls."))
       return result;
-    const std::array<double, 5> controls{{parameters.arterial_murray_exponent,
+    const std::array<double, 9> controls{{parameters.arterial_murray_exponent,
                                           parameters.venous.murray_exponent,
                                           parameters.minimum_radius,
                                           parameters.reference_flow,
-                                          parameters.dissipation_weight}};
+                                          parameters.dissipation_weight,
+                                          static_cast<double>(scale.policy),
+                                          scale.mesh_minimum,
+                                          scale.mesh_maximum,
+                                          physical_minimum_radius}};
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     if (!phase(valid,
@@ -257,7 +275,7 @@ namespace ImmersX::Vascularization::internal
             else
               {
                 valid =
-                  valid && l.outgoing.size() == 2 && !terminals.count(node);
+                  valid && l.outgoing.size() <= 2 && !terminals.count(node);
                 for (const auto &[child, c] : l.outgoing)
                   {
                     info.children[child] = c.owner;
@@ -270,7 +288,7 @@ namespace ImmersX::Vascularization::internal
     if (
       !phase(
         valid,
-        "Mutable vessels require unique ids, rooted binary connectivity, matching systems and one registered terminal per leaf."))
+        "Mutable vessels require unique ids, rooted connectivity with at most two children, matching systems and one registered terminal per leaf."))
       return result;
     const auto   neighborhoods = Utilities::MPI::some_to_some(comm, infos);
     std::set<Id> starts, ends;
@@ -389,7 +407,12 @@ namespace ImmersX::Vascularization::internal
                       std::min(b.minimum_demand, u.minimum_demand);
                     maximum_child = std::max(maximum_child, u.demand);
                   }
-                valid = valid && b.demand > maximum_child;
+                if (values.size() == 1)
+                  valid = valid && b.demand == maximum_child;
+                else if (values.size() == 2)
+                  valid = valid && b.demand > maximum_child;
+                else
+                  valid = false;
                 ready.push_back(id);
               }
           }
@@ -468,7 +491,7 @@ namespace ImmersX::Vascularization::internal
                 d.radius :
                 d.radius * std::pow(b.demand / d.demand, 1. / gamma(v.system));
             valid = valid && positive(b.radius) &&
-                    b.radius >= parameters.minimum_radius;
+                    b.radius >= physical_minimum_radius;
             for (const auto &[child, owner] : b.children)
               {
                 auto message   = d;

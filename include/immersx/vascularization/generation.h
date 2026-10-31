@@ -11,6 +11,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <immersx/vascularization/discretization.h>
+#include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/metrics.h>
 #include <immersx/vascularization/network.h>
 #include <immersx/vascularization/reference_flow.h>
@@ -28,7 +29,9 @@ namespace ImmersX::Vascularization
     /** Minimum service coverage: arterial, or dual in arterio-venous mode. */
     double       minimum_coverage  = 0.;
     unsigned int minimum_terminals = 1;
-    unsigned int maximum_terminals = 10000;
+    /** Zero derives the maximum from the scaled initial count (or explicit
+     * minimum). */
+    unsigned int maximum_terminals = 0;
     unsigned int attempt_budget    = 12;
   };
 
@@ -63,8 +66,8 @@ namespace ImmersX::Vascularization
     dealii::Point<3> seed_position, seed_inward_port_normal;
     double           seed_radius     = 0.;
     double           murray_exponent = 3.;
-    /** Metres between the arterial endpoint and its venous partner. */
-    double terminal_separation = 0.;
+    /** Coefficient times H at the common territory centre. */
+    double terminal_separation = .25;
     /** Pa s/m^3 for each bed; zero derives individual beds from demand flow. */
     double microvascular_resistance = 0.;
   };
@@ -91,7 +94,7 @@ namespace ImmersX::Vascularization
      */
     dealii::Point<3> seed_inward_port_normal;
     double           seed_radius              = 0.;
-    double           seed_length              = 0.;
+    double           seed_length              = 1.;
     double           viscosity                = 0.;
     double           clearance                = 0.;
     unsigned int     geometry_depth           = 18;
@@ -103,10 +106,10 @@ namespace ImmersX::Vascularization
     unsigned int     optimization_steps       = 10;
     double           arterial_murray_exponent = 3.;
     double           minimum_radius           = 0.;
-    double           minimum_length           = 0.;
+    double           minimum_length           = .1;
     double           minimum_angle            = 15.;
     double           dissipation_weight       = 0.;
-    double           density_beta             = 0.;
+    double           density_beta             = 3.;
     std::string      terminal_weight          = "1";
     double           terminal_weight_bound    = 1.;
     /** Positive dimensionless tissue-demand expression in x,y,z. */
@@ -114,6 +117,12 @@ namespace ImmersX::Vascularization
     /** Total m^3/s through NEW tissue terminals; zero leaves flow unspecified.
      */
     double reference_flow = 0.;
+    /** Multiply the initial count by one, global active cells or used vertices.
+     * Calibration limits remain absolute terminal counts. */
+    std::string terminal_count_multiplier_factor = "background cell count";
+    /** Reference for configured lengths; physical network/input data stay SI.
+     */
+    std::string length_scale = "local mesh size";
   };
 
   struct Territory
@@ -150,12 +159,16 @@ namespace ImmersX::Vascularization
 
   struct GenerationResult
   {
-    NetworkData               network;
-    std::vector<Territory>    territories;
-    std::vector<TerminalPair> terminal_pairs;
-    ValidationReport          validation;
-    DiscretizationResult      discretization;
-    TissueMetrics             tissue;
+    MeshLengthScale length_scale;
+    unsigned int    base_terminal_count = 0, initial_terminal_count = 0,
+                 requested_terminal_count = 0, effective_terminal_count = 0;
+    std::map<Id, ScaledVesselMeasure> normalized_geometry;
+    NetworkData                       network;
+    std::vector<Territory>            territories;
+    std::vector<TerminalPair>         terminal_pairs;
+    ValidationReport                  validation;
+    DiscretizationResult              discretization;
+    TissueMetrics                     tissue;
     /** Includes completed batch attempts from every calibration trial. */
     std::vector<GrowthStatistics> growth_statistics;
     CalibrationReport             calibration;

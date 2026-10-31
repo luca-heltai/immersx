@@ -11,6 +11,14 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply one background length policy to vascular seeds and imported attachments, whole-branch minimum length and radius, symmetric variable clearance, venous separation and tissue-local coverage. Preserve physical input and solver units, and report mesh bounds, count decisions and normalized vessel geometry.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Evaluate geometric vascular coverage with a service distance relative to each tissue quadrature point, preserving physical volume weights and routing remote terminals across the largest service reach.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Measure vascular length and tapered radii relative to a metre, local active-cell diameter, or global diameter bounds, using exact background crossings and explicit exterior portions without changing physical data.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default the initial vascular terminal count to a multiple of the global active background cell count, with optional used-vertex or absolute-count modes, with shared MPI vertices counted once and absolute calibration limits preserved.
+
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 
 - [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
@@ -164,6 +172,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #62](https://github.com/luca-heltai/immersx/pull/62) Supported strong dynamic elasticity constraints.
 
 ### Changed
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default vascular generation to one territory per active cell, volume-based density exponent three and local length coefficients. Derive an automatic calibration maximum from the scaled request instead of imposing a fixed terminal cap. Start veins with a fixed-length stem and a continuation that preserves series flow and Murray radii.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Base terminal proposal density on physical background cell volume so exponent three assigns equal proposal weight per cell, including cells with different aspect ratios.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Limit concurrent vascular proposal comparisons to overlapping vessel envelopes and shared physical identifiers. Preserve exact collision and junction checks, owner votes and deterministic conflict decisions during joint radius validation.
 
@@ -407,6 +419,12 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check sparse common-territory quadrature reassignment against exhaustive nearest-centre results, including stable-id MPI ties, exact demand conservation and staged rollback.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check exact accumulation and subtraction of tissue-demand masses, preserving small positive contributions when dominant masses move between territories and rounding physical totals to binary64.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check physical tissue-demand quadrature against analytical integrals on locally refined hexahedra and tetrahedra, including empty ranks and integration-budget exhaustion before allocation.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 

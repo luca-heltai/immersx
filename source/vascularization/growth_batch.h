@@ -21,11 +21,13 @@ namespace ImmersX::Vascularization
       std::map<Id, unsigned int>      owners, port_owners;
       std::map<Id, std::array<Id, 2>> old_nodes;
       std::map<Id, dealii::Point<3>>  normals;
+      std::map<Id, double>            clearance_scales;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
-        ar &id &cost &changed &owners &port_owners &old_nodes &normals;
+        ar &id &cost &changed &owners &port_owners &old_nodes &normals
+          &clearance_scales;
       }
     };
     struct BatchSelection

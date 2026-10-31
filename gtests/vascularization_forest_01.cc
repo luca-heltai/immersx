@@ -26,6 +26,15 @@ using namespace ImmersX::Vascularization;
 using namespace ImmersX::Vascularization::internal;
 namespace
 {
+  void
+  physical_controls(Parameters &p)
+  {
+    p.length_scale               = "meter";
+    p.minimum_length             = 0.;
+    p.density_beta               = 0.;
+    p.coverage.service_radius    = 0.;
+    p.venous.terminal_separation = 0.;
+  }
   constexpr Id base = (Id{1} << 60) + 13;
   unsigned int
   rank()
@@ -301,6 +310,7 @@ TEST(VascularForest,
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.arterial_murray_exponent = 2.7;
   p.reference_flow           = 2.e-9;
   p.dissipation_weight       = .3;
@@ -327,6 +337,7 @@ TEST(VascularForest,
   const auto n =
     redistribute(bg, MappingQ1<3>(), forest(true), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.arterial_murray_exponent = 2.7;
   p.venous.murray_exponent   = 3.2;
   p.reference_flow           = 2.e-9;
@@ -340,6 +351,7 @@ TEST(VascularForest,
   background(bg);
   auto       n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.reference_flow = 2.e-9;
   const auto a     = evaluate(n, p);
   for (auto &[id, t] : n.terminals)
@@ -376,6 +388,7 @@ TEST(VascularForest,
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   const auto s = evaluate(n, p);
   oracle(n, s, p);
   EXPECT_TRUE(s.terminal_flows.empty());
@@ -389,6 +402,7 @@ TEST(VascularForest, BOTH_ChangingOneLeafUpdatesAllRadiiInItsRootButNoOtherRoot)
   background(bg);
   auto       n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.reference_flow  = 2.e-9;
   const auto before = evaluate(n, p);
   if (n.terminals.count(base + 30) && n.terminals.at(base + 30).owner == rank())
@@ -419,6 +433,7 @@ TEST(VascularForest, BOTH_EmptyRanksAndAnEmptyMutableSetParticipate)
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   const auto empty = evaluate_forest(n, {}, {}, p, MPI_COMM_WORLD);
   EXPECT_TRUE(empty.validation.valid());
   EXPECT_TRUE(empty.owned.empty());
@@ -442,7 +457,8 @@ TEST(VascularForest,
   background(bg);
   auto       n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
-  auto       controls = roots(n);
+  physical_controls(p);
+  auto controls = roots(n);
   if (n.vessels.count(base + 13) && n.vessels.at(base + 13).owner == rank())
     controls[base + 13] = .006;
   EXPECT_FALSE(evaluate_forest(n, mutable_ids(n), controls, p, MPI_COMM_WORLD)
@@ -502,6 +518,7 @@ TEST(VascularForest,
     if (n.vessels.count(id) && n.vessels.at(id).owner == rank())
       ids.insert(id);
   Parameters p;
+  physical_controls(p);
   p.reference_flow           = 2.e-9;
   p.arterial_murray_exponent = 2.7;
   const auto s = evaluate_forest(n, ids, roots(n), p, MPI_COMM_WORLD);
@@ -583,6 +600,7 @@ TEST(VascularForest, BOTH_AConnectedRootDoesNotHideACyclicMutableComponent)
   if (n.vessels.count(base + 20) && n.vessels.at(base + 20).owner == rank())
     r[base + 20] = .006;
   Parameters p;
+  physical_controls(p);
   const auto s = evaluate_forest(n, ids, r, p, MPI_COMM_WORLD);
   EXPECT_FALSE(s.validation.valid());
   EXPECT_LE(s.upward_levels, 2u);
@@ -633,6 +651,7 @@ TEST(VascularForest,
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.reference_flow    = 2.e-9;
   p.minimum_angle     = 1.;
   const auto proposed = concurrent_splits(n);
@@ -696,6 +715,7 @@ TEST(VascularForest, BOTH_AFailedFinalGeometryOrRadiusCheckRollsBackEveryRank)
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.minimum_angle = 1.;
   auto proposed   = concurrent_splits(n);
   for (auto &s : proposed)
@@ -735,6 +755,7 @@ TEST(VascularForest, BOTH_StaleDuplicateAndFrozenWritesNeverChangeTheSnapshot)
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   if (size() > 1)
     {
       if (rank() == 0)
@@ -816,6 +837,7 @@ TEST(VascularForest, BOTH_FixedRootControlsFollowTheMigratingPhysicalRoot)
     }
   previous_owner = Utilities::MPI::min(previous_owner, MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.minimum_angle   = 1.;
   const auto result = commit_growth_splits(bg,
                                            MappingQ1<3>(),
@@ -854,6 +876,7 @@ TEST(VascularForest,
   BackgroundGeometry geometry(bg, mapping);
   const auto n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.minimum_angle      = 1.;
   p.reference_flow     = 2.e-9;
   p.dissipation_weight = .3;
@@ -964,7 +987,8 @@ TEST(VascularForest, BOTH_InvalidOwnerAndCyclicPathMetadataFailCollectively)
   background(bg);
   const auto n = redistribute(bg, MappingQ1<3>(), forest(), 0., MPI_COMM_WORLD);
   Parameters p;
-  auto       state = evaluate(n, p);
+  physical_controls(p);
+  auto                       state = evaluate(n, p);
   std::map<Id, unsigned int> requests;
   if (rank() == size() - 1)
     requests[base + 999] = 0;
@@ -1055,6 +1079,7 @@ TEST(VascularForest,
   MappingQ1<3> mapping;
   const auto   n = redistribute(bg, mapping, single_seed(), 0., MPI_COMM_WORLD);
   Parameters   p;
+  physical_controls(p);
   p.seed_length           = .2;
   p.terminal_count        = 12;
   p.sample_budget         = 100;
@@ -1139,6 +1164,7 @@ TEST(VascularForest,
   MappingQ1<3> mapping;
   const auto   n = redistribute(bg, mapping, single_seed(), 0., MPI_COMM_WORLD);
   Parameters   p;
+  physical_controls(p);
   p.seed_length        = .2;
   p.terminal_count     = 4;
   p.sample_budget      = 100;
@@ -1206,6 +1232,7 @@ TEST(VascularForest, BOTH_PreliminaryVotesCannotAdoptAnAncestorRadiusCollision)
     }
   const auto raw = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.minimum_angle     = 1.;
   const auto baseline = commit_growth_splits(
     bg, mapping, raw, mutable_ids(raw), roots(raw), {}, p, MPI_COMM_WORLD);
@@ -1359,6 +1386,7 @@ TEST(VascularForest, BOTH_VenousGrowthClaimsCommonTerritoriesAcrossTheirOwners)
   const auto   n = redistribute(bg, mapping, paired_seed(), 0., MPI_COMM_WORLD);
   const auto   common = common_territories(n);
   Parameters   p;
+  physical_controls(p);
   venous_controls(p);
   const auto run = grow_forest(bg,
                                mapping,
@@ -1461,6 +1489,7 @@ TEST(VascularForest,
   const auto   n = redistribute(bg, mapping, paired_seed(), 0., MPI_COMM_WORLD);
   const auto   common = common_territories(n);
   Parameters   p;
+  physical_controls(p);
   venous_controls(p);
   auto wrong = common;
   for (auto &t : wrong)

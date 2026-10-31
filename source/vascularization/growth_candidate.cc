@@ -16,7 +16,8 @@ namespace ImmersX::Vascularization::internal
   {
     using namespace dealii;
     AssertThrow(
-      !x.path.empty() && x.path.back().edge.id == x.root,
+      !x.path.empty() && x.path.back().edge.id == x.root &&
+        std::isfinite(x.minimum_scale) && x.minimum_scale > 0.,
       ExcMessage(
         "A CCO candidate requires its complete physical ancestral path."));
     GrowthCandidate p;
@@ -40,7 +41,8 @@ namespace ImmersX::Vascularization::internal
                  c     = junction.distance(terminal);
     const double guard = 64. * std::numeric_limits<double>::epsilon() *
                          std::max({1., junction.norm(), terminal.norm()});
-    if (std::min({a, b, c}) <= std::max(guard, parameters.minimum_length))
+    if (std::min({a, b, c}) <= guard ||
+        std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)
       return {};
     const auto sum = [&](double power, double original, bool viscous) {
       const double mu = viscous ? selected.viscosity : 1.;
@@ -95,7 +97,8 @@ namespace ImmersX::Vascularization::internal
              std::pow(demand / (total + w), 1. / x.murray_exponent);
     };
     const double smallest_leaf = radius(std::min(x.minimum_demand, w));
-    if (!(smallest_leaf > 0.) || smallest_leaf < parameters.minimum_radius)
+    if (!(smallest_leaf > 0.) ||
+        smallest_leaf < parameters.minimum_radius * x.minimum_scale)
       return {};
     const auto &nodes = selected.edge.nodes;
     p.changed         = {{p.vessel,

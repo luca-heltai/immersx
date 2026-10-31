@@ -9,6 +9,7 @@
 #include "forest_state.h"
 namespace ImmersX::Vascularization::internal
 {
+  struct BackgroundGeometry;
   struct GrowthSplit
   {
     Id                vessel = invalid_id;
@@ -56,6 +57,7 @@ namespace ImmersX::Vascularization::internal
                        const std::map<Id, double>     &fixed_owned_roots,
                        const std::vector<GrowthSplit> &local,
                        const Parameters               &parameters,
-                       MPI_Comm                        communicator);
+                       MPI_Comm                        communicator,
+                       BackgroundGeometry             *geometry = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif

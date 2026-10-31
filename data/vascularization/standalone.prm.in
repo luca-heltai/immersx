@@ -1,6 +1,13 @@
 # Synthetic SI configuration for the standalone application checks.
 # Paths are resolved relative to this file, including when invoked elsewhere.
 subsection Vascularization
+  set Length scale = meter
+  subsection Growth
+    set Minimum vessel length = 0
+  end
+  subsection Sampling
+    set Density mesh exponent = 0
+  end
   subsection Input and ports
     set Mode = load
   end

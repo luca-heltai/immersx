@@ -55,20 +55,55 @@ namespace ImmersX::Vascularization::internal
   BatchSelection
   select_growth_batch(BackgroundGeometry               &geometry,
                       const NetworkData                &network,
-                      const std::vector<BatchProposal> &local,
+                      const std::vector<BatchProposal> &submitted,
                       const Parameters                 &parameters,
                       MPI_Comm                          comm,
                       const std::function<double(Id)>  &radius,
                       bool check_snapshot_obstacles)
   {
-    const Rank rank = Utilities::MPI::this_mpi_process(comm),
-               size = Utilities::MPI::n_mpi_processes(comm);
-    int comparison  = MPI_UNEQUAL;
+    auto       local = submitted;
+    const Rank rank  = Utilities::MPI::this_mpi_process(comm),
+               size  = Utilities::MPI::n_mpi_processes(comm);
+    int comparison   = MPI_UNEQUAL;
     MPI_Comm_compare(geometry.cache.get_triangulation().get_mpi_communicator(),
                      comm,
                      &comparison);
     bool valid = (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
                  validate_data(network, size).valid();
+    const auto controls = std::make_pair(
+      std::array<double, 6>{{parameters.clearance,
+                             parameters.minimum_length,
+                             parameters.minimum_radius,
+                             parameters.minimum_angle,
+                             static_cast<double>(parameters.geometry_depth),
+                             static_cast<double>(parameters.geometry_work)}},
+      parameters.length_scale);
+    for (const auto &other : Utilities::MPI::all_gather(comm, controls))
+      valid = valid && other == controls;
+    valid =
+      valid && std::isfinite(parameters.clearance) &&
+      parameters.clearance >= 0. && std::isfinite(parameters.minimum_length) &&
+      parameters.minimum_length >= 0. &&
+      std::isfinite(parameters.minimum_radius) &&
+      parameters.minimum_radius >= 0. &&
+      std::isfinite(parameters.minimum_angle) &&
+      parameters.minimum_angle >= 0. && parameters.minimum_angle <= 180. &&
+      parameters.geometry_depth <= 30 && parameters.geometry_work > 0;
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1,
+      ExcMessage("Malformed growth geometry controls or snapshot ownership."));
+    geometry.configure_length_scale(parameters.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
+    const double broad_clearance =
+      scale.physical_length(parameters.clearance, scale.maximum());
+    scale.physical_length(parameters.clearance, scale.minimum());
+    // A zero H denotes an exterior profile, never a fabricated mesh size.
+    // Such generated proposals are ineligible; frozen exterior obstacles use
+    // the generated branch's defined H in the symmetric pair maximum.
+    const auto physical_clearance = [&](double h) {
+      return h > 0. ? scale.physical_length(parameters.clearance, h) : 0.;
+    };
+    geometry.retain_profiles(network);
     std::set<Id> local_ids;
     for (const auto &p : local)
       {
@@ -91,9 +126,8 @@ namespace ImmersX::Vascularization::internal
             if (edge_valid)
               {
                 const double length = e.points[0].distance(e.points[1]);
-                edge_valid =
-                  std::isfinite(length) && length > parameters.minimum_length;
-                const auto box = envelope_box(e, parameters.clearance);
+                edge_valid          = std::isfinite(length) && length > 0.;
+                const auto box      = envelope_box(e, broad_clearance);
                 for (const auto &point : {box.get_boundary_points().first,
                                           box.get_boundary_points().second})
                   for (unsigned int d = 0; d < 3; ++d)
@@ -123,6 +157,77 @@ namespace ImmersX::Vascularization::internal
       Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1,
       ExcMessage(
         "Malformed vascular growth batch or local physical snapshot."));
+    std::map<Id, Segment<3>>        segments;
+    std::map<std::pair<Id, Id>, Id> segment_keys;
+    for (const auto &proposal : local)
+      for (const auto &edge : proposal.changed)
+        {
+          const Id key                         = segments.size();
+          segment_keys[{proposal.id, edge.id}] = key;
+          segments.emplace(key, Segment<3>(edge.points[0], edge.points[1]));
+        }
+    std::map<Id, std::vector<BackgroundInterval>> profiles;
+    if (scale.policy == LengthScalePolicy::local_mesh_size)
+      profiles = geometry.crossings(segments, comm);
+    std::map<Id, bool> normalized_valid;
+    for (auto &proposal : local)
+      {
+        proposal.clearance_scales.clear();
+        normalized_valid[proposal.id] = true;
+        for (const auto &edge : proposal.changed)
+          {
+            const double length = edge.points[0].distance(edge.points[1]);
+            double       normalized_length = length / scale.minimum();
+            double       normalized_radius = edge.radius / scale.minimum();
+            double       hmax              = scale.maximum();
+            bool         complete          = true;
+            if (scale.policy == LengthScalePolicy::local_mesh_size)
+              {
+                const auto measure = measure_background_profile(
+                  length,
+                  {{edge.radius, edge.radius}},
+                  profiles.at(segment_keys.at({proposal.id, edge.id})),
+                  scale);
+                normalized_length = measure.normalized_length;
+                normalized_radius = measure.minimum_normalized_radius;
+                hmax              = measure.maximum_scale;
+                complete          = measure.complete;
+              }
+            proposal.clearance_scales[edge.id] = hmax;
+            normalized_valid[proposal.id] =
+              normalized_valid[proposal.id] && complete &&
+              std::isfinite(normalized_length) &&
+              normalized_length >= parameters.minimum_length &&
+              std::isfinite(normalized_radius) &&
+              normalized_radius >= parameters.minimum_radius;
+          }
+      }
+    std::map<Id, double>     obstacle_scales;
+    std::map<Id, Segment<3>> obstacle_segments;
+    if (check_snapshot_obstacles && parameters.clearance > 0.)
+      for (const auto &[id, vessel] : network.vessels)
+        obstacle_segments.emplace(
+          id,
+          Segment<3>(network.nodes.at(vessel.nodes[0]).position,
+                     network.nodes.at(vessel.nodes[1]).position));
+    if (scale.policy == LengthScalePolicy::local_mesh_size)
+      {
+        const auto obstacle_profiles =
+          geometry.crossings(obstacle_segments, comm);
+        for (const auto &[id, profile] : obstacle_profiles)
+          obstacle_scales[id] =
+            measure_background_profile(obstacle_segments.at(id).first.distance(
+                                         obstacle_segments.at(id).second),
+                                       network.vessels.at(id).radii,
+                                       profile,
+                                       scale)
+              .maximum_scale;
+      }
+    else if (scale.policy == LengthScalePolicy::meter ||
+             scale.policy == LengthScalePolicy::min_mesh_size ||
+             scale.policy == LengthScalePolicy::max_mesh_size)
+      for (const auto &[id, segment] : obstacle_segments)
+        obstacle_scales[id] = scale.maximum();
     const auto &cell_tree =
       geometry.cache.get_locally_owned_cell_bounding_boxes_rtree();
     std::vector<BoundingBox<3>> local_boxes;
@@ -144,7 +249,7 @@ namespace ImmersX::Vascularization::internal
     std::map<Rank, std::vector<BatchProposal>>        send;
     for (const auto &p : local)
       {
-        eligible[p.id]   = true;
+        eligible[p.id]   = normalized_valid.at(p.id);
         const auto begin = positions.size();
         auto      &ranks = participants[p.id];
         ranks.insert(rank);
@@ -164,7 +269,7 @@ namespace ImmersX::Vascularization::internal
               }
             for (const auto &[box, target] :
                  covering_tree | bgi::adaptors::queried(bgi::intersects(
-                                   envelope_box(e, parameters.clearance))))
+                                   envelope_box(e, broad_clearance))))
               ranks.insert(target);
           }
         ranges[p.id] = {begin, positions.size()};
@@ -270,20 +375,24 @@ namespace ImmersX::Vascularization::internal
                 }
             vote.valid =
               vote.valid &&
-              geometry.boundary_separated({e.points[0], e.points[1]},
-                                          e.radius + parameters.clearance,
-                                          parameters.geometry_depth,
-                                          parameters.geometry_work,
-                                          normals);
+              geometry.boundary_separated(
+                {e.points[0], e.points[1]},
+                e.radius + physical_clearance(p.clearance_scales.at(e.id)),
+                parameters.geometry_depth,
+                parameters.geometry_work,
+                normals);
             for (std::size_t j = 0; j < i; ++j)
-              vote.valid = vote.valid && compatible(e,
-                                                    p.changed[j],
-                                                    parameters.minimum_angle,
-                                                    parameters.clearance);
+              vote.valid =
+                vote.valid &&
+                compatible(e,
+                           p.changed[j],
+                           parameters.minimum_angle,
+                           physical_clearance(
+                             std::max(p.clearance_scales.at(e.id),
+                                      p.clearance_scales.at(p.changed[j].id))));
             for (const auto &[s, id] :
-                 obstacles |
-                   bgi::adaptors::queried(bgi::intersects(
-                     envelope_box(e, parameters.clearance + max_radius))))
+                 obstacles | bgi::adaptors::queried(bgi::intersects(
+                               envelope_box(e, broad_clearance + max_radius))))
               if (check_snapshot_obstacles && !p.owners.count(id))
                 {
                   const auto &v = network.vessels.at(id);
@@ -292,7 +401,11 @@ namespace ImmersX::Vascularization::internal
                     compatible(e,
                                {id, v.nodes, {{s.first, s.second}}, radius(id)},
                                parameters.minimum_angle,
-                               parameters.clearance);
+                               physical_clearance(
+                                 std::max(p.clearance_scales.at(e.id),
+                                          parameters.clearance > 0. ?
+                                            obstacle_scales.at(id) :
+                                            0.)));
                 }
           }
       }
@@ -301,8 +414,7 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[key, proposal] : proposals)
       for (const auto &edge : proposal.changed)
         {
-          changed_boxes.emplace_back(envelope_box(edge, parameters.clearance),
-                                     key);
+          changed_boxes.emplace_back(envelope_box(edge, broad_clearance), key);
           vessel_writers[edge.id].insert(key);
           for (Id node : edge.nodes)
             node_writers[node].insert(key);
@@ -315,7 +427,7 @@ namespace ImmersX::Vascularization::internal
           {
             for (const auto &[box, key] :
                  changed_tree | bgi::adaptors::queried(bgi::intersects(
-                                  envelope_box(edge, parameters.clearance))))
+                                  envelope_box(edge, broad_clearance))))
               nearby.insert(key);
             // Identifier conflicts and shared-junction angles remain relevant
             // independently of the provisional geometric descriptions.
@@ -334,10 +446,13 @@ namespace ImmersX::Vascularization::internal
               bool        conflict = false;
               for (const auto &e : proposal.changed)
                 for (const auto &f : other.changed)
-                  if (e.id == f.id || !compatible(e,
-                                                  f,
-                                                  parameters.minimum_angle,
-                                                  parameters.clearance))
+                  if (e.id == f.id ||
+                      !compatible(e,
+                                  f,
+                                  parameters.minimum_angle,
+                                  physical_clearance(
+                                    std::max(proposal.clearance_scales.at(e.id),
+                                             other.clearance_scales.at(f.id)))))
                     conflict = true;
               if (conflict)
                 {

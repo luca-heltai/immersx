@@ -178,6 +178,13 @@ TEST(VascularMetrics, GenerationReportsIndependentVolumeAndCoverage)
   Triangulation<3> background;
   GridGenerator::hyper_cube(background);
   Parameters p;
+  p.terminal_count_multiplier_factor = "none";
+  p.length_scale                     = "meter";
+  p.minimum_length                   = 0.;
+  p.density_beta                     = 0.;
+  p.coverage.service_radius          = 0.;
+  p.venous.terminal_separation       = 0.;
+
   p.seed_position           = Point<3>(.2, .5, .5);
   p.seed_direction          = Point<3>(1., 0., 0.);
   p.seed_radius             = .01;

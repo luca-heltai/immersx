@@ -89,11 +89,16 @@ def main():
         generation = {
             'Input and ports': {'Mode': 'generate', 'Seed position': '.2,.5,.5',
                                 'Seed direction': '1,0,0', 'Seed radius': '.005'},
-            'Sampling': {'Terminal count': 1},
+            'Sampling': {'Terminal count': 1, 'Terminal count multiplier factor': 'none'},
             'Growth': {'Seed length': '.4'},
             'Physiology': {'Dynamic viscosity': '.004',
                            'Total new-tissue reference flow': '2e-9'},
         }
+        # Omit the new factor to exercise its background-cell default.
+        scaled = dict(generation)
+        scaled['Sampling'] = {'Terminal count': 2}
+        _, scaled_summary = run('generated-cell-scaled', scaled)
+        assert int(scaled_summary['arterial_terminals']) == 2 * int(scaled_summary['background_cells'])
         original, summary = run('generated', generation)
         invoke([str(config / 'generated.prm')], False)
         vessels = rows(original, 'vessels')
@@ -130,7 +135,7 @@ def main():
 
         completed, completed_summary = run('completed', {
             'Input and ports': {'Mode': 'complete', 'Input archive': '../generated/network'},
-            'Sampling': {'Terminal count': 1},
+            'Sampling': {'Terminal count': 1, 'Terminal count multiplier factor': 'none'},
             'Growth': {'Seed length': '.1'},
             'Physiology': {'Total new-tissue reference flow': '2e-9'},
         })

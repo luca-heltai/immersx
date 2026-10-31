@@ -212,6 +212,7 @@ subsection Vascularization
  end
  subsection Sampling
   set Terminal count = {case['terminals']}
+  set Terminal count multiplier factor = none
   set Random seed = {case['seed']}
   set Density mesh exponent = 0
  end

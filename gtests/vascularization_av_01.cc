@@ -30,6 +30,13 @@ namespace
   void
   controls(Parameters &p)
   {
+    p.terminal_count_multiplier_factor = "none";
+    p.length_scale                     = "meter";
+    p.minimum_length                   = 0.;
+    p.density_beta                     = 0.;
+    p.coverage.service_radius          = 0.;
+    p.venous.terminal_separation       = 0.;
+
     p.seed_position                  = Point<3>(.2, .5, .5);
     p.seed_direction                 = Point<3>(1., 0., 0.);
     p.seed_radius                    = .003;
@@ -131,7 +138,23 @@ namespace
       else
         {
           double sum = 0.;
-          EXPECT_EQ(children[e.nodes[1]].size(), 2u);
+          if (e.system == System::arterial)
+            {
+              EXPECT_EQ(children[e.nodes[1]].size(), 2u);
+            }
+          else if (e.system == System::venous)
+            {
+              EXPECT_GE(children[e.nodes[1]].size(), 1u);
+              EXPECT_LE(children[e.nodes[1]].size(), 2u);
+              if (children[e.nodes[1]].size() == 1)
+                {
+                  EXPECT_NEAR(
+                    e.radii[0] /
+                      r.network.vessels.at(children[e.nodes[1]][0]).radii[0],
+                    1.,
+                    1.e-12);
+                }
+            }
           for (Id child : children[e.nodes[1]])
             {
               d += visit(child, gamma);
@@ -244,7 +267,22 @@ TEST(VascularAV, ADirectBedHasTheAnalyticSeriesFlowAndAddsNoVolume)
   p.venous.microvascular_resistance = 4.e12;
   const auto r = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
   ASSERT_TRUE(r.validation.valid()) << issues(r);
-  ASSERT_EQ(r.network.vessels.size(), 2u);
+  ASSERT_EQ(r.network.vessels.size(), 3u);
+  unsigned int venous_segments = 0;
+  for (const auto &[id, vessel] : r.network.vessels)
+    if (vessel.system == System::venous)
+      {
+        ++venous_segments;
+        if (r.network.nodes.at(vessel.nodes[0]).port == Port::venous_outlet)
+          {
+            EXPECT_NEAR(r.network.nodes.at(vessel.nodes[0])
+                          .position.distance(
+                            r.network.nodes.at(vessel.nodes[1]).position),
+                        p.seed_length,
+                        1.e-13);
+          }
+      }
+  EXPECT_EQ(venous_segments, 2u);
   double resistance_sum = p.venous.microvascular_resistance;
   for (const auto &[id, e] : r.network.vessels)
     resistance_sum += resistance(r.network, id);
