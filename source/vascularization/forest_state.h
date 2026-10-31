@@ -4,6 +4,7 @@
 #define immersx_internal_forest_state_h
 #include <deal.II/base/mpi.h>
 
+#include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/network.h>
 
 #include <limits>
@@ -61,7 +62,8 @@ namespace ImmersX::Vascularization
                     const std::set<Id>         &mutable_owned,
                     const std::map<Id, double> &fixed_owned_roots,
                     const Parameters           &parameters,
-                    MPI_Comm                    communicator);
+                    MPI_Comm                    communicator,
+                    GrowthWork                 *work = nullptr);
   } // namespace internal
 } // namespace ImmersX::Vascularization
 #endif

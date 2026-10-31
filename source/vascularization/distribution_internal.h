@@ -3,6 +3,7 @@
 #ifndef immersx_internal_distribution_h
 #define immersx_internal_distribution_h
 #include <immersx/vascularization/distribution.h>
+#include <immersx/vascularization/growth_work.h>
 
 #include <functional>
 namespace ImmersX::Vascularization::internal
@@ -15,6 +16,7 @@ namespace ImmersX::Vascularization::internal
                            const NetworkData              &initial,
                            double                          halo,
                            MPI_Comm                        communicator,
-                           const std::function<void(Id, unsigned int)> &notify);
+                           const std::function<void(Id, unsigned int)> &notify,
+                           GrowthWork *work = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif
