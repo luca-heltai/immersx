@@ -46,16 +46,6 @@ namespace ImmersX::Vascularization
     materialized_vessels,
     transaction_records,
     rollback_records,
-    integration_budget_rejections,
-    demand_generated_points,
-    demand_refined_cells,
-    demand_nearest_queries,
-    demand_nearest_hits,
-    demand_influence_queries,
-    demand_influence_hits,
-    demand_reassigned_samples,
-    demand_added_samples,
-    demand_removed_samples,
     count
   };
   inline constexpr std::array<const char *,
@@ -98,16 +88,6 @@ namespace ImmersX::Vascularization
       "materialized_vessels",
       "transaction_records",
       "rollback_records",
-      "integration_budget_rejections",
-      "demand_generated_points",
-      "demand_refined_cells",
-      "demand_nearest_queries",
-      "demand_nearest_hits",
-      "demand_influence_queries",
-      "demand_influence_hits",
-      "demand_reassigned_samples",
-      "demand_added_samples",
-      "demand_removed_samples",
     }};
   struct GrowthWork
   {
