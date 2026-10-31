@@ -8,6 +8,7 @@
 #include <functional>
 namespace ImmersX::Vascularization::internal
 {
+  struct BackgroundGeometry;
   // Reports each previously owned vessel's destination before migration. The
   // callback only records routes; it must not perform collective operations.
   NetworkData
@@ -17,6 +18,7 @@ namespace ImmersX::Vascularization::internal
                            double                          halo,
                            MPI_Comm                        communicator,
                            const std::function<void(Id, unsigned int)> &notify,
-                           GrowthWork *work = nullptr);
+                           BackgroundGeometry *geometry = nullptr,
+                           GrowthWork         *work     = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif
