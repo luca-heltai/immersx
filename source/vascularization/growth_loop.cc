@@ -23,6 +23,7 @@
 #include "growth_mpi_scope.h"
 #include "growth_paths.h"
 #include "growth_sampling.h"
+#include "tissue_growth_callbacks.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -350,9 +351,37 @@ namespace ImmersX::Vascularization::internal
       scale.physical_length(p.clearance, scale.maximum());
     const double physical_minimum_radius =
       scale.physical_length(p.minimum_radius, scale.minimum());
+    // Startup has established native topology and fixed physical radii only.
+    // Assign all initial Di before the first Murray/flow/objective evaluation,
+    // including a request satisfied by its initial leaves without insertions.
+    auto                    weighted_initial = initial;
+    GrowthDemandCallbacks   demand_callbacks;
+    GrowthDemandJointUpdate initial_demands;
+    if (system == System::arterial)
+      {
+        const auto leaves =
+          collect_growth_leaf_terminals(initial, mutable_owned, comm);
+        if (!leaves.validation.valid())
+          {
+            run.validation = leaves.validation;
+            return run;
+          }
+        demand_callbacks =
+          tissue_growth_callbacks(geometry, p, terminal_count, comm);
+        initial_demands = demand_callbacks.bootstrap(initial, leaves.owned, 0);
+        run.validation  = initialize_growth_demands(
+          weighted_initial, leaves.owned, initial_demands, 0, comm);
+        if (!run.validation.valid())
+          {
+            demand_callbacks.discard();
+            return run;
+          }
+        demand_callbacks.prepare_adopt(
+          initial_demands.update.quadrature_revision, 1);
+      }
     run.accepted = commit_growth_splits(bg,
                                         mapping,
-                                        initial,
+                                        weighted_initial,
                                         mutable_owned,
                                         fixed_owned_roots,
                                         {},

@@ -176,6 +176,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Prepare vascular seeds and imported attachment branches without physiological evaluation, then assign all initial territorial integrals before the first Murray normalization and flow calculation, including single-terminal requests.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default vascular generation to one territory per active cell, volume-based density exponent three and local length coefficients. Derive an automatic calibration maximum from the scaled request instead of imposing a fixed terminal cap. Start veins with a fixed-length stem and a continuation that preserves series flow and Murray radii.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Base terminal proposal density on physical background cell volume so exponent three assigns equal proposal weight per cell, including cells with different aspect ratios.
