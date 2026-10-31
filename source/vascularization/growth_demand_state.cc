@@ -292,6 +292,51 @@ namespace ImmersX::Vascularization::internal
     return branches.at(id).value;
   }
 
+  const GrowthDemandSummary &
+  GrowthDemandState::summary(Id id, const GrowthDemandPreview &preview) const
+  {
+    const auto found = preview.owned.find(id);
+    return found == preview.owned.end() ? summary(id) : found->second;
+  }
+  const ForestBranch &
+  GrowthDemandState::topology(Id id) const
+  {
+    return branches.at(id).topology;
+  }
+  std::map<Id, GrowthDemandSummary>
+  GrowthDemandState::children(Id id, const GrowthDemandPreview &preview) const
+  {
+    auto       result  = branches.at(id).children;
+    const auto changed = preview.child_summaries.find(id);
+    if (changed != preview.child_summaries.end())
+      for (const auto &[child, value] : changed->second)
+        result.at(child) = value;
+    return result;
+  }
+  GrowthDemandRootView
+  GrowthDemandState::root_view(Id id, const GrowthDemandPreview &preview) const
+  {
+    AssertThrow(
+      report.valid() && preview.validation.valid() &&
+        preview.snapshot_revision == revision && root_positions.count(id),
+      dealii::ExcMessage(
+        "A root view requires a current valid preview on its authoritative root owner."));
+    GrowthDemandRootView result;
+    result.summary = summary(id, preview);
+    result.radius  = branches.at(id).topology.root_radius;
+    result.system  = branches.at(id).system;
+    for (auto i = root_capacity + root_positions.at(id); i > 1; i /= 2)
+      {
+        const auto  sibling = i ^ std::size_t(1);
+        const auto  found   = preview.root_sums.find(sibling);
+        const auto &value =
+          found == preview.root_sums.end() ? root_sums[sibling] : found->second;
+        for (unsigned int j = 0; j < 6; ++j)
+          result.other_local[j] += value[j];
+      }
+    return result;
+  }
+
   GrowthDemandPreview
   GrowthDemandState::preview(const GrowthDemandUpdate &update) const
   {
@@ -400,7 +445,7 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[id, children] : marked)
       if (children.empty())
         ready.insert(id);
-    std::map<Id, std::map<Id, GrowthDemandSummary>> changed_children;
+    auto &changed_children = result.child_summaries;
     while (Utilities::MPI::sum(static_cast<std::uint64_t>(ready.size()), comm) >
            0)
       {
@@ -460,8 +505,8 @@ namespace ImmersX::Vascularization::internal
       return result;
     // Patch only the paths of changed roots in the positive sum tree. A
     // disappearing dominant contribution cannot erase small retained roots.
-    std::map<std::size_t, std::array<long double, 6>> changed_sums;
-    std::set<std::size_t, std::greater<std::size_t>>  parents;
+    auto &changed_sums = result.root_sums;
+    std::set<std::size_t, std::greater<std::size_t>> parents;
     for (const auto &[id, value] : result.owned)
       if (root_positions.count(id))
         {
@@ -477,12 +522,12 @@ namespace ImmersX::Vascularization::internal
     for (auto i : parents)
       for (unsigned int j = 0; j < 6; ++j)
         changed_sums[i][j] = get(2 * i)[j] + get(2 * i + 1)[j];
-    for (unsigned int j = 0; j < 6; ++j)
-      {
-        result.totals[j] = Utilities::MPI::sum(get(1)[j], comm);
-        valid =
-          std::isfinite(result.totals[j]) && result.totals[j] >= 0. && valid;
-      }
+    result.rank_totals = Utilities::MPI::all_gather(comm, get(1));
+    for (const auto &rank_sum : result.rank_totals)
+      for (unsigned int j = 0; j < 6; ++j)
+        result.totals[j] += rank_sum[j];
+    for (long double value : result.totals)
+      valid = std::isfinite(value) && value >= 0. && valid;
     phase(result.validation,
           valid,
           comm,
