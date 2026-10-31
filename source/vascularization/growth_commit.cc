@@ -86,6 +86,7 @@ namespace ImmersX::Vascularization::internal
             double                          halo,
             MPI_Comm                        comm,
             GrowthGeometryChanges          &changes,
+            BackgroundGeometry             *geometry,
             GrowthWork                     *work)
     {
       std::map<unsigned int, std::map<Id, MigrationUpdate>> routes;
@@ -109,6 +110,7 @@ namespace ImmersX::Vascularization::internal
                               mutable_owned.count(id) != 0,
                               moved || changes.changed_owned.count(id) != 0});
         },
+        geometry,
         work);
       for (const auto &[owner, packet] : routes)
         count_work(work,
@@ -216,8 +218,16 @@ namespace ImmersX::Vascularization::internal
           "A split is stale, duplicates a write, or changes a frozen vessel."))
       return result;
     Timer timer;
-    trial =
-      migrate(bg, mapping, trial, ids, roots, p.clearance, comm, changes, work);
+    trial                         = migrate(bg,
+                    mapping,
+                    trial,
+                    ids,
+                    roots,
+                    p.clearance,
+                    comm,
+                    changes,
+                    background_geometry,
+                    work);
     result.redistribution_seconds = timer.wall_time();
     const double physiology_begin = timer.wall_time();
     auto         state = evaluate_forest(trial, ids, roots, p, comm, work);
@@ -233,8 +243,16 @@ namespace ImmersX::Vascularization::internal
     result.physiology_seconds = timer.wall_time() - physiology_begin;
     // Enlarged radii need refreshed multi-partition geometric ghosts.
     const double migration_begin = timer.wall_time();
-    trial =
-      migrate(bg, mapping, trial, ids, roots, p.clearance, comm, changes, work);
+    trial                        = migrate(bg,
+                    mapping,
+                    trial,
+                    ids,
+                    roots,
+                    p.clearance,
+                    comm,
+                    changes,
+                    background_geometry,
+                    work);
     result.redistribution_seconds += timer.wall_time() - migration_begin;
     const double                      certification_begin = timer.wall_time();
     std::optional<BackgroundGeometry> local_geometry;

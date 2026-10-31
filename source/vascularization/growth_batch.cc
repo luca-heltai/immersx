@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "growth_batch.h"
 
-#include <deal.II/particles/particle_handler.h>
+#include <deal.II/grid/grid_tools.h>
 
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
+#include <boost/serialization/utility.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/vascularization/generation.h>
@@ -126,20 +127,12 @@ namespace ImmersX::Vascularization::internal
       Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1,
       ExcMessage(
         "Malformed vascular growth batch or local physical snapshot."));
-    const auto &cell_tree =
-      geometry.cache.get_locally_owned_cell_bounding_boxes_rtree();
-    std::vector<BoundingBox<3>> local_boxes;
-    if (!cell_tree.empty())
-      local_boxes = extract_rtree_level(cell_tree, 1);
-    const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
-    std::vector<std::pair<BoundingBox<3>, Rank>> covering;
-    for (Rank r = 0; r < size; ++r)
-      for (const auto &box : boxes[r])
-        covering.emplace_back(box, r);
-    const auto covering_tree = pack_rtree(covering);
+    const auto &routing       = geometry.routing(comm, work);
+    const auto &boxes         = routing.boxes;
+    const auto &covering_tree = routing.covering_tree;
 
     std::vector<Point<3>>                             positions;
-    std::vector<std::vector<double>>                  point_properties;
+    std::vector<bool>                                 port_points;
     std::map<Id, std::pair<std::size_t, std::size_t>> ranges;
     std::map<Id, bool>                                eligible;
     std::map<Id, std::map<Id, bool>>                  planes;
@@ -159,10 +152,7 @@ namespace ImmersX::Vascularization::internal
           {
             for (unsigned int end = 0; end < 2; ++end)
               {
-                point_properties.push_back(
-                  {static_cast<double>(rank),
-                   static_cast<double>(positions.size()),
-                   p.normals.count(e.nodes[end]) ? 1.e-12 : 0.});
+                port_points.push_back(p.normals.count(e.nodes[end]) != 0);
                 positions.push_back(e.points[end]);
               }
             for (const auto &[box, target] :
@@ -176,37 +166,41 @@ namespace ImmersX::Vascularization::internal
         for (Rank target : ranks)
           send[target].push_back(p);
       }
-    Particles::ParticleHandler<3> points(geometry.cache.get_triangulation(),
-                                         geometry.mapping,
-                                         3);
     count_work(work, GrowthOperation::node_localizations, positions.size());
-    points.insert_global_particles(positions, boxes, point_properties);
-    // The native search tolerance selects candidate cells. Recheck physical
-    // locations without its clamped reference coordinates, allowing only
-    // inverse mapping accuracy at shared faces: a very thin vessel entirely
-    // outside the domain need not intersect a boundary patch. Properties
-    // contain only producer/index/tolerance, never physical ids.
-    std::map<Rank, std::vector<std::size_t>> strict_found;
-    for (auto particle = points.begin(); particle != points.end(); ++particle)
-      {
-        const auto property = particle->get_properties();
-        const auto cell     = particle->get_surrounding_cell();
-        try
-          {
-            const auto unit = geometry.mapping.transform_real_to_unit_cell(
-              cell, particle->get_location());
-            if (reference_contains(cell, unit, property[2]))
-              strict_found[static_cast<Rank>(property[0])].push_back(
-                static_cast<std::size_t>(property[1]));
-          }
-        catch (const Mapping<3>::ExcTransformationFailed &)
-          {}
-      }
+    const auto matches =
+      GridTools::distributed_compute_point_locations(geometry.cache,
+                                                     positions,
+                                                     boxes);
+    // Native reference points are clamped; physical boundary tests must use
+    // an inverse map of the original physical point. Send both admissibility
+    // bits so each producer can select its ordinary/declared-port tolerance.
+    std::map<Rank, std::vector<std::pair<std::size_t, unsigned char>>>
+      strict_found;
+    for (std::size_t c = 0; c < std::get<0>(matches).size(); ++c)
+      for (std::size_t i = 0; i < std::get<2>(matches)[c].size(); ++i)
+        {
+          const auto &cell = std::get<0>(matches)[c];
+          try
+            {
+              const auto unit = geometry.mapping.transform_real_to_unit_cell(
+                cell, std::get<3>(matches)[c][i]);
+              const bool strict = reference_contains(cell, unit, 0.);
+              const bool port =
+                strict || reference_contains(cell, unit, 1.e-12);
+              const unsigned char mask = (strict ? 1 : 0) | (port ? 2 : 0);
+              if (mask)
+                strict_found[std::get<4>(matches)[c][i]].emplace_back(
+                  std::get<2>(matches)[c][i], mask);
+            }
+          catch (const Mapping<3>::ExcTransformationFailed &)
+            {}
+        }
     const auto destinations = Utilities::MPI::some_to_some(comm, strict_found);
     std::vector<bool> located(positions.size(), false);
     for (const auto &[owner, indices] : destinations)
-      for (auto i : indices)
-        located.at(i) = true;
+      for (const auto &[index, mask] : indices)
+        located.at(index) =
+          located.at(index) || (mask & (port_points.at(index) ? 2 : 1));
     for (const auto &[id, range] : ranges)
       for (std::size_t i = range.first; i < range.second; ++i)
         eligible[id] = eligible[id] && located[i];

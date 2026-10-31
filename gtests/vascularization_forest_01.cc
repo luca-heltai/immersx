@@ -1760,3 +1760,37 @@ TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
       }
   EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), size());
 }
+
+TEST(VascularForest, BOTH_SharedBackgroundSurvivesRepeatedFullCommits)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto       network  = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  auto       ids      = mutable_ids(network);
+  auto       controls = roots(network);
+  Parameters p;
+  p.minimum_angle = 1.;
+  GrowthWork         work;
+  BackgroundGeometry geometry(bg, mapping, &work);
+  for (unsigned int stage = 0; stage < 3; ++stage)
+    {
+      auto result = commit_growth_splits(bg,
+                                         mapping,
+                                         network,
+                                         ids,
+                                         controls,
+                                         {},
+                                         p,
+                                         MPI_COMM_WORLD,
+                                         &geometry,
+                                         &work);
+      ASSERT_TRUE(result.committed);
+      network  = std::move(result.network);
+      ids      = std::move(result.mutable_owned);
+      controls = std::move(result.fixed_owned_roots);
+    }
+  EXPECT_EQ(work[GrowthOperation::background_cache_constructions], 1u);
+  EXPECT_EQ(work[GrowthOperation::background_cell_visits], bg.n_active_cells());
+  EXPECT_EQ(work[GrowthOperation::boundary_index_builds], 1u);
+}
