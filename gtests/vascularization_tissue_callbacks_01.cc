@@ -108,6 +108,59 @@ TEST(VascularTissueDemand, BOTH_CallbacksBootstrapJointAndRollback)
   EXPECT_GT(Utilities::MPI::sum(next.new_demand, MPI_COMM_WORLD), 0.);
   callbacks.discard();
 }
+TEST(VascularTissueDemand, BOTH_CallbacksSelectEarlierOrLatestSingleton)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bg);
+  MappingQ1<3>       mapping;
+  BackgroundGeometry geometry(bg, mapping);
+  Parameters         p("/Tissue singleton selection/");
+  auto callbacks    = tissue_growth_callbacks(geometry, p, 3, MPI_COMM_WORLD);
+  const auto   rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto   size = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  const auto   network = callback_seed(size - 1);
+  std::set<Id> leaves;
+  if (rank == size - 1)
+    leaves.insert(101);
+  const auto initial = callbacks.bootstrap(network, leaves, 0);
+  ASSERT_TRUE(initial.validation.valid());
+  callbacks.prepare_adopt(initial.update.quadrature_revision, 1);
+  callbacks.adopt();
+  const GrowthProposalKey left{0, 201}, right{size - 1, 301};
+  for (bool earlier : {true, false})
+    {
+      const auto first = callbacks.preview(left, 201, 202, {.5, .5, .5}, 1);
+      const auto last  = callbacks.preview(right, 301, 302, {.75, .5, .5}, 1);
+      ASSERT_TRUE(first.validation.valid());
+      ASSERT_TRUE(last.validation.valid());
+      const auto                    &chosen = earlier ? first : last;
+      const auto                    &key    = earlier ? left : right;
+      std::vector<GrowthProposalKey> selected;
+      if (rank == key.first)
+        selected.push_back(key);
+      const auto joint = callbacks.joint(selected, 1);
+      ASSERT_TRUE(joint.validation.valid());
+      EXPECT_EQ(callback_mass(joint.new_terminals, key.second),
+                Utilities::MPI::sum(chosen.new_demand, MPI_COMM_WORLD));
+      EXPECT_EQ(callback_mass(joint.update.terminals, 101),
+                callback_mass(chosen.update.terminals, 101));
+      EXPECT_EQ(callback_mass(joint.new_terminals,
+                              earlier ? right.second : left.second),
+                0.);
+      EXPECT_EQ(joint.update.quadrature_revision,
+                chosen.update.quadrature_revision);
+      callbacks.prepare_adopt(joint.update.quadrature_revision, 2);
+      if (earlier)
+        callbacks.discard();
+      else
+        callbacks.adopt();
+    }
+  // The earlier singleton was rolled back: its key and centre remain available.
+  const auto next = callbacks.preview(left, 201, 202, {.5, .5, .5}, 2);
+  ASSERT_TRUE(next.validation.valid());
+  EXPECT_GT(Utilities::MPI::sum(next.new_demand, MPI_COMM_WORLD), 0.);
+  callbacks.discard();
+}
 TEST(VascularTissueDemand, BOTH_CallbacksBootstrapBudgetHasNoPhysicalMutation)
 {
   parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
