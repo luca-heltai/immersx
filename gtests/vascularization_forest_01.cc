@@ -2643,11 +2643,31 @@ TEST(VascularForest,
       };
       const auto &initial = execution.prepare(delta, joint, measures);
       check(initial);
+      const std::map<Id, double> native_expected{{base + 30, .5},
+                                                 {base + 31, .75},
+                                                 {base + 131, 2.25}};
+      for (const auto &[id, demand] : native_expected)
+        {
+          const auto terminal = n.terminals.find(id);
+          const bool owned =
+            terminal != n.terminals.end() && terminal->second.owner == rank();
+          EXPECT_EQ(execution.native_terminal_demands().count(id),
+                    owned ? 1u : 0u);
+          if (owned)
+            {
+              EXPECT_DOUBLE_EQ(execution.native_terminal_demands().at(id),
+                               demand);
+            }
+        }
+      EXPECT_EQ(Utilities::MPI::sum(execution.native_terminal_demands().size(),
+                                    MPI_COMM_WORLD),
+                3u);
       EXPECT_EQ(work[GrowthOperation::physiology_branch_visits],
                 initial.recomputed_branches);
       EXPECT_GE(work[GrowthOperation::transaction_records],
                 initial.recomputed_branches);
       execution.discard();
+      EXPECT_TRUE(execution.native_terminal_demands().empty());
       EXPECT_GT(Utilities::MPI::sum(work[GrowthOperation::rollback_records],
                                     MPI_COMM_WORLD),
                 0u);
@@ -2674,6 +2694,7 @@ TEST(VascularForest,
       execution.discard();
       check(execution.prepare(delta, joint, measures));
       execution.adopt();
+      EXPECT_TRUE(execution.native_terminal_demands().empty());
       old.snapshot_revision = 8;
       const auto adopted    = state.preview(old);
       check(adopted);

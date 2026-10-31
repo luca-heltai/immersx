@@ -25,6 +25,8 @@ namespace ImmersX::Vascularization::internal
             const GrowthGeometryMeasures &);
     const GrowthDemandPreview &
     preview() const;
+    const std::map<Id, double> &
+    native_terminal_demands() const noexcept;
     void
     adopt();
     void
@@ -34,6 +36,7 @@ namespace ImmersX::Vascularization::internal
     GrowthDemandState                                     &state;
     GrowthWork                                            *work = nullptr;
     GrowthDemandPreview                                    staged;
+    std::map<Id, double>                                   native_demands;
     bool                                                   active     = false;
     std::uint64_t                                          batch_size = 0;
     std::map<Id, std::optional<GrowthDemandState::Branch>> before;
