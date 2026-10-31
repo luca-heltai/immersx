@@ -276,6 +276,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve native trace couplings in local flow preconditioning across MPI partitions, so generated vascular networks advance with the iterative coupled solver and unchanged error tolerances.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Ignore unassigned imported territories when reserving fresh vascular identifiers, and reject exhausted identifier namespaces without wrapping or changing the accepted network.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Restore physiology metadata after rejected growth with retained map and set nodes, avoiding allocations while restoring migrated branches and root authorities.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
 
