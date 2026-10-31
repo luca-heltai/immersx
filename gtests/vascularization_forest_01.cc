@@ -22,6 +22,7 @@
 #include "../source/vascularization/growth_commit.h"
 #include "../source/vascularization/growth_demand.h"
 #include "../source/vascularization/growth_demand_callbacks.h"
+#include "../source/vascularization/growth_demand_state.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_paths.h"
 using namespace dealii;
@@ -1891,4 +1892,136 @@ TEST(VascularForest, BOTH_IntegratedBootstrapReplacesAllNativeSeedDemands)
   EXPECT_FALSE(
     initialize_growth_demands(n, leaves.owned, stale, 7, MPI_COMM_WORLD)
       .valid());
+}
+
+TEST(VascularForest, BOTH_SparseDemandPreviewMatchesFullRecompute)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(true), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.dissipation_weight = .4;
+  p.reference_flow     = 2.e-9;
+  const auto accepted  = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid()) << issues(accepted);
+  GrowthDemandState state(n, accepted, p, 19, MPI_COMM_WORLD);
+  ASSERT_TRUE(state.validation().valid());
+  GrowthDemandUpdate update;
+  update.snapshot_revision = 19;
+  const std::map<Id, double> changed{{base + 31, 7.}, {base + 32, .125}};
+  for (const auto &[id, value] : changed)
+    if (id % size() == rank())
+      update.terminals.push_back({id, value});
+  const auto preview = state.preview(update);
+  ASSERT_TRUE(preview.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(preview.marked_branches, MPI_COMM_WORLD), 4u);
+  EXPECT_EQ(Utilities::MPI::sum(preview.recomputed_branches, MPI_COMM_WORLD),
+            4u);
+  for (auto &[id, terminal] : n.terminals)
+    if (terminal.owner == rank() && changed.count(id))
+      terminal.demand = changed.at(id);
+  const auto expected = evaluate(n, p);
+  ASSERT_TRUE(expected.validation.valid()) << issues(expected);
+  for (const auto &[id, branch] : expected.owned)
+    {
+      const auto &value =
+        preview.owned.count(id) ? preview.owned.at(id) : state.summary(id);
+      const double gamma = n.vessels.at(id).system == System::arterial ?
+                             p.arterial_murray_exponent :
+                             p.venous.murray_exponent;
+      const auto mass = std::ldexp(value.mass.convert_to<long double>(), -1074);
+      EXPECT_NEAR(static_cast<double>(mass),
+                  branch.demand * expected.demand_scale,
+                  2.e-14 * static_cast<double>(mass));
+      const long double volume =
+        branch.volume_moment / std::pow(branch.demand, 2. / gamma);
+      const long double resistance =
+        branch.resistance_moment / std::pow(branch.demand, 2. - 4. / gamma);
+      EXPECT_NEAR(static_cast<double>(value.volume_length),
+                  static_cast<double>(volume),
+                  2.e-13 * static_cast<double>(volume));
+      EXPECT_NEAR(static_cast<double>(value.resistance_length),
+                  static_cast<double>(resistance),
+                  2.e-13 * static_cast<double>(resistance));
+      EXPECT_NEAR(static_cast<double>(value.minimum_ratio),
+                  std::pow(branch.minimum_demand / branch.demand, 1. / gamma),
+                  2.e-14);
+      EXPECT_EQ(value.leaves, branch.terminals);
+    }
+  for (unsigned int system = 0; system < 2; ++system)
+    {
+      EXPECT_NEAR(static_cast<double>(preview.totals[3 * system]),
+                  expected.total_demand[system] * expected.demand_scale,
+                  2.e-13);
+      EXPECT_NEAR(static_cast<double>(preview.totals[3 * system + 1]),
+                  expected.volume[system],
+                  2.e-13 * expected.volume[system]);
+      const double coefficient = expected.power_numerator[system] *
+                                 expected.demand_scale * expected.demand_scale;
+      EXPECT_NEAR(static_cast<double>(preview.totals[3 * system + 2]),
+                  coefficient,
+                  2.e-13 * coefficient);
+    }
+  // Previews are independent overlays: no accepted aggregate was changed.
+  const auto repeated = state.preview(update);
+  ASSERT_TRUE(repeated.validation.valid());
+  EXPECT_EQ(repeated.recomputed_branches, preview.recomputed_branches);
+  for (const auto &[id, value] : preview.owned)
+    EXPECT_EQ(repeated.owned.at(id).mass, value.mass);
+  GrowthDemandUpdate empty;
+  empty.snapshot_revision = 19;
+  const auto untouched    = state.preview(empty);
+  ASSERT_TRUE(untouched.validation.valid());
+  EXPECT_TRUE(untouched.owned.empty());
+  EXPECT_EQ(untouched.marked_branches, 0u);
+  auto stale              = update;
+  stale.snapshot_revision = 18;
+  EXPECT_FALSE(state.preview(stale).validation.valid());
+  auto duplicate = update;
+  if (!duplicate.terminals.empty())
+    duplicate.terminals.push_back(duplicate.terminals.front());
+  EXPECT_FALSE(state.preview(duplicate).validation.valid());
+}
+
+TEST(VascularForest, BOTH_DemandPreviewRetainsSmallUnchangedRootContribution)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  for (auto &[id, terminal] : n.terminals)
+    if (terminal.owner == rank() && id < base + 100)
+      terminal.demand = 1.e100;
+  Parameters p;
+  p.dissipation_weight = .5;
+  p.reference_flow     = 2.e-9;
+  const auto accepted  = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid()) << issues(accepted);
+  GrowthDemandState state(n, accepted, p, 2, MPI_COMM_WORLD);
+  ASSERT_TRUE(state.validation().valid());
+  GrowthDemandUpdate update;
+  update.snapshot_revision = 2;
+  for (Id id = base + 30; id <= base + 32; ++id)
+    if (id % size() == rank())
+      update.terminals.push_back({id, 1.e-100});
+  const auto preview = state.preview(update);
+  ASSERT_TRUE(preview.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(preview.recomputed_branches, MPI_COMM_WORLD),
+            5u);
+  for (auto &[id, terminal] : n.terminals)
+    if (terminal.owner == rank() && id < base + 100)
+      terminal.demand = 1.e-100;
+  const auto expected = evaluate(n, p);
+  ASSERT_TRUE(expected.validation.valid()) << issues(expected);
+  const double coefficient =
+    expected.power_numerator[0] * expected.demand_scale * expected.demand_scale;
+  EXPECT_GT(coefficient, 0.);
+  EXPECT_NEAR(static_cast<double>(preview.totals[2]),
+              coefficient,
+              3.e-13 * coefficient);
+  EXPECT_LT(preview.totals[2], state.totals()[2] * 1.e-100L);
+  EXPECT_NEAR(static_cast<double>(preview.totals[1]),
+              expected.volume[0],
+              3.e-13 * expected.volume[0]);
 }
