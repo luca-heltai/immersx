@@ -104,17 +104,8 @@ namespace ImmersX::Vascularization::internal
       Utilities::MPI::min(static_cast<unsigned int>(valid), communicator) == 1,
       ExcMessage(
         "Cell queries require finite coordinates and nonnegative tolerances."));
-    const auto &tree = cache.get_locally_owned_cell_bounding_boxes_rtree();
-    std::vector<BoundingBox<3>> local_boxes;
-    if (!tree.empty())
-      local_boxes = extract_rtree_level(tree, 1);
-    const auto boxes = Utilities::MPI::all_gather(communicator, local_boxes);
-    std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
-    for (unsigned int owner = 0; owner < boxes.size(); ++owner)
-      for (const auto &box : boxes[owner])
-        covering.emplace_back(box, owner);
-    const auto covering_tree = pack_rtree(covering);
-    using Query              = std::pair<Id, std::pair<Point<3>, double>>;
+    const auto &covering_tree = routing(communicator).covering_tree;
+    using Query               = std::pair<Id, std::pair<Point<3>, double>>;
     std::map<unsigned int, std::vector<Query>> outgoing;
     for (const auto &[id, point] : points)
       {
