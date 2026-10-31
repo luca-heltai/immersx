@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Subdivide vascular profiles with monotone metric-cut traversal and bounded interval queries. Split and merge numerical cuts through stable iterators while preserving the existing length bounds, ownership and budget failures.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Prepare vascular ownership changes from sparse split patches, localizing only new nodes and edited vessel midpoints through the native distributed search. Preserve endpoint authorities, physical properties and the accepted snapshot on failure.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Query the native cached cell index for vascular crossing containment and sweep overlapping MPI interval replies instead of rescanning all cells and intervals for every cut. Preserve finest-cell length scales and lowest-rank execution ownership.
