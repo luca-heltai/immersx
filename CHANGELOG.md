@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Expose local vascular growth operation counters, including unsuccessful attempts, without MPI in counter updates.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add mesh-owned tissue quadrature refinement with explicit global point and refinement budgets. Preserve the background mesh and stage resolution changes with territorial demand journals.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply one background length policy to vascular seeds and imported attachments, whole-branch minimum length and radius, symmetric variable clearance, venous separation and tissue-local coverage. Preserve physical input and solver units, and report mesh bounds, count decisions and normalized vessel geometry.
@@ -501,6 +503,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Verify integrated seed demands, joint territorial proposals and atomic tissue rollback through the growth callback protocol in serial and MPI.
 

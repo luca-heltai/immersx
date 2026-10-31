@@ -6,12 +6,15 @@
 #include <boost/multiprecision/cpp_int/serialize.hpp>
 #include <boost/serialization/array.hpp>
 
+#include <immersx/vascularization/growth_work.h>
+
 #include "demand_mass.h"
 #include "forest_state.h"
 #include "growth_demand.h"
 
 namespace ImmersX::Vascularization::internal
 {
+  struct GrowthCandidatePaths;
   // Moments are relative to this subtree's own demand. Changing a root or
   // system normalization therefore does not rewrite its descendants.
   struct GrowthDemandSummary
@@ -33,7 +36,8 @@ namespace ImmersX::Vascularization::internal
     std::uint64_t    snapshot_revision = 0;
     // Per system: absolute demand, SI volume, physical-demand power
     // coefficient.
-    std::array<long double, 6> totals{};
+    std::array<long double, 6>           totals{};
+    std::optional<std::array<double, 2>> canonical_total_demand;
     // Six scalar controls per rank; no topology or per-terminal data.
     std::vector<std::array<long double, 6>> rank_totals;
     // Sparse derived nodes in the accepted root-sum tree.
@@ -87,6 +91,18 @@ namespace ImmersX::Vascularization::internal
     GrowthDemandPreview
     preview(const GrowthDemandUpdate &) const;
 
+    // One collective overlay for one globally ordered tissue proposal. Only
+    // its producer requests paths; owners must not use different previews.
+    GrowthCandidatePaths
+    candidate_paths(const NetworkData &,
+                    const GrowthDemandPreview &,
+                    const std::map<Id, unsigned int> &,
+                    Id          next_node,
+                    Id          next_vessel,
+                    double      new_demand,
+                    double      minimum_scale = 1.,
+                    GrowthWork *work          = nullptr) const;
+
   private:
     struct Branch
     {
@@ -112,6 +128,9 @@ namespace ImmersX::Vascularization::internal
               double,
               const std::map<Id, GrowthDemandSummary> &);
 
+    static long double
+    demand_value(const GrowthDemandSummary &);
+
     MPI_Comm                                communicator;
     std::uint64_t                           revision = 0, branch_count = 0;
     ValidationReport                        report;
@@ -120,6 +139,8 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, std::size_t>               root_positions;
     std::vector<std::array<long double, 6>> root_sums;
     std::array<long double, 6>              accepted_totals{};
+    std::array<double, 2>                   accepted_volume{};
+    std::array<long double, 2>              accepted_resistance{};
     std::size_t                             root_capacity = 1;
     std::array<long double, 6>
     root_value(Id, const GrowthDemandSummary &) const;
