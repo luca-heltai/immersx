@@ -21,7 +21,9 @@
 #include "../source/vascularization/forest_state.h"
 #include "../source/vascularization/growth_batch.h"
 #include "../source/vascularization/growth_commit.h"
+#include "../source/vascularization/growth_demand.h"
 #include "../source/vascularization/growth_demand_callbacks.h"
+#include "../source/vascularization/growth_demand_journal.h"
 #include "../source/vascularization/growth_demand_state.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_ownership_delta.h"
@@ -2272,4 +2274,438 @@ TEST(VascularForest, BOTH_DemandEdgePreviewIncludesOtherRootsAndFrozenInput)
   auto stale = preview;
   --stale.snapshot_revision;
   EXPECT_FALSE(state.physical_edges(n, stale, requests).validation.valid());
+}
+
+TEST(VascularForest, BOTH_OneRootDemandUpdateDoesNotVisitOtherRoots)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  for (unsigned int count : {8u, 32u, 128u, 512u})
+    {
+      NetworkData n;
+      if (rank() == size() - 1)
+        for (unsigned int i = 0; i < count; ++i)
+          {
+            const Id first = base + 10000 + 2 * i, vessel = base + 1000 + 7 * i;
+            const double x     = .25 + 3.2 * i / count;
+            n.nodes[first]     = {Point<3>(x, .5, .5),
+                                  rank(),
+                                  Port::arterial_inlet};
+            n.nodes[first + 1] = {Point<3>(x + .001, .5, .5), rank()};
+            Vessel v;
+            v.nodes      = {{first, first + 1}};
+            v.radii      = {{.0001, .0001}};
+            v.viscosity  = .004;
+            v.owner      = rank();
+            v.system     = System::arterial;
+            v.provenance = Provenance::generated;
+            n.vessels.emplace(vessel, v);
+            n.terminals.emplace(base + 20000 + i,
+                                Terminal{first + 1,
+                                         base + 30000 + i,
+                                         System::arterial,
+                                         rank(),
+                                         1.});
+          }
+      n = redistribute(bg, mapping, n, 0., MPI_COMM_WORLD);
+      std::set<Id>         mutable_owned;
+      std::map<Id, double> fixed;
+      for (const auto &[id, vessel] : n.vessels)
+        if (vessel.owner == rank())
+          {
+            mutable_owned.insert(id);
+            fixed.emplace(id, .0001);
+          }
+      Parameters p;
+      physical_controls(p);
+      p.dissipation_weight = .3;
+      p.reference_flow     = 2.e-9;
+      const auto accepted =
+        evaluate_forest(n, mutable_owned, fixed, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(accepted.validation.valid());
+      GrowthDemandState state(n, accepted, p, 23, MPI_COMM_WORLD);
+      ASSERT_TRUE(state.validation().valid());
+      GrowthDemandUpdate update;
+      update.snapshot_revision  = 23;
+      const Id changed_terminal = base + 20000 + count - 1;
+      const Id changed_root     = base + 1000 + 7 * (count - 1);
+      if (rank() == 0)
+        update.terminals.push_back({changed_terminal, 2.});
+      const auto preview = state.preview(update);
+      ASSERT_TRUE(preview.validation.valid());
+      EXPECT_EQ(Utilities::MPI::sum(preview.recomputed_branches,
+                                    MPI_COMM_WORLD),
+                1u);
+      EXPECT_LE(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                      preview.root_sums.size()),
+                                    MPI_COMM_WORLD),
+                static_cast<std::uint64_t>(std::numeric_limits<Id>::digits +
+                                           1));
+      EXPECT_EQ(preview.totals[0], static_cast<long double>(count + 1));
+      if (accepted.owned.count(changed_root))
+        {
+          auto other = state.root_view(changed_root, preview).other_local;
+          for (unsigned int owner = 0; owner < size(); ++owner)
+            if (owner != rank())
+              for (unsigned int j = 0; j < 6; ++j)
+                other[j] += preview.rank_totals[owner][j];
+          EXPECT_EQ(other[0], static_cast<long double>(count - 1));
+        }
+      if (n.terminals.count(changed_terminal) &&
+          n.terminals.at(changed_terminal).owner == rank())
+        n.terminals.at(changed_terminal).demand = 2.;
+      const auto expected =
+        evaluate_forest(n, mutable_owned, fixed, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(expected.validation.valid());
+      EXPECT_NEAR(static_cast<double>(preview.totals[1] / expected.volume[0]),
+                  1.,
+                  2.e-13);
+      const double coefficient = expected.power_numerator[0] *
+                                 expected.demand_scale * expected.demand_scale;
+      EXPECT_NEAR(static_cast<double>(preview.totals[2] / coefficient),
+                  1.,
+                  2.e-13);
+    }
+}
+
+TEST(VascularForest, BOTH_ScaledRadiusMinimumIncludesCoarseInternalBranch)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  for (unsigned int refinement = 0; refinement < 2; ++refinement)
+    {
+      for (const auto &cell : bg.active_cell_iterators())
+        if (cell->is_locally_owned() && cell->center()[0] >= 1.)
+          cell->set_refine_flag();
+      bg.execute_coarsening_and_refinement();
+    }
+  double local_min = std::numeric_limits<double>::infinity(), local_max = 0.;
+  double local_transition = 0.;
+  for (const auto &cell : bg.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        local_min = std::min(local_min, cell->diameter());
+        local_max = std::max(local_max, cell->diameter());
+        if (cell->center()[0] > .5 && cell->center()[0] < 1.)
+          local_transition = std::max(local_transition, cell->diameter());
+      }
+  const double fine   = Utilities::MPI::min(local_min, MPI_COMM_WORLD);
+  const double coarse = Utilities::MPI::max(local_max, MPI_COMM_WORLD);
+  const double transition =
+    Utilities::MPI::max(local_transition, MPI_COMM_WORLD);
+  ASSERT_NEAR(fine * 4., coarse, 2.e-14 * coarse);
+  ASSERT_NEAR(transition * 2., coarse, 2.e-14 * coarse);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  physical_controls(p);
+  const auto accepted = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  GrowthGeometryMeasures measures;
+  for (const auto &[id, branch] : accepted.owned)
+    {
+      const bool   root  = branch.parent == invalid_id;
+      const double scale = root ? coarse : fine;
+      // Only the root traverses x<1. All other mutable segments lie in the
+      // uniformly twice-refined region, so these integrals are analytical.
+      const double normalized =
+        root ? .2 / coarse + .5 / transition + .2 / fine : length(n, id) / fine;
+      measures.emplace(id,
+                       GrowthGeometryMeasure{normalized, scale, scale, true});
+    }
+  GrowthDemandState state(n, accepted, p, 31, MPI_COMM_WORLD, &measures);
+  ASSERT_TRUE(state.validation().valid());
+  double leaf_min = std::numeric_limits<double>::infinity();
+  for (const auto &[id, branch] : accepted.owned)
+    {
+      if (branch.children.empty())
+        leaf_min =
+          std::min(leaf_min, branch.radius / branch.root_radius / fine);
+      if (branch.parent == invalid_id)
+        {
+          EXPECT_NEAR(static_cast<double>(
+                        state.summary(id).minimum_scaled_ratio),
+                      1. / coarse,
+                      2.e-13 / coarse);
+          EXPECT_NEAR(static_cast<double>(state.summary(id).minimum_ratio),
+                      std::pow(branch.minimum_demand / branch.demand,
+                               1. / p.arterial_murray_exponent),
+                      2.e-13);
+        }
+    }
+  EXPECT_GT(Utilities::MPI::min(leaf_min, MPI_COMM_WORLD), 1. / coarse);
+  auto incomplete = measures;
+  for (auto &[id, value] : incomplete)
+    if (id == base + 11)
+      value.complete = false;
+  GrowthDemandState invalid(n, accepted, p, 31, MPI_COMM_WORLD, &incomplete);
+  EXPECT_FALSE(invalid.validation().valid());
+}
+
+TEST(VascularForest, BOTH_DemandStateTracksPowerWithoutObjectiveWeight)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  physical_controls(p);
+  p.reference_flow     = 2.e-9;
+  p.dissipation_weight = 0.;
+  const auto accepted  = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  ASSERT_GT(accepted.power[0], 0.);
+  GrowthDemandState state(n, accepted, p, 5, MPI_COMM_WORLD);
+  ASSERT_TRUE(state.validation().valid());
+  const auto       &totals = state.totals();
+  const long double power =
+    p.reference_flow * p.reference_flow * totals[2] / totals[0] / totals[0];
+  EXPECT_NEAR(static_cast<double>(power / accepted.power[0]), 1., 2.e-13);
+}
+
+TEST(VascularForest,
+     BOTH_PhysicalDemandJournalStagesConcurrentEditsAndRollsBack)
+{
+  for (unsigned int scenario : {0u, 1u, 2u})
+    {
+      const bool                              concurrent = scenario == 1;
+      parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+      background(bg);
+      MappingQ1<3> mapping;
+      auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+      Parameters   p;
+      physical_controls(p);
+      p.reference_flow     = 2.e-9;
+      p.dissipation_weight = .3;
+      const auto accepted  = evaluate(n, p);
+      ASSERT_TRUE(accepted.validation.valid());
+      GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
+      ASSERT_TRUE(state.validation().valid());
+      GrowthWork                        work;
+      GrowthDemandJournal               execution(state, &work);
+      std::map<Id, GrowthDemandSummary> original;
+      for (const auto &[id, b] : accepted.owned)
+        original.emplace(id, state.summary(id));
+      std::vector<GrowthSplit> written;
+      for (unsigned int j = 0; j < (concurrent ? 2u : 1u); ++j)
+        {
+          const Id   id     = base + (scenario == 2 ? 14 : 11 + j);
+          const auto vessel = n.vessels.find(id);
+          if (vessel == n.vessels.end() || vessel->second.owner != rank())
+            continue;
+          GrowthSplit s;
+          s.vessel            = id;
+          s.owner             = rank();
+          s.old_nodes         = vessel->second.nodes;
+          s.old_points        = {{n.nodes.at(s.old_nodes[0]).position,
+                                  n.nodes.at(s.old_nodes[1]).position}};
+          s.junction          = base + 1000 + 10 * j;
+          s.tip               = s.junction + 1;
+          s.continuation      = s.junction;
+          s.leaf              = s.junction + 1;
+          s.terminal          = s.junction;
+          s.territory         = s.junction;
+          s.junction_position = .5 * (s.old_points[0] + s.old_points[1]);
+          s.tip_position      = s.junction_position + Point<3>(.1, .15, .1);
+          s.demand            = 2.5 + j;
+          written.push_back(s);
+        }
+      std::vector<GrowthSplit> splits;
+      for (const auto &part :
+           Utilities::MPI::all_gather(MPI_COMM_WORLD, written))
+        splits.insert(splits.end(), part.begin(), part.end());
+      ASSERT_EQ(splits.size(), concurrent ? 2u : 1u);
+      std::vector<GrowthSplit> local;
+      if (rank() == 0)
+        local = splits;
+      BackgroundGeometry geometry(bg, mapping);
+      const auto         delta =
+        prepare_growth_ownership(n, local, geometry, MPI_COMM_WORLD);
+      ASSERT_TRUE(delta.validation.valid());
+      GrowthGeometryMeasures measures;
+      for (const auto &[id, vessel] : delta.written.vessels)
+        measures.emplace(
+          id, GrowthGeometryMeasure{length(delta.written, id), 1., 1., true});
+      GrowthDemandJointUpdate joint;
+      joint.update.snapshot_revision = 7;
+      if (rank() == size() - 1)
+        {
+          joint.update.terminals = {{base + 30, .5},
+                                    {base + 31, .75},
+                                    {base + 131, 2.25}};
+          for (const auto &s : splits)
+            joint.new_terminals.push_back({s.terminal, s.demand});
+        }
+      auto full = n;
+      for (auto &[id, terminal] : full.terminals)
+        if (terminal.owner == rank())
+          {
+            if (id == base + 30)
+              terminal.demand = .5;
+            if (id == base + 31)
+              terminal.demand = .75;
+            if (id == base + 131)
+              terminal.demand = 2.25;
+          }
+      for (const auto &s : splits)
+        if (rank() == s.owner)
+          {
+            ASSERT_TRUE(apply_growth_split(full, s));
+          }
+      full              = redistribute(bg, mapping, full, 0., MPI_COMM_WORLD);
+      auto mutable_full = mutable_ids(full);
+      for (const auto &[id, vessel] : full.vessels)
+        if (vessel.owner == rank() && delta.vessel_owners.count(id))
+          mutable_full.insert(id);
+      const auto oracle =
+        evaluate_forest(full, mutable_full, roots(full), p, MPI_COMM_WORLD);
+      ASSERT_TRUE(oracle.validation.valid()) << issues(oracle);
+      std::array<double, 2> minimum_resistance{
+        {std::numeric_limits<double>::infinity(),
+         std::numeric_limits<double>::infinity()}},
+        maximum_resistance{{0., 0.}};
+      for (const auto &[id, branch] : oracle.owned)
+        {
+          const unsigned int tree = branch.root == base + 11 ? 0 : 1;
+          minimum_resistance[tree] =
+            std::min(minimum_resistance[tree], branch.resistance);
+          maximum_resistance[tree] =
+            std::max(maximum_resistance[tree], branch.resistance);
+        }
+      for (unsigned int tree = 0; tree < 2; ++tree)
+        {
+          minimum_resistance[tree] =
+            Utilities::MPI::min(minimum_resistance[tree], MPI_COMM_WORLD);
+          maximum_resistance[tree] =
+            Utilities::MPI::max(maximum_resistance[tree], MPI_COMM_WORLD);
+        }
+      auto check = [&](const GrowthDemandPreview &preview) {
+        ASSERT_TRUE(preview.validation.valid());
+        std::map<Id, unsigned int> requests;
+        for (Id id : mutable_full)
+          requests.emplace(id, rank());
+        const auto edges = state.physical_edges(full, preview, requests);
+        ASSERT_TRUE(edges.validation.valid());
+        for (const auto &[id, branch] : oracle.owned)
+          {
+            const auto &actual = edges.records.at(id);
+            EXPECT_NEAR(static_cast<double>(
+                          actual.demand /
+                          (branch.demand * oracle.demand_scale)),
+                        1.,
+                        2.e-13);
+            EXPECT_NEAR(actual.edge.radius / branch.radius, 1., 2.e-13);
+            EXPECT_EQ(state.topology(id).parent, branch.parent);
+            EXPECT_EQ(state.topology(id).parent_owner, branch.parent_owner);
+            EXPECT_EQ(state.topology(id).children, branch.children);
+            EXPECT_EQ(state.topology(id).terminal, branch.terminal);
+            if (branch.parent == invalid_id)
+              {
+                const auto        &summary = state.summary(id, preview);
+                const unsigned int tree    = branch.root == base + 11 ? 0 : 1;
+                const long double  factor =
+                  8.L / numbers::PI /
+                  std::pow(static_cast<long double>(branch.root_radius), 4);
+                EXPECT_NEAR(static_cast<double>(
+                              factor * summary.minimum_resistance_length /
+                              minimum_resistance[tree]),
+                            1.,
+                            2.e-13);
+                EXPECT_NEAR(static_cast<double>(
+                              factor * summary.maximum_resistance_length /
+                              maximum_resistance[tree]),
+                            1.,
+                            2.e-13);
+                EXPECT_DOUBLE_EQ(physical_demand_mass(
+                                   summary.minimum_leaf_mass),
+                                 tree == 0 ? .5 : 2.);
+              }
+            if (branch.terminal != invalid_id)
+              {
+                EXPECT_EQ(state.topology(id).terminal_owner,
+                          branch.terminal_owner);
+              }
+          }
+        EXPECT_NEAR(static_cast<double>(preview.totals[1] / oracle.volume[0]),
+                    1.,
+                    2.e-13);
+        const long double power = p.reference_flow * p.reference_flow *
+                                  preview.totals[2] / preview.totals[0] /
+                                  preview.totals[0];
+        EXPECT_NEAR(static_cast<double>(power / oracle.power[0]), 1., 2.e-13);
+      };
+      const auto &initial = execution.prepare(delta, joint, measures);
+      check(initial);
+      const std::map<Id, double> native_expected{{base + 30, .5},
+                                                 {base + 31, .75},
+                                                 {base + 131, 2.25}};
+      for (const auto &[id, demand] : native_expected)
+        {
+          const auto terminal = n.terminals.find(id);
+          const bool owned =
+            terminal != n.terminals.end() && terminal->second.owner == rank();
+          EXPECT_EQ(execution.native_terminal_demands().count(id),
+                    owned ? 1u : 0u);
+          if (owned)
+            {
+              EXPECT_DOUBLE_EQ(execution.native_terminal_demands().at(id),
+                               demand);
+            }
+        }
+      EXPECT_EQ(Utilities::MPI::sum(execution.native_terminal_demands().size(),
+                                    MPI_COMM_WORLD),
+                3u);
+      EXPECT_EQ(work[GrowthOperation::physiology_branch_visits],
+                initial.recomputed_branches);
+      EXPECT_GE(work[GrowthOperation::transaction_records],
+                initial.recomputed_branches);
+      execution.discard();
+      EXPECT_TRUE(execution.native_terminal_demands().empty());
+      EXPECT_GT(Utilities::MPI::sum(work[GrowthOperation::rollback_records],
+                                    MPI_COMM_WORLD),
+                0u);
+      for (const auto &[id, value] : original)
+        {
+          const auto &actual = state.summary(id);
+          EXPECT_EQ(actual.mass, value.mass);
+          EXPECT_EQ(actual.minimum_leaf_mass, value.minimum_leaf_mass);
+          EXPECT_EQ(actual.minimum_resistance_length,
+                    value.minimum_resistance_length);
+          EXPECT_EQ(actual.maximum_resistance_length,
+                    value.maximum_resistance_length);
+          EXPECT_EQ(actual.volume_length, value.volume_length);
+          EXPECT_EQ(actual.resistance_length, value.resistance_length);
+          EXPECT_EQ(actual.minimum_ratio, value.minimum_ratio);
+          EXPECT_EQ(actual.minimum_scaled_ratio, value.minimum_scaled_ratio);
+          EXPECT_EQ(actual.leaves, value.leaves);
+        }
+      GrowthDemandUpdate old;
+      old.snapshot_revision = 7;
+      const auto restored   = state.preview(old);
+      ASSERT_TRUE(restored.validation.valid());
+      EXPECT_EQ(restored.totals, state.totals());
+      auto malformed = measures;
+      if (!malformed.empty())
+        malformed.begin()->second.complete = false;
+      EXPECT_FALSE(
+        execution.prepare(delta, joint, malformed).validation.valid());
+      execution.discard();
+      check(execution.prepare(delta, joint, measures));
+      execution.adopt();
+      EXPECT_TRUE(execution.native_terminal_demands().empty());
+      old.snapshot_revision = 8;
+      const auto adopted    = state.preview(old);
+      check(adopted);
+      EXPECT_EQ(adopted.totals, state.totals());
+      // A later absolute update must reach the newly remapped native leaf.
+      GrowthDemandUpdate later;
+      later.snapshot_revision = 8;
+      if (rank() == 0)
+        {
+          later.terminals.push_back({splits.front().terminal, 1.75});
+          later.terminals.push_back({base + 31, .875});
+        }
+      EXPECT_TRUE(state.preview(later).validation.valid());
+    }
 }

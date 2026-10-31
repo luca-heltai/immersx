@@ -10,37 +10,6 @@
 #include "growth_ownership_delta.h"
 namespace ImmersX::Vascularization::internal
 {
-  namespace
-  {
-    // Allocate the trial row before retaining the accepted map node. Rollback
-    // then restores the original row without copying nested branch metadata.
-    template <class Map>
-    void
-    retain_row(Map &rows, Map &before, std::set<Id> &touched, Id id)
-    {
-      if (touched.count(id))
-        return;
-      const auto found = rows.find(id);
-      Map        trial;
-      if (found != rows.end())
-        trial.emplace(id, found->second);
-      touched.insert(id);
-      if (found != rows.end())
-        {
-          before.insert(rows.extract(found));
-          rows.insert(trial.extract(id));
-        }
-    }
-    template <class Map>
-    void
-    restore_rows(Map &rows, Map &before, std::set<Id> &touched) noexcept
-    {
-      for (Id id : touched)
-        rows.erase(id);
-      rows.merge(before);
-      touched.clear();
-    }
-  } // namespace
   GrowthDemandJournal::GrowthDemandJournal(GrowthDemandState &value,
                                            GrowthWork        *counts)
     : state(value)
@@ -53,20 +22,16 @@ namespace ImmersX::Vascularization::internal
   void
   GrowthDemandJournal::save(Id id)
   {
-    if (!branch_touched.count(id))
-      count_work(work,
-                 GrowthOperation::metadata_copy_attempts,
-                 state.branches.count(id));
-    retain_row(state.branches, before, branch_touched, id);
-  }
-  void
-  GrowthDemandJournal::save_root(Id id)
-  {
-    if (owned_roots_touched.insert(id).second)
+    if (!before.count(id))
       {
-        auto node = state.owned_roots.extract(id);
-        if (!node.empty())
-          owned_roots_before.insert(std::move(node));
+        auto found = state.branches.find(id);
+        count_work(work,
+                   GrowthOperation::metadata_copy_attempts,
+                   found == state.branches.end() ? 0 : 1);
+        before.emplace(id,
+                       found == state.branches.end() ?
+                         std::optional<GrowthDemandState::Branch>{} :
+                         found->second);
       }
   }
   const GrowthDemandPreview &
@@ -247,7 +212,7 @@ namespace ImmersX::Vascularization::internal
           if (old.topology.parent == invalid_id)
             {
               root_owners[id % size].emplace(id, native(id));
-              save_root(id);
+              owned_roots_before.emplace(id, state.owned_roots.count(id));
               state.owned_roots.erase(id);
               // A migrated root no longer contributes to this rank's sum.
               if (native(id) != rank)
@@ -278,7 +243,7 @@ namespace ImmersX::Vascularization::internal
           changed.insert(id);
           if (branch.topology.parent == invalid_id)
             {
-              save_root(id);
+              owned_roots_before.emplace(id, state.owned_roots.count(id));
               state.owned_roots.insert(id);
             }
         }
@@ -294,7 +259,7 @@ namespace ImmersX::Vascularization::internal
               continue;
             }
           save(edit[0]);
-          auto &topology = state.branches.at(edit[0]).topology;
+          auto &topology = found->second.topology;
           if (edit[1] == invalid_id)
             {
               topology.parent       = edit[2];
@@ -310,14 +275,29 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[writer, records] : received_directories)
       for (const auto &[id, value] : records)
         {
-          retain_row(state.directory, directory_before, directory_touched, id);
+          if (!directory_before.count(id))
+            {
+              const auto old = state.directory.find(id);
+              directory_before.emplace(
+                id,
+                old == state.directory.end() ?
+                  std::optional<GrowthDemandState::DirectoryEntry>{} :
+                  old->second);
+            }
           state.directory[id] = value;
         }
     const auto received_roots = Utilities::MPI::some_to_some(comm, root_owners);
     for (const auto &[writer, records] : received_roots)
       for (const auto &[id, owner] : records)
         {
-          retain_row(state.root_directory, roots_before, roots_touched, id);
+          if (!roots_before.count(id))
+            {
+              const auto old = state.root_directory.find(id);
+              roots_before.emplace(id,
+                                   old == state.root_directory.end() ?
+                                     std::optional<unsigned int>{} :
+                                     old->second);
+            }
           state.root_directory[id] = owner;
         }
     if (
@@ -332,9 +312,9 @@ namespace ImmersX::Vascularization::internal
   {
     count_work(work,
                GrowthOperation::transaction_records,
-               branch_touched.size() + directory_touched.size() +
-                 roots_touched.size() + owned_roots_touched.size() +
-                 staged.owned.size() + staged.root_sums.size());
+               before.size() + directory_before.size() + roots_before.size() +
+                 owned_roots_before.size() + staged.owned.size() +
+                 staged.root_sums.size());
     count_work(work,
                GrowthOperation::physiology_branch_visits,
                staged.recomputed_branches);
@@ -385,10 +365,6 @@ namespace ImmersX::Vascularization::internal
     directory_before.clear();
     roots_before.clear();
     owned_roots_before.clear();
-    branch_touched.clear();
-    directory_touched.clear();
-    roots_touched.clear();
-    owned_roots_touched.clear();
   }
   void
   GrowthDemandJournal::discard() noexcept
@@ -397,20 +373,32 @@ namespace ImmersX::Vascularization::internal
       return;
     count_work(work,
                GrowthOperation::rollback_records,
-               branch_touched.size() + directory_touched.size() +
-                 roots_touched.size() + owned_roots_touched.size());
-    restore_rows(state.branches, before, branch_touched);
-    restore_rows(state.directory, directory_before, directory_touched);
-    restore_rows(state.root_directory, roots_before, roots_touched);
-    restore_rows(state.owned_roots, owned_roots_before, owned_roots_touched);
+               before.size() + directory_before.size() + roots_before.size() +
+                 owned_roots_before.size());
+    for (auto &[id, value] : before)
+      if (value)
+        state.branches[id] = std::move(*value);
+      else
+        state.branches.erase(id);
+    for (const auto &[id, value] : directory_before)
+      if (value)
+        state.directory[id] = *value;
+      else
+        state.directory.erase(id);
+    for (const auto &[id, value] : roots_before)
+      if (value)
+        state.root_directory[id] = *value;
+      else
+        state.root_directory.erase(id);
+    for (const auto &[id, present] : owned_roots_before)
+      if (present)
+        state.owned_roots.insert(id);
+      else
+        state.owned_roots.erase(id);
     before.clear();
     directory_before.clear();
     roots_before.clear();
     owned_roots_before.clear();
-    branch_touched.clear();
-    directory_touched.clear();
-    roots_touched.clear();
-    owned_roots_touched.clear();
     native_demands.clear();
     active = false;
   }
