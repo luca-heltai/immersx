@@ -334,7 +334,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
 
-- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality, and reject incomplete inputs or stale published assets.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Explain terminal sampling weights, cell-interface conventions and count normalization separately from numerical vessel resolution.
+
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Describe the completed connection between distributed vascular sampling, candidate optimization, forest normalization and batch adoption in the generation guide. Link the OpenCCO and svVascularize algorithmic references.
+
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality. Distinguish rank-local sampling, proposal and insertion work from physical ownership, scale fractional quantities to their measured values, and reject incomplete inputs or stale published assets.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
 
@@ -361,6 +365,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Publish three-seed MPI generation benchmarks at 1,000 and 10,000 terminals, with measured runtime, memory, communication, producer work and geometric quality.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run native vascular cube and sphere examples with local refinement, common-territory arterial and venous networks, and a fixed-graph rediscretization control. Publish reproducible SVG views and measured density, length, volume and coverage plots from owned C++ output.
 
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Add a frequency-sweep tutorial for a 1D fiber in a 3D matrix, with a 2D section lift and runnable independent and shared displacement inputs.

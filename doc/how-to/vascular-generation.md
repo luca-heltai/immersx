@@ -20,6 +20,12 @@ Geometry checks include the vessel wall and clearance. An ambiguous boundary
 separation at the finite geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.
 
+The algorithmic references are the
+[OpenCCO article and implementation](https://www.ipol.im/pub/art/2023/477/)
+and [svVascularize](https://github.com/SimVascular/svVascularize).
+ImmersX implements the background-owned MPI growth and commit protocol described
+below using deal.II ownership, spatial search and sparse exchanges.
+
 ## Arterial and venous trees
 
 This synthetic example uses metres, pascals, seconds and cubic metres per
@@ -90,10 +96,44 @@ satisfies $r_e=R_{\mathrm{root}}(D_e/D_{\mathrm{root}})^{1/\gamma}$, where
 $D_e$ is the sum of downstream territory demands. Root radii stay fixed. The
 minimum-radius check includes existing leaves when a new demand is added.
 `terminal_weight` and `density_beta` control where territories are sampled;
-`tissue_demand` controls supply and radii independently. Numerical subdivision
-uses diameters of background cells actually crossed by each segment. Refining
-these 1D cells changes neither the physical graph nor integrated volume and
-resistance.
+`tissue_demand` controls supply and radii independently.
+
+## Terminal sampling and numerical resolution
+
+Arterial territory proposals use the relative density
+
+$$
+\rho_T(x)=\lambda\,w(x)
+\left(\frac{h_{\mathrm{ref}}}{h(x)}\right)^\beta.
+$$
+
+Here $h(x)$ is the diameter of an actual containing background cell. On cell
+and MPI interfaces the smallest containing diameter is used; equal diameters
+are resolved by cell identity, and the lowest containing process owns the point.
+`terminal_weight` supplies the nonnegative dimensionless expression $w(x)$,
+bounded by `terminal_weight_bound`. The corresponding standalone parameters
+are `Sampling/Spatial weight` and `Sampling/Spatial weight bound`.
+`density_beta` (`Sampling/Density mesh exponent`) is zero by default, making
+the sampling density independent of mesh size. Setting it to three gives
+relative weight proportional to $h(x)^{-3}$ in refined regions.
+
+The implementation uses the global minimum cell diameter as $h_{\mathrm{ref}}$
+for nonnegative $\beta$, and the maximum for negative $\beta$, so the mesh
+factor in rejection sampling stays at most one. This global constant affects
+normalization, not the relative spatial weights. There is no separate
+$\lambda$ parameter: `terminal_count` fixes the number of new tissue terminals,
+and terminal-count calibration changes that number to seek the volume target.
+Containment, collision and growth constraints can bias the accepted terminal
+distribution away from the proposal density. The illustrated density plots use
+actual accepted physical terminals.
+
+Numerical subdivision has separate controls. By default it targets interval
+length $h$, with desired range $0.5h$–$2h$, using the smallest diameter of
+background cells actually crossed by each segment. Short vessels and crossing
+fragments can prevent the lower bound; the discretization report records these
+exceptions. Refining these 1D cells changes neither physical topology nor
+integrated volume and resistance, and does not change which physical vessels
+are selected as growth candidates.
 
 ## Reference pressures, supply and microvascular beds
 
@@ -441,11 +481,10 @@ system; zero leaves desired flows unspecified. Common physiological controls
 must agree across processes. Invalid connectivity, unrooted cycles, missing
 terminal roles and unrepresentable positive demands or radii fail collectively.
 
-The kernel changes no physical data. A caller adopts its radii only after
-validation and the required geometric checks. Tests exercise joint ancestor
-and descendant splits across partitions, but the public generator still needs
-a distributed growth and commit loop before it can generate with multiple
-processes.
+The kernel changes no physical data. The public growth loop uses its result
+to normalize a tentative batch, then adopts the radii only after validation
+and the required geometric checks. Tests exercise joint ancestor and descendant
+splits across partitions through this same commit path.
 
 ## Confirm or discard a batch
 
@@ -465,10 +504,9 @@ The caller can resample within its finite budget; it never adopts part of a
 failed batch. Staging copies locally relevant data once per batch, rather than
 once per candidate.
 
-This path provides distributed physical updates and rollback. It still needs
-to be connected to distributed sampling and nearest-vessel selection in the
-public generation loop. Certifying all mutable vessels after each batch is a
-correctness check whose cost must be included in scaling measurements.
+The public generation loop connects this commit path to distributed sampling
+and nearest-vessel selection. Certifying all mutable vessels after each batch
+is a correctness check; the growth statistics record its cost separately.
 
 ## Optimize from distributed ancestor paths
 
@@ -491,8 +529,8 @@ Geometry checks supplied during optimization are preliminary. A candidate from
 a local background partition can cross other partitions and must pass final
 owner consent, joint normalization and global geometry certification. An MPI
 test performs this sequence and compares the candidate cost with independently
-recomputed physical volume and dissipation. Distributed sampling and nearest
-candidate selection still need to be connected to the public generation loop.
+recomputed physical volume and dissipation. The public generation loop invokes
+this candidate evaluation after distributed sampling and nearest-vessel search.
 
 ## Grow a prepared forest in MPI batches
 
@@ -529,7 +567,9 @@ venous startup, exclusive common-territory assignment, positive bed derivation
 and actual paired reference validation use the public MPI path. Seed/import
 startup, terminal-count calibration, discretization, native mesh construction,
 tissue measurement and the resistive reference solve support MPI.
-Scaling at the requested sizes has not yet been measured.
+The [tutorial](../tutorials/vascular-generation.md#measured-mpi-growth) reports
+completed strong and weak scaling measurements, with three seeds per case and
+up to 10,000 terminals on eight processes.
 
 Public arterial generation uses the batched engine with an explicit terminal
 count for each calibration attempt; it does not copy or re-register the
@@ -789,6 +829,14 @@ a single rank's elapsed time. `mpi.seconds` is a sum of rank times inside the
 listed MPI functions and can exceed elapsed wall time. `ranks` retains per-rank
 resident and peak resident memory. `owned_vessel_max_over_mean` measures final
 physical ownership imbalance; it does not describe startup activity.
+
+The benchmark publisher also reports cumulative per-rank sample, proposal and
+accepted-insertion counts and their maximum-to-mean ratios. These measure
+recorded producer work independently of final physical ownership. The startup
+proposer fraction counts ranks that produced at least one proposal in the
+first leaf-count range; it differs from the writer rank-batch fraction and does
+not measure CPU utilization. The published manifest hashes the native growth
+counter files used for these summaries.
 
 A new run never overwrites an existing directory. Pass `--resume` with identical
 arguments to recheck completed cases and continue an experiment. A case left

@@ -1,0 +1,331 @@
+{
+  "assets": {
+    "measurements.csv": "76d4b6c114a973f21692536b04868c4b6e5f4a65693be49a73dc26f53acdfb52",
+    "quality.svg": "a7881c0776e8995e8dd100df88fd4828ab65de484906626383f69f03ed2d066c",
+    "resources.svg": "bc71eb8ea321aae8af4aae6b80a37188694d62704e42e0d5660a6bf2252865e0",
+    "scaling.svg": "728b8102559ae42b955403bf58de45644ba9111c44c748b292b6062a1184541b"
+  },
+  "conventions": "Median curves; whiskers span all supplied seeds. Strong ratio is T(1)/T(P); weak ratio is the same elapsed-time ratio at increasing global size. MPI bytes are logical posted sends plus collective input, not wire traffic; MPI seconds sum rank time. RSS sums double-count shared pages and sum individual peaks rather than measuring simultaneous node memory. Writer ownership does not measure CPU-active proposal producers. Work imbalance uses cumulative rank-local sample, proposal and accepted-insertion counts. Startup proposer fraction counts ranks with at least one proposal in the first leaf range; it is not CPU utilization. No fitted model or physiological acceptance thresholds.",
+  "format_version": 1,
+  "provenance": [
+    {
+      "commit": "76bb381187285e57bdc281a09f2bdd4c09a70703",
+      "executable_sha256": "d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca",
+      "experiment": "strong-1000",
+      "library_sha256": "559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082",
+      "manifest_sha256": "6a12f6e0e03af0abd2291ce7221dd1d480c0acc069742dd17199dfe59960cec4"
+    },
+    {
+      "case": "strong-t1000-s23-p1",
+      "case_sha256": "f4480f2092cd7f295dd979bf0074231f2f515020fb3669d2560310fca9bd826d",
+      "growth_sha256": {
+        "growth-0.csv": "00285f25ebfab9ce31c8c6748a27c08648a05e3e33f3afa35fa22cd5f69093c8"
+      }
+    },
+    {
+      "case": "strong-t1000-s23-p2",
+      "case_sha256": "9f93646fbbd01cbdfe6a3636926f42ca79954d8185a4c76242340024c03afca4",
+      "growth_sha256": {
+        "growth-0.csv": "21d7f30f513373b64c4275a810f7f28c84867b1a3109dabb72b958c16f1b66b0",
+        "growth-1.csv": "2b7c130ebd862c38f5fe52d9960e6254f2e9e2092929ec21b354c71b865f5c2b"
+      }
+    },
+    {
+      "case": "strong-t1000-s23-p4",
+      "case_sha256": "0a859e11db23c548622a5371ac05eebae1755d4663f83eca2b8c9a279c2be18e",
+      "growth_sha256": {
+        "growth-0.csv": "85bb203a8d3b098c9eb685005499d9b7d699037c4906fbc633244aa217411a02",
+        "growth-1.csv": "3d7b731c21789d27dcfc0d7980109d3062e3c75d130ca273975d2f5bdb8443ef",
+        "growth-2.csv": "102decaaceb60c05387e02d761457d709d45ed7a5f212a229c3de4a24a774cb2",
+        "growth-3.csv": "ec0f833f9c7067a9a147d1894a620c41ec554042ec8433ce47372790c0beb218"
+      }
+    },
+    {
+      "case": "strong-t1000-s23-p8",
+      "case_sha256": "7b8d2a1e30de35d7afbc5991e74212e7e209b94d878d9629286ae480ba99fde3",
+      "growth_sha256": {
+        "growth-0.csv": "e9ec0ffca071a93191ea2adff4752e15fd39142e23d1f21cb16a99161e54f359",
+        "growth-1.csv": "53dc2cb2fc360430cf2d1d1b3f57ce152ba043dbca79e48db333b82df144430a",
+        "growth-2.csv": "bf1844e84ee9d0b149f4f19ec38843853a474e7f76aab459d4672e95c55382b2",
+        "growth-3.csv": "e6da781709413bbf1989418f1e8432e25350ff259edce515a986cc7081c64a47",
+        "growth-4.csv": "72cc33de1d1270fee17ecc9f8ac911b7011285a3119a1c7160408bca83d7d724",
+        "growth-5.csv": "381bcfa56d06d89b30275359faff9d27454b27ddecf7183b3496c14815a912da",
+        "growth-6.csv": "6a9120a579f9d56e72322ce4aa7db84aca381513de6517682a2eb0083f544367",
+        "growth-7.csv": "82fa530dad2c802ddca3c9b9dbbc6948d9be09dc975f9764a5735d7aaa543992"
+      }
+    },
+    {
+      "case": "strong-t1000-s24-p1",
+      "case_sha256": "4f343812b8b3c0e99a8156292db365fa023d82999905eb5aed4dc8057f0339bc",
+      "growth_sha256": {
+        "growth-0.csv": "a053d27e599c72e39fb4978f9e0e7cfcd6621a688951260f97a4001faca2c52e"
+      }
+    },
+    {
+      "case": "strong-t1000-s24-p2",
+      "case_sha256": "eb3fe53fee98c828902103b65896138cf0301b483906a5be580d9aa6833cdf24",
+      "growth_sha256": {
+        "growth-0.csv": "13216007bc5e6cf3aecd2682792e6cbc66b10ae79f66c358669af86e905eec82",
+        "growth-1.csv": "2a2a479904717e4167390410b750b45cdb064ea806663dbc7c1e9e28c7a90cc7"
+      }
+    },
+    {
+      "case": "strong-t1000-s24-p4",
+      "case_sha256": "ea04d7a968ca4ce45f4360ef90d9761a278849e5dead74d45097703995d3255f",
+      "growth_sha256": {
+        "growth-0.csv": "2e134b9bf09eae05bd60bd6e80f3d6a7671b47a888b6b77761dc09041eae69c2",
+        "growth-1.csv": "b39df8a181968361cb232df60e721059166b9c23629f07111b27f7824d3fc7e7",
+        "growth-2.csv": "d3f77096c399f893cf491de4c58b03b29243a30517b1c790b25891c96aa05900",
+        "growth-3.csv": "fa8878f5bbe55f8b549fb55ac21782488c7c85bcb2f6b3c3941580b610aa7859"
+      }
+    },
+    {
+      "case": "strong-t1000-s24-p8",
+      "case_sha256": "48a13bf37e6d9cd99171a878df4c5829e285717c0c9d1c56c25cc058e3255974",
+      "growth_sha256": {
+        "growth-0.csv": "763e7b51afba26c263cbec07ceb26d5f593bf2092030198120dc2010fc32edcd",
+        "growth-1.csv": "b5221f183b3689eadd675d89e48a645508af4544d4126fbff9aec44f4d77d7a6",
+        "growth-2.csv": "0b573ff8a33717df10bfe0382c7260e499ce01a8451afca8d80c270f2b529c93",
+        "growth-3.csv": "8f0da46381e99ef0db1e0b4c4585c3aafc9b4b1009289e18daa9662bfda53c5c",
+        "growth-4.csv": "639463afe45741f45d093f1128d4e8099c6e4f8faa62902260b6de355bb3190c",
+        "growth-5.csv": "447331dcbcd37be516444df524af080bfe26c9e6e225931463e04a9a88166215",
+        "growth-6.csv": "8ed759022c29a7d91ffeca2c64770ec0b8c4ed74664dba98cc85a06ad309f66e",
+        "growth-7.csv": "373e15ae5385489db7ea386e305bb1ea58c499ea26d7a3d8419fc4fccc060195"
+      }
+    },
+    {
+      "case": "strong-t1000-s25-p1",
+      "case_sha256": "acef35ff5d8c86822f3b002896bfe1788e3caa98af0ad123eeed0b524801a531",
+      "growth_sha256": {
+        "growth-0.csv": "88507f28cca86c42ef8151bcf8dfd27a6e3b8e53869f2ae1dac5aff130399c15"
+      }
+    },
+    {
+      "case": "strong-t1000-s25-p2",
+      "case_sha256": "79a9539dc36c3da4f3139be38b5bd273453252efcb49ac04a2cd5204d1b31c61",
+      "growth_sha256": {
+        "growth-0.csv": "6b765ab3f09edd6a58b2b067e055abcb2df4feafded8dd48e922cea0b1cbbc9e",
+        "growth-1.csv": "59a582720579684040980068279b7b193ca7e04e56de1279a4a9c2ddb0fec0be"
+      }
+    },
+    {
+      "case": "strong-t1000-s25-p4",
+      "case_sha256": "9e17dfce4af6d0a63cd47ae10cd0a3306072096f7c9c6c991f45cd96c99d88dd",
+      "growth_sha256": {
+        "growth-0.csv": "b6bfffc82c6210f0ca3de0e747be28e0c8f728a744efdc52b500cbe4202c6909",
+        "growth-1.csv": "792eee3dcbb03be877065f935f5d9e098581923f435e9dba09e1bcbf0261b046",
+        "growth-2.csv": "accefdf332540276376bc63cb227d3f553f30f70a0b7837366960ee6010fc7bc",
+        "growth-3.csv": "6fccbbcdcba1c33dd31b79e6cbf43ed73ccdaa7f8dfc0c5e85bd13bd1525e819"
+      }
+    },
+    {
+      "case": "strong-t1000-s25-p8",
+      "case_sha256": "312cc8a358d85b5232072d2939cad547690343959c9b90a89dc1c48c96d7d830",
+      "growth_sha256": {
+        "growth-0.csv": "ba2ee95a72e9d0fed2066f6315420d00fc4e2d748055a1f708454bce606519a4",
+        "growth-1.csv": "c5309f21b68100b3b6d585938b7a273caabb5675b2cd092beaddf60a570d26de",
+        "growth-2.csv": "092be23179dfb57bc4fb488600db30c868ae885aed0ca80a0c9506d508dec4b4",
+        "growth-3.csv": "5c39ab073368765d429d4498cbc985ea37e156b12c2c0e73fb81875d1c7d7342",
+        "growth-4.csv": "d1155480e86e04394362a7b47aabbdf2e5d1ffe23ab325968e5d768e410c34e1",
+        "growth-5.csv": "e011da3886084ec86e8d136b77c32dd1a04b71ff13e6b69e5f4422345c477033",
+        "growth-6.csv": "2d4adf72a6cee9b5c9ed4cc231f5f002c864994e51bd997018bdf6885c01ce91",
+        "growth-7.csv": "8c4974f384f873708d15fe54ea48ac07cefab67df151e00d0735c2f7b8a1591b"
+      }
+    },
+    {
+      "commit": "76bb381187285e57bdc281a09f2bdd4c09a70703",
+      "executable_sha256": "d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca",
+      "experiment": "strong-10000",
+      "library_sha256": "559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082",
+      "manifest_sha256": "c8a1ac9f45d49c634d1a88f173572ee0aa95c9edb5e874e3dca72fd33dc02f79"
+    },
+    {
+      "case": "strong-t10000-s23-p1",
+      "case_sha256": "c662797a965230650616f8adfd8c5e09e5811e5259dcb7d851cf785714aa3efd",
+      "growth_sha256": {
+        "growth-0.csv": "574305e9d6fd526b802c141b6baca423ee05f986a86c79bbe06f276d14c32821"
+      }
+    },
+    {
+      "case": "strong-t10000-s23-p2",
+      "case_sha256": "c366ba1348c5223ae50b59042da587694fee4423bf8a4333a5c6496b751835f6",
+      "growth_sha256": {
+        "growth-0.csv": "ee5e11341d5186177d9f3e659881706382eb59ac3e6323654bfe8e27bde95ef6",
+        "growth-1.csv": "01a18e0a066ac9412b64dbb359b5636d994f274b40445cba0d2da26f4bb28ed5"
+      }
+    },
+    {
+      "case": "strong-t10000-s23-p4",
+      "case_sha256": "7f365def27e832ecfa9620d85c363319eaedb3e77f5dd22f958aca5a8cd52bc9",
+      "growth_sha256": {
+        "growth-0.csv": "22fdf537e25675c151ccd0a0e420f23b0592f89954c0631b88549fe914da3e88",
+        "growth-1.csv": "881b7ffb229c5b73cc532ff331b04afd1c501b1ef6c352cfde34ea9943d46f99",
+        "growth-2.csv": "1f913c2768159eb8b1757bf0d79caa09109de836600ec5fd9cea4c26c225462a",
+        "growth-3.csv": "f7768022625d18b20e847c362bf478cd2e58d2206906f5c8b18b897ffb606bf3"
+      }
+    },
+    {
+      "case": "strong-t10000-s23-p8",
+      "case_sha256": "65ce8d99371572bd0b69fee487e8bdbc8fc2b12e873ec1e5fcec5789b6e219b9",
+      "growth_sha256": {
+        "growth-0.csv": "041ba4e70d1497005872740ed9f771fb1234e082946b4214989636e0dc1c4b40",
+        "growth-1.csv": "1d1371bc9a4002becb7e10cec0be555af07fb823c940b8cfdb0a40da4d611c43",
+        "growth-2.csv": "9d9af3088f5b2140da8956c9dc6a61298321fdb164e9fb46b2393404fd7bfa09",
+        "growth-3.csv": "3c7860541f41798921d051d6d2f6aa54cbb648b2e9ca95fec6a3836153e4ccb7",
+        "growth-4.csv": "bd28db82dbc9911188fa3969ee3778b9f1db340336c6d69e1922dd64a9d1e328",
+        "growth-5.csv": "b979709f9fa2e946cd4f6c192b8746cf3ce5e46e8abd78cfb56c92e50c069e2b",
+        "growth-6.csv": "cd79a42ff29624c275f3d6644cba03262f02ba386bc927b38da87f3814ff226b",
+        "growth-7.csv": "4f5ad73478305d87391546b021c7514cc2034acb9e9328a128079221fa9ce142"
+      }
+    },
+    {
+      "case": "strong-t10000-s24-p1",
+      "case_sha256": "3488126a32687450c41f618afc6a023ec571967734809c45ccb757a34e0a3c38",
+      "growth_sha256": {
+        "growth-0.csv": "a67bca48c21bacb328c13844ef2768f2ee85151cb5d7e9c4777c6be703668401"
+      }
+    },
+    {
+      "case": "strong-t10000-s24-p2",
+      "case_sha256": "f3fd0f04d0963c3d486a1f5455cd075fe131e963b5af0944532a79a543fd0bae",
+      "growth_sha256": {
+        "growth-0.csv": "13fdb7b7f735ebec551bbac3c5dc02c8a2570cd23493cf3150e8f7f68934b22f",
+        "growth-1.csv": "d147ea1919b51608c0297f4bec53eaf6d7e146b3d1ac5b01d3b0c9e56ff063c2"
+      }
+    },
+    {
+      "case": "strong-t10000-s24-p4",
+      "case_sha256": "cc723a1cf93c398665d100bfc503c93275ee7631088806c9da528bf6c6d7315b",
+      "growth_sha256": {
+        "growth-0.csv": "23cfc60bf2c26fb476cdedf2041798488414d95a10acfafab4b95192b794cff5",
+        "growth-1.csv": "ee3aca70cc4dd018fcd77985408a3316fd948245aff688cbd8ac28dba9dcfbf7",
+        "growth-2.csv": "13986736f1e0c828cb73e24c3cb7a39283ca93a1104cc59f940f795687c445f7",
+        "growth-3.csv": "da80a835f2941a2d44ab4c9da36d70245c76d1c0090fa9fd46ccc5f864ff9844"
+      }
+    },
+    {
+      "case": "strong-t10000-s24-p8",
+      "case_sha256": "95e2a4e7dea8799c92cb6d4b7333d8ddb7a73062e85bf479903d5abce06e00a5",
+      "growth_sha256": {
+        "growth-0.csv": "fcbe4662e371eb3fa2c69f6530e2798ac274c1d07540439e772fce1e9e2b0283",
+        "growth-1.csv": "4d2e9cbade1351d619a699b05dbf3fd6f5d3827b0dc1aef4ce43e1664c697368",
+        "growth-2.csv": "c310e24dd932f608da52ac391e13e9cecf479a26de239cb6a8bc1e1619062427",
+        "growth-3.csv": "6b5e1ec63f10c54121a11b5c57c9dd75f49b6ccbea479d291a9ec65e9ce4b040",
+        "growth-4.csv": "245067eba57eaecf1dbecc52b03b53f5455fd2c498c12d101e4829812f791db7",
+        "growth-5.csv": "f331c36640c7ad5cabf943b48f22f6fb26cb953770ea3532e3d022bc57833aa0",
+        "growth-6.csv": "7f79aa030cca751de9116546bedb03f9f7833c7658db2a9752e4322e8f4d3d6c",
+        "growth-7.csv": "19b358204cc8f3730baf3e6299cc55da13396449dc008a05c3add1bb2c88a815"
+      }
+    },
+    {
+      "case": "strong-t10000-s25-p1",
+      "case_sha256": "8ce50e405c539aafb69923f7de5618d97fd281981bf286c5ad9417e87fce94f4",
+      "growth_sha256": {
+        "growth-0.csv": "f5a52273ac32f3874295bf4a01a3c03bc8ae16cf1dd031f1d98dc31dabb7e6b7"
+      }
+    },
+    {
+      "case": "strong-t10000-s25-p2",
+      "case_sha256": "7f2088877fba6a81532237d2dd5a662df309847b301f7e717615de0c112a425c",
+      "growth_sha256": {
+        "growth-0.csv": "5ecc3b6c6418da20b1deb16a200adbdea80f2f54f312253f9c5ab909d09fbfe9",
+        "growth-1.csv": "28868bb5cc9c83bfec0dc0da2179ea7e3eb760876eabcd4a00281020510905ab"
+      }
+    },
+    {
+      "case": "strong-t10000-s25-p4",
+      "case_sha256": "80eef36d59e42419f1751bf284de1075342e727cfa6a032987842937214a17a4",
+      "growth_sha256": {
+        "growth-0.csv": "d0d087cd5de9e13a9d31bba5528bdae9924025de1f09680cee7aeb857e75a5ab",
+        "growth-1.csv": "e91e94098a7ed97f900ea8730a21f5ca73d88d362bf118f4f0ea3a56fb1e5991",
+        "growth-2.csv": "ac4bce687c845db960ba2b9099399c57e066ea0335580407cefa200bee97c023",
+        "growth-3.csv": "c24bfe77986dc56f357a16644ee526a7a39a116c0316514d44cd31f2bdc317e3"
+      }
+    },
+    {
+      "case": "strong-t10000-s25-p8",
+      "case_sha256": "d537ea3f085e36f519e7c7bfb75e4e343a62921c2407621b36f8b66728b992af",
+      "growth_sha256": {
+        "growth-0.csv": "b08683534b0c040834cab7a10230bfd70c83b94a0a21cb8c42cc22c89dd7dabf",
+        "growth-1.csv": "f7407b3c933af60c7690ef325509ec2a168113cdcb7976ffea2a195988e2140c",
+        "growth-2.csv": "78448e565e03f6915ed2a5e0ec5817b6ee17f6b604d01e454977c65aa39e6ccb",
+        "growth-3.csv": "e557c9ef38d24ab873d19e3a49f9f9d2474b4f4ee1ff0bf3b26ae071080a3852",
+        "growth-4.csv": "cf42d52ee82351bdf039835eedd81b18b809e70620a9368ec860c47f403d2e23",
+        "growth-5.csv": "0f517bbc6f0cb52c52e9e2be8fb62a98253ef1051ddac66cfa66ff909fd9d1cc",
+        "growth-6.csv": "e730355de79532b6068cd6f8ee0ac6465bcb0fbdf126fe226a82933f90a8e147",
+        "growth-7.csv": "8c937e8f5e025745021ab7b1ff25638e9458198485ef3bc2083540932e3b9aa5"
+      }
+    },
+    {
+      "commit": "76bb381187285e57bdc281a09f2bdd4c09a70703",
+      "executable_sha256": "d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca",
+      "experiment": "weak-1000",
+      "library_sha256": "559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082",
+      "manifest_sha256": "422eaa4857cbfd89b75afe15aafb75546e13795131281ee7284b90bca12906e9"
+    },
+    {
+      "case": "weak-t1000-s23-p1",
+      "case_sha256": "1ae4cf39b9d5a100285436f93500f77319f5fe8819ff6e1ddf3f70d821ed1936",
+      "growth_sha256": {
+        "growth-0.csv": "e1da79f704582c14e679b7150ef0951910d0d7dd743e9ff73a5d22b4c41c7512"
+      }
+    },
+    {
+      "case": "weak-t1000-s23-p8",
+      "case_sha256": "f491c044d7fa4ff6ebfb125b8e22161a53dbb3b94b0376a0bfaa9e72cf1cffd1",
+      "growth_sha256": {
+        "growth-0.csv": "5b36a7c5b2aef4089bf51b5e9df95d1db66c7aa457c3580c5a804d9c75ce5980",
+        "growth-1.csv": "862cf834653a913f70f3fe083c6050940cf44789882660aca5b74ba22c01831c",
+        "growth-2.csv": "d443665d4cdebd79ab5fca2f60551c9fa0169cc9a7f65c4b28c74003705d2ed7",
+        "growth-3.csv": "87b4afd31f93c808dd550b5bccb093e85ff1112c81ca81d7192e2549547a3625",
+        "growth-4.csv": "30710ed9a20223bc935f30260f4196890afc3a454685e8db5b97c718f698898d",
+        "growth-5.csv": "0587402b1d406f74e60a65442ba78e243194a709ac0de6c19bc2bfdc880acf55",
+        "growth-6.csv": "0330621a4d2db4f1afb3013fb4c3c1160ff411b1480a362f29a922e916af3e92",
+        "growth-7.csv": "433776ce5ec831151fa053e5e50d2b528e14131d8272a2ede220aa3452fe32e6"
+      }
+    },
+    {
+      "case": "weak-t1000-s24-p1",
+      "case_sha256": "557c2b8ba42860e72c475b621ae4990be369186085df1d570909ea58443504ef",
+      "growth_sha256": {
+        "growth-0.csv": "f7e767dfb7e1f3834c883b938f16e2df0af54922c6817d68b419daef5f93e500"
+      }
+    },
+    {
+      "case": "weak-t1000-s24-p8",
+      "case_sha256": "f1e46efc2f5a247b6ab3c9968f7683a3f8fc2d2c35ae25abab843915b3523884",
+      "growth_sha256": {
+        "growth-0.csv": "2f91c8eb9505312595df05dceb7861a2fd3a3dadc90a75b2071e7290b560b8dc",
+        "growth-1.csv": "0dcae3527f591e5c869d445f745b113920945b21ebe354b27c592eabfca567fa",
+        "growth-2.csv": "3c6a89ec86617da78cd08b0341102f1813138f3bbfefff5472debb2e18551fcb",
+        "growth-3.csv": "24bc5b902037cd8a94649bb513c702dc91c9bac062eade99db34511cfd8f4409",
+        "growth-4.csv": "e6705ac74c1d8230a65752498882224e417e52aa79317bf9fcb35f1e3401fb40",
+        "growth-5.csv": "7720a6b4f6da29594dd3d6f3a4ccdadd839e90755c85c56a46b9b562f0b98fc2",
+        "growth-6.csv": "655c076b28d425f6df99a18c55b6a5bfaaf9d5942d11495578bb8a20ecad4274",
+        "growth-7.csv": "fb558797f7349f662d475495a6fb47ed661e78a89fd0d2ccb3a984d6a9587b56"
+      }
+    },
+    {
+      "case": "weak-t1000-s25-p1",
+      "case_sha256": "48d17ce41e596f26c530d430dde518bd46f720eb71af784de7d8a5f950b7a129",
+      "growth_sha256": {
+        "growth-0.csv": "ca41652f7d019a8b2d638a73481b3a7d35b7e7a275b42b1f0d1a9d0e3fe157e0"
+      }
+    },
+    {
+      "case": "weak-t1000-s25-p8",
+      "case_sha256": "92f2e0a3053246094dcfbb64fe7a7a9e45308e9225457790527d36619556ff16",
+      "growth_sha256": {
+        "growth-0.csv": "4aa7d0cba2b99b8bb820dbe1ee9a2725e966f7f80d0644b8e2bf48baa63beb2b",
+        "growth-1.csv": "35106c49a6fba083ff895d859e942a6aa2b1bb76a92159ad01ff7dd0c7eb7a0a",
+        "growth-2.csv": "40ccf87e37b2e5dc1a8a932e173c0f964dea3a66bd249cd779073af3305aac67",
+        "growth-3.csv": "dec4c44b8372f152c791378713b0a1e2ac76fcb9ba528a3490ee12c7ee5c0e10",
+        "growth-4.csv": "9baf3cf1cbc9acebd8e78011c14d494115d710b9de974996d3c37f743bc30beb",
+        "growth-5.csv": "d9a56fb718c5c45e63594f4efeeae94f5bbf20784d37cd7c7853359c1087dedc",
+        "growth-6.csv": "a7824255c3d8250beebb6ce58061806b4b158fb51a26a5872fd3f4a443fbb5ad",
+        "growth-7.csv": "964f8cf41fa246e1581fe4c4a1ecf4023de57f63e3d04d8f8dea8b72eae136ba"
+      }
+    }
+  ],
+  "publisher_sha256": "6110e509195078734e3e089a4c9be73da9a73a9cea10a885d84cb5e16faddd79"
+}
