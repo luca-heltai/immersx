@@ -93,6 +93,11 @@ namespace
   controls(Parameters &p)
   {
     p.terminal_count_multiplier_factor = "none";
+    p.length_scale                     = "meter";
+    p.minimum_length                   = 0.;
+    p.density_beta                     = 0.;
+    p.coverage.service_radius          = 0.;
+    p.venous.terminal_separation       = 0.;
 
     p.seed_length                    = .08;
     p.selected_terminals             = {201};
@@ -156,7 +161,8 @@ TEST(VascularCompletion, BOTH_ReloadedSharedTrunksRetainBedsInTheDesignSolve)
         EXPECT_EQ(node.inward_port_normal, old.inward_port_normal);
       }
   double       added_resistance = 0., added_volume = 0.;
-  unsigned int old_vessels = 0, new_vessels = 0;
+  unsigned int old_vessels = 0, new_vessels = 0, new_arterial = 0,
+               new_venous = 0;
   for (const auto &[id, v] : r.network.vessels)
     if (v.owner == rank)
       {
@@ -173,13 +179,23 @@ TEST(VascularCompletion, BOTH_ReloadedSharedTrunksRetainBedsInTheDesignSolve)
         else
           {
             ++new_vessels;
+            if (v.system == System::arterial)
+              ++new_arterial;
+            else if (v.system == System::venous)
+              {
+                ++new_venous;
+                if (expected.nodes.count(v.nodes[0]))
+                  EXPECT_NEAR(length(r.network, id), p.seed_length, 1.e-13);
+              }
             added_resistance += cylinder_resistance(r.network, id);
             added_volume +=
               numbers::PI * v.radii[0] * v.radii[0] * length(r.network, id);
           }
       }
   EXPECT_EQ(Utilities::MPI::sum(old_vessels, comm), 6u);
-  EXPECT_EQ(Utilities::MPI::sum(new_vessels, comm), 2u);
+  EXPECT_EQ(Utilities::MPI::sum(new_vessels, comm), 3u);
+  EXPECT_EQ(Utilities::MPI::sum(new_arterial, comm), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(new_venous, comm), 2u);
   added_resistance = Utilities::MPI::sum(added_resistance, comm);
   added_volume     = Utilities::MPI::sum(added_volume, comm);
   const double shared =
@@ -318,6 +334,11 @@ TEST(VascularCompletion,
     }
   Parameters p;
   p.terminal_count_multiplier_factor = "none";
+  p.length_scale                     = "meter";
+  p.minimum_length                   = 0.;
+  p.density_beta                     = 0.;
+  p.coverage.service_radius          = 0.;
+  p.venous.terminal_separation       = 0.;
 
   p.seed_length        = .08;
   p.selected_terminals = {200};

@@ -26,13 +26,82 @@ and [svVascularize](https://github.com/SimVascular/svVascularize).
 ImmersX implements the background-owned MPI growth and commit protocol described
 below using deal.II ownership, spatial search and sparse exchanges.
 
+## Length scale and physical data
+
+`Vascularization/Length scale` defaults to `local mesh size`. The configured
+lengths are coefficients of a physical reference $H$:
+
+| Policy | Physical reference |
+|---|---|
+| `meter` | One metre |
+| `local mesh size` | Diameter of the containing active background cell |
+| `min mesh size` | Global minimum active-cell diameter |
+| `max mesh size` | Global maximum active-cell diameter |
+
+Only owned cells contribute to the global bounds. Empty ranks participate.
+On interfaces, the smallest containing diameter is used, including across MPI
+partitions. The prepared background and its reference scale remain fixed during
+generation and time integration.
+
+`Growth/Seed length` defaults to one and gives a physical length
+$cH(x_{attachment})$, for both new seeds and imported attachments. The fixed
+seed or attachment radius remains physical. A venous startup uses this seed
+stem followed by a straight continuation to the assigned territory endpoint.
+The junction may bend; an unbranched junction preserves its radius and carries
+the same flow on both sides. Deterministic geometric retries can fail when the
+requested stem or continuation does not fit. They do not shorten the seed or
+change its radius.
+
+`Growth/Minimum vessel length` defaults to 0.1 and requires
+$\int_\Gamma ds/H(x)\ge c$ for every new physical branch. The complete exact
+cell-crossing profile is used, including interface portions. Optimization
+prechecks use the global minimum reference as a necessary lower bound; selected
+proposals undergo the exact complete-profile check before adoption. A midpoint or
+endpoint does not replace that integral. `Physiology/Minimum radius` defaults
+to zero; a positive value requires $r(x)/H(x)\ge c$ throughout each generated
+branch. The conservative check includes the largest crossed scale. Murray
+radii are computed once from demand and fixed physical attachment radii.
+
+`Growth/Clearance` defaults to zero. Let $H_{max}(\Gamma)$ be the maximum
+reference along a branch. Its wall clearance is $cH_{max}(\Gamma)$. For two
+branches, their additional separation is
+$c\max(H_{max}(\Gamma_a),H_{max}(\Gamma_b))$ beyond their radii. This rule is
+symmetric and includes the scale variation along both complete branches.
+An imported branch's local maximum includes only its inside portions. A fully
+exterior obstacle has no local scale; the generated branch supplies the defined
+scale in their pair maximum. New exterior branches remain ineligible.
+Routing boxes and ghost halos use the global maximum reference. Geometry
+profiles are cached independently of radii and discarded when their geometry
+leaves the current snapshot or trial set.
+
+`Venous network/Terminal separation` defaults to 0.25 times $H$ at the common
+territory centre, shared by the pair. This separates endpoints by a quarter
+cell diameter while leaving each physical radius and all supplied physiology
+explicit; it is not an organ-specific calibration. The examples and geometric
+gates exercise it with the new seed and minimum-length coefficients.
+
+`Objectives/Maximum service distance` defaults to one. Coverage uses
+$cH(x)$ at each tissue quadrature point, with physical `JxW` weights. It remains
+independent of perfusion and of nearest-territory demand assignment.
+
+Domain size, coordinates, imported geometry and properties, fixed seed and
+attachment radii, viscosity, pressures, total flow and supplied bed resistances
+remain in SI. Generated coordinates, radii, archives and solver transfers also
+remain in SI; the configured coefficients are not overwritten. Local $H$ is
+undefined outside the background: exterior input is preserved, new exterior
+attachments are rejected, and local normalized diagnostics explicitly report
+only inside portions. Constant policies are defined outside too.
+
 ## Arterial and venous trees
 
 This synthetic example uses metres, pascals, seconds and cubic metres per
 second. Its values are not an organ calibration. The background is a unit cube.
-The example is exercised by `VascularAV` integration tests in Debug and Release.
+The `VascularAV` integration tests check paired flow and Murray constraints in
+Debug and Release.
 
 ```cpp
+#include <deal.II/distributed/tria.h>
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/fe/mapping_q1.h>
 #include <deal.II/grid/grid_generator.h>
 #include <immersx/vascularization/generation.h>
@@ -40,17 +109,18 @@ The example is exercised by `VascularAV` integration tests in Debug and Release.
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 
-Triangulation<3> background;
+parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
 GridGenerator::hyper_cube(background);
+background.refine_global(2);
 MappingQ1<3> mapping;
 Parameters parameters;
 parameters.seed_position  = Point<3>(.2, .5, .5);
 parameters.seed_direction = Point<3>(1., 0., 0.);
 parameters.seed_radius    = .003;
-parameters.seed_length    = .2;
+parameters.seed_length    = 1.;
 parameters.viscosity      = .004;
-parameters.terminal_count = 8;
-parameters.terminal_count_multiplier_factor = "none";
+parameters.terminal_count = 1;
+parameters.terminal_count_multiplier_factor = "background cell count";
 parameters.reference_flow = 2.e-9;
 parameters.tissue_demand  = "1+x+2*y";
 parameters.arterial_murray_exponent = 2.7;
@@ -58,12 +128,12 @@ parameters.venous.enabled = true;
 parameters.venous.seed_position = Point<3>(.8, .5, .5);
 parameters.venous.seed_radius = .004;
 parameters.venous.murray_exponent = 3.2;
-parameters.venous.terminal_separation = .04;
+parameters.venous.terminal_separation = .25;
 parameters.reference_conditions.pressures = {{0, 12000.}, {2, 4000.}};
 
 auto result = generate(background, mapping, {}, parameters, MPI_COMM_WORLD);
 AssertThrow(result.validation.valid(), ExcMessage("Vascular generation failed"));
-Triangulation<1, 3> vessels;
+parallel::fullydistributed::Triangulation<1, 3> vessels(MPI_COMM_WORLD);
 const auto physical_cells =
   create_triangulation(result.network, result.discretization, vessels);
 ```
@@ -78,9 +148,11 @@ own port identifiers.
 
 The arterial forest defines common territory centres and their demand. The
 same CCO engine then grows veins from the declared outlet or selected venous
-attachments toward these territories. The first venous connection goes directly
-to an admissible territory, trying territories in distance/id order. Each later
-insertion tries six Cartesian endpoint offsets of the configured separation.
+attachments toward these territories. The first venous connection joins a
+fixed-length seed stem to an admissible territory, trying territories in
+distance/id order and deterministic stem
+directions. Each later insertion tries six Cartesian endpoint offsets of the
+configured separation.
 The territory centre is the arterial endpoint; its venous endpoint is distinct.
 Demand is evaluated once at the common centre and shared exactly by both
 terminals. A vein's geometry is oriented from outlet toward tissue, and its
@@ -115,8 +187,8 @@ ties; the lowest containing process owns the point.
 `terminal_weight` supplies the nonnegative dimensionless expression $w(x)$,
 bounded by `terminal_weight_bound`. The corresponding standalone parameters
 are `Sampling/Spatial weight` and `Sampling/Spatial weight bound`.
-`density_beta` (`Sampling/Density mesh exponent`) is currently zero by default,
-making the sampling density independent of mesh size. Setting it to three gives
+`density_beta` (`Sampling/Density mesh exponent`) defaults to three. Zero makes
+the sampling density independent of mesh size. Three gives
 equal integrated proposal weight per cell when $w=1$, including cells of
 different shape or aspect ratio. Geometric constraints can change the
 accepted terminal distribution.
@@ -138,7 +210,7 @@ count follows the prepared background:
 | `background vertex count` | `Terminal count` times the global used-vertex count |
 
 The default requests one new territory per active cell when `Terminal count`
-is one. Select `none` to retain an absolute count in existing configurations.
+is one. Select `none` to request an absolute count.
 
 Shared MPI vertices count once, including hanging nodes; ghost and artificial
 cells do not increase the cell count. The count is recomputed on each call to
@@ -169,10 +241,13 @@ locations. Uniform refinement increases the total when a background multiplier
 is selected, even with exponent zero.
 
 With calibration enabled, multiplication applies once to its initial guess.
-`Minimum new terminals` and `Maximum new terminals` remain absolute counts:
-they clamp that guess, and subsequent trials search within those limits without
-multiplying again. Set the limits to accommodate the desired scaled count, or
-disable both targets as in the example to request the scaled count directly.
+`Minimum new terminals` and a nonzero `Maximum new terminals` are absolute
+counts. A zero maximum (the default) derives an upper bound from the scaled
+initial count or the explicit minimum, whichever is larger. Automatic limits
+therefore permit thinning from the mesh-driven request; supply a larger maximum
+to permit increases. Explicit bounds clamp the initial guess and subsequent
+trials search within the chosen limits without multiplying again. Both targets
+default to zero, disabling calibration and requesting the scaled count directly.
 Existing input terminals are excluded from the count of new territories.
 
 Containment, collision and growth constraints can bias the accepted terminal
@@ -570,6 +645,12 @@ demands. Positive reference flow is shared by terminal demand within each
 system; zero leaves desired flows unspecified. Common physiological controls
 must agree across processes. Invalid connectivity, unrooted cycles, missing
 terminal roles and unrepresentable positive demands or radii fail collectively.
+
+Pass the prepared `MeshLengthScale` to `evaluate_forest()` with its physiological
+controls. Its minimum reference supplies a necessary global minimum-radius
+bound; exact along-branch bounds are checked during geometry certification.
+One-child physical continuations, such as a venous seed stem, preserve the
+Murray radius; branching junctions have two children.
 
 The kernel changes no physical data. The public growth loop uses its result
 to normalize a tentative batch, then adopts the radii only after validation

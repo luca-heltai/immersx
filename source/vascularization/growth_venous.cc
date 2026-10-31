@@ -27,13 +27,14 @@ namespace ImmersX::Vascularization::internal
     {
       Id       id = invalid_id;
       Point<3> position;
-      Rank     owner  = 0;
-      double   demand = 0.;
+      Rank     owner      = 0;
+      double   demand     = 0.;
+      double   separation = 0.;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
-        ar &id &position &owner &demand;
+        ar &id &position &owner &demand &separation;
       }
     };
     struct RootQuery
@@ -104,12 +105,12 @@ namespace ImmersX::Vascularization::internal
     result.network = network;
     if (!p.venous.selected_terminals.empty())
       return result;
-    std::unique_ptr<BackgroundGeometry> local_geometry;
-    if (!shared_geometry)
-      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
-    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
-    auto *work     = geometry.counts;
-
+    BackgroundGeometry geometry(bg, mapping);
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
+    const double minimum_radius =
+      scale.physical_length(p.minimum_radius, scale.minimum());
+    const double halo = scale.physical_length(p.clearance, scale.maximum());
     unsigned int available = 0;
     for (const auto &[id, t] : network.terminals)
       if (t.owner == rank && t.system == System::venous &&
@@ -122,7 +123,7 @@ namespace ImmersX::Vascularization::internal
         {"venous outlet", invalid_id, message});
     };
     if (!(p.venous.seed_radius > 0.) || !(p.viscosity > 0.) ||
-        p.venous.seed_radius < p.minimum_radius)
+        p.venous.seed_radius < minimum_radius)
       {
         fail(
           "A new venous outlet requires an explicit admissible positive radius and dynamic viscosity.");
@@ -168,8 +169,7 @@ namespace ImmersX::Vascularization::internal
                                            Port::venous_outlet,
                                            Provenance::generated,
                                            normal};
-    result.network = redistribute_with_owners(
-      bg, mapping, result.network, p.clearance, comm, {}, &geometry, work);
+    result.network = redistribute(bg, mapping, result.network, halo, comm);
     return result;
   }
 
@@ -203,13 +203,17 @@ namespace ImmersX::Vascularization::internal
         result.accepted.committed = false;
       return all;
     };
-    std::unique_ptr<BackgroundGeometry> local_geometry;
-    if (!shared_geometry)
-      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
-    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
-    auto *work     = geometry.counts;
-    auto  snapshot = redistribute_with_owners(
-      bg, mapping, network, p.clearance, comm, {}, &geometry, work);
+    const auto   scale = mesh_length_scale(bg, p.length_scale, comm);
+    const double halo  = scale.physical_length(p.clearance, scale.maximum());
+    const double minimum_radius =
+      scale.physical_length(p.minimum_radius, scale.minimum());
+    const double minimum_length =
+      scale.physical_length(p.minimum_length, scale.minimum());
+    scale.physical_length(p.venous.terminal_separation, scale.minimum());
+    scale.physical_length(p.venous.terminal_separation, scale.maximum());
+    auto snapshot = redistribute(bg, mapping, network, halo, comm);
+    BackgroundGeometry geometry(bg, mapping);
+    geometry.configure_length_scale(p.length_scale, comm);
     std::set<Id> requested(p.venous.selected_terminals.begin(),
                            p.venous.selected_terminals.end());
     if (requested.size() != p.venous.selected_terminals.size())
@@ -235,14 +239,16 @@ namespace ImmersX::Vascularization::internal
       }
     struct Pending
     {
-      Id       start = invalid_id, input_terminal = invalid_id;
-      Id       node = invalid_id, vessel = invalid_id, terminal = invalid_id;
-      Vessel   properties;
-      Point<3> position, normal;
-      std::set<Rank> queried_owners, exhausted_owners;
-      Id             rejected  = invalid_id;
-      Id             current   = invalid_id;
-      unsigned int   direction = 0;
+      Id start = invalid_id, input_terminal = invalid_id;
+      Id node = invalid_id, knee = invalid_id, vessel = invalid_id,
+         continuation = invalid_id, terminal = invalid_id;
+      double                seed_length = 0.;
+      std::vector<Point<3>> seed_directions;
+      Vessel                properties;
+      Point<3>              position, normal;
+      std::set<Id>          excluded;
+      Id                    current   = invalid_id;
+      unsigned int          direction = 0;
     };
     std::vector<Pending> roots;
     if (reserved_port != invalid_id)
@@ -289,7 +295,7 @@ namespace ImmersX::Vascularization::internal
             root.input_terminal = id;
             root.position       = node.position;
             root.properties     = snapshot.vessels.at(incoming.at(t.node)[0]);
-            if (root.properties.radii[1] < p.minimum_radius)
+            if (root.properties.radii[1] < minimum_radius)
               fail(
                 id,
                 "Fixed attachment radius is below the minimum admissible new radius.");
@@ -303,8 +309,43 @@ namespace ImmersX::Vascularization::internal
       fail(
         invalid_id,
         "Common territory count must cover all real venous outlets or selected attachments.");
+    scale.physical_length(p.seed_length, scale.minimum());
+    scale.physical_length(p.seed_length, scale.maximum());
+    std::map<Id, Point<3>> attachment_queries;
+    for (const auto &root : roots)
+      attachment_queries.emplace(root.start, root.position);
+    const auto attachment_cells =
+      geometry.locate_points(attachment_queries, comm, 1.e-12);
+    for (auto &root : roots)
+      {
+        const auto cell = attachment_cells.find(root.start);
+        if (cell == attachment_cells.end())
+          {
+            fail(root.start,
+                 "Venous seed attachment is outside the background.");
+            continue;
+          }
+        root.seed_length =
+          scale.physical_length(p.seed_length, cell->second.diameter);
+        std::optional<Point<3>> preferred;
+        if (root.input_terminal != invalid_id)
+          preferred =
+            Point<3>(root.position -
+                     snapshot.nodes.at(root.properties.nodes[0]).position);
+        else if (root.normal.norm_square() > 0.)
+          preferred = root.normal;
+        root.seed_directions = initial_root_directions(root.position,
+                                                       cell->second.center,
+                                                       cell->second.vertices,
+                                                       {},
+                                                       preferred,
+                                                       nullptr,
+                                                       0.);
+      }
+    if (!valid())
+      return result;
     // IDs are reserved once per startup, independently of geometric retries.
-    const auto reserve = [&](const auto &data) {
+    const auto reserve = [&](const auto &data, Id stride) {
       Id next = 0;
       if (!data.empty())
         {
@@ -314,24 +355,26 @@ namespace ImmersX::Vascularization::internal
             next = data.rbegin()->first + 1;
         }
       const Id base   = Utilities::MPI::max(next, comm);
-      const Id count  = roots.size();
+      const Id count  = stride * roots.size();
       Id       prefix = 0;
       MPI_Exscan(&count, &prefix, 1, MPI_UINT64_T, MPI_SUM, comm);
       if (rank == 0)
         prefix = 0;
-      if (total_roots > invalid_id - base)
+      if (total_roots > (invalid_id - base) / stride)
         fail(invalid_id, "Vascular identifier space exhausted.");
       return base + prefix;
     };
-    Id next_node     = reserve(snapshot.nodes),
-       next_vessel   = reserve(snapshot.vessels),
-       next_terminal = reserve(snapshot.terminals);
+    Id next_node     = reserve(snapshot.nodes, 2),
+       next_vessel   = reserve(snapshot.vessels, 2),
+       next_terminal = reserve(snapshot.terminals, 1);
     std::map<Id, Pending> pending;
     for (auto &root : roots)
       {
-        root.node     = next_node++;
-        root.vessel   = next_vessel++;
-        root.terminal = next_terminal++;
+        root.knee         = next_node++;
+        root.node         = next_node++;
+        root.vessel       = next_vessel++;
+        root.continuation = next_vessel++;
+        root.terminal     = next_terminal++;
         pending.emplace(root.vessel, std::move(root));
       }
     VenousTerritorySearch territories(owned_territories, rank, geometry.counts);
@@ -339,10 +382,23 @@ namespace ImmersX::Vascularization::internal
       fail(issue.id, issue.message);
     if (!valid())
       return result;
-    std::vector<BoundingBox<3>> local_cover;
-    if (const auto cover = territories.cover())
-      local_cover.push_back(*cover);
-    const auto           covers = Utilities::MPI::all_gather(comm, local_cover);
+    std::map<Id, Point<3>> tissue_queries;
+    for (const auto &[id, point] : available)
+      tissue_queries.emplace(id, point.position);
+    const auto tissue_cells = geometry.locate_points(tissue_queries, comm);
+    for (auto &[id, point] : available)
+      {
+        const auto cell = tissue_cells.find(id);
+        if (cell == tissue_cells.end())
+          fail(id,
+               "A common territory centre is outside the prepared background.");
+        else
+          point.separation = scale.physical_length(p.venous.terminal_separation,
+                                                   cell->second.diameter);
+      }
+    if (!valid())
+      return result;
+    auto                 tree = pack_rtree(points);
     std::set<Id>         mutable_owned;
     std::map<Id, double> fixed_roots;
     while (Utilities::MPI::sum(static_cast<Id>(pending.size()), comm) > 0)
@@ -480,24 +536,38 @@ namespace ImmersX::Vascularization::internal
                                 point.position,
                                 point.owner,
                                 point.demand};
-            const auto directions =
-              initial_root_directions(root.position,
-                                      {},
-                                      {},
-                                      {},
-                                      {},
-                                      &territory,
-                                      p.venous.terminal_separation);
-            const auto end = root.position + directions.at(root.direction++);
-            if (root.direction == directions.size())
-              root.rejected = point.id;
-            if (root.position.distance(end) <= p.minimum_length)
+            const auto directions = initial_root_directions(
+              root.position, {}, {}, {}, {}, &territory, point.separation);
+            const auto choice = root.direction++;
+            const auto end_direction =
+              directions.at(choice % directions.size());
+            const auto knee_choice = choice / directions.size();
+            const auto knee_direction =
+              knee_choice == 0 ? end_direction :
+                                 root.seed_directions.at(knee_choice - 1);
+            if (root.direction ==
+                directions.size() * (root.seed_directions.size() + 1))
+              root.excluded.insert(point.id);
+            const double direction_length = knee_direction.norm();
+            if (!(direction_length > 0.) || !std::isfinite(direction_length))
+              continue;
+            const auto knee = root.position + root.seed_length /
+                                                direction_length *
+                                                knee_direction;
+            const auto end = root.position + end_direction;
+            if (root.position.distance(knee) < minimum_length ||
+                knee.distance(end) < minimum_length ||
+                !(knee.distance(end) > 0.))
               continue;
             BatchProposal proposal;
             proposal.id = id;
             proposal.changed.push_back({root.vessel,
-                                        {{root.start, root.node}},
-                                        {{root.position, end}},
+                                        {{root.start, root.knee}},
+                                        {{root.position, knee}},
+                                        root.properties.radii[1]});
+            proposal.changed.push_back({root.continuation,
+                                        {{root.knee, root.node}},
+                                        {{knee, end}},
                                         root.properties.radii[1]});
             if (root.normal.norm_square() > 0.)
               {
@@ -527,22 +597,30 @@ namespace ImmersX::Vascularization::internal
             {
               const auto &root           = pending.at(proposal.id);
               const auto &point          = nearest.at(proposal.id);
-              const auto &end            = proposal.changed[0].points[1];
+              const auto &end            = proposal.changed.back().points[1];
+              trial.nodes[root.knee]     = {proposal.changed[0].points[1],
+                                            rank,
+                                            Port::none,
+                                            Provenance::generated};
               trial.nodes[root.node]     = {end,
                                             rank,
                                             Port::none,
                                             Provenance::generated};
               auto vessel                = root.properties;
-              vessel.nodes               = {{root.start, root.node}};
+              vessel.nodes               = {{root.start, root.knee}};
               vessel.radii               = {{vessel.radii[1], vessel.radii[1]}};
               vessel.owner               = rank;
               vessel.provenance          = Provenance::generated;
               trial.vessels[root.vessel] = vessel;
+              auto continuation          = vessel;
+              continuation.nodes         = {{root.knee, root.node}};
+              trial.vessels[root.continuation] = continuation;
               if (root.input_terminal != invalid_id)
                 trial.terminals.erase(root.input_terminal);
               trial.terminals[root.terminal] = {
                 root.node, point.id, System::venous, rank, point.demand};
               mutable_owned.insert(root.vessel);
+              mutable_owned.insert(root.continuation);
               fixed_roots[root.vessel] = vessel.radii[0];
               accepted.push_back(root.vessel);
               updates[point.owner].claimed.push_back(point.id);
@@ -559,8 +637,7 @@ namespace ImmersX::Vascularization::internal
                                               {},
                                               p,
                                               comm,
-                                              &geometry,
-                                              work);
+                                              &geometry);
         if (!committed.committed)
           {
             result.accepted = std::move(committed);
