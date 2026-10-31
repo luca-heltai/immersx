@@ -223,6 +223,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
+
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Preserve native trace couplings in local flow preconditioning across MPI partitions, so generated vascular networks advance with the iterative coupled solver and unchanged error tolerances.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Check the actual linear residual before IDA accepts an FGMRES solve. Correct residual drift within the existing total iteration budget so small coupled vascular loads advance without changing solver tolerances.

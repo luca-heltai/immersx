@@ -109,6 +109,27 @@ namespace
   }
 
   template <class Flow>
+  auto
+  initialize_flow_parameters(Flow              &flow,
+                             const std::string &input_filename,
+                             const std::string &output_filename,
+                             int)
+    -> decltype(flow.initialize_params(input_filename, output_filename), void())
+  {
+    flow.initialize_params(input_filename, output_filename);
+  }
+
+  template <class Flow>
+  void
+  initialize_flow_parameters(Flow              &flow,
+                             const std::string &input_filename,
+                             const std::string &,
+                             long)
+  {
+    flow.initialize_params(input_filename);
+  }
+
+  template <class Flow>
   Vascularization::MetricFlowXTransfer
   prepare_generated_flow(Flow                                    &flow,
                          const Vascularization::GenerationResult &generation,
@@ -217,7 +238,14 @@ namespace
                            "Native terminal outlet pressure in Pa.");
 
     initialize_parameters(parameter_file);
-    flow_problem.initialize_params(parameter_file);
+    const auto flow_output_directory =
+      metric_flow_parameter("Output directory");
+    initialize_flow_parameters(flow_problem,
+                               parameter_file,
+                               (std::filesystem::path(flow_output_directory) /
+                                "last_used_parameters.prm")
+                                 .string(),
+                               0);
 
     AssertThrow(linear_solver != "umfpack" ||
                   Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
@@ -488,8 +516,6 @@ namespace
     adapter.field(state, coupling_fields.fields().multiplier)     = 0.;
     adapter.field(state_dot, coupling_fields.fields().multiplier) = 0.;
 
-    const auto flow_output_directory =
-      metric_flow_parameter("Output directory");
     const auto flow_output_name = metric_flow_parameter("Output filename");
     std::vector<std::pair<double, std::string>> multiplier_output_records;
     std::vector<std::pair<double, std::string>> flow_output_records;

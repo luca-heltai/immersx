@@ -38,12 +38,30 @@ namespace
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
+  template <class Flow>
+  auto
+  initialize_native_parameters(Flow &flow, const std::string &filename, int)
+    -> decltype(flow.initialize_params(filename, std::string()), void())
+  {
+    flow.initialize_params(filename,
+                           ImmersX::TestPaths::output_path(
+                             "metric-flow-x/last_used_parameters.prm")
+                             .string());
+  }
+
+  template <class Flow>
+  void
+  initialize_native_parameters(Flow &flow, const std::string &filename, long)
+  {
+    flow.initialize_params(filename);
+  }
+
   void
   initialize_problem(Problem &problem)
   {
     const auto parameter_file =
       ImmersX::TestPaths::parameter_path("gtests/parameters/metric_flow_x.prm");
-    problem.initialize_params(parameter_file);
+    initialize_native_parameters(problem, parameter_file, 0);
     problem.setup();
   }
 
@@ -281,7 +299,7 @@ namespace
                                       partitioning_policy);
     const auto input = TestPaths::parameter_path(parameter_file);
     initialize_parameters(input);
-    flow.initialize_params(input);
+    initialize_native_parameters(flow, input, 0);
     flow.setup();
     multiplier_parameters.finite_element = "FE_DGQ(2)";
     ElastodynamicsSolver<3> solid(parameters);
@@ -516,8 +534,11 @@ TEST(MetricFlowX, BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal)
   using namespace ImmersX;
   ParameterAcceptor::clear();
   Problem flow(MPI_COMM_WORLD);
-  flow.initialize_params(TestPaths::parameter_path(
-    "gtests/parameters/metric_flow_x_rcr_partition.prm"));
+  initialize_native_parameters(
+    flow,
+    TestPaths::parameter_path(
+      "gtests/parameters/metric_flow_x_rcr_partition.prm"),
+    0);
   DomainParameters<3> background_parameters("/RCR ownership/background/");
   background_parameters.arguments_for_grid = "-0.2:0.2:false";
   background_parameters.initial_refinement = 2;
@@ -731,8 +752,10 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
   IDAParameters          ida("/MetricFlowSystem<1, 3>/IDA parameters/", &time);
   FiniteElementSpaceParameters<1, 3> parameters("/Pressure space/",
                                                 "FE_DGQ(1)");
-  problem.initialize_params(
-    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"));
+  initialize_native_parameters(
+    problem,
+    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"),
+    0);
   problem.setup();
   FiniteElementSpace<1, 3> space(problem.triangulation(), parameters);
   const auto               view  = space.view();
