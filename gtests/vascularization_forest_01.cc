@@ -1574,6 +1574,7 @@ TEST(VascularForest, BOTH_FullCommitWorkCounts)
                                            {},
                                            p,
                                            MPI_COMM_WORLD,
+                                           nullptr,
                                            &work);
   ASSERT_TRUE(result.committed);
   const auto total = [&](GrowthOperation operation) {
@@ -1593,4 +1594,110 @@ TEST(VascularForest, BOTH_FullCommitWorkCounts)
   EXPECT_EQ(total(GrowthOperation::certified_vessels), changed);
   EXPECT_EQ(total(GrowthOperation::materialized_vessels), changed);
   EXPECT_GT(total(GrowthOperation::physical_copy_attempts), owned);
+}
+
+TEST(VascularForest, BOTH_PersistentCenterlineIndicesFollowCommittedDeltas)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto initial = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  GrowthWork work;
+  GrowthIndices indices(
+    initial, mutable_ids(initial), roots(initial), MPI_COMM_WORLD, &work);
+  const auto check = [&](const NetworkData  &network,
+                         const std::set<Id> &mutable_owned) {
+    std::map<Id, std::array<Point<3>, 2>> expected, actual;
+    for (const auto &[id, v] : network.vessels)
+      if (v.owner == rank())
+        expected[id] = {{network.nodes.at(v.nodes[0]).position,
+                         network.nodes.at(v.nodes[1]).position}};
+    for (const auto &[segment, id] : indices.owned)
+      actual[id] = {{segment.first, segment.second}};
+    EXPECT_EQ(actual, expected);
+    EXPECT_EQ(indices.owned.size(), expected.size());
+    for (const auto system : {System::arterial, System::venous})
+      {
+        std::set<Id> wanted, found;
+        for (Id id : mutable_owned)
+          if (network.vessels.at(id).system == system)
+            wanted.insert(id);
+        for (const auto &[segment, id] : indices.mutable_tree(system))
+          found.insert(id);
+        EXPECT_EQ(found, wanted);
+        EXPECT_EQ(indices.mutable_tree(system).size(), wanted.size());
+      }
+    for (const auto p : {Point<3>(.023, .42, .373), Point<3>(2.78, .31, .92)})
+      {
+        const BoundingBox<3> box(
+          std::make_pair(Point<3>(p - Point<3>(.4, .4, .4)),
+                         p + Point<3>(.4, .4, .4)));
+        std::set<Id> wanted, found;
+        for (const auto &[id, points] : expected)
+          if (boost::geometry::intersects(Segment<3>(points[0], points[1]),
+                                          box))
+            wanted.insert(id);
+        for (const auto &[segment, id] :
+             indices.owned | bgi::adaptors::queried(bgi::intersects(box)))
+          found.insert(id);
+        EXPECT_EQ(found, wanted);
+        std::vector<std::pair<double, Id>> distances, hits;
+        for (const auto &[id, points] : expected)
+          distances.emplace_back(
+            point_distance_square(p, Segment<3>(points[0], points[1])), id);
+        for (const auto &[segment, id] :
+             indices.owned | bgi::adaptors::queried(bgi::nearest(p, 3)))
+          hits.emplace_back(point_distance_square(p, segment), id);
+        std::sort(distances.begin(), distances.end());
+        std::sort(hits.begin(), hits.end());
+        distances.resize(std::min<std::size_t>(3, distances.size()));
+        // Native nearest queries may choose any id at a tied cutoff.
+        // The exhaustive distances still determine the exact nearest set.
+        std::vector<double> expected_distances, actual_distances;
+        std::set<Id>        unique_hits;
+        for (const auto &[distance, id] : distances)
+          expected_distances.push_back(distance);
+        for (const auto &[distance, id] : hits)
+          {
+            actual_distances.push_back(distance);
+            EXPECT_TRUE(expected.count(id));
+            EXPECT_TRUE(unique_hits.insert(id).second);
+          }
+        EXPECT_EQ(actual_distances, expected_distances);
+      }
+  };
+  check(initial, mutable_ids(initial));
+  Parameters p;
+  p.minimum_angle = 1.;
+  BackgroundGeometry geometry(bg, mapping);
+  const auto         committed = commit_growth_splits(bg,
+                                              mapping,
+                                              initial,
+                                              mutable_ids(initial),
+                                              roots(initial),
+                                              concurrent_splits(initial),
+                                              p,
+                                              MPI_COMM_WORLD,
+                                              &geometry);
+  ASSERT_TRUE(committed.committed);
+  indices.update(committed.network,
+                 committed.mutable_owned,
+                 committed.geometry_changes);
+  check(committed.network, committed.mutable_owned);
+  EXPECT_EQ(work[GrowthOperation::network_index_builds], 3u);
+  p.minimum_radius    = 1.;
+  const auto rejected = commit_growth_splits(bg,
+                                             mapping,
+                                             committed.network,
+                                             committed.mutable_owned,
+                                             committed.fixed_owned_roots,
+                                             {},
+                                             p,
+                                             MPI_COMM_WORLD,
+                                             &geometry);
+  EXPECT_FALSE(rejected.committed);
+  // A rejected physical transaction never publishes a centerline delta.
+  EXPECT_TRUE(rejected.geometry_changes.changed_owned.empty());
+  EXPECT_TRUE(rejected.geometry_changes.released_owned.empty());
+  check(committed.network, committed.mutable_owned);
 }
