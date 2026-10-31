@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #ifndef immersx_internal_growth_execution_h
 #define immersx_internal_growth_execution_h
+#include "growth_candidate.h"
 #include "growth_demand_journal.h"
 #include "growth_owned_rows.h"
 namespace ImmersX::Vascularization::internal
@@ -20,6 +21,13 @@ namespace ImmersX::Vascularization::internal
     std::array<double, 2> volume{}, power{}, total_demand{};
     double                redistribution_seconds = 0., physiology_seconds = 0.,
            certification_seconds = 0.;
+  };
+  struct GrowthCandidateObstacles
+  {
+    ValidationReport               validation;
+    std::map<Id, GrowthDemandEdge> records;
+    std::map<Id, unsigned int>     owners;
+    std::map<Id, std::set<Id>>     covered_ancestors;
   };
   class GrowthExecution
   {
@@ -81,6 +89,13 @@ namespace ImmersX::Vascularization::internal
     commit(const std::vector<GrowthSplit> &,
            const GrowthDemandJointUpdate &,
            const GrowthDemandCallbacks & = {});
+    GrowthCandidateObstacles
+    candidate_obstacles(const AcceptedSnapshot &,
+                        const GrowthDemandPreview &,
+                        const std::map<Id, GrowthCandidateContext> &,
+                        const std::optional<dealii::Point<3>> &target,
+                        double                                 new_demand,
+                        unsigned int                           producer) const;
     // Explicit O(N) SI/output operation, never part of an ordinary proposal.
     GrowthExecutionOutput
     materialize() const;
