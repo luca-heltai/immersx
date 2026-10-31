@@ -54,7 +54,7 @@ namespace ImmersX::Vascularization
     // The mutable set and fixed-root controls contain OWNED ids only. Frozen
     // vessels, including input entries marked generated, are never normalized.
     // Node/terminal authority must be colocated, as in redistribute(). All
-    // ranks participate in sparse graph sweeps, including empty ranks. No
+    // ranks participate in sparse graph sweeps, including empty ranks.
     // The scale supplies a necessary global minimum-radius bound; exact
     // along-vessel constraints belong to joint geometry certification. No
     // physical data is changed: a caller adopts radii/flows only after a valid

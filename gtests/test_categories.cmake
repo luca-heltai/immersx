@@ -30,6 +30,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     ReducedPoisson0D)
 
 set(IMMERSX_INTEGRATION_TEST_SUITES
+    VascularTissueDemand
     VascularCompletion
     VascularIO
     VascularGeneration
