@@ -1,7 +1,7 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#ifndef immersx_internal_growth_execution_h
-#define immersx_internal_growth_execution_h
+#ifndef immersx_internal_growth_demand_journal_h
+#define immersx_internal_growth_demand_journal_h
 #include "growth_demand_callbacks.h"
 #include "growth_demand_state.h"
 namespace ImmersX::Vascularization::internal
@@ -9,14 +9,16 @@ namespace ImmersX::Vascularization::internal
   struct GrowthOwnershipDelta;
   // Stages the accepted demand DAG in place. Only edited records and affected
   // dependencies have before-images; physical adoption remains a joint vote.
-  class GrowthExecution
+  class GrowthDemandJournal
   {
   public:
-    explicit GrowthExecution(GrowthDemandState &, GrowthWork * = nullptr);
-    ~GrowthExecution();
-    GrowthExecution(const GrowthExecution &) = delete;
-    GrowthExecution &
-    operator=(const GrowthExecution &) = delete;
+    explicit GrowthDemandJournal(GrowthDemandState &, GrowthWork * = nullptr);
+    ~GrowthDemandJournal();
+    GrowthDemandJournal(const GrowthDemandJournal &) = delete;
+    GrowthDemandJournal &
+    operator=(const GrowthDemandJournal &) = delete;
+    // Measures belong to delta.written at old writers and migrate with
+    // branches.
     const GrowthDemandPreview &
     prepare(const GrowthOwnershipDelta &,
             const GrowthDemandJointUpdate &,
