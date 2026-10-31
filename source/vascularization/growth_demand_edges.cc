@@ -7,6 +7,92 @@
 
 namespace ImmersX::Vascularization::internal
 {
+  std::map<Id, GrowthDemandRootView>
+  GrowthDemandState::root_controls(const std::set<Id>        &requested,
+                                   const GrowthDemandPreview &preview,
+                                   ValidationReport          &validation) const
+  {
+    using namespace dealii;
+    const auto comm  = communicator;
+    const auto size  = Utilities::MPI::n_mpi_processes(comm);
+    bool       valid = report.valid() && preview.validation.valid() &&
+                 preview.snapshot_revision == revision;
+    const auto phase = [&](bool local, const std::string &message) {
+      const bool all =
+        Utilities::MPI::min(static_cast<unsigned int>(local), comm) == 1;
+      if (!all)
+        validation.issues.push_back({"demand roots", invalid_id, message});
+      return all;
+    };
+    std::map<unsigned int, std::vector<Id>> send;
+    for (Id root : requested)
+      send[root % size].push_back(root);
+    const auto root_requests = Utilities::MPI::some_to_some(comm, send);
+    std::map<unsigned int, std::map<Id, unsigned int>> owner_replies;
+    for (const auto &[producer, ids] : root_requests)
+      for (Id root : ids)
+        {
+          const auto found = root_directory.find(root);
+          if (found == root_directory.end())
+            {
+              valid = false;
+              continue;
+            }
+          owner_replies[producer].emplace(root, found->second);
+        }
+    if (!phase(
+          valid,
+          "Mutable obstacles need a current physical root directory entry."))
+      return {};
+    const auto owners = Utilities::MPI::some_to_some(comm, owner_replies);
+    std::map<Id, unsigned int> roots;
+    send.clear();
+    for (const auto &[shard, records] : owners)
+      for (const auto &[root, owner] : records)
+        {
+          valid = requested.count(root) && root % size == shard &&
+                  owner < size && roots.emplace(root, owner).second && valid;
+          if (owner < size)
+            send[owner].push_back(root);
+        }
+    valid = valid && roots.size() == requested.size();
+    if (
+      !phase(
+        valid,
+        "Every requested root must resolve to one current authoritative owner."))
+      return {};
+    const auto controls_requested = Utilities::MPI::some_to_some(comm, send);
+    std::map<unsigned int, std::map<Id, GrowthDemandRootView>> controls;
+    for (const auto &[producer, ids] : controls_requested)
+      for (Id root : ids)
+        {
+          if (!owned_roots.count(root))
+            {
+              valid = false;
+              continue;
+            }
+          controls[producer].emplace(root, root_view(root, preview));
+        }
+    if (
+      !phase(
+        valid,
+        "Physical root controls must be present on their current native owner."))
+      return {};
+    const auto controls_received = Utilities::MPI::some_to_some(comm, controls);
+    std::map<Id, GrowthDemandRootView> root_values;
+    for (const auto &[owner, records] : controls_received)
+      for (const auto &[root, value] : records)
+        valid = roots.count(root) && roots.at(root) == owner &&
+                root_values.emplace(root, value).second && valid;
+    valid = valid && root_values.size() == requested.size();
+    if (
+      !phase(
+        valid,
+        "Every mutable obstacle needs its preview-updated physical root normalization."))
+      return {};
+    return root_values;
+  }
+
   GrowthDemandEdges
   GrowthDemandState::physical_edges(
     const NetworkData                &network,
@@ -84,71 +170,9 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid,
                "Each physical edge must have one authoritative preview reply."))
       return result;
-    send.clear();
-    for (Id root : needed_roots)
-      send[root % size].push_back(root);
-    const auto root_requests = Utilities::MPI::some_to_some(comm, send);
-    std::map<unsigned int, std::map<Id, unsigned int>> owner_replies;
-    for (const auto &[producer, ids] : root_requests)
-      for (Id root : ids)
-        {
-          const auto found = root_directory.find(root);
-          if (found == root_directory.end())
-            {
-              valid = false;
-              continue;
-            }
-          owner_replies[producer].emplace(root, found->second);
-        }
-    if (!phase(
-          valid,
-          "Mutable obstacles need a current physical root directory entry."))
-      return result;
-    const auto owners = Utilities::MPI::some_to_some(comm, owner_replies);
-    std::map<Id, unsigned int> roots;
-    send.clear();
-    for (const auto &[shard, records] : owners)
-      for (const auto &[root, owner] : records)
-        {
-          valid = needed_roots.count(root) && root % size == shard &&
-                  owner < size && roots.emplace(root, owner).second && valid;
-          if (owner < size)
-            send[owner].push_back(root);
-        }
-    valid = valid && roots.size() == needed_roots.size();
-    if (
-      !phase(
-        valid,
-        "Every requested root must resolve to one current authoritative owner."))
-      return result;
-    const auto controls_requested = Utilities::MPI::some_to_some(comm, send);
-    std::map<unsigned int, std::map<Id, GrowthDemandRootView>> controls;
-    for (const auto &[producer, ids] : controls_requested)
-      for (Id root : ids)
-        {
-          if (!owned_roots.count(root))
-            {
-              valid = false;
-              continue;
-            }
-          controls[producer].emplace(root, root_view(root, preview));
-        }
-    if (
-      !phase(
-        valid,
-        "Physical root controls must be present on their current native owner."))
-      return result;
-    const auto controls_received = Utilities::MPI::some_to_some(comm, controls);
-    std::map<Id, GrowthDemandRootView> root_values;
-    for (const auto &[owner, records] : controls_received)
-      for (const auto &[root, value] : records)
-        valid = roots.count(root) && roots.at(root) == owner &&
-                root_values.emplace(root, value).second && valid;
-    valid = valid && root_values.size() == needed_roots.size();
-    if (
-      !phase(
-        valid,
-        "Every mutable obstacle needs its preview-updated physical root normalization."))
+    const auto root_values =
+      root_controls(needed_roots, preview, result.validation);
+    if (!result.validation.valid())
       return result;
     for (auto &[id, value] : result.records)
       if (value.root != invalid_id)
