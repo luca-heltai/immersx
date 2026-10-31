@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Grow vascular networks with persistent native ownership, spatial indices and demand summaries, updating and certifying affected records in one rollback-capable transaction. Share background caches through arterial/venous growth and calibration, retain venous nearest cursors, and sweep subdivision intervals without repeated full scans. Report initialization, ordinary and finalization work separately, with optional MPI phase profiling.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Default the initial vascular terminal count to a multiple of the global active background cell count, with optional used-vertex or absolute-count modes, with shared MPI vertices counted once and absolute calibration limits preserved.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 

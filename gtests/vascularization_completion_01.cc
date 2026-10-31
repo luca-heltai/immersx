@@ -92,6 +92,8 @@ namespace
   void
   controls(Parameters &p)
   {
+    p.terminal_count_multiplier_factor = "none";
+
     p.seed_length                    = .08;
     p.selected_terminals             = {201};
     p.terminal_count                 = 1;
@@ -315,6 +317,8 @@ TEST(VascularCompletion,
                      {21, input.nodes.at(3).position, 0, 2.}};
     }
   Parameters p;
+  p.terminal_count_multiplier_factor = "none";
+
   p.seed_length        = .08;
   p.selected_terminals = {200};
   p.terminal_count     = 1;
