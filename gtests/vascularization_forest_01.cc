@@ -2323,3 +2323,95 @@ TEST(VascularForest, BOTH_DemandEdgePreviewIncludesOtherRootsAndFrozenInput)
   --stale.snapshot_revision;
   EXPECT_FALSE(state.physical_edges(n, stale, requests).validation.valid());
 }
+
+TEST(VascularForest, BOTH_OneRootDemandUpdateDoesNotVisitOtherRoots)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  for (unsigned int count : {8u, 32u, 128u, 512u})
+    {
+      NetworkData n;
+      if (rank() == size() - 1)
+        for (unsigned int i = 0; i < count; ++i)
+          {
+            const Id first = base + 10000 + 2 * i, vessel = base + 1000 + 7 * i;
+            const double x     = .25 + 3.2 * i / count;
+            n.nodes[first]     = {Point<3>(x, .5, .5),
+                                  rank(),
+                                  Port::arterial_inlet};
+            n.nodes[first + 1] = {Point<3>(x + .001, .5, .5), rank()};
+            Vessel v;
+            v.nodes      = {{first, first + 1}};
+            v.radii      = {{.0001, .0001}};
+            v.viscosity  = .004;
+            v.owner      = rank();
+            v.system     = System::arterial;
+            v.provenance = Provenance::generated;
+            n.vessels.emplace(vessel, v);
+            n.terminals.emplace(base + 20000 + i,
+                                Terminal{first + 1,
+                                         base + 30000 + i,
+                                         System::arterial,
+                                         rank(),
+                                         1.});
+          }
+      n = redistribute(bg, mapping, n, 0., MPI_COMM_WORLD);
+      std::set<Id>         mutable_owned;
+      std::map<Id, double> fixed;
+      for (const auto &[id, vessel] : n.vessels)
+        if (vessel.owner == rank())
+          {
+            mutable_owned.insert(id);
+            fixed.emplace(id, .0001);
+          }
+      Parameters p;
+      p.dissipation_weight = .3;
+      p.reference_flow     = 2.e-9;
+      const auto accepted =
+        evaluate_forest(n, mutable_owned, fixed, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(accepted.validation.valid());
+      GrowthDemandState state(n, accepted, p, 23, MPI_COMM_WORLD);
+      ASSERT_TRUE(state.validation().valid());
+      GrowthDemandUpdate update;
+      update.snapshot_revision  = 23;
+      const Id changed_terminal = base + 20000 + count - 1;
+      const Id changed_root     = base + 1000 + 7 * (count - 1);
+      if (rank() == 0)
+        update.terminals.push_back({changed_terminal, 2.});
+      const auto preview = state.preview(update);
+      ASSERT_TRUE(preview.validation.valid());
+      EXPECT_EQ(Utilities::MPI::sum(preview.recomputed_branches,
+                                    MPI_COMM_WORLD),
+                1u);
+      EXPECT_LE(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                      preview.root_sums.size()),
+                                    MPI_COMM_WORLD),
+                static_cast<std::uint64_t>(std::numeric_limits<Id>::digits +
+                                           1));
+      EXPECT_EQ(preview.totals[0], static_cast<long double>(count + 1));
+      if (accepted.owned.count(changed_root))
+        {
+          auto other = state.root_view(changed_root, preview).other_local;
+          for (unsigned int owner = 0; owner < size(); ++owner)
+            if (owner != rank())
+              for (unsigned int j = 0; j < 6; ++j)
+                other[j] += preview.rank_totals[owner][j];
+          EXPECT_EQ(other[0], static_cast<long double>(count - 1));
+        }
+      if (n.terminals.count(changed_terminal) &&
+          n.terminals.at(changed_terminal).owner == rank())
+        n.terminals.at(changed_terminal).demand = 2.;
+      const auto expected =
+        evaluate_forest(n, mutable_owned, fixed, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(expected.validation.valid());
+      EXPECT_NEAR(static_cast<double>(preview.totals[1] / expected.volume[0]),
+                  1.,
+                  2.e-13);
+      const double coefficient = expected.power_numerator[0] *
+                                 expected.demand_scale * expected.demand_scale;
+      EXPECT_NEAR(static_cast<double>(preview.totals[2] / coefficient),
+                  1.,
+                  2.e-13);
+    }
+}

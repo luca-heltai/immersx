@@ -16,6 +16,7 @@
 namespace ImmersX::Vascularization::internal
 {
   struct GrowthCandidatePaths;
+  using GrowthRootSumKey = std::pair<unsigned int, Id>;
   // Moments are relative to this subtree's own demand. Changing a root or
   // system normalization therefore does not rewrite its descendants.
   struct GrowthDemandSummary
@@ -42,7 +43,7 @@ namespace ImmersX::Vascularization::internal
     // Six scalar controls per rank; no topology or per-terminal data.
     std::vector<std::array<long double, 6>> rank_totals;
     // Sparse derived nodes in the accepted root-sum tree.
-    std::map<std::size_t, std::array<long double, 6>> root_sums;
+    std::map<GrowthRootSumKey, std::array<long double, 6>> root_sums;
     // Only the union of updated terminal-to-root paths, on branch owners.
     std::map<Id, GrowthDemandSummary>               owned;
     std::map<Id, double>                            leaf_demands;
@@ -156,18 +157,17 @@ namespace ImmersX::Vascularization::internal
     static long double
     demand_value(const GrowthDemandSummary &);
 
-    MPI_Comm                                communicator;
-    std::uint64_t                           revision = 0, branch_count = 0;
-    ValidationReport                        report;
-    std::map<Id, Branch>                    branches;
-    std::map<Id, DirectoryEntry>            directory;
-    std::map<Id, unsigned int>              root_directory;
-    std::map<Id, std::size_t>               root_positions;
-    std::vector<std::array<long double, 6>> root_sums;
-    std::array<long double, 6>              accepted_totals{};
-    std::array<double, 2>                   accepted_volume{};
-    std::array<long double, 2>              accepted_resistance{};
-    std::size_t                             root_capacity = 1;
+    MPI_Comm                     communicator;
+    std::uint64_t                revision = 0, branch_count = 0;
+    ValidationReport             report;
+    std::map<Id, Branch>         branches;
+    std::map<Id, DirectoryEntry> directory;
+    std::map<Id, unsigned int>   root_directory;
+    std::set<Id>                 owned_roots;
+    std::map<GrowthRootSumKey, std::array<long double, 6>> root_sums;
+    std::array<long double, 6>                             accepted_totals{};
+    std::array<double, 2>                                  accepted_volume{};
+    std::array<long double, 2> accepted_resistance{};
     std::array<long double, 6>
     root_value(Id, const GrowthDemandSummary &) const;
   };
