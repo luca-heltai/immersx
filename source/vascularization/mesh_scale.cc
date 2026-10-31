@@ -143,6 +143,52 @@ namespace ImmersX::Vascularization
     return result;
   }
 
+  ScaledVesselMeasure
+  internal::measure_background_profile(
+    double                                 physical_length,
+    const std::array<double, 2>           &radii,
+    const std::vector<BackgroundInterval> &intervals,
+    const MeshLengthScale                 &scale)
+  {
+    ScaledVesselMeasure measure;
+    for (const auto &interval : intervals)
+      {
+        const double piece = physical_length * (interval.end - interval.begin);
+        if (interval.h > 0.)
+          measure.inside_length += piece;
+        else
+          measure.exterior_length += piece;
+        if (interval.h == 0. &&
+            scale.policy == LengthScalePolicy::local_mesh_size)
+          {
+            measure.complete = false;
+            continue;
+          }
+        const double h = scale.value(interval.h);
+        const double a = radii[0] + interval.begin * (radii[1] - radii[0]);
+        const double b = radii[0] + interval.end * (radii[1] - radii[0]);
+        measure.normalized_length += piece / h;
+        const double lo = std::min(a, b) / h, hi = std::max(a, b) / h;
+        if (!measure.has_normalized_part)
+          {
+            measure.minimum_scale = measure.maximum_scale = h;
+            measure.minimum_normalized_radius             = lo;
+            measure.maximum_normalized_radius             = hi;
+            measure.has_normalized_part                   = true;
+          }
+        else
+          {
+            measure.minimum_scale = std::min(measure.minimum_scale, h);
+            measure.maximum_scale = std::max(measure.maximum_scale, h);
+            measure.minimum_normalized_radius =
+              std::min(measure.minimum_normalized_radius, lo);
+            measure.maximum_normalized_radius =
+              std::max(measure.maximum_normalized_radius, hi);
+          }
+      }
+    return measure;
+  }
+
   std::map<Id, ScaledVesselMeasure>
   measure_scaled_vessels(const dealii::Triangulation<3> &background,
                          const dealii::Mapping<3>       &mapping,
@@ -207,44 +253,10 @@ namespace ImmersX::Vascularization
         const auto  &vessel  = network.vessels.at(id);
         const double physical =
           segments.at(id).first.distance(segments.at(id).second);
-        for (const auto &interval : intervals)
-          {
-            const double piece = physical * (interval.end - interval.begin);
-            if (interval.h > 0.)
-              measure.inside_length += piece;
-            else
-              measure.exterior_length += piece;
-            if (interval.h == 0. &&
-                scale.policy == LengthScalePolicy::local_mesh_size)
-              {
-                measure.complete = false;
-                continue;
-              }
-            const double h = scale.value(interval.h);
-            const double a =
-              vessel.radii[0] +
-              interval.begin * (vessel.radii[1] - vessel.radii[0]);
-            const double b = vessel.radii[0] +
-                             interval.end * (vessel.radii[1] - vessel.radii[0]);
-            measure.normalized_length += piece / h;
-            const double lo = std::min(a, b) / h, hi = std::max(a, b) / h;
-            if (!measure.has_normalized_part)
-              {
-                measure.minimum_scale = measure.maximum_scale = h;
-                measure.minimum_normalized_radius             = lo;
-                measure.maximum_normalized_radius             = hi;
-                measure.has_normalized_part                   = true;
-              }
-            else
-              {
-                measure.minimum_scale = std::min(measure.minimum_scale, h);
-                measure.maximum_scale = std::max(measure.maximum_scale, h);
-                measure.minimum_normalized_radius =
-                  std::min(measure.minimum_normalized_radius, lo);
-                measure.maximum_normalized_radius =
-                  std::max(measure.maximum_normalized_radius, hi);
-              }
-          }
+        measure = internal::measure_background_profile(physical,
+                                                       vessel.radii,
+                                                       intervals,
+                                                       scale);
       }
     bool finite_measures = true;
     for (const auto &[id, measure] : result)
