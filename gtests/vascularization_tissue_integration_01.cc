@@ -333,3 +333,56 @@ TEST(VascularTissueDemand, MPI_IntegrationControlAndDensityErrorsAreCollective)
     TissueDemandIntegration(geometry, "-1", p, 2, centres, MPI_COMM_WORLD),
     ExceptionBase);
 }
+TEST(VascularTissueDemand,
+     BOTH_VoronoiQuadratureConvergesToAnalyticalTerritoryIntegrals)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(bg);
+  MappingQ1<3>       mapping;
+  BackgroundGeometry geometry(bg, mapping);
+  const auto         centres =
+    owned_centres(geometry, {{.15, .5, .5}, {.4, .5, .5}, {.85, .5, .5}});
+  // These collinear centres partition the cube at x=.275 and x=.625.
+  const auto primitive = [](double x) { return x + .5 * x * x; };
+  const std::array<double, 3> exact{{primitive(.275),
+                                     primitive(.625) - primitive(.275),
+                                     primitive(1.) - primitive(.625)}};
+  const auto                  cells        = bg.n_global_active_cells();
+  double                      coarse_error = 0., fine_error = 0.;
+  for (const auto &[samples, points] :
+       std::array<std::pair<unsigned int, std::uint64_t>, 3>{
+         {{64, 512}, {512, 4096}, {4096, 32768}}})
+    {
+      TissueIntegrationParameters p;
+      p.samples_per_terminal = samples;
+      TissueDemandIntegration integration(
+        geometry, "1+x", p, 3, centres, MPI_COMM_WORLD);
+      ASSERT_TRUE(integration.validation().valid());
+      EXPECT_EQ(integration.point_count(), points);
+      integration_bootstrap(integration);
+      const auto   weights = integration.owned_demands();
+      const double width   = 1. / std::cbrt(double(points) / 8.);
+      double       error = 0., total = 0.;
+      for (unsigned int i = 0; i < 3; ++i)
+        {
+          const double actual =
+            integration_demand(weights, integration_base + 1000 + i);
+          // Assignment error is confined to the integration cells containing
+          // territory cuts. Their mass is at most max(1+x)*width per cut.
+          const unsigned int cuts = i == 1 ? 2 : 1;
+          EXPECT_LE(std::abs(actual - exact[i]), 2. * cuts * width + 1.e-13);
+          EXPECT_GT(actual, 0.);
+          error = std::max(error, std::abs(actual - exact[i]));
+          total += actual;
+        }
+      EXPECT_NEAR(total, 1.5, 2.e-13);
+      EXPECT_NEAR(integration.total_demand(), 1.5, 2.e-13);
+      EXPECT_EQ(bg.n_global_active_cells(), cells);
+      if (samples == 64)
+        coarse_error = error;
+      if (samples == 4096)
+        fine_error = error;
+    }
+  EXPECT_GT(coarse_error, 0.);
+  EXPECT_LT(fine_error, coarse_error);
+}
