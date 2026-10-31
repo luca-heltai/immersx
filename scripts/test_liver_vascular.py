@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 by Luca Heltai
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+"""Exercise surface meshing and imported arterial/venous growth through the CLI."""
+import argparse
+import csv
+import math
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
+
+
+def rows(directory, name, key="id"):
+    result = {}
+    for path in sorted(directory.glob(f"{name}-*.csv")):
+        with path.open() as stream:
+            for row in csv.DictReader(stream):
+                identity = int(row[key])
+                assert identity not in result, (name, identity)
+                result[identity] = row
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--executable", type=Path, required=True)
+    parser.add_argument("--parameters", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--ranks", type=int, default=1)
+    parser.add_argument("--mpiexec", default="mpirun")
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="liver-", dir=args.output) as temporary:
+        scratch = Path(temporary)
+        unrelated = scratch / "unrelated"
+        unrelated.mkdir()
+        output = scratch / "result"
+        prm = scratch / "input.prm"
+        text = re.sub(r"(?m)^  set Output directory = .*\n",
+                      f"  set Output directory = {output}\n", args.parameters.read_text())
+        prm.write_text(text)
+        command = [str(args.executable.resolve()), str(prm)]
+        if args.ranks > 1:
+            command = [args.mpiexec, "-np", str(args.ranks)] + command
+        process = subprocess.run(command, cwd=unrelated, text=True, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, timeout=180)
+        assert process.returncode == 0, process.stdout
+        nodes, vessels = rows(output, "nodes"), rows(output, "vessels")
+        terminals, pairs = rows(output, "terminals"), rows(output, "pairs", "territory")
+        expected = [(0, (.2, .5, .5), 1), (1, (.3, .5, .5), 0),
+                    (2, (.8, .5, .5), 2), (3, (.7, .5, .5), 0)]
+        for identity, point, port in expected:
+            row = nodes[identity]
+            actual = tuple(float(row[k]) for k in ("x", "y", "z"))
+            assert math.dist(point, actual) < 1.e-14
+            assert int(row["port"]) == port and int(row["provenance"]) == 0
+        for identity, endpoints, radius in [(0, (0, 1), .003), (1, (2, 3), .004)]:
+            row = vessels[identity]
+            assert (int(row["node0"]), int(row["node1"])) == endpoints
+            assert float(row["radius0"]) == radius == float(row["radius1"])
+            assert int(row["provenance"]) == 0
+        assert len(vessels) == 32 and len(pairs) == 8
+        for system in (0, 1):
+            assert sum(int(r["system"]) == system and int(r["provenance"]) == 1
+                       for r in vessels.values()) == 15
+        used = set()
+        for territory, pair in pairs.items():
+            a, v = int(pair["arterial"]), int(pair["venous"])
+            assert a not in used and v not in used and a != v
+            used.update((a, v))
+            assert int(terminals[a]["system"]) == 0 and int(terminals[v]["system"]) == 1
+            assert all(int(terminals[t]["territory"]) == territory for t in (a, v))
+            points = [tuple(float(nodes[int(terminals[t]["node"])][k]) for k in ("x", "y", "z"))
+                      for t in (a, v)]
+            assert math.isclose(math.dist(*points), .04, rel_tol=1.e-10)
+            assert float(pair["resistance"]) > 0.
+        for name in ("liver", "vessels"):
+            pvtu = output / f"{name}_0.pvtu"
+            pieces = ET.parse(pvtu).findall(".//Piece")
+            assert len(pieces) == args.ranks
+            for piece in pieces:
+                assert (output / piece.attrib["Source"]).is_file()
+        tree = ET.parse(output / "vessels_0.pvtu")
+        arrays = {a.attrib["Name"] for a in tree.findall(".//PPointData/PDataArray")}
+        assert {"System", "Generated", "Radius"} <= arrays, arrays
+        print(f"Verified 8 tissue pairs and preserved both input vessels on {args.ranks} rank(s)")
+
+
+if __name__ == "__main__":
+    main()
