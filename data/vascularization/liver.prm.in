@@ -16,11 +16,11 @@ subsection Liver
     subsection Growth
       set Seed length = .003
       set Minimum vessel length = .0002
-      set Candidate vessels = 8
+      set Candidate vessels = 16
       set Local optimization steps = 5
     end
     subsection Sampling
-      set Terminal count = 32
+      set Terminal count = 1000
       set Random seed = 23
       set Sample budget per insertion = 2000
     end
