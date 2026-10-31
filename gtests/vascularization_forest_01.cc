@@ -15,6 +15,7 @@
 #include <immersx/vascularization/generation.h>
 
 #include <functional>
+#include <stdexcept>
 
 #include "../source/vascularization/demand_mass.h"
 #include "../source/vascularization/forest_state.h"
@@ -24,9 +25,11 @@
 #include "../source/vascularization/growth_demand_callbacks.h"
 #include "../source/vascularization/growth_demand_journal.h"
 #include "../source/vascularization/growth_demand_state.h"
+#include "../source/vascularization/growth_execution.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_ownership_delta.h"
 #include "../source/vascularization/growth_paths.h"
+#include "../source/vascularization/network_serialization.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 using namespace ImmersX::Vascularization::internal;
@@ -2528,11 +2531,15 @@ TEST(VascularForest,
       ASSERT_TRUE(accepted.validation.valid());
       GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
       ASSERT_TRUE(state.validation().valid());
-      GrowthWork                        work;
-      GrowthDemandJournal               execution(state, &work);
-      std::map<Id, GrowthDemandSummary> original;
+      GrowthWork                                work;
+      GrowthDemandJournal                       execution(state, &work);
+      std::map<Id, GrowthDemandSummary>         original;
+      std::map<Id, const GrowthDemandSummary *> addresses;
       for (const auto &[id, b] : accepted.owned)
-        original.emplace(id, state.summary(id));
+        {
+          original.emplace(id, state.summary(id));
+          addresses.emplace(id, &state.summary(id));
+        }
       std::vector<GrowthSplit> written;
       for (unsigned int j = 0; j < (concurrent ? 2u : 1u); ++j)
         {
@@ -2714,6 +2721,7 @@ TEST(VascularForest,
       for (const auto &[id, value] : original)
         {
           const auto &actual = state.summary(id);
+          EXPECT_EQ(&actual, addresses.at(id));
           EXPECT_EQ(actual.mass, value.mass);
           EXPECT_EQ(actual.minimum_leaf_mass, value.minimum_leaf_mass);
           EXPECT_EQ(actual.minimum_resistance_length,
@@ -2754,4 +2762,221 @@ TEST(VascularForest,
         }
       EXPECT_TRUE(state.preview(later).validation.valid());
     }
+}
+
+TEST(VascularForest,
+     BOTH_ExecutionCommitsOneJointSnapshotAndRestoresRejectedStages)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.reference_flow     = 2.e-9;
+  p.dissipation_weight = .3;
+  p.minimum_angle      = 1.;
+  auto accepted        = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  for (const auto &[id, branch] : accepted.owned)
+    n.vessels.at(id).radii = {{branch.radius, branch.radius}};
+  n        = redistribute(bg, mapping, n, 0., MPI_COMM_WORLD);
+  accepted = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  const auto meter = [](const GrowthGeometrySegments &segments) {
+    GrowthGeometryMeasures result;
+    for (const auto &[id, s] : segments)
+      result.emplace(
+        id, GrowthGeometryMeasure{s.first.distance(s.second), 1., 1., true});
+    return result;
+  };
+  GrowthGeometrySegments initial_segments;
+  for (const auto &[id, v] : n.vessels)
+    if (v.owner == rank())
+      initial_segments.emplace(id,
+                               Segment<3>{n.nodes.at(v.nodes[0]).position,
+                                          n.nodes.at(v.nodes[1]).position});
+  const auto         initial_measures = meter(initial_segments);
+  GrowthWork         caller, work;
+  BackgroundGeometry geometry(bg, mapping, &caller);
+  GrowthExecution    execution(n,
+                            accepted,
+                            p,
+                            7,
+                            geometry,
+                            initial_measures,
+                            meter,
+                               {},
+                            0.,
+                            MPI_COMM_WORLD,
+                            &work);
+  ASSERT_TRUE(execution.validation().valid());
+  auto first = execution.accepted_snapshot();
+  ASSERT_TRUE(first.current());
+  EXPECT_EQ(first.revision(), 7u);
+  EXPECT_EQ(first.mutable_count(), 10u);
+  EXPECT_EQ(first.terminal_count(), 6u);
+  EXPECT_EQ(first.obstacles().size(), first.network().vessels.size());
+  const auto original        = Utilities::pack(first.network(), false);
+  const auto original_totals = first.demand().totals();
+  const auto boxes           = [](const GrowthExecution::ObstacleTree &tree) {
+    std::map<Id, std::pair<Point<3>, Point<3>>> result;
+    for (const auto &[box, id] : tree)
+      result.emplace(id, box.get_boundary_points());
+    return result;
+  };
+  const auto               original_boxes = boxes(first.obstacles());
+  std::vector<GrowthSplit> written;
+  const auto               selected = n.vessels.find(base + 13);
+  if (selected != n.vessels.end() && selected->second.owner == rank())
+    {
+      GrowthSplit split;
+      split.vessel       = base + 13;
+      split.owner        = rank();
+      split.old_nodes    = selected->second.nodes;
+      split.old_points   = {{n.nodes.at(split.old_nodes[0]).position,
+                             n.nodes.at(split.old_nodes[1]).position}};
+      split.junction     = base + 1000;
+      split.tip          = base + 1001;
+      split.continuation = base + 1000;
+      split.leaf         = base + 1001;
+      split.terminal     = base + 1000;
+      split.territory    = base + 1002;
+      split.junction_position =
+        split.old_points[0] + .16 * (split.old_points[1] - split.old_points[0]);
+      split.tip_position = split.junction_position + Point<3>(.1, .15, .1);
+      split.demand       = 1.7;
+      written.push_back(split);
+    }
+  std::vector<GrowthSplit> global;
+  for (const auto &part : Utilities::MPI::all_gather(MPI_COMM_WORLD, written))
+    global.insert(global.end(), part.begin(), part.end());
+  ASSERT_EQ(global.size(), 1u);
+  std::vector<GrowthSplit> local;
+  if (rank() == size() - 1)
+    local = global;
+  GrowthDemandJointUpdate joint;
+  joint.update.snapshot_revision = 7;
+  if (rank() == 0)
+    joint.update.terminals = {{base + 30, .5}, {base + 131, 2.25}};
+  if (rank() == size() - 1)
+    joint.new_terminals = {{global.front().terminal, 2.5}};
+  unsigned int          prepared = 0, adopted = 0, discarded = 0;
+  bool                  staged_tissue = false, fail_tissue = false;
+  GrowthDemandCallbacks callbacks;
+  callbacks.prepare_adopt = [&](std::uint64_t quad, std::uint64_t revision) {
+    EXPECT_EQ(quad, 0u);
+    EXPECT_EQ(revision, 8u);
+    ++prepared;
+    staged_tissue = true;
+    if (fail_tissue && rank() == 0)
+      throw std::runtime_error("Injected tissue adoption failure");
+  };
+  callbacks.adopt = [&]() {
+    EXPECT_TRUE(staged_tissue);
+    staged_tissue = false;
+    ++adopted;
+  };
+  callbacks.discard = [&]() {
+    staged_tissue = false;
+    ++discarded;
+  };
+  auto bad = local;
+  for (auto &split : bad)
+    split.tip_position[2] = -.05;
+  const auto rejected = execution.commit(bad, joint, callbacks);
+  EXPECT_FALSE(rejected.committed);
+  EXPECT_FALSE(first.current());
+  EXPECT_THROW(first.network(), ExceptionBase);
+  EXPECT_EQ(prepared, 0u);
+  EXPECT_EQ(adopted, 0u);
+  EXPECT_EQ(discarded, 1u);
+  EXPECT_FALSE(staged_tissue);
+  EXPECT_EQ(geometry.counts, &caller);
+  auto after_wall = execution.accepted_snapshot();
+  EXPECT_EQ(after_wall.revision(), 7u);
+  EXPECT_EQ(Utilities::pack(after_wall.network(), false), original);
+  EXPECT_EQ(after_wall.demand().totals(), original_totals);
+  EXPECT_EQ(boxes(after_wall.obstacles()), original_boxes);
+  fail_tissue        = true;
+  const auto aborted = execution.commit(local, joint, callbacks);
+  EXPECT_FALSE(aborted.committed);
+  EXPECT_EQ(prepared, 1u);
+  EXPECT_EQ(adopted, 0u);
+  EXPECT_EQ(discarded, 2u);
+  EXPECT_FALSE(staged_tissue);
+  auto after_tissue = execution.accepted_snapshot();
+  EXPECT_EQ(after_tissue.revision(), 7u);
+  EXPECT_EQ(Utilities::pack(after_tissue.network(), false), original);
+  EXPECT_EQ(after_tissue.demand().totals(), original_totals);
+  EXPECT_EQ(boxes(after_tissue.obstacles()), original_boxes);
+  fail_tissue          = false;
+  const auto committed = execution.commit(local, joint, callbacks);
+  ASSERT_TRUE(committed.committed);
+  EXPECT_EQ(prepared, 2u);
+  EXPECT_EQ(adopted, 1u);
+  EXPECT_EQ(discarded, 2u);
+  EXPECT_FALSE(staged_tissue);
+  EXPECT_EQ(geometry.counts, &caller);
+  const auto current = execution.accepted_snapshot();
+  EXPECT_EQ(current.revision(), 8u);
+  EXPECT_EQ(current.mutable_count(), 12u);
+  EXPECT_EQ(current.terminal_count(), 7u);
+  EXPECT_EQ(current.obstacles().size(), current.network().vessels.size());
+  const auto actual = execution.materialize();
+  auto       full   = n;
+  for (auto &[id, t] : full.terminals)
+    if (t.owner == rank())
+      {
+        if (id == base + 30)
+          t.demand = .5;
+        if (id == base + 131)
+          t.demand = 2.25;
+      }
+  auto true_local = local;
+  for (auto &split : true_local)
+    split.demand = 2.5;
+  const auto oracle = commit_growth_splits(
+    bg, mapping, full, mutable_ids(n), roots(n), true_local, p, MPI_COMM_WORLD);
+  std::string failures;
+  for (const auto &issue : oracle.validation.issues)
+    failures += issue.message + "\n";
+  ASSERT_TRUE(oracle.committed) << failures;
+  EXPECT_EQ(actual.mutable_owned, oracle.mutable_owned);
+  EXPECT_EQ(actual.fixed_owned_roots, oracle.fixed_owned_roots);
+  EXPECT_EQ(Utilities::pack(actual.network.nodes, false),
+            Utilities::pack(oracle.network.nodes, false));
+  EXPECT_EQ(Utilities::pack(actual.network.terminals, false),
+            Utilities::pack(oracle.network.terminals, false));
+  ASSERT_EQ(actual.network.vessels.size(), oracle.network.vessels.size());
+  for (const auto &[id, v] : actual.network.vessels)
+    {
+      const auto found = oracle.network.vessels.find(id);
+      ASSERT_NE(found, oracle.network.vessels.end());
+      const auto &expected = found->second;
+      EXPECT_EQ(v.nodes, expected.nodes);
+      EXPECT_EQ(v.owner, expected.owner);
+      EXPECT_EQ(v.physical_properties, expected.physical_properties);
+      EXPECT_EQ(v.system, expected.system);
+      EXPECT_EQ(v.provenance, expected.provenance);
+      EXPECT_DOUBLE_EQ(v.viscosity, expected.viscosity);
+      for (unsigned int end = 0; end < 2; ++end)
+        EXPECT_NEAR(v.radii[end] / expected.radii[end], 1., 2.e-12);
+    }
+  EXPECT_NEAR(committed.volume[0] / oracle.physiology.volume[0], 1., 2.e-12);
+  EXPECT_NEAR(committed.power[0] / oracle.physiology.power[0], 1., 2.e-12);
+  GrowthWork      direct_work;
+  GrowthExecution direct(n,
+                         accepted,
+                         p,
+                         7,
+                         geometry,
+                         initial_measures,
+                         meter,
+                         {},
+                         0.,
+                         MPI_COMM_WORLD,
+                         &direct_work);
+  ASSERT_TRUE(direct.commit(local, joint).committed);
+  EXPECT_EQ(Utilities::pack(execution.materialize().network, false),
+            Utilities::pack(direct.materialize().network, false));
 }
