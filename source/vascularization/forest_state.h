@@ -4,6 +4,7 @@
 #define immersx_internal_forest_state_h
 #include <deal.II/base/mpi.h>
 
+#include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/network.h>
 
 #include <limits>
@@ -54,6 +55,8 @@ namespace ImmersX::Vascularization
     // vessels, including input entries marked generated, are never normalized.
     // Node/terminal authority must be colocated, as in redistribute(). All
     // ranks participate in sparse graph sweeps, including empty ranks. No
+    // The scale supplies a necessary global minimum-radius bound; exact
+    // along-vessel constraints belong to joint geometry certification. No
     // physical data is changed: a caller adopts radii/flows only after a valid
     // result and the geometric checks required by the batch transaction.
     ForestState
@@ -61,7 +64,8 @@ namespace ImmersX::Vascularization
                     const std::set<Id>         &mutable_owned,
                     const std::map<Id, double> &fixed_owned_roots,
                     const Parameters           &parameters,
-                    MPI_Comm                    communicator);
+                    MPI_Comm                    communicator,
+                    const MeshLengthScale      &scale = {});
   } // namespace internal
 } // namespace ImmersX::Vascularization
 #endif

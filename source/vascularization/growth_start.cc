@@ -125,7 +125,11 @@ namespace ImmersX::Vascularization::internal
       result.validation.issues.push_back({"seed", 0, message});
     };
     const auto normal = normalized_port_normal(p.seed_inward_port_normal);
-    BackgroundGeometry    geometry(bg, mapping);
+    BackgroundGeometry geometry(bg, mapping);
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
+    const double minimum_length =
+      scale.physical_length(p.minimum_length, scale.minimum());
     std::vector<SeedCell> local_cells;
     if (const auto cell =
           geometry.containing(p.seed_position,
@@ -155,6 +159,8 @@ namespace ImmersX::Vascularization::internal
         fail("Seed position is outside the background.");
         return result;
       }
+    const double seed_length =
+      scale.physical_length(p.seed_length, best->diameter);
     if (normal.norm_square() > 0. &&
         Utilities::MPI::max(static_cast<unsigned int>(
                               geometry.planar_section(p.seed_position, normal)),
@@ -195,8 +201,8 @@ namespace ImmersX::Vascularization::internal
             const double norm = directions[i].norm();
             if (norm > 0. && std::isfinite(norm))
               {
-                end = p.seed_position + p.seed_length / norm * directions[i];
-                if (end.distance(p.seed_position) > p.minimum_length)
+                end = p.seed_position + seed_length / norm * directions[i];
+                if (end.distance(p.seed_position) >= minimum_length)
                   {
                     BatchProposal proposal;
                     proposal.id = 0;
@@ -253,7 +259,7 @@ namespace ImmersX::Vascularization::internal
             roots[0] = p.seed_radius;
           }
         auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, roots, {}, p, comm);
+          bg, mapping, trial, mutable_owned, roots, {}, p, comm, &geometry);
         if (committed.committed)
           return committed;
       }
@@ -310,9 +316,17 @@ namespace ImmersX::Vascularization::internal
                 ExcMessage(
                   "Imported startup requires matching growth controls."));
 
+    const auto   scale = mesh_length_scale(bg, p.length_scale, comm);
+    const double halo  = scale.physical_length(p.clearance, scale.maximum());
+    const double minimum_radius =
+      scale.physical_length(p.minimum_radius, scale.minimum());
+    const double minimum_length =
+      scale.physical_length(p.minimum_length, scale.minimum());
+    scale.physical_length(p.seed_length, scale.minimum());
+    scale.physical_length(p.seed_length, scale.maximum());
     // Native ownership and endpoint incidence are established before selecting
     // leaves. Input geometry and properties are copied, never normalized.
-    auto snapshot = redistribute(bg, mapping, initial, p.clearance, comm);
+    auto snapshot = redistribute(bg, mapping, initial, halo, comm);
     std::map<Id, std::vector<Id>> incoming, outgoing;
     for (const auto &[id, v] : snapshot.vessels)
       {
@@ -379,9 +393,10 @@ namespace ImmersX::Vascularization::internal
 
     // Route all attachment point queries together using coarse background
     // boxes; neither terminal topology nor point coordinates are replicated.
-    BackgroundGeometry  geometry(bg, mapping);
-    GridTools::Cache<3> cache(bg, mapping);
-    const auto &tree = cache.get_locally_owned_cell_bounding_boxes_rtree();
+    BackgroundGeometry geometry(bg, mapping);
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto &tree =
+      geometry.cache.get_locally_owned_cell_bounding_boxes_rtree();
     std::vector<BoundingBox<3>> local_boxes;
     if (!tree.empty())
       local_boxes = extract_rtree_level(tree, 1);
@@ -495,7 +510,7 @@ namespace ImmersX::Vascularization::internal
         const auto &terminal = snapshot.terminals.at(id);
         const auto &v = snapshot.vessels.at(incoming.at(terminal.node)[0]);
         const auto &position = snapshot.nodes.at(terminal.node).position;
-        if (v.radii[1] < p.minimum_radius)
+        if (v.radii[1] < minimum_radius)
           fail(
             id,
             "Fixed attachment radius is below the minimum admissible new radius.");
@@ -537,8 +552,11 @@ namespace ImmersX::Vascularization::internal
             const double norm      = direction.norm();
             if (!(norm > 0.) || !std::isfinite(norm))
               continue;
-            const Point<3> end = position + p.seed_length / norm * direction;
-            if (position.distance(end) <= p.minimum_length)
+            const Point<3> end =
+              position +
+              scale.physical_length(p.seed_length, hints.at(id).diameter) /
+                norm * direction;
+            if (position.distance(end) < minimum_length)
               continue;
             BatchProposal proposal;
             proposal.id = id;
@@ -597,7 +615,7 @@ namespace ImmersX::Vascularization::internal
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
         auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, roots, {}, p, comm);
+          bg, mapping, trial, mutable_owned, roots, {}, p, comm, &geometry);
         if (!committed.committed)
           {
             result.accepted = std::move(committed);

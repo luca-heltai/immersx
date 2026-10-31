@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+
+#include "background_intersections.h"
 namespace ImmersX::Vascularization::internal
 {
   using namespace dealii;
@@ -225,6 +227,21 @@ namespace ImmersX::Vascularization::internal
     return true;
   }
 
+  struct LocatedCell
+  {
+    CellId                id;
+    double                diameter = 0., volume = 0.;
+    Point<3>              center;
+    std::vector<Point<3>> vertices;
+    unsigned int          point_owner = numbers::invalid_unsigned_int;
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
+    {
+      ar &id &diameter &volume &center &vertices &point_owner;
+    }
+  };
+
   struct BackgroundGeometry
   {
     BackgroundGeometry(const Triangulation<3> &background,
@@ -387,10 +404,32 @@ namespace ImmersX::Vascularization::internal
       // declared planar cap may meet the boundary.
       return true;
     }
+    std::map<Id, LocatedCell>
+    locate_points(const std::map<Id, Point<3>> &points,
+                  MPI_Comm                      communicator,
+                  double                        boundary_tolerance = 0.) const;
+
+    // Initialization is collective; constructing the native geometry stays
+    // local.
+    void
+    configure_length_scale(const std::string &policy, MPI_Comm communicator);
+    std::map<Id, std::vector<BackgroundInterval>>
+    crossings(const std::map<Id, Segment<3>> &segments, MPI_Comm communicator);
+    void
+                                   retain_profiles(const NetworkData &snapshot);
+    std::optional<MeshLengthScale> length_scale;
+
     GridTools::Cache<3>                           cache;
     const Mapping<3>                             &mapping;
     std::vector<Patch>                            patches;
     RTree<std::pair<BoundingBox<3>, std::size_t>> boundary;
+
+  private:
+    using ProfileKey = std::array<double, 6>;
+    static ProfileKey
+    profile_key(const Segment<3> &segment);
+    std::map<ProfileKey, std::vector<BackgroundInterval>> cached_profiles;
+    std::string                                           cached_policy;
   };
   // Boost's installed segment distance reduces to endpoint projections after
   // an intersection check. Skew 3D segments also need an interior minimum.

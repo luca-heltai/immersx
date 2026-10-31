@@ -24,17 +24,6 @@ namespace ImmersX::Vascularization::internal
   {
     using namespace dealii;
     using Leaf = std::pair<Segment<3>, Id>;
-    struct SampleCell
-    {
-      double diameter, volume;
-      CellId id;
-      template <class Archive>
-      void
-      serialize(Archive &ar, unsigned int)
-      {
-        ar &diameter &volume &id;
-      }
-    };
     struct Hit
     {
       Id           id;
@@ -173,7 +162,8 @@ namespace ImmersX::Vascularization::internal
                         const std::map<Id, GrowthCandidateContext> &contexts,
                         const std::optional<Point<3>>              &target,
                         const Parameters                           &p,
-                        MPI_Comm                                    comm)
+                        double   broad_clearance,
+                        MPI_Comm comm)
     {
       const unsigned int rank = Utilities::MPI::this_mpi_process(comm),
                          size = Utilities::MPI::n_mpi_processes(comm);
@@ -223,7 +213,7 @@ namespace ImmersX::Vascularization::internal
                                              edge.points[0].norm(),
                                              edge.points[1].norm()});
               const double pad =
-                reach + x.root_radius + max_radius + p.clearance + guard;
+                reach + x.root_radius + max_radius + broad_clearance + guard;
               Point<3> a, b;
               for (unsigned int d = 0; d < 3; ++d)
                 {
@@ -343,8 +333,24 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid,
                "All producers must use the same growth and sampling controls."))
       return run;
-    run.accepted = commit_growth_splits(
-      bg, mapping, initial, mutable_owned, fixed_owned_roots, {}, p, comm);
+    BackgroundGeometry geometry(bg, mapping);
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
+    const double clearance_lower =
+      scale.physical_length(p.clearance, scale.minimum());
+    const double broad_clearance =
+      scale.physical_length(p.clearance, scale.maximum());
+    const double physical_minimum_radius =
+      scale.physical_length(p.minimum_radius, scale.minimum());
+    run.accepted = commit_growth_splits(bg,
+                                        mapping,
+                                        initial,
+                                        mutable_owned,
+                                        fixed_owned_roots,
+                                        {},
+                                        p,
+                                        comm,
+                                        &geometry);
     if (!run.accepted.committed)
       {
         run.validation = run.accepted.validation;
@@ -364,6 +370,7 @@ namespace ImmersX::Vascularization::internal
         "Growth requires real roots and a target not smaller than the existing mutable forest."))
       return run;
     std::map<Id, Territory> pending;
+    std::map<Id, double>    territory_separations;
     if (system == System::venous)
       {
         std::map<unsigned int, std::map<Id, double>> registration;
@@ -434,22 +441,46 @@ namespace ImmersX::Vascularization::internal
             "An existing venous claim has no authoritative common-territory owner."))
           return run;
       }
+    if (system == System::venous)
+      {
+        scale.physical_length(p.venous.terminal_separation, scale.minimum());
+        scale.physical_length(p.venous.terminal_separation, scale.maximum());
+        std::map<Id, Point<3>> territory_queries;
+        for (const auto &territory : owned_territories)
+          territory_queries.emplace(territory.id, territory.position);
+        const auto tissue_cells =
+          geometry.locate_points(territory_queries, comm);
+        bool found_all = true;
+        for (const auto &territory : owned_territories)
+          {
+            const auto found = tissue_cells.find(territory.id);
+            found_all        = found_all && found != tissue_cells.end();
+            if (found != tissue_cells.end())
+              territory_separations[territory.id] =
+                scale.physical_length(p.venous.terminal_separation,
+                                      found->second.diameter);
+          }
+        if (
+          !phase(
+            found_all,
+            "Common territory centres must be inside the prepared background."))
+          return run;
+      }
     double local_capacity = 0.;
     for (const auto &[id, radius] : run.accepted.fixed_owned_roots)
       local_capacity +=
-        p.minimum_radius == 0. ?
+        physical_minimum_radius == 0. ?
           terminal_count :
           std::min<double>(
             terminal_count,
-            std::floor(std::pow(radius / p.minimum_radius, gamma) *
+            std::floor(std::pow(radius / physical_minimum_radius, gamma) *
                        (1. + 32. * std::numeric_limits<double>::epsilon())));
     if (
       !phase(
         Utilities::MPI::sum(local_capacity, comm) >= terminal_count,
         "Requested terminal count is incompatible with Murray's minimum-radius capacity at the real fixed roots."))
       return run;
-    BackgroundGeometry geometry(bg, mapping);
-    FunctionParser<3>  weight, demand;
+    FunctionParser<3> weight, demand;
     try
       {
         weight.initialize("x,y,z", p.terminal_weight, {});
@@ -480,16 +511,13 @@ namespace ImmersX::Vascularization::internal
           minimum_cell_volume = std::min(minimum_cell_volume, volume);
           maximum_cell_volume = std::max(maximum_cell_volume, volume);
         }
-    std::vector<BoundingBox<3>> local_boxes;
-    double                      box_volume = 0.;
+    double box_volume = 0.;
     if (!first)
       {
-        local_boxes.emplace_back(std::make_pair(lo, hi));
         box_volume = 1.;
         for (unsigned int d = 0; d < 3; ++d)
           box_volume *= hi[d] - lo[d];
       }
-    const auto   boxes = Utilities::MPI::all_gather(comm, local_boxes);
     const double maximum_box_volume = Utilities::MPI::max(box_volume, comm);
     minimum_cell_volume = Utilities::MPI::min(minimum_cell_volume, comm);
     maximum_cell_volume = Utilities::MPI::max(maximum_cell_volume, comm);
@@ -612,38 +640,18 @@ namespace ImmersX::Vascularization::internal
             raw              = entry->second.position;
             const unsigned int direction =
               ((run.batches - 1) % 6 + shared_territory % 6) % 6;
-            (*raw)[direction / 2] +=
-              (direction % 2 ? 1. : -1.) * p.venous.terminal_separation;
+            (*raw)[direction / 2] += (direction % 2 ? 1. : -1.) *
+                                     territory_separations.at(shared_territory);
             ++run.sampled_points;
           }
-        // Query physical cell volumes with deterministic MPI interface
-        // selection. Only coarse covering boxes are replicated, never the
-        // vessel graph.
-        std::map<unsigned int, Point<3>> sample_send;
+        std::map<Id, Point<3>> point_queries;
         if (raw)
-          for (unsigned int owner = 0; owner < size; ++owner)
-            for (const auto &box : boxes[owner])
-              if (box.point_inside(*raw))
-                sample_send[owner] = *raw;
-        const auto sample_queries =
-          Utilities::MPI::some_to_some(comm, sample_send);
-        std::map<unsigned int, SampleCell> sample_replies;
-        for (const auto &[source, point] : sample_queries)
-          if (const auto cell = geometry.containing(point))
-            sample_replies[source] = {(*cell)->diameter(),
-                                      (*cell)->measure(),
-                                      (*cell)->id()};
-        const auto located = Utilities::MPI::some_to_some(comm, sample_replies);
-        unsigned int              point_owner = size;
-        std::optional<SampleCell> selected_cell;
-        for (const auto &[owner, cell] : located)
-          {
-            point_owner = std::min(point_owner, owner);
-            if (!selected_cell || cell.diameter < selected_cell->diameter ||
-                (cell.diameter == selected_cell->diameter &&
-                 cell.id < selected_cell->id))
-              selected_cell = cell;
-          }
+          point_queries.emplace(0, *raw);
+        const auto located       = geometry.locate_points(point_queries, comm);
+        const auto selected_cell = located.find(0);
+        const auto point_owner   = selected_cell == located.end() ?
+                                     size :
+                                     selected_cell->second.point_owner;
         std::optional<Point<3>> target;
         double                  terminal_demand = 0.;
         if (system == System::venous && raw && point_owner < size)
@@ -661,7 +669,7 @@ namespace ImmersX::Vascularization::internal
             if (valid &&
                 uniform() < box_volume / maximum_box_volume * w /
                               p.terminal_weight_bound *
-                              mesh_sampling_factor(selected_cell->volume,
+                              mesh_sampling_factor(selected_cell->second.volume,
                                                    reference_volume,
                                                    p.density_beta))
               {
@@ -685,23 +693,26 @@ namespace ImmersX::Vascularization::internal
         std::map<Id, unsigned int> requests;
         for (const auto &hit : nearby)
           requests[hit.id] = hit.owner;
-        const auto paths = fetch_growth_candidates(run.accepted.network,
-                                                   run.accepted.physiology,
-                                                   requests,
-                                                   allocated[0],
-                                                   allocated[1],
-                                                   p,
-                                                   comm);
+        auto paths = fetch_growth_candidates(run.accepted.network,
+                                             run.accepted.physiology,
+                                             requests,
+                                             allocated[0],
+                                             allocated[1],
+                                             p,
+                                             comm);
         if (!paths.validation.valid())
           {
             run.validation = paths.validation;
             return run;
           }
+        for (auto &[id, context] : paths.contexts)
+          context.minimum_scale = scale.minimum();
         const auto obstacles = candidate_obstacles(run.accepted.network,
                                                    run.accepted.physiology,
                                                    paths.contexts,
                                                    target,
                                                    p,
+                                                   broad_clearance,
                                                    comm);
         search_end           = timer.wall_time();
         std::vector<Leaf> obstacle_leaves;
@@ -741,7 +752,7 @@ namespace ImmersX::Vascularization::internal
                             normals[end] = branch.port_normals[old];
                     if (!geometry.boundary_separated(
                           {changed[i].points[0], changed[i].points[1]},
-                          changed[i].radius + p.clearance,
+                          changed[i].radius + clearance_lower,
                           p.geometry_depth,
                           p.geometry_work,
                           normals))
@@ -749,7 +760,7 @@ namespace ImmersX::Vascularization::internal
                     const auto  &e = changed[i];
                     const double pad =
                       e.radius + std::max(obstacle_radius, x.root_radius) +
-                      p.clearance +
+                      broad_clearance +
                       64. * std::numeric_limits<double>::epsilon() *
                         std::max({1., e.points[0].norm(), e.points[1].norm()});
                     Point<3> a, b;
@@ -774,14 +785,14 @@ namespace ImmersX::Vascularization::internal
                                            1. / x.murray_exponent) :
                                 obstacle.radius * shrink;
                           if (!compatible(
-                                e, obstacle, p.minimum_angle, p.clearance))
+                                e, obstacle, p.minimum_angle, clearance_lower))
                             return false;
                         }
                     for (std::size_t j = 0; j < i; ++j)
                       if (!compatible(changed[i],
                                       changed[j],
                                       p.minimum_angle,
-                                      p.clearance))
+                                      clearance_lower))
                         return false;
                   }
                 return true;
@@ -878,7 +889,8 @@ namespace ImmersX::Vascularization::internal
                                               run.accepted.fixed_owned_roots,
                                               splits,
                                               p,
-                                              comm);
+                                              comm,
+                                              &geometry);
         if (!committed.committed)
           {
             ++run.rejected_batches;

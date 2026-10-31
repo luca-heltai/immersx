@@ -11,6 +11,7 @@
 #include <immersx/vascularization/generation.h>
 
 #include <cmath>
+#include <memory>
 
 #include "distribution_internal.h"
 #include "growth_batch.h"
@@ -101,7 +102,8 @@ namespace ImmersX::Vascularization::internal
                        const std::map<Id, double>     &fixed_owned_roots,
                        const std::vector<GrowthSplit> &local,
                        const Parameters               &p,
-                       MPI_Comm                        comm)
+                       MPI_Comm                        comm,
+                       BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     GrowthCommit       result;
@@ -140,6 +142,18 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid,
                "All batch participants must use the same geometric controls."))
       return result;
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    if (!phase(
+          &geometry.cache.get_triangulation() == &bg &&
+            &geometry.mapping == &mapping,
+          "Growth geometry must describe the prepared background and mapping."))
+      return result;
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
+    const double halo  = scale.physical_length(p.clearance, scale.maximum());
     std::map<unsigned int, std::vector<GrowthSplit>> send;
     for (const auto &s : local)
       send[s.owner].push_back(s);
@@ -167,10 +181,10 @@ namespace ImmersX::Vascularization::internal
           "A split is stale, duplicates a write, or changes a frozen vessel."))
       return result;
     Timer timer;
-    trial = migrate(bg, mapping, trial, ids, roots, p.clearance, comm);
+    trial = migrate(bg, mapping, trial, ids, roots, halo, comm);
     result.redistribution_seconds = timer.wall_time();
     const double physiology_begin = timer.wall_time();
-    auto         state            = evaluate_forest(trial, ids, roots, p, comm);
+    auto         state = evaluate_forest(trial, ids, roots, p, comm, scale);
     if (!state.validation.valid())
       {
         result.physiology_seconds = timer.wall_time() - physiology_begin;
@@ -182,10 +196,9 @@ namespace ImmersX::Vascularization::internal
     result.physiology_seconds = timer.wall_time() - physiology_begin;
     // Enlarged radii need refreshed multi-partition geometric ghosts.
     const double migration_begin = timer.wall_time();
-    trial = migrate(bg, mapping, trial, ids, roots, p.clearance, comm);
+    trial = migrate(bg, mapping, trial, ids, roots, halo, comm);
     result.redistribution_seconds += timer.wall_time() - migration_begin;
     const double               certification_begin = timer.wall_time();
-    BackgroundGeometry         geometry(bg, mapping);
     std::vector<BatchProposal> checks;
     for (Id id : ids)
       {

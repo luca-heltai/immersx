@@ -36,6 +36,7 @@ namespace ImmersX::Vascularization
       double volume_sum = 0., dissipation_sum = 0.;
       double total_demand = 0., demand_scale = 1., murray_exponent = 3.;
       double forest_volume = 0., forest_power_numerator = 0.;
+      double minimum_scale = 1.;
     };
     struct GrowthCandidate
     {

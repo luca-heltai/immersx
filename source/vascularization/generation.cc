@@ -34,7 +34,8 @@ namespace ImmersX::Vascularization
         relative_tolerance > 0. && relative_tolerance < 1. &&
         std::isfinite(minimum_coverage) && minimum_coverage >= 0. &&
         minimum_coverage <= 1. && minimum_terminals > 0 &&
-        maximum_terminals >= minimum_terminals && attempt_budget > 0,
+        (maximum_terminals == 0 || maximum_terminals >= minimum_terminals) &&
+        attempt_budget > 0,
       dealii::ExcMessage(
         "Invalid vascular calibration targets, tolerance, terminal limits or attempt budget."));
   }
@@ -42,6 +43,14 @@ namespace ImmersX::Vascularization
   Parameters::Parameters(const std::string &section)
     : dealii::ParameterAcceptor(section)
   {
+    add_parameter(
+      "Length scale",
+      length_scale,
+      "Reference for geometric length coefficients; physical input data stay in SI.",
+      this->prm,
+      dealii::Patterns::Selection(
+        "meter|local mesh size|min mesh size|max mesh size"));
+    coverage.service_radius = 1.;
     enter_subsection("Objectives");
     add_parameter("Target volume fraction",
                   calibration.volume_fraction,
@@ -49,11 +58,15 @@ namespace ImmersX::Vascularization
     add_parameter("Volume relative tolerance", calibration.relative_tolerance);
     add_parameter("Minimum tissue coverage", calibration.minimum_coverage);
     add_parameter("Minimum new terminals", calibration.minimum_terminals);
-    add_parameter("Maximum new terminals", calibration.maximum_terminals);
+    add_parameter(
+      "Maximum new terminals",
+      calibration.maximum_terminals,
+      "Absolute bound; zero uses the scaled initial count or the explicit minimum, whichever is larger.");
     add_parameter("Calibration attempt budget", calibration.attempt_budget);
-    add_parameter("Maximum service distance",
-                  coverage.service_radius,
-                  "Metres; zero disables geometric coverage measurement.");
+    add_parameter(
+      "Maximum service distance",
+      coverage.service_radius,
+      "Coefficient times H at each tissue quadrature point; zero disables coverage.");
     add_parameter("Coverage quadrature order", coverage.quadrature_order);
     leave_subsection();
     enter_subsection("Discretization");
@@ -83,12 +96,14 @@ namespace ImmersX::Vascularization
                   "Fixed seed radius in metres; must be supplied.");
     leave_subsection();
     enter_subsection("Growth");
-    add_parameter("Seed length",
-                  seed_length,
-                  "Initial vessel length in metres; must be supplied.");
-    add_parameter("Clearance",
-                  clearance,
-                  "Additional wall clearance in metres.");
+    add_parameter(
+      "Seed length",
+      seed_length,
+      "Initial vessel length times H at its attachment; its radius stays physical.");
+    add_parameter(
+      "Clearance",
+      clearance,
+      "Additional wall clearance times the maximum H along the branch; a vessel pair uses the larger of its two maxima.");
     add_parameter("Geometry subdivision depth",
                   geometry_depth,
                   "Finite budget for certified boundary separation.");
@@ -125,7 +140,7 @@ namespace ImmersX::Vascularization
     add_parameter("Local optimization steps", optimization_steps);
     add_parameter("Minimum vessel length",
                   minimum_length,
-                  "Physical length in metres.");
+                  "Minimum integral of ds/H along a complete physical branch.");
     add_parameter("Minimum junction angle",
                   minimum_angle,
                   "Smallest angle between incident outward rays, in degrees.");
@@ -152,9 +167,10 @@ namespace ImmersX::Vascularization
       "Unpaired reference inflows",
       reference_conditions.inflows,
       "Physical Node id: external m^3/s at unpaired input terminals; never prescribe pressure and flow at the same node.");
-    add_parameter("Minimum radius",
-                  minimum_radius,
-                  "Smallest admissible generated radius in metres.");
+    add_parameter(
+      "Minimum radius",
+      minimum_radius,
+      "Minimum generated radius/H along each complete physical branch.");
     add_parameter("Dynamic viscosity",
                   viscosity,
                   "Dynamic viscosity in Pa s; must be supplied.");
@@ -174,7 +190,7 @@ namespace ImmersX::Vascularization
     add_parameter(
       "Terminal separation",
       venous.terminal_separation,
-      "Positive metres from each arterial terminal to its venous partner.");
+      "Positive coefficient times H at the shared territory centre.");
     add_parameter(
       "Microvascular resistance",
       venous.microvascular_resistance,
@@ -185,6 +201,10 @@ namespace ImmersX::Vascularization
   void
   Parameters::validate(const bool creating_seed) const
   {
+    AssertThrow(length_scale == "meter" || length_scale == "local mesh size" ||
+                  length_scale == "min mesh size" ||
+                  length_scale == "max mesh size",
+                dealii::ExcMessage("Invalid length scale policy."));
     AssertThrow(terminal_count_multiplier_factor == "none" ||
                   terminal_count_multiplier_factor == "background cell count" ||
                   terminal_count_multiplier_factor == "background vertex count",
@@ -228,7 +248,7 @@ namespace ImmersX::Vascularization
                          (std::isfinite(seed_radius) && seed_radius >= 0. &&
                           std::isfinite(viscosity) && viscosity >= 0.)),
       dealii::ExcMessage(
-        "Supply a positive initial branch length in metres and, for an empty input, a positive seed radius and viscosity in SI units."));
+        "Supply a positive initial length coefficient and, for an empty input, a positive seed radius and viscosity in SI units."));
     AssertThrow(
       std::isfinite(clearance) && clearance >= 0. && geometry_depth <= 30 &&
         geometry_work > 0,
@@ -241,13 +261,12 @@ namespace ImmersX::Vascularization
         "Terminal count, sample budget and candidate count must be positive; optimization steps must not exceed 100."));
     AssertThrow(
       positive(arterial_murray_exponent) && std::isfinite(minimum_radius) &&
-        minimum_radius >= 0. &&
-        (!creating_seed || minimum_radius <= seed_radius) &&
-        std::isfinite(minimum_length) && minimum_length >= 0. &&
-        std::isfinite(minimum_angle) && minimum_angle > 0. &&
-        minimum_angle < 120. && std::isfinite(dissipation_weight) &&
-        dissipation_weight >= 0. && dissipation_weight <= 1. &&
-        std::isfinite(density_beta) && positive(terminal_weight_bound),
+        minimum_radius >= 0. && std::isfinite(minimum_length) &&
+        minimum_length >= 0. && std::isfinite(minimum_angle) &&
+        minimum_angle > 0. && minimum_angle < 120. &&
+        std::isfinite(dissipation_weight) && dissipation_weight >= 0. &&
+        dissipation_weight <= 1. && std::isfinite(density_beta) &&
+        positive(terminal_weight_bound),
       dealii::ExcMessage(
         "Invalid Murray, radius, length, angle, objective or density controls."));
     for (unsigned int d = 0; d < 3; ++d)
@@ -265,6 +284,7 @@ namespace ImmersX::Vascularization
                  const Parameters                &parameters,
                  MPI_Comm                         communicator,
                  unsigned int                     terminal_count,
+                 unsigned int                     initial_count,
                  const std::vector<Territory>    &initial_territories,
                  const std::vector<TerminalPair> &initial_pairs)
   {
@@ -304,8 +324,11 @@ namespace ImmersX::Vascularization
                                     communicator) == 1,
                 ExcMessage("Invalid tissue-demand expression."));
     GenerationResult result;
-    result.network    = initial;
-    result.validation = validate_data(initial, size);
+    result.base_terminal_count      = parameters.terminal_count;
+    result.initial_terminal_count   = initial_count;
+    result.requested_terminal_count = terminal_count;
+    result.network                  = initial;
+    result.validation               = validate_data(initial, size);
     if (Utilities::MPI::min(static_cast<unsigned int>(
                               result.validation.valid()),
                             communicator) == 0)
@@ -341,20 +364,24 @@ namespace ImmersX::Vascularization
     const auto *mapping_q  = dynamic_cast<const MappingQ<3> *>(&mapping);
     const auto *mapping_fe = dynamic_cast<const MappingFE<3> *>(&mapping);
     bool        valid_mapping =
+      background.n_levels() > 0 &&
       (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
       ((mapping_q && mapping_q->get_degree() == 1) ||
        (mapping_fe && mapping_fe->get_degree() == 1));
-    for (const auto &cell : background.active_cell_iterators())
-      if (cell->is_locally_owned())
-        valid_mapping = (cell->reference_cell().is_simplex() ||
-                         cell->reference_cell().is_hyper_cube()) &&
-                        mapping.is_compatible_with(cell->reference_cell()) &&
-                        valid_mapping;
+    if (background.n_levels() > 0)
+      for (const auto &cell : background.active_cell_iterators())
+        if (cell->is_locally_owned())
+          valid_mapping = (cell->reference_cell().is_simplex() ||
+                           cell->reference_cell().is_hyper_cube()) &&
+                          mapping.is_compatible_with(cell->reference_cell()) &&
+                          valid_mapping;
     AssertThrow(
       Utilities::MPI::min(static_cast<unsigned int>(valid_mapping),
                           communicator) == 1,
       ExcMessage(
         "Vascular generation requires compatible first-order background mappings and congruent communicators."));
+    result.length_scale =
+      mesh_length_scale(background, parameters.length_scale, communicator);
     const auto fail = [&](Id id, const std::string &message) {
       result.validation.issues.push_back({"attachment", id, message});
     };
@@ -368,6 +395,7 @@ namespace ImmersX::Vascularization
       return valid;
     };
     std::vector<Id> roots;
+    std::set<Id>    mutable_forest;
     if (creating_seed)
       {
         auto startup = internal::start_seed(
@@ -376,6 +404,7 @@ namespace ImmersX::Vascularization
         if (startup.committed)
           {
             result.network = std::move(startup.network);
+            mutable_forest = std::move(startup.mutable_owned);
             for (const auto &[id, radius] : startup.fixed_owned_roots)
               roots.push_back(id);
           }
@@ -393,6 +422,7 @@ namespace ImmersX::Vascularization
         if (startup.accepted.committed)
           {
             result.network          = std::move(startup.accepted.network);
+            mutable_forest          = std::move(startup.accepted.mutable_owned);
             result.attachment_roots = std::move(startup.attachment_roots);
             for (const auto &[id, radius] : startup.accepted.fixed_owned_roots)
               roots.push_back(id);
@@ -414,7 +444,6 @@ namespace ImmersX::Vascularization
         reserved_venous_port = outlet.port;
       }
     const auto run_growth = [&](System system) {
-      std::set<Id>         mutable_roots(roots.begin(), roots.end());
       std::map<Id, double> fixed_roots;
       for (Id root : roots)
         fixed_roots[root] = result.network.vessels.at(root).radii[0];
@@ -423,7 +452,7 @@ namespace ImmersX::Vascularization
         internal::grow_forest(background,
                               mapping,
                               result.network,
-                              mutable_roots,
+                              mutable_forest,
                               fixed_roots,
                               parameters,
                               communicator,
@@ -443,6 +472,7 @@ namespace ImmersX::Vascularization
       if (growth.accepted.committed)
         {
           result.network = std::move(growth.accepted.network);
+          mutable_forest = std::move(growth.accepted.mutable_owned);
           if (system == System::arterial)
             {
               result.territories.clear();
@@ -466,6 +496,9 @@ namespace ImmersX::Vascularization
         }
     };
     run_growth(System::arterial);
+    result.effective_terminal_count =
+      Utilities::MPI::sum(static_cast<unsigned int>(result.territories.size()),
+                          communicator);
     if (!collective_valid())
       return result;
     if (parameters.venous.enabled)
@@ -490,6 +523,7 @@ namespace ImmersX::Vascularization
             return result;
           }
         result.network = std::move(startup.accepted.network);
+        mutable_forest = std::move(startup.accepted.mutable_owned);
         result.attachment_roots.insert(startup.attachment_roots.begin(),
                                        startup.attachment_roots.end());
         roots.clear();
@@ -544,7 +578,15 @@ namespace ImmersX::Vascularization
                                          result.network,
                                          result.discretization,
                                          parameters.coverage,
-                                         communicator);
+                                         communicator,
+                                         result.length_scale);
+        if (result.validation.valid())
+          result.normalized_geometry =
+            measure_scaled_vessels(background,
+                                   mapping,
+                                   result.network,
+                                   result.length_scale,
+                                   communicator);
       }
     return result;
   }
@@ -570,17 +612,18 @@ namespace ImmersX::Vascularization
            const std::vector<TerminalPair> &initial_pairs)
   {
     using namespace dealii;
-    const auto &p     = parameters.calibration;
-    const auto  modes = std::make_pair(
+    auto       p     = parameters.calibration;
+    const auto modes = std::make_pair(
       std::array<double, 8>{{p.volume_fraction,
-                              p.minimum_coverage,
-                              p.relative_tolerance,
-                              static_cast<double>(p.minimum_terminals),
-                              static_cast<double>(p.maximum_terminals),
-                              static_cast<double>(p.attempt_budget),
-                              static_cast<double>(parameters.terminal_count),
-                              static_cast<double>(parameters.venous.enabled)}},
-      parameters.terminal_count_multiplier_factor);
+                             p.minimum_coverage,
+                             p.relative_tolerance,
+                             static_cast<double>(p.minimum_terminals),
+                             static_cast<double>(p.maximum_terminals),
+                             static_cast<double>(p.attempt_budget),
+                             static_cast<double>(parameters.terminal_count),
+                             static_cast<double>(parameters.venous.enabled)}},
+      std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
+                                  parameters.length_scale}});
     bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
@@ -665,12 +708,15 @@ namespace ImmersX::Vascularization
                                         initial_pairs,
                                         communicator);
       }
+    if (p.maximum_terminals == 0)
+      p.maximum_terminals = std::max(initial_count, p.minimum_terminals);
     if (p.volume_fraction == 0. && p.minimum_coverage == 0.)
       return generate_count(background,
                             mapping,
                             initial,
                             parameters,
                             communicator,
+                            initial_count,
                             initial_count,
                             initial_territories,
                             initial_pairs);
@@ -708,8 +754,13 @@ namespace ImmersX::Vascularization
       return valid;
     };
     GenerationResult baseline;
-    baseline.network    = initial;
-    baseline.validation = validate_data(initial, size);
+    baseline.length_scale =
+      mesh_length_scale(background, parameters.length_scale, communicator);
+    baseline.base_terminal_count      = parameters.terminal_count;
+    baseline.initial_terminal_count   = initial_count;
+    baseline.requested_terminal_count = initial_count;
+    baseline.network                  = initial;
+    baseline.validation               = validate_data(initial, size);
     if (!collective_valid(baseline.validation))
       return baseline;
     baseline.discretization = discretize(
@@ -748,6 +799,7 @@ namespace ImmersX::Vascularization
                                         parameters,
                                         communicator,
                                         count,
+                                        initial_count,
                                         initial_territories,
                                         initial_pairs);
         statistics.insert(statistics.end(),

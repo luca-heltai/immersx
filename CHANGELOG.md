@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply one background length policy to vascular seeds and imported attachments, whole-branch minimum length and radius, symmetric variable clearance, venous separation and tissue-local coverage. Preserve physical input and solver units, and report mesh bounds, count decisions and normalized vessel geometry.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Evaluate geometric vascular coverage with a service distance relative to each tissue quadrature point, preserving physical volume weights and routing remote terminals across the largest service reach.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Measure vascular length and tapered radii relative to a metre, local active-cell diameter, or global diameter bounds, using exact background crossings and explicit exterior portions without changing physical data.
@@ -170,6 +172,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #62](https://github.com/luca-heltai/immersx/pull/62) Supported strong dynamic elasticity constraints.
 
 ### Changed
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default vascular generation to one territory per active cell, volume-based density exponent three and local length coefficients. Derive an automatic calibration maximum from the scaled request instead of imposing a fixed terminal cap. Start veins with a fixed-length stem and a continuation that preserves series flow and Murray radii.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Base terminal proposal density on physical background cell volume so exponent three assigns equal proposal weight per cell, including cells with different aspect ratios.
 

@@ -8,6 +8,7 @@
 
 #include <deal.II/grid/grid_tools_cache.h>
 
+#include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/network.h>
 
 namespace ImmersX::Vascularization::internal
@@ -23,6 +24,12 @@ namespace ImmersX::Vascularization::internal
       ar &begin &end &h &owner;
     }
   };
+
+  ScaledVesselMeasure
+  measure_background_profile(double                       physical_length,
+                             const std::array<double, 2> &radii,
+                             const std::vector<BackgroundInterval> &intervals,
+                             const MeshLengthScale                 &scale);
 
   // Keys are local to the requesting rank. Results partition [0,1], with h=0
   // outside. Shared positive-length intervals use the smallest containing h.

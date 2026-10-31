@@ -179,7 +179,7 @@ namespace ImmersX::Vascularization
       {
         auto out = output(name("vessels"));
         out
-          << "id,node0,node1,system,x0,y0,z0,x1,y1,z1,radius0,radius1,viscosity,length,full_volume,resistance,flow,shear0,shear1\n";
+          << "id,node0,node1,system,x0,y0,z0,x1,y1,z1,radius0,radius1,viscosity,length,full_volume,resistance,flow,shear0,shear1,normalized_length,minimum_scale,maximum_scale,minimum_normalized_radius,maximum_normalized_radius,normalization_complete,has_normalized_part,inside_length,exterior_length\n";
         for (const auto &[id, v] : r.network.vessels)
           if (v.owner == rank)
             {
@@ -198,6 +198,14 @@ namespace ImmersX::Vascularization
                     << it->second.wall_shear[1];
               else
                 out << ",,";
+              const auto &measure = r.normalized_geometry.at(id);
+              out << ',' << measure.normalized_length << ','
+                  << measure.minimum_scale << ',' << measure.maximum_scale
+                  << ',' << measure.minimum_normalized_radius << ','
+                  << measure.maximum_normalized_radius << ','
+                  << measure.complete << ',' << measure.has_normalized_part
+                  << ',' << measure.inside_length << ','
+                  << measure.exterior_length;
               out << '\n';
             }
       }
@@ -414,11 +422,13 @@ namespace ImmersX::Vascularization
               }
           bg.execute_coarsening_and_refinement();
         }
-    const double   background_seconds = timer.wall_time();
+    const double background_seconds = timer.wall_time();
+    const auto   scale = mesh_length_scale(bg, p.generation.length_scale, comm);
+    const double halo =
+      scale.physical_length(p.generation.clearance, scale.maximum());
     NetworkArchive initial;
     if (p.mode != "generate")
-      initial = load_network(
-        p.input_archive, bg, mapping, p.generation.clearance, comm);
+      initial = load_network(p.input_archive, bg, mapping, halo, comm);
     const double     input_seconds = timer.wall_time() - background_seconds;
     GenerationResult result;
     if (p.mode == "generate")
@@ -433,6 +443,7 @@ namespace ImmersX::Vascularization
                         initial.terminal_pairs);
     else if (p.mode == "load")
       {
+        result.length_scale   = scale;
         result.network        = std::move(initial.network);
         result.territories    = std::move(initial.territories);
         result.terminal_pairs = std::move(initial.terminal_pairs);
@@ -445,7 +456,13 @@ namespace ImmersX::Vascularization
                                          result.network,
                                          result.discretization,
                                          p.generation.coverage,
-                                         comm);
+                                         comm,
+                                         scale);
+        if (valid_all(result.validation, comm))
+          result.normalized_geometry =
+            measure_scaled_vessels(bg, mapping, result.network, scale, comm);
+        result.effective_terminal_count = Utilities::MPI::sum(
+          static_cast<unsigned int>(result.territories.size()), comm);
       }
     const double generation_seconds =
       timer.wall_time() - background_seconds - input_seconds;
@@ -639,7 +656,7 @@ namespace ImmersX::Vascularization
             }
           auto out = output(directory / "summary.csv");
           out
-            << "valid,mode,processes,background_cells,nodes,vessels,arterial_terminals,venous_terminals,territories,pairs,numerical_cells,background_volume,inside_volume,volume_fraction,target_volume_fraction,arterial_coverage,venous_coverage,dual_coverage,coverage_evaluated,minimum_coverage,reference_evaluated,reference_flow,reference_power,maximum_flow_defect,calibration_status,calibration_attempts,sampled_points,accepted_insertions,background_seconds,input_seconds,generation_seconds,additional_reference_seconds,mesh_seconds,output_seconds,total_seconds\n";
+            << "valid,mode,processes,background_cells,nodes,vessels,arterial_terminals,venous_terminals,territories,pairs,numerical_cells,background_volume,inside_volume,volume_fraction,target_volume_fraction,arterial_coverage,venous_coverage,dual_coverage,coverage_evaluated,minimum_coverage,reference_evaluated,reference_flow,reference_power,maximum_flow_defect,calibration_status,calibration_attempts,sampled_points,accepted_insertions,background_seconds,input_seconds,generation_seconds,additional_reference_seconds,mesh_seconds,output_seconds,total_seconds,length_scale,mesh_h_min,mesh_h_max,base_terminal_count,initial_terminal_count,requested_terminal_count,effective_terminal_count\n";
           out << result.validation.valid() << ',' << p.mode << ',' << size;
           for (unsigned int i = 0; i < 8; ++i)
             out << ',' << total[i];
@@ -662,6 +679,13 @@ namespace ImmersX::Vascularization
               << result.sampled_points << ',' << result.accepted_insertions;
           for (double t : maximum)
             out << ',' << t;
+          out << ',' << result.length_scale.name() << ','
+              << result.length_scale.mesh_minimum << ','
+              << result.length_scale.mesh_maximum << ','
+              << result.base_terminal_count << ','
+              << result.initial_terminal_count << ','
+              << result.requested_terminal_count << ','
+              << result.effective_terminal_count;
           out << '\n';
           auto per_rank = output(directory / "ranks.csv");
           per_rank

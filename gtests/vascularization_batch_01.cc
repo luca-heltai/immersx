@@ -19,6 +19,15 @@ using namespace ImmersX::Vascularization;
 using namespace ImmersX::Vascularization::internal;
 namespace
 {
+  void
+  physical_controls(Parameters &p)
+  {
+    p.length_scale               = "meter";
+    p.minimum_length             = 0.;
+    p.density_beta               = 0.;
+    p.coverage.service_radius    = 0.;
+    p.venous.terminal_separation = 0.;
+  }
   unsigned int
   rank()
   {
@@ -122,8 +131,9 @@ TEST(VascularGrowthBatch,
     local.push_back(split(n, 1, targets[1]));
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
-  const auto         result = select(geometry, n, local, p);
-  unsigned int       count  = 0;
+  physical_controls(p);
+  const auto   result = select(geometry, n, local, p);
+  unsigned int count  = 0;
   for (const auto &[id, accepted] : result.local)
     {
       EXPECT_TRUE(accepted);
@@ -155,7 +165,8 @@ TEST(VascularGrowthBatch,
     local.push_back(split(n, 1, targets[1]));
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
-  const auto         result = select(geometry, n, local, p);
+  physical_controls(p);
+  const auto result = select(geometry, n, local, p);
   if (rank() == a)
     EXPECT_TRUE(result.local.at(0));
   if (rank() == b)
@@ -189,7 +200,8 @@ TEST(VascularGrowthBatch,
     local.push_back(split(n, 1, targets[1]));
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
-  const auto         result = select(geometry, n, local, p);
+  physical_controls(p);
+  const auto result = select(geometry, n, local, p);
   if (rank() == a)
     EXPECT_FALSE(result.local.at(0));
   if (rank() == b)
@@ -210,6 +222,7 @@ TEST(VascularGrowthBatch, BOTH_ModifiedTopologyAndGeometryNeedTheOwnersConsent)
   const auto         proposer = point_owner(bg, target);
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
+  physical_controls(p);
   for (unsigned int test = 0; test < 3; ++test)
     {
       std::vector<BatchProposal> local;
@@ -253,7 +266,8 @@ TEST(VascularGrowthBatch,
     local.push_back(split(n, 0, target));
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
-  const auto         result = select(geometry, n, local, p);
+  physical_controls(p);
+  const auto result = select(geometry, n, local, p);
   if (rank() == proposer)
     EXPECT_TRUE(result.local.at(0));
   for (const auto &[key, accepted] : result.relevant)
@@ -289,7 +303,8 @@ TEST(VascularGrowthBatch,
     }
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
-  const auto         alone = select(geometry, n, local, p);
+  physical_controls(p);
+  const auto alone = select(geometry, n, local, p);
   if (rank() == b)
     EXPECT_TRUE(alone.local.at(1));
   if (rank() == a)
@@ -331,7 +346,8 @@ TEST(VascularGrowthBatch,
     local.push_back(split(n, 0, target));
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
-  const auto         result = select(geometry, n, local, p);
+  physical_controls(p);
+  const auto result = select(geometry, n, local, p);
   if (rank() == proposer)
     EXPECT_FALSE(result.local.at(0));
   for (const auto &[key, accepted] : result.relevant)
@@ -358,6 +374,7 @@ TEST(VascularGrowthBatch,
     }
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
+  physical_controls(p);
   EXPECT_THROW(select(geometry, n, local, p), ExceptionBase);
   if (size() > 1)
     EXPECT_THROW(select_growth_batch(
@@ -375,6 +392,7 @@ TEST(VascularGrowthBatch,
   MappingQ1<3>       mapping;
   BackgroundGeometry geometry(bg, mapping);
   Parameters         p;
+  physical_controls(p);
   for (double x : {-1.e-11, 1.e-11})
     {
       std::vector<BatchProposal> local;
@@ -404,9 +422,10 @@ TEST(VascularGrowthBatch, BOTH_SpatialConflictVotesMatchExhaustivePairs)
                                             {4, 2, 2},
                                             Point<3>(),
                                             Point<3>(4., 4., 4.));
-  MappingQ1<3>               mapping;
-  BackgroundGeometry         geometry(bg, mapping);
-  Parameters                 controls;
+  MappingQ1<3>       mapping;
+  BackgroundGeometry geometry(bg, mapping);
+  Parameters         controls;
+  physical_controls(controls);
   std::vector<BatchProposal> proposals;
   const auto                 edge =
     [](Id id, const Point<3> &a, const Point<3> &b, double radius) {
