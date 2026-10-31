@@ -34,6 +34,8 @@ namespace ImmersX::Vascularization::internal
     std::vector<TerminalDemandUpdate> terminals;
     // If present, these totals ALREADY include the proposed new terminals.
     std::optional<std::array<double, 2>> canonical_total_demand;
+    // Separate portal control preserves the existing arterial/venous input.
+    std::optional<double> canonical_portal_demand;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
@@ -50,6 +52,17 @@ namespace ImmersX::Vascularization::internal
         }
       if (canonical)
         ar &(*canonical_total_demand)[0] & (*canonical_total_demand)[1];
+      bool portal = canonical_portal_demand.has_value();
+      ar  &portal;
+      if constexpr (Archive::is_loading::value)
+        {
+          if (portal)
+            canonical_portal_demand.emplace();
+          else
+            canonical_portal_demand.reset();
+        }
+      if (portal)
+        ar &*canonical_portal_demand;
     }
   };
 

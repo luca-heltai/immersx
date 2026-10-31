@@ -224,6 +224,23 @@ namespace ImmersX::Vascularization
       venous.microvascular_resistance,
       "Positive Pa s/m^3 per bed, or zero to derive each bed from the explicit reference pressures and demand flow.");
     leave_subsection();
+    enter_subsection("Portal network");
+    add_parameter("Enabled", portal.enabled);
+    add_parameter("Selected terminal ids", portal.selected_terminals);
+    add_parameter("Seed position", portal.seed_position);
+    add_parameter("Seed inward port normal", portal.seed_inward_port_normal);
+    add_parameter("Seed radius", portal.seed_radius);
+    add_parameter("Murray exponent", portal.murray_exponent);
+    add_parameter("Terminal separation", portal.terminal_separation);
+    add_parameter(
+      "Flow fraction",
+      portal_flow_fraction,
+      "Fraction of total new-tissue flow supplied by portal inflow; strictly between zero and one.");
+    add_parameter(
+      "Compartment resistances",
+      compartment_resistances,
+      "Arterial, portal and venous star-arm resistances; all zero derives positive arms from demand flow.");
+    leave_subsection();
   }
 
   void
@@ -247,6 +264,31 @@ namespace ImmersX::Vascularization
       dealii::ExcMessage(
         "A positive minimum coverage requires an explicit positive maximum service distance."));
     const auto positive = [](double x) { return std::isfinite(x) && x > 0.; };
+    if (portal.enabled)
+      {
+        bool supplied = true, derived = true;
+        for (const double r : compartment_resistances)
+          {
+            supplied = supplied && positive(r);
+            derived  = derived && r == 0.;
+          }
+        AssertThrow(
+          venous.enabled && positive(portal.murray_exponent) &&
+            positive(portal.terminal_separation) &&
+            std::isfinite(portal.seed_radius) && portal.seed_radius >= 0. &&
+            std::isfinite(portal_flow_fraction) && portal_flow_fraction > 0. &&
+            portal_flow_fraction < 1. &&
+            (supplied || (derived && positive(reference_flow))) &&
+            venous.microvascular_resistance == 0. &&
+            portal.microvascular_resistance == 0.,
+          dealii::ExcMessage(
+            "Portal growth requires venous drainage, positive geometric controls, a flow fraction between zero and one, and three positive compartment resistances or a positive reference flow. The two-terminal bed resistance must remain zero."));
+        for (unsigned int d = 0; d < 3; ++d)
+          AssertThrow(std::isfinite(portal.seed_position[d]) &&
+                        std::isfinite(portal.seed_inward_port_normal[d]),
+                      dealii::ExcMessage(
+                        "Portal seed coordinates and normals must be finite."));
+      }
     if (venous.enabled)
       {
         reference_parameters.validate();
@@ -256,7 +298,8 @@ namespace ImmersX::Vascularization
             std::isfinite(venous.seed_radius) && venous.seed_radius >= 0. &&
             std::isfinite(venous.microvascular_resistance) &&
             venous.microvascular_resistance >= 0. &&
-            (venous.microvascular_resistance > 0. || positive(reference_flow)),
+            (portal.enabled || venous.microvascular_resistance > 0. ||
+             positive(reference_flow)),
           dealii::ExcMessage(
             "Venous growth requires a positive Murray exponent and terminal separation, and either a positive bed resistance or a positive reference flow to derive it."));
         for (unsigned int d = 0; d < 3; ++d)
@@ -307,18 +350,15 @@ namespace ImmersX::Vascularization
   }
 
   static GenerationResult
-  generate_count(
-    const dealii::Triangulation<3>                &background,
-    const dealii::Mapping<3>                      &mapping,
-    const NetworkData                             &initial,
-    const Parameters                              &parameters,
-    MPI_Comm                                       communicator,
-    unsigned int                                   terminal_count,
-    unsigned int                                   initial_count,
-    const std::vector<Territory>                  &initial_territories,
-    const std::vector<TerminalPair>               &initial_pairs,
-    std::unique_ptr<internal::BackgroundGeometry> &prepared_geometry,
-    GrowthWork                                    &preparation_work)
+  generate_count(const dealii::Triangulation<3>     &background,
+                 const dealii::Mapping<3>           &mapping,
+                 const NetworkData                  &initial,
+                 const Parameters                   &parameters,
+                 MPI_Comm                            communicator,
+                 unsigned int                        terminal_count,
+                 const std::vector<Territory>       &initial_territories,
+                 const std::vector<TerminalPair>    &initial_pairs,
+                 const std::vector<TerminalTriplet> &initial_triplets)
   {
     using namespace dealii;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -473,15 +513,15 @@ namespace ImmersX::Vascularization
       }
     if (!collective_valid())
       return result;
-    Id reserved_venous_port = invalid_id;
+    Id reserved_venous_port = invalid_id, reserved_portal_port = invalid_id;
     if (parameters.venous.enabled)
       {
-        auto outlet = internal::reserve_venous_outlet(background,
-                                                      mapping,
-                                                      result.network,
-                                                      parameters,
-                                                      communicator,
-                                                      &geometry);
+        auto outlet = internal::reserve_companion_port(background,
+                                                       mapping,
+                                                       result.network,
+                                                       parameters,
+                                                       communicator,
+                                                       System::venous);
         result.validation.issues.insert(result.validation.issues.end(),
                                         outlet.validation.issues.begin(),
                                         outlet.validation.issues.end());
@@ -489,6 +529,22 @@ namespace ImmersX::Vascularization
           return result;
         result.network       = std::move(outlet.network);
         reserved_venous_port = outlet.port;
+      }
+    if (parameters.portal.enabled)
+      {
+        auto inlet = internal::reserve_companion_port(background,
+                                                      mapping,
+                                                      result.network,
+                                                      parameters,
+                                                      communicator,
+                                                      System::portal);
+        result.validation.issues.insert(result.validation.issues.end(),
+                                        inlet.validation.issues.begin(),
+                                        inlet.validation.issues.end());
+        if (!collective_valid())
+          return result;
+        result.network       = std::move(inlet.network);
+        reserved_portal_port = inlet.port;
       }
     const auto run_growth = [&](System system) {
       std::map<Id, double> fixed_roots;
@@ -511,17 +567,8 @@ namespace ImmersX::Vascularization
                               communicator,
                               terminal_count,
                               system,
-                              system == System::venous ? result.territories :
-                                                         empty,
-                              std::move(callbacks),
-                              &geometry);
-      if (!growth.statistics.empty())
-        {
-          auto &first = growth.statistics.begin()->second;
-          first.work += preparation_work;
-          first.initialization_work += preparation_work;
-          preparation_work = {};
-        }
+                              system != System::arterial ? result.territories :
+                                                           empty);
       for (const auto &[bucket, statistics] : growth.statistics)
         result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),
@@ -572,54 +619,57 @@ namespace ImmersX::Vascularization
                           communicator);
     if (!collective_valid())
       return result;
-    if (parameters.venous.enabled)
-      {
-        auto startup = internal::start_venous(background,
-                                              mapping,
-                                              result.network,
-                                              initial,
-                                              parameters,
-                                              result.territories,
-                                              reserved_venous_port,
-                                              communicator,
-                                              &geometry);
-        result.validation.issues.insert(
-          result.validation.issues.end(),
-          startup.accepted.validation.issues.begin(),
-          startup.accepted.validation.issues.end());
-        if (!collective_valid())
-          return result;
-        if (!startup.accepted.prepared)
-          {
-            fail(invalid_id, "No venous startup batch was prepared.");
+    for (System companion_system : {System::portal, System::venous})
+      if ((companion_system == System::portal && parameters.portal.enabled) ||
+          (companion_system == System::venous && parameters.venous.enabled))
+        {
+          auto startup =
+            internal::start_companion(background,
+                                      mapping,
+                                      result.network,
+                                      initial,
+                                      parameters,
+                                      result.territories,
+                                      companion_system == System::portal ?
+                                        reserved_portal_port :
+                                        reserved_venous_port,
+                                      communicator,
+                                      companion_system);
+          result.validation.issues.insert(
+            result.validation.issues.end(),
+            startup.accepted.validation.issues.begin(),
+            startup.accepted.validation.issues.end());
+          if (!collective_valid())
             return result;
-          }
-        result.network = std::move(startup.accepted.network);
-        mutable_forest = std::move(startup.accepted.mutable_owned);
-        result.attachment_roots.insert(startup.attachment_roots.begin(),
-                                       startup.attachment_roots.end());
-        roots.clear();
-        for (const auto &[id, radius] : startup.accepted.fixed_owned_roots)
-          roots.push_back(id);
-        run_growth(System::venous);
-        if (!collective_valid())
-          return result;
-      }
+          if (!startup.accepted.committed)
+            {
+              fail(invalid_id, "No venous startup batch was committed.");
+              return result;
+            }
+          result.network = std::move(startup.accepted.network);
+          result.attachment_roots.insert(startup.attachment_roots.begin(),
+                                         startup.attachment_roots.end());
+          roots.clear();
+          for (const auto &[id, radius] : startup.accepted.fixed_owned_roots)
+            roots.push_back(id);
+          run_growth(companion_system);
+          if (!collective_valid())
+            return result;
+        }
     auto retained = internal::retain_metadata(initial,
                                               initial_territories,
                                               initial_pairs,
                                               result.network,
-                                              communicator);
+                                              communicator,
+                                              initial_triplets);
     result.validation.issues.insert(result.validation.issues.end(),
                                     retained.validation.issues.begin(),
                                     retained.validation.issues.end());
     if (!collective_valid())
       return result;
     if (parameters.venous.enabled)
-      internal::pair_territories(result,
-                                 parameters,
-                                 communicator,
-                                 retained.pairs);
+      internal::pair_territories(
+        result, parameters, communicator, retained.pairs, retained.triplets);
     result.territories.insert(result.territories.end(),
                               retained.territories.begin(),
                               retained.territories.end());
@@ -680,25 +730,42 @@ namespace ImmersX::Vascularization
            const NetworkData               &initial,
            const Parameters                &parameters,
            MPI_Comm                         communicator,
-           const std::vector<Territory>    &initial_territories,
-           const std::vector<TerminalPair> &initial_pairs)
+           const std::vector<Territory>    &territories,
+           const std::vector<TerminalPair> &pairs)
+  {
+    return generate(background,
+                    mapping,
+                    initial,
+                    parameters,
+                    communicator,
+                    territories,
+                    pairs,
+                    {});
+  }
+
+  GenerationResult
+  generate(const dealii::Triangulation<3>     &background,
+           const dealii::Mapping<3>           &mapping,
+           const NetworkData                  &initial,
+           const Parameters                   &parameters,
+           MPI_Comm                            communicator,
+           const std::vector<Territory>       &initial_territories,
+           const std::vector<TerminalPair>    &initial_pairs,
+           const std::vector<TerminalTriplet> &initial_triplets)
   {
     using namespace dealii;
-    GrowthWork                                    preparation_work;
-    std::unique_ptr<internal::BackgroundGeometry> prepared_geometry;
-
-    auto       p     = parameters.calibration;
-    const auto modes = std::make_pair(
-      std::array<double, 8>{{p.volume_fraction,
-                             p.minimum_coverage,
-                             p.relative_tolerance,
-                             static_cast<double>(p.minimum_terminals),
-                             static_cast<double>(p.maximum_terminals),
-                             static_cast<double>(p.attempt_budget),
-                             static_cast<double>(parameters.terminal_count),
-                             static_cast<double>(parameters.venous.enabled)}},
-      std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
-                                  parameters.length_scale}});
+    const auto                  &p = parameters.calibration;
+    const std::array<double, 10> modes{
+      {p.volume_fraction,
+       p.minimum_coverage,
+       p.relative_tolerance,
+       static_cast<double>(p.minimum_terminals),
+       static_cast<double>(p.maximum_terminals),
+       static_cast<double>(p.attempt_budget),
+       static_cast<double>(parameters.terminal_count),
+       static_cast<double>(parameters.venous.enabled),
+       static_cast<double>(parameters.portal.enabled),
+       parameters.portal_flow_fraction}};
     bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
@@ -768,20 +835,27 @@ namespace ImmersX::Vascularization
       static_cast<unsigned int>(parameters.terminal_count * multiplier);
     const bool has_metadata =
       Utilities::MPI::sum(static_cast<Id>(initial_territories.size() +
-                                          initial_pairs.size()),
+                                          initial_pairs.size() +
+                                          initial_triplets.size()),
                           communicator) > 0;
+    const auto global_triplets =
+      Utilities::MPI::sum(static_cast<Id>(initial_triplets.size()),
+                          communicator);
     if (has_metadata)
       {
         AssertThrow(
-          Utilities::MPI::sum(static_cast<Id>(initial_pairs.size()),
+          Utilities::MPI::sum(static_cast<Id>(initial_pairs.size() +
+                                              initial_triplets.size()),
                               communicator) == 0 ||
-            parameters.venous.enabled,
+            (parameters.venous.enabled &&
+             (global_triplets == 0 || parameters.portal.enabled)),
           ExcMessage(
             "Completing input beds requires venous growth to be enabled."));
         internal::validate_archive_data(initial,
                                         initial_territories,
                                         initial_pairs,
-                                        communicator);
+                                        communicator,
+                                        initial_triplets);
       }
     if (p.maximum_terminals == 0)
       p.maximum_terminals = std::max(initial_count, p.minimum_terminals);
@@ -795,8 +869,7 @@ namespace ImmersX::Vascularization
                             initial_count,
                             initial_territories,
                             initial_pairs,
-                            prepared_geometry,
-                            preparation_work);
+                            initial_triplets);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
@@ -879,8 +952,7 @@ namespace ImmersX::Vascularization
                                         initial_count,
                                         initial_territories,
                                         initial_pairs,
-                                        prepared_geometry,
-                                        preparation_work);
+                                        initial_triplets);
         statistics.insert(statistics.end(),
                           candidate.growth_statistics.begin(),
                           candidate.growth_statistics.end());
@@ -901,7 +973,9 @@ namespace ImmersX::Vascularization
             const double deficit =
               std::max(0.,
                        p.minimum_coverage -
-                         (parameters.venous.enabled ?
+                         (parameters.portal.enabled ?
+                            candidate.tissue.triple_coverage :
+                          parameters.venous.enabled ?
                             candidate.tissue.dual_coverage :
                             candidate.tissue.arterial_coverage));
             if (error <= p.relative_tolerance && deficit == 0.)

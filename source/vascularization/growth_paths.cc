@@ -163,10 +163,13 @@ namespace ImmersX::Vascularization::internal
         unsigned int system = 0;
         if (first.system == System::venous)
           system = 1;
+        else if (first.system == System::portal)
+          system = 2;
         else if (first.system != System::arterial)
           valid = false;
-        x.murray_exponent =
-          system == 0 ? p.arterial_murray_exponent : p.venous.murray_exponent;
+        x.murray_exponent        = system == 0 ? p.arterial_murray_exponent :
+                                   system == 1 ? p.venous.murray_exponent :
+                                                 p.portal.murray_exponent;
         x.total_demand           = forest.total_demand[system];
         x.forest_volume          = forest.volume[system];
         x.forest_power_numerator = forest.power_numerator[system];

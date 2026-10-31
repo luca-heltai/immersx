@@ -44,6 +44,10 @@ namespace
     {
       add_parameter("Arterial grid", arterial_grid);
       add_parameter("Venous grid", venous_grid);
+      add_parameter(
+        "Portal grid",
+        portal_grid,
+        "Optional rooted 1D VTK tree; required when Portal network/Enabled is true.");
       add_parameter("Output directory", output_directory);
       domain.triangulation_type               = "fullydistributed";
       domain.surface_mesh_size                = .012;
@@ -60,7 +64,7 @@ namespace
       growth.venous.enabled                   = true;
       growth.venous.terminal_separation       = .003;
     }
-    std::string                  arterial_grid, venous_grid, output_directory;
+    std::string arterial_grid, venous_grid, portal_grid, output_directory;
     ImmersX::DomainParameters<3> domain;
     V::Parameters                growth;
   };
@@ -134,6 +138,8 @@ namespace
       network.nodes.at(offset + root).port = V::Port::arterial_inlet;
     else if (system == V::System::venous)
       network.nodes.at(offset + root).port = V::Port::venous_outlet;
+    else if (system == V::System::portal)
+      network.nodes.at(offset + root).port = V::Port::portal_inlet;
     std::set<std::size_t>   seen{root};
     std::queue<std::size_t> pending;
     pending.push(root);
@@ -193,9 +199,16 @@ main(int argc, char **argv)
                          &settings.output_directory,
                          &settings.domain.name_of_grid})
         *path = (input.parent_path() / *path).lexically_normal().string();
+      if (!settings.portal_grid.empty())
+        settings.portal_grid = (input.parent_path() / settings.portal_grid)
+                                 .lexically_normal()
+                                 .string();
+      AssertThrow(
+        settings.growth.portal.enabled == !settings.portal_grid.empty(),
+        ExcMessage("Supply Portal grid and enable Portal network together."));
       bool               valid = true;
       V::NetworkData     initial;
-      std::vector<V::Id> arterial, venous;
+      std::vector<V::Id> arterial, venous, portal;
       if (rank == 0)
         try
           {
@@ -210,6 +223,12 @@ main(int argc, char **argv)
                       settings.growth.viscosity,
                       initial,
                       venous);
+            if (settings.growth.portal.enabled)
+              read_tree(settings.portal_grid,
+                        V::System::portal,
+                        settings.growth.viscosity,
+                        initial,
+                        portal);
 #else
             AssertThrow(false,
                         ExcMessage("The liver tutorial requires VTK support."));
@@ -230,6 +249,8 @@ main(int argc, char **argv)
         Utilities::MPI::broadcast(comm, arterial, 0);
       settings.growth.venous.selected_terminals =
         Utilities::MPI::broadcast(comm, venous, 0);
+      settings.growth.portal.selected_terminals =
+        Utilities::MPI::broadcast(comm, portal, 0);
       ImmersX::Domain<3> domain(settings.domain, comm);
       domain.make_grid();
       const auto reference_cell =
@@ -253,6 +274,7 @@ main(int argc, char **argv)
                       result.network,
                       result.territories,
                       result.terminal_pairs,
+                      result.terminal_triplets,
                       comm);
       parallel::fullydistributed::Triangulation<1, 3> lines(comm);
       const auto                                      references =
@@ -332,8 +354,27 @@ main(int argc, char **argv)
           out << pair.territory << ',' << pair.arterial << ',' << pair.venous
               << ',' << pair.resistance << '\n';
       }
+      {
+        auto out = table("triplets");
+        out
+          << "territory,arterial,portal,venous,arterial_resistance,portal_resistance,venous_resistance,arterial_flow,portal_flow,venous_flow,compartment_pressure\n";
+        for (const auto &t : result.terminal_triplets)
+          {
+            const auto &reference =
+              result.reference.territories.at(t.territory);
+            out << t.territory << ',' << t.arterial << ',' << t.portal << ','
+                << t.venous;
+            for (double r : t.resistances)
+              out << ',' << r;
+            out << ',' << reference.arterial_flow << ','
+                << reference.portal_flow << ',' << reference.venous_flow << ','
+                << reference.compartment_pressure << '\n';
+          }
+      }
       const auto pairs =
         Utilities::MPI::sum(result.terminal_pairs.size(), comm);
+      const auto triplets =
+        Utilities::MPI::sum(result.terminal_triplets.size(), comm);
       const auto vessels =
         Utilities::MPI::sum(static_cast<V::Id>(
                               std::count_if(result.network.vessels.begin(),
@@ -346,10 +387,11 @@ main(int argc, char **argv)
         {
           std::ofstream summary(
             std::filesystem::path(settings.output_directory) / "summary.csv");
-          summary << "background_cells,vessels,new_pairs,volume_fraction\n"
-                  << domain.triangulation().n_global_active_cells() << ','
-                  << vessels << ',' << pairs << ','
-                  << result.tissue.volume_fraction << '\n';
+          summary
+            << "background_cells,vessels,new_pairs,volume_fraction,new_triplets\n"
+            << domain.triangulation().n_global_active_cells() << ',' << vessels
+            << ',' << pairs << ',' << result.tissue.volume_fraction << ','
+            << triplets << '\n';
           std::cout << "Liver cells: "
                     << domain.triangulation().n_global_active_cells()
                     << ", physical vessels: " << vessels

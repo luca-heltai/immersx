@@ -128,7 +128,7 @@ namespace ImmersX::Vascularization::internal
   {
     using namespace dealii;
     accepted_volume = forest.volume;
-    for (unsigned int system = 0; system < 2; ++system)
+    for (unsigned int system = 0; system < 3; ++system)
       if (forest.total_demand[system] > 0.)
         accepted_resistance[system] =
           forest.power_numerator[system] /
@@ -138,6 +138,7 @@ namespace ImmersX::Vascularization::internal
     bool       valid = report.valid() &&
                  positive(parameters.arterial_murray_exponent) &&
                  positive(parameters.venous.murray_exponent) &&
+                 positive(parameters.portal.murray_exponent) &&
                  std::isfinite(parameters.reference_flow) &&
                  parameters.reference_flow >= 0. &&
                  std::isfinite(parameters.dissipation_weight) &&
@@ -147,10 +148,11 @@ namespace ImmersX::Vascularization::internal
       valid = valid && geometry->size() == forest.owned.size();
     for (auto other : Utilities::MPI::all_gather(comm, snapshot))
       valid = valid && other == snapshot;
-    const std::array<double, 4> controls{{parameters.arterial_murray_exponent,
+    const std::array<double, 5> controls{{parameters.arterial_murray_exponent,
                                           parameters.venous.murray_exponent,
                                           parameters.dissipation_weight,
-                                          parameters.reference_flow}};
+                                          parameters.reference_flow,
+                                          parameters.portal.murray_exponent}};
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     std::map<unsigned int, std::vector<std::pair<Id, Id>>> requests;
@@ -188,6 +190,11 @@ namespace ImmersX::Vascularization::internal
           {
             branch.gamma  = parameters.venous.murray_exponent;
             branch.system = 1;
+          }
+        else if (vessel->second.system == System::portal)
+          {
+            branch.gamma  = parameters.portal.murray_exponent;
+            branch.system = 2;
           }
         else
           valid = false;
@@ -332,17 +339,17 @@ namespace ImmersX::Vascularization::internal
             parents.insert(key);
           }
       }
-    const std::array<long double, 6> zero{};
+    const std::array<long double, 9> zero{};
     const auto                       get =
-      [&](GrowthRootSumKey key) -> const std::array<long double, 6> & {
+      [&](GrowthRootSumKey key) -> const std::array<long double, 9> & {
       const auto found = root_sums.find(key);
       return found == root_sums.end() ? zero : found->second;
     };
     for (auto key : parents)
-      for (unsigned int j = 0; j < 6; ++j)
+      for (unsigned int j = 0; j < 9; ++j)
         root_sums[key][j] = get({key.first + 1, key.second << 1})[j] +
                             get({key.first + 1, (key.second << 1) | Id{1}})[j];
-    for (unsigned int j = 0; j < 6; ++j)
+    for (unsigned int j = 0; j < 9; ++j)
       {
         accepted_totals[j] = Utilities::MPI::sum(get({0, 0})[j], comm);
         valid = std::isfinite(accepted_totals[j]) && accepted_totals[j] >= 0. &&
@@ -363,13 +370,13 @@ namespace ImmersX::Vascularization::internal
     return physical_mass.convert_to<long double>();
   }
 
-  std::array<long double, 6>
+  std::array<long double, 9>
   GrowthDemandState::root_value(Id id, const GrowthDemandSummary &value) const
   {
     const auto                &branch = branches.at(id);
     const long double          mass   = demand_value(value);
     const long double          radius = branch.topology.root_radius;
-    std::array<long double, 6> result{};
+    std::array<long double, 9> result{};
     result[3 * branch.system] = mass;
     result[3 * branch.system + 1] =
       dealii::numbers::PI * radius * radius * value.volume_length;
@@ -378,7 +385,7 @@ namespace ImmersX::Vascularization::internal
                                     value.resistance_length * mass * mass;
     return result;
   }
-  const std::array<long double, 6> &
+  const std::array<long double, 9> &
   GrowthDemandState::totals() const
   {
     return accepted_totals;
@@ -434,7 +441,7 @@ namespace ImmersX::Vascularization::internal
         const GrowthRootSumKey sibling{key.first, key.second ^ Id{1}};
         const auto             changed  = preview.root_sums.find(sibling);
         const auto             accepted = root_sums.find(sibling);
-        for (unsigned int j = 0; j < 6; ++j)
+        for (unsigned int j = 0; j < 9; ++j)
           result.other_local[j] +=
             changed != preview.root_sums.end() ? changed->second[j] :
             accepted != root_sums.end()        ? accepted->second[j] :
@@ -452,19 +459,23 @@ namespace ImmersX::Vascularization::internal
     const auto          comm = communicator;
     const auto          size = Utilities::MPI::n_mpi_processes(comm);
     GrowthDemandPreview result;
-    result.snapshot_revision      = revision;
-    result.canonical_total_demand = update.canonical_total_demand;
-    result.validation             = report;
+    result.snapshot_revision       = revision;
+    result.canonical_total_demand  = update.canonical_total_demand;
+    result.canonical_portal_demand = update.canonical_portal_demand;
+    result.validation              = report;
     bool valid = report.valid() && update.snapshot_revision == revision;
-    const std::array<std::uint64_t, 4> tokens{
+    const std::array<std::uint64_t, 5> tokens{
       {update.snapshot_revision,
        update.base_quadrature_revision,
        update.quadrature_revision,
-       static_cast<std::uint64_t>(update.canonical_total_demand.has_value())}};
+       static_cast<std::uint64_t>(update.canonical_total_demand.has_value()),
+       static_cast<std::uint64_t>(update.canonical_portal_demand.has_value())}};
     for (const auto &other : Utilities::MPI::all_gather(comm, tokens))
       valid = valid && other == tokens;
-    const auto canonical =
+    const auto legacy =
       update.canonical_total_demand.value_or(std::array<double, 2>{{0., 0.}});
+    const std::array<double, 3> canonical{
+      {legacy[0], legacy[1], update.canonical_portal_demand.value_or(0.)}};
     for (double value : canonical)
       valid = valid && std::isfinite(value) && value >= 0.;
     for (const auto &other : Utilities::MPI::all_gather(comm, canonical))
@@ -692,9 +703,9 @@ namespace ImmersX::Vascularization::internal
               parents.insert(key);
             }
         }
-    const std::array<long double, 6> zero{};
+    const std::array<long double, 9> zero{};
     const auto                       get =
-      [&](GrowthRootSumKey key) -> const std::array<long double, 6> & {
+      [&](GrowthRootSumKey key) -> const std::array<long double, 9> & {
       const auto changed = changed_sums.find(key);
       if (changed != changed_sums.end())
         return changed->second;
@@ -702,13 +713,13 @@ namespace ImmersX::Vascularization::internal
       return accepted == root_sums.end() ? zero : accepted->second;
     };
     for (auto key : parents)
-      for (unsigned int j = 0; j < 6; ++j)
+      for (unsigned int j = 0; j < 9; ++j)
         changed_sums[key][j] =
           get({key.first + 1, key.second << 1})[j] +
           get({key.first + 1, (key.second << 1) | Id{1}})[j];
     result.rank_totals = Utilities::MPI::all_gather(comm, get({0, 0}));
     for (const auto &rank_sum : result.rank_totals)
-      for (unsigned int j = 0; j < 6; ++j)
+      for (unsigned int j = 0; j < 9; ++j)
         result.totals[j] += rank_sum[j];
     for (long double value : result.totals)
       valid = std::isfinite(value) && value >= 0. && valid;

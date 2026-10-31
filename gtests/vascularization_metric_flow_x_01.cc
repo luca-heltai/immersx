@@ -18,7 +18,7 @@ namespace
 
   template <class Flow>
   void
-  exercise_native_transfer()
+  exercise_native_transfer(const bool three = false)
   {
     if constexpr (!has_metric_flow_x_network_input<Flow>)
       GTEST_SKIP() << "Installed MetricFlowX has no in-memory input API.";
@@ -64,7 +64,27 @@ namespace
               base + 3, base + 21, System::arterial, 0, 1.};
             result.network.terminals[base + 19] = {
               base + 7, base + 21, System::venous, last, 1.};
-            if (rank == 0)
+            if (three)
+              {
+                result.network.nodes[base + 8] = {Point<3>(.1, .5, .5),
+                                                  last,
+                                                  Port::portal_inlet};
+                result.network.nodes[base + 9] = {Point<3>(.9, .5, .5), last};
+                Vessel portal                  = artery;
+                portal.nodes                   = {{base + 8, base + 9}};
+                portal.owner                   = last;
+                portal.system                  = System::portal;
+                result.network.vessels[base + 15]   = portal;
+                result.network.terminals[base + 20] = {
+                  base + 9, base + 21, System::portal, last, 1.};
+                if (rank == 0)
+                  result.terminal_triplets.push_back({base + 21,
+                                                      base + 17,
+                                                      base + 20,
+                                                      base + 19,
+                                                      {{1.e9, 2.e9, 3.e9}}});
+              }
+            if (rank == 0 && !three)
               result.terminal_pairs.push_back(
                 {base + 21, base + 17, base + 19, 1.e9});
           }
@@ -81,7 +101,7 @@ namespace
                                            comm);
         ASSERT_TRUE(result.discretization.validation.valid());
         const auto   original     = result.network;
-        unsigned int vessel_calls = 0, boundary_calls = 0;
+        unsigned int vessel_calls = 0, boundary_calls = 0, portal_calls = 0;
         const auto   transfer = prepare_metric_flow_x(
           flow,
           result,
@@ -102,14 +122,28 @@ namespace
             ++boundary_calls;
             using Physics = typename Flow::NetworkPhysics;
             using RCR = typename decltype(Physics{}.terminals)::mapped_type;
+            if (node.port == Port::portal_inlet)
+              {
+                EXPECT_EQ(terminal, nullptr);
+                ++portal_calls;
+                return RCR{0., 1.e8, 0., 5000., "portal"};
+              }
             return RCR{0., 1.e8, 0., 0., "synthetic"};
           });
-        EXPECT_EQ(Utilities::MPI::sum(vessel_calls, comm), 2u);
-        EXPECT_EQ(Utilities::MPI::sum(boundary_calls, comm), 3u);
-        ASSERT_EQ(transfer.vessel_ids.size(), 2u);
-        ASSERT_EQ(transfer.terminal_ids.size(), 2u);
+        EXPECT_EQ(Utilities::MPI::sum(vessel_calls, comm), three ? 3u : 2u);
+        EXPECT_EQ(Utilities::MPI::sum(boundary_calls, comm), three ? 5u : 3u);
+        ASSERT_EQ(transfer.vessel_ids.size(), three ? 3u : 2u);
+        ASSERT_EQ(transfer.terminal_ids.size(), three ? 3u : 2u);
         EXPECT_EQ(transfer.reversed_vessels, std::set<Id>({base + 13}));
         EXPECT_EQ(transfer.boundary_ids.at(base + 1), 0u);
+        EXPECT_EQ(Utilities::MPI::sum(portal_calls, comm), three ? 1u : 0u);
+        if (three)
+          {
+            EXPECT_NE(transfer.boundary_ids.at(base + 8), 0u);
+            EXPECT_NE(transfer.boundary_ids.at(base + 8),
+                      transfer.boundary_ids.at(base + 5));
+            EXPECT_FALSE(transfer.reversed_vessels.count(base + 15));
+          }
         EXPECT_NE(transfer.terminal_ids.at(base + 17),
                   transfer.terminal_ids.at(base + 19));
         EXPECT_DOUBLE_EQ(
@@ -145,11 +179,15 @@ namespace
             {
               const auto reference = transfer.reference(cell->id());
               const bool vein      = reference.vessel == base + 13;
-              EXPECT_TRUE(vein || reference.vessel == base + 11);
-              const Point<3> a =
-                vein ? Point<3>(.9, .7, .5) : Point<3>(.1, .3, .5);
-              const Point<3> b =
-                vein ? Point<3>(.1, .7, .5) : Point<3>(.9, .3, .5);
+              const bool portal    = reference.vessel == base + 15;
+              EXPECT_TRUE(vein || reference.vessel == base + 11 ||
+                          (three && portal));
+              const Point<3> a = vein   ? Point<3>(.9, .7, .5) :
+                                 portal ? Point<3>(.1, .5, .5) :
+                                          Point<3>(.1, .3, .5);
+              const Point<3> b = vein   ? Point<3>(.1, .7, .5) :
+                                 portal ? Point<3>(.9, .5, .5) :
+                                          Point<3>(.9, .3, .5);
               for (unsigned int f = 0; f < 2; ++f)
                 {
                   const double t =
@@ -214,5 +252,10 @@ namespace
 TEST(MetricFlowX, BOTH_PreparesVascularInputWithNativeBeds)
 {
   exercise_native_transfer<MetricFlowX::BloodFlowSystem<1, 3>>();
+}
+TEST(MetricFlowX,
+     BOTH_PreparesThreeCompartmentInputWithIndependentPortalBoundary)
+{
+  exercise_native_transfer<MetricFlowX::BloodFlowSystem<1, 3>>(true);
 }
 #endif

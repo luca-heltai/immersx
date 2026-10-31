@@ -67,7 +67,7 @@ namespace ImmersX::Vascularization
       return Utilities::MPI::sum(local_volume, comm);
     }
 
-    std::array<std::vector<dealii::Point<3>>, 2>
+    std::array<std::vector<dealii::Point<3>>, 3>
     service_centres(const dealii::Triangulation<3> &background,
                     const dealii::Mapping<3>       &mapping,
                     const NetworkData              &network,
@@ -113,7 +113,7 @@ namespace ImmersX::Vascularization
           }
       // A service ball may cross many partitions even if no vessel ghost is
       // present there. Route centres independently of physical vessel halos.
-      std::array<std::vector<Point<3>>, 2> result;
+      std::array<std::vector<Point<3>>, 3> result;
       for (const auto &[source, centres] :
            Utilities::MPI::some_to_some(comm, send))
         for (const auto &[system, position] : centres)
@@ -122,6 +122,8 @@ namespace ImmersX::Vascularization
               result[0].push_back(position);
             else if (system == System::venous)
               result[1].push_back(position);
+            else if (system == System::portal)
+              result[2].push_back(position);
           }
       return result;
     }
@@ -238,21 +240,17 @@ namespace ImmersX::Vascularization
     result.coverage_evaluated = parameters.service_radius > 0.;
     if (!result.coverage_evaluated)
       return result;
-    // Check both extrema before rank-local quadrature can throw on underflow.
-    scale.physical_length(parameters.service_radius, scale.minimum());
-    const double reach =
-      scale.physical_length(parameters.service_radius, scale.maximum());
-    const auto terminals =
-      service_centres(background, mapping, network, reach, communicator);
-    const std::array<RTree<Point<3>>, 2> trees{
-      {pack_rtree(terminals[0]), pack_rtree(terminals[1])}};
-    const auto served =
-      [&](unsigned int system, const Point<3> &point, double threshold) {
-        for (const auto &nearest :
-             trees[system] | bgi::adaptors::queried(bgi::nearest(point, 1)))
-          return nearest.distance(point) <= threshold;
-        return false;
-      };
+    const auto terminals = service_centres(
+      background, mapping, network, parameters.service_radius, communicator);
+    const std::array<RTree<Point<3>>, 3> trees{{pack_rtree(terminals[0]),
+                                                pack_rtree(terminals[1]),
+                                                pack_rtree(terminals[2])}};
+    const auto served = [&](unsigned int system, const Point<3> &point) {
+      for (const auto &nearest :
+           trees[system] | bgi::adaptors::queried(bgi::nearest(point, 1)))
+        return nearest.distance(point) <= parameters.service_radius;
+      return false;
+    };
     // Retain each FE for the lifetime of its FEValues observer. Geometry-only
     // quadrature needs no DoFs and supports both tetrahedra and hexahedra.
     std::array<std::unique_ptr<FE_Nothing<3>>, 2> elements;
@@ -285,29 +283,36 @@ namespace ImmersX::Vascularization
               result.coverage_quadrature_volume += weight;
               if (result.coverage_evaluated)
                 {
-                  const bool artery =
-                               served(0, fe.quadrature_point(q), threshold),
-                             vein =
-                               served(1, fe.quadrature_point(q), threshold);
+                  const bool artery = served(0, fe.quadrature_point(q)),
+                             vein   = served(1, fe.quadrature_point(q)),
+                             portal = served(2, fe.quadrature_point(q));
                   if (artery)
                     result.arterial_coverage += weight;
                   if (vein)
                     result.venous_coverage += weight;
                   if (artery && vein)
                     result.dual_coverage += weight;
+                  if (portal)
+                    result.portal_coverage += weight;
+                  if (artery && portal && vein)
+                    result.triple_coverage += weight;
                 }
             }
         }
     require_all(valid_weights, "Invalid background quadrature volume.");
-    double integrals[4]{result.coverage_quadrature_volume,
+    double integrals[6]{result.coverage_quadrature_volume,
                         result.arterial_coverage,
                         result.venous_coverage,
-                        result.dual_coverage};
+                        result.dual_coverage,
+                        result.portal_coverage,
+                        result.triple_coverage};
     Utilities::MPI::sum(integrals, communicator, integrals);
     result.coverage_quadrature_volume = integrals[0];
     result.arterial_coverage          = integrals[1];
     result.venous_coverage            = integrals[2];
     result.dual_coverage              = integrals[3];
+    result.portal_coverage            = integrals[4];
+    result.triple_coverage            = integrals[5];
     AssertThrow(std::isfinite(result.coverage_quadrature_volume) &&
                   result.coverage_quadrature_volume > 0.,
                 ExcMessage(
@@ -315,6 +320,8 @@ namespace ImmersX::Vascularization
     result.arterial_coverage /= result.coverage_quadrature_volume;
     result.venous_coverage /= result.coverage_quadrature_volume;
     result.dual_coverage /= result.coverage_quadrature_volume;
+    result.portal_coverage /= result.coverage_quadrature_volume;
+    result.triple_coverage /= result.coverage_quadrature_volume;
     return result;
   }
 } // namespace ImmersX::Vascularization

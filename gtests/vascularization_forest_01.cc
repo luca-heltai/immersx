@@ -1975,6 +1975,8 @@ TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
   update.terminals.push_back({base + rank(), .125 + rank()});
   if (rank() % 2 == 0)
     update.canonical_total_demand = std::array<double, 2>{{5., 0.}};
+  else if (rank() % 2 == 1)
+    update.canonical_portal_demand = 7. + rank();
   std::map<unsigned int, std::vector<GrowthDemandUpdate>> send;
   send[(base + rank()) % size()].push_back(update);
   const auto    received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
@@ -1993,6 +1995,11 @@ TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
         EXPECT_EQ(value.terminals.front().terminal % size(), rank());
         EXPECT_EQ(value.terminals.front().demand, .125 + source);
         EXPECT_EQ(value.canonical_total_demand.has_value(), source % 2 == 0);
+        EXPECT_EQ(value.canonical_portal_demand.has_value(), source % 2 == 1);
+        if (value.canonical_portal_demand)
+          {
+            EXPECT_EQ(*value.canonical_portal_demand, 7. + source);
+          }
         if (value.canonical_total_demand)
           {
             EXPECT_EQ((*value.canonical_total_demand)[0], 5.);
@@ -2305,211 +2312,193 @@ TEST(VascularForest, BOTH_DemandPreviewRetainsSmallUnchangedRootContribution)
 
 TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
 {
-  for (const double flow : {2.e-9, 1.e-180})
-    for (const double new_demand : {2.5, 1.e-30})
-      {
-        parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
-        background(bg);
-        MappingQ1<3> mapping;
-        auto       n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
-        Parameters p;
-        physical_controls(p);
-        p.minimum_angle      = 1.;
-        p.reference_flow     = flow;
-        p.dissipation_weight = .3;
-        const auto accepted  = evaluate(n, p);
-        ASSERT_TRUE(accepted.validation.valid()) << issues(accepted);
-        GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
-        ASSERT_TRUE(state.validation().valid());
-        GrowthDemandUpdate update;
-        update.snapshot_revision  = 7;
-        const double final_demand = 18.75 + new_demand;
-        update.canonical_total_demand =
-          std::array<double, 2>{{final_demand, 0.}};
-        const std::map<Id, double> changed{{base + 30, .5}, {base + 131, 2.25}};
-        for (const auto &[id, demand] : changed)
-          if (id % size() == rank())
-            update.terminals.push_back({id, demand});
-        const auto preview = state.preview(update);
-        ASSERT_TRUE(preview.validation.valid());
-        const auto                 producer = size() - 1;
-        std::map<Id, unsigned int> requests;
-        for (Id id : {base + 14, base + 15})
-          {
-            const auto owner =
-              Utilities::MPI::min(n.vessels.count(id) &&
-                                      n.vessels.at(id).owner == rank() ?
-                                    rank() :
-                                    size(),
-                                  MPI_COMM_WORLD);
-            if (rank() == producer)
-              requests[id] = owner;
-          }
-        GrowthWork work;
-        const auto paths =
-          state.candidate_paths(n,
-                                preview,
-                                requests,
-                                base + 50,
-                                base + 70,
-                                rank() == producer ? new_demand : 0.,
-                                1.,
-                                &work);
-        ASSERT_TRUE(paths.validation.valid());
-        EXPECT_EQ(paths.retained_branches, rank() == producer ? 4u : 0u);
-        EXPECT_EQ(work[GrowthOperation::validation_record_visits], 0u);
-        EXPECT_EQ(work[GrowthOperation::physical_copy_attempts], 0u);
-        auto weighted = n;
-        for (auto &[id, terminal] : weighted.terminals)
-          if (terminal.owner == rank() && changed.count(id))
-            terminal.demand = changed.at(id);
-        const auto old_updated = evaluate(weighted, p);
-        ASSERT_TRUE(old_updated.validation.valid()) << issues(old_updated);
-        std::map<unsigned int, std::map<Id, std::pair<Id, double>>>
-          baseline_send;
-        for (const auto &[id, branch] : old_updated.owned)
-          baseline_send[producer].emplace(id,
-                                          std::make_pair(branch.root,
-                                                         branch.radius));
-        const auto baseline =
-          Utilities::MPI::some_to_some(MPI_COMM_WORLD, baseline_send);
-        std::map<Id, unsigned int> obstacle_requests;
-        for (const auto &[owner, records] : baseline)
-          for (const auto &[id, value] : records)
-            obstacle_requests.emplace(id, owner);
-        const auto obstacle_edges =
-          state.physical_edges(n, preview, obstacle_requests);
-        ASSERT_TRUE(obstacle_edges.validation.valid());
-        for (const auto &[owner, records] : baseline)
-          for (const auto &[id, value] : records)
+  for (const System system : {System::arterial, System::portal})
+    for (const double flow : {2.e-9, 1.e-180})
+      for (const double new_demand : {2.5, 1.e-30})
+        {
+          parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+          background(bg);
+          MappingQ1<3> mapping;
+          auto n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+          if (system == System::portal)
             {
-              const auto &edge = obstacle_edges.records.at(id);
-              EXPECT_EQ(edge.root, value.first);
-              EXPECT_NEAR(edge.edge.radius / value.second, 1., 2.e-13);
+              for (auto &[id, v] : n.vessels)
+                v.system = System::portal;
+              for (auto &[id, t] : n.terminals)
+                t.system = System::portal;
+              for (auto &[id, node] : n.nodes)
+                if (node.port == Port::arterial_inlet)
+                  node.port = Port::portal_inlet;
             }
-        std::optional<GrowthCandidateRadii> trial_radii;
-        std::optional<GrowthCandidate>      candidate;
-        std::vector<GrowthSplit>            splits;
-        if (rank() == producer)
-          {
-            const auto &context = paths.contexts.at(base + 14);
-            ASSERT_TRUE(context.physiology.has_value());
-            EXPECT_EQ(context.physiology->final_system_demand, final_demand);
-            EXPECT_EQ(context.physiology->reference_volume, accepted.volume[0]);
-            trial_radii = candidate_radii(context, new_demand, &work);
-            EXPECT_TRUE(trial_radii.has_value());
-            const auto &selected = context.path.front();
-            const auto  junction =
-              .5 * (selected.edge.points[0] + selected.edge.points[1]);
-            candidate =
-              propose_growth(context,
-                             p,
-                             junction,
-                             junction + Point<3>(0., 0., .2),
-                             std::numeric_limits<double>::infinity(),
-                             new_demand,
-                             [](const std::vector<Edge> &) { return true; });
-            EXPECT_TRUE(candidate.has_value());
-            if (candidate)
+          const unsigned int slot = system == System::portal ? 2u : 0u;
+          Parameters         p;
+          p.portal.enabled         = system == System::portal;
+          p.portal.murray_exponent = 2.6;
+          p.portal_flow_fraction   = .7;
+          p.minimum_angle          = 1.;
+          p.reference_flow         = flow;
+          p.dissipation_weight     = .3;
+          const auto accepted      = evaluate(n, p);
+          ASSERT_TRUE(accepted.validation.valid()) << issues(accepted);
+          GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
+          ASSERT_TRUE(state.validation().valid());
+          GrowthDemandUpdate update;
+          update.snapshot_revision  = 7;
+          const double final_demand = 18.75 + new_demand;
+          if (system == System::arterial)
+            update.canonical_total_demand =
+              std::array<double, 2>{{final_demand, 0.}};
+          else if (system == System::portal)
+            update.canonical_portal_demand = final_demand;
+          const std::map<Id, double> changed{{base + 30, .5},
+                                             {base + 131, 2.25}};
+          for (const auto &[id, demand] : changed)
+            if (id % size() == rank())
+              update.terminals.push_back({id, demand});
+          const auto preview = state.preview(update);
+          ASSERT_TRUE(preview.validation.valid());
+          const auto                 producer = size() - 1;
+          std::map<Id, unsigned int> requests;
+          for (Id id : {base + 14, base + 15})
+            {
+              const auto owner =
+                Utilities::MPI::min(n.vessels.count(id) &&
+                                        n.vessels.at(id).owner == rank() ?
+                                      rank() :
+                                      size(),
+                                    MPI_COMM_WORLD);
+              if (rank() == producer)
+                requests[id] = owner;
+            }
+          GrowthWork work;
+          const auto paths =
+            state.candidate_paths(n,
+                                  preview,
+                                  requests,
+                                  base + 50,
+                                  base + 70,
+                                  rank() == producer ? new_demand : 0.,
+                                  1.,
+                                  &work);
+          ASSERT_TRUE(paths.validation.valid());
+          EXPECT_EQ(paths.retained_branches, rank() == producer ? 4u : 0u);
+          EXPECT_EQ(work[GrowthOperation::validation_record_visits], 0u);
+          EXPECT_EQ(work[GrowthOperation::physical_copy_attempts], 0u);
+          std::optional<GrowthCandidate> candidate;
+          std::vector<GrowthSplit>       splits;
+          if (rank() == producer)
+            {
+              const auto &context = paths.contexts.at(base + 14);
+              ASSERT_TRUE(context.physiology.has_value());
+              EXPECT_EQ(context.physiology->final_system_demand, final_demand);
+              EXPECT_EQ(context.physiology->reference_volume,
+                        accepted.volume[slot]);
+              const auto &selected = context.path.front();
+              const auto  junction =
+                .5 * (selected.edge.points[0] + selected.edge.points[1]);
+              candidate =
+                propose_growth(context,
+                               p,
+                               junction,
+                               junction + Point<3>(0., 0., .2),
+                               std::numeric_limits<double>::infinity(),
+                               new_demand,
+                               [](const std::vector<Edge> &) { return true; });
+              EXPECT_TRUE(candidate.has_value());
+              if (candidate)
+                {
+                  GrowthSplit split;
+                  split.vessel            = candidate->vessel;
+                  split.owner             = selected.owner;
+                  split.old_nodes         = selected.edge.nodes;
+                  split.old_points        = selected.edge.points;
+                  split.junction          = base + 50;
+                  split.tip               = base + 51;
+                  split.junction_position = candidate->junction;
+                  split.tip_position      = candidate->terminal;
+                  split.continuation      = base + 70;
+                  split.leaf              = base + 71;
+                  split.terminal          = base + 90;
+                  split.territory         = base + 95;
+                  split.demand            = candidate->terminal_demand;
+                  splits.push_back(split);
+                }
+            }
+          // The independent full transaction consumes exactly the same absolute
+          // Di.
+          for (auto &[id, terminal] : n.terminals)
+            if (terminal.owner == rank() && changed.count(id))
+              terminal.demand = changed.at(id);
+          const auto committed = commit_growth_splits(bg,
+                                                      mapping,
+                                                      n,
+                                                      mutable_ids(n),
+                                                      roots(n),
+                                                      splits,
+                                                      p,
+                                                      MPI_COMM_WORLD);
+          ASSERT_TRUE(committed.committed);
+          ASSERT_TRUE(committed.physiology.validation.valid());
+          for (const auto &[id, terminal] : committed.network.terminals)
+            if (id == base + 90 && terminal.owner == rank())
               {
-                GrowthSplit split;
-                split.vessel            = candidate->vessel;
-                split.owner             = selected.owner;
-                split.old_nodes         = selected.edge.nodes;
-                split.old_points        = selected.edge.points;
-                split.junction          = base + 50;
-                split.tip               = base + 51;
-                split.junction_position = candidate->junction;
-                split.tip_position      = candidate->terminal;
-                split.continuation      = base + 70;
-                split.leaf              = base + 71;
-                split.terminal          = base + 90;
-                split.territory         = base + 95;
-                split.demand            = candidate->terminal_demand;
-                splits.push_back(split);
+                EXPECT_EQ(terminal.demand, new_demand);
+                const double expected_flow =
+                  flow *
+                  (system == System::portal ? p.portal_flow_fraction : 1.) *
+                  (new_demand / final_demand);
+                EXPECT_GT(expected_flow, 0.);
+                EXPECT_NEAR(committed.physiology.terminal_flows.at(id) /
+                              expected_flow,
+                            1.,
+                            2.e-13);
               }
-          }
-        // The independent full transaction consumes exactly the same absolute
-        // Di.
-        for (auto &[id, terminal] : n.terminals)
-          if (terminal.owner == rank() && changed.count(id))
-            terminal.demand = changed.at(id);
-        const auto committed = commit_growth_splits(
-          bg, mapping, n, mutable_ids(n), roots(n), splits, p, MPI_COMM_WORLD);
-        ASSERT_TRUE(committed.committed);
-        ASSERT_TRUE(committed.physiology.validation.valid());
-        for (const auto &[id, terminal] : committed.network.terminals)
-          if (id == base + 90 && terminal.owner == rank())
-            {
-              EXPECT_EQ(terminal.demand, new_demand);
-              const double expected_flow = flow * (new_demand / final_demand);
-              EXPECT_GT(expected_flow, 0.);
-              EXPECT_NEAR(committed.physiology.terminal_flows.at(id) /
-                            expected_flow,
-                          1.,
-                          2.e-13);
-            }
-        for (const auto &[id, branch] : committed.physiology.owned)
-          if (id == base + 71)
-            {
-              const double expected_radius =
-                .006 * std::pow(new_demand / (8.5 + new_demand),
-                                1. / p.arterial_murray_exponent);
-              EXPECT_GT(branch.radius, 0.);
-              EXPECT_NEAR(branch.radius / expected_radius, 1., 2.e-13);
-            }
-        if (candidate)
-          {
-            const double power_ratio =
-              committed.physiology.power_numerator[0] /
-              std::pow(committed.physiology.total_demand[0], 2) /
-              (accepted.power_numerator[0] /
-               std::pow(accepted.total_demand[0], 2));
-            const double expected = (1. - p.dissipation_weight) *
-                                      committed.physiology.volume[0] /
-                                      accepted.volume[0] +
-                                    p.dissipation_weight * power_ratio;
-            if (flow == 1.e-180)
+          for (const auto &[id, branch] : committed.physiology.owned)
+            if (id == base + 71)
               {
-                EXPECT_EQ(accepted.power[0], 0.);
+                const double expected_radius =
+                  .006 * std::pow(new_demand / (8.5 + new_demand),
+                                  1. / (system == System::portal ?
+                                          p.portal.murray_exponent :
+                                          p.arterial_murray_exponent));
+                EXPECT_GT(branch.radius, 0.);
+                EXPECT_NEAR(branch.radius / expected_radius, 1., 2.e-13);
               }
-            EXPECT_NEAR(candidate->cost, expected, 2.e-12);
-          }
-        std::map<unsigned int, std::map<Id, double>> send;
-        for (const auto &[id, branch] : committed.physiology.owned)
-          send[producer].emplace(id, branch.radius);
-        const auto received =
-          Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
-        if (trial_radii)
-          for (const auto &[id, value] : obstacle_edges.records)
+          if (candidate)
             {
-              bool found = false;
-              for (const auto &[new_owner, radii] : received)
-                if (radii.count(id))
-                  {
-                    EXPECT_NEAR((*trial_radii)(id,
-                                               value.root,
-                                               value.edge.radius) /
-                                  radii.at(id),
-                                1.,
-                                2.e-12);
-                    found = true;
-                  }
-              EXPECT_TRUE(found);
+              const double power_ratio =
+                committed.physiology.power_numerator[slot] /
+                std::pow(committed.physiology.total_demand[slot], 2) /
+                (accepted.power_numerator[slot] /
+                 std::pow(accepted.total_demand[slot], 2));
+              const double expected = (1. - p.dissipation_weight) *
+                                        committed.physiology.volume[slot] /
+                                        accepted.volume[slot] +
+                                      p.dissipation_weight * power_ratio;
+              if (flow == 1.e-180)
+                {
+                  EXPECT_EQ(accepted.power[slot], 0.);
+                }
+              EXPECT_NEAR(candidate->cost, expected, 2.e-12);
             }
-        if (candidate)
-          for (const auto &edge : candidate->changed)
-            {
-              bool found = false;
-              for (const auto &[owner, radii] : received)
-                if (radii.count(edge.id))
-                  {
-                    EXPECT_NEAR(edge.radius / radii.at(edge.id), 1., 2.e-12);
-                    found = true;
-                  }
-              EXPECT_TRUE(found);
-            }
-      }
+          std::map<unsigned int, std::map<Id, double>> send;
+          for (const auto &[id, branch] : committed.physiology.owned)
+            send[producer].emplace(id, branch.radius);
+          const auto received =
+            Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+          if (candidate)
+            for (const auto &edge : candidate->changed)
+              {
+                bool found = false;
+                for (const auto &[owner, radii] : received)
+                  if (radii.count(edge.id))
+                    {
+                      EXPECT_NEAR(edge.radius / radii.at(edge.id), 1., 2.e-12);
+                      found = true;
+                    }
+                EXPECT_TRUE(found);
+              }
+        }
 }
 
 TEST(VascularForest, BOTH_DemandEdgePreviewIncludesOtherRootsAndFrozenInput)

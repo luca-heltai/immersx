@@ -46,12 +46,14 @@ namespace ImmersX::Vascularization::internal
     std::uint64_t    snapshot_revision = 0;
     // Per system: absolute demand, SI volume, physical-demand power
     // coefficient.
-    std::array<long double, 6>           totals{};
+    std::array<long double, 9>           totals{};
     std::optional<std::array<double, 2>> canonical_total_demand;
-    // Six scalar controls per rank; no topology or per-terminal data.
-    std::vector<std::array<long double, 6>> rank_totals;
+    // Separate portal control preserves the existing arterial/venous input.
+    std::optional<double> canonical_portal_demand;
+    // Nine scalar controls per rank; no topology or per-terminal data.
+    std::vector<std::array<long double, 9>> rank_totals;
     // Sparse derived nodes in the accepted root-sum tree.
-    std::map<GrowthRootSumKey, std::array<long double, 6>> root_sums;
+    std::map<GrowthRootSumKey, std::array<long double, 9>> root_sums;
     // Only the union of updated terminal-to-root paths, on branch owners.
     std::map<Id, GrowthDemandSummary>               owned;
     std::map<Id, double>                            leaf_demands;
@@ -62,7 +64,7 @@ namespace ImmersX::Vascularization::internal
   struct GrowthDemandRootView
   {
     GrowthDemandSummary        summary;
-    std::array<long double, 6> other_local{};
+    std::array<long double, 9> other_local{};
     double                     radius = 0., gamma = 3.;
     unsigned int               system = 0;
     template <class Archive>
@@ -114,7 +116,7 @@ namespace ImmersX::Vascularization::internal
     GrowthDemandRootView
     root_view(Id, const GrowthDemandPreview &) const;
 
-    const std::array<long double, 6> &
+    const std::array<long double, 9> &
     totals() const;
 
     GrowthDemandPreview
@@ -196,11 +198,11 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, DirectoryEntry> directory;
     std::map<Id, unsigned int>   root_directory;
     std::set<Id>                 owned_roots;
-    std::map<GrowthRootSumKey, std::array<long double, 6>> root_sums;
-    std::array<long double, 6>                             accepted_totals{};
-    std::array<double, 2>                                  accepted_volume{};
-    std::array<long double, 2> accepted_resistance{};
-    std::array<long double, 6>
+    std::map<GrowthRootSumKey, std::array<long double, 9>> root_sums;
+    std::array<long double, 9>                             accepted_totals{};
+    std::array<double, 3>                                  accepted_volume{};
+    std::array<long double, 3> accepted_resistance{};
+    std::array<long double, 9>
     root_value(Id, const GrowthDemandSummary &) const;
   };
 } // namespace ImmersX::Vascularization::internal

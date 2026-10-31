@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ranks", type=int, default=1)
     parser.add_argument("--mpiexec", default="mpirun")
+    parser.add_argument("--portal", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="liver-", dir=args.output) as temporary:
@@ -61,11 +62,38 @@ def main():
             assert (int(row["node0"]), int(row["node1"])) == endpoints
             assert float(row["radius0"]) == radius == float(row["radius1"])
             assert int(row["provenance"]) == 0
-        # Each binary insertion adds two vessels. The venous startup has a
-        # fixed-length stem and one continuation before its first insertion.
-        generated = {0: 2 * 8 - 1, 1: 2 * 8}
-        assert len(vessels) == sum(generated.values()) + 2 and len(pairs) == 8
-        for system, expected_count in generated.items():
+        if args.portal:
+            expected.extend([(4, (.2, .8, .5), 4), (5, (.3, .8, .5), 0)])
+            for identity, point, port in expected[-2:]:
+                row = nodes[identity]
+                assert math.dist(point, tuple(float(row[k]) for k in ("x", "y", "z"))) < 1.e-14
+                assert int(row["port"]) == port and int(row["provenance"]) == 0
+            portal = vessels[2]
+            assert (int(portal["node0"]), int(portal["node1"])) == (4, 5)
+            assert float(portal["radius0"]) == .003 == float(portal["radius1"])
+            assert int(portal["system"]) == 2 and int(portal["provenance"]) == 0
+            assert len(vessels) == 48 and not pairs
+            triplets = rows(output, "triplets", "territory")
+            assert len(triplets) == 8
+            used_triplets = set()
+            for territory, t in triplets.items():
+                endpoints = [int(t[k]) for k in ("arterial", "portal", "venous")]
+                assert len(set(endpoints)) == 3 and not used_triplets.intersection(endpoints)
+                used_triplets.update(endpoints)
+                assert [int(terminals[i]["system"]) for i in endpoints] == [0, 2, 1]
+                assert all(int(terminals[i]["territory"]) == territory for i in endpoints)
+                assert len({float(terminals[i]["demand"]) for i in endpoints}) == 1
+                points = [tuple(float(nodes[int(terminals[i]["node"])][k]) for k in ("x", "y", "z"))
+                          for i in endpoints]
+                assert math.isclose(math.dist(points[0], points[1]), .06, rel_tol=1.e-10)
+                assert math.isclose(math.dist(points[0], points[2]), .04, rel_tol=1.e-10)
+                qa, qp, qv = [float(t[k]) for k in ("arterial_flow", "portal_flow", "venous_flow")]
+                assert min(qa, qp, qv) > 0 and math.isclose(qa + qp, qv, rel_tol=1.e-9)
+                assert math.isclose(qp / qv, .7, rel_tol=1.e-8)
+                assert all(float(t[k]) > 0 for k in ("arterial_resistance", "portal_resistance", "venous_resistance"))
+        else:
+            assert len(vessels) == 32 and len(pairs) == 8
+        for system in ((0, 1, 2) if args.portal else (0, 1)):
             assert sum(int(r["system"]) == system and int(r["provenance"]) == 1
                        for r in vessels.values()) == expected_count
         used = set()
@@ -88,7 +116,8 @@ def main():
         tree = ET.parse(output / "vessels_0.pvtu")
         arrays = {a.attrib["Name"] for a in tree.findall(".//PPointData/PDataArray")}
         assert {"System", "Generated", "Radius"} <= arrays, arrays
-        print(f"Verified 8 tissue pairs and preserved both input vessels on {args.ranks} rank(s)")
+        kind = "triplets" if args.portal else "pairs"
+        print(f"Verified 8 tissue {kind} and preserved all input vessels on {args.ranks} rank(s)")
 
 
 if __name__ == "__main__":

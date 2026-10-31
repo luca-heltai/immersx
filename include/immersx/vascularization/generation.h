@@ -27,7 +27,8 @@ namespace ImmersX::Vascularization
     /** Zero disables the volume target. */
     double volume_fraction    = 0.;
     double relative_tolerance = .05;
-    /** Minimum service coverage: arterial, or dual in arterio-venous mode. */
+    /** Minimum service coverage: arterial, dual for A/V, or triple for A/P/V.
+     */
     double       minimum_coverage  = 0.;
     unsigned int minimum_terminals = 1;
     /** Zero derives the maximum from the scaled initial count (or explicit
@@ -70,18 +71,22 @@ namespace ImmersX::Vascularization
     std::uint64_t sampled_points = 0;
   };
 
-  struct VenousParameters
+  struct CompanionParameters
   {
     bool             enabled = false;
     std::vector<Id>  selected_terminals;
     dealii::Point<3> seed_position, seed_inward_port_normal;
     double           seed_radius     = 0.;
     double           murray_exponent = 3.;
-    /** Coefficient times H at the common territory centre. */
-    double terminal_separation = .25;
-    /** Pa s/m^3 for each bed; zero derives individual beds from demand flow. */
+    /** Metres from the arterial endpoint to this companion terminal. */
+    double terminal_separation = 0.;
+    /** Two-system venous bed resistance in Pa s/m^3; zero derives beds from
+     * flow. Keep zero for portal controls, which use three compartment
+     * resistances. */
     double microvascular_resistance = 0.;
   };
+
+  using VenousParameters = CompanionParameters;
 
   struct Parameters : dealii::ParameterAcceptor
   {
@@ -89,11 +94,16 @@ namespace ImmersX::Vascularization
     void
     validate(bool creating_seed = true) const;
 
-    DiscretizationParameters    discretization;
-    CoverageParameters          coverage;
-    CalibrationParameters       calibration;
-    TissueIntegrationParameters tissue_integration;
-    VenousParameters            venous;
+    DiscretizationParameters discretization;
+    CoverageParameters       coverage;
+    CalibrationParameters    calibration;
+    VenousParameters         venous;
+    CompanionParameters      portal;
+    /** Fraction of total new-tissue flow supplied by the portal network. */
+    double portal_flow_fraction = .5;
+    /** Star-arm resistances in arterial, portal, venous order; zero derives
+     * them. */
+    std::array<double, 3> compartment_resistances{};
     /** Explicit port pressures and optional loads on unpaired input terminals.
      */
     ReferenceConditions reference_conditions;
@@ -127,7 +137,8 @@ namespace ImmersX::Vascularization
     /** Relative tissue-demand density in x,y,z, integrated with physical JxW.
      */
     std::string tissue_demand = "1";
-    /** Total m^3/s through NEW tissue terminals; zero leaves flow unspecified.
+    /** Total new-tissue venous drainage in m^3/s; zero leaves flow unspecified.
+     * Portal mode splits this total between arterial and portal supply.
      */
     double reference_flow = 0.;
     /** Multiply the initial count by one, global active cells or used vertices.
@@ -191,7 +202,7 @@ namespace ImmersX::Vascularization
     /** Includes completed batch attempts from every calibration trial. */
     std::vector<GrowthStatistics> growth_statistics;
     CalibrationReport             calibration;
-    /** Actual paired Poiseuille solution, evaluated in arterio-venous mode. */
+    /** Actual coupled Poiseuille solution, evaluated with venous drainage. */
     ReferenceResult reference;
     /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
     std::map<Id, double> target_terminal_flows;
@@ -202,9 +213,10 @@ namespace ImmersX::Vascularization
      * Consumed input terminal id -> new attachment vessel id, recorded on the
      * consumed terminal's native node owner. The vessel may belong elsewhere.
      */
-    std::map<Id, Id> attachment_roots;
-    std::uint64_t    sampled_points      = 0;
-    unsigned int     accepted_insertions = 0;
+    std::map<Id, Id>             attachment_roots;
+    std::uint64_t                sampled_points      = 0;
+    unsigned int                 accepted_insertions = 0;
+    std::vector<TerminalTriplet> terminal_triplets;
   };
 
   /**
@@ -217,17 +229,18 @@ namespace ImmersX::Vascularization
    * venous port is reserved before arterial growth. Terminal-count calibration
    * uses global volume and arterial or dual coverage, with the same count
    * decisions on all processes.
-   * Both paths use a degree-one mapping. Arterial
+   * All paths use a degree-one mapping. Arterial
    * endpoints define the common territories; venous endpoints are separated
-   * from them by the configured distance. Both forests use the same CCO engine,
-   * and all new vessels are checked against both systems. Every input node and
-   * vessel stays fixed; selected tissue terminals become attachment identities.
-   * Every new vessel wall, including rounded ends and clearance, must lie
-   * inside the prepared background. An explicit inward port normal permits a
-   * planar surface section: the envelope is cut at that plane, and the opposite
-   * junction/end must clear it by the full radius plus clearance. The normal
-   * must match an actual planar boundary face and point into the domain.
-   * Imported exterior portions are preserved. Ambiguous
+   * from them by the configured distance. All forests use the same CCO engine,
+   * and all new vessels are checked against every system. Portal growth targets
+   * the same territories, with its own separation and supply fraction. Every
+   * input node and vessel stays fixed; selected tissue terminals become
+   * attachment identities. Every new vessel wall, including rounded ends and
+   * clearance, must lie inside the prepared background. An explicit inward port
+   * normal permits a planar surface section: the envelope is cut at that plane,
+   * and the opposite junction/end must clear it by the full radius plus
+   * clearance. The normal must match an actual planar boundary face and point
+   * into the domain. Imported exterior portions are preserved. Ambiguous
    * boundary proximity at the finite geometry budget is rejected
    * conservatively. Optional volume/coverage targets trigger a bounded,
    * deterministic search over terminal counts without monotonicity pruning.
@@ -262,5 +275,18 @@ namespace ImmersX::Vascularization
            MPI_Comm                         communicator,
            const std::vector<Territory>    &initial_territories,
            const std::vector<TerminalPair> &initial_pairs);
+
+  /** Complete mixed two- and three-terminal compartments. All endpoints of a
+   * compartment must be extended together; untouched compartments are retained.
+   */
+  GenerationResult
+  generate(const dealii::Triangulation<3>     &background,
+           const dealii::Mapping<3>           &mapping,
+           const NetworkData                  &initial,
+           const Parameters                   &parameters,
+           MPI_Comm                            communicator,
+           const std::vector<Territory>       &initial_territories,
+           const std::vector<TerminalPair>    &initial_pairs,
+           const std::vector<TerminalTriplet> &initial_triplets);
 } // namespace ImmersX::Vascularization
 #endif

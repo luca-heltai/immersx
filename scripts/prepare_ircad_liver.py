@@ -20,6 +20,7 @@ SOURCE_SHA256 = {
     "liver": "aa74e6e699c60434b6472d12f8139ced62af7ee1986a817b56fc26b3d831a28f",
     "artery": "e7cf47e2831b605bea0b1d2e2a7439c936e7f4ba29eab6de312d6c3e8ac2c8c5",
     "venacava": "6f61d1559ccc40a28e89fad5327d21ff798a9283d0695afcd621a7e960f5f5c7",
+    "portalvein": "0e11ef6d1eff524cd2e604aa198013565f25b9a35a80f0c78bcb6f674b8c359f",
 }
 
 
@@ -52,8 +53,9 @@ def prepare(args):
            "?path=%2F3Dircadb1.12&files=MESHES_VTK.zip")
     content = args.mesh_archive.read_bytes() if args.mesh_archive else urllib.request.urlopen(url, timeout=120).read()
     sources = {}
+    names = ["liver", "artery", "venacava"] + (["portalvein"] if args.with_portal else [])
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        for name in ["liver", "artery", "venacava"]:
+        for name in names:
             data = archive.read(f"MESHES_VTK/{name}.vtk")
             sources[name] = hashlib.sha256(data).hexdigest()
             if sources[name] != SOURCE_SHA256[name]:
@@ -67,7 +69,7 @@ def prepare(args):
                     centerlines="VMTK approximate network extraction, advancement ratio 1.05",
                     vtk_version=vtk.vtkVersion.GetVTKVersion(), components={})
     surfaces = {}
-    for name in ["liver", "artery", "venacava"]:
+    for name in names:
         reader = vtk.vtkPolyDataReader()
         reader.SetFileName(str(raw / f"{name}.vtk"))
         reader.Update()
@@ -134,7 +136,11 @@ def prepare(args):
             retained_surface_points=surface.GetNumberOfPoints(),
             removed_opposite_duplicate_faces=removed_double_faces)
 
-    for source, name in [("artery", "arterial"), ("venacava", "venous")]:
+    trees = [("artery", "arterial"), ("venacava", "venous")]
+    if args.with_portal:
+        trees.append(("portalvein", "portal"))
+    line_trees = {}
+    for source, name in trees:
         surface = vtk.vtkPolyData()
         surface.DeepCopy(surfaces[source])
         edges = vtk.vtkFeatureEdges()
@@ -258,6 +264,7 @@ def prepare(args):
         writer.SetFileTypeToASCII()
         if writer.Write() != 1:
             raise RuntimeError(f"Cannot write {name} line grid")
+        line_trees[name] = grid
         manifest["components"][source].update(
             inside_components=[len(group) for group in groups],
             retained_tree_nodes=len(keep), retained_tree_edges=len(keep)-1,
@@ -265,6 +272,51 @@ def prepare(args):
             maximum_tail_deviation_m=maximum_tail_deviation,
             root=ids[root], growth_nodes=[ids[i] for i in selected],
             growth_radii=[radius.GetTuple1(i) for i in selected])
+    if args.with_portal:
+        # A leaf valid for two networks can lie inside the newly imported portal
+        # envelope. Prune these starts without moving or deleting physical data.
+        # This endpoint filter is preliminary; continuous growth certification
+        # remains authoritative for each proposed vessel.
+        for source, name in trees:
+            grid = line_trees[name]
+            grow = grid.GetPointData().GetArray("Grow")
+            radius = grid.GetPointData().GetArray("Radius")
+            retained, blocked, margins = [], [], {}
+            for i in range(grid.GetNumberOfPoints()):
+                if not grow.GetTuple1(i):
+                    continue
+                point = np.array(grid.GetPoint(i))
+                margin = float("inf")
+                for other_name, other in line_trees.items():
+                    if other_name == name:
+                        continue
+                    other_radius = other.GetPointData().GetArray("Radius")
+                    for c in range(other.GetNumberOfCells()):
+                        cell = other.GetCell(c)
+                        a, b = (cell.GetPointId(j) for j in (0, 1))
+                        start, end = np.array(other.GetPoint(a)), np.array(other.GetPoint(b))
+                        direction = end - start
+                        t = np.clip((point - start) @ direction / (direction @ direction), 0., 1.)
+                        margin = min(margin, float(np.linalg.norm(point - start - t * direction)) -
+                                     radius.GetTuple1(i) - max(other_radius.GetTuple1(a), other_radius.GetTuple1(b)))
+                if margin <= 0.:
+                    grow.SetTuple1(i, 0.)
+                    blocked.append(i)
+                else:
+                    retained.append(i)
+                    margins[str(i)] = margin
+            if not retained:
+                raise RuntimeError(f"All selected {name} growth endpoints overlap another input network")
+            manifest["components"][source].update(
+                growth_nodes=retained, growth_radii=[radius.GetTuple1(i) for i in retained],
+                excluded_overlapping_growth_nodes=blocked, endpoint_capsule_margins_m=margins)
+            if blocked:
+                writer = vtk.vtkUnstructuredGridWriter()
+                writer.SetFileName(str(output / f"{name}.vtk"))
+                writer.SetInputData(grid)
+                writer.SetFileTypeToASCII()
+                if writer.Write() != 1:
+                    raise RuntimeError(f"Cannot update {name} growth flags")
     (output / "provenance.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(output / "provenance.json")
 
@@ -273,6 +325,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="New output directory")
     parser.add_argument("--mesh-archive", type=Path, help="Reuse a downloaded MESHES_VTK.zip")
+    parser.add_argument("--with-portal", action="store_true", help="Also extract the portal-vein surface and a rooted portal.vtk line tree")
     prepare(parser.parse_args())
 
 
