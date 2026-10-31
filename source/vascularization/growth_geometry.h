@@ -249,6 +249,32 @@ namespace ImmersX::Vascularization::internal
     }
   };
 
+  struct BackgroundRouting
+  {
+    BackgroundRouting(const GridTools::Cache<3> &cache,
+                      MPI_Comm                   comm,
+                      GrowthWork                *work)
+      : communicator(comm)
+    {
+      const auto &cells = cache.get_locally_owned_cell_bounding_boxes_rtree();
+      std::vector<BoundingBox<3>> local_boxes;
+      if (!cells.empty())
+        local_boxes = extract_rtree_level(cells, 1);
+      boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
+      for (unsigned int rank = 0; rank < boxes.size(); ++rank)
+        for (const auto &box : boxes[rank])
+          covering.emplace_back(box, rank);
+      count_work(work,
+                 GrowthOperation::metadata_copy_attempts,
+                 covering.size());
+      covering_tree = pack_rtree(covering);
+    }
+    MPI_Comm                                       communicator;
+    std::vector<std::vector<BoundingBox<3>>>       boxes;
+    RTree<std::pair<BoundingBox<3>, unsigned int>> covering_tree;
+  };
+
   struct BackgroundGeometry
   {
     BackgroundGeometry(const Triangulation<3> &background,
@@ -467,6 +493,8 @@ namespace ImmersX::Vascularization::internal
     const Mapping<3>                             &mapping;
     std::vector<Patch>                            patches;
     RTree<std::pair<BoundingBox<3>, std::size_t>> boundary;
+    GrowthWork                                   *counts;
+    mutable std::optional<BackgroundRouting>      routing_data;
 
   private:
     using ProfileKey = std::array<double, 6>;
