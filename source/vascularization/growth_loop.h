@@ -9,6 +9,7 @@ namespace ImmersX::Vascularization::internal
 {
   struct GrowthRun
   {
+    GrowthWork                               work;
     ValidationReport                         validation;
     GrowthCommit                             accepted;
     std::map<unsigned int, GrowthStatistics> statistics;

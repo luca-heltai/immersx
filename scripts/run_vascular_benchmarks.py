@@ -167,6 +167,17 @@ def validate(directory, case):
     assert all(float(r['seconds']) >= 0 and int(r['calls']) >= 0 for rows in mpi for r in rows)
     assert all(sum(int(r['calls']) for r in rows) > 0 for rows in mpi)
     assert all(len(g) == len(growth[0]) for g in growth)
+    # Counters are appended after the original timing columns. Historical
+    # archives remain readable and report an empty work dictionary.
+    columns = list(growth[0][0])
+    work_columns = columns[columns.index('total_seconds') + 1:]
+    work_rank_totals = [{k: sum(int(g[k]) for g in rows) for k in work_columns}
+                        for rows in growth]
+    discretization_work = []
+    for rank in range(ranks):
+        path = directory / f'discretization-work-{rank}.csv'
+        discretization_work.append({r['operation']: int(r['count'])
+                                    for r in read_csv(path)} if path.exists() else {})
     stages = []
     for i in range(len(growth[0])):
         rows = [g[i] for g in growth]
@@ -177,9 +188,13 @@ def validate(directory, case):
                            batches=next(iter(batches)),
                            active_writer_fraction=sum(int(r['active_writer_batches']) for r in rows)/(ranks*next(iter(batches))),
                            maximum_owned_vessels=max(int(r['owned_vessels_maximum']) for r in rows),
+                           work={k: sum(int(r[k]) for r in rows) for k in work_columns},
                            **{k: max(float(r[k]) for r in rows) for k in rows[0] if k.endswith('_seconds')}))
     owned = [int(r['vessels']) for r in rank_rows]
     return dict(summary=summary, ranks=rank_rows, growth=stages,
+                work_rank_totals=work_rank_totals,
+                work={k: sum(r[k] for r in work_rank_totals) for k in work_columns},
+                discretization_work_rank_totals=discretization_work,
                 growth_rank_totals=[{k: sum(float(g[k]) for g in rows) for k in rows[0] if k.endswith('_seconds')}
                                     for rows in growth],
                 mpi={k: sum(float(r[k]) if k == 'seconds' else int(r[k]) for rows in mpi for r in rows)

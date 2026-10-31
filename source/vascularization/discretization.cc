@@ -178,8 +178,9 @@ namespace ImmersX::Vascularization
     }
 
     void
-    sort_cuts(std::vector<double> &cuts)
+    sort_cuts(std::vector<double> &cuts, GrowthWork *work)
     {
+      const auto old_size = cuts.size();
       std::sort(cuts.begin(), cuts.end());
       cuts.erase(std::unique(cuts.begin(),
                              cuts.end(),
@@ -187,6 +188,9 @@ namespace ImmersX::Vascularization
                                return std::abs(a - b) < reference_tolerance;
                              }),
                  cuts.end());
+      count_work(work,
+                 GrowthOperation::interval_cut_edits,
+                 old_size - cuts.size());
       cuts.front() = 0.;
       cuts.back()  = 1.;
     }
@@ -195,7 +199,8 @@ namespace ImmersX::Vascularization
     traversed(const GridTools::Cache<3> &cache,
               const Mapping<3>          &mapping,
               const Segment<3>          &s,
-              types::subdomain_id        exterior_owner)
+              types::subdomain_id        exterior_owner,
+              GrowthWork                *work)
     {
       std::vector<Triangulation<3>::active_cell_iterator> candidates;
       std::vector<double>                                 cuts{0., 1.};
@@ -209,10 +214,14 @@ namespace ImmersX::Vascularization
               std::vector<Point<3>> vertices;
               for (const auto v : cell->face(f)->vertex_indices())
                 vertices.push_back(cell->face(f)->vertex(v));
+              const auto before = cuts.size();
               face_intersections(s, vertices, cuts);
+              count_work(work,
+                         GrowthOperation::interval_cut_edits,
+                         cuts.size() - before);
             }
         }
-      sort_cuts(cuts);
+      sort_cuts(cuts, work);
       std::vector<Interval> result;
       for (std::size_t i = 1; i < cuts.size(); ++i)
         {
@@ -220,6 +229,7 @@ namespace ImmersX::Vascularization
           std::optional<Triangulation<3>::active_cell_iterator> found;
           for (const auto &cell : candidates)
             {
+              count_work(work, GrowthOperation::interval_cell_tests);
               try
                 {
                   const auto unit =
@@ -251,7 +261,8 @@ namespace ImmersX::Vascularization
     distributed_intervals(const GridTools::Cache<3> &cache,
                           const Mapping<3>          &mapping,
                           const NetworkData         &network,
-                          MPI_Comm                   comm)
+                          MPI_Comm                   comm,
+                          GrowthWork                *work)
     {
       const auto  rank = Utilities::MPI::this_mpi_process(comm);
       const auto  size = Utilities::MPI::n_mpi_processes(comm);
@@ -288,8 +299,12 @@ namespace ImmersX::Vascularization
       std::map<unsigned int, std::map<Id, std::vector<Interval>>> replies;
       for (const auto &[source, requests] : incoming)
         for (const auto &[id, endpoints] : requests)
-          for (const auto &interval : traversed(
-                 cache, mapping, Segment<3>(endpoints[0], endpoints[1]), rank))
+          for (const auto &interval :
+               traversed(cache,
+                         mapping,
+                         Segment<3>(endpoints[0], endpoints[1]),
+                         rank,
+                         work))
             if (interval.h > 0.)
               replies[source][id].push_back(interval);
       const auto received = Utilities::MPI::some_to_some(comm, replies);
@@ -306,7 +321,7 @@ namespace ImmersX::Vascularization
               cuts.push_back(interval.begin);
               cuts.push_back(interval.end);
             }
-          sort_cuts(cuts);
+          sort_cuts(cuts, work);
           std::vector<Interval> combined;
           for (std::size_t i = 1; i < cuts.size(); ++i)
             {
@@ -315,6 +330,9 @@ namespace ImmersX::Vascularization
                                 cuts[i],
                                 0.,
                                 network.vessels.at(id).owner};
+              count_work(work,
+                         GrowthOperation::interval_record_visits,
+                         intervals.size());
               for (const auto &interval : intervals)
                 if (interval.begin < middle && middle < interval.end)
                   {
@@ -347,8 +365,12 @@ namespace ImmersX::Vascularization
     cell_resolution(Id                           vessel,
                     double                       begin,
                     double                       end,
-                    const std::vector<Interval> &intervals)
+                    const std::vector<Interval> &intervals,
+                    GrowthWork                  *work)
     {
+      count_work(work,
+                 GrowthOperation::interval_record_visits,
+                 intervals.size());
       DiscretizationCell result;
       result.reference            = {vessel, begin, end};
       result.h_min                = std::numeric_limits<double>::infinity();
@@ -431,7 +453,8 @@ namespace ImmersX::Vascularization
         (comparison == MPI_IDENT || comparison == MPI_CONGRUENT),
       "Vascular discretization requires a first-order mapping and congruent communicators.");
     DiscretizationResult result;
-    result.validation = validate_data(network, size);
+    auto                *work = &result.work;
+    result.validation         = validate_data(network, size);
     if (Utilities::MPI::min(static_cast<unsigned int>(
                               result.validation.valid()),
                             communicator) == 0)
@@ -455,6 +478,7 @@ namespace ImmersX::Vascularization
         unique = seen.insert(id).second && unique;
     require_all(unique,
                 "Physical vessels must have unique authoritative owners.");
+    count_work(work, GrowthOperation::background_cache_constructions);
     GridTools::Cache<3> cache(background, mapping);
     double              exterior_h      = parameters.exterior_length;
     bool                supported_cells = true;
@@ -475,7 +499,7 @@ namespace ImmersX::Vascularization
       ExcMessage(
         "A nonempty background or an explicit exterior target length is required."));
     const auto crossings =
-      distributed_intervals(cache, mapping, network, communicator);
+      distributed_intervals(cache, mapping, network, communicator, work);
     const auto subdivide_owned = [&]() {
       for (const auto &[id, e] : network.vessels)
         {
@@ -486,6 +510,7 @@ namespace ImmersX::Vascularization
           double       metric    = 0.;
           for (const auto &interval : intervals)
             {
+              count_work(work, GrowthOperation::interval_record_visits);
               metric += (interval.end - interval.begin) * l /
                         (interval.h > 0. ? interval.h : exterior_h);
               if (interval.h > 0.)
@@ -509,6 +534,7 @@ namespace ImmersX::Vascularization
               double       accumulated = 0.;
               for (const auto &interval : intervals)
                 {
+                  count_work(work, GrowthOperation::interval_record_visits);
                   const double h = interval.h > 0. ? interval.h : exterior_h;
                   const double piece = (interval.end - interval.begin) * l / h;
                   if (target <= accumulated + piece)
@@ -525,7 +551,7 @@ namespace ImmersX::Vascularization
           for (std::size_t i = 1; i < intervals.size(); ++i)
             if ((intervals[i - 1].h > 0.) != (intervals[i].h > 0.))
               cuts.push_back(intervals[i].begin);
-          sort_cuts(cuts);
+          sort_cuts(cuts, work);
           if (result.cells.size() + cuts.size() - 1 > parameters.cell_budget)
             {
               result.validation.issues.push_back(
@@ -537,7 +563,7 @@ namespace ImmersX::Vascularization
           for (std::size_t i = 1; i < cuts.size();)
             {
               const auto cell =
-                cell_resolution(id, cuts[i - 1], cuts[i], intervals);
+                cell_resolution(id, cuts[i - 1], cuts[i], intervals, work);
               const double h = cell.inside ? cell.h_min : exterior_h;
               if ((cuts[i] - cuts[i - 1]) * l >
                   parameters.upper_factor * h * (1. + 1.e-12))
@@ -552,6 +578,10 @@ namespace ImmersX::Vascularization
                          "Cannot meet the upper length bound within the numerical cell budget."});
                       return;
                     }
+                  count_work(work,
+                             GrowthOperation::interval_cut_moves,
+                             cuts.size() - i);
+                  count_work(work, GrowthOperation::interval_cut_edits);
                   cuts.insert(cuts.begin() + i, .5 * (cuts[i - 1] + cuts[i]));
                 }
               else
@@ -562,7 +592,7 @@ namespace ImmersX::Vascularization
           for (std::size_t i = 1; i < cuts.size();)
             {
               const auto cell =
-                cell_resolution(id, cuts[i - 1], cuts[i], intervals);
+                cell_resolution(id, cuts[i - 1], cuts[i], intervals, work);
               if (cell.inside && (cuts[i] - cuts[i - 1]) * l <
                                    parameters.lower_factor * cell.h_max)
                 {
@@ -577,18 +607,24 @@ namespace ImmersX::Vascularization
                                         offset == -1 ? cuts[i - 2] : cuts[i],
                                         offset == -1 ? cuts[i - 1] :
                                                        cuts[i + 1],
-                                        intervals);
+                                        intervals,
+                                        work);
                       const double begin =
                                      offset == -1 ? cuts[i - 2] : cuts[i - 1],
                                    end = offset == -1 ? cuts[i] : cuts[i + 1];
                       const auto combined =
-                        cell_resolution(id, begin, end, intervals);
+                        cell_resolution(id, begin, end, intervals, work);
                       if (neighbor.inside == cell.inside &&
                           (end - begin) * l <=
                             parameters.upper_factor * combined.h_min &&
                           (end - begin) * l >=
                             parameters.lower_factor * combined.h_max)
                         {
+                          count_work(work,
+                                     GrowthOperation::interval_cut_moves,
+                                     cuts.size() - 1 -
+                                       (offset == -1 ? i - 1 : i));
+                          count_work(work, GrowthOperation::interval_cut_edits);
                           cuts.erase(cuts.begin() + (offset == -1 ? i - 1 : i));
                           if (i > 1)
                             --i;
@@ -603,7 +639,8 @@ namespace ImmersX::Vascularization
             }
           for (std::size_t i = 1; i < cuts.size(); ++i)
             {
-              auto cell = cell_resolution(id, cuts[i - 1], cuts[i], intervals);
+              auto cell =
+                cell_resolution(id, cuts[i - 1], cuts[i], intervals, work);
               cell.short_cell = cell.inside && (cuts[i] - cuts[i - 1]) * l <
                                                  parameters.lower_factor *
                                                    cell.h_max * (1. - 1.e-12);

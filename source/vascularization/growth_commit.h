@@ -6,7 +6,10 @@
 
 #include <deal.II/grid/tria.h>
 
+#include <immersx/vascularization/growth_work.h>
+
 #include "forest_state.h"
+#include "growth_indices.h"
 namespace ImmersX::Vascularization::internal
 {
   struct GrowthSplit
@@ -37,11 +40,12 @@ namespace ImmersX::Vascularization::internal
     bool             committed = false;
     ValidationReport validation;
     // Outputs are populated only after the entire batch passes final checks.
-    NetworkData          network;
-    std::set<Id>         mutable_owned;
-    std::map<Id, double> fixed_owned_roots;
-    ForestState          physiology;
-    double               redistribution_seconds = 0., physiology_seconds = 0.,
+    NetworkData           network;
+    std::set<Id>          mutable_owned;
+    std::map<Id, double>  fixed_owned_roots;
+    ForestState           physiology;
+    GrowthGeometryChanges geometry_changes;
+    double                redistribution_seconds = 0., physiology_seconds = 0.,
            certification_seconds = 0.;
   };
   // Input remains immutable. Splits are sent to their writing owners. After
@@ -56,6 +60,8 @@ namespace ImmersX::Vascularization::internal
                        const std::map<Id, double>     &fixed_owned_roots,
                        const std::vector<GrowthSplit> &local,
                        const Parameters               &parameters,
-                       MPI_Comm                        communicator);
+                       MPI_Comm                        communicator,
+                       BackgroundGeometry             *geometry = nullptr,
+                       GrowthWork                     *work     = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif

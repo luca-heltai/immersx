@@ -58,13 +58,15 @@ namespace ImmersX::Vascularization
                    const dealii::Point<3>       &terminal,
                    double                        ceiling,
                    double                        terminal_demand,
-                   const CandidateGeometry      &geometry);
+                   const CandidateGeometry      &geometry,
+                   GrowthWork                   *work = nullptr);
     std::optional<GrowthCandidate>
     optimize_growth(const GrowthCandidateContext &context,
                     const Parameters             &parameters,
                     const dealii::Point<3>       &terminal,
                     double                        terminal_demand,
-                    const CandidateGeometry      &geometry);
+                    const CandidateGeometry      &geometry,
+                    GrowthWork                   *work = nullptr);
   } // namespace internal
 } // namespace ImmersX::Vascularization
 #endif

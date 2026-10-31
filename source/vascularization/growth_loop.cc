@@ -50,38 +50,17 @@ namespace ImmersX::Vascularization::internal
     }
     std::vector<Hit>
     nearest(const std::optional<Point<3>> &target,
-            const NetworkData             &network,
-            const std::set<Id>            &ids,
+            const GrowthIndices           &indices,
             unsigned int                   k,
             MPI_Comm                       comm,
-            System                         system)
+            System                         system,
+            GrowthWork                    *work)
     {
       const unsigned int rank = Utilities::MPI::this_mpi_process(comm),
                          size = Utilities::MPI::n_mpi_processes(comm);
-      std::vector<Leaf> leaves;
-      for (Id id : ids)
-        {
-          const auto &v = network.vessels.at(id);
-          if (v.system == system)
-            leaves.push_back({{network.nodes.at(v.nodes[0]).position,
-                               network.nodes.at(v.nodes[1]).position},
-                              id});
-        }
-      const auto                  tree = pack_rtree(leaves);
-      std::vector<BoundingBox<3>> local_boxes;
-      if (!leaves.empty())
-        {
-          Point<3> lo = leaves.front().first.first, hi = lo;
-          for (const auto &leaf : leaves)
-            for (const auto &point : {leaf.first.first, leaf.first.second})
-              for (unsigned int d = 0; d < 3; ++d)
-                {
-                  lo[d] = std::min(lo[d], point[d]);
-                  hi[d] = std::max(hi[d], point[d]);
-                }
-          local_boxes.emplace_back(std::make_pair(lo, hi));
-        }
-      const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      const auto &tree        = indices.mutable_tree(system);
+      const auto  local_boxes = GrowthIndices::covering(tree);
+      const auto  boxes       = Utilities::MPI::all_gather(comm, local_boxes);
       std::set<unsigned int> queried;
       std::vector<Hit>       hits;
       const auto exchange = [&](const std::map<unsigned int, Point<3>> &send) {
@@ -89,8 +68,7 @@ namespace ImmersX::Vascularization::internal
         std::map<unsigned int, std::vector<Hit>> replies;
         for (const auto &[source, point] : incoming)
           {
-            std::vector<Leaf> candidates;
-            tree.query(bgi::nearest(point, k), std::back_inserter(candidates));
+            const auto candidates = nearest_centerlines(tree, point, k, work);
             for (const auto &[segment, id] : candidates)
               replies[source].push_back(
                 {id, rank, point_distance_square(point, segment)});
@@ -134,9 +112,18 @@ namespace ImmersX::Vascularization::internal
                                   hits.back().distance :
                                   std::numeric_limits<double>::infinity();
           for (unsigned int owner = 0; owner < size; ++owner)
-            if (!queried.count(owner) && !boxes[owner].empty() &&
-                lower_bound(*target, boxes[owner][0]) <= cutoff)
-              send[owner] = *target;
+            if (!queried.count(owner) && !boxes[owner].empty())
+              {
+                const auto &[lo, hi] = boxes[owner][0].get_boundary_points();
+                const double guard   = 128. *
+                                     std::numeric_limits<double>::epsilon() *
+                                     std::max({1.,
+                                               target->norm_square(),
+                                               lo.norm_square(),
+                                               hi.norm_square()});
+                if (lower_bound(*target, boxes[owner][0]) <= cutoff + guard)
+                  send[owner] = *target;
+              }
         }
       exchange(send);
       return hits;
@@ -158,42 +145,19 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, Obstacle>
     candidate_obstacles(const NetworkData                          &network,
                         const ForestState                          &state,
+                        const GrowthIndices                        &indices,
                         const std::map<Id, GrowthCandidateContext> &contexts,
                         const std::optional<Point<3>>              &target,
                         const Parameters                           &p,
-                        MPI_Comm                                    comm)
+                        MPI_Comm                                    comm,
+                        GrowthWork                                 *work)
     {
-      const unsigned int rank = Utilities::MPI::this_mpi_process(comm),
-                         size = Utilities::MPI::n_mpi_processes(comm);
-      std::vector<Leaf> leaves;
-      double            max_radius = 0.;
-      Point<3>          lo, hi;
-      bool              first = true;
-      for (const auto &[id, v] : network.vessels)
-        if (v.owner == rank)
-          {
-            const auto &a = network.nodes.at(v.nodes[0]).position,
-                       &b = network.nodes.at(v.nodes[1]).position;
-            leaves.push_back({{a, b}, id});
-            max_radius = std::max({max_radius, v.radii[0], v.radii[1]});
-            for (const auto &point : {a, b})
-              {
-                for (unsigned int d = 0; d < 3; ++d)
-                  {
-                    lo[d] = first ? point[d] : std::min(lo[d], point[d]);
-                    hi[d] = first ? point[d] : std::max(hi[d], point[d]);
-                  }
-                first = false;
-              }
-          }
-      for (const auto &[id, b] : state.owned)
-        max_radius = std::max(max_radius, b.root_radius);
-      max_radius                       = Utilities::MPI::max(max_radius, comm);
-      const auto                  tree = pack_rtree(leaves);
-      std::vector<BoundingBox<3>> local_boxes;
-      if (!first)
-        local_boxes.emplace_back(std::make_pair(lo, hi));
-      const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      const unsigned int rank  = Utilities::MPI::this_mpi_process(comm),
+                         size  = Utilities::MPI::n_mpi_processes(comm);
+      const double max_radius  = indices.radius_bound;
+      const auto  &tree        = indices.owned;
+      const auto   local_boxes = GrowthIndices::covering(tree);
+      const auto   boxes       = Utilities::MPI::all_gather(comm, local_boxes);
       std::vector<BoundingBox<3>> regions;
       if (target)
         for (const auto &[id, x] : contexts)
@@ -238,10 +202,16 @@ namespace ImmersX::Vascularization::internal
       for (const auto &[source, query] : incoming)
         {
           std::set<Id> ids;
+          count_work(work,
+                     GrowthOperation::network_index_queries,
+                     query.size());
           for (const auto &region : query)
             for (const auto &[segment, id] :
                  tree | bgi::adaptors::queried(bgi::intersects(region)))
-              ids.insert(id);
+              {
+                count_work(work, GrowthOperation::network_index_hits);
+                ids.insert(id);
+              }
           for (Id id : ids)
             {
               const auto &v = network.vessels.at(id);
@@ -278,6 +248,7 @@ namespace ImmersX::Vascularization::internal
     using namespace dealii;
     Timer              timer;
     GrowthRun          run;
+    auto              *work = &run.work;
     const unsigned int terminal_count =
       requested_count == 0 ? p.terminal_count : requested_count;
     const unsigned int rank = Utilities::MPI::this_mpi_process(comm),
@@ -331,8 +302,16 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid,
                "All producers must use the same growth and sampling controls."))
       return run;
-    run.accepted = commit_growth_splits(
-      bg, mapping, initial, mutable_owned, fixed_owned_roots, {}, p, comm);
+    run.accepted = commit_growth_splits(bg,
+                                        mapping,
+                                        initial,
+                                        mutable_owned,
+                                        fixed_owned_roots,
+                                        {},
+                                        p,
+                                        comm,
+                                        nullptr,
+                                        work);
     if (!run.accepted.committed)
       {
         run.validation = run.accepted.validation;
@@ -436,7 +415,12 @@ namespace ImmersX::Vascularization::internal
         Utilities::MPI::sum(local_capacity, comm) >= terminal_count,
         "Requested terminal count is incompatible with Murray's minimum-radius capacity at the real fixed roots."))
       return run;
-    BackgroundGeometry geometry(bg, mapping);
+    BackgroundGeometry geometry(bg, mapping, work);
+    GrowthIndices      indices(run.accepted.network,
+                          run.accepted.mutable_owned,
+                          run.accepted.fixed_owned_roots,
+                          comm,
+                          work);
     FunctionParser<3>  weight, demand;
     try
       {
@@ -525,10 +509,12 @@ namespace ImmersX::Vascularization::internal
       return statistics;
     };
     bucket(count).initialization_seconds = timer.wall_time();
-    unsigned int failures                = 0;
+    bucket(count).work += *work;
+    unsigned int failures = 0;
     while (count < terminal_count && failures < p.sample_budget)
       {
         auto        &statistics       = bucket(count);
+        const auto   work_before      = *work;
         const auto   owned_before     = run.accepted.mutable_owned.size();
         const auto   samples_before   = run.sampled_points;
         const auto   proposals_before = run.proposed_insertions;
@@ -538,6 +524,7 @@ namespace ImmersX::Vascularization::internal
                optimization_end = batch_begin, selection_end = batch_begin;
         const auto record = [&](const GrowthCommit *commit) {
           const double end = timer.wall_time();
+          statistics.work += *work - work_before;
           ++statistics.batches;
           statistics.sampled_points += run.sampled_points - samples_before;
           statistics.proposed_insertions +=
@@ -649,13 +636,9 @@ namespace ImmersX::Vascularization::internal
             valid,
             "Spatial weight violates its bound, or tissue demand is not positive and finite."))
           return run;
-        sampling_end                      = timer.wall_time();
-        const auto                 nearby = nearest(target,
-                                    run.accepted.network,
-                                    run.accepted.mutable_owned,
-                                    p.candidate_count,
-                                    comm,
-                                    system);
+        sampling_end = timer.wall_time();
+        const auto nearby =
+          nearest(target, indices, p.candidate_count, comm, system, work);
         std::map<Id, unsigned int> requests;
         for (const auto &hit : nearby)
           requests[hit.id] = hit.owner;
@@ -665,7 +648,8 @@ namespace ImmersX::Vascularization::internal
                                                    allocated[0],
                                                    allocated[1],
                                                    p,
-                                                   comm);
+                                                   comm,
+                                                   work);
         if (!paths.validation.valid())
           {
             run.validation = paths.validation;
@@ -673,10 +657,12 @@ namespace ImmersX::Vascularization::internal
           }
         const auto obstacles = candidate_obstacles(run.accepted.network,
                                                    run.accepted.physiology,
+                                                   indices,
                                                    paths.contexts,
                                                    target,
                                                    p,
-                                                   comm);
+                                                   comm,
+                                                   work);
         search_end           = timer.wall_time();
         std::vector<Leaf> obstacle_leaves;
         double            obstacle_radius = 0.;
@@ -686,6 +672,10 @@ namespace ImmersX::Vascularization::internal
               {{obstacle.edge.points[0], obstacle.edge.points[1]}, id});
             obstacle_radius = std::max(obstacle_radius, obstacle.edge.radius);
           }
+        count_work(work, GrowthOperation::network_index_builds);
+        count_work(work,
+                   GrowthOperation::network_index_insertions,
+                   obstacle_leaves.size());
         const auto obstacle_tree = pack_rtree(obstacle_leaves);
         std::optional<GrowthCandidate> best;
         const GrowthCandidateContext  *chosen = nullptr;
@@ -697,6 +687,9 @@ namespace ImmersX::Vascularization::internal
               const double shrink =
                 std::pow(x.root_demand / (x.root_demand + w),
                          1. / x.murray_exponent);
+              count_work(work,
+                         GrowthOperation::candidate_path_visits,
+                         x.path.size());
               std::map<Id, double> path_demands;
               for (const auto &branch : x.path)
                 path_demands[branch.edge.id] = branch.demand;
@@ -708,6 +701,9 @@ namespace ImmersX::Vascularization::internal
                 for (std::size_t i = 0; i < changed.size(); ++i)
                   {
                     std::array<Point<3>, 2> normals;
+                    count_work(work,
+                               GrowthOperation::candidate_path_visits,
+                               x.path.size());
                     for (const auto &branch : x.path)
                       for (unsigned int end = 0; end < 2; ++end)
                         for (unsigned int old = 0; old < 2; ++old)
@@ -732,36 +728,44 @@ namespace ImmersX::Vascularization::internal
                         a[d] = std::min(e.points[0][d], e.points[1][d]) - pad;
                         b[d] = std::max(e.points[0][d], e.points[1][d]) + pad;
                       }
+                    count_work(work, GrowthOperation::network_index_queries);
                     for (const auto &[segment, id] :
                          obstacle_tree |
                            bgi::adaptors::queried(bgi::intersects(
                              BoundingBox<3>(std::make_pair(a, b)))))
-                      if (!replaced.count(id))
-                        {
-                          auto obstacle = obstacles.at(id).edge;
-                          if (obstacles.at(id).root == x.root)
-                            obstacle.radius =
-                              path_demands.count(id) ?
-                                x.root_radius *
-                                  std::pow((path_demands.at(id) + w) /
-                                             (x.root_demand + w),
-                                           1. / x.murray_exponent) :
-                                obstacle.radius * shrink;
-                          if (!compatible(
-                                e, obstacle, p.minimum_angle, p.clearance))
-                            return false;
-                        }
+                      {
+                        count_work(work, GrowthOperation::network_index_hits);
+                        if (!replaced.count(id))
+                          {
+                            auto obstacle = obstacles.at(id).edge;
+                            if (obstacles.at(id).root == x.root)
+                              obstacle.radius =
+                                path_demands.count(id) ?
+                                  x.root_radius *
+                                    std::pow((path_demands.at(id) + w) /
+                                               (x.root_demand + w),
+                                             1. / x.murray_exponent) :
+                                  obstacle.radius * shrink;
+                            if (!compatible(e,
+                                            obstacle,
+                                            p.minimum_angle,
+                                            p.clearance,
+                                            work))
+                              return false;
+                          }
+                      }
                     for (std::size_t j = 0; j < i; ++j)
                       if (!compatible(changed[i],
                                       changed[j],
                                       p.minimum_angle,
-                                      p.clearance))
+                                      p.clearance,
+                                      work))
                         return false;
                   }
                 return true;
               };
               if (auto proposal = optimize_growth(
-                    x, p, *target, terminal_demand, cheap_geometry))
+                    x, p, *target, terminal_demand, cheap_geometry, work))
                 if (!best || proposal->cost < best->cost)
                   {
                     best   = std::move(proposal);
@@ -812,7 +816,8 @@ namespace ImmersX::Vascularization::internal
             const auto &v = run.accepted.network.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
           },
-          false);
+          false,
+          work);
         std::vector<GrowthSplit> splits;
         if (best && selection.local.at(0))
           {
@@ -852,7 +857,9 @@ namespace ImmersX::Vascularization::internal
                                               run.accepted.fixed_owned_roots,
                                               splits,
                                               p,
-                                              comm);
+                                              comm,
+                                              &geometry,
+                                              work);
         if (!committed.committed)
           {
             ++run.rejected_batches;
@@ -866,6 +873,9 @@ namespace ImmersX::Vascularization::internal
                                                splits.front().terminal);
             pending.erase(shared_territory);
           }
+        indices.update(committed.network,
+                       committed.mutable_owned,
+                       committed.geometry_changes);
         run.accepted = std::move(committed);
         run.accepted_insertions += splits.size();
         run.maximum_batch_insertions =

@@ -16,9 +16,11 @@
 
 #include <functional>
 
+#include "../source/vascularization/demand_mass.h"
 #include "../source/vascularization/forest_state.h"
 #include "../source/vascularization/growth_batch.h"
 #include "../source/vascularization/growth_commit.h"
+#include "../source/vascularization/growth_demand.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_paths.h"
 using namespace dealii;
@@ -1555,4 +1557,287 @@ TEST(VascularForest,
   EXPECT_FALSE(double_claim.validation.valid());
   EXPECT_EQ(double_claim.batches, 0u);
   EXPECT_EQ(n.nodes.count(base + 10002), 0u);
+}
+
+TEST(VascularForest, BOTH_FullCommitWorkCounts)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   raw = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.minimum_angle = 1.;
+  GrowthWork work;
+  const auto result = commit_growth_splits(bg,
+                                           mapping,
+                                           raw,
+                                           mutable_ids(raw),
+                                           roots(raw),
+                                           {},
+                                           p,
+                                           MPI_COMM_WORLD,
+                                           nullptr,
+                                           &work);
+  ASSERT_TRUE(result.committed);
+  const auto total = [&](GrowthOperation operation) {
+    return Utilities::MPI::sum(work[operation], MPI_COMM_WORLD);
+  };
+  std::uint64_t owned = 0;
+  for (const auto &[id, v] : raw.vessels)
+    if (v.owner == rank())
+      ++owned;
+  owned = Utilities::MPI::sum(owned, MPI_COMM_WORLD);
+  const auto changed =
+    Utilities::MPI::sum(static_cast<std::uint64_t>(mutable_ids(raw).size()),
+                        MPI_COMM_WORLD);
+  // The independent full commit relocates every midpoint twice. This gate
+  // exposes that cost even when ordinary growth uses an incremental backend.
+  EXPECT_EQ(total(GrowthOperation::vessel_midpoint_localizations), 2 * owned);
+  EXPECT_EQ(total(GrowthOperation::certified_vessels), changed);
+  EXPECT_EQ(total(GrowthOperation::materialized_vessels), changed);
+  EXPECT_GT(total(GrowthOperation::physical_copy_attempts), owned);
+}
+
+TEST(VascularForest, BOTH_PersistentCenterlineIndicesFollowCommittedDeltas)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto initial = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  GrowthWork work;
+  GrowthIndices indices(
+    initial, mutable_ids(initial), roots(initial), MPI_COMM_WORLD, &work);
+  const auto check = [&](const NetworkData  &network,
+                         const std::set<Id> &mutable_owned) {
+    std::map<Id, std::array<Point<3>, 2>> expected, actual;
+    for (const auto &[id, v] : network.vessels)
+      if (v.owner == rank())
+        expected[id] = {{network.nodes.at(v.nodes[0]).position,
+                         network.nodes.at(v.nodes[1]).position}};
+    for (const auto &[segment, id] : indices.owned)
+      actual[id] = {{segment.first, segment.second}};
+    EXPECT_EQ(actual, expected);
+    EXPECT_EQ(indices.owned.size(), expected.size());
+    for (const auto system : {System::arterial, System::venous})
+      {
+        std::set<Id> wanted, found;
+        for (Id id : mutable_owned)
+          if (network.vessels.at(id).system == system)
+            wanted.insert(id);
+        for (const auto &[segment, id] : indices.mutable_tree(system))
+          found.insert(id);
+        EXPECT_EQ(found, wanted);
+        EXPECT_EQ(indices.mutable_tree(system).size(), wanted.size());
+      }
+    for (const auto p : {Point<3>(.023, .42, .373), Point<3>(2.78, .31, .92)})
+      {
+        const BoundingBox<3> box(
+          std::make_pair(Point<3>(p - Point<3>(.4, .4, .4)),
+                         p + Point<3>(.4, .4, .4)));
+        std::set<Id> wanted, found;
+        for (const auto &[id, points] : expected)
+          if (boost::geometry::intersects(Segment<3>(points[0], points[1]),
+                                          box))
+            wanted.insert(id);
+        for (const auto &[segment, id] :
+             indices.owned | bgi::adaptors::queried(bgi::intersects(box)))
+          found.insert(id);
+        EXPECT_EQ(found, wanted);
+        std::vector<std::pair<double, Id>> distances, hits;
+        for (const auto &[id, points] : expected)
+          distances.emplace_back(
+            point_distance_square(p, Segment<3>(points[0], points[1])), id);
+        for (const auto &[segment, id] :
+             nearest_centerlines(indices.owned, p, 3, nullptr))
+          hits.emplace_back(point_distance_square(p, segment), id);
+        std::sort(distances.begin(), distances.end());
+        std::sort(hits.begin(), hits.end());
+        distances.resize(std::min<std::size_t>(3, distances.size()));
+        EXPECT_EQ(hits, distances);
+      }
+  };
+  check(initial, mutable_ids(initial));
+  Parameters p;
+  p.minimum_angle = 1.;
+  BackgroundGeometry geometry(bg, mapping);
+  const auto         committed = commit_growth_splits(bg,
+                                              mapping,
+                                              initial,
+                                              mutable_ids(initial),
+                                              roots(initial),
+                                              concurrent_splits(initial),
+                                              p,
+                                              MPI_COMM_WORLD,
+                                              &geometry);
+  ASSERT_TRUE(committed.committed);
+  indices.update(committed.network,
+                 committed.mutable_owned,
+                 committed.geometry_changes);
+  check(committed.network, committed.mutable_owned);
+  EXPECT_EQ(work[GrowthOperation::network_index_builds], 3u);
+  p.minimum_radius    = 1.;
+  const auto rejected = commit_growth_splits(bg,
+                                             mapping,
+                                             committed.network,
+                                             committed.mutable_owned,
+                                             committed.fixed_owned_roots,
+                                             {},
+                                             p,
+                                             MPI_COMM_WORLD,
+                                             &geometry);
+  EXPECT_FALSE(rejected.committed);
+  // A rejected physical transaction never publishes a centerline delta.
+  EXPECT_TRUE(rejected.geometry_changes.changed_owned.empty());
+  EXPECT_TRUE(rejected.geometry_changes.released_owned.empty());
+  check(committed.network, committed.mutable_owned);
+}
+
+TEST(VascularForest, CanonicalNearestStopsAfterCutoffTies)
+{
+  constexpr unsigned int ties = 20;
+  for (unsigned int population : {1000u, 2000u, 4000u})
+    {
+      std::vector<GrowthIndices::Leaf> leaves;
+      for (unsigned int i = 0; i < ties; ++i)
+        leaves.push_back(
+          {{Point<3>(), Point<3>(1., 1. + i, 0.)}, base + 100 + i});
+      for (unsigned int i = 0; i < population; ++i)
+        leaves.push_back(
+          {{Point<3>(100. + 2 * i, 0., 0.), Point<3>(101. + 2 * i, 1., 0.)},
+           base + 1000 + i});
+      auto tree = pack_rtree(leaves);
+      for (unsigned int history = 0; history < 2; ++history)
+        {
+          GrowthWork work;
+          const auto nearest =
+            nearest_centerlines(tree, Point<3>(-1., 0., 0.), 1, &work);
+          ASSERT_EQ(nearest.size(), 1u);
+          EXPECT_EQ(nearest.front().second, base + 100);
+          EXPECT_GE(work[GrowthOperation::network_index_hits], ties);
+          EXPECT_LE(work[GrowthOperation::network_index_hits], ties + 1);
+          // A different native tree layout must preserve the physical-id tie.
+          if (history == 0)
+            for (auto it = leaves.rbegin(); it != leaves.rend(); ++it)
+              {
+                ASSERT_EQ(tree.remove(*it), 1u);
+                tree.insert(*it);
+              }
+        }
+    }
+}
+
+TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
+{
+  GrowthDemandUpdate update;
+  update.snapshot_revision        = 17;
+  update.base_quadrature_revision = 3;
+  update.quadrature_revision      = 4;
+  update.terminals.push_back({base + rank(), .125 + rank()});
+  if (rank() % 2 == 0)
+    update.canonical_total_demand = std::array<double, 2>{{5., 0.}};
+  std::map<unsigned int, std::vector<GrowthDemandUpdate>> send;
+  send[(base + rank()) % size()].push_back(update);
+  const auto    received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+  std::uint64_t count    = 0;
+  for (const auto &[source, updates] : received)
+    for (const auto &value : updates)
+      {
+        ++count;
+        EXPECT_EQ(value.snapshot_revision, 17u);
+        EXPECT_EQ(value.base_quadrature_revision, 3u);
+        EXPECT_EQ(value.quadrature_revision, 4u);
+        EXPECT_EQ(value.terminals.size(), 1u);
+        if (value.terminals.size() != 1)
+          continue;
+        EXPECT_EQ(value.terminals.front().terminal, base + source);
+        EXPECT_EQ(value.terminals.front().terminal % size(), rank());
+        EXPECT_EQ(value.terminals.front().demand, .125 + source);
+        EXPECT_EQ(value.canonical_total_demand.has_value(), source % 2 == 0);
+        if (value.canonical_total_demand)
+          {
+            EXPECT_EQ((*value.canonical_total_demand)[0], 5.);
+            EXPECT_EQ((*value.canonical_total_demand)[1], 0.);
+          }
+      }
+  EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), size());
+}
+
+TEST(VascularForest, BOTH_SharedBackgroundSurvivesRepeatedFullCommits)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto       network  = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  auto       ids      = mutable_ids(network);
+  auto       controls = roots(network);
+  Parameters p;
+  p.minimum_angle = 1.;
+  GrowthWork         work;
+  BackgroundGeometry geometry(bg, mapping, &work);
+  for (unsigned int stage = 0; stage < 3; ++stage)
+    {
+      auto result = commit_growth_splits(bg,
+                                         mapping,
+                                         network,
+                                         ids,
+                                         controls,
+                                         {},
+                                         p,
+                                         MPI_COMM_WORLD,
+                                         &geometry,
+                                         &work);
+      ASSERT_TRUE(result.committed);
+      network  = std::move(result.network);
+      ids      = std::move(result.mutable_owned);
+      controls = std::move(result.fixed_owned_roots);
+    }
+  EXPECT_EQ(work[GrowthOperation::background_cache_constructions], 1u);
+  EXPECT_EQ(work[GrowthOperation::background_cell_visits], bg.n_active_cells());
+  EXPECT_EQ(work[GrowthOperation::boundary_index_builds], 1u);
+}
+
+TEST(VascularForest, ExactMassRetainsTinyContributionsAfterReassignment)
+{
+  const auto tiny  = demand_mass_units(1.e-300);
+  const auto large = demand_mass_units(1.e300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny + large), 1.e300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny + large - large), 1.e-300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny + large - tiny), 1.e300);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(tiny - tiny), 0.);
+  for (const double mass : {0.,
+                            std::numeric_limits<double>::denorm_min(),
+                            std::numeric_limits<double>::min(),
+                            1.e-300,
+                            .1,
+                            1.,
+                            1.e300,
+                            std::numeric_limits<double>::max()})
+    EXPECT_DOUBLE_EQ(physical_demand_mass(demand_mass_units(mass)), mass);
+}
+TEST(VascularForest, ExactMassRoundsTiesToEvenWithoutPartitionDependence)
+{
+  const double step = std::ldexp(1., -52), half = step / 2.;
+  const auto   one     = demand_mass_units(1.);
+  const auto   epsilon = demand_mass_units(step);
+  const auto   tie     = demand_mass_units(half);
+  const auto   subnormal =
+    demand_mass_units(std::numeric_limits<double>::denorm_min());
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + tie), 1.);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + tie + subnormal), 1. + step);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + epsilon + tie), 1. + 2. * step);
+  EXPECT_DOUBLE_EQ(physical_demand_mass(one + epsilon + tie - subnormal),
+                   1. + step);
+  EXPECT_DOUBLE_EQ(physical_demand_mass((one + tie) + (epsilon - tie)),
+                   1. + step);
+  EXPECT_TRUE(std::isinf(physical_demand_mass(
+    demand_mass_units(std::numeric_limits<double>::max()) * 2)));
+}
+TEST(VascularForest, ExactMassRejectsInvalidInputs)
+{
+  for (double value : {-1.,
+                       std::numeric_limits<double>::infinity(),
+                       std::numeric_limits<double>::quiet_NaN()})
+    EXPECT_THROW(demand_mass_units(value), dealii::ExceptionBase);
+  EXPECT_THROW(physical_demand_mass(boost::multiprecision::cpp_int(-1)),
+               dealii::ExceptionBase);
 }

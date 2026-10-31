@@ -7,6 +7,8 @@
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/vascularization/generation.h>
+
+#include "growth_work.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -31,7 +33,8 @@ namespace ImmersX::Vascularization::internal
                           Id                                next_node,
                           Id                                next_vessel,
                           const Parameters                 &p,
-                          MPI_Comm                          comm)
+                          MPI_Comm                          comm,
+                          GrowthWork                       *work)
   {
     using namespace dealii;
     GrowthCandidatePaths result;
@@ -46,7 +49,7 @@ namespace ImmersX::Vascularization::internal
       return all;
     };
     bool valid = forest.validation.valid() &&
-                 validate_data(network, size).valid() &&
+                 validate_counted_data(network, size, work).valid() &&
                  std::isfinite(forest.demand_scale) && forest.demand_scale > 0.;
     for (const auto &[id, owner] : requests)
       valid = valid && id != invalid_id && owner < size;
@@ -64,6 +67,7 @@ namespace ImmersX::Vascularization::internal
       Utilities::MPI::sum(static_cast<std::uint64_t>(pending.size()), comm) > 0)
       {
         ++result.rounds;
+        count_work(work, GrowthOperation::path_exchange_rounds);
         if (!phase(
               result.rounds <= count,
               "Candidate dependencies do not terminate at a physical root."))
@@ -118,6 +122,7 @@ namespace ImmersX::Vascularization::internal
               valid = valid && pending.count(id) && pending.at(id) == owner &&
                       record.branch.owner == owner &&
                       cache.emplace(id, record).second;
+              count_work(work, GrowthOperation::path_records_received);
               fresh.push_back(id);
             }
         for (const auto &[id, owner] : pending)
@@ -186,6 +191,7 @@ namespace ImmersX::Vascularization::internal
                 cache.count(record.state.parent))
               valid = valid && cache.at(record.state.parent).branch.owner ==
                                  record.state.parent_owner;
+            count_work(work, GrowthOperation::candidate_path_visits);
             x.path.push_back(record.branch);
             id = record.state.parent;
           }
