@@ -36,6 +36,7 @@ set(_public_headers
     immersx/vascularization/discretization.h
     immersx/vascularization/growth_work.h
     immersx/vascularization/generation.h
+    immersx/vascularization/growth_work.h
     immersx/vascularization/network.h
     immersx/compatibility/reference_cell.h
     immersx/core/boundary_conditions.h

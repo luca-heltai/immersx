@@ -419,7 +419,9 @@ namespace ImmersX::Vascularization::internal
                 if (values.size() == 1)
                   valid = valid && b.demand == maximum_child;
                 else if (values.size() == 2)
-                  valid = valid && b.demand > maximum_child;
+                  // A positive smaller child can be below the sum's precision.
+                  // Its own radius and flow must still remain representable.
+                  valid = valid && b.demand >= maximum_child;
                 else
                   valid = false;
                 ready.push_back(id);
