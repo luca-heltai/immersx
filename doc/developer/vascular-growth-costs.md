@@ -32,7 +32,7 @@ Serial generation medians:144.29592964s and14177.368884775s, ratio98.252036 for 
 
 Use the existing small distributed forest split/commit tests, plus a new direct comparison of incremental updates against complete evaluate_forest/redistribute/full batch certification at each accepted step. Include rejection after each stage and verify graph, physiology, owner/ghost sets, native RTree queries and revisions return to the pre-attempt state. Full public generation and the actual standalone application remain the vertical consumers; no alternate approximate generator.
 
-The parent mesh-adaptation worker owns Length scale, exact H profiles/clearance semantics and Voronoi integration. This branch owns persistent execution, demand-delta propagation, journaling and certification invalidation. Agreed draft API: absolute new Di by existing terminal id, new Di in GrowthSplit; one preview per tissue territory, joint chosen-centre demand update, canonical global total demand and quadrature/snapshot revision; no separate competing propagation algorithm. Geometry and demand revisions must participate in the same commit or rollback. Root-factor increases are explicitly nonlocal when unavoidable.
+The parent mesh-adaptation worker owns Length scale, exact H profiles/clearance semantics and Voronoi integration. This branch owns persistent execution, demand-delta propagation, journaling and certification invalidation. Agreed draft API: absolute new Di by existing terminal id delivered to the engine directory shard `terminalId % P`, new Di in GrowthSplit; one preview per tissue territory, joint chosen-centre demand update, canonical global total demand and quadrature/snapshot revision; no separate competing propagation algorithm. Geometry and demand revisions must participate in the same commit or rollback. Root-factor increases are explicitly nonlocal when unavoidable.
 
 No implementation is complete at this checkpoint. Historical timings establish priority, not proof that any proposed representation meets the target. Do not launch the 1000/2000/5000/10000 campaign until structural counters show that ordinary insertions no longer rebuild the full graph/background.
 
@@ -129,3 +129,15 @@ first result beyond the cutoff. No bounding-box expansion scans distant rank
 partitions to find ties. The exact historical graph can change where the old
 bulk nearest query chose an arbitrary subset of equal-distance vessels;
 benchmark comparisons must retain attempt and geometric-work counts.
+
+## Territorial demand data contract
+
+The private `growth_demand.h` contract separates absolute old-terminal updates,
+a proposal before vessel selection, and the joint update for selected centres.
+`snapshot_revision` identifies the accepted graph. `base_quadrature_revision`
+identifies accepted weights and `quadrature_revision` identifies proposed
+weights. The joint update supplies its new-terminal demands separately because
+simultaneous reassignment can change those values relative to isolated previews.
+Canonical system totals already include new demand and must not add it twice.
+These data types do not mutate accepted graph or tissue state; incremental
+propagation and joint adoption belong to the execution transaction.

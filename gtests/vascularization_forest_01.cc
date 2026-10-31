@@ -19,6 +19,7 @@
 #include "../source/vascularization/forest_state.h"
 #include "../source/vascularization/growth_batch.h"
 #include "../source/vascularization/growth_commit.h"
+#include "../source/vascularization/growth_demand.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_paths.h"
 using namespace dealii;
@@ -1722,4 +1723,40 @@ TEST(VascularForest, CanonicalNearestStopsAfterCutoffTies)
               }
         }
     }
+}
+
+TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
+{
+  GrowthDemandUpdate update;
+  update.snapshot_revision        = 17;
+  update.base_quadrature_revision = 3;
+  update.quadrature_revision      = 4;
+  update.terminals.push_back({base + rank(), .125 + rank()});
+  if (rank() % 2 == 0)
+    update.canonical_total_demand = std::array<double, 2>{{5., 0.}};
+  std::map<unsigned int, std::vector<GrowthDemandUpdate>> send;
+  send[(base + rank()) % size()].push_back(update);
+  const auto    received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+  std::uint64_t count    = 0;
+  for (const auto &[source, updates] : received)
+    for (const auto &value : updates)
+      {
+        ++count;
+        EXPECT_EQ(value.snapshot_revision, 17u);
+        EXPECT_EQ(value.base_quadrature_revision, 3u);
+        EXPECT_EQ(value.quadrature_revision, 4u);
+        EXPECT_EQ(value.terminals.size(), 1u);
+        if (value.terminals.size() != 1)
+          continue;
+        EXPECT_EQ(value.terminals.front().terminal, base + source);
+        EXPECT_EQ(value.terminals.front().terminal % size(), rank());
+        EXPECT_EQ(value.terminals.front().demand, .125 + source);
+        EXPECT_EQ(value.canonical_total_demand.has_value(), source % 2 == 0);
+        if (value.canonical_total_demand)
+          {
+            EXPECT_EQ((*value.canonical_total_demand)[0], 5.);
+            EXPECT_EQ((*value.canonical_total_demand)[1], 0.);
+          }
+      }
+  EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), size());
 }
