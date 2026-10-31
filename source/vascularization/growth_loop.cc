@@ -913,14 +913,10 @@ namespace ImmersX::Vascularization::internal
         if (target)
           for (const auto &hit : nearby)
             {
-              const auto  &x = paths.contexts.at(hit.id);
-              const double w = terminal_demand / x.demand_scale;
-              const double shrink =
-                std::pow(x.root_demand / (x.root_demand + w),
-                         1. / x.murray_exponent);
-              std::map<Id, double> path_demands;
-              for (const auto &branch : x.path)
-                path_demands[branch.edge.id] = branch.demand;
+              const auto &x     = paths.contexts.at(hit.id);
+              const auto  radii = candidate_radii(x, terminal_demand);
+              if (!radii)
+                continue;
               const auto cheap_geometry = [&](
                                             const std::vector<Edge> &changed) {
                 std::set<Id> replaced;
@@ -959,15 +955,10 @@ namespace ImmersX::Vascularization::internal
                              BoundingBox<3>(std::make_pair(a, b)))))
                       if (!replaced.count(id))
                         {
-                          auto obstacle = obstacles.at(id).edge;
-                          if (obstacles.at(id).root == x.root)
-                            obstacle.radius =
-                              path_demands.count(id) ?
-                                x.root_radius *
-                                  std::pow((path_demands.at(id) + w) /
-                                             (x.root_demand + w),
-                                           1. / x.murray_exponent) :
-                                obstacle.radius * shrink;
+                          auto obstacle   = obstacles.at(id).edge;
+                          obstacle.radius = (*radii)(id,
+                                                     obstacles.at(id).root,
+                                                     obstacle.radius);
                           if (!compatible(
                                 e, obstacle, p.minimum_angle, clearance_lower))
                             return false;
