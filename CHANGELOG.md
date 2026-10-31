@@ -11,21 +11,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Grow vascular networks with persistent native ownership, spatial indices and demand summaries, updating and certifying affected records in one rollback-capable transaction. Share background caches through arterial/venous growth and calibration, retain venous nearest cursors, and sweep subdivision intervals without repeated full scans. Report initialization, ordinary and finalization work separately, with optional MPI phase profiling.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Expose local vascular growth operation counters, including unsuccessful attempts, without MPI in counter updates.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add a reproducible native mesh-refinement study with fixed physical controls, independent demand/flow checks, normalized geometry distributions and per-seed reports. Preserve benchmark library filenames and verify the frozen library loaded for each experiment.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add mesh-owned tissue quadrature refinement with explicit global point and refinement budgets. Preserve the background mesh and stage resolution changes with territorial demand journals.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply one background length policy to vascular seeds and imported attachments, whole-branch minimum length and radius, symmetric variable clearance, venous separation and tissue-local coverage. Preserve physical input and solver units, and report mesh bounds, count decisions and normalized vessel geometry.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Evaluate geometric vascular coverage with a service distance relative to each tissue quadrature point, preserving physical volume weights and routing remote terminals across the largest service reach.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Measure vascular length and tapered radii relative to a metre, local active-cell diameter, or global diameter bounds, using exact background crossings and explicit exterior portions without changing physical data.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default the initial vascular terminal count to a multiple of the global active background cell count, with optional used-vertex or absolute-count modes, with shared MPI vertices counted once and absolute calibration limits preserved.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance candidates by physical identifier.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 
