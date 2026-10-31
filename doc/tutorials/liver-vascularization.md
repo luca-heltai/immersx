@@ -43,26 +43,19 @@ Soler and coauthors (2010).
 ## Build the application
 
 Use deal.II with its Gmsh API, VTK and simplex support. The standalone growth
-application does not require the optional `1dsolver` library.
+application does not require the optional `1dsolver` library. Run the commands
+below from the repository root; `build-release` is the example build directory.
 
 ```bash
-cmake -S . -B /tmp/immersx-liver-build -G Ninja \
+cmake -S . -B build-release -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_COUPLED_PROBLEMS=OFF
-cmake --build /tmp/immersx-liver-build --target liver_vascular -j 2
+cmake --build build-release --target liver_vascular -j 2
 ```
 
-On gpu04, activate the installed Spack environment first:
-
-```bash
-source /software/spackgpu-v2/share/spack/setup-env.sh
-spack env activate dealii
-```
-
-When configuring a new build there, select the MPI compiler wrapper with
-`-DCMAKE_CXX_COMPILER=mpicxx` and set
-`-DDEAL_II_DIR=/software/dealii/dealii-inst` if CMake does not discover it.
-A Debug build names the executable `liver_vascular_debug`.
+Set `DEAL_II_DIR` if CMake does not find your deal.II installation. Select
+an MPI compiler wrapper with `-DCMAKE_CXX_COMPILER=mpicxx` when required by
+your installation. A Debug build names the executable `liver_vascular_debug`.
 
 ## Prepare the IRCAD inputs
 
@@ -74,13 +67,13 @@ an isolated environment with conda or micromamba:
 micromamba create -y -n ircad-prep -c conda-forge \
   python=3.10 vmtk=1.5.0 vtk=9.2.6 numpy=2.2.6
 micromamba run -n ircad-prep python scripts/prepare_ircad_liver.py \
-  /tmp/immersx-liver-build/data/ircad-case12
+  build-release/data/ircad-case12
 ```
 
 The output directory must be new. The script downloads only the case's
 `MESHES_VTK.zip`, checks the three source-file SHA-256 hashes, and keeps the
-original files in `raw/`. To reuse an existing copy of that archive, add
-`--mesh-archive /absolute/path/to/MESHES_VTK.zip`.
+original files in `raw/`. To reuse an existing archive, add
+`--mesh-archive "$MESH_ARCHIVE"`, where `MESH_ARCHIVE` names your local copy.
 
 The script writes:
 
@@ -154,16 +147,17 @@ change the input meshes, update the pressure keys to match their `Root` fields.
 ## Mesh the tissue and grow both systems
 
 CMake generates the runnable file
-`/tmp/immersx-liver-build/data/vascularization/liver.prm` from the checked-in
-template. Its central settings are:
+`build-release/data/vascularization/liver.prm` from the checked-in
+template. Its central settings are shown below. Paths in this example are
+relative to the parameter file:
 
 ```text
 subsection Liver
-  set Arterial grid = /tmp/immersx-liver-build/data/ircad-case12/arterial.vtk
-  set Venous grid = /tmp/immersx-liver-build/data/ircad-case12/venous.vtk
-  set Output directory = /tmp/immersx-liver-build/test_output/liver-vascularization
+  set Arterial grid = ../ircad-case12/arterial.vtk
+  set Venous grid = ../ircad-case12/venous.vtk
+  set Output directory = ../../test_output/liver-vascularization
   subsection Domain
-    set Grid generator = /tmp/immersx-liver-build/data/ircad-case12/liver.stl
+    set Grid generator = ../ircad-case12/liver.stl
     set Triangulation type = fullydistributed
     subsection Surface mesh
       set Input = auto
@@ -246,15 +240,16 @@ Run the full recipe in Release on 32 MPI processes, as in the verified
 1,000-pair calculation:
 
 ```bash
-mpirun -np 32 /tmp/immersx-liver-build/liver_vascular \
-  /tmp/immersx-liver-build/data/vascularization/liver.prm
+mpirun -np 32 build-release/liver_vascular \
+  build-release/data/vascularization/liver.prm
 ```
 
 For a short two-process trial, set `Terminal count = 32` and choose a new
 output directory in a copy of the parameter file, then run:
 
 ```bash
-mpirun -np 2 /tmp/immersx-liver-build/liver_vascular /absolute/path/to/liver-mpi.prm
+mpirun -np 2 build-release/liver_vascular \
+  build-release/data/vascularization/liver-mpi.prm
 ```
 
 The application resolves relative paths against its parameter file. It can be
@@ -262,7 +257,7 @@ launched from an unrelated directory. Each run requires a new output directory;
 an unsuccessful result is not archived as an accepted vascular network.
 
 For hexahedra, change `Volume cells` to `hexahedra`. Gmsh still generates the
-tetrahedral volume first, then deal.II divides each tetrahedron into four
+tetrahedral volume first, then Gmsh subdivides each tetrahedron into four
 conforming hexahedra. The tested liver consequently had **53,404 hexahedra**
 with the same enclosed volume. This is an unstructured hexahedral mesh, not a
 structured organ-aligned grid. Regenerate and verify the vascular result on
@@ -291,10 +286,10 @@ Check the physical result independently of the generator:
 
 ```bash
 micromamba run -n ircad-prep python scripts/check_liver_vascular.py \
-  /tmp/immersx-liver-build/data/ircad-case12 \
-  /tmp/immersx-liver-build/test_output/liver-vascularization \
+  build-release/data/ircad-case12 \
+  build-release/test_output/liver-vascularization \
   --pairs 1000 --separation .003 \
-  --report /tmp/immersx-liver-build/test_output/liver-vascularization/verification.json
+  --report build-release/test_output/liver-vascularization/verification.json
 ```
 
 The checker compares all supplied nodes, ports, edges and endpoint radii with
@@ -330,9 +325,9 @@ from your own accepted result:
 ```bash
 micromamba run -n ircad-prep python -m pip install matplotlib==3.10.9
 micromamba run -n ircad-prep python scripts/render_liver_figures.py \
-  /tmp/immersx-liver-build/data/ircad-case12 \
-  /tmp/immersx-liver-build/test_output/liver-vascularization \
-  /tmp/liver-figures --pairs 1000 \
+  build-release/data/ircad-case12 \
+  build-release/test_output/liver-vascularization \
+  build-release/liver-figures --pairs 1000 \
   --source-revision "$(git rev-parse HEAD)"
 ```
 

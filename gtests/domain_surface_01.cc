@@ -5,6 +5,7 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/manifold_lib.h>
 
 #include <gtest/gtest.h>
 #include <immersx/core/domain.h>
@@ -20,17 +21,30 @@ using namespace ImmersX;
 namespace
 {
   std::string
-  surface_fixture(const std::string &extension, const bool open = false)
+  surface_fixture(const std::string &extension,
+                  const bool         open   = false,
+                  const bool         curved = false)
   {
     const auto directory = TestPaths::output_directory("domain-surface");
-    const auto filename =
-      directory + (open ? "/open." : "/closed.") + extension;
+    const auto filename  = directory +
+                          (curved ? "/curved." :
+                           open   ? "/open." :
+                                    "/closed.") +
+                          extension;
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       {
         std::filesystem::create_directories(directory);
         Triangulation<3> cube;
-        GridGenerator::hyper_cube(cube, 0., 1., true);
+        if (curved)
+          {
+            GridGenerator::hyper_ball(cube);
+            cube.refine_global(1);
+          }
+        else
+          GridGenerator::hyper_cube(cube, 0., 1., true);
         Triangulation<2, 3> surface;
+        if (curved)
+          surface.set_manifold(0, SphericalManifold<2, 3>());
         GridGenerator::extract_boundary_mesh(cube,
                                              surface,
                                              open ?
@@ -111,6 +125,41 @@ TEST(Domain, BOTH_SurfaceVtkToTetrahedra)
 TEST(Domain, BOTH_SurfaceStlToHexahedra)
 {
   check_surface("stl", true);
+  // The Gmsh subdivision option must not affect later tetrahedral domains.
+  check_surface("stl", false);
+}
+
+TEST(Domain, BOTH_CurvedSurfaceSubdivisionPreservesVolume)
+{
+  const auto   input              = surface_fixture("vtk", false, true);
+  double       tetrahedral_volume = 0.;
+  unsigned int tetrahedra         = 0;
+  for (const bool hexahedra : {false, true})
+    {
+      DomainParameters<3> parameters(hexahedra ? "/Tests/CurvedSurface/Hex/" :
+                                                 "/Tests/CurvedSurface/Tet/");
+      parameters.name_of_grid          = input;
+      parameters.triangulation_type    = "fullydistributed";
+      parameters.surface_mesh_size     = .4;
+      parameters.surface_feature_angle = 60.;
+      parameters.surface_volume_cells  = hexahedra ? "hexahedra" : "tetrahedra";
+      Domain<3> domain(parameters);
+      ASSERT_NO_THROW(domain.make_grid());
+      const double volume = GridTools::volume(domain.triangulation());
+      if (!hexahedra)
+        {
+          tetrahedral_volume = volume;
+          tetrahedra         = domain.triangulation().n_global_active_cells();
+        }
+      else
+        {
+          EXPECT_TRUE(
+            domain.triangulation().all_reference_cells_are_hyper_cube());
+          EXPECT_EQ(domain.triangulation().n_global_active_cells(),
+                    4 * tetrahedra);
+          EXPECT_NEAR(volume, tetrahedral_volume, 1.e-9 * tetrahedral_volume);
+        }
+    }
 }
 
 TEST(Domain, BOTH_VolumeInputBypassesSurfaceMeshing)

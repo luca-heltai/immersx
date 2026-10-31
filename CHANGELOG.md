@@ -284,6 +284,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Build surface volume generation and retained vascular indices with the deal.II 9.7 and Boost toolchain used by CI, preserving conforming hexahedral output and physical vessel identities during index updates.
+
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
@@ -446,6 +448,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 
 ### Tutorial
+
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Use project-relative examples in the liver tutorial without machine names or installation-specific paths.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Illustrate the liver tutorial with native before-and-after vascular trees and a tissue-volume section; provide a renderer and a manifest of the checked source data.
 
