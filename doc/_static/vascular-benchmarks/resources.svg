@@ -1,0 +1,559 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1790" viewBox="0 0 1180 1790">
+<rect width="100%" height="100%" fill="white"/>
+<title>Measured memory, MPI activity, physiology, ownership and producer work</title>
+<style>text{font-family:DejaVu Sans,sans-serif;fill:#24303b}line,path,polygon{stroke-linejoin:round}</style>
+<text x="40.00" y="32.00" font-size="21" text-anchor="start">Measured memory, MPI activity, physiology, ownership and producer work</text>
+<text x="40.00" y="55.00" font-size="13" text-anchor="start">Medians and full observed seed ranges; each point uses a completed, independently rechecked native run.</text>
+<text x="95.00" y="84.00" font-size="15" text-anchor="start">Maximum per-rank peak RSS [MiB]</text>
+<line x1="95.000" y1="317.000" x2="535.000" y2="317.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="321.00" font-size="11" text-anchor="end">0</text>
+<line x1="95.000" y1="265.750" x2="535.000" y2="265.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="269.75" font-size="11" text-anchor="end">104</text>
+<line x1="95.000" y1="214.500" x2="535.000" y2="214.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="218.50" font-size="11" text-anchor="end">207</text>
+<line x1="95.000" y1="163.250" x2="535.000" y2="163.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="167.25" font-size="11" text-anchor="end">311</text>
+<line x1="95.000" y1="112.000" x2="535.000" y2="112.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="116.00" font-size="11" text-anchor="end">415</text>
+<text x="95.00" y="337.00" font-size="12" text-anchor="middle">1</text>
+<text x="241.67" y="337.00" font-size="12" text-anchor="middle">2</text>
+<text x="388.33" y="337.00" font-size="12" text-anchor="middle">4</text>
+<text x="535.00" y="337.00" font-size="12" text-anchor="middle">8</text>
+<text x="315.00" y="357.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="95.000" y1="179.230" x2="95.000" y2="178.397" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="179.230" x2="99.000" y2="179.230" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="178.397" x2="99.000" y2="178.397" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="95.000" cy="178.519" r="3" fill="#1768ac"/>
+<line x1="241.667" y1="181.590" x2="241.667" y2="181.076" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="181.590" x2="245.667" y2="181.590" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="181.076" x2="245.667" y2="181.076" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="95.000" y1="178.519" x2="241.667" y2="181.302" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="241.667" cy="181.302" r="3" fill="#1768ac"/>
+<line x1="388.333" y1="182.764" x2="388.333" y2="182.419" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="182.764" x2="392.333" y2="182.764" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="182.419" x2="392.333" y2="182.419" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="241.667" y1="181.302" x2="388.333" y2="182.703" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="388.333" cy="182.703" r="3" fill="#1768ac"/>
+<line x1="535.000" y1="183.102" x2="535.000" y2="182.853" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="183.102" x2="539.000" y2="183.102" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="182.853" x2="539.000" y2="182.853" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="388.333" y1="182.703" x2="535.000" y2="183.056" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="535.000" cy="183.056" r="3" fill="#1768ac"/>
+<text x="95.00" y="379.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="507.000" y1="375.000" x2="535.000" y2="375.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="95.000" y1="128.058" x2="95.000" y2="127.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="128.058" x2="99.000" y2="128.058" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="127.185" x2="99.000" y2="127.185" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="95.000" cy="127.562" r="3" fill="#bd452d"/>
+<line x1="241.667" y1="155.095" x2="241.667" y2="154.413" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="155.095" x2="245.667" y2="155.095" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="154.413" x2="245.667" y2="154.413" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="95.000" y1="127.562" x2="241.667" y2="155.019" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="241.667" cy="155.019" r="3" fill="#bd452d"/>
+<line x1="388.333" y1="169.210" x2="388.333" y2="168.358" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="169.210" x2="392.333" y2="169.210" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="168.358" x2="392.333" y2="168.358" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="241.667" y1="155.019" x2="388.333" y2="169.132" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="388.333" cy="169.132" r="3" fill="#bd452d"/>
+<line x1="535.000" y1="175.825" x2="535.000" y2="175.448" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="175.825" x2="539.000" y2="175.825" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="175.448" x2="539.000" y2="175.448" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="388.333" y1="169.132" x2="535.000" y2="175.713" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="535.000" cy="175.713" r="3" fill="#bd452d"/>
+<text x="95.00" y="396.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="507.000" y1="392.000" x2="535.000" y2="392.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="95.000" y1="178.712" x2="95.000" y2="178.594" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="178.712" x2="99.000" y2="178.712" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="178.594" x2="99.000" y2="178.594" stroke="#398339" stroke-width="1.5000" />
+<circle cx="95.000" cy="178.674" r="3" fill="#398339"/>
+<line x1="535.000" y1="177.117" x2="535.000" y2="176.760" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="177.117" x2="539.000" y2="177.117" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="176.760" x2="539.000" y2="176.760" stroke="#398339" stroke-width="1.5000" />
+<line x1="95.000" y1="178.674" x2="535.000" y2="176.767" stroke="#398339" stroke-width="2.0000" />
+<circle cx="535.000" cy="176.767" r="3" fill="#398339"/>
+<text x="95.00" y="413.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="507.000" y1="409.000" x2="535.000" y2="409.000" stroke="#398339" stroke-width="3.0000" />
+<text x="670.00" y="84.00" font-size="15" text-anchor="start">Physical ownership: maximum / mean</text>
+<line x1="670.000" y1="317.000" x2="1110.000" y2="317.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="321.00" font-size="11" text-anchor="end">0</text>
+<line x1="670.000" y1="265.750" x2="1110.000" y2="265.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="269.75" font-size="11" text-anchor="end">0.303</text>
+<line x1="670.000" y1="214.500" x2="1110.000" y2="214.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="218.50" font-size="11" text-anchor="end">0.605</text>
+<line x1="670.000" y1="163.250" x2="1110.000" y2="163.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="167.25" font-size="11" text-anchor="end">0.908</text>
+<line x1="670.000" y1="112.000" x2="1110.000" y2="112.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="116.00" font-size="11" text-anchor="end">1.21</text>
+<text x="670.00" y="337.00" font-size="12" text-anchor="middle">1</text>
+<text x="816.67" y="337.00" font-size="12" text-anchor="middle">2</text>
+<text x="963.33" y="337.00" font-size="12" text-anchor="middle">4</text>
+<text x="1110.00" y="337.00" font-size="12" text-anchor="middle">8</text>
+<text x="890.00" y="357.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="670.000" y1="147.607" x2="670.000" y2="147.607" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="147.607" x2="674.000" y2="147.607" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="147.607" x2="674.000" y2="147.607" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="670.000" cy="147.607" r="3" fill="#1768ac"/>
+<line x1="816.667" y1="147.522" x2="816.667" y2="146.845" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="147.522" x2="820.667" y2="147.522" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="146.845" x2="820.667" y2="146.845" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="670.000" y1="147.607" x2="816.667" y2="146.845" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="816.667" cy="146.845" r="3" fill="#1768ac"/>
+<line x1="963.333" y1="144.472" x2="963.333" y2="139.049" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="144.472" x2="967.333" y2="144.472" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="139.049" x2="967.333" y2="139.049" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="816.667" y1="146.845" x2="963.333" y2="143.455" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="963.333" cy="143.455" r="3" fill="#1768ac"/>
+<line x1="1110.000" y1="134.642" x2="1110.000" y2="127.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="134.642" x2="1114.000" y2="134.642" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="127.185" x2="1114.000" y2="127.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="963.333" y1="143.455" x2="1110.000" y2="129.219" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="1110.000" cy="129.219" r="3" fill="#1768ac"/>
+<text x="670.00" y="379.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="1082.000" y1="375.000" x2="1110.000" y2="375.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="670.000" y1="147.607" x2="670.000" y2="147.607" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="147.607" x2="674.000" y2="147.607" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="147.607" x2="674.000" y2="147.607" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="670.000" cy="147.607" r="3" fill="#bd452d"/>
+<line x1="816.667" y1="147.599" x2="816.667" y2="145.701" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="147.599" x2="820.667" y2="147.599" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="145.701" x2="820.667" y2="145.701" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="670.000" y1="147.607" x2="816.667" y2="146.836" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="816.667" cy="146.836" r="3" fill="#bd452d"/>
+<line x1="963.333" y1="146.108" x2="963.333" y2="145.905" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="146.108" x2="967.333" y2="146.108" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="145.905" x2="967.333" y2="145.905" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="816.667" y1="146.836" x2="963.333" y2="146.074" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="963.333" cy="146.074" r="3" fill="#bd452d"/>
+<line x1="1110.000" y1="144.821" x2="1110.000" y2="142.788" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="144.821" x2="1114.000" y2="144.821" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="142.788" x2="1114.000" y2="142.788" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="963.333" y1="146.074" x2="1110.000" y2="144.482" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="1110.000" cy="144.482" r="3" fill="#bd452d"/>
+<text x="670.00" y="396.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="1082.000" y1="392.000" x2="1110.000" y2="392.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="670.000" y1="147.607" x2="670.000" y2="147.607" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="147.607" x2="674.000" y2="147.607" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="147.607" x2="674.000" y2="147.607" stroke="#398339" stroke-width="1.5000" />
+<circle cx="670.000" cy="147.607" r="3" fill="#398339"/>
+<line x1="1110.000" y1="143.362" x2="1110.000" y2="141.837" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="143.362" x2="1114.000" y2="143.362" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="141.837" x2="1114.000" y2="141.837" stroke="#398339" stroke-width="1.5000" />
+<line x1="670.000" y1="147.607" x2="1110.000" y2="143.107" stroke="#398339" stroke-width="2.0000" />
+<circle cx="1110.000" cy="143.107" r="3" fill="#398339"/>
+<text x="670.00" y="413.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="1082.000" y1="409.000" x2="1110.000" y2="409.000" stroke="#398339" stroke-width="3.0000" />
+<text x="95.00" y="504.00" font-size="15" text-anchor="start">Summed logical MPI input and posted bytes [MiB]</text>
+<line x1="95.000" y1="737.000" x2="535.000" y2="737.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="741.00" font-size="11" text-anchor="end">6.5</text>
+<line x1="95.000" y1="685.750" x2="535.000" y2="685.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="689.75" font-size="11" text-anchor="end">50.2</text>
+<line x1="95.000" y1="634.500" x2="535.000" y2="634.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="638.50" font-size="11" text-anchor="end">387</text>
+<line x1="95.000" y1="583.250" x2="535.000" y2="583.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="587.25" font-size="11" text-anchor="end">2.99e+03</text>
+<line x1="95.000" y1="532.000" x2="535.000" y2="532.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="536.00" font-size="11" text-anchor="end">2.31e+04</text>
+<text x="95.00" y="757.00" font-size="12" text-anchor="middle">1</text>
+<text x="241.67" y="757.00" font-size="12" text-anchor="middle">2</text>
+<text x="388.33" y="757.00" font-size="12" text-anchor="middle">4</text>
+<text x="535.00" y="757.00" font-size="12" text-anchor="middle">8</text>
+<text x="315.00" y="777.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="95.000" y1="731.459" x2="95.000" y2="730.936" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="731.459" x2="99.000" y2="731.459" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="730.936" x2="99.000" y2="730.936" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="95.000" cy="731.182" r="3" fill="#1768ac"/>
+<line x1="241.667" y1="658.342" x2="241.667" y2="655.940" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="658.342" x2="245.667" y2="658.342" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="655.940" x2="245.667" y2="655.940" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="95.000" y1="731.182" x2="241.667" y2="656.447" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="241.667" cy="656.447" r="3" fill="#1768ac"/>
+<line x1="388.333" y1="662.560" x2="388.333" y2="662.377" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="662.560" x2="392.333" y2="662.560" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="662.377" x2="392.333" y2="662.377" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="241.667" y1="656.447" x2="388.333" y2="662.459" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="388.333" cy="662.459" r="3" fill="#1768ac"/>
+<line x1="535.000" y1="667.932" x2="535.000" y2="666.534" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="667.932" x2="539.000" y2="667.932" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="666.534" x2="539.000" y2="666.534" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="388.333" y1="662.459" x2="535.000" y2="667.691" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="535.000" cy="667.691" r="3" fill="#1768ac"/>
+<text x="95.00" y="799.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="507.000" y1="795.000" x2="535.000" y2="795.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="95.000" y1="670.161" x2="95.000" y2="669.725" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="670.161" x2="99.000" y2="670.161" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="669.725" x2="99.000" y2="669.725" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="95.000" cy="669.905" r="3" fill="#bd452d"/>
+<line x1="241.667" y1="548.975" x2="241.667" y2="546.775" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="548.975" x2="245.667" y2="548.975" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="546.775" x2="245.667" y2="546.775" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="95.000" y1="669.905" x2="241.667" y2="548.769" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="241.667" cy="548.769" r="3" fill="#bd452d"/>
+<line x1="388.333" y1="561.724" x2="388.333" y2="560.697" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="561.724" x2="392.333" y2="561.724" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="560.697" x2="392.333" y2="560.697" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="241.667" y1="548.769" x2="388.333" y2="561.272" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="388.333" cy="561.272" r="3" fill="#bd452d"/>
+<line x1="535.000" y1="574.559" x2="535.000" y2="573.759" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="574.559" x2="539.000" y2="574.559" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="573.759" x2="539.000" y2="573.759" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="388.333" y1="561.272" x2="535.000" y2="574.053" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="535.000" cy="574.053" r="3" fill="#bd452d"/>
+<text x="95.00" y="816.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="507.000" y1="812.000" x2="535.000" y2="812.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="95.000" y1="731.459" x2="95.000" y2="730.936" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="731.459" x2="99.000" y2="731.459" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="730.936" x2="99.000" y2="730.936" stroke="#398339" stroke-width="1.5000" />
+<circle cx="95.000" cy="731.182" r="3" fill="#398339"/>
+<line x1="535.000" y1="584.358" x2="535.000" y2="583.581" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="584.358" x2="539.000" y2="584.358" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="583.581" x2="539.000" y2="583.581" stroke="#398339" stroke-width="1.5000" />
+<line x1="95.000" y1="731.182" x2="535.000" y2="583.646" stroke="#398339" stroke-width="2.0000" />
+<circle cx="535.000" cy="583.646" r="3" fill="#398339"/>
+<text x="95.00" y="833.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="507.000" y1="829.000" x2="535.000" y2="829.000" stroke="#398339" stroke-width="3.0000" />
+<text x="670.00" y="504.00" font-size="15" text-anchor="start">Summed rank time inside selected MPI calls [s]</text>
+<line x1="670.000" y1="737.000" x2="1110.000" y2="737.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="741.00" font-size="11" text-anchor="end">0.427</text>
+<line x1="670.000" y1="685.750" x2="1110.000" y2="685.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="689.75" font-size="11" text-anchor="end">3.83</text>
+<line x1="670.000" y1="634.500" x2="1110.000" y2="634.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="638.50" font-size="11" text-anchor="end">34.3</text>
+<line x1="670.000" y1="583.250" x2="1110.000" y2="583.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="587.25" font-size="11" text-anchor="end">307</text>
+<line x1="670.000" y1="532.000" x2="1110.000" y2="532.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="536.00" font-size="11" text-anchor="end">2.75e+03</text>
+<text x="670.00" y="757.00" font-size="12" text-anchor="middle">1</text>
+<text x="816.67" y="757.00" font-size="12" text-anchor="middle">2</text>
+<text x="963.33" y="757.00" font-size="12" text-anchor="middle">4</text>
+<text x="1110.00" y="757.00" font-size="12" text-anchor="middle">8</text>
+<text x="890.00" y="777.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="670.000" y1="731.459" x2="670.000" y2="729.446" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="731.459" x2="674.000" y2="731.459" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="729.446" x2="674.000" y2="729.446" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="670.000" cy="730.264" r="3" fill="#1768ac"/>
+<line x1="816.667" y1="650.136" x2="816.667" y2="647.883" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="650.136" x2="820.667" y2="650.136" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="647.883" x2="820.667" y2="647.883" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="670.000" y1="730.264" x2="816.667" y2="648.934" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="816.667" cy="648.934" r="3" fill="#1768ac"/>
+<line x1="963.333" y1="646.251" x2="963.333" y2="645.335" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="646.251" x2="967.333" y2="646.251" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="645.335" x2="967.333" y2="645.335" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="816.667" y1="648.934" x2="963.333" y2="645.846" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="963.333" cy="645.846" r="3" fill="#1768ac"/>
+<line x1="1110.000" y1="648.262" x2="1110.000" y2="645.400" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="648.262" x2="1114.000" y2="648.262" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="645.400" x2="1114.000" y2="645.400" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="963.333" y1="645.846" x2="1110.000" y2="647.560" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="1110.000" cy="647.560" r="3" fill="#1768ac"/>
+<text x="670.00" y="799.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="1082.000" y1="795.000" x2="1110.000" y2="795.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="670.000" y1="663.883" x2="670.000" y2="663.244" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="663.883" x2="674.000" y2="663.883" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="663.244" x2="674.000" y2="663.244" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="670.000" cy="663.321" r="3" fill="#bd452d"/>
+<line x1="816.667" y1="549.860" x2="816.667" y2="546.775" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="549.860" x2="820.667" y2="549.860" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="546.775" x2="820.667" y2="546.775" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="670.000" y1="663.321" x2="816.667" y2="549.380" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="816.667" cy="549.380" r="3" fill="#bd452d"/>
+<line x1="963.333" y1="553.881" x2="963.333" y2="552.515" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="553.881" x2="967.333" y2="553.881" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="552.515" x2="967.333" y2="552.515" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="816.667" y1="549.380" x2="963.333" y2="552.823" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="963.333" cy="552.823" r="3" fill="#bd452d"/>
+<line x1="1110.000" y1="561.302" x2="1110.000" y2="559.468" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="561.302" x2="1114.000" y2="561.302" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="559.468" x2="1114.000" y2="559.468" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="963.333" y1="552.823" x2="1110.000" y2="561.275" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="1110.000" cy="561.275" r="3" fill="#bd452d"/>
+<text x="670.00" y="816.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="1082.000" y1="812.000" x2="1110.000" y2="812.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="670.000" y1="731.120" x2="670.000" y2="730.298" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="731.120" x2="674.000" y2="731.120" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="730.298" x2="674.000" y2="730.298" stroke="#398339" stroke-width="1.5000" />
+<circle cx="670.000" cy="731.073" r="3" fill="#398339"/>
+<line x1="1110.000" y1="566.365" x2="1110.000" y2="566.157" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="566.365" x2="1114.000" y2="566.365" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="566.157" x2="1114.000" y2="566.157" stroke="#398339" stroke-width="1.5000" />
+<line x1="670.000" y1="731.073" x2="1110.000" y2="566.340" stroke="#398339" stroke-width="2.0000" />
+<circle cx="1110.000" cy="566.340" r="3" fill="#398339"/>
+<text x="670.00" y="833.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="1082.000" y1="829.000" x2="1110.000" y2="829.000" stroke="#398339" stroke-width="3.0000" />
+<text x="95.00" y="924.00" font-size="15" text-anchor="start">Maximum rank physiological-update time [s]</text>
+<line x1="95.000" y1="1157.000" x2="535.000" y2="1157.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1161.00" font-size="11" text-anchor="end">0.298</text>
+<line x1="95.000" y1="1105.750" x2="535.000" y2="1105.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1109.75" font-size="11" text-anchor="end">2.83</text>
+<line x1="95.000" y1="1054.500" x2="535.000" y2="1054.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1058.50" font-size="11" text-anchor="end">26.8</text>
+<line x1="95.000" y1="1003.250" x2="535.000" y2="1003.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1007.25" font-size="11" text-anchor="end">255</text>
+<line x1="95.000" y1="952.000" x2="535.000" y2="952.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="956.00" font-size="11" text-anchor="end">2.42e+03</text>
+<text x="95.00" y="1177.00" font-size="12" text-anchor="middle">1</text>
+<text x="241.67" y="1177.00" font-size="12" text-anchor="middle">2</text>
+<text x="388.33" y="1177.00" font-size="12" text-anchor="middle">4</text>
+<text x="535.00" y="1177.00" font-size="12" text-anchor="middle">8</text>
+<text x="315.00" y="1197.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="95.000" y1="1081.357" x2="95.000" y2="1080.995" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="1081.357" x2="99.000" y2="1081.357" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="1080.995" x2="99.000" y2="1080.995" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="95.000" cy="1081.063" r="3" fill="#1768ac"/>
+<line x1="241.667" y1="1108.998" x2="241.667" y2="1106.302" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="1108.998" x2="245.667" y2="1108.998" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="1106.302" x2="245.667" y2="1106.302" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="95.000" y1="1081.063" x2="241.667" y2="1107.241" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="241.667" cy="1107.241" r="3" fill="#1768ac"/>
+<line x1="388.333" y1="1131.461" x2="388.333" y2="1130.610" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="1131.461" x2="392.333" y2="1131.461" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="1130.610" x2="392.333" y2="1130.610" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="241.667" y1="1107.241" x2="388.333" y2="1131.373" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="388.333" cy="1131.373" r="3" fill="#1768ac"/>
+<line x1="535.000" y1="1151.459" x2="535.000" y2="1149.456" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="1151.459" x2="539.000" y2="1151.459" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="1149.456" x2="539.000" y2="1149.456" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="388.333" y1="1131.373" x2="535.000" y2="1151.416" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="535.000" cy="1151.416" r="3" fill="#1768ac"/>
+<text x="95.00" y="1219.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="507.000" y1="1215.000" x2="535.000" y2="1215.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="95.000" y1="967.385" x2="95.000" y2="966.775" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="967.385" x2="99.000" y2="967.385" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="966.775" x2="99.000" y2="966.775" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="95.000" cy="966.801" r="3" fill="#bd452d"/>
+<line x1="241.667" y1="999.980" x2="241.667" y2="996.963" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="999.980" x2="245.667" y2="999.980" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="996.963" x2="245.667" y2="996.963" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="95.000" y1="966.801" x2="241.667" y2="999.188" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="241.667" cy="999.188" r="3" fill="#bd452d"/>
+<line x1="388.333" y1="1030.664" x2="388.333" y2="1029.111" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="1030.664" x2="392.333" y2="1030.664" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="1029.111" x2="392.333" y2="1029.111" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="241.667" y1="999.188" x2="388.333" y2="1030.079" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="388.333" cy="1030.079" r="3" fill="#bd452d"/>
+<line x1="535.000" y1="1058.855" x2="535.000" y2="1057.304" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="1058.855" x2="539.000" y2="1058.855" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="1057.304" x2="539.000" y2="1057.304" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="388.333" y1="1030.079" x2="535.000" y2="1057.673" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="535.000" cy="1057.673" r="3" fill="#bd452d"/>
+<text x="95.00" y="1236.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="507.000" y1="1232.000" x2="535.000" y2="1232.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="95.000" y1="1081.713" x2="95.000" y2="1080.752" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="1081.713" x2="99.000" y2="1081.713" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="1080.752" x2="99.000" y2="1080.752" stroke="#398339" stroke-width="1.5000" />
+<circle cx="95.000" cy="1081.290" r="3" fill="#398339"/>
+<line x1="535.000" y1="1069.094" x2="535.000" y2="1068.629" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="1069.094" x2="539.000" y2="1069.094" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="1068.629" x2="539.000" y2="1068.629" stroke="#398339" stroke-width="1.5000" />
+<line x1="95.000" y1="1081.290" x2="535.000" y2="1068.858" stroke="#398339" stroke-width="2.0000" />
+<circle cx="535.000" cy="1068.858" r="3" fill="#398339"/>
+<text x="95.00" y="1253.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="507.000" y1="1249.000" x2="535.000" y2="1249.000" stroke="#398339" stroke-width="3.0000" />
+<text x="670.00" y="924.00" font-size="15" text-anchor="start">First leaf range: writer rank-batch fraction</text>
+<line x1="670.000" y1="1157.000" x2="1110.000" y2="1157.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1161.00" font-size="11" text-anchor="end">0</text>
+<line x1="670.000" y1="1105.750" x2="1110.000" y2="1105.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1109.75" font-size="11" text-anchor="end">0.27</text>
+<line x1="670.000" y1="1054.500" x2="1110.000" y2="1054.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1058.50" font-size="11" text-anchor="end">0.54</text>
+<line x1="670.000" y1="1003.250" x2="1110.000" y2="1003.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1007.25" font-size="11" text-anchor="end">0.81</text>
+<line x1="670.000" y1="952.000" x2="1110.000" y2="952.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="956.00" font-size="11" text-anchor="end">1.08</text>
+<text x="670.00" y="1177.00" font-size="12" text-anchor="middle">1</text>
+<text x="816.67" y="1177.00" font-size="12" text-anchor="middle">2</text>
+<text x="963.33" y="1177.00" font-size="12" text-anchor="middle">4</text>
+<text x="1110.00" y="1177.00" font-size="12" text-anchor="middle">8</text>
+<text x="890.00" y="1197.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="670.000" y1="967.185" x2="670.000" y2="967.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="967.185" x2="674.000" y2="967.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="967.185" x2="674.000" y2="967.185" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="670.000" cy="967.185" r="3" fill="#1768ac"/>
+<line x1="816.667" y1="1062.093" x2="816.667" y2="1062.093" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="1062.093" x2="820.667" y2="1062.093" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="1062.093" x2="820.667" y2="1062.093" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="670.000" y1="967.185" x2="816.667" y2="1062.093" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="816.667" cy="1062.093" r="3" fill="#1768ac"/>
+<line x1="963.333" y1="1109.546" x2="963.333" y2="1109.546" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="1109.546" x2="967.333" y2="1109.546" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="1109.546" x2="967.333" y2="1109.546" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="816.667" y1="1062.093" x2="963.333" y2="1109.546" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="963.333" cy="1109.546" r="3" fill="#1768ac"/>
+<line x1="1110.000" y1="1133.273" x2="1110.000" y2="1133.273" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="1133.273" x2="1114.000" y2="1133.273" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="1133.273" x2="1114.000" y2="1133.273" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="963.333" y1="1109.546" x2="1110.000" y2="1133.273" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="1110.000" cy="1133.273" r="3" fill="#1768ac"/>
+<text x="670.00" y="1219.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="1082.000" y1="1215.000" x2="1110.000" y2="1215.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="670.000" y1="967.185" x2="670.000" y2="967.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="967.185" x2="674.000" y2="967.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="967.185" x2="674.000" y2="967.185" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="670.000" cy="967.185" r="3" fill="#bd452d"/>
+<line x1="816.667" y1="1062.093" x2="816.667" y2="1062.093" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="1062.093" x2="820.667" y2="1062.093" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="1062.093" x2="820.667" y2="1062.093" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="670.000" y1="967.185" x2="816.667" y2="1062.093" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="816.667" cy="1062.093" r="3" fill="#bd452d"/>
+<line x1="963.333" y1="1109.546" x2="963.333" y2="1109.546" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="1109.546" x2="967.333" y2="1109.546" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="1109.546" x2="967.333" y2="1109.546" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="816.667" y1="1062.093" x2="963.333" y2="1109.546" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="963.333" cy="1109.546" r="3" fill="#bd452d"/>
+<line x1="1110.000" y1="1133.273" x2="1110.000" y2="1133.273" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="1133.273" x2="1114.000" y2="1133.273" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="1133.273" x2="1114.000" y2="1133.273" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="963.333" y1="1109.546" x2="1110.000" y2="1133.273" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="1110.000" cy="1133.273" r="3" fill="#bd452d"/>
+<text x="670.00" y="1236.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="1082.000" y1="1232.000" x2="1110.000" y2="1232.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="670.000" y1="967.185" x2="670.000" y2="967.185" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="967.185" x2="674.000" y2="967.185" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="967.185" x2="674.000" y2="967.185" stroke="#398339" stroke-width="1.5000" />
+<circle cx="670.000" cy="967.185" r="3" fill="#398339"/>
+<line x1="1110.000" y1="1133.273" x2="1110.000" y2="1133.273" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="1133.273" x2="1114.000" y2="1133.273" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="1133.273" x2="1114.000" y2="1133.273" stroke="#398339" stroke-width="1.5000" />
+<line x1="670.000" y1="967.185" x2="1110.000" y2="1133.273" stroke="#398339" stroke-width="2.0000" />
+<circle cx="1110.000" cy="1133.273" r="3" fill="#398339"/>
+<text x="670.00" y="1253.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="1082.000" y1="1249.000" x2="1110.000" y2="1249.000" stroke="#398339" stroke-width="3.0000" />
+<text x="95.00" y="1344.00" font-size="15" text-anchor="start">Proposal counts: maximum / mean</text>
+<line x1="95.000" y1="1577.000" x2="535.000" y2="1577.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1581.00" font-size="11" text-anchor="end">0</text>
+<line x1="95.000" y1="1525.750" x2="535.000" y2="1525.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1529.75" font-size="11" text-anchor="end">0.274</text>
+<line x1="95.000" y1="1474.500" x2="535.000" y2="1474.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1478.50" font-size="11" text-anchor="end">0.548</text>
+<line x1="95.000" y1="1423.250" x2="535.000" y2="1423.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1427.25" font-size="11" text-anchor="end">0.822</text>
+<line x1="95.000" y1="1372.000" x2="535.000" y2="1372.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="87.00" y="1376.00" font-size="11" text-anchor="end">1.1</text>
+<text x="95.00" y="1597.00" font-size="12" text-anchor="middle">1</text>
+<text x="241.67" y="1597.00" font-size="12" text-anchor="middle">2</text>
+<text x="388.33" y="1597.00" font-size="12" text-anchor="middle">4</text>
+<text x="535.00" y="1597.00" font-size="12" text-anchor="middle">8</text>
+<text x="315.00" y="1617.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="95.000" y1="1389.944" x2="95.000" y2="1389.944" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="1389.944" x2="99.000" y2="1389.944" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="91.000" y1="1389.944" x2="99.000" y2="1389.944" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="95.000" cy="1389.944" r="3" fill="#1768ac"/>
+<line x1="241.667" y1="1389.944" x2="241.667" y2="1389.757" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="1389.944" x2="245.667" y2="1389.944" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="237.667" y1="1389.757" x2="245.667" y2="1389.757" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="95.000" y1="1389.944" x2="241.667" y2="1389.944" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="241.667" cy="1389.944" r="3" fill="#1768ac"/>
+<line x1="388.333" y1="1389.944" x2="388.333" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="1389.944" x2="392.333" y2="1389.944" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="384.333" y1="1387.185" x2="392.333" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="241.667" y1="1389.944" x2="388.333" y2="1388.833" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="388.333" cy="1388.833" r="3" fill="#1768ac"/>
+<line x1="535.000" y1="1388.494" x2="535.000" y2="1387.292" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="1388.494" x2="539.000" y2="1388.494" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="531.000" y1="1387.292" x2="539.000" y2="1387.292" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="388.333" y1="1388.833" x2="535.000" y2="1387.372" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="535.000" cy="1387.372" r="3" fill="#1768ac"/>
+<text x="95.00" y="1639.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="507.000" y1="1635.000" x2="535.000" y2="1635.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="95.000" y1="1389.944" x2="95.000" y2="1389.944" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="1389.944" x2="99.000" y2="1389.944" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="91.000" y1="1389.944" x2="99.000" y2="1389.944" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="95.000" cy="1389.944" r="3" fill="#bd452d"/>
+<line x1="241.667" y1="1389.944" x2="241.667" y2="1388.836" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="1389.944" x2="245.667" y2="1389.944" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="237.667" y1="1388.836" x2="245.667" y2="1388.836" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="95.000" y1="1389.944" x2="241.667" y2="1389.925" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="241.667" cy="1389.925" r="3" fill="#bd452d"/>
+<line x1="388.333" y1="1389.795" x2="388.333" y2="1388.506" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="1389.795" x2="392.333" y2="1389.795" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="384.333" y1="1388.506" x2="392.333" y2="1388.506" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="241.667" y1="1389.925" x2="388.333" y2="1389.533" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="388.333" cy="1389.533" r="3" fill="#bd452d"/>
+<line x1="535.000" y1="1389.683" x2="535.000" y2="1388.784" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="1389.683" x2="539.000" y2="1389.683" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="531.000" y1="1388.784" x2="539.000" y2="1388.784" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="388.333" y1="1389.533" x2="535.000" y2="1389.646" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="535.000" cy="1389.646" r="3" fill="#bd452d"/>
+<text x="95.00" y="1656.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="507.000" y1="1652.000" x2="535.000" y2="1652.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="95.000" y1="1389.944" x2="95.000" y2="1389.944" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="1389.944" x2="99.000" y2="1389.944" stroke="#398339" stroke-width="1.5000" />
+<line x1="91.000" y1="1389.944" x2="99.000" y2="1389.944" stroke="#398339" stroke-width="1.5000" />
+<circle cx="95.000" cy="1389.944" r="3" fill="#398339"/>
+<line x1="535.000" y1="1389.641" x2="535.000" y2="1389.548" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="1389.641" x2="539.000" y2="1389.641" stroke="#398339" stroke-width="1.5000" />
+<line x1="531.000" y1="1389.548" x2="539.000" y2="1389.548" stroke="#398339" stroke-width="1.5000" />
+<line x1="95.000" y1="1389.944" x2="535.000" y2="1389.618" stroke="#398339" stroke-width="2.0000" />
+<circle cx="535.000" cy="1389.618" r="3" fill="#398339"/>
+<text x="95.00" y="1673.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="507.000" y1="1669.000" x2="535.000" y2="1669.000" stroke="#398339" stroke-width="3.0000" />
+<text x="670.00" y="1344.00" font-size="15" text-anchor="start">First leaf range: fraction of ranks proposing</text>
+<line x1="670.000" y1="1577.000" x2="1110.000" y2="1577.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1581.00" font-size="11" text-anchor="end">0</text>
+<line x1="670.000" y1="1525.750" x2="1110.000" y2="1525.750" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1529.75" font-size="11" text-anchor="end">0.27</text>
+<line x1="670.000" y1="1474.500" x2="1110.000" y2="1474.500" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1478.50" font-size="11" text-anchor="end">0.54</text>
+<line x1="670.000" y1="1423.250" x2="1110.000" y2="1423.250" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1427.25" font-size="11" text-anchor="end">0.81</text>
+<line x1="670.000" y1="1372.000" x2="1110.000" y2="1372.000" stroke="#dce1e5" stroke-width="0.6000" />
+<text x="662.00" y="1376.00" font-size="11" text-anchor="end">1.08</text>
+<text x="670.00" y="1597.00" font-size="12" text-anchor="middle">1</text>
+<text x="816.67" y="1597.00" font-size="12" text-anchor="middle">2</text>
+<text x="963.33" y="1597.00" font-size="12" text-anchor="middle">4</text>
+<text x="1110.00" y="1597.00" font-size="12" text-anchor="middle">8</text>
+<text x="890.00" y="1617.00" font-size="12" text-anchor="middle">MPI ranks</text>
+<line x1="670.000" y1="1387.185" x2="670.000" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="1387.185" x2="674.000" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="666.000" y1="1387.185" x2="674.000" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<circle cx="670.000" cy="1387.185" r="3" fill="#1768ac"/>
+<line x1="816.667" y1="1387.185" x2="816.667" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="1387.185" x2="820.667" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="812.667" y1="1387.185" x2="820.667" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="670.000" y1="1387.185" x2="816.667" y2="1387.185" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="816.667" cy="1387.185" r="3" fill="#1768ac"/>
+<line x1="963.333" y1="1387.185" x2="963.333" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="1387.185" x2="967.333" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="959.333" y1="1387.185" x2="967.333" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="816.667" y1="1387.185" x2="963.333" y2="1387.185" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="963.333" cy="1387.185" r="3" fill="#1768ac"/>
+<line x1="1110.000" y1="1410.912" x2="1110.000" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="1410.912" x2="1114.000" y2="1410.912" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="1106.000" y1="1387.185" x2="1114.000" y2="1387.185" stroke="#1768ac" stroke-width="1.5000" />
+<line x1="963.333" y1="1387.185" x2="1110.000" y2="1387.185" stroke="#1768ac" stroke-width="2.0000" />
+<circle cx="1110.000" cy="1387.185" r="3" fill="#1768ac"/>
+<text x="670.00" y="1639.00" font-size="11" text-anchor="start">strong, T=1,000</text>
+<line x1="1082.000" y1="1635.000" x2="1110.000" y2="1635.000" stroke="#1768ac" stroke-width="3.0000" />
+<line x1="670.000" y1="1387.185" x2="670.000" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="1387.185" x2="674.000" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="666.000" y1="1387.185" x2="674.000" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<circle cx="670.000" cy="1387.185" r="3" fill="#bd452d"/>
+<line x1="816.667" y1="1387.185" x2="816.667" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="1387.185" x2="820.667" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="812.667" y1="1387.185" x2="820.667" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="670.000" y1="1387.185" x2="816.667" y2="1387.185" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="816.667" cy="1387.185" r="3" fill="#bd452d"/>
+<line x1="963.333" y1="1387.185" x2="963.333" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="1387.185" x2="967.333" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="959.333" y1="1387.185" x2="967.333" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="816.667" y1="1387.185" x2="963.333" y2="1387.185" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="963.333" cy="1387.185" r="3" fill="#bd452d"/>
+<line x1="1110.000" y1="1410.912" x2="1110.000" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="1410.912" x2="1114.000" y2="1410.912" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="1106.000" y1="1387.185" x2="1114.000" y2="1387.185" stroke="#bd452d" stroke-width="1.5000" />
+<line x1="963.333" y1="1387.185" x2="1110.000" y2="1387.185" stroke="#bd452d" stroke-width="2.0000" />
+<circle cx="1110.000" cy="1387.185" r="3" fill="#bd452d"/>
+<text x="670.00" y="1656.00" font-size="11" text-anchor="start">strong, T=10,000</text>
+<line x1="1082.000" y1="1652.000" x2="1110.000" y2="1652.000" stroke="#bd452d" stroke-width="3.0000" />
+<line x1="670.000" y1="1387.185" x2="670.000" y2="1387.185" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="1387.185" x2="674.000" y2="1387.185" stroke="#398339" stroke-width="1.5000" />
+<line x1="666.000" y1="1387.185" x2="674.000" y2="1387.185" stroke="#398339" stroke-width="1.5000" />
+<circle cx="670.000" cy="1387.185" r="3" fill="#398339"/>
+<line x1="1110.000" y1="1410.912" x2="1110.000" y2="1387.185" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="1410.912" x2="1114.000" y2="1410.912" stroke="#398339" stroke-width="1.5000" />
+<line x1="1106.000" y1="1387.185" x2="1114.000" y2="1387.185" stroke="#398339" stroke-width="1.5000" />
+<line x1="670.000" y1="1387.185" x2="1110.000" y2="1387.185" stroke="#398339" stroke-width="2.0000" />
+<circle cx="1110.000" cy="1387.185" r="3" fill="#398339"/>
+<text x="670.00" y="1673.00" font-size="11" text-anchor="start">weak, T=1,000 per rank</text>
+<line x1="1082.000" y1="1669.000" x2="1110.000" y2="1669.000" stroke="#398339" stroke-width="3.0000" />
+</svg>
