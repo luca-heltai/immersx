@@ -34,21 +34,20 @@ namespace ImmersX::Vascularization::internal
     discard() noexcept;
 
   private:
-    GrowthDemandState                              &state;
-    GrowthWork                                     *work = nullptr;
-    GrowthDemandPreview                             staged;
-    std::map<Id, double>                            native_demands;
-    bool                                            active     = false;
-    std::uint64_t                                   batch_size = 0;
-    std::map<Id, GrowthDemandState::Branch>         before;
-    std::map<Id, GrowthDemandState::DirectoryEntry> directory_before;
-    std::map<Id, unsigned int>                      roots_before;
-    std::set<Id> branch_touched, directory_touched, roots_touched;
-    std::set<Id> owned_roots_before, owned_roots_touched;
+    GrowthDemandState                                     &state;
+    GrowthWork                                            *work = nullptr;
+    GrowthDemandPreview                                    staged;
+    std::map<Id, double>                                   native_demands;
+    bool                                                   active     = false;
+    std::uint64_t                                          batch_size = 0;
+    std::map<Id, std::optional<GrowthDemandState::Branch>> before;
+    std::map<Id, std::optional<GrowthDemandState::DirectoryEntry>>
+                                              directory_before;
+    std::map<Id, std::optional<unsigned int>> roots_before;
+    std::map<Id, bool>                        owned_roots_before;
     const GrowthDemandPreview      &
     prepared();
     void save(Id);
-    void save_root(Id);
   };
 } // namespace ImmersX::Vascularization::internal
 #endif

@@ -12,22 +12,31 @@
 #include "forest_state.h"
 #include "growth_demand.h"
 #include "growth_geometry.h"
+#include "growth_geometry_measure.h"
 
 namespace ImmersX::Vascularization::internal
 {
   struct GrowthCandidatePaths;
+  class GrowthExecution;
+  class GrowthDemandJournal;
+  using GrowthRootSumKey = std::pair<unsigned int, Id>;
   // Moments are relative to this subtree's own demand. Changing a root or
   // system normalization therefore does not rewrite its descendants.
   struct GrowthDemandSummary
   {
-    boost::multiprecision::cpp_int mass;
+    boost::multiprecision::cpp_int mass, minimum_leaf_mass;
     long double volume_length = 0., resistance_length = 0., minimum_ratio = 1.;
+    long double minimum_scaled_ratio      = 1.;
+    long double minimum_resistance_length = 0., maximum_resistance_length = 0.;
     std::uint64_t leaves = 0;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      ar &mass &volume_length &resistance_length &minimum_ratio &leaves;
+      ar &mass &minimum_leaf_mass &volume_length &resistance_length
+        &minimum_ratio;
+      ar &minimum_scaled_ratio &minimum_resistance_length
+        &maximum_resistance_length &leaves;
     }
   };
 
@@ -42,7 +51,7 @@ namespace ImmersX::Vascularization::internal
     // Six scalar controls per rank; no topology or per-terminal data.
     std::vector<std::array<long double, 6>> rank_totals;
     // Sparse derived nodes in the accepted root-sum tree.
-    std::map<std::size_t, std::array<long double, 6>> root_sums;
+    std::map<GrowthRootSumKey, std::array<long double, 6>> root_sums;
     // Only the union of updated terminal-to-root paths, on branch owners.
     std::map<Id, GrowthDemandSummary>               owned;
     std::map<Id, double>                            leaf_demands;
@@ -90,7 +99,8 @@ namespace ImmersX::Vascularization::internal
                       const ForestState &,
                       const Parameters &,
                       std::uint64_t,
-                      MPI_Comm);
+                      MPI_Comm,
+                      const GrowthGeometryMeasures *geometry = nullptr);
 
     const ValidationReport &
     validation() const;
@@ -129,13 +139,36 @@ namespace ImmersX::Vascularization::internal
                     GrowthWork *work          = nullptr) const;
 
   private:
+    friend class GrowthExecution;
+    friend class GrowthDemandJournal;
+
+    std::map<Id, GrowthDemandRootView>
+    root_controls(const std::set<Id> &,
+                  const GrowthDemandPreview &,
+                  ValidationReport &) const;
+    GrowthDemandPreview
+    route_demands(const GrowthDemandUpdate &) const;
+    GrowthDemandPreview
+    preview_branches(GrowthDemandPreview, const std::set<Id> &) const;
+
     struct Branch
     {
       ForestBranch topology;
       double       length = 0., viscosity = 0., gamma = 3., leaf_demand = 0.;
       unsigned int system = 0;
+      GrowthGeometryMeasure             geometry;
+      bool                              with_resistance = false;
       std::map<Id, GrowthDemandSummary> children;
       GrowthDemandSummary               value;
+      template <class Archive>
+      void
+      serialize(Archive &ar, unsigned int)
+      {
+        ar &topology &length &viscosity &gamma &leaf_demand &system;
+        ar &geometry.normalized_length &geometry.radius_scale;
+        ar &geometry.clearance_scale  &geometry.complete;
+        ar &with_resistance &children &value;
+      }
     };
     struct DirectoryEntry
     {
@@ -156,18 +189,17 @@ namespace ImmersX::Vascularization::internal
     static long double
     demand_value(const GrowthDemandSummary &);
 
-    MPI_Comm                                communicator;
-    std::uint64_t                           revision = 0, branch_count = 0;
-    ValidationReport                        report;
-    std::map<Id, Branch>                    branches;
-    std::map<Id, DirectoryEntry>            directory;
-    std::map<Id, unsigned int>              root_directory;
-    std::map<Id, std::size_t>               root_positions;
-    std::vector<std::array<long double, 6>> root_sums;
-    std::array<long double, 6>              accepted_totals{};
-    std::array<double, 2>                   accepted_volume{};
-    std::array<long double, 2>              accepted_resistance{};
-    std::size_t                             root_capacity = 1;
+    MPI_Comm                     communicator;
+    std::uint64_t                revision = 0, branch_count = 0;
+    ValidationReport             report;
+    std::map<Id, Branch>         branches;
+    std::map<Id, DirectoryEntry> directory;
+    std::map<Id, unsigned int>   root_directory;
+    std::set<Id>                 owned_roots;
+    std::map<GrowthRootSumKey, std::array<long double, 6>> root_sums;
+    std::array<long double, 6>                             accepted_totals{};
+    std::array<double, 2>                                  accepted_volume{};
+    std::array<long double, 2> accepted_resistance{};
     std::array<long double, 6>
     root_value(Id, const GrowthDemandSummary &) const;
   };
