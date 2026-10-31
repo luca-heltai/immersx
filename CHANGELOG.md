@@ -433,7 +433,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Compare predicted obstacle radii on selected ancestor paths, siblings and other roots with an independent full physiological transaction after territorial demand updates.
 

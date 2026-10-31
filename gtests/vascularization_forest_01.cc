@@ -2029,6 +2029,20 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
                                                          branch.radius));
         const auto baseline =
           Utilities::MPI::some_to_some(MPI_COMM_WORLD, baseline_send);
+        std::map<Id, unsigned int> obstacle_requests;
+        for (const auto &[owner, records] : baseline)
+          for (const auto &[id, value] : records)
+            obstacle_requests.emplace(id, owner);
+        const auto obstacle_edges =
+          state.physical_edges(n, preview, obstacle_requests);
+        ASSERT_TRUE(obstacle_edges.validation.valid());
+        for (const auto &[owner, records] : baseline)
+          for (const auto &[id, value] : records)
+            {
+              const auto &edge = obstacle_edges.records.at(id);
+              EXPECT_EQ(edge.root, value.first);
+              EXPECT_NEAR(edge.edge.radius / value.second, 1., 2.e-13);
+            }
         std::optional<GrowthCandidateRadii> trial_radii;
         std::optional<GrowthCandidate>      candidate;
         std::vector<GrowthSplit>            splits;
@@ -2123,23 +2137,22 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
         const auto received =
           Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
         if (trial_radii)
-          for (const auto &[old_owner, records] : baseline)
-            for (const auto &[id, value] : records)
-              {
-                bool found = false;
-                for (const auto &[new_owner, radii] : received)
-                  if (radii.count(id))
-                    {
-                      EXPECT_NEAR((*trial_radii)(id,
-                                                 value.first,
-                                                 value.second) /
-                                    radii.at(id),
-                                  1.,
-                                  2.e-12);
-                      found = true;
-                    }
-                EXPECT_TRUE(found);
-              }
+          for (const auto &[id, value] : obstacle_edges.records)
+            {
+              bool found = false;
+              for (const auto &[new_owner, radii] : received)
+                if (radii.count(id))
+                  {
+                    EXPECT_NEAR((*trial_radii)(id,
+                                               value.root,
+                                               value.edge.radius) /
+                                  radii.at(id),
+                                1.,
+                                2.e-12);
+                    found = true;
+                  }
+              EXPECT_TRUE(found);
+            }
         if (candidate)
           for (const auto &edge : candidate->changed)
             {
@@ -2153,4 +2166,110 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
               EXPECT_TRUE(found);
             }
       }
+}
+
+TEST(VascularForest, BOTH_DemandEdgePreviewIncludesOtherRootsAndFrozenInput)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  physical_controls(p);
+  p.arterial_murray_exponent = 2.7;
+  p.reference_flow           = 2.e-9;
+  p.dissipation_weight       = .3;
+  const auto accepted        = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  GrowthDemandState state(n, accepted, p, 11, MPI_COMM_WORLD);
+  ASSERT_TRUE(state.validation().valid());
+  GrowthDemandUpdate update;
+  update.snapshot_revision = 11;
+  const std::map<Id, double> changed{{base + 30, .5}, {base + 131, 2.25}};
+  for (const auto &[id, value] : changed)
+    if (id % size() == rank())
+      update.terminals.push_back({id, value});
+  const auto preview = state.preview(update);
+  ASSERT_TRUE(preview.validation.valid());
+  const unsigned int      producer = size() - 1;
+  const std::array<Id, 5> queried{
+    {base + 10, base + 13, base + 14, base + 113, base + 114}};
+  std::map<Id, unsigned int> requests;
+  for (Id id : queried)
+    {
+      const auto owner =
+        Utilities::MPI::min(n.vessels.count(id) &&
+                                n.vessels.at(id).owner == rank() ?
+                              rank() :
+                              size(),
+                            MPI_COMM_WORLD);
+      if (rank() == producer)
+        requests.emplace(id, owner);
+    }
+  const auto edges = state.physical_edges(n, preview, requests);
+  ASSERT_TRUE(edges.validation.valid());
+  EXPECT_EQ(edges.records.size(), rank() == producer ? queried.size() : 0u);
+  for (auto &[id, terminal] : n.terminals)
+    if (terminal.owner == rank() && changed.count(id))
+      terminal.demand = changed.at(id);
+  const auto expected = evaluate(n, p);
+  ASSERT_TRUE(expected.validation.valid());
+  std::map<unsigned int, std::map<Id, std::array<double, 2>>> send;
+  for (Id id : queried)
+    if (n.vessels.count(id) && n.vessels.at(id).owner == rank())
+      {
+        const auto found = expected.owned.find(id);
+        if (found == expected.owned.end())
+          send[producer].emplace(id,
+                                 std::array<double, 2>{
+                                   {std::max(n.vessels.at(id).radii[0],
+                                             n.vessels.at(id).radii[1]),
+                                    0.}});
+        else
+          send[producer].emplace(id,
+                                 std::array<double, 2>{
+                                   {found->second.radius,
+                                    found->second.root_demand *
+                                      expected.demand_scale}});
+      }
+  const auto received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
+  for (const auto &[owner, records] : received)
+    for (const auto &[id, values] : records)
+      {
+        const auto &edge = edges.records.at(id);
+        EXPECT_NEAR(edge.edge.radius, values[0], 2.e-13 * values[0]);
+        EXPECT_NEAR(static_cast<double>(edge.root_demand),
+                    values[1],
+                    2.e-13 * values[1]);
+        if (id == base + 10)
+          {
+            EXPECT_EQ(edge.root, invalid_id);
+            EXPECT_EQ(edge.edge.radius, .009);
+          }
+        else
+          {
+            EXPECT_NE(edge.root, invalid_id);
+            EXPECT_GT(edge.demand, 0.);
+          }
+      }
+  // Provenance is not mutability. The same generated input rows stay frozen
+  // when the accepted mutable set is empty.
+  const auto frozen_forest = evaluate_forest(n, {}, {}, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(frozen_forest.validation.valid());
+  GrowthDemandState frozen(n, frozen_forest, p, 11, MPI_COMM_WORLD);
+  ASSERT_TRUE(frozen.validation().valid());
+  GrowthDemandUpdate no_change;
+  no_change.snapshot_revision = 11;
+  const auto frozen_preview   = frozen.preview(no_change);
+  ASSERT_TRUE(frozen_preview.validation.valid());
+  const auto frozen_edges = frozen.physical_edges(n, frozen_preview, requests);
+  ASSERT_TRUE(frozen_edges.validation.valid());
+  if (rank() == producer)
+    {
+      EXPECT_EQ(frozen_edges.records.at(base + 13).root, invalid_id);
+      EXPECT_EQ(frozen_edges.records.at(base + 13).edge.radius, .006);
+    }
+  auto stale = preview;
+  --stale.snapshot_revision;
+  EXPECT_FALSE(state.physical_edges(n, stale, requests).validation.valid());
 }

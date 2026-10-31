@@ -138,6 +138,8 @@ namespace ImmersX::Vascularization::internal
     {
       Edge edge;
       Id   root = invalid_id;
+      // Native writer authority is carried by the MPI reply envelope.
+      unsigned int owner = dealii::numbers::invalid_unsigned_int;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
@@ -252,8 +254,11 @@ namespace ImmersX::Vascularization::internal
       const auto received = Utilities::MPI::some_to_some(comm, replies);
       std::map<Id, Obstacle> result;
       for (const auto &[owner, values] : received)
-        for (const auto &obstacle : values)
-          result.emplace(obstacle.edge.id, obstacle);
+        for (auto obstacle : values)
+          {
+            obstacle.owner = owner;
+            result.emplace(obstacle.edge.id, std::move(obstacle));
+          }
       return result;
     }
   } // namespace

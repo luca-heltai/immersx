@@ -250,6 +250,20 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[id, b] : branches)
       if (b.topology.parent == invalid_id)
         root_positions.emplace(id, root_positions.size());
+    std::map<unsigned int, std::map<Id, unsigned int>> root_registrations;
+    for (const auto &[id, position] : root_positions)
+      root_registrations[id % size].emplace(id, rank);
+    const auto registered_roots =
+      Utilities::MPI::some_to_some(comm, root_registrations);
+    for (const auto &[source, records] : registered_roots)
+      for (const auto &[id, owner] : records)
+        valid =
+          source == owner && root_directory.emplace(id, owner).second && valid;
+    if (!phase(report,
+               valid,
+               comm,
+               "Each physical root needs one authoritative directory entry."))
+      return;
     while (root_capacity < root_positions.size())
       root_capacity *= 2;
     root_sums.resize(2 * root_capacity);
@@ -343,6 +357,7 @@ namespace ImmersX::Vascularization::internal
     GrowthDemandRootView result;
     result.summary = summary(id, preview);
     result.radius  = branches.at(id).topology.root_radius;
+    result.gamma   = branches.at(id).gamma;
     result.system  = branches.at(id).system;
     for (auto i = root_capacity + root_positions.at(id); i > 1; i /= 2)
       {
