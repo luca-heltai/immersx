@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage native vascular rows with sparse before-images and endpoint reference counts. Restore original map nodes on rejection and remove endpoint ghosts when no owned vessel or terminal needs them.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Select pending venous territories by sorted identifier rank in logarithmic time, preserving the proposal order after served territories are removed.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Subdivide vascular profiles with monotone metric-cut traversal and bounded interval queries. Split and merge numerical cuts through stable iterators while preserving the existing length bounds, ownership and budget failures.
