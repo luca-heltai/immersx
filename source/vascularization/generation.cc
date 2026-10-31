@@ -20,8 +20,10 @@
 
 #include "archive_internal.h"
 #include "generation_pairs.h"
+#include "growth_geometry.h"
 #include "growth_loop.h"
 #include "growth_start.h"
+#include "tissue_growth_callbacks.h"
 
 namespace ImmersX::Vascularization
 {
@@ -477,6 +479,13 @@ namespace ImmersX::Vascularization
       std::map<Id, double> fixed_roots;
       for (Id root : roots)
         fixed_roots[root] = result.network.vessels.at(root).radii[0];
+      internal::BackgroundGeometry geometry(background, mapping);
+      auto                         callbacks = system == System::arterial ?
+                                                 internal::tissue_growth_callbacks(geometry,
+                                                           parameters,
+                                                           terminal_count,
+                                                           communicator) :
+                                                 internal::GrowthDemandCallbacks{};
       const std::vector<Territory> empty;
       auto                         growth =
         internal::grow_forest(background,
@@ -490,15 +499,8 @@ namespace ImmersX::Vascularization
                               system,
                               system == System::venous ? result.territories :
                                                          empty,
-                              {},
+                              std::move(callbacks),
                               &geometry);
-      if (!growth.statistics.empty())
-        {
-          auto &first = growth.statistics.begin()->second;
-          first.work += preparation_work;
-          first.initialization_work += preparation_work;
-          preparation_work = {};
-        }
       for (const auto &[bucket, statistics] : growth.statistics)
         result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),

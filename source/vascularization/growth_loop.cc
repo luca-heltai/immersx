@@ -23,7 +23,6 @@
 #include "growth_mpi_scope.h"
 #include "growth_paths.h"
 #include "growth_sampling.h"
-#include "tissue_growth_callbacks.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -342,7 +341,14 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid,
                "All producers must use the same growth and sampling controls."))
       return run;
-    BackgroundGeometry geometry(bg, mapping);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    if (!phase(&geometry.cache.get_triangulation() == &bg &&
+                 &geometry.mapping == &mapping,
+               "Growth geometry must describe its background and mapping."))
+      return run;
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double clearance_lower =
@@ -355,9 +361,8 @@ namespace ImmersX::Vascularization::internal
     // Assign all initial Di before the first Murray/flow/objective evaluation,
     // including a request satisfied by its initial leaves without insertions.
     auto                    weighted_initial = initial;
-    GrowthDemandCallbacks   demand_callbacks;
     GrowthDemandJointUpdate initial_demands;
-    if (system == System::arterial)
+    if (demand_callbacks.bootstrap)
       {
         const auto leaves =
           collect_growth_leaf_terminals(initial, mutable_owned, comm);
@@ -366,8 +371,6 @@ namespace ImmersX::Vascularization::internal
             run.validation = leaves.validation;
             return run;
           }
-        demand_callbacks =
-          tissue_growth_callbacks(geometry, p, terminal_count, comm);
         initial_demands = demand_callbacks.bootstrap(initial, leaves.owned, 0);
         run.validation  = initialize_growth_demands(
           weighted_initial, leaves.owned, initial_demands, 0, comm);
