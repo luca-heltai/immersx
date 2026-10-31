@@ -490,6 +490,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Mark unsupported native MetricFlowX input and generated-flow checks as skipped using stable capability messages, including exceptions whose text wraps onto another line.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check exact accumulation and subtraction of tissue-demand masses, preserving small positive contributions when dominant masses move between territories and rounding physical totals to binary64.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check physical tissue-demand quadrature against analytical integrals on locally refined hexahedra and tetrahedra, including empty ranks and integration-budget exhaustion before allocation.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
