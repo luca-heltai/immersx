@@ -1004,3 +1004,53 @@ TEST(VascularAV, MPI_PublicVenousStartupRejectsMismatchedControls)
   EXPECT_THROW(generate(background, MappingQ1<3>(), {}, p, comm),
                ExceptionBase);
 }
+
+TEST(VascularAV, BOTH_UnassignedInputLeavesKeepDistinctNewTerritories)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  NetworkData initial;
+  if (rank == 0)
+    {
+      initial.nodes[0] = {Point<3>(.2, .5, .5), 0, Port::arterial_inlet};
+      initial.nodes[1].position = Point<3>(.3, .5, .5);
+      initial.nodes[2] = {Point<3>(.8, .5, .5), 0, Port::venous_outlet};
+      initial.nodes[3].position = Point<3>(.7, .5, .5);
+      Vessel artery;
+      artery.nodes         = {{0, 1}};
+      artery.radii         = {{.003, .003}};
+      artery.viscosity     = .004;
+      initial.vessels[0]   = artery;
+      Vessel vein          = artery;
+      vein.nodes           = {{2, 3}};
+      vein.radii           = {{.004, .004}};
+      vein.system          = System::venous;
+      initial.vessels[1]   = vein;
+      initial.terminals[1] = {1, invalid_id, System::arterial};
+      initial.terminals[3] = {3, invalid_id, System::venous};
+    }
+  Parameters p;
+  controls(p);
+  p.seed_direction            = {};
+  p.seed_length               = .1;
+  p.random_seed               = 23;
+  p.tissue_demand             = "1";
+  p.candidate_count           = 8;
+  p.optimization_steps        = 5;
+  p.minimum_length            = .0002;
+  p.selected_terminals        = {1};
+  p.venous.selected_terminals = {3};
+  const auto result = generate(background, MappingQ1<3>(), initial, p, comm);
+  ASSERT_TRUE(result.validation.valid()) << issues(result);
+  distributed_av_oracle(result, p);
+  std::vector<Id> local_territories;
+  for (const auto &territory : result.territories)
+    local_territories.push_back(territory.id);
+  std::set<Id> territories;
+  for (const auto &part : Utilities::MPI::all_gather(comm, local_territories))
+    for (const Id territory : part)
+      EXPECT_TRUE(territories.insert(territory).second);
+  EXPECT_EQ(territories.size(), p.terminal_count);
+}
