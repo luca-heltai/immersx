@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system. Grow all three geometric networks toward the same territories with a configurable supply fraction, retain common compartments in physical archives, and import optional portal trees through the liver application.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
 

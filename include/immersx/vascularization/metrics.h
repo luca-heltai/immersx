@@ -31,6 +31,9 @@ namespace ImmersX::Vascularization
     bool   coverage_evaluated = false;
     /** Normalization volume of the coverage quadrature, zero if disabled. */
     double coverage_quadrature_volume = 0.;
+    double portal_coverage            = 0.;
+    /** Points served by all three distinct systems. */
+    double triple_coverage = 0.;
   };
 
   /**

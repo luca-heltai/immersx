@@ -48,8 +48,8 @@ namespace ImmersX::Vascularization
       /** Mutable leaf terminal identities on their node owner, also at Q=0. */
       std::set<Id>          owned_leaf_terminals;
       double                demand_scale = 1.;
-      std::array<double, 2> total_demand{{0., 0.}}, volume{{0., 0.}},
-        power{{0., 0.}}, power_numerator{{0., 0.}};
+      std::array<double, 3> total_demand{}, volume{}, power{},
+        power_numerator{};
       unsigned int upward_levels = 0, downward_levels = 0;
     };
     // The mutable set and fixed-root controls contain OWNED ids only. Frozen

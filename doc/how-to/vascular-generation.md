@@ -395,10 +395,45 @@ pressures; prescribing desired totals does not calibrate those resistances.
 The triplet overload also accepts ordinary two-terminal pairs, with unique
 territory and terminal identifiers across both lists. Each triplet is supplied
 once globally and resolved through sparse owner exchanges; terminal ghosts are
-not required on the supplying rank. The existing CCO generator, physical archive
-and MetricFlowX bed transfer currently accept two-terminal beds. Prepare the
-three geometric networks and their common-territory registration before using
-this reference API.
+not required on the supplying rank. The generator can create the same three-system registration. Enable both
+`parameters.venous.enabled` and `parameters.portal.enabled`, supply their seeds
+or select imported terminal ids, and set a positive terminal separation for
+each companion network. Arterial endpoints define the common territories;
+portal and venous endpoints remain geometrically distinct. The same CCO engine
+checks every generated vessel against all three systems.
+
+`parameters.reference_flow` is total venous drainage. With portal enabled,
+`parameters.portal_flow_fraction` assigns `f Q` to portal supply and `(1-f) Q`
+to arterial supply, with `0 < f < 1`. This fraction is a declared modeling
+input. Each system distributes its rate over the same positive tissue demands,
+with its own Murray exponent. Existing two-system configurations retain total
+flow `Q` in each tree.
+
+Leave `parameters.compartment_resistances` at its three zero defaults to derive
+positive arms from a demand-flow design solve. For each territory the generator
+chooses `p_t = p_v + (min(p_a,p_p)-p_v)/2` and derives the three arms from the
+requested flows. This midpoint is an illustrative resistance closure, not a
+measured tissue pressure. An empty admissible pressure interval invalidates the
+result. Alternatively provide three positive arms in arterial, portal, venous
+order; when a reference flow is also requested, the coupled solve must realize
+each system's desired terminal flow within the reference tolerances. Keep the
+legacy `venous.microvascular_resistance` at zero in three-system mode.
+
+The resulting `terminal_triplets` belong to the arterial territory owner.
+Use the `save_network()` overload accepting both pairs and triplets, or pass
+both lists to the metadata-taking `generate()` overload when completing a saved
+network. All three endpoints of an input compartment must be extended together;
+untouched compartments keep their resistances. Three-system archives use format
+3; two-system writes retain format 2, and both formats remain readable. Portal
+and triple service-distance coverage are reported independently of the existing
+arterial/venous joint coverage. Three-system calibration uses triple coverage.
+
+The MetricFlowX transfer uses the same eliminated three-terminal resistor graph
+through native terminal connections. It preserves three distinct 1D networks
+and reverses only venous cells into the direction of flow. Portal inlet ports
+receive independent native boundary ids through the boundary-physics callback
+(with a null terminal pointer), rather than sharing the arterial inlet law.
+Provide their physical root boundary data explicitly in that callback.
 
 ## Reference pressures, supply and microvascular beds
 

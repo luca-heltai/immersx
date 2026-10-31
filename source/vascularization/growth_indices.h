@@ -93,7 +93,7 @@ namespace ImmersX::Vascularization::internal
       , work(work)
     {
       std::vector<Leaf>                all;
-      std::array<std::vector<Leaf>, 2> candidates;
+      std::array<std::vector<Leaf>, 3> candidates;
       for (const auto &[id, v] : network.vessels)
         if (v.owner == rank)
           {
@@ -114,10 +114,11 @@ namespace ImmersX::Vascularization::internal
       owned        = Tree(all.begin(), all.end());
       count_work(work, GrowthOperation::network_index_builds);
       count_work(work, GrowthOperation::network_index_insertions, all.size());
-      for (unsigned int system = 0; system < 2; ++system)
+      for (unsigned int system = 0; system < 3; ++system)
         {
-          mutable_trees[system] =
-            Tree(candidates[system].begin(), candidates[system].end());
+          if (system == 2 && candidates[system].empty())
+            continue;
+          mutable_trees[system] = pack_rtree(candidates[system]);
           count_work(work, GrowthOperation::network_index_builds);
           count_work(work,
                      GrowthOperation::network_index_insertions,
@@ -131,6 +132,8 @@ namespace ImmersX::Vascularization::internal
         return 0;
       else if (system == System::venous)
         return 1;
+      else if (system == System::portal)
+        return 2;
       AssertThrow(false,
                   ExcMessage("Invalid vascular system in centerline index."));
       return 0;
@@ -195,7 +198,7 @@ namespace ImmersX::Vascularization::internal
         }
     }
     Tree                 owned;
-    std::array<Tree, 2>  mutable_trees;
+    std::array<Tree, 3>  mutable_trees;
     std::map<Id, Record> records;
     double               radius_bound = 0.;
     unsigned int         rank;

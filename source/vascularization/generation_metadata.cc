@@ -6,9 +6,8 @@ namespace ImmersX::Vascularization::internal
 {
   namespace
   {
-    using Rank = dealii::types::subdomain_id;
-    using Metadata =
-      std::pair<std::vector<Territory>, std::vector<TerminalPair>>;
+    using Rank     = dealii::types::subdomain_id;
+    using Metadata = TerritoryMetadata;
     struct Endpoint
     {
       Id               territory = invalid_id;
@@ -25,15 +24,17 @@ namespace ImmersX::Vascularization::internal
     };
   } // namespace
   RetainedMetadata
-  retain_metadata(const NetworkData               &before,
-                  const std::vector<Territory>    &territories,
-                  const std::vector<TerminalPair> &pairs,
-                  const NetworkData               &after,
-                  MPI_Comm                         comm)
+  retain_metadata(const NetworkData                  &before,
+                  const std::vector<Territory>       &territories,
+                  const std::vector<TerminalPair>    &pairs,
+                  const NetworkData                  &after,
+                  MPI_Comm                            comm,
+                  const std::vector<TerminalTriplet> &triplets)
   {
     using namespace dealii;
     RetainedMetadata result;
-    if (Utilities::MPI::sum(static_cast<Id>(territories.size() + pairs.size()),
+    if (Utilities::MPI::sum(static_cast<Id>(territories.size() + pairs.size() +
+                                            triplets.size()),
                             comm) == 0)
       return result;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -62,20 +63,27 @@ namespace ImmersX::Vascularization::internal
         old_arteries[territory].push_back(terminal);
     std::map<Rank, Metadata> metadata_send;
     for (const auto &t : territories)
-      metadata_send[t.id % size].first.push_back(t);
+      metadata_send[t.id % size].territories.push_back(t);
     for (const auto &p : pairs)
-      metadata_send[p.territory % size].second.push_back(p);
-    std::map<Id, Territory>    originals;
-    std::map<Id, TerminalPair> beds;
+      metadata_send[p.territory % size].pairs.push_back(p);
+    for (const auto &t : triplets)
+      metadata_send[t.territory % size].triplets.push_back(t);
+    std::map<Id, TerminalTriplet> compartments;
+    std::map<Id, Territory>       originals;
+    std::map<Id, TerminalPair>    beds;
     for (const auto &[source, metadata] :
          Utilities::MPI::some_to_some(comm, metadata_send))
       {
-        for (const auto &t : metadata.first)
+        for (const auto &t : metadata.territories)
           if (!originals.emplace(t.id, t).second)
             fail(t.id, "Duplicate input territory.");
-        for (const auto &p : metadata.second)
+        for (const auto &p : metadata.pairs)
           if (!beds.emplace(p.territory, p).second)
             fail(p.territory, "Duplicate input bed.");
+        for (const auto &t : metadata.triplets)
+          if (!compartments.emplace(t.territory, t).second ||
+              beds.count(t.territory))
+            fail(t.territory, "Duplicate input compartment.");
       }
     std::map<Rank, std::map<Id, Endpoint>> current_send;
     for (const auto &[id, t] : after.terminals)
@@ -103,6 +111,15 @@ namespace ImmersX::Vascularization::internal
           }
         const Id a = old_arteries.at(id)[0];
         requests[a % size].push_back(a);
+        if (compartments.count(id))
+          {
+            const auto &t = compartments.at(id);
+            if (t.arterial != a)
+              fail(id,
+                   "Input compartment disagrees with its arterial territory.");
+            requests[t.portal % size].push_back(t.portal);
+            requests[t.venous % size].push_back(t.venous);
+          }
         if (beds.count(id))
           {
             const auto &p = beds.at(id);
@@ -128,6 +145,31 @@ namespace ImmersX::Vascularization::internal
       {
         const Id   arterial = old_arteries.at(id)[0];
         const bool a_alive  = endpoints.count(arterial);
+        if (compartments.count(id))
+          {
+            const auto &compartment = compartments.at(id);
+            const bool  p_alive     = endpoints.count(compartment.portal),
+                       v_alive      = endpoints.count(compartment.venous);
+            if (a_alive != p_alive || a_alive != v_alive)
+              {
+                fail(
+                  id,
+                  "All three endpoints of an input microvascular compartment must be extended together.");
+                continue;
+              }
+            if (a_alive)
+              for (const auto &[terminal, system] :
+                   {std::make_pair(compartment.portal, System::portal),
+                    std::make_pair(compartment.venous, System::venous)})
+                {
+                  const auto &e = endpoints.at(terminal);
+                  if (e.system != system || e.territory != id ||
+                      e.demand != originals.at(id).demand)
+                    fail(
+                      id,
+                      "An untouched input compartment terminal changed its metadata.");
+                }
+          }
         if (beds.count(id))
           {
             const auto &p       = beds.at(id);
@@ -159,9 +201,11 @@ namespace ImmersX::Vascularization::internal
             "An untouched input arterial terminal changed its physical metadata.");
         auto retained  = t;
         retained.owner = a.owner;
-        routes[a.owner].first.push_back(retained);
+        routes[a.owner].territories.push_back(retained);
         if (beds.count(id))
-          routes[a.owner].second.push_back(beds.at(id));
+          routes[a.owner].pairs.push_back(beds.at(id));
+        if (compartments.count(id))
+          routes[a.owner].triplets.push_back(compartments.at(id));
       }
     if (!valid())
       return result;
@@ -169,11 +213,14 @@ namespace ImmersX::Vascularization::internal
          Utilities::MPI::some_to_some(comm, routes))
       {
         result.territories.insert(result.territories.end(),
-                                  metadata.first.begin(),
-                                  metadata.first.end());
+                                  metadata.territories.begin(),
+                                  metadata.territories.end());
         result.pairs.insert(result.pairs.end(),
-                            metadata.second.begin(),
-                            metadata.second.end());
+                            metadata.pairs.begin(),
+                            metadata.pairs.end());
+        result.triplets.insert(result.triplets.end(),
+                               metadata.triplets.begin(),
+                               metadata.triplets.end());
       }
     return result;
   }

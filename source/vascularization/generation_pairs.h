@@ -9,9 +9,10 @@ namespace ImmersX::Vascularization::internal
   // Keep input beds active while deriving new beds from terminal flow loads,
   // then check the actual paired flow.
   void
-  pair_territories(GenerationResult                &result,
-                   const Parameters                &parameters,
-                   MPI_Comm                         communicator,
-                   const std::vector<TerminalPair> &retained_pairs = {});
+  pair_territories(GenerationResult                   &result,
+                   const Parameters                   &parameters,
+                   MPI_Comm                            communicator,
+                   const std::vector<TerminalPair>    &retained_pairs    = {},
+                   const std::vector<TerminalTriplet> &retained_triplets = {});
 } // namespace ImmersX::Vascularization::internal
 #endif

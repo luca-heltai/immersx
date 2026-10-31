@@ -22,10 +22,18 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
         --parameters "${CMAKE_BINARY_DIR}/data/vascularization/liver_smoke/smoke.prm"
         --output "${TEST_OUTPUT_DIR}/liver-smoke/${_target}/${_ranks}"
         --ranks "${_ranks}" --mpiexec "${_liver_mpiexec}")
+    add_test(NAME "${_name}.Portal"
+      COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/test_liver_vascular.py"
+        --executable "$<TARGET_FILE:${_target}>"
+        --parameters "${CMAKE_BINARY_DIR}/data/vascularization/liver_smoke/portal.prm"
+        --output "${TEST_OUTPUT_DIR}/liver-smoke/${_target}/${_ranks}/portal"
+        --portal --ranks "${_ranks}" --mpiexec "${_liver_mpiexec}")
     set_tests_properties("${_name}" PROPERTIES LABELS "application"
       TIMEOUT 240 PROCESSORS "${_ranks}")
+    set_tests_properties("${_name}.Portal" PROPERTIES LABELS "application" TIMEOUT 240 PROCESSORS "${_ranks}")
     if(_ranks GREATER 1)
-      set_property(TEST "${_name}" APPEND PROPERTY LABELS "mpi")
+      set_property(TEST "${_name}" "${_name}.Portal" APPEND PROPERTY LABELS "mpi")
     endif()
   endforeach()
 endforeach()

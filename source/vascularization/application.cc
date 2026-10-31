@@ -128,6 +128,8 @@ namespace ImmersX::Vascularization
         return "arterial";
       else if (s == System::venous)
         return "venous";
+      else if (s == System::portal)
+        return "portal";
       AssertThrow(false, ExcMessage("Unknown vascular system."));
       return "";
     }
@@ -255,6 +257,28 @@ namespace ImmersX::Vascularization
                 << p.resistance << ',';
             if (r.reference.territories.count(p.territory))
               out << r.reference.territories.at(p.territory).flow;
+            out << '\n';
+          }
+      }
+      {
+        auto out = output(name("triplets"));
+        out
+          << "territory,arterial_terminal,portal_terminal,venous_terminal,arterial_resistance,portal_resistance,venous_resistance,arterial_flow,portal_flow,venous_flow,compartment_pressure\n";
+        for (const auto &t : r.terminal_triplets)
+          {
+            out << t.territory << ',' << t.arterial << ',' << t.portal << ','
+                << t.venous;
+            for (double resistance : t.resistances)
+              out << ',' << resistance;
+            const auto found = r.reference.territories.find(t.territory);
+            if (found != r.reference.territories.end())
+              {
+                const auto &v = found->second;
+                out << ',' << v.arterial_flow << ',' << v.portal_flow << ','
+                    << v.venous_flow << ',' << v.compartment_pressure;
+              }
+            else
+              out << ",,,,";
             out << '\n';
           }
       }
@@ -440,14 +464,15 @@ namespace ImmersX::Vascularization
                         p.generation,
                         comm,
                         initial.territories,
-                        initial.terminal_pairs);
+                        initial.terminal_pairs,
+                        initial.terminal_triplets);
     else if (p.mode == "load")
       {
-        result.length_scale   = scale;
-        result.network        = std::move(initial.network);
-        result.territories    = std::move(initial.territories);
-        result.terminal_pairs = std::move(initial.terminal_pairs);
-        result.discretization = discretize(
+        result.network           = std::move(initial.network);
+        result.territories       = std::move(initial.territories);
+        result.terminal_pairs    = std::move(initial.terminal_pairs);
+        result.terminal_triplets = std::move(initial.terminal_triplets);
+        result.discretization    = discretize(
           bg, mapping, result.network, p.generation.discretization, comm);
         result.validation = result.discretization.validation;
         if (valid_all(result.validation, comm))
@@ -481,7 +506,9 @@ namespace ImmersX::Vascularization
         if (p.mode == "load" && p.loaded_reference_flow > 0.)
           {
             require_all(
-              Utilities::MPI::sum(static_cast<Id>(result.terminal_pairs.size()),
+              Utilities::MPI::sum(static_cast<Id>(
+                                    result.terminal_pairs.size() +
+                                    result.terminal_triplets.size()),
                                   comm) == 0,
               comm,
               "Loaded demand-flow loads apply to arterial networks without paired beds.");
@@ -495,7 +522,7 @@ namespace ImmersX::Vascularization
             {
               const auto &t           = result.network.terminals.at(id);
               double      signed_flow = 0.;
-              if (t.system == System::arterial)
+              if (t.system == System::arterial || t.system == System::portal)
                 signed_flow = -flow;
               else if (t.system == System::venous)
                 signed_flow = flow;
@@ -508,6 +535,7 @@ namespace ImmersX::Vascularization
           "A requested tissue-flow load cannot also have an independent external inflow.");
         result.reference = solve_reference(result.network,
                                            result.terminal_pairs,
+                                           result.terminal_triplets,
                                            bc,
                                            p.generation.reference_parameters,
                                            comm);
@@ -558,6 +586,7 @@ namespace ImmersX::Vascularization
                    result.network,
                    result.territories,
                    result.terminal_pairs,
+                   result.terminal_triplets,
                    comm);
     try
       {
@@ -629,7 +658,7 @@ namespace ImmersX::Vascularization
                 "Cannot write vascular tables, meshes or diagnostics.");
     Utilities::System::MemoryStats memory{};
     Utilities::System::get_memory_stats(memory);
-    std::vector<Id> counts(12);
+    std::vector<Id> counts(14);
     counts[0] = bg.n_locally_owned_active_cells();
     counts[1] = local_nodes;
     for (const auto &[id, v] : result.network.vessels)
@@ -641,10 +670,13 @@ namespace ImmersX::Vascularization
             ++counts[3];
           else if (t.system == System::venous)
             ++counts[4];
+          else if (t.system == System::portal)
+            ++counts[12];
         }
-    counts[5] = result.territories.size();
-    counts[6] = result.terminal_pairs.size();
-    counts[7] = result.discretization.cells.size();
+    counts[5]  = result.territories.size();
+    counts[6]  = result.terminal_pairs.size();
+    counts[13] = result.terminal_triplets.size();
+    counts[7]  = result.discretization.cells.size();
     counts[8] =
       result.validation.valid() && p.write_meshes && numerical_cells > 0 ?
         line.n_locally_owned_active_cells() :
@@ -667,18 +699,18 @@ namespace ImmersX::Vascularization
     if (rank == 0)
       try
         {
-          std::vector<Id>     total(12);
+          std::vector<Id>     total(14);
           std::vector<double> maximum(7);
           for (const auto &row : rows)
             {
-              for (unsigned int i = 0; i < 12; ++i)
+              for (unsigned int i = 0; i < 14; ++i)
                 total[i] += row.first[i];
               for (unsigned int i = 0; i < 7; ++i)
                 maximum[i] = std::max(maximum[i], row.second[i]);
             }
           auto out = output(directory / "summary.csv");
           out
-            << "valid,mode,processes,background_cells,nodes,vessels,arterial_terminals,venous_terminals,territories,pairs,numerical_cells,background_volume,inside_volume,volume_fraction,target_volume_fraction,arterial_coverage,venous_coverage,dual_coverage,coverage_evaluated,minimum_coverage,reference_evaluated,reference_flow,reference_power,maximum_flow_defect,calibration_status,calibration_attempts,sampled_points,accepted_insertions,background_seconds,input_seconds,generation_seconds,additional_reference_seconds,mesh_seconds,output_seconds,total_seconds,length_scale,mesh_h_min,mesh_h_max,base_terminal_count,initial_terminal_count,requested_terminal_count,effective_terminal_count\n";
+            << "valid,mode,processes,background_cells,nodes,vessels,arterial_terminals,venous_terminals,territories,pairs,numerical_cells,background_volume,inside_volume,volume_fraction,target_volume_fraction,arterial_coverage,venous_coverage,dual_coverage,coverage_evaluated,minimum_coverage,reference_evaluated,reference_flow,reference_power,maximum_flow_defect,calibration_status,calibration_attempts,sampled_points,accepted_insertions,background_seconds,input_seconds,generation_seconds,additional_reference_seconds,mesh_seconds,output_seconds,total_seconds,portal_terminals,triplets,portal_coverage,triple_coverage\n";
           out << result.validation.valid() << ',' << p.mode << ',' << size;
           for (unsigned int i = 0; i < 8; ++i)
             out << ',' << total[i];
@@ -701,17 +733,12 @@ namespace ImmersX::Vascularization
               << result.sampled_points << ',' << result.accepted_insertions;
           for (double t : maximum)
             out << ',' << t;
-          out << ',' << result.length_scale.name() << ','
-              << result.length_scale.mesh_minimum << ','
-              << result.length_scale.mesh_maximum << ','
-              << result.base_terminal_count << ','
-              << result.initial_terminal_count << ','
-              << result.requested_terminal_count << ','
-              << result.effective_terminal_count;
-          out << '\n';
+          out << ',' << total[12] << ',' << total[13] << ','
+              << result.tissue.portal_coverage << ','
+              << result.tissue.triple_coverage << '\n';
           auto per_rank = output(directory / "ranks.csv");
           per_rank
-            << "rank,background_cells,nodes,vessels,arterial_terminals,venous_terminals,territories,pairs,physical_owner_intervals,line_owned_cells,ghost_nodes,rss_kb,peak_rss_kb,background_seconds,input_seconds,generation_seconds,additional_reference_seconds,mesh_seconds,output_seconds,total_seconds\n";
+            << "rank,background_cells,nodes,vessels,arterial_terminals,venous_terminals,territories,pairs,physical_owner_intervals,line_owned_cells,ghost_nodes,rss_kb,peak_rss_kb,portal_terminals,triplets,background_seconds,input_seconds,generation_seconds,additional_reference_seconds,mesh_seconds,output_seconds,total_seconds\n";
           for (unsigned int r = 0; r < size; ++r)
             {
               per_rank << r;

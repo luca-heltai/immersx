@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 by Luca Heltai
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""Check a liver tutorial result against its two supplied 1D meshes."""
+"""Check a liver tutorial result against its supplied rooted 1D meshes."""
 import argparse
 import csv
 import json
@@ -37,12 +37,12 @@ def check(args):
     pairs = records(args.result, "pairs", "territory")
     position = {i: tuple(float(row[k]) for k in ("x", "y", "z")) for i, row in nodes.items()}
     imported_edges = {}
-    generated = [0, 0]
+    generated = [0, 0, 0] if args.triplets else [0, 0]
     for identity, row in vessels.items():
         a, b = int(row["node0"]), int(row["node1"])
         require(a in nodes and b in nodes, f"Missing endpoints for vessel {identity}")
         system = int(row["system"])
-        require(system in (0, 1), "Invalid system")
+        require(system in range(len(generated)), "Invalid system")
         if int(row["provenance"]) == 1:
             generated[system] += 1
         else:
@@ -51,7 +51,8 @@ def check(args):
             imported_edges[key] = row
     offset = 0
     expected_edges = 0
-    for system, filename in enumerate(("arterial.vtk", "venous.vtk")):
+    filenames = ["arterial.vtk", "venous.vtk"] + (["portal.vtk"] if args.triplets else [])
+    for system, filename in enumerate(filenames):
         reader = vtk.vtkUnstructuredGridReader()
         reader.SetFileName(str(args.input / filename))
         reader.ReadAllScalarsOn()
@@ -66,7 +67,7 @@ def check(args):
             require(math.dist(position[identity], grid.GetPoint(i)) < 1.e-12,
                     f"Moved imported node {identity}")
             require(int(nodes[identity]["provenance"]) == 0, "Changed input node provenance")
-            expected_port = (1 if system == 0 else 2) if root.GetTuple1(i) else 0
+            expected_port = (1, 2, 4)[system] if root.GetTuple1(i) else 0
             require(int(nodes[identity]["port"]) == expected_port, "Changed input port")
         for c in range(grid.GetNumberOfCells()):
             cell = grid.GetCell(c)
@@ -87,8 +88,8 @@ def check(args):
     require(len(imported_edges) == expected_edges, "Unexpected imported edges")
     require(sum(int(n["provenance"]) == 0 for n in nodes.values()) == offset,
             "Unexpected imported nodes")
-    require(all(count > 0 for count in generated), "Both systems must grow")
-    require(len(pairs) == args.pairs, "Wrong number of tissue pairs")
+    require(all(count > 0 for count in generated), "Every supplied system must grow")
+    require(len(pairs) == (0 if args.triplets else args.pairs), "Wrong number of tissue pairs")
     used = set()
     for territory, pair in pairs.items():
         a, v = int(pair["arterial"]), int(pair["venous"])
@@ -105,6 +106,31 @@ def check(args):
         points = [position[int(terminals[t]["node"])] for t in (a, v)]
         require(math.isclose(math.dist(*points), args.separation, rel_tol=1.e-10, abs_tol=1.e-12),
                 "Wrong arterial-venous separation")
+
+    if args.triplets:
+        triplets = records(args.result, "triplets", "territory")
+        require(len(triplets) == args.triplets, "Wrong number of common tissue compartments")
+        for territory, t in triplets.items():
+            ids = [int(t[k]) for k in ("arterial", "portal", "venous")]
+            require(len(set(ids)) == 3 and all(i in terminals and i not in used for i in ids),
+                    "Missing or repeated compartment terminal")
+            used.update(ids)
+            require([int(terminals[i]["system"]) for i in ids] == [0, 2, 1], "Wrong compartment roles")
+            require(all(int(terminals[i]["territory"]) == territory for i in ids), "Inconsistent common territory")
+            require(all(float(terminals[i]["demand"]) == float(terminals[ids[0]]["demand"]) for i in ids),
+                    "Unequal compartment demand")
+            points = [position[int(terminals[i]["node"])] for i in ids]
+            require(math.isclose(math.dist(points[0], points[1]), args.portal_separation, rel_tol=1.e-10, abs_tol=1.e-12),
+                    "Wrong arterial-portal separation")
+            require(math.isclose(math.dist(points[0], points[2]), args.separation, rel_tol=1.e-10, abs_tol=1.e-12),
+                    "Wrong arterial-venous separation")
+            qa, qp, qv = [float(t[k]) for k in ("arterial_flow", "portal_flow", "venous_flow")]
+            require(min(qa, qp, qv) > 0. and math.isclose(qa + qp, qv, rel_tol=1.e-9), "Invalid compartment balance")
+            require(all(float(t[k]) > 0. for k in ("arterial_resistance", "portal_resistance", "venous_resistance")),
+                    "Invalid compartment resistance")
+            require(math.isfinite(float(t["compartment_pressure"])), "Invalid compartment pressure")
+            if args.portal_flow_fraction is not None:
+                require(math.isclose(qp / qv, args.portal_flow_fraction, rel_tol=1.e-8), "Wrong supply split")
 
     # Independent sample check against the exported volume, in addition to the
     # continuous geometry certification required by GenerationResult.
@@ -154,6 +180,8 @@ def check(args):
                    generated_arteries=generated[0], generated_veins=generated[1],
                    tissue_pairs=len(pairs), background_cells=background.GetNumberOfCells(),
                    minimum_sampled_wall_margin_m=minimum_margin)
+    if args.triplets:
+        summary.update(generated_portal=generated[2], tissue_triplets=args.triplets)
     print(json.dumps(summary, indent=2))
     if args.report:
         args.report.write_text(json.dumps(summary, indent=2) + "\n")
@@ -164,6 +192,9 @@ def main():
     parser.add_argument("input", type=Path)
     parser.add_argument("result", type=Path)
     parser.add_argument("--pairs", type=int, default=1000)
+    parser.add_argument("--triplets", type=int, default=0, help="Check this number of three-terminal compartments instead of pairs")
+    parser.add_argument("--portal-separation", type=float, default=.003)
+    parser.add_argument("--portal-flow-fraction", type=float)
     parser.add_argument("--separation", type=float, default=.003)
     parser.add_argument("--viscosity", type=float, default=.004)
     parser.add_argument("--report", type=Path)
