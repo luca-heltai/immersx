@@ -200,7 +200,7 @@ namespace ImmersX::Vascularization::internal
       if (!all && result.accepted.validation.valid())
         fail(invalid_id, "Venous startup failed on another process.");
       if (!all)
-        result.accepted.committed = false;
+        result.accepted.prepared = false;
       return all;
     };
     const auto   scale = mesh_length_scale(bg, p.length_scale, comm);
@@ -629,16 +629,9 @@ namespace ImmersX::Vascularization::internal
             }
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
-        auto committed = commit_growth_splits(bg,
-                                              mapping,
-                                              trial,
-                                              mutable_owned,
-                                              fixed_roots,
-                                              {},
-                                              p,
-                                              comm,
-                                              &geometry);
-        if (!committed.committed)
+        auto committed = prepare_growth_start(
+          bg, mapping, trial, mutable_owned, fixed_roots, halo, comm);
+        if (!committed.prepared)
           {
             result.accepted = std::move(committed);
             return result;

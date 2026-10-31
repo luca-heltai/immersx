@@ -424,14 +424,10 @@ namespace ImmersX::Vascularization
     std::set<Id>    mutable_forest;
     if (creating_seed)
       {
-        auto startup      = internal::start_seed(background,
-                                            mapping,
-                                            parameters,
-                                            demand_function,
-                                            communicator,
-                                            &geometry);
+        auto startup =
+          internal::start_seed(background, mapping, parameters, communicator);
         result.validation = startup.validation;
-        if (startup.committed)
+        if (startup.prepared)
           {
             result.network = std::move(startup.network);
             mutable_forest = std::move(startup.mutable_owned);
@@ -445,12 +441,11 @@ namespace ImmersX::Vascularization
                                                    mapping,
                                                    initial,
                                                    parameters,
-                                                   demand_function,
                                                    terminal_count,
                                                    communicator,
                                                    &geometry);
         result.validation = startup.accepted.validation;
-        if (startup.accepted.committed)
+        if (startup.accepted.prepared)
           {
             result.network          = std::move(startup.accepted.network);
             mutable_forest          = std::move(startup.accepted.mutable_owned);
@@ -513,6 +508,15 @@ namespace ImmersX::Vascularization
         Utilities::MPI::sum(growth.sampled_points, communicator);
       result.accepted_insertions += Utilities::MPI::sum(
         static_cast<unsigned int>(growth.accepted_insertions), communicator);
+      // Provisional startup labels must not escape a failed bootstrap as a
+      // physical result. A later growth failure retains its last accepted
+      // state.
+      if (!growth.accepted.committed && system == System::arterial)
+        {
+          result.network = initial;
+          result.attachment_roots.clear();
+          mutable_forest.clear();
+        }
       if (growth.accepted.committed)
         {
           result.network = std::move(growth.accepted.network);
@@ -562,9 +566,9 @@ namespace ImmersX::Vascularization
           startup.accepted.validation.issues.end());
         if (!collective_valid())
           return result;
-        if (!startup.accepted.committed)
+        if (!startup.accepted.prepared)
           {
-            fail(invalid_id, "No venous startup batch was committed.");
+            fail(invalid_id, "No venous startup batch was prepared.");
             return result;
           }
         result.network = std::move(startup.accepted.network);

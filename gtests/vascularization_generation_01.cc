@@ -236,7 +236,7 @@ TEST(VascularGeneration,
       {
         ++owned_terminals;
         EXPECT_EQ(rank, end_owner);
-        EXPECT_NEAR(t.demand, 2.5, 1.e-13);
+        EXPECT_NEAR(t.demand, 40., 1.e-12);
         EXPECT_EQ(result.network.nodes.at(t.node).position,
                   Point<3>(1.5, .5, .5));
         EXPECT_NEAR(result.target_terminal_flows.at(id) / p.reference_flow,
