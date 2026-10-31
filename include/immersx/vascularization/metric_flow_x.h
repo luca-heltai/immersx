@@ -86,6 +86,8 @@ namespace ImmersX::Vascularization
    * The boundary callback (physical Node Id, const Node &, const Terminal *)
    * returns native RCRPhysics. Its Terminal pointer is null at a real outlet;
    * arterial inlets keep native boundary zero and do not call this callback.
+   * Portal inlets receive their own boundary id and call the boundary callback
+   * with a null Terminal pointer, allowing independent root boundary data.
    * Both callbacks execute only at physical owners and may inspect local data.
    *
    * The native solver replicates coefficient and terminal tables. This setup
@@ -178,7 +180,9 @@ namespace ImmersX::Vascularization
                   if (node.port == Port::arterial_inlet)
                     owned_inlets.insert(id);
                   else if (node.port == Port::venous_outlet ||
-                           node.port == Port::arterial_outlet)
+                           node.port == Port::arterial_outlet ||
+                           node.port == Port::portal_outlet ||
+                           node.port == Port::portal_inlet)
                     valid = owned_boundaries
                               .emplace(id, boundary_physics(id, node, nullptr))
                               .second &&
@@ -264,6 +268,46 @@ namespace ImmersX::Vascularization
                 {transfer.terminal_ids.at(ids[1]),
                  transfer.terminal_ids.at(ids[2]),
                  resistance});
+            }
+
+        using Triplet = std::pair<std::array<Id, 4>, std::array<double, 3>>;
+        std::vector<Triplet> owned_triplets;
+        for (const auto &t : generation.terminal_triplets)
+          owned_triplets.push_back(
+            {{{t.territory, t.arterial, t.portal, t.venous}}, t.resistances});
+        for (const auto &triplets :
+             Utilities::MPI::all_gather(comm, owned_triplets))
+          for (const auto &[ids, arms] : triplets)
+            {
+              AssertThrow(
+                territories.insert(ids[0]).second,
+                ExcMessage(
+                  "A terminal compartment has duplicate physical owners."));
+              std::array<long double, 3> conductance;
+              long double                sum = 0.;
+              for (unsigned int i = 0; i < 3; ++i)
+                {
+                  AssertThrow(std::isfinite(arms[i]) && arms[i] > 0.,
+                              ExcMessage(
+                                "Invalid microvascular arm resistance."));
+                  conductance[i] = 1.L / arms[i];
+                  sum += conductance[i];
+                }
+              // Eliminate the common pressure using the native
+              // terminal-resistor graph.
+              for (unsigned int i = 0; i < 3; ++i)
+                for (unsigned int j = i + 1; j < 3; ++j)
+                  {
+                    const double resistance = static_cast<double>(
+                      sum / conductance[i] / conductance[j]);
+                    AssertThrow(
+                      std::isfinite(resistance) && resistance > 0.,
+                      ExcMessage("Unrepresentable microvascular conductance."));
+                    input.terminal_connections.push_back(
+                      {transfer.terminal_ids.at(ids[i + 1]),
+                       transfer.terminal_ids.at(ids[j + 1]),
+                       resistance});
+                  }
             }
 
         // This temporary input is used only to construct flow-oriented cells.

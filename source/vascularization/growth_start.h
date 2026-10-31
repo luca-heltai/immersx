@@ -56,7 +56,7 @@ namespace ImmersX::Vascularization::internal
                     MPI_Comm                        communicator,
                     BackgroundGeometry             *geometry = nullptr);
 
-  struct VenousOutlet
+  struct CompanionPort
   {
     NetworkData      network;
     Id               port = invalid_id;
@@ -64,24 +64,24 @@ namespace ImmersX::Vascularization::internal
   };
 
   // Reserve a real outlet before arterial growth allocates further node ids.
-  VenousOutlet
-  reserve_venous_outlet(const dealii::Triangulation<3> &background,
-                        const dealii::Mapping<3>       &mapping,
-                        const NetworkData              &network,
-                        const Parameters               &parameters,
-                        MPI_Comm                        communicator,
-                        BackgroundGeometry             *geometry = nullptr);
+  CompanionPort
+  reserve_companion_port(const dealii::Triangulation<3> &background,
+                         const dealii::Mapping<3>       &mapping,
+                         const NetworkData              &network,
+                         const Parameters               &parameters,
+                         MPI_Comm                        communicator,
+                         System                          system);
 
   AttachmentStartup
-  start_venous(const dealii::Triangulation<3> &background,
-               const dealii::Mapping<3>       &mapping,
-               const NetworkData              &network,
-               const NetworkData              &original,
-               const Parameters               &parameters,
-               const std::vector<Territory>   &owned_territories,
-               Id                              reserved_port,
-               MPI_Comm                        communicator,
-               BackgroundGeometry             *geometry = nullptr);
+  start_companion(const dealii::Triangulation<3> &background,
+                  const dealii::Mapping<3>       &mapping,
+                  const NetworkData              &network,
+                  const NetworkData              &original,
+                  const Parameters               &parameters,
+                  const std::vector<Territory>   &owned_territories,
+                  Id                              reserved_port,
+                  MPI_Comm                        communicator,
+                  System                          system);
 
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.

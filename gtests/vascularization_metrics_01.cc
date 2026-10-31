@@ -530,3 +530,30 @@ TEST(VascularMetrics, MPI_ControlDisagreementIsRejectedBeforeCoverageBranch)
                  background, MappingQ1<3>(), {}, subdivision, parameters, comm),
                ExceptionBase);
 }
+
+TEST(VascularMetrics, BOTH_TripleCoverageRequiresAllThreeServiceUnions)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  NetworkData n;
+  if (rank == 0)
+    {
+      terminal(n, Point<3>(.23, .25, .25), System::arterial);
+      terminal(n, Point<3>(.25, .25, .25), System::venous);
+      terminal(n, Point<3>(.27, .25, .25), System::portal);
+    }
+  const auto metrics = measure(background, MappingQ1<3>(), n, .1, 1);
+  EXPECT_NEAR(metrics.arterial_coverage, 1. / 8., 1.e-13);
+  EXPECT_NEAR(metrics.venous_coverage, 1. / 8., 1.e-13);
+  EXPECT_NEAR(metrics.portal_coverage, 1. / 8., 1.e-13);
+  EXPECT_NEAR(metrics.triple_coverage, 1. / 8., 1.e-13);
+  if (rank == 0)
+    n.nodes[2].position = Point<3>(.75, .75, .75);
+  const auto disjoint = measure(background, MappingQ1<3>(), n, .1, 1);
+  EXPECT_NEAR(disjoint.portal_coverage, 1. / 8., 1.e-13);
+  EXPECT_NEAR(disjoint.dual_coverage, 1. / 8., 1.e-13);
+  EXPECT_DOUBLE_EQ(disjoint.triple_coverage, 0.);
+}

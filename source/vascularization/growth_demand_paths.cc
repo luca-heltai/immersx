@@ -197,22 +197,25 @@ namespace ImmersX::Vascularization::internal
           continue;
         const auto &root   = cache.at(x.root);
         const auto  system = root.root.system;
-        valid              = valid && system < 2;
-        if (system >= 2)
+        valid              = valid && system < 3;
+        if (system >= 3)
           continue;
         auto other = root.root.other_local;
         for (unsigned int rank_index = 0; rank_index < size; ++rank_index)
           if (rank_index != root.branch.owner)
-            for (unsigned int j = 0; j < 6; ++j)
+            for (unsigned int j = 0; j < 9; ++j)
               other[j] += preview.rank_totals[rank_index][j];
         physics.other_volume            = other[3 * system + 1];
         physics.other_power_coefficient = other[3 * system + 2];
         physics.reference_volume        = accepted_volume[system];
         physics.reference_resistance    = accepted_resistance[system];
-        physics.final_system_demand =
-          preview.canonical_total_demand ?
-            (*preview.canonical_total_demand)[system] :
-            preview.totals[3 * system] + new_demand;
+        if (system < 2 && preview.canonical_total_demand)
+          physics.final_system_demand =
+            (*preview.canonical_total_demand)[system];
+        else if (system == 2 && preview.canonical_portal_demand)
+          physics.final_system_demand = *preview.canonical_portal_demand;
+        else
+          physics.final_system_demand = preview.totals[3 * system] + new_demand;
         x.root_radius                 = root.root.radius;
         const long double root_demand = physics.path.back().demand;
         valid = valid && root_demand > 0. && std::isfinite(root_demand) &&

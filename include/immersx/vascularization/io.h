@@ -12,9 +12,10 @@ namespace ImmersX::Vascularization
    * results are recomputed against the caller's prepared background. */
   struct NetworkArchive
   {
-    NetworkData               network;
-    std::vector<Territory>    territories;
-    std::vector<TerminalPair> terminal_pairs;
+    NetworkData                  network;
+    std::vector<Territory>       territories;
+    std::vector<TerminalPair>    terminal_pairs;
+    std::vector<TerminalTriplet> terminal_triplets;
   };
 
   /**
@@ -38,6 +39,15 @@ namespace ImmersX::Vascularization
                const std::vector<Territory>    &territories,
                const std::vector<TerminalPair> &terminal_pairs,
                MPI_Comm                         communicator);
+
+  /** Save both two-terminal and common three-terminal compartments. */
+  void
+  save_network(const std::filesystem::path        &directory,
+               const NetworkData                  &network,
+               const std::vector<Territory>       &territories,
+               const std::vector<TerminalPair>    &terminal_pairs,
+               const std::vector<TerminalTriplet> &terminal_triplets,
+               MPI_Comm                            communicator);
 
   /**
    * Restore an archive with any positive communicator size, assigning bounded

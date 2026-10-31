@@ -14,7 +14,7 @@
 #include "distribution_internal.h"
 #include "growth_batch.h"
 #include "growth_start.h"
-#include "growth_territory_search.h"
+#include "growth_system.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -70,38 +70,39 @@ namespace ImmersX::Vascularization::internal
     }
   } // namespace
 
-  VenousOutlet
-  reserve_venous_outlet(const dealii::Triangulation<3> &bg,
-                        const dealii::Mapping<3>       &mapping,
-                        const NetworkData              &network,
-                        const Parameters               &p,
-                        MPI_Comm                        comm,
-                        BackgroundGeometry             *shared_geometry)
+  CompanionPort
+  reserve_companion_port(const dealii::Triangulation<3> &bg,
+                         const dealii::Mapping<3>       &mapping,
+                         const NetworkData              &network,
+                         const Parameters               &p,
+                         MPI_Comm                        comm,
+                         System                          system)
   {
     using namespace dealii;
-    const Rank rank = Utilities::MPI::this_mpi_process(comm),
-               size = Utilities::MPI::n_mpi_processes(comm);
+    const auto &companion = companion_parameters(p, system);
+    const Rank  rank      = Utilities::MPI::this_mpi_process(comm),
+               size       = Utilities::MPI::n_mpi_processes(comm);
     std::vector<double> controls{p.viscosity,
                                  p.minimum_radius,
-                                 p.venous.seed_radius,
-                                 p.venous.murray_exponent,
-                                 p.venous.terminal_separation,
-                                 p.venous.microvascular_resistance};
+                                 companion.seed_radius,
+                                 companion.murray_exponent,
+                                 companion.terminal_separation,
+                                 companion.microvascular_resistance};
     for (const auto &point :
-         {p.venous.seed_position, p.venous.seed_inward_port_normal})
+         {companion.seed_position, companion.seed_inward_port_normal})
       for (unsigned int d = 0; d < 3; ++d)
         controls.push_back(point[d]);
-    const auto local    = std::make_pair(controls, p.venous.selected_terminals);
+    const auto local = std::make_pair(controls, companion.selected_terminals);
     bool       matching = true;
     for (const auto &other : Utilities::MPI::all_gather(comm, local))
       matching = matching && other == local;
     AssertThrow(
       matching,
       ExcMessage(
-        "Venous startup requires matching outlet controls and input selections."));
-    VenousOutlet result;
+        "Companion startup requires matching outlet controls and input selections."));
+    CompanionPort result;
     result.network = network;
-    if (!p.venous.selected_terminals.empty())
+    if (!companion.selected_terminals.empty())
       return result;
     std::unique_ptr<BackgroundGeometry> local_geometry;
     if (!shared_geometry)
@@ -114,40 +115,40 @@ namespace ImmersX::Vascularization::internal
     const double halo = scale.physical_length(p.clearance, scale.maximum());
     unsigned int available = 0;
     for (const auto &[id, t] : network.terminals)
-      if (t.owner == rank && t.system == System::venous &&
+      if (t.owner == rank && t.system == system &&
           geometry.containing(network.nodes.at(t.node).position))
         ++available;
     if (Utilities::MPI::sum(available, comm) > 0)
       return result;
     const auto fail = [&](const std::string &message) {
       result.validation.issues.push_back(
-        {"venous outlet", invalid_id, message});
+        {"companion outlet", invalid_id, message});
     };
-    if (!(p.venous.seed_radius > 0.) || !(p.viscosity > 0.) ||
-        p.venous.seed_radius < minimum_radius)
+    if (!(companion.seed_radius > 0.) || !(p.viscosity > 0.) ||
+        companion.seed_radius < p.minimum_radius)
       {
         fail(
-          "A new venous outlet requires an explicit admissible positive radius and dynamic viscosity.");
+          "A new companion outlet requires an explicit admissible positive radius and dynamic viscosity.");
         return result;
       }
     const auto normal =
-      normalized_port_normal(p.venous.seed_inward_port_normal);
+      normalized_port_normal(companion.seed_inward_port_normal);
     const bool containing = static_cast<bool>(
-      geometry.containing(p.venous.seed_position,
+      geometry.containing(companion.seed_position,
                           normal.norm_square() > 0. ? 1.e-12 : 0.));
     const Rank source = Utilities::MPI::min(containing ? rank : size, comm);
     if (source == size)
       {
-        fail("Venous outlet position is outside the background.");
+        fail("Companion outlet position is outside the background.");
         return result;
       }
     if (normal.norm_square() > 0. &&
         Utilities::MPI::max(static_cast<unsigned int>(geometry.planar_section(
-                              p.venous.seed_position, normal)),
+                              companion.seed_position, normal)),
                             comm) == 0)
       {
         fail(
-          "The declared venous port does not match a planar background boundary section.");
+          "The declared companion port does not match a planar background boundary section.");
         return result;
       }
     Id   next  = 0;
@@ -165,9 +166,11 @@ namespace ImmersX::Vascularization::internal
       }
     result.port = Utilities::MPI::max(next, comm);
     if (rank == source)
-      result.network.nodes[result.port] = {p.venous.seed_position,
+      result.network.nodes[result.port] = {companion.seed_position,
                                            rank,
-                                           Port::venous_outlet,
+                                           system == System::portal ?
+                                             Port::portal_inlet :
+                                             Port::venous_outlet,
                                            Provenance::generated,
                                            normal};
     result.network = redistribute_with_owners(
@@ -176,23 +179,24 @@ namespace ImmersX::Vascularization::internal
   }
 
   AttachmentStartup
-  start_venous(const dealii::Triangulation<3> &bg,
-               const dealii::Mapping<3>       &mapping,
-               const NetworkData              &network,
-               const NetworkData              &original,
-               const Parameters               &p,
-               const std::vector<Territory>   &owned_territories,
-               Id                              reserved_port,
-               MPI_Comm                        comm,
-               BackgroundGeometry             *shared_geometry)
+  start_companion(const dealii::Triangulation<3> &bg,
+                  const dealii::Mapping<3>       &mapping,
+                  const NetworkData              &network,
+                  const NetworkData              &original,
+                  const Parameters               &p,
+                  const std::vector<Territory>   &owned_territories,
+                  Id                              reserved_port,
+                  MPI_Comm                        comm,
+                  System                          system)
   {
     using namespace dealii;
-    const Rank rank = Utilities::MPI::this_mpi_process(comm),
-               size = Utilities::MPI::n_mpi_processes(comm);
+    const auto &companion = companion_parameters(p, system);
+    const Rank  rank      = Utilities::MPI::this_mpi_process(comm),
+               size       = Utilities::MPI::n_mpi_processes(comm);
     AttachmentStartup result;
     const auto        fail = [&](Id id, const std::string &message) {
       result.accepted.validation.issues.push_back(
-        {"venous startup", id, message});
+        {"companion startup", id, message});
     };
     const auto valid = [&]() {
       const bool all =
@@ -200,43 +204,30 @@ namespace ImmersX::Vascularization::internal
                               result.accepted.validation.valid()),
                             comm) == 1;
       if (!all && result.accepted.validation.valid())
-        fail(invalid_id, "Venous startup failed on another process.");
+        fail(invalid_id, "Companion startup failed on another process.");
       if (!all)
         result.accepted.prepared = false;
       return all;
     };
-    std::unique_ptr<BackgroundGeometry> local_geometry;
-    if (!shared_geometry)
-      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
-    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
-    geometry.configure_length_scale(p.length_scale, comm);
-    const auto  &scale = *geometry.length_scale;
-    const double halo  = scale.physical_length(p.clearance, scale.maximum());
-    const double minimum_radius =
-      scale.physical_length(p.minimum_radius, scale.minimum());
-    const double minimum_length =
-      scale.physical_length(p.minimum_length, scale.minimum());
-    scale.physical_length(p.venous.terminal_separation, scale.minimum());
-    scale.physical_length(p.venous.terminal_separation, scale.maximum());
-    auto snapshot = redistribute_with_owners(
-      bg, mapping, network, halo, comm, {}, &geometry, geometry.counts);
-    std::set<Id> requested(p.venous.selected_terminals.begin(),
-                           p.venous.selected_terminals.end());
-    if (requested.size() != p.venous.selected_terminals.size())
-      fail(invalid_id, "A venous attachment may be selected only once.");
+    auto snapshot = redistribute(bg, mapping, network, p.clearance, comm);
+    BackgroundGeometry geometry(bg, mapping);
+    std::set<Id>       requested(companion.selected_terminals.begin(),
+                           companion.selected_terminals.end());
+    if (requested.size() != companion.selected_terminals.size())
+      fail(invalid_id, "A companion attachment may be selected only once.");
     Id found = 0;
     for (const auto &[id, t] : original.terminals)
       if (t.owner == rank && requested.count(id))
         {
           ++found;
-          if (t.system != System::venous)
+          if (t.system != system)
             fail(
               id,
-              "Selected venous terminals must belong to the input venous network.");
+              "Selected companion terminals must belong to the input companion network.");
         }
     if (Utilities::MPI::sum(found, comm) != requested.size())
       fail(invalid_id,
-           "Selected venous terminal id is absent from the input registry.");
+           "Selected companion terminal id is absent from the input registry.");
     std::map<Id, std::vector<Id>> incoming, outgoing;
     for (const auto &[id, v] : snapshot.vessels)
       {
@@ -268,16 +259,16 @@ namespace ImmersX::Vascularization::internal
             root.start             = reserved_port;
             root.position          = node.position;
             root.normal            = node.inward_port_normal;
-            root.properties.system = System::venous;
+            root.properties.system = system;
             root.properties.radii  = {
-              {p.venous.seed_radius, p.venous.seed_radius}};
+              {companion.seed_radius, companion.seed_radius}};
             root.properties.viscosity = p.viscosity;
             roots.push_back(root);
           }
       }
     else
       for (const auto &[id, t] : snapshot.terminals)
-        if (t.owner == rank && t.system == System::venous &&
+        if (t.owner == rank && t.system == system &&
             (requested.empty() || requested.count(id)))
           {
             const auto &node = snapshot.nodes.at(t.node);
@@ -286,7 +277,7 @@ namespace ImmersX::Vascularization::internal
             if (requested.count(id) && !interior)
               fail(
                 id,
-                "An explicitly selected exterior venous terminal cannot be extended by interior vessels.");
+                "An explicitly selected exterior companion terminal cannot be extended by interior vessels.");
             if (!interior)
               continue;
             if (incoming[t.node].size() != 1 || !outgoing[t.node].empty() ||
@@ -294,7 +285,7 @@ namespace ImmersX::Vascularization::internal
               {
                 fail(
                   id,
-                  "A venous attachment must be a native non-port outward leaf.");
+                  "A companion attachment must be a native non-port outward leaf.");
                 continue;
               }
             Pending root;
@@ -315,42 +306,7 @@ namespace ImmersX::Vascularization::internal
     if (total_roots == 0 || total_roots > total_territories)
       fail(
         invalid_id,
-        "Common territory count must cover all real venous outlets or selected attachments.");
-    scale.physical_length(p.seed_length, scale.minimum());
-    scale.physical_length(p.seed_length, scale.maximum());
-    std::map<Id, Point<3>> attachment_queries;
-    for (const auto &root : roots)
-      attachment_queries.emplace(root.start, root.position);
-    const auto attachment_cells =
-      geometry.locate_points(attachment_queries, comm, 1.e-12);
-    for (auto &root : roots)
-      {
-        const auto cell = attachment_cells.find(root.start);
-        if (cell == attachment_cells.end())
-          {
-            fail(root.start,
-                 "Venous seed attachment is outside the background.");
-            continue;
-          }
-        root.seed_length =
-          scale.physical_length(p.seed_length, cell->second.diameter);
-        std::optional<Point<3>> preferred;
-        if (root.input_terminal != invalid_id)
-          preferred =
-            Point<3>(root.position -
-                     snapshot.nodes.at(root.properties.nodes[0]).position);
-        else if (root.normal.norm_square() > 0.)
-          preferred = root.normal;
-        root.seed_directions = initial_root_directions(root.position,
-                                                       cell->second.center,
-                                                       cell->second.vertices,
-                                                       {},
-                                                       preferred,
-                                                       nullptr,
-                                                       0.);
-      }
-    if (!valid())
-      return result;
+        "Common territory count must cover all real companion outlets or selected attachments.");
     // IDs are reserved once per startup, independently of geometric retries.
     const auto reserve = [&](const auto &data, Id stride) {
       Id next = 0;
@@ -396,13 +352,15 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, double> separations;
     for (const auto &[id, position] : tissue_queries)
       {
-        const auto cell = tissue_cells.find(id);
-        if (cell == tissue_cells.end())
-          fail(id,
-               "A common territory centre is outside the prepared background.");
-        else
-          separations[id] = scale.physical_length(p.venous.terminal_separation,
-                                                  cell->second.diameter);
+        if (t.id == invalid_id || t.owner != rank || !std::isfinite(t.demand) ||
+            !(t.demand > 0.) ||
+            !available
+               .emplace(t.id, SharedPoint{t.id, t.position, rank, t.demand})
+               .second)
+          fail(
+            t.id,
+            "Companion startup requires unique native common territories with positive finite demand.");
+        points.emplace_back(t.position, t.id);
       }
     if (!valid())
       return result;
@@ -508,7 +466,7 @@ namespace ImmersX::Vascularization::internal
           if (!nearest.count(id))
             fail(
               root.input_terminal,
-              "No admissible connection from the venous outlet or attachment to a common tissue territory was found.");
+              "No admissible connection from the companion outlet or attachment to a common tissue territory was found.");
         if (!valid())
           return result;
         // Temporary territory grants serialize only competing requests for the
@@ -548,28 +506,18 @@ namespace ImmersX::Vascularization::internal
                                 point.position,
                                 point.owner,
                                 point.demand};
-            const auto directions = initial_root_directions(
-              root.position, {}, {}, {}, {}, &territory, point.separation);
-            const auto choice = root.direction++;
-            const auto end_direction =
-              directions.at(choice % directions.size());
-            const auto knee_choice = choice / directions.size();
-            const auto knee_direction =
-              knee_choice == 0 ? end_direction :
-                                 root.seed_directions.at(knee_choice - 1);
-            if (root.direction ==
-                directions.size() * (root.seed_directions.size() + 1))
-              root.rejected = point.id;
-            const double direction_length = knee_direction.norm();
-            if (!(direction_length > 0.) || !std::isfinite(direction_length))
-              continue;
-            const auto knee = root.position + root.seed_length /
-                                                direction_length *
-                                                knee_direction;
-            const auto end = root.position + end_direction;
-            if (root.position.distance(knee) < minimum_length ||
-                knee.distance(end) < minimum_length ||
-                !(knee.distance(end) > 0.))
+            const auto directions =
+              initial_root_directions(root.position,
+                                      {},
+                                      {},
+                                      {},
+                                      {},
+                                      &territory,
+                                      companion.terminal_separation);
+            const auto end = root.position + directions.at(root.direction++);
+            if (root.direction == directions.size())
+              root.excluded.insert(point.id);
+            if (root.position.distance(end) <= p.minimum_length)
               continue;
             BatchProposal proposal;
             proposal.id = id;
@@ -622,7 +570,7 @@ namespace ImmersX::Vascularization::internal
               if (root.input_terminal != invalid_id)
                 trial.terminals.erase(root.input_terminal);
               trial.terminals[root.terminal] = {
-                root.node, point.id, System::venous, rank, point.demand};
+                root.node, point.id, system, rank, point.demand};
               mutable_owned.insert(root.vessel);
               mutable_owned.insert(root.continuation);
               fixed_roots[root.vessel] = vessel.radii[0];

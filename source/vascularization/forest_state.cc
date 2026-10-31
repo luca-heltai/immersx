@@ -12,6 +12,9 @@
 
 #include <cmath>
 
+#include "growth_system.h"
+#include "growth_work.h"
+
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -24,6 +27,8 @@ namespace ImmersX::Vascularization::internal
         return 0;
       else if (system == System::venous)
         return 1;
+      else if (system == System::portal)
+        return 2;
       AssertThrow(false, dealii::ExcMessage("Unknown vascular forest system."));
       return 0;
     }
@@ -131,6 +136,10 @@ namespace ImmersX::Vascularization::internal
       valid_scale && validate_data(network, size).valid() &&
       positive(parameters.arterial_murray_exponent) &&
       positive(parameters.venous.murray_exponent) &&
+      positive(parameters.portal.murray_exponent) &&
+      std::isfinite(parameters.portal_flow_fraction) &&
+      parameters.portal_flow_fraction > 0. &&
+      parameters.portal_flow_fraction < 1. &&
       std::isfinite(parameters.minimum_radius) &&
       parameters.minimum_radius >= 0. &&
       std::isfinite(parameters.reference_flow) &&
@@ -154,15 +163,15 @@ namespace ImmersX::Vascularization::internal
         valid,
         "Forest evaluation requires valid owned mutable ids, fixed roots, colocated terminal authority and finite physiological controls."))
       return result;
-    const std::array<double, 9> controls{{parameters.arterial_murray_exponent,
-                                          parameters.venous.murray_exponent,
-                                          parameters.minimum_radius,
-                                          parameters.reference_flow,
-                                          parameters.dissipation_weight,
-                                          static_cast<double>(scale.policy),
-                                          scale.mesh_minimum,
-                                          scale.mesh_maximum,
-                                          physical_minimum_radius}};
+    const std::array<double, 8> controls{
+      {parameters.arterial_murray_exponent,
+       parameters.venous.murray_exponent,
+       parameters.minimum_radius,
+       parameters.reference_flow,
+       parameters.dissipation_weight,
+       parameters.portal.murray_exponent,
+       parameters.portal_flow_fraction,
+       static_cast<double>(parameters.portal.enabled)}};
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     if (!phase(valid,
@@ -180,8 +189,14 @@ namespace ImmersX::Vascularization::internal
     if (n == 0)
       return result;
     const auto gamma = [&](System s) {
-      return index(s) == 0 ? parameters.arterial_murray_exponent :
-                             parameters.venous.murray_exponent;
+      if (s == System::arterial)
+        return parameters.arterial_murray_exponent;
+      else if (s == System::venous)
+        return parameters.venous.murray_exponent;
+      else if (s == System::portal)
+        return parameters.portal.murray_exponent;
+      AssertThrow(false, ExcMessage("Unknown forest system."));
+      return 0.;
     };
     std::map<Rank, Packet> send;
     count_work(work,
@@ -437,8 +452,8 @@ namespace ImmersX::Vascularization::internal
         Utilities::MPI::sum(processed, comm) == n,
         "A mutable component is cyclic or does not reach a declared fixed root."))
       return result;
-    std::array<double, 2> local_demands{{0., 0.}};
-    std::array<double, 2> local_power_numerator{{0., 0.}};
+    std::array<double, 3> local_demands{};
+    std::array<double, 3> local_power_numerator{};
     std::vector<Down>     down;
     for (const auto &[id, radius] : fixed_owned_roots)
       {
@@ -462,7 +477,7 @@ namespace ImmersX::Vascularization::internal
                         b.minimum_demand,
                         system});
       }
-    for (unsigned int i = 0; i < 2; ++i)
+    for (unsigned int i = 0; i < 3; ++i)
       {
         result.total_demand[i] = Utilities::MPI::sum(local_demands[i], comm);
         result.power_numerator[i] =
@@ -525,7 +540,7 @@ namespace ImmersX::Vascularization::internal
     if (!phase(normalized.size() == mutable_owned.size(),
                "Some mutable vessels lack a root normalization."))
       return result;
-    std::array<double, 2> local_volume{{0., 0.}}, local_power{{0., 0.}};
+    std::array<double, 3>                local_volume{}, local_power{};
     std::map<Rank, std::map<Id, double>> leaf_flows;
     count_work(work,
                GrowthOperation::physiology_branch_visits,
@@ -540,8 +555,8 @@ namespace ImmersX::Vascularization::internal
         valid = valid && positive(volume) && positive(result.total_demand[i]);
         if (parameters.reference_flow > 0.)
           {
-            b.flow =
-              parameters.reference_flow * (b.demand / result.total_demand[i]);
+            b.flow = system_reference_flow(parameters, v.system) *
+                     (b.demand / result.total_demand[i]);
             b.resistance =
               8. * v.viscosity * l / (numbers::PI * std::pow(b.radius, 4));
             const double power = b.flow * (b.resistance * b.flow);
@@ -556,7 +571,7 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[owner, values] : flows)
       for (const auto &[id, q] : values)
         valid = result.terminal_flows.emplace(id, q).second && valid;
-    for (unsigned int i = 0; i < 2; ++i)
+    for (unsigned int i = 0; i < 3; ++i)
       {
         result.volume[i] = Utilities::MPI::sum(local_volume[i], comm);
         result.power[i]  = Utilities::MPI::sum(local_power[i], comm);

@@ -22,8 +22,7 @@
 
 #include "growth_mpi_scope.h"
 #include "growth_paths.h"
-#include "growth_selection.h"
-#include "growth_work.h"
+#include "growth_system.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -167,15 +166,17 @@ namespace ImmersX::Vascularization::internal
         run.validation.issues.push_back({"growth", invalid_id, message});
       return all;
     };
-    bool   valid = system == System::arterial || system == System::venous;
+    const auto &companion = system == System::portal ? p.portal : p.venous;
+    bool valid = system == System::arterial || system == System::venous ||
+                 system == System::portal;
     double gamma = 0.;
     if (system == System::arterial)
       gamma = p.arterial_murray_exponent;
-    else if (system == System::venous)
-      gamma = p.venous.murray_exponent;
-    if (system == System::venous)
-      valid = valid && std::isfinite(p.venous.terminal_separation) &&
-              p.venous.terminal_separation > 0. && std::isfinite(gamma) &&
+    else if (system == System::venous || system == System::portal)
+      gamma = companion.murray_exponent;
+    if (system == System::venous || system == System::portal)
+      valid = valid && std::isfinite(companion.terminal_separation) &&
+              companion.terminal_separation > 0. && std::isfinite(gamma) &&
               gamma > 0.;
     try
       {
@@ -204,16 +205,15 @@ namespace ImmersX::Vascularization::internal
                "Integrated growth requires a complete demand transaction."))
       return run;
     const auto controls = std::make_pair(
-      std::array<double, 10>{{static_cast<double>(terminal_count),
-                              static_cast<double>(p.random_seed),
-                              static_cast<double>(p.sample_budget),
-                              static_cast<double>(p.candidate_count),
-                              static_cast<double>(p.optimization_steps),
-                              p.density_beta,
-                              p.terminal_weight_bound,
-                              static_cast<double>(system),
-                              p.venous.terminal_separation,
-                              has_demand_callbacks ? 1. : 0.}},
+      std::array<double, 9>{{static_cast<double>(terminal_count),
+                             static_cast<double>(p.random_seed),
+                             static_cast<double>(p.sample_budget),
+                             static_cast<double>(p.candidate_count),
+                             static_cast<double>(p.optimization_steps),
+                             p.density_beta,
+                             p.terminal_weight_bound,
+                             static_cast<double>(system),
+                             companion.terminal_separation}},
       std::array<std::string, 2>{{p.terminal_weight, p.tissue_demand}});
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
@@ -297,14 +297,8 @@ namespace ImmersX::Vascularization::internal
         count > 0 && count <= terminal_count,
         "Growth requires real roots and a target not smaller than the existing mutable forest."))
       return run;
-    // Keep the sorted-id ordinal stable when served territories are erased.
-    boost::multi_index_container<
-      Territory,
-      boost::multi_index::indexed_by<boost::multi_index::ranked_unique<
-        boost::multi_index::member<Territory, Id, &Territory::id>>>>
-                         pending;
-    std::map<Id, double> territory_separations;
-    if (system == System::venous)
+    std::map<Id, Territory> pending;
+    if (system == System::venous || system == System::portal)
       {
         std::map<unsigned int, std::map<Id, double>> registration;
         for (const auto &territory : owned_territories)
@@ -682,7 +676,8 @@ namespace ImmersX::Vascularization::internal
                   {"cell sampling", invalid_id, error.what()});
               }
           }
-        else if (system == System::venous && !pending.empty())
+        else if ((system == System::venous || system == System::portal) &&
+                 !pending.empty())
           {
             const auto entry =
               pending.nth(((run.batches - 1) / 6) % pending.size());
@@ -690,8 +685,8 @@ namespace ImmersX::Vascularization::internal
             raw              = entry->position;
             const unsigned int direction =
               ((run.batches - 1) % 6 + shared_territory % 6) % 6;
-            (*raw)[direction / 2] += (direction % 2 ? 1. : -1.) *
-                                     territory_separations.at(shared_territory);
+            (*raw)[direction / 2] +=
+              (direction % 2 ? 1. : -1.) * companion.terminal_separation;
             ++run.sampled_points;
           }
         std::map<Id, Point<3>> point_queries;
@@ -704,7 +699,8 @@ namespace ImmersX::Vascularization::internal
                                      selected_cell->second.point_owner;
         std::optional<Point<3>> target;
         double                  terminal_demand = 0.;
-        if (system == System::venous && raw && point_owner < size)
+        if ((system == System::venous || system == System::portal) && raw &&
+            point_owner < size)
           {
             target          = raw;
             terminal_demand = pending.find(shared_territory)->demand;
@@ -1043,7 +1039,7 @@ namespace ImmersX::Vascularization::internal
             split.terminal          = allocated[2];
             if (system == System::arterial)
               split.territory = allocated[3];
-            else if (system == System::venous)
+            else if (system == System::venous || system == System::portal)
               split.territory = shared_territory;
             split.demand = best->terminal_demand;
             splits.push_back(split);
@@ -1131,7 +1127,8 @@ namespace ImmersX::Vascularization::internal
             record(&committed);
             continue;
           }
-        if (system == System::venous && !splits.empty())
+        if ((system == System::venous || system == System::portal) &&
+            !splits.empty())
           {
             run.owned_venous_terminals.emplace(shared_territory,
                                                splits.front().terminal);
@@ -1145,7 +1142,7 @@ namespace ImmersX::Vascularization::internal
         record(&committed);
       }
     std::uint64_t unserved = 0;
-    if (system == System::venous)
+    if (system == System::venous || system == System::portal)
       unserved =
         Utilities::MPI::sum(static_cast<std::uint64_t>(pending.size()), comm);
     if (count != terminal_count && integration_budget_exhausted)

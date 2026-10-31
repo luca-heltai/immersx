@@ -43,10 +43,11 @@ namespace ImmersX::Vascularization::internal
   } // namespace
 
   void
-  pair_territories(GenerationResult                &r,
-                   const Parameters                &p,
-                   MPI_Comm                         comm,
-                   const std::vector<TerminalPair> &retained_pairs)
+  pair_territories(GenerationResult                   &r,
+                   const Parameters                   &p,
+                   MPI_Comm                            comm,
+                   const std::vector<TerminalPair>    &retained_pairs,
+                   const std::vector<TerminalTriplet> &retained_triplets)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -62,8 +63,16 @@ namespace ImmersX::Vascularization::internal
         fail(invalid_id, "Terminal pairing failed on another process.");
       return all;
     };
-    r.terminal_pairs = retained_pairs;
-    r.reference      = {};
+    const auto triple_controls =
+      std::make_pair(p.compartment_resistances,
+                     std::make_pair(p.portal.enabled, p.portal_flow_fraction));
+    for (const auto &other : Utilities::MPI::all_gather(comm, triple_controls))
+      if (other != triple_controls)
+        fail(invalid_id,
+             "All ranks must use the same portal compartment controls.");
+    r.terminal_pairs    = retained_pairs;
+    r.terminal_triplets = retained_triplets;
+    r.reference         = {};
     if (!valid())
       return;
     bool       matching = true;
@@ -73,7 +82,8 @@ namespace ImmersX::Vascularization::internal
       matching = matching && other == controls;
     if (!matching || !std::isfinite(controls.first) || controls.first < 0. ||
         !std::isfinite(controls.second) || controls.second < 0. ||
-        (controls.first == 0. && controls.second == 0.))
+        (controls.first == 0. && controls.second == 0. &&
+         !(p.portal.enabled && p.compartment_resistances[0] > 0.)))
       fail(
         invalid_id,
         "Pairing requires matching finite resistance and reference-flow controls, with a positive supplied resistance or flow.");
@@ -141,7 +151,7 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[id, territory] : territories)
       {
         const auto         &endpoints = registered[id];
-        const PairEndpoint *a = nullptr, *v = nullptr;
+        const PairEndpoint *a = nullptr, *v = nullptr, *portal = nullptr;
         for (const auto &t : endpoints)
           {
             if (t.system == System::arterial)
@@ -152,6 +162,13 @@ namespace ImmersX::Vascularization::internal
                     "A common territory has more than one arterial terminal.");
                 a = &t;
               }
+            else if (t.system == System::portal)
+              {
+                if (portal)
+                  fail(id,
+                       "A common territory has more than one portal terminal.");
+                portal = &t;
+              }
             else if (t.system == System::venous)
               {
                 if (v)
@@ -160,11 +177,12 @@ namespace ImmersX::Vascularization::internal
                 v = &t;
               }
           }
-        if (!a || !v || endpoints.size() != 2)
+        if (!a || !v || (p.portal.enabled && !portal) ||
+            endpoints.size() != (p.portal.enabled ? 3u : 2u))
           {
             fail(
               id,
-              "Every common territory requires exactly one arterial and one venous terminal.");
+              "Every common territory requires one terminal of each enabled vascular system.");
             continue;
           }
         if (a->owner != territory.owner || a->position != territory.position ||
@@ -174,11 +192,19 @@ namespace ImmersX::Vascularization::internal
           fail(
             id,
             "Paired endpoints must be distinct, share the common demand and retain the arterial territory position.");
-        if (p.reference_flow > 0. &&
-            (!(a->desired > 0.) || !std::isfinite(a->desired)))
+        if (portal && (portal->demand != territory.demand ||
+                       portal->position == a->position ||
+                       portal->position == v->position ||
+                       portal->node == a->node || portal->node == v->node))
           fail(
             id,
-            "Every new arterial terminal requires a positive finite desired flow.");
+            "Portal supply must share the common demand and have a distinct endpoint.");
+        for (const auto &endpoint : endpoints)
+          if (p.reference_flow > 0. &&
+              (!(endpoint.desired > 0.) || !std::isfinite(endpoint.desired)))
+            fail(
+              id,
+              "Every generated tissue terminal requires a positive finite desired flow.");
         for (const auto &t : endpoints)
           {
             endpoints_send[territory.owner].push_back(t);
@@ -192,7 +218,7 @@ namespace ImmersX::Vascularization::internal
       }
     if (!valid())
       return;
-    std::map<Id, std::array<PairEndpoint, 2>> paired;
+    std::map<Id, std::array<PairEndpoint, 3>> paired;
     for (const auto &[source, entries] :
          Utilities::MPI::some_to_some(comm, endpoints_send))
       for (const auto &t : entries)
@@ -202,6 +228,8 @@ namespace ImmersX::Vascularization::internal
             slot = 0;
           else if (t.system == System::venous)
             slot = 1;
+          else if (t.system == System::portal)
+            slot = 2;
           paired[t.territory][slot] = t;
         }
     std::map<Id, Rank> selected;
@@ -215,7 +243,8 @@ namespace ImmersX::Vascularization::internal
       return;
 
     std::map<Id, double> pressures;
-    if (p.venous.microvascular_resistance == 0.)
+    if (p.portal.enabled ? p.compartment_resistances[0] == 0. :
+                           p.venous.microvascular_resistance == 0.)
       {
         std::map<Rank, std::vector<Id>> external_send, tissue_send;
         for (const auto &[id, flow] : p.reference_conditions.inflows)
@@ -244,8 +273,17 @@ namespace ImmersX::Vascularization::internal
         demand_network.terminals.clear();
         for (const auto &[id, writer] : selected)
           demand_network.terminals.emplace(id, r.network.terminals.at(id));
-        const auto loads = demand_flow_conditions(
-          demand_network, {}, p.reference_flow, {}, comm);
+        const std::map<System, double> total_flows =
+          p.portal.enabled ?
+            std::map<System, double>{
+              {System::arterial,
+               (1. - p.portal_flow_fraction) * p.reference_flow},
+              {System::portal, p.portal_flow_fraction * p.reference_flow},
+              {System::venous, p.reference_flow}} :
+            std::map<System, double>{{System::arterial, p.reference_flow},
+                                     {System::venous, p.reference_flow}};
+        const auto loads =
+          demand_flow_conditions(demand_network, {}, total_flows, {}, comm);
         auto conditions = p.reference_conditions;
         for (const auto &[id, flow] : loads.inflows)
           if (!conditions.inflows.emplace(id, flow).second)
@@ -256,8 +294,12 @@ namespace ImmersX::Vascularization::internal
           return;
         // Retained beds can share input trunks with new branches. Their
         // currents therefore change the new endpoints' design pressures.
-        const auto design = solve_reference(
-          r.network, retained_pairs, conditions, p.reference_parameters, comm);
+        const auto design = solve_reference(r.network,
+                                            retained_pairs,
+                                            retained_triplets,
+                                            conditions,
+                                            p.reference_parameters,
+                                            comm);
         r.validation.issues.insert(r.validation.issues.end(),
                                    design.validation.issues.begin(),
                                    design.validation.issues.end());
@@ -277,21 +319,51 @@ namespace ImmersX::Vascularization::internal
       }
     for (const auto &[id, endpoints] : paired)
       {
-        const auto &a = endpoints[0], &v = endpoints[1];
-        double      bed = p.venous.microvascular_resistance;
-        if (bed == 0.)
-          bed =
-            (pressures.at(a.terminal) - pressures.at(v.terminal)) / a.desired;
-        if (!std::isfinite(bed) || !(bed > 0.))
-          fail(
-            id,
-            "The requested reference flow and pressures leave no positive microvascular resistance.");
-        r.terminal_pairs.push_back({id, a.terminal, v.terminal, bed});
+        const auto &a = endpoints[0], &v = endpoints[1], &portal = endpoints[2];
+        if (p.portal.enabled)
+          {
+            auto arms = p.compartment_resistances;
+            if (arms[0] == 0.)
+              {
+                const double pa = pressures.at(a.terminal),
+                             pp = pressures.at(portal.terminal),
+                             pv = pressures.at(v.terminal);
+                const double pt = pv + .5 * (std::min(pa, pp) - pv);
+                if (!(pv < pt && pt < pa && pt < pp))
+                  {
+                    fail(
+                      id,
+                      "The requested supply split and pressures leave no common microvascular pressure.");
+                    continue;
+                  }
+                arms = {{(pa - pt) / a.desired,
+                         (pp - pt) / portal.desired,
+                         (pt - pv) / v.desired}};
+              }
+            for (const double arm : arms)
+              if (!std::isfinite(arm) || !(arm > 0.))
+                fail(id, "Microvascular arms must be positive and finite.");
+            r.terminal_triplets.push_back(
+              {id, a.terminal, portal.terminal, v.terminal, arms});
+          }
+        else if (!p.portal.enabled)
+          {
+            double bed = p.venous.microvascular_resistance;
+            if (bed == 0.)
+              bed = (pressures.at(a.terminal) - pressures.at(v.terminal)) /
+                    a.desired;
+            if (!std::isfinite(bed) || !(bed > 0.))
+              fail(
+                id,
+                "The requested flow and pressures leave no positive microvascular resistance.");
+            r.terminal_pairs.push_back({id, a.terminal, v.terminal, bed});
+          }
       }
     if (!valid())
       return;
     r.reference = solve_reference(r.network,
                                   r.terminal_pairs,
+                                  r.terminal_triplets,
                                   p.reference_conditions,
                                   p.reference_parameters,
                                   comm);
@@ -303,15 +375,17 @@ namespace ImmersX::Vascularization::internal
     if (p.reference_flow > 0.)
       for (const auto &[id, endpoints] : paired)
         {
-          const double desired = endpoints[0].desired;
-          const double actual  = r.reference.territories.at(id).flow;
-          if (std::abs(actual - desired) >
-              p.reference_parameters.absolute_flow_tolerance +
-                p.reference_parameters.conservation_relative_tolerance *
-                  desired)
-            fail(
-              id,
-              "The supplied bed resistances, pressures and reference flow do not realize the requested tissue-demand split.");
+          const auto                 &actual = r.reference.territories.at(id);
+          const std::array<double, 3> flows{
+            {actual.arterial_flow, actual.venous_flow, actual.portal_flow}};
+          for (unsigned int arm = 0; arm < (p.portal.enabled ? 3u : 2u); ++arm)
+            if (std::abs(flows[arm] - endpoints[arm].desired) >
+                p.reference_parameters.absolute_flow_tolerance +
+                  p.reference_parameters.conservation_relative_tolerance *
+                    endpoints[arm].desired)
+              fail(
+                id,
+                "The supplied resistances and pressures do not realize the requested per-system demand flow.");
         }
     valid();
   }

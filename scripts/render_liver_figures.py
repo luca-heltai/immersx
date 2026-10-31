@@ -46,7 +46,7 @@ def overview(args, background):
     nodes = records(args.result, "nodes")
     vessels = list(records(args.result, "vessels").values())
     terminals = records(args.result, "terminals")
-    pairs = records(args.result, "pairs", "territory")
+    pairs = records(args.result, "triplets" if args.triplets else "pairs", "territory")
     positions = {i: np.array([float(row[k]) for k in ("x", "y", "z")]) * 1000
                  for i, row in nodes.items()}
     exterior = vtk.vtkDataSetSurfaceFilter()
@@ -61,13 +61,16 @@ def overview(args, background):
     middle, extent = (low + high) / 2, (high - low).max() / 2
     imported = sum(int(row["provenance"]) == 0 for row in vessels)
     generated = [sum(int(row["system"]) == system and int(row["provenance"]) == 1
-                     for row in vessels) for system in (0, 1)]
+                     for row in vessels) for system in ((0, 1, 2) if args.triplets else (0, 1))]
     fig = plt.figure(figsize=(12, 6), facecolor="white")
-    for panel, title in enumerate(("Prepared input trees", "After paired growth")):
+    for panel, title in enumerate(("Prepared input trees", "After common-territory growth" if args.triplets else "After paired growth")):
         ax = fig.add_subplot(1, 2, panel + 1, projection="3d")
         ax.add_collection3d(Poly3DCollection(faces, facecolors="#acb5b8", edgecolors="none",
                                            alpha=.045, zsort="average"))
-        for system, color in ((0, "#bd3028"), (1, "#2868ae")):
+        colors = [(0, "#bd3028"), (1, "#2868ae")]
+        if args.triplets:
+            colors.append((2, "#9966b4"))
+        for system, color in colors:
             for provenance in (0, 1):
                 if panel == 0 and provenance == 1:
                     continue
@@ -89,12 +92,17 @@ def overview(args, background):
         ax.set_title(title, pad=-4)
         caption = (f"{imported:,} fixed input segments" if panel == 0 else
                    f"{generated[0]:,} new arterial + {generated[1]:,} new venous segments")
+        if args.triplets and panel:
+            caption += f" + {generated[2]:,} new portal segments"
         ax.text2D(.5, .02, caption, transform=ax.transAxes, ha="center", fontsize=10)
-    fig.suptitle(f"IRCAD case 12 · {len(pairs):,} tissue pairs", fontsize=15, y=.97)
-    fig.legend(handles=[Line2D([0], [0], color="#bd3028", label="Arterial"),
+    fig.suptitle(f"IRCAD case 12 · {len(pairs):,} tissue {'triplets' if args.triplets else 'pairs'}", fontsize=15, y=.97)
+    handles = [Line2D([0], [0], color="#bd3028", label="Arterial"),
                         Line2D([0], [0], color="#2868ae", label="Venous"),
                         Line2D([0], [0], marker="o", linestyle="", color="#16886e",
-                               label="Tissue territories")], loc="lower center", ncol=3,
+                               label="Tissue territories")]
+    if args.triplets:
+        handles.insert(2, Line2D([0], [0], color="#9966b4", label="Portal"))
+    fig.legend(handles=handles, loc="lower center", ncol=4 if args.triplets else 3,
                frameon=False, bbox_to_anchor=(.5, .01))
     fig.subplots_adjust(left=0, right=1, top=.92, bottom=.08, wspace=-.1)
     fig.savefig(args.output / "before-after.png", dpi=180, metadata={"Software": "ImmersX"})
@@ -139,6 +147,9 @@ def main():
     parser.add_argument("result", type=Path, help="Native liver_vascular output directory")
     parser.add_argument("output", type=Path, help="Figure output directory")
     parser.add_argument("--pairs", type=int, default=1000)
+    parser.add_argument("--triplets", type=int, default=0)
+    parser.add_argument("--portal-separation", type=float, default=.003)
+    parser.add_argument("--portal-flow-fraction", type=float)
     parser.add_argument("--separation", type=float, default=.003)
     parser.add_argument("--viscosity", type=float, default=.004)
     parser.add_argument("--source-revision", default="unrecorded",
@@ -153,6 +164,8 @@ def main():
     y = mesh_section(args, background)
     sources = {"input/" + name: args.input / name for name in
                ("liver.stl", "arterial.vtk", "venous.vtk", "provenance.json")}
+    if args.triplets:
+        sources["input/portal.vtk"] = args.input / "portal.vtk"
     sources.update({"result/" + p.name: p for p in args.result.glob("*.csv")})
     pvtu = args.result / "liver_0.pvtu"
     sources["result/" + pvtu.name] = pvtu

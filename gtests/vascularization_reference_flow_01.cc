@@ -10,11 +10,16 @@
 
 #include <gtest/gtest.h>
 #include <immersx/vascularization/generation.h>
+#include <immersx/vascularization/io.h>
 #include <immersx/vascularization/reference_flow.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
+
+#include "../source/vascularization/archive_internal.h"
+#include "test_paths.h"
 
 using namespace dealii;
 using namespace ImmersX::Vascularization;
@@ -947,4 +952,136 @@ TEST(VascularReferenceFlow,
   reversed.pressures[20] = 100.;
   EXPECT_FALSE(
     solve_reference(n, {}, triplets, reversed, {}, comm).validation.valid());
+}
+
+TEST(VascularReferenceFlow, BOTH_GeneratedThreeNetworksShareNonzeroDemandFlow)
+{
+  const auto                              comm = MPI_COMM_WORLD;
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(2);
+  Parameters p;
+  p.seed_position                  = Point<3>(.15, .25, .5);
+  p.seed_direction                 = Point<3>(1., 0., 0.);
+  p.seed_length                    = .08;
+  p.seed_radius                    = .001;
+  p.viscosity                      = .004;
+  p.terminal_count                 = 4;
+  p.optimization_steps             = 3;
+  p.reference_flow                 = 2.e-9;
+  p.tissue_demand                  = "1+x";
+  p.venous.enabled                 = true;
+  p.venous.seed_position           = Point<3>(.85, .5, .5);
+  p.venous.seed_radius             = .001;
+  p.venous.terminal_separation     = .04;
+  p.portal.enabled                 = true;
+  p.portal.seed_position           = Point<3>(.15, .75, .5);
+  p.portal.seed_radius             = .001;
+  p.portal.terminal_separation     = .06;
+  p.portal_flow_fraction           = .7;
+  p.reference_conditions.pressures = {{0, 12000.}, {2, 1000.}, {3, 5000.}};
+  const auto r = generate(background, MappingQ1<3>(), {}, p, comm);
+  for (const auto &issue : r.validation.issues)
+    std::cerr << issue.message << '\n';
+  ASSERT_TRUE(r.validation.valid());
+  EXPECT_TRUE(r.terminal_pairs.empty());
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<Id>(r.terminal_triplets.size()),
+                                comm),
+            4u);
+  Id owned_terminals = 0;
+  for (const auto &[id, t] : r.network.terminals)
+    owned_terminals += t.owner == Utilities::MPI::this_mpi_process(comm);
+  EXPECT_EQ(Utilities::MPI::sum(owned_terminals, comm), 12u);
+  double qa = 0., qp = 0., qv = 0.;
+  for (const auto &[id, t] : r.reference.territories)
+    {
+      EXPECT_GT(t.arterial_flow, 0.);
+      EXPECT_GT(t.portal_flow, 0.);
+      EXPECT_GT(t.venous_flow, 0.);
+      EXPECT_NEAR((t.arterial_flow + t.portal_flow) / t.venous_flow, 1., 1.e-9);
+      qa += t.arterial_flow;
+      qp += t.portal_flow;
+      qv += t.venous_flow;
+    }
+  EXPECT_NEAR(Utilities::MPI::sum(qa, comm) / p.reference_flow, .3, 1.e-9);
+  EXPECT_NEAR(Utilities::MPI::sum(qp, comm) / p.reference_flow, .7, 1.e-9);
+  EXPECT_NEAR(Utilities::MPI::sum(qv, comm) / p.reference_flow, 1., 1.e-9);
+  EXPECT_GT(r.reference.dissipated_power, 0.);
+  std::string token;
+  if (Utilities::MPI::this_mpi_process(comm) == 0)
+    token = std::to_string(
+      std::chrono::high_resolution_clock::now().time_since_epoch().count());
+  token = Utilities::MPI::broadcast(comm, token, 0);
+  const auto directory =
+    ImmersX::TestPaths::output_path("vascular-three") / token;
+  save_network(directory,
+               r.network,
+               r.territories,
+               r.terminal_pairs,
+               r.terminal_triplets,
+               comm);
+  const auto restored =
+    load_network(directory, background, MappingQ1<3>(), 0., comm);
+  const auto reference = solve_reference(restored.network,
+                                         restored.terminal_pairs,
+                                         restored.terminal_triplets,
+                                         p.reference_conditions,
+                                         p.reference_parameters,
+                                         comm);
+  ASSERT_TRUE(reference.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<Id>(restored.terminal_triplets.size()), comm),
+            4u);
+  EXPECT_NEAR(reference.dissipated_power / r.reference.dissipated_power,
+              1.,
+              1.e-9);
+  std::array<Id, 4> selected{{invalid_id, invalid_id, invalid_id, invalid_id}};
+  for (const auto &t : restored.terminal_triplets)
+    if (t.territory < selected[0])
+      selected = {{t.territory, t.arterial, t.portal, t.venous}};
+  for (const auto &other : Utilities::MPI::all_gather(comm, selected))
+    if (other[0] < selected[0])
+      selected = other;
+  auto partial = restored.network;
+  partial.terminals.erase(selected[1]);
+  const auto rejected = ImmersX::Vascularization::internal::retain_metadata(
+    restored.network,
+    restored.territories,
+    restored.terminal_pairs,
+    partial,
+    comm,
+    restored.terminal_triplets);
+  EXPECT_FALSE(rejected.validation.valid());
+  p.terminal_count            = 2;
+  p.selected_terminals        = {selected[1]};
+  p.portal.selected_terminals = {selected[2]};
+  p.venous.selected_terminals = {selected[3]};
+  const auto completed        = generate(background,
+                                  MappingQ1<3>(),
+                                  restored.network,
+                                  p,
+                                  comm,
+                                  restored.territories,
+                                  restored.terminal_pairs,
+                                  restored.terminal_triplets);
+  for (const auto &issue : completed.validation.issues)
+    std::cerr << issue.message << '\n';
+  ASSERT_TRUE(completed.validation.valid());
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<Id>(completed.terminal_triplets.size()), comm),
+            5u);
+  for (const auto &old : restored.terminal_triplets)
+    if (old.territory != selected[0])
+      {
+        const auto found = std::find_if(completed.terminal_triplets.begin(),
+                                        completed.terminal_triplets.end(),
+                                        [&](const auto &t) {
+                                          return t.territory == old.territory;
+                                        });
+        ASSERT_NE(found, completed.terminal_triplets.end());
+        EXPECT_EQ(found->arterial, old.arterial);
+        EXPECT_EQ(found->portal, old.portal);
+        EXPECT_EQ(found->venous, old.venous);
+        EXPECT_EQ(found->resistances, old.resistances);
+      }
 }
