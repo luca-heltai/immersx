@@ -351,6 +351,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Publish three-seed MPI generation benchmarks at 1,000 and 10,000 terminals, with measured runtime, memory, communication, producer work and geometric quality.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run native vascular cube and sphere examples with local refinement, common-territory arterial and venous networks, and a fixed-graph rediscretization control. Publish reproducible SVG views and measured density, length, volume and coverage plots from owned C++ output.
 
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Add a frequency-sweep tutorial for a 1D fiber in a 3D matrix, with a 2D section lift and runnable independent and shared displacement inputs.

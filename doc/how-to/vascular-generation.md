@@ -568,7 +568,9 @@ venous startup, exclusive common-territory assignment, positive bed derivation
 and actual paired reference validation use the public MPI path. Seed/import
 startup, terminal-count calibration, discretization, native mesh construction,
 tissue measurement and the resistive reference solve support MPI.
-Scaling at the requested sizes has not yet been measured.
+The [tutorial](../tutorials/vascular-generation.md#measured-mpi-growth) reports
+completed strong and weak scaling measurements, with three seeds per case and
+up to 10,000 terminals on eight processes.
 
 Public arterial generation uses the batched engine with an explicit terminal
 count for each calibration attempt; it does not copy or re-register the
