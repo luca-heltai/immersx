@@ -22,8 +22,8 @@
 #include "../source/vascularization/growth_commit.h"
 #include "../source/vascularization/growth_demand.h"
 #include "../source/vascularization/growth_demand_callbacks.h"
+#include "../source/vascularization/growth_demand_journal.h"
 #include "../source/vascularization/growth_demand_state.h"
-#include "../source/vascularization/growth_execution.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_ownership_delta.h"
 #include "../source/vascularization/growth_paths.h"
@@ -2529,7 +2529,7 @@ TEST(VascularForest,
       GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
       ASSERT_TRUE(state.validation().valid());
       GrowthWork                        work;
-      GrowthExecution                   execution(state, &work);
+      GrowthDemandJournal               execution(state, &work);
       std::map<Id, GrowthDemandSummary> original;
       for (const auto &[id, b] : accepted.owned)
         original.emplace(id, state.summary(id));
@@ -2570,9 +2570,9 @@ TEST(VascularForest,
         prepare_growth_ownership(n, local, geometry, MPI_COMM_WORLD);
       ASSERT_TRUE(delta.validation.valid());
       GrowthGeometryMeasures measures;
-      for (Id id : delta.changed_owned)
+      for (const auto &[id, vessel] : delta.written.vessels)
         measures.emplace(
-          id, GrowthGeometryMeasure{length(delta.owned, id), 1., 1., true});
+          id, GrowthGeometryMeasure{length(delta.written, id), 1., 1., true});
       GrowthDemandJointUpdate joint;
       joint.update.snapshot_revision = 7;
       if (rank() == size() - 1)
