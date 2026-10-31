@@ -44,7 +44,8 @@ no MPI calls. Sum rank-local counts when comparing distributed work. Timings
 inside commit overlap commit time; they must not be added again.
 
 `discretization-work-<rank>.csv` records final line-discretization operations
-separately. A cache construction counts the explicit native cache object;
+separately. A cache construction counts explicit native cache objects in instrumented
+ImmersX code; ParticleHandler-internal caches are outside that counter.
 cell and face visits count the inspected local cells and owned-cell faces.
 Index hits count returned entries before application filtering. Copy attempts
 count attempted physical map insertions, including duplicate endpoint inserts.
@@ -79,3 +80,41 @@ incremental updates; they establish a structural baseline rather than a speedup.
 The benchmark script retains work per rank and sums per stage and per run,
 with final discretization counts in a separate field. It can still validate
 historical archives that predate these columns.
+
+## Persistent centerline indices
+
+The growth loop now builds native deal.II RTrees once for owned physical
+centerlines and for each system's mutable candidates. A committed batch
+publishes changed and released owned vessel identifiers. Native migration
+notifications carry these identifiers to the new owner; no comparison of
+complete old and new snapshots is required. Each affected index entry is
+removed or inserted in logarithmic work. Rank bounds come from the native
+RTree bounds without visiting its leaves. Radius changes leave these indices
+valid because their keys contain only centerlines.
+
+A fixed global bound over the real root controls and frozen input radii bounds
+all subsequent mutable Murray radii. Candidate obstacle routing uses this
+bound, avoiding a repeated full scan of radii. All exact envelope and collision
+checks still use current physical radii. The background and mapping remain
+fixed for the context lifetime; changing either requires a new context.
+
+The loop also reuses its boundary geometry for commit certification. The
+independent full commit can still construct its own context when called alone.
+Rejected commits publish no index changes. Tests compare stored entries,
+intersection queries and nearest results with exhaustive searches before and
+after a distributed split and after a rejected transaction.
+
+At this intermediate milestone, migration and certification still rebuild
+complete state. Producer indices over actual query hits are also temporary.
+The persistent indices remove repeated candidate/owned-obstacle bulk builds;
+they do not yet remove all quadratic growth work or all background cache
+constructions.
+
+The installed deal.II ParticleHandler implementation also constructs its own
+GridTools cache and allocates a cell-indexed vector at construction. Its
+`clear()` rebuilds that vector, and `update_cached_numbers()` may scan all
+active cells when particle cell order needs sorting. Reusing an external cache
+alone therefore does not remove the repeated background work. The next
+migration milestone must retain native search state and avoid these paths;
+cache-construction counters alone are insufficient evidence while fresh
+ParticleHandlers remain in the insertion loop.
