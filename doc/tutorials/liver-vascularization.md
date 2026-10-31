@@ -27,6 +27,19 @@ below are illustrative, not a patient calibration. The example uses hepatic
 arterial supply and a retained hepatic venous tree. It does not model the
 additional portal-venous inflow or establish physiological liver perfusion.
 
+```{figure} ../_static/liver-vascularization/before-after.png
+:name: liver-paired-growth
+:alt: Prepared arterial and venous trees beside the completed network with 1,000 tissue territories in the same liver volume
+:width: 100%
+
+Prepared input trees (left) and the verified 1,000-pair result (right), using
+the same camera and spatial scale. Red is arterial and blue is venous; green
+points mark arterial endpoints of the common tissue territories. The gray
+envelope is the native remeshed tissue. Line widths are for display; physical
+radii are stored in the output fields. Anatomical source: IRCAD case 12,
+Soler and coauthors (2010).
+```
+
 ## Build the application
 
 Use deal.II with its Gmsh API, VTK and simplex support. The standalone growth
@@ -106,9 +119,11 @@ The resulting input has **176 arterial and 1,084 venous line cells**. These are
 the fixed inputs to the growth calculation, not a claim of exact centerline
 reconstruction from the medical images.
 
-The IRCAD data use the CC BY-NC-ND 4.0 licence. Keep downloaded and derived
-patient data outside the repository and consult the source terms before
-sharing them. Cite Luc Soler and coauthors, *3D image reconstruction for
+The [IRCAD data](https://www.ircad.fr/research-and-development/data-sets/liver-segmentation-3d-ircadb-01/)
+use the [CC BY-NC-ND 4.0 licence](https://creativecommons.org/licenses/by-nc-nd/4.0/).
+Keep downloaded meshes, extracted centerlines and physical archives outside
+the repository. The tutorial includes raster illustrations of the numerical
+example, with source attribution. Cite Luc Soler and coauthors, *3D image reconstruction for
 comparison of algorithm database: A patient specific anatomical and medical
 image database*, IRCAD technical report, 2010.
 
@@ -200,6 +215,17 @@ patch parametrizations; 40 degrees failed in the tested installation. With a
 of about **1.515 litres**. The cleaned surface encloses about 1.530 litres, so
 the coarse remeshing changes the enclosed volume by about 0.94%.
 
+```{figure} ../_static/liver-vascularization/volume-section.png
+:name: liver-volume-section
+:alt: Plane section through the interior of the native liver volume, showing the intersections with tetrahedral cells and axes in millimetres
+:width: 85%
+
+Section at y = 163.2 mm through the exported volume of 13,351 tetrahedra.
+Polygon edges follow the intersections of the plane with the volume cells.
+The plot uses the actual native mesh and converts coordinates to millimetres
+for display.
+```
+
 The arterial generator starts at the marked input leaves and assigns new
 common tissue territories. The venous generator subsequently extends the
 marked venous leaves to these territories, with distinct endpoints separated
@@ -289,6 +315,33 @@ The dense recipe uses 16 candidate vessels per insertion; eight candidates
 exhausted the finite sampling budget on this case. MPI partitions change the
 sampled growth paths, so another process count can need different search
 controls. The smaller 32-pair case was also verified on two and four ranks.
+
+## Reproduce the illustrations
+
+The published figures come from the checked 32-rank run, rather than an
+illustrative reconstruction of its output. Their
+[manifest](../_static/liver-vascularization/manifest.json) records the simulation
+source revision, input and output SHA-256 hashes, software versions, camera,
+section plane and independent verification results. The anatomical source is
+3D-IRCADb-1 case 12, credited to Soler and coauthors (2010) above.
+
+Install Matplotlib in the preparation environment, then render the same views
+from your own accepted result:
+
+```bash
+micromamba run -n ircad-prep python -m pip install matplotlib==3.10.9
+micromamba run -n ircad-prep python scripts/render_liver_figures.py \
+  /tmp/immersx-liver-build/data/ircad-case12 \
+  /tmp/immersx-liver-build/test_output/liver-vascularization \
+  /tmp/liver-figures --pairs 1000 \
+  --source-revision "$(git rev-parse HEAD)"
+```
+
+Pass the revision used to build the simulation binary. The renderer reruns
+the physical-data checks before plotting and writes two PNGs, a verification
+report and a manifest. It merges exactly coincident DataOut patch vertices
+before extracting the tissue exterior. The section preserves quadrilateral
+cuts of tetrahedra without introducing display diagonals.
 
 A successful growth calculation demonstrates a paired geometric network on
 this tissue mesh. It does not establish physiological accuracy, resolve
