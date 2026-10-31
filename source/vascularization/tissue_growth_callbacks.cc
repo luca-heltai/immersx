@@ -22,6 +22,9 @@ namespace ImmersX::Vascularization::internal
       };
       std::map<GrowthProposalKey, Descriptor>         proposals;
       std::optional<TissueDemandIntegration::Preview> pending;
+      std::optional<
+        std::pair<GrowthProposalKey, TissueDemandIntegration::Preview>>
+                    isolated;
       std::uint64_t snapshot = 0, next_snapshot = 0;
       bool          staged = false, ready = false;
 
@@ -108,7 +111,9 @@ namespace ImmersX::Vascularization::internal
         Descriptor descriptor;
         if (rank == key.first)
           descriptor.local.push_back({territory, terminal, point, rank});
-        const auto trial = integration->preview(descriptor.local, snapshot);
+        // Retain at most one journal, including while computing the next trial.
+        isolated.reset();
+        auto trial = integration->preview(descriptor.local, snapshot);
         GrowthDemandProposal result;
         result.proposal_key    = key;
         result.new_terminal_id = terminal;
@@ -121,6 +126,8 @@ namespace ImmersX::Vascularization::internal
             result.new_demand = value.demand;
         descriptor.valid = trial.validation.valid();
         proposals.emplace(key, std::move(descriptor));
+        if (trial.validation.valid())
+          isolated.emplace(key, std::move(trial));
         return result;
       }
       GrowthDemandJointUpdate
@@ -152,7 +159,16 @@ namespace ImmersX::Vascularization::internal
           }
         require(valid,
                 "Joint tissue preview must select valid isolated proposals.");
-        pending = integration->preview(centres, snapshot);
+        // A singleton selects the same partition as its isolated preview.
+        // A joint batch must recompute every affected old and new territory.
+        const bool reuse =
+          unique.size() == 1 && isolated && isolated->first == *unique.begin();
+        if (dealii::Utilities::MPI::min(static_cast<unsigned int>(reuse),
+                                        comm) == 1)
+          pending = std::move(isolated->second);
+        isolated.reset();
+        if (!pending)
+          pending = integration->preview(centres, snapshot);
         return pending->territory.demand;
       }
       void
@@ -177,6 +193,7 @@ namespace ImmersX::Vascularization::internal
         ready    = true;
         staged   = false;
         pending.reset();
+        isolated.reset();
         proposals.clear();
       }
       void
@@ -186,6 +203,7 @@ namespace ImmersX::Vascularization::internal
           integration->discard();
         staged = false;
         pending.reset();
+        isolated.reset();
         proposals.clear();
       }
     };
