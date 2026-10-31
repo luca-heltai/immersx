@@ -171,6 +171,83 @@ namespace ImmersX::Vascularization::internal
     return result;
   }
 
+  GrowthGeometryMeasures
+  BackgroundGeometry::measure_segments(const GrowthGeometrySegments &segments,
+                                       MPI_Comm communicator)
+  {
+    int comparison = MPI_UNEQUAL;
+    MPI_Comm_compare(cache.get_triangulation().get_mpi_communicator(),
+                     communicator,
+                     &comparison);
+    bool valid = length_scale.has_value() &&
+                 (comparison == MPI_IDENT || comparison == MPI_CONGRUENT);
+    if (length_scale)
+      try
+        {
+          length_scale->validate();
+        }
+      catch (const std::exception &)
+        {
+          valid = false;
+        }
+    for (const auto &[id, segment] : segments)
+      {
+        const double length = segment.first.distance(segment.second);
+        valid               = valid && std::isfinite(length) && length > 0.;
+        for (double coordinate : profile_key(segment))
+          valid = valid && std::isfinite(coordinate);
+      }
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(valid), communicator) == 1,
+      ExcMessage(
+        "Geometry measures require a configured length policy and finite positive segments."));
+    const auto                                   &scale = *length_scale;
+    std::map<Id, std::vector<BackgroundInterval>> profiles;
+    if (scale.policy == LengthScalePolicy::local_mesh_size)
+      profiles = crossings(segments, communicator);
+    GrowthGeometryMeasures result;
+    for (const auto &[id, segment] : segments)
+      {
+        GrowthGeometryMeasure measure;
+        const double          length = segment.first.distance(segment.second);
+        if (scale.policy == LengthScalePolicy::local_mesh_size)
+          {
+            const auto profile =
+              measure_background_profile(length, profiles.at(id), scale);
+            measure.normalized_length = profile.normalized_length;
+            measure.radius_scale      = measure.clearance_scale =
+              profile.maximum_scale;
+            measure.complete = profile.complete;
+          }
+        else if (scale.policy == LengthScalePolicy::meter ||
+                 scale.policy == LengthScalePolicy::min_mesh_size ||
+                 scale.policy == LengthScalePolicy::max_mesh_size)
+          {
+            measure.radius_scale = measure.clearance_scale = scale.minimum();
+            measure.normalized_length = length / measure.radius_scale;
+          }
+        valid = valid && std::isfinite(measure.normalized_length) &&
+                measure.normalized_length >= 0. &&
+                std::isfinite(measure.radius_scale) &&
+                measure.radius_scale >= 0. &&
+                std::isfinite(measure.clearance_scale) &&
+                measure.clearance_scale >= 0.;
+        result.emplace(id, measure);
+      }
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(valid), communicator) == 1,
+      ExcMessage("Geometry normalization must remain finite and nonnegative."));
+    return result;
+  }
+
+  void
+  BackgroundGeometry::release_profiles(
+    const GrowthGeometrySegments &segments) noexcept
+  {
+    for (const auto &[id, segment] : segments)
+      cached_profiles.erase(profile_key(segment));
+  }
+
   void
   BackgroundGeometry::retain_profiles(const NetworkData &snapshot)
   {

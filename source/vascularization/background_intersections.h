@@ -31,6 +31,12 @@ namespace ImmersX::Vascularization::internal
                              const std::vector<BackgroundInterval> &intervals,
                              const MeshLengthScale                 &scale);
 
+  // Profile geometry without requesting radius bounds.
+  ScaledVesselMeasure
+  measure_background_profile(double physical_length,
+                             const std::vector<BackgroundInterval> &intervals,
+                             const MeshLengthScale                 &scale);
+
   // Keys are local to the requesting rank. Results partition [0,1], with h=0
   // outside. Shared positive-length intervals use the smallest containing h.
   // All ranks participate, including those with no segments or owned cells.
