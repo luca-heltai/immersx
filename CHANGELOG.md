@@ -171,6 +171,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Base terminal proposal density on physical background cell volume so exponent three assigns equal proposal weight per cell, including cells with different aspect ratios.
+
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Limit concurrent vascular proposal comparisons to overlapping vessel envelopes and shared physical identifiers. Preserve exact collision and junction checks, owner votes and deterministic conflict decisions during joint radius validation.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Use one batched growth engine for arteries and veins. Assign venous proposals to common-territory owners, preserve the arterial demand at offset endpoints, and reject duplicate or inconsistent territory claims across MPI owners.

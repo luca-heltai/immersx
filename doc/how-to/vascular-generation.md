@@ -101,24 +101,27 @@ minimum-radius check includes existing leaves when a new demand is added.
 
 ## Terminal sampling and numerical resolution
 
-Arterial territory proposals use the relative density
+Arterial territory proposals use the relative physical density
 
 $$
 \rho_T(x)=\lambda\,w(x)
-\left(\frac{h_{\mathrm{ref}}}{h(x)}\right)^\beta.
+\left(\frac{V_{\mathrm{ref}}}{|K(x)|}\right)^{\beta/3}.
 $$
 
-Here $h(x)$ is the diameter of an actual containing background cell. On cell
-and MPI interfaces the smallest containing diameter is used; equal diameters
-are resolved by cell identity, and the lowest containing process owns the point.
+Here $|K(x)|$ is the physical volume of the containing active background cell,
+computed by deal.II for the first-order mapping. On cell and MPI interfaces,
+the smallest containing diameter selects the cell, with cell identity breaking
+ties; the lowest containing process owns the point.
 `terminal_weight` supplies the nonnegative dimensionless expression $w(x)$,
 bounded by `terminal_weight_bound`. The corresponding standalone parameters
 are `Sampling/Spatial weight` and `Sampling/Spatial weight bound`.
-`density_beta` (`Sampling/Density mesh exponent`) is zero by default, making
-the sampling density independent of mesh size. Setting it to three gives
-relative weight proportional to $h(x)^{-3}$ in refined regions.
+`density_beta` (`Sampling/Density mesh exponent`) is currently zero by default,
+making the sampling density independent of mesh size. Setting it to three gives
+equal integrated proposal weight per cell when $w=1$, including cells of
+different shape or aspect ratio. Geometric constraints can change the
+accepted terminal distribution.
 
-The implementation uses the global minimum cell diameter as $h_{\mathrm{ref}}$
+The implementation uses the global minimum cell volume as $V_{\mathrm{ref}}$
 for nonnegative $\beta$, and the maximum for negative $\beta$, so the mesh
 factor in rejection sampling stays at most one. This global constant affects
 normalization, not the relative spatial weights. There is no separate

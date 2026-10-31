@@ -110,9 +110,10 @@ namespace ImmersX::Vascularization
         "none|background cell count|background vertex count"));
     add_parameter("Random seed", random_seed);
     add_parameter("Sample budget per insertion", sample_budget);
-    add_parameter("Density mesh exponent",
-                  density_beta,
-                  "Terminal density proportional to w(x)*h(x)^(-beta).");
+    add_parameter(
+      "Density mesh exponent",
+      density_beta,
+      "Terminal proposal density proportional to w(x)*cell_volume^(-beta/3).");
     add_parameter(
       "Spatial weight",
       terminal_weight,

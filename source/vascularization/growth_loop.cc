@@ -17,12 +17,24 @@
 
 #include "growth_batch.h"
 #include "growth_paths.h"
+#include "growth_sampling.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
   {
     using namespace dealii;
     using Leaf = std::pair<Segment<3>, Id>;
+    struct SampleCell
+    {
+      double diameter, volume;
+      CellId id;
+      template <class Archive>
+      void
+      serialize(Archive &ar, unsigned int)
+      {
+        ar &diameter &volume &id;
+      }
+    };
     struct Hit
     {
       Id           id;
@@ -450,8 +462,9 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid, "Invalid spatial-weight or tissue-demand expression."))
       return run;
     Point<3> lo, hi;
-    bool     first = true;
-    double   min_h = std::numeric_limits<double>::infinity(), max_h = 0.;
+    bool     first               = true;
+    double   minimum_cell_volume = std::numeric_limits<double>::infinity(),
+           maximum_cell_volume   = 0.;
     for (const auto &cell : bg.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -461,9 +474,11 @@ namespace ImmersX::Vascularization::internal
               lo[d] = first ? ends.first[d] : std::min(lo[d], ends.first[d]);
               hi[d] = first ? ends.second[d] : std::max(hi[d], ends.second[d]);
             }
-          first = false;
-          min_h = std::min(min_h, cell->diameter());
-          max_h = std::max(max_h, cell->diameter());
+          first               = false;
+          const double volume = cell->measure();
+          valid               = valid && std::isfinite(volume) && volume > 0.;
+          minimum_cell_volume = std::min(minimum_cell_volume, volume);
+          maximum_cell_volume = std::max(maximum_cell_volume, volume);
         }
     std::vector<BoundingBox<3>> local_boxes;
     double                      box_volume = 0.;
@@ -474,14 +489,15 @@ namespace ImmersX::Vascularization::internal
         for (unsigned int d = 0; d < 3; ++d)
           box_volume *= hi[d] - lo[d];
       }
-    const auto   boxes          = Utilities::MPI::all_gather(comm, local_boxes);
-    const double maximum_volume = Utilities::MPI::max(box_volume, comm);
-    min_h                       = Utilities::MPI::min(min_h, comm);
-    max_h                       = Utilities::MPI::max(max_h, comm);
+    const auto   boxes = Utilities::MPI::all_gather(comm, local_boxes);
+    const double maximum_box_volume = Utilities::MPI::max(box_volume, comm);
+    minimum_cell_volume = Utilities::MPI::min(minimum_cell_volume, comm);
+    maximum_cell_volume = Utilities::MPI::max(maximum_cell_volume, comm);
     if (
       !phase(
-        std::isfinite(maximum_volume) && maximum_volume > 0. &&
-          std::isfinite(min_h) && min_h > 0. && std::isfinite(max_h),
+        valid && std::isfinite(maximum_box_volume) && maximum_box_volume > 0. &&
+          std::isfinite(minimum_cell_volume) && minimum_cell_volume > 0. &&
+          std::isfinite(maximum_cell_volume),
         "Sampling requires finite positive background sizes and covering-box volumes."))
       return run;
     std::seed_seq   seed{p.random_seed, rank, 194837u};
@@ -600,8 +616,9 @@ namespace ImmersX::Vascularization::internal
               (direction % 2 ? 1. : -1.) * p.venous.terminal_separation;
             ++run.sampled_points;
           }
-        // Query actual containing cells for h(x), including MPI interfaces.
-        // Only coarse covering boxes are replicated, never the vessel graph.
+        // Query physical cell volumes with deterministic MPI interface
+        // selection. Only coarse covering boxes are replicated, never the
+        // vessel graph.
         std::map<unsigned int, Point<3>> sample_send;
         if (raw)
           for (unsigned int owner = 0; owner < size; ++owner)
@@ -610,17 +627,22 @@ namespace ImmersX::Vascularization::internal
                 sample_send[owner] = *raw;
         const auto sample_queries =
           Utilities::MPI::some_to_some(comm, sample_send);
-        std::map<unsigned int, double> sample_replies;
+        std::map<unsigned int, SampleCell> sample_replies;
         for (const auto &[source, point] : sample_queries)
           if (const auto cell = geometry.containing(point))
-            sample_replies[source] = (*cell)->diameter();
+            sample_replies[source] = {(*cell)->diameter(),
+                                      (*cell)->measure(),
+                                      (*cell)->id()};
         const auto located = Utilities::MPI::some_to_some(comm, sample_replies);
-        unsigned int point_owner = size;
-        double       h           = std::numeric_limits<double>::infinity();
-        for (const auto &[owner, diameter] : located)
+        unsigned int              point_owner = size;
+        std::optional<SampleCell> selected_cell;
+        for (const auto &[owner, cell] : located)
           {
             point_owner = std::min(point_owner, owner);
-            h           = std::min(h, diameter);
+            if (!selected_cell || cell.diameter < selected_cell->diameter ||
+                (cell.diameter == selected_cell->diameter &&
+                 cell.id < selected_cell->id))
+              selected_cell = cell;
           }
         std::optional<Point<3>> target;
         double                  terminal_demand = 0.;
@@ -634,10 +656,14 @@ namespace ImmersX::Vascularization::internal
             const double w = weight.value(*raw);
             valid          = valid && std::isfinite(w) && w >= 0. &&
                     w <= p.terminal_weight_bound;
-            const double scale = p.density_beta >= 0. ? min_h : max_h;
-            if (valid && uniform() < box_volume / maximum_volume * w /
-                                       p.terminal_weight_bound *
-                                       std::pow(scale / h, p.density_beta))
+            const double reference_volume =
+              p.density_beta >= 0. ? minimum_cell_volume : maximum_cell_volume;
+            if (valid &&
+                uniform() < box_volume / maximum_box_volume * w /
+                              p.terminal_weight_bound *
+                              mesh_sampling_factor(selected_cell->volume,
+                                                   reference_volume,
+                                                   p.density_beta))
               {
                 target          = raw;
                 terminal_demand = demand.value(*target);
