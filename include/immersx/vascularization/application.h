@@ -22,7 +22,7 @@ namespace ImmersX::Vascularization
     double           cube_side = 1.;
     dealii::Point<3> sphere_center{.5, .5, .5};
     double           sphere_radius       = .5;
-    unsigned int     uniform_refinements = 1, edge_axis = 2;
+    unsigned int     uniform_refinements = 2, edge_axis = 2;
     std::vector<unsigned int> edge_sides{0, 0};
     std::vector<double>       refinement_fractions{.5, .25, .125};
     bool                      evaluate_reference = true;

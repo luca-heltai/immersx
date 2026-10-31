@@ -23,12 +23,17 @@ namespace
   void
   configure(Parameters &p)
   {
-    p.seed_position  = Point<3>(.2, .5, .5);
-    p.seed_direction = Point<3>(1., 0., 0.);
-    p.seed_radius    = .001;
-    p.seed_length    = .15;
-    p.viscosity      = .004;
-    p.random_seed    = 23;
+    p.length_scale               = "meter";
+    p.minimum_length             = 0.;
+    p.density_beta               = 0.;
+    p.coverage.service_radius    = 0.;
+    p.venous.terminal_separation = 0.;
+    p.seed_position              = Point<3>(.2, .5, .5);
+    p.seed_direction             = Point<3>(1., 0., 0.);
+    p.seed_radius                = .001;
+    p.seed_length                = .15;
+    p.viscosity                  = .004;
+    p.random_seed                = 23;
   }
 
   void

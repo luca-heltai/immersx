@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+
+#include "background_intersections.h"
 namespace ImmersX::Vascularization::internal
 {
   using namespace dealii;
@@ -229,30 +231,19 @@ namespace ImmersX::Vascularization::internal
     return true;
   }
 
-  struct BackgroundRouting
+  struct LocatedCell
   {
-    BackgroundRouting(const GridTools::Cache<3> &cache,
-                      MPI_Comm                   comm,
-                      GrowthWork                *work)
-      : communicator(comm)
+    CellId                id;
+    double                diameter = 0., volume = 0.;
+    Point<3>              center;
+    std::vector<Point<3>> vertices;
+    unsigned int          point_owner = numbers::invalid_unsigned_int;
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
     {
-      const auto &cells = cache.get_locally_owned_cell_bounding_boxes_rtree();
-      std::vector<BoundingBox<3>> local_boxes;
-      if (!cells.empty())
-        local_boxes = extract_rtree_level(cells, 1);
-      boxes = Utilities::MPI::all_gather(comm, local_boxes);
-      std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
-      for (unsigned int rank = 0; rank < boxes.size(); ++rank)
-        for (const auto &box : boxes[rank])
-          covering.emplace_back(box, rank);
-      count_work(work,
-                 GrowthOperation::metadata_copy_attempts,
-                 covering.size());
-      covering_tree = pack_rtree(covering);
+      ar &id &diameter &volume &center &vertices &point_owner;
     }
-    MPI_Comm                                       communicator;
-    std::vector<std::vector<BoundingBox<3>>>       boxes;
-    RTree<std::pair<BoundingBox<3>, unsigned int>> covering_tree;
   };
 
   struct BackgroundGeometry
@@ -449,12 +440,32 @@ namespace ImmersX::Vascularization::internal
       // declared planar cap may meet the boundary.
       return true;
     }
+    std::map<Id, LocatedCell>
+    locate_points(const std::map<Id, Point<3>> &points,
+                  MPI_Comm                      communicator,
+                  double                        boundary_tolerance = 0.) const;
+
+    // Initialization is collective; constructing the native geometry stays
+    // local.
+    void
+    configure_length_scale(const std::string &policy, MPI_Comm communicator);
+    std::map<Id, std::vector<BackgroundInterval>>
+    crossings(const std::map<Id, Segment<3>> &segments, MPI_Comm communicator);
+    void
+                                   retain_profiles(const NetworkData &snapshot);
+    std::optional<MeshLengthScale> length_scale;
+
     GridTools::Cache<3>                           cache;
     const Mapping<3>                             &mapping;
     std::vector<Patch>                            patches;
     RTree<std::pair<BoundingBox<3>, std::size_t>> boundary;
-    GrowthWork                                   *counts;
-    mutable std::optional<BackgroundRouting>      routing_data;
+
+  private:
+    using ProfileKey = std::array<double, 6>;
+    static ProfileKey
+    profile_key(const Segment<3> &segment);
+    std::map<ProfileKey, std::vector<BackgroundInterval>> cached_profiles;
+    std::string                                           cached_policy;
   };
   // Boost's installed segment distance reduces to endpoint projections after
   // an intersection check. Skew 3D segments also need an interior minimum.

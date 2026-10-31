@@ -55,7 +55,6 @@ namespace ImmersX::Vascularization
       double total_demand = 0., demand_scale = 1., murray_exponent = 3.;
       double forest_volume = 0., forest_power_numerator = 0.;
       double minimum_scale = 1.;
-      std::optional<GrowthCandidatePhysiology> physiology;
     };
     // Trial obstacle radii for a single insertion. Baseline obstacle radii
     // must already describe the same old-demand preview as the context.
