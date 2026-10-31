@@ -63,6 +63,10 @@ namespace ImmersX::Vascularization::internal
     Id                 new_terminal_id = invalid_id;
     double             new_demand      = 0.;
     GrowthDemandUpdate update;
+    ValidationReport   validation;
+    // An invalid preview with this flag may be resampled. Other invalid
+    // previews are collective input/density failures, not empty proposals.
+    bool integration_budget_exhausted = false;
   };
 
   // Territorial reassignment is joint: new Di can differ from each isolated
@@ -72,6 +76,8 @@ namespace ImmersX::Vascularization::internal
   {
     GrowthDemandUpdate                update;
     std::vector<TerminalDemandUpdate> new_terminals;
+    ValidationReport                  validation;
+    bool                              integration_budget_exhausted = false;
   };
 } // namespace ImmersX::Vascularization::internal
 #endif
