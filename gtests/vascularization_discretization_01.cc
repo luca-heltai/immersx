@@ -294,6 +294,8 @@ TEST(VascularDiscretization,
   GridGenerator::hyper_cube(background);
   background.refine_global(2);
   Parameters p;
+  p.terminal_count_multiplier_factor = "none";
+
   p.seed_position  = Point<3>(.2, .5, .5);
   p.seed_direction = Point<3>(1., 0., 0.);
   p.seed_radius    = .005;

@@ -50,6 +50,7 @@ parameters.seed_radius    = .003;
 parameters.seed_length    = .2;
 parameters.viscosity      = .004;
 parameters.terminal_count = 8;
+parameters.terminal_count_multiplier_factor = "none";
 parameters.reference_flow = 2.e-9;
 parameters.tissue_demand  = "1+x+2*y";
 parameters.arterial_murray_exponent = 2.7;
@@ -121,8 +122,56 @@ The implementation uses the global minimum cell diameter as $h_{\mathrm{ref}}$
 for nonnegative $\beta$, and the maximum for negative $\beta$, so the mesh
 factor in rejection sampling stays at most one. This global constant affects
 normalization, not the relative spatial weights. There is no separate
-$\lambda$ parameter: `terminal_count` fixes the number of new tissue terminals,
-and terminal-count calibration changes that number to seek the volume target.
+$\lambda$ parameter: `terminal_count` and its multiplier set the initial number
+of new tissue terminals, and calibration changes that number to seek the volume
+target.
+`Sampling/Terminal count multiplier factor` selects how the initial terminal
+count follows the prepared background:
+
+| Value | Initial number of new territories |
+|---|---|
+| `none` | `Terminal count` |
+| `background cell count` (default) | `Terminal count` times the global active-cell count |
+| `background vertex count` | `Terminal count` times the global used-vertex count |
+
+The default requests one new territory per active cell when `Terminal count`
+is one. Select `none` to retain an absolute count in existing configurations.
+
+Shared MPI vertices count once, including hanging nodes; ghost and artificial
+cells do not increase the cell count. The count is recomputed on each call to
+`generate()` after the caller has prepared the background. A zero or overflowing
+product is rejected collectively. The supplied parameters are not modified.
+In arterio-venous mode the count is the number of common territories, with one
+arterial and one venous terminal per new territory, not their combined count.
+
+For example, to request two new territories per active background cell:
+
+```text
+subsection Vascularization
+  subsection Sampling
+    set Terminal count = 2
+    set Terminal count multiplier factor = background cell count
+    set Density mesh exponent = 3
+  end
+  subsection Objectives
+    set Target volume fraction = 0
+    set Minimum tissue coverage = 0
+  end
+end
+```
+
+This scales the total; it does not assign an exact quota to each cell or vertex.
+`Density mesh exponent` and `Spatial weight` still control relative proposal
+locations. Uniform refinement increases the total when a background multiplier
+is selected, even with exponent zero.
+
+With calibration enabled, multiplication applies once to its initial guess.
+`Minimum new terminals` and `Maximum new terminals` remain absolute counts:
+they clamp that guess, and subsequent trials search within those limits without
+multiplying again. Set the limits to accommodate the desired scaled count, or
+disable both targets as in the example to request the scaled count directly.
+Existing input terminals are excluded from the count of new territories.
+
 Containment, collision and growth constraints can bias the accepted terminal
 distribution away from the proposal density. The illustrated density plots use
 actual accepted physical terminals.
@@ -636,6 +685,7 @@ subsection Vascularization
   end
   subsection Sampling
     set Terminal count = 1
+    set Terminal count multiplier factor = none
   end
   subsection Physiology
     set Dynamic viscosity = .004

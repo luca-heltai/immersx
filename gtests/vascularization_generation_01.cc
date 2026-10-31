@@ -25,6 +25,8 @@ namespace
   void
   synthetic(Parameters &p)
   {
+    p.terminal_count_multiplier_factor = "none";
+
     p.seed_position  = Point<3>(.3, .5, .5);
     p.seed_direction = Point<3>(1., 0., 0.);
     p.seed_radius    = .01;
@@ -396,6 +398,8 @@ TEST(VascularGeneration, BOTH_GrowthStatisticsCountActualOwnedWork)
   GridGenerator::hyper_cube(bg);
   bg.refine_global(2);
   Parameters p;
+  p.terminal_count_multiplier_factor = "none";
+
   p.seed_position   = Point<3>(.2, .5, .5);
   p.seed_direction  = Point<3>(1., 0., 0.);
   p.seed_radius     = .003;

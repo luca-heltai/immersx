@@ -29,6 +29,7 @@ subsection Vascularization
   end
   subsection Sampling
     set Terminal count = 64
+    set Terminal count multiplier factor = none
     set Random seed = 23
     set Density mesh exponent = 3
   end

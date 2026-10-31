@@ -114,6 +114,9 @@ namespace ImmersX::Vascularization
     /** Total m^3/s through NEW tissue terminals; zero leaves flow unspecified.
      */
     double reference_flow = 0.;
+    /** Multiply the initial count by one, global active cells or used vertices.
+     * Calibration limits remain absolute terminal counts. */
+    std::string terminal_count_multiplier_factor = "background cell count";
   };
 
   struct Territory

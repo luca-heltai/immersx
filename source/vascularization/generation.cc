@@ -3,6 +3,10 @@
 #include <deal.II/base/function_parser.h>
 #include <deal.II/base/numbers.h>
 
+#include <deal.II/dofs/dof_handler.h>
+
+#include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q.h>
 
@@ -10,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <set>
 
@@ -95,7 +100,14 @@ namespace ImmersX::Vascularization
     add_parameter(
       "Terminal count",
       terminal_count,
-      "Number of newly generated tissue terminals across selected attachments; unselected input terminals are excluded.");
+      "Base count of newly generated tissue terminals across selected attachments, multiplied by Terminal count multiplier factor; unselected input terminals are excluded.");
+    add_parameter(
+      "Terminal count multiplier factor",
+      terminal_count_multiplier_factor,
+      "Multiply Terminal count by one, the global active background cell count or the global used background vertex count. Calibration limits remain absolute.",
+      this->prm,
+      dealii::Patterns::Selection(
+        "none|background cell count|background vertex count"));
     add_parameter("Random seed", random_seed);
     add_parameter("Sample budget per insertion", sample_budget);
     add_parameter("Density mesh exponent",
@@ -172,6 +184,11 @@ namespace ImmersX::Vascularization
   void
   Parameters::validate(const bool creating_seed) const
   {
+    AssertThrow(terminal_count_multiplier_factor == "none" ||
+                  terminal_count_multiplier_factor == "background cell count" ||
+                  terminal_count_multiplier_factor == "background vertex count",
+                dealii::ExcMessage(
+                  "Invalid terminal count multiplier factor."));
     discretization.validate();
     coverage.validate();
     calibration.validate();
@@ -552,16 +569,17 @@ namespace ImmersX::Vascularization
            const std::vector<TerminalPair> &initial_pairs)
   {
     using namespace dealii;
-    const auto                 &p = parameters.calibration;
-    const std::array<double, 8> modes{
-      {p.volume_fraction,
-       p.minimum_coverage,
-       p.relative_tolerance,
-       static_cast<double>(p.minimum_terminals),
-       static_cast<double>(p.maximum_terminals),
-       static_cast<double>(p.attempt_budget),
-       static_cast<double>(parameters.terminal_count),
-       static_cast<double>(parameters.venous.enabled)}};
+    const auto &p     = parameters.calibration;
+    const auto  modes = std::make_pair(
+      std::array<double, 8>{{p.volume_fraction,
+                              p.minimum_coverage,
+                              p.relative_tolerance,
+                              static_cast<double>(p.minimum_terminals),
+                              static_cast<double>(p.maximum_terminals),
+                              static_cast<double>(p.attempt_budget),
+                              static_cast<double>(parameters.terminal_count),
+                              static_cast<double>(parameters.venous.enabled)}},
+      parameters.terminal_count_multiplier_factor);
     bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
@@ -570,6 +588,65 @@ namespace ImmersX::Vascularization
                           communicator) == 1,
       ExcMessage(
         "All processes must use the same vascular calibration controls."));
+    const auto &factor = parameters.terminal_count_multiplier_factor;
+    AssertThrow(factor == "none" || factor == "background cell count" ||
+                  factor == "background vertex count",
+                ExcMessage("Invalid terminal count multiplier factor."));
+    int comparison = MPI_UNEQUAL;
+    MPI_Comm_compare(background.get_mpi_communicator(),
+                     communicator,
+                     &comparison);
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(comparison == MPI_IDENT ||
+                                                    comparison ==
+                                                      MPI_CONGRUENT),
+                          communicator) == 1,
+      ExcMessage("Background and generation communicators must be congruent."));
+    std::uint64_t multiplier = 1;
+    if (factor == "none")
+      multiplier = 1;
+    else if (factor == "background cell count")
+      multiplier = background.n_global_active_cells();
+    else if (factor == "background vertex count")
+      {
+        // One unconstrained linear DoF per used vertex gives the global
+        // cardinality, including hanging nodes and shared coarse vertices.
+        unsigned int families[2]{0, 0};
+        bool         supported = true;
+        for (const auto &cell : background.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              if (cell->reference_cell().is_simplex())
+                families[0] = 1;
+              else if (cell->reference_cell().is_hyper_cube())
+                families[1] = 1;
+              else
+                supported = false;
+            }
+        Utilities::MPI::max(families, communicator, families);
+        AssertThrow(
+          Utilities::MPI::min(static_cast<unsigned int>(supported),
+                              communicator) == 1 &&
+            families[0] + families[1] == 1,
+          ExcMessage(
+            "Vertex counting requires a nonempty all-tetrahedral or all-hexahedral background."));
+        const bool           simplex = families[0] != 0;
+        const FE_Q<3>        hexahedral(1);
+        const FE_SimplexP<3> tetrahedral(1);
+        DoFHandler<3>        vertices(background);
+        vertices.distribute_dofs(
+          simplex ? static_cast<const FiniteElement<3> &>(tetrahedral) :
+                    static_cast<const FiniteElement<3> &>(hexahedral));
+        multiplier = vertices.n_dofs();
+      }
+    AssertThrow(
+      parameters.terminal_count > 0 && multiplier > 0 &&
+        multiplier <=
+          std::numeric_limits<unsigned int>::max() / parameters.terminal_count,
+      ExcMessage(
+        "The multiplied terminal count must be positive and fit in unsigned int."));
+    const auto initial_count =
+      static_cast<unsigned int>(parameters.terminal_count * multiplier);
     const bool has_metadata =
       Utilities::MPI::sum(static_cast<Id>(initial_territories.size() +
                                           initial_pairs.size()),
@@ -593,7 +670,7 @@ namespace ImmersX::Vascularization
                             initial,
                             parameters,
                             communicator,
-                            parameters.terminal_count,
+                            initial_count,
                             initial_territories,
                             initial_pairs);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
@@ -660,9 +737,8 @@ namespace ImmersX::Vascularization
       std::numeric_limits<double>::infinity(),
       std::numeric_limits<double>::infinity()};
     unsigned int best_count = 0;
-    unsigned int count      = std::clamp(parameters.terminal_count,
-                                    p.minimum_terminals,
-                                    p.maximum_terminals);
+    unsigned int count =
+      std::clamp(initial_count, p.minimum_terminals, p.maximum_terminals);
     for (unsigned int attempt = 0; attempt < p.attempt_budget; ++attempt)
       {
         auto candidate = generate_count(background,
