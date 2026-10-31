@@ -436,6 +436,36 @@ resolution, call `discretize()` again and build a new mesh: native
 `parallel::fullydistributed::Triangulation` does not implement refinement flags.
 The serial destination continues to support native binary refinement.
 
+## Measure geometry relative to the background
+
+Use `mesh_length_scale()` to derive physical cell-diameter bounds collectively
+from the prepared background. The four policies are `meter`, `local mesh size`,
+`min mesh size` and `max mesh size`. A metre policy uses a one-metre reference;
+the other constant policies use the global minimum or maximum active-cell
+diameter. Only owned cells contribute to those bounds, including when some
+processes own no cells.
+
+```cpp
+#include <immersx/vascularization/mesh_scale.h>
+
+const auto scale = mesh_length_scale(background, "local mesh size", communicator);
+const auto measures = measure_scaled_vessels(background, mapping, local_network,
+                                             scale, communicator);
+```
+
+`measures` contains owned physical vessels. Each `normalized_length` integrates
+`ds/H` over the exact cell crossings used by `discretize()`. An interface uses
+the smallest diameter among all containing cells, including across MPI
+partitions. `minimum_scale`, `maximum_scale` and the normalized radius bounds
+account for every positive-length crossing and both endpoints of each tapered
+piece. They do not replace the physical lengths or radii in the network.
+
+Local mesh size is undefined outside the background. In local mode,
+`exterior_length` records those portions, `complete` is false, and the
+normalized measures describe only the inside portions. Constant policies also
+normalize exterior portions. No local diameter is assigned to exterior input.
+The measurement preserves the network, topology, radii and physical properties.
+
 ## Redistribute physical ownership
 
 For an existing distributed `NetworkData`, `redistribute()` migrates owned
