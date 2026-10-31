@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Select pending venous territories by sorted identifier rank in logarithmic time, preserving the proposal order after served territories are removed.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Subdivide vascular profiles with monotone metric-cut traversal and bounded interval queries. Split and merge numerical cuts through stable iterators while preserving the existing length bounds, ownership and budget failures.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Prepare vascular ownership changes from sparse split patches, localizing only new nodes and edited vessel midpoints through the native distributed search. Preserve endpoint authorities, physical properties and the accepted snapshot on failure.

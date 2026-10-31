@@ -418,8 +418,13 @@ namespace ImmersX::Vascularization::internal
         count > 0 && count <= terminal_count,
         "Growth requires real roots and a target not smaller than the existing mutable forest."))
       return run;
-    std::map<Id, Territory> pending;
-    std::map<Id, double>    territory_separations;
+    // Keep the sorted-id ordinal stable when served territories are erased.
+    boost::multi_index_container<
+      Territory,
+      boost::multi_index::indexed_by<boost::multi_index::ranked_unique<
+        boost::multi_index::member<Territory, Id, &Territory::id>>>>
+                         pending;
+    std::map<Id, double> territory_separations;
     if (system == System::venous)
       {
         std::map<unsigned int, std::map<Id, double>> registration;
