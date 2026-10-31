@@ -248,6 +248,7 @@ orientation. Partially external imported networks remain supported by the
 standalone generator; adapting their multiplier space for partial wall coupling
 is deferred.
 
+(vascular-measured-mpi-growth)=
 ## Measured MPI growth
 
 These measurements use three random seeds (`23`, `24`, `25`) for every
