@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add per-rank vascular growth and final discretization operation counts to distinguish repeated whole-network work from local updates.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, and report per-rank growth and final discretization operation counts.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 
