@@ -23,6 +23,7 @@ refinement passes, completed before generation. Growth does not adapt the mesh.
 | Arterial inlet pressure | $12000\ \mathrm{Pa}$ |
 | Murray exponents; tissue demand; spatial weight | $3$; $1$; $1$ |
 | Sampling seed and initial terminal count | $23$; $64$ |
+| Terminal count multiplier factor | `none`: these examples prescribe absolute counts |
 | Density mesh exponent $\beta$ | $0$ on uniform backgrounds; $3$ on adaptive backgrounds |
 | Maximum service distance | $0.2\ \mathrm{m}$ |
 | Terminal-count calibration bounds and budget | $32$–$128$; at most $12$ trials |
