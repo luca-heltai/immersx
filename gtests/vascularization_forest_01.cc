@@ -2000,6 +2000,21 @@ TEST(VascularForest, BOTH_DemandPreviewRetainsSmallUnchangedRootContribution)
   ASSERT_TRUE(accepted.validation.valid()) << issues(accepted);
   GrowthDemandState state(n, accepted, p, 2, MPI_COMM_WORLD);
   ASSERT_TRUE(state.validation().valid());
+  GrowthDemandUpdate no_change;
+  no_change.snapshot_revision = 2;
+  const auto accepted_preview = state.preview(no_change);
+  ASSERT_TRUE(accepted_preview.validation.valid());
+  if (accepted.owned.count(base + 11))
+    {
+      auto other = state.root_view(base + 11, accepted_preview).other_local;
+      for (unsigned int owner = 0; owner < size(); ++owner)
+        if (owner != rank())
+          for (unsigned int j = 0; j < 6; ++j)
+            other[j] += accepted_preview.rank_totals.at(owner)[j];
+      // Removing the dominant root by subtraction would erase this value.
+      EXPECT_GT(other[2], 0.);
+      EXPECT_NEAR(static_cast<double>(other[0]), 12., 1.e-14);
+    }
   GrowthDemandUpdate update;
   update.snapshot_revision = 2;
   for (Id id = base + 30; id <= base + 32; ++id)
@@ -2021,6 +2036,25 @@ TEST(VascularForest, BOTH_DemandPreviewRetainsSmallUnchangedRootContribution)
               coefficient,
               3.e-13 * coefficient);
   EXPECT_LT(preview.totals[2], state.totals()[2] * 1.e-100L);
+  if (accepted.owned.count(base + 11))
+    {
+      const auto root  = state.root_view(base + 11, preview);
+      auto       other = root.other_local;
+      for (unsigned int owner = 0; owner < size(); ++owner)
+        if (owner != rank())
+          for (unsigned int j = 0; j < 6; ++j)
+            other[j] += preview.rank_totals.at(owner)[j];
+      EXPECT_NEAR(static_cast<double>(other[2]),
+                  coefficient,
+                  3.e-13 * coefficient);
+      EXPECT_EQ(root.summary.mass, state.summary(base + 11, preview).mass);
+      EXPECT_EQ(state.topology(base + 11).parent, invalid_id);
+      EXPECT_EQ(state.children(base + 11, preview).size(), 2u);
+      boost::multiprecision::cpp_int child_mass;
+      for (const auto &[id, child] : state.children(base + 11, preview))
+        child_mass += child.mass;
+      EXPECT_EQ(child_mass, root.summary.mass);
+    }
   EXPECT_NEAR(static_cast<double>(preview.totals[1]),
               expected.volume[0],
               3.e-13 * expected.volume[0]);

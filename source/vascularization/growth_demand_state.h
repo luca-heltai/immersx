@@ -4,6 +4,7 @@
 #define immersx_internal_growth_demand_state_h
 #include <boost/multiprecision/cpp_int.hpp>
 #include <boost/multiprecision/cpp_int/serialize.hpp>
+#include <boost/serialization/array.hpp>
 
 #include "demand_mass.h"
 #include "forest_state.h"
@@ -33,10 +34,29 @@ namespace ImmersX::Vascularization::internal
     // Per system: absolute demand, SI volume, physical-demand power
     // coefficient.
     std::array<long double, 6> totals{};
+    // Six scalar controls per rank; no topology or per-terminal data.
+    std::vector<std::array<long double, 6>> rank_totals;
+    // Sparse derived nodes in the accepted root-sum tree.
+    std::map<std::size_t, std::array<long double, 6>> root_sums;
     // Only the union of updated terminal-to-root paths, on branch owners.
-    std::map<Id, GrowthDemandSummary> owned;
-    std::map<Id, double>              leaf_demands;
+    std::map<Id, GrowthDemandSummary>               owned;
+    std::map<Id, double>                            leaf_demands;
+    std::map<Id, std::map<Id, GrowthDemandSummary>> child_summaries;
     std::uint64_t marked_branches = 0, recomputed_branches = 0;
+  };
+
+  struct GrowthDemandRootView
+  {
+    GrowthDemandSummary        summary;
+    std::array<long double, 6> other_local{};
+    double                     radius = 0.;
+    unsigned int               system = 0;
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
+    {
+      ar &summary &other_local &radius &system;
+    }
   };
 
   class GrowthDemandState
@@ -53,6 +73,13 @@ namespace ImmersX::Vascularization::internal
     validation() const;
 
     const GrowthDemandSummary &summary(Id) const;
+    const GrowthDemandSummary                     &
+    summary(Id, const GrowthDemandPreview &) const;
+    const ForestBranch &topology(Id) const;
+    std::map<Id, GrowthDemandSummary>
+    children(Id, const GrowthDemandPreview &) const;
+    GrowthDemandRootView
+    root_view(Id, const GrowthDemandPreview &) const;
 
     const std::array<long double, 6> &
     totals() const;
