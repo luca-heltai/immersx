@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="460" viewBox="0 0 1120 460">
+<rect width="100%" height="100%" fill="white"/>
+<title>Requested and achieved vascular metrics</title>
+<style>text{font-family:DejaVu Sans,sans-serif;fill:#24303b}line,path,polygon{stroke-linejoin:round}</style>
+<text x="25.00" y="28.00" font-size="21" text-anchor="start">Volume fraction and geometric service coverage are separate targets</text>
+<line x1="75.000" y1="355.000" x2="525.000" y2="355.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="359.00" font-size="11" text-anchor="end">0</text>
+<line x1="75.000" y1="290.000" x2="525.000" y2="290.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="294.00" font-size="11" text-anchor="end">2</text>
+<line x1="75.000" y1="225.000" x2="525.000" y2="225.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="229.00" font-size="11" text-anchor="end">4</text>
+<line x1="75.000" y1="160.000" x2="525.000" y2="160.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="164.00" font-size="11" text-anchor="end">6</text>
+<line x1="75.000" y1="95.000" x2="525.000" y2="95.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="99.00" font-size="11" text-anchor="end">8</text>
+<line x1="75.000" y1="355.000" x2="525.000" y2="355.000" stroke="#67727c" stroke-width="1.0000" />
+<line x1="75.000" y1="355.000" x2="75.000" y2="95.000" stroke="#67727c" stroke-width="1.0000" />
+<text x="75.00" y="62.00" font-size="15" text-anchor="start">Volume fraction × 100000</text>
+<rect x="108" y="205.742" width="44" height="149.258" fill="#b62737"/>
+<line x1="98.000" y1="205.500" x2="162.000" y2="205.500" stroke="#172a3a" stroke-width="2.0000" />
+<line x1="130.000" y1="212.975" x2="130.000" y2="198.025" stroke="#172a3a" stroke-width="2.0000" />
+<text x="130.00" y="378.00" font-size="13" text-anchor="middle">1</text>
+<rect x="218" y="243.335" width="44" height="111.665" fill="#2166ac"/>
+<line x1="208.000" y1="244.500" x2="272.000" y2="244.500" stroke="#172a3a" stroke-width="2.0000" />
+<line x1="240.000" y1="250.025" x2="240.000" y2="238.975" stroke="#172a3a" stroke-width="2.0000" />
+<text x="240.00" y="378.00" font-size="13" text-anchor="middle">2</text>
+<rect x="328" y="127.215" width="44" height="227.785" fill="#b05b16"/>
+<line x1="318.000" y1="127.500" x2="382.000" y2="127.500" stroke="#172a3a" stroke-width="2.0000" />
+<line x1="350.000" y1="138.875" x2="350.000" y2="116.125" stroke="#172a3a" stroke-width="2.0000" />
+<text x="350.00" y="378.00" font-size="13" text-anchor="middle">3</text>
+<rect x="438" y="239.881" width="44" height="115.119" fill="#277b55"/>
+<line x1="428.000" y1="241.250" x2="492.000" y2="241.250" stroke="#172a3a" stroke-width="2.0000" />
+<line x1="460.000" y1="246.938" x2="460.000" y2="235.562" stroke="#172a3a" stroke-width="2.0000" />
+<text x="460.00" y="378.00" font-size="13" text-anchor="middle">4</text>
+<line x1="630.000" y1="355.000" x2="1080.000" y2="355.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="359.00" font-size="11" text-anchor="end">0</text>
+<line x1="630.000" y1="290.000" x2="1080.000" y2="290.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="294.00" font-size="11" text-anchor="end">0.25</text>
+<line x1="630.000" y1="225.000" x2="1080.000" y2="225.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="229.00" font-size="11" text-anchor="end">0.5</text>
+<line x1="630.000" y1="160.000" x2="1080.000" y2="160.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="164.00" font-size="11" text-anchor="end">0.75</text>
+<line x1="630.000" y1="95.000" x2="1080.000" y2="95.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="99.00" font-size="11" text-anchor="end">1</text>
+<line x1="630.000" y1="355.000" x2="1080.000" y2="355.000" stroke="#67727c" stroke-width="1.0000" />
+<line x1="630.000" y1="355.000" x2="630.000" y2="95.000" stroke="#67727c" stroke-width="1.0000" />
+<text x="630.00" y="62.00" font-size="15" text-anchor="start">Arterial geometric coverage</text>
+<rect x="663" y="147.305" width="44" height="207.695" fill="#b62737"/>
+<line x1="653.000" y1="290.000" x2="717.000" y2="290.000" stroke="#172a3a" stroke-width="2.0000" />
+<text x="685.00" y="378.00" font-size="13" text-anchor="middle">1</text>
+<rect x="773" y="274.321" width="44" height="80.679" fill="#2166ac"/>
+<line x1="763.000" y1="290.000" x2="827.000" y2="290.000" stroke="#172a3a" stroke-width="2.0000" />
+<text x="795.00" y="378.00" font-size="13" text-anchor="middle">2</text>
+<rect x="883" y="111.695" width="44" height="243.305" fill="#b05b16"/>
+<line x1="873.000" y1="290.000" x2="937.000" y2="290.000" stroke="#172a3a" stroke-width="2.0000" />
+<text x="905.00" y="378.00" font-size="13" text-anchor="middle">3</text>
+<rect x="993" y="248.955" width="44" height="106.045" fill="#277b55"/>
+<line x1="983.000" y1="290.000" x2="1047.000" y2="290.000" stroke="#172a3a" stroke-width="2.0000" />
+<text x="1015.00" y="378.00" font-size="13" text-anchor="middle">4</text>
+<text x="25.00" y="413.00" font-size="13" text-anchor="start">Bars: achieved. Black marks: requested value (±5% for volume) or minimum coverage.</text>
+<text x="25.00" y="438.00" font-size="12" text-anchor="start">1 uniform cube; 2 edge cube; 3 uniform sphere; 4 central sphere. Coverage is not a physiological perfusion proof.</text>
+</svg>

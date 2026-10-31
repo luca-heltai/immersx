@@ -32,9 +32,11 @@ getting-started/index
 getting-started/containers
 how-to/index
 how-to/local-co-refinement
+how-to/vascular-generation
 how-to/lifted-poisson
 how-to/lifted-static-elasticity
 tutorials/index
+tutorials/vascular-generation
 tutorials/fiber-reinforced-frequency
 tutorials/fiber-in-3d-frequency
 tutorials/metric-flow-x-elastostatic-onboarding

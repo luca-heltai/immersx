@@ -1,0 +1,46 @@
+# Synthetic SI example; these values are not an organ calibration.
+subsection Vascularization
+  subsection Input and ports
+    set Mode = generate
+    set Seed position = .2,.5,.5
+    set Seed direction = 1,0,0
+    set Seed radius = .003
+  end
+  subsection Domain
+    set Shape = cube
+    set Cube origin = 0,0,0
+    set Cube side length = 1
+    set Sphere center = .5,.5,.5
+    set Sphere radius = .5
+    set Uniform refinements = 2
+    set Refinement focus = none
+    set Edge axis = 2
+    set Edge sides = 0,0
+    set Refinement fractions = .5,.25,.125
+  end
+  subsection Objectives
+    set Target volume fraction = 4.6e-5
+    set Volume relative tolerance = .05
+    set Minimum tissue coverage = .25
+    set Maximum service distance = .2
+    set Minimum new terminals = 32
+    set Maximum new terminals = 128
+    set Calibration attempt budget = 12
+  end
+  subsection Sampling
+    set Terminal count = 64
+    set Random seed = 23
+    set Density mesh exponent = 0
+  end
+  subsection Growth
+    set Seed length = .15
+  end
+  subsection Physiology
+    set Dynamic viscosity = .004
+    set Total new-tissue reference flow = 2e-9
+    set Reference pressures = 0:12000
+  end
+  subsection Output
+    set Directory = @TEST_OUTPUT_DIR@/vascular-examples/cube_uniform
+  end
+end
