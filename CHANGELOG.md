@@ -420,6 +420,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check sparse common-territory quadrature reassignment against exhaustive nearest-centre results, including stable-id MPI ties, exact demand conservation and staged rollback.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check exact accumulation and subtraction of tissue-demand masses, preserving small positive contributions when dominant masses move between territories and rounding physical totals to binary64.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check physical tissue-demand quadrature against analytical integrals on locally refined hexahedra and tetrahedra, including empty ranks and integration-budget exhaustion before allocation.
