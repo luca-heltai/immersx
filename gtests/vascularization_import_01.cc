@@ -51,6 +51,8 @@ namespace
   void
   controls(Parameters &p)
   {
+    p.terminal_count_multiplier_factor = "none";
+
     p.seed_length        = .12;
     p.seed_direction     = Point<3>(1., 0., 0.);
     p.terminal_count     = 12;
