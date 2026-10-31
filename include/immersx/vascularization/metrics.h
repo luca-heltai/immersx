@@ -7,12 +7,13 @@
 
 namespace ImmersX::Vascularization
 {
+  struct MeshLengthScale;
   struct CoverageParameters
   {
     void
     validate() const;
 
-    /** Metres; zero disables coverage evaluation. */
+    /** Service-distance coefficient; zero disables coverage evaluation. */
     double       service_radius   = 0.;
     unsigned int quadrature_order = 2;
   };
@@ -22,10 +23,10 @@ namespace ImmersX::Vascularization
     double background_volume    = 0.;
     double inside_vessel_volume = 0.;
     double volume_fraction      = 0.;
-    /** Quadrature estimates of service-ball unions, not perfusion proofs. */
+    /** Quadrature estimates of geometric coverage, not perfusion proofs. */
     double arterial_coverage = 0.;
     double venous_coverage   = 0.;
-    /** Points within service_radius of both systems, independent of pairing. */
+    /** Points served by both systems, independently of terminal pairing. */
     double dual_coverage      = 0.;
     bool   coverage_evaluated = false;
     /** Normalization volume of the coverage quadrature, zero if disabled. */
@@ -58,5 +59,22 @@ namespace ImmersX::Vascularization
                  const DiscretizationResult     &discretization,
                  const CoverageParameters       &parameters,
                  MPI_Comm                        communicator);
+
+  /** Measure coverage with a prepared background length scale. A tissue point
+   * is served when its nearest terminal is within service_radius*H(point).
+   * Local mode uses the active tissue cell diameter, independently of the
+   * terminal's containing cell. Physical quadrature weights and volume remain
+   * unchanged. Mesh policies require a scale derived from this background.
+   * Sparse centre routing covers the largest possible threshold. Configuration
+   * errors, including differing scale controls, fail collectively.
+   */
+  TissueMetrics
+  measure_tissue(const dealii::Triangulation<3> &background,
+                 const dealii::Mapping<3>       &mapping,
+                 const NetworkData              &network,
+                 const DiscretizationResult     &discretization,
+                 const CoverageParameters       &parameters,
+                 MPI_Comm                        communicator,
+                 const MeshLengthScale          &scale);
 } // namespace ImmersX::Vascularization
 #endif

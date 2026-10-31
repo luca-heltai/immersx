@@ -466,6 +466,14 @@ normalized measures describe only the inside portions. Constant policies also
 normalize exterior portions. No local diameter is assigned to exterior input.
 The measurement preserves the network, topology, radii and physical properties.
 
+Pass the same prepared scale as the last argument of `measure_tissue()` to
+measure mesh-relative service coverage. A quadrature point is served when its
+nearest tissue terminal is within `service_radius*H(point)`. In local mode,
+`H(point)` is the active tissue cell diameter, not the diameter at the terminal.
+Remote terminal routing uses the maximum possible reach. Arterial, venous and
+dual coverage retain physical `JxW` weights, and overlapping service regions
+count once. The overload without a scale uses physical metre distances.
+
 ## Redistribute physical ownership
 
 For an existing distributed `NetworkData`, `redistribute()` migrates owned

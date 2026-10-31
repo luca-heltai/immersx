@@ -15,6 +15,7 @@
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/compatibility/reference_cell.h>
+#include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/metrics.h>
 
 #include <algorithm>
@@ -144,6 +145,24 @@ namespace ImmersX::Vascularization
                  const CoverageParameters       &parameters,
                  MPI_Comm                        communicator)
   {
+    return measure_tissue(background,
+                          mapping,
+                          network,
+                          discretization,
+                          parameters,
+                          communicator,
+                          MeshLengthScale{});
+  }
+
+  TissueMetrics
+  measure_tissue(const dealii::Triangulation<3> &background,
+                 const dealii::Mapping<3>       &mapping,
+                 const NetworkData              &network,
+                 const DiscretizationResult     &discretization,
+                 const CoverageParameters       &parameters,
+                 MPI_Comm                        communicator,
+                 const MeshLengthScale          &scale)
+  {
     using namespace dealii;
     namespace bgi          = boost::geometry::index;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -152,18 +171,22 @@ namespace ImmersX::Vascularization
                                       communicator) == 1,
                   ExcMessage(message));
     };
-    const std::array<double, 3> controls{
+    const std::array<double, 6> controls{
       {parameters.service_radius,
        static_cast<double>(parameters.quadrature_order),
-       discretization.inside_volume}};
+       discretization.inside_volume,
+       static_cast<double>(scale.policy),
+       scale.mesh_minimum,
+       scale.mesh_maximum}};
     const auto all_controls =
       Utilities::MPI::all_gather(communicator, controls);
     require_all(
       std::all_of(all_controls.begin(),
                   all_controls.end(),
                   [&](const auto &other) { return other == controls; }),
-      "Coverage controls and global inside volume must agree across ranks.");
+      "Coverage and length-scale controls and global inside volume must agree across ranks.");
     parameters.validate();
+    scale.validate();
     int comparison = MPI_UNEQUAL;
     MPI_Comm_compare(background.get_mpi_communicator(),
                      communicator,
@@ -174,7 +197,7 @@ namespace ImmersX::Vascularization
       discretization.validation.valid() &&
         validate_data(network, size).valid() &&
         std::isfinite(discretization.inside_volume) &&
-        discretization.inside_volume >= 0. &&
+        discretization.inside_volume >= 0. && background.n_levels() > 0 &&
         ((mapping_q && mapping_q->get_degree() == 1) ||
          (mapping_fe && mapping_fe->get_degree() == 1)) &&
         (comparison == MPI_IDENT || comparison == MPI_CONGRUENT),
@@ -194,6 +217,11 @@ namespace ImmersX::Vascularization
           compatible_background =
             mapping.is_compatible_with(cell->reference_cell()) &&
             compatible_background;
+          if (scale.policy == LengthScalePolicy::local_mesh_size)
+            compatible_background = compatible_background &&
+                                    std::isfinite(cell->diameter()) &&
+                                    cell->diameter() >= scale.mesh_minimum &&
+                                    cell->diameter() <= scale.mesh_maximum;
         }
     Utilities::MPI::max(families, communicator, families);
     require_all(
@@ -210,16 +238,21 @@ namespace ImmersX::Vascularization
     result.coverage_evaluated = parameters.service_radius > 0.;
     if (!result.coverage_evaluated)
       return result;
-    const auto terminals = service_centres(
-      background, mapping, network, parameters.service_radius, communicator);
+    // Check both extrema before rank-local quadrature can throw on underflow.
+    scale.physical_length(parameters.service_radius, scale.minimum());
+    const double reach =
+      scale.physical_length(parameters.service_radius, scale.maximum());
+    const auto terminals =
+      service_centres(background, mapping, network, reach, communicator);
     const std::array<RTree<Point<3>>, 2> trees{
       {pack_rtree(terminals[0]), pack_rtree(terminals[1])}};
-    const auto served = [&](unsigned int system, const Point<3> &point) {
-      for (const auto &nearest :
-           trees[system] | bgi::adaptors::queried(bgi::nearest(point, 1)))
-        return nearest.distance(point) <= parameters.service_radius;
-      return false;
-    };
+    const auto served =
+      [&](unsigned int system, const Point<3> &point, double threshold) {
+        for (const auto &nearest :
+             trees[system] | bgi::adaptors::queried(bgi::nearest(point, 1)))
+          return nearest.distance(point) <= threshold;
+        return false;
+      };
     // Retain each FE for the lifetime of its FEValues observer. Geometry-only
     // quadrature needs no DoFs and supports both tetrahedra and hexahedra.
     std::array<std::unique_ptr<FE_Nothing<3>>, 2> elements;
@@ -240,6 +273,8 @@ namespace ImmersX::Vascularization
                                                    parameters.quadrature_order),
                 update_quadrature_points | update_JxW_values);
             }
+          const double threshold =
+            scale.physical_length(parameters.service_radius, cell->diameter());
           auto &fe = *values[type];
           fe.reinit(cell);
           for (unsigned int q = 0; q < fe.n_quadrature_points; ++q)
@@ -250,8 +285,10 @@ namespace ImmersX::Vascularization
               result.coverage_quadrature_volume += weight;
               if (result.coverage_evaluated)
                 {
-                  const bool artery = served(0, fe.quadrature_point(q)),
-                             vein   = served(1, fe.quadrature_point(q));
+                  const bool artery =
+                               served(0, fe.quadrature_point(q), threshold),
+                             vein =
+                               served(1, fe.quadrature_point(q), threshold);
                   if (artery)
                     result.arterial_coverage += weight;
                   if (vein)
