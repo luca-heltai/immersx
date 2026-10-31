@@ -12,10 +12,12 @@
 #include "forest_state.h"
 #include "growth_demand.h"
 #include "growth_geometry.h"
+#include "growth_geometry_measure.h"
 
 namespace ImmersX::Vascularization::internal
 {
   struct GrowthCandidatePaths;
+  class GrowthExecution;
   using GrowthRootSumKey = std::pair<unsigned int, Id>;
   // Moments are relative to this subtree's own demand. Changing a root or
   // system normalization therefore does not rewrite its descendants.
@@ -23,12 +25,14 @@ namespace ImmersX::Vascularization::internal
   {
     boost::multiprecision::cpp_int mass;
     long double volume_length = 0., resistance_length = 0., minimum_ratio = 1.;
-    std::uint64_t leaves = 0;
+    long double minimum_scaled_ratio = 1.;
+    std::uint64_t leaves             = 0;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      ar &mass &volume_length &resistance_length &minimum_ratio &leaves;
+      ar &mass &volume_length &resistance_length &minimum_ratio
+        &minimum_scaled_ratio &leaves;
     }
   };
 
@@ -91,7 +95,8 @@ namespace ImmersX::Vascularization::internal
                       const ForestState &,
                       const Parameters &,
                       std::uint64_t,
-                      MPI_Comm);
+                      MPI_Comm,
+                      const GrowthGeometryMeasures *geometry = nullptr);
 
     const ValidationReport &
     validation() const;
@@ -130,11 +135,20 @@ namespace ImmersX::Vascularization::internal
                     GrowthWork *work          = nullptr) const;
 
   private:
+    friend class GrowthExecution;
+
+    GrowthDemandPreview
+    route_demands(const GrowthDemandUpdate &) const;
+    GrowthDemandPreview
+    preview_branches(GrowthDemandPreview, const std::set<Id> &) const;
+
     struct Branch
     {
       ForestBranch topology;
       double       length = 0., viscosity = 0., gamma = 3., leaf_demand = 0.;
       unsigned int system = 0;
+      GrowthGeometryMeasure             geometry;
+      bool                              with_resistance = false;
       std::map<Id, GrowthDemandSummary> children;
       GrowthDemandSummary               value;
     };

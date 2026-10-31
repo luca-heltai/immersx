@@ -46,6 +46,7 @@ namespace ImmersX::Vascularization::internal
     {
       return value.mass > 0 && value.leaves > 0 &&
              positive(value.volume_length) && positive(value.minimum_ratio) &&
+             positive(value.minimum_scaled_ratio) &&
              std::isfinite(value.resistance_length) &&
              value.resistance_length >= 0.;
     }
@@ -58,8 +59,10 @@ namespace ImmersX::Vascularization::internal
     const std::map<Id, GrowthDemandSummary> &children)
   {
     GrowthDemandSummary result;
-    result.volume_length     = branch.length;
-    result.resistance_length = branch.viscosity * branch.length;
+    result.volume_length = branch.length;
+    result.resistance_length =
+      branch.with_resistance ? branch.viscosity * branch.length : 0.;
+    result.minimum_scaled_ratio = 1.L / branch.geometry.radius_scale;
     if (children.empty())
       {
         result.mass   = demand_mass_units(leaf);
@@ -78,8 +81,13 @@ namespace ImmersX::Vascularization::internal
         const long double ratio = ratio_exact.convert_to<long double>();
         result.volume_length +=
           std::pow(ratio, 2.L / branch.gamma) * child.volume_length;
-        result.resistance_length +=
-          std::pow(ratio, 2.L - 4.L / branch.gamma) * child.resistance_length;
+        if (branch.with_resistance)
+          result.resistance_length +=
+            std::pow(ratio, 2.L - 4.L / branch.gamma) * child.resistance_length;
+        result.minimum_scaled_ratio =
+          std::min(result.minimum_scaled_ratio,
+                   std::pow(ratio, 1.L / branch.gamma) *
+                     child.minimum_scaled_ratio);
         result.minimum_ratio =
           std::min(result.minimum_ratio,
                    std::pow(ratio, 1.L / branch.gamma) * child.minimum_ratio);
@@ -87,11 +95,12 @@ namespace ImmersX::Vascularization::internal
     return result;
   }
 
-  GrowthDemandState::GrowthDemandState(const NetworkData &network,
-                                       const ForestState &forest,
-                                       const Parameters  &parameters,
-                                       std::uint64_t      snapshot,
-                                       MPI_Comm           comm)
+  GrowthDemandState::GrowthDemandState(const NetworkData            &network,
+                                       const ForestState            &forest,
+                                       const Parameters             &parameters,
+                                       std::uint64_t                 snapshot,
+                                       MPI_Comm                      comm,
+                                       const GrowthGeometryMeasures *geometry)
     : communicator(comm)
     , revision(snapshot)
     , report(forest.validation)
@@ -105,12 +114,22 @@ namespace ImmersX::Vascularization::internal
           std::pow(static_cast<long double>(forest.total_demand[system]), 2);
     const auto rank  = Utilities::MPI::this_mpi_process(comm);
     const auto size  = Utilities::MPI::n_mpi_processes(comm);
-    bool       valid = report.valid();
+    bool       valid = report.valid() &&
+                 positive(parameters.arterial_murray_exponent) &&
+                 positive(parameters.venous.murray_exponent) &&
+                 std::isfinite(parameters.reference_flow) &&
+                 parameters.reference_flow >= 0. &&
+                 std::isfinite(parameters.dissipation_weight) &&
+                 parameters.dissipation_weight >= 0. &&
+                 parameters.dissipation_weight <= 1.;
+    if (geometry)
+      valid = valid && geometry->size() == forest.owned.size();
     for (auto other : Utilities::MPI::all_gather(comm, snapshot))
       valid = valid && other == snapshot;
-    const std::array<double, 3> controls{{parameters.arterial_murray_exponent,
+    const std::array<double, 4> controls{{parameters.arterial_murray_exponent,
                                           parameters.venous.murray_exponent,
-                                          parameters.dissipation_weight}};
+                                          parameters.dissipation_weight,
+                                          parameters.reference_flow}};
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     std::map<unsigned int, std::vector<std::pair<Id, Id>>> requests;
@@ -124,10 +143,24 @@ namespace ImmersX::Vascularization::internal
             continue;
           }
         Branch branch;
-        branch.topology = topology;
-        branch.length   = length(network, id);
-        branch.viscosity =
-          parameters.dissipation_weight > 0. ? vessel->second.viscosity : 0.;
+        branch.topology        = topology;
+        branch.length          = length(network, id);
+        branch.viscosity       = vessel->second.viscosity;
+        branch.with_resistance = parameters.reference_flow > 0.;
+        if (geometry)
+          {
+            const auto found = geometry->find(id);
+            if (found == geometry->end())
+              valid = false;
+            else
+              branch.geometry = found->second;
+          }
+        else
+          branch.geometry = {branch.length, 1., 1., true};
+        valid = valid && branch.geometry.complete &&
+                positive(branch.geometry.normalized_length) &&
+                positive(branch.geometry.radius_scale) &&
+                positive(branch.geometry.clearance_scale);
         if (vessel->second.system == System::arterial)
           branch.gamma = parameters.arterial_murray_exponent;
         else if (vessel->second.system == System::venous)
@@ -392,7 +425,7 @@ namespace ImmersX::Vascularization::internal
   }
 
   GrowthDemandPreview
-  GrowthDemandState::preview(const GrowthDemandUpdate &update) const
+  GrowthDemandState::route_demands(const GrowthDemandUpdate &update) const
   {
     using namespace dealii;
     const auto          comm = communicator;
@@ -448,9 +481,7 @@ namespace ImmersX::Vascularization::internal
           comm,
           "Each updated terminal must occur once in the execution directory."))
       return result;
-    const auto   delivered = Utilities::MPI::some_to_some(comm, deliveries);
-    std::set<Id> pending;
-    std::map<Id, std::set<Id>> marked;
+    const auto delivered = Utilities::MPI::some_to_some(comm, deliveries);
     for (const auto &[source, items] : delivered)
       for (const auto &[id, demand] : items)
         {
@@ -461,17 +492,60 @@ namespace ImmersX::Vascularization::internal
               valid = false;
               continue;
             }
-          if (demand != b->second.leaf_demand)
-            {
-              marked.emplace(id, std::set<Id>{});
-              pending.insert(id);
-            }
         }
     if (!phase(
           result.validation,
           valid,
           comm,
           "Demand changes must reach current authoritative leaf branches."))
+      return result;
+    return result;
+  }
+
+  GrowthDemandPreview
+  GrowthDemandState::preview(const GrowthDemandUpdate &update) const
+  {
+    auto result = route_demands(update);
+    if (!result.validation.valid())
+      return result;
+    return preview_branches(std::move(result), {});
+  }
+
+  GrowthDemandPreview
+  GrowthDemandState::preview_branches(GrowthDemandPreview result,
+                                      const std::set<Id> &changed) const
+  {
+    using namespace dealii;
+    const auto comm = communicator;
+    bool       valid =
+      result.validation.valid() && result.snapshot_revision == revision;
+    std::set<Id>               pending;
+    std::map<Id, std::set<Id>> marked;
+    for (const auto &[id, demand] : result.leaf_demands)
+      {
+        const auto b = branches.find(id);
+        if (b == branches.end() || !b->second.topology.children.empty() ||
+            !positive(demand))
+          {
+            valid = false;
+            continue;
+          }
+        if (demand != b->second.leaf_demand)
+          pending.insert(id);
+      }
+    for (Id id : changed)
+      if (branches.count(id))
+        pending.insert(id);
+      else
+        valid = false;
+    for (Id id : pending)
+      marked.emplace(id, std::set<Id>{});
+    if (
+      !phase(
+        result.validation,
+        valid,
+        comm,
+        "Recomputation seeds must be authoritative branches of the current topology."))
       return result;
     while (
       Utilities::MPI::sum(static_cast<std::uint64_t>(pending.size()), comm) > 0)
@@ -524,11 +598,13 @@ namespace ImmersX::Vascularization::internal
             auto        children = b.children;
             for (const auto &[child, value] : changed_children[id])
               children.at(child) = value;
-            auto value = aggregate(b,
-                                   b.topology.children.empty() ?
-                                     result.leaf_demands.at(id) :
-                                     0.,
-                                   children);
+            const auto   leaf = result.leaf_demands.find(id);
+            const double demand =
+              b.topology.children.empty() ?
+                (leaf == result.leaf_demands.end() ? b.leaf_demand :
+                                                     leaf->second) :
+                0.;
+            auto value = aggregate(b, demand, children);
             valid      = valid_summary(value) &&
                     result.owned.emplace(id, value).second && valid;
             ++result.recomputed_branches;

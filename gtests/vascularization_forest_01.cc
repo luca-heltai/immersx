@@ -2415,3 +2415,96 @@ TEST(VascularForest, BOTH_OneRootDemandUpdateDoesNotVisitOtherRoots)
                   2.e-13);
     }
 }
+
+TEST(VascularForest, BOTH_ScaledRadiusMinimumIncludesCoarseInternalBranch)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  for (unsigned int refinement = 0; refinement < 2; ++refinement)
+    {
+      for (const auto &cell : bg.active_cell_iterators())
+        if (cell->is_locally_owned() && cell->center()[0] >= 1.)
+          cell->set_refine_flag();
+      bg.execute_coarsening_and_refinement();
+    }
+  double local_min = std::numeric_limits<double>::infinity(), local_max = 0.;
+  double local_transition = 0.;
+  for (const auto &cell : bg.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        local_min = std::min(local_min, cell->diameter());
+        local_max = std::max(local_max, cell->diameter());
+        if (cell->center()[0] > .5 && cell->center()[0] < 1.)
+          local_transition = std::max(local_transition, cell->diameter());
+      }
+  const double fine   = Utilities::MPI::min(local_min, MPI_COMM_WORLD);
+  const double coarse = Utilities::MPI::max(local_max, MPI_COMM_WORLD);
+  const double transition =
+    Utilities::MPI::max(local_transition, MPI_COMM_WORLD);
+  ASSERT_NEAR(fine * 4., coarse, 2.e-14 * coarse);
+  ASSERT_NEAR(transition * 2., coarse, 2.e-14 * coarse);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  const auto   accepted = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  GrowthGeometryMeasures measures;
+  for (const auto &[id, branch] : accepted.owned)
+    {
+      const bool   root  = branch.parent == invalid_id;
+      const double scale = root ? coarse : fine;
+      // Only the root traverses x<1. All other mutable segments lie in the
+      // uniformly twice-refined region, so these integrals are analytical.
+      const double normalized =
+        root ? .2 / coarse + .5 / transition + .2 / fine : length(n, id) / fine;
+      measures.emplace(id,
+                       GrowthGeometryMeasure{normalized, scale, scale, true});
+    }
+  GrowthDemandState state(n, accepted, p, 31, MPI_COMM_WORLD, &measures);
+  ASSERT_TRUE(state.validation().valid());
+  double leaf_min = std::numeric_limits<double>::infinity();
+  for (const auto &[id, branch] : accepted.owned)
+    {
+      if (branch.children.empty())
+        leaf_min =
+          std::min(leaf_min, branch.radius / branch.root_radius / fine);
+      if (branch.parent == invalid_id)
+        {
+          EXPECT_NEAR(static_cast<double>(
+                        state.summary(id).minimum_scaled_ratio),
+                      1. / coarse,
+                      2.e-13 / coarse);
+          EXPECT_NEAR(static_cast<double>(state.summary(id).minimum_ratio),
+                      std::pow(branch.minimum_demand / branch.demand,
+                               1. / p.arterial_murray_exponent),
+                      2.e-13);
+        }
+    }
+  EXPECT_GT(Utilities::MPI::min(leaf_min, MPI_COMM_WORLD), 1. / coarse);
+  auto incomplete = measures;
+  for (auto &[id, value] : incomplete)
+    if (id == base + 11)
+      value.complete = false;
+  GrowthDemandState invalid(n, accepted, p, 31, MPI_COMM_WORLD, &incomplete);
+  EXPECT_FALSE(invalid.validation().valid());
+}
+
+TEST(VascularForest, BOTH_DemandStateTracksPowerWithoutObjectiveWeight)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.reference_flow     = 2.e-9;
+  p.dissipation_weight = 0.;
+  const auto accepted  = evaluate(n, p);
+  ASSERT_TRUE(accepted.validation.valid());
+  ASSERT_GT(accepted.power[0], 0.);
+  GrowthDemandState state(n, accepted, p, 5, MPI_COMM_WORLD);
+  ASSERT_TRUE(state.validation().valid());
+  const auto       &totals = state.totals();
+  const long double power =
+    p.reference_flow * p.reference_flow * totals[2] / totals[0] / totals[0];
+  EXPECT_NEAR(static_cast<double>(power / accepted.power[0]), 1., 2.e-13);
+}
