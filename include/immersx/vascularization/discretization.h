@@ -10,6 +10,7 @@
 #include <deal.II/grid/cell_id.h>
 #include <deal.II/grid/tria.h>
 
+#include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/network.h>
 
 namespace ImmersX::Vascularization
@@ -41,6 +42,7 @@ namespace ImmersX::Vascularization
 
   struct DiscretizationResult
   {
+    GrowthWork work;
     /** Numerical intervals of locally owned physical vessels. Their execution
      * owner may differ from the physical vessel owner. */
     std::vector<DiscretizationCell> cells;

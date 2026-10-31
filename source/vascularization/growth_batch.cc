@@ -12,6 +12,8 @@
 
 #include <tuple>
 
+#include "growth_work.h"
+
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -59,7 +61,8 @@ namespace ImmersX::Vascularization::internal
                       const Parameters                 &parameters,
                       MPI_Comm                          comm,
                       const std::function<double(Id)>  &radius,
-                      bool check_snapshot_obstacles)
+                      bool        check_snapshot_obstacles,
+                      GrowthWork *work)
   {
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
                size = Utilities::MPI::n_mpi_processes(comm);
@@ -68,7 +71,7 @@ namespace ImmersX::Vascularization::internal
                      comm,
                      &comparison);
     bool valid = (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
-                 validate_data(network, size).valid();
+                 validate_counted_data(network, size, work).valid();
     std::set<Id> local_ids;
     for (const auto &p : local)
       {
@@ -176,6 +179,7 @@ namespace ImmersX::Vascularization::internal
     Particles::ParticleHandler<3> points(geometry.cache.get_triangulation(),
                                          geometry.mapping,
                                          3);
+    count_work(work, GrowthOperation::node_localizations, positions.size());
     points.insert_global_particles(positions, boxes, point_properties);
     // The native search tolerance selects candidate cells. Recheck physical
     // locations without its clamped reference coordinates, allowing only
@@ -223,6 +227,8 @@ namespace ImmersX::Vascularization::internal
                               id);
           max_radius = std::max(max_radius, radius(id));
         }
+    count_work(work, GrowthOperation::network_index_builds);
+    count_work(work, GrowthOperation::network_index_insertions, leaves.size());
     const auto                  obstacles = pack_rtree(leaves);
     std::map<ProposalKey, Vote> votes;
     for (const auto &[key, p] : proposals)
@@ -279,21 +285,28 @@ namespace ImmersX::Vascularization::internal
               vote.valid = vote.valid && compatible(e,
                                                     p.changed[j],
                                                     parameters.minimum_angle,
-                                                    parameters.clearance);
+                                                    parameters.clearance,
+                                                    work);
+            count_work(work, GrowthOperation::network_index_queries);
             for (const auto &[s, id] :
                  obstacles |
                    bgi::adaptors::queried(bgi::intersects(
                      envelope_box(e, parameters.clearance + max_radius))))
-              if (check_snapshot_obstacles && !p.owners.count(id))
-                {
-                  const auto &v = network.vessels.at(id);
-                  vote.valid =
-                    vote.valid &&
-                    compatible(e,
-                               {id, v.nodes, {{s.first, s.second}}, radius(id)},
-                               parameters.minimum_angle,
-                               parameters.clearance);
-                }
+              {
+                count_work(work, GrowthOperation::network_index_hits);
+                if (check_snapshot_obstacles && !p.owners.count(id))
+                  {
+                    const auto &v = network.vessels.at(id);
+                    vote.valid =
+                      vote.valid &&
+                      compatible(
+                        e,
+                        {id, v.nodes, {{s.first, s.second}}, radius(id)},
+                        parameters.minimum_angle,
+                        parameters.clearance,
+                        work);
+                  }
+              }
           }
       }
     std::vector<std::pair<BoundingBox<3>, ProposalKey>> changed_boxes;
@@ -307,16 +320,24 @@ namespace ImmersX::Vascularization::internal
           for (Id node : edge.nodes)
             node_writers[node].insert(key);
         }
+    count_work(work, GrowthOperation::network_index_builds);
+    count_work(work,
+               GrowthOperation::network_index_insertions,
+               changed_boxes.size());
     const auto changed_tree = pack_rtree(changed_boxes);
     for (const auto &[a, proposal] : proposals)
       {
         std::set<ProposalKey> nearby;
         for (const auto &edge : proposal.changed)
           {
+            count_work(work, GrowthOperation::network_index_queries);
             for (const auto &[box, key] :
                  changed_tree | bgi::adaptors::queried(bgi::intersects(
                                   envelope_box(edge, parameters.clearance))))
-              nearby.insert(key);
+              {
+                count_work(work, GrowthOperation::network_index_hits);
+                nearby.insert(key);
+              }
             // Identifier conflicts and shared-junction angles remain relevant
             // independently of the provisional geometric descriptions.
             const auto &writers = vessel_writers.at(edge.id);
@@ -337,7 +358,8 @@ namespace ImmersX::Vascularization::internal
                   if (e.id == f.id || !compatible(e,
                                                   f,
                                                   parameters.minimum_angle,
-                                                  parameters.clearance))
+                                                  parameters.clearance,
+                                                  work))
                     conflict = true;
               if (conflict)
                 {

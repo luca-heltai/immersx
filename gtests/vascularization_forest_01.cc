@@ -1556,3 +1556,41 @@ TEST(VascularForest,
   EXPECT_EQ(double_claim.batches, 0u);
   EXPECT_EQ(n.nodes.count(base + 10002), 0u);
 }
+
+TEST(VascularForest, BOTH_FullCommitWorkCounts)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  const auto   raw = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.minimum_angle = 1.;
+  GrowthWork work;
+  const auto result = commit_growth_splits(bg,
+                                           mapping,
+                                           raw,
+                                           mutable_ids(raw),
+                                           roots(raw),
+                                           {},
+                                           p,
+                                           MPI_COMM_WORLD,
+                                           &work);
+  ASSERT_TRUE(result.committed);
+  const auto total = [&](GrowthOperation operation) {
+    return Utilities::MPI::sum(work[operation], MPI_COMM_WORLD);
+  };
+  std::uint64_t owned = 0;
+  for (const auto &[id, v] : raw.vessels)
+    if (v.owner == rank())
+      ++owned;
+  owned = Utilities::MPI::sum(owned, MPI_COMM_WORLD);
+  const auto changed =
+    Utilities::MPI::sum(static_cast<std::uint64_t>(mutable_ids(raw).size()),
+                        MPI_COMM_WORLD);
+  // The independent full commit relocates every midpoint twice. This gate
+  // exposes that cost even when ordinary growth uses an incremental backend.
+  EXPECT_EQ(total(GrowthOperation::vessel_midpoint_localizations), 2 * owned);
+  EXPECT_EQ(total(GrowthOperation::certified_vessels), changed);
+  EXPECT_EQ(total(GrowthOperation::materialized_vessels), changed);
+  EXPECT_GT(total(GrowthOperation::physical_copy_attempts), owned);
+}
