@@ -99,7 +99,8 @@ namespace ImmersX::Vascularization::internal
                   const std::map<Id, double> &fixed_owned_roots,
                   const Parameters           &parameters,
                   MPI_Comm                    comm,
-                  const MeshLengthScale      &scale)
+                  const MeshLengthScale      &scale,
+                  GrowthWork                 *work)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -183,6 +184,9 @@ namespace ImmersX::Vascularization::internal
                              parameters.venous.murray_exponent;
     };
     std::map<Rank, Packet> send;
+    count_work(work,
+               GrowthOperation::physiology_branch_visits,
+               mutable_owned.size());
     for (Id id : mutable_owned)
       {
         const auto &v = network.vessels.at(id);
@@ -350,6 +354,9 @@ namespace ImmersX::Vascularization::internal
       {
         ++result.upward_levels;
         std::map<Rank, std::vector<Up>> packets;
+        count_work(work,
+                   GrowthOperation::physiology_branch_visits,
+                   ready.size());
         for (Id id : ready)
           {
             auto        &b = result.owned.at(id);
@@ -471,6 +478,9 @@ namespace ImmersX::Vascularization::internal
       {
         ++result.downward_levels;
         std::map<Rank, std::vector<Down>> packets;
+        count_work(work,
+                   GrowthOperation::physiology_branch_visits,
+                   down.size());
         for (const auto &d : down)
           {
             const auto found = result.owned.find(d.target);
@@ -517,6 +527,9 @@ namespace ImmersX::Vascularization::internal
       return result;
     std::array<double, 2> local_volume{{0., 0.}}, local_power{{0., 0.}};
     std::map<Rank, std::map<Id, double>> leaf_flows;
+    count_work(work,
+               GrowthOperation::physiology_branch_visits,
+               result.owned.size());
     for (auto &[id, b] : result.owned)
       {
         const auto  &v      = network.vessels.at(id);

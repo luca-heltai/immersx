@@ -284,6 +284,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep liver input lengths in metres and tissue counts absolute when layered on mesh-adaptive generation; retain the independently counted full-commit geometry oracle.
+
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Build surface volume generation and retained vascular indices with the deal.II 9.7 and Boost toolchain used by CI, preserving conforming hexahedral output and physical vessel identities during index updates.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
