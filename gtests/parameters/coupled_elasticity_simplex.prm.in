@@ -16,7 +16,7 @@ subsection Immersed Problem
   subsection Immersed inclusions
     set Inclusions file = @TEST_DATA_DIR@/tests/simplex_tissue_vessel.txt
     set Inclusions refinement = 16
-    set Number of fourier coefficients = 3
+    set Number of fourier coefficients = 2
     set Selection of Fourier coefficients = 3,7
     set Reference inclusion data = 0,0,0,0,0,0,0,0,0
   end
