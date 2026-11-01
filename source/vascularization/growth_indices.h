@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #ifndef immersx_internal_growth_indices_h
 #define immersx_internal_growth_indices_h
-#include <boost/geometry/algorithms/equals.hpp>
-
 #include <set>
 
 #include "growth_geometry.h"

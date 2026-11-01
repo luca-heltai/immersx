@@ -11,13 +11,15 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <utility>
 
 #include "growth_demand.h"
 namespace ImmersX::Vascularization::internal
 {
-  // All callbacks participate on every rank. Isolated previews are called in
-  // global key order, with key=(producer rank, allocated new terminal id).
-  // BatchProposal.id must use that id; the physical vessel id is separate.
+  // Demand transaction callbacks participate on every rank. Isolated previews
+  // are called in global key order, with key=(producer rank, allocated new
+  // terminal id). BatchProposal.id must use that id; the physical vessel id is
+  // separate.
   struct GrowthDemandCallbacks
   {
     std::function<GrowthDemandJointUpdate(const NetworkData &,
@@ -38,6 +40,9 @@ namespace ImmersX::Vascularization::internal
     // No further preview is allowed until adopt/discard finishes that stage.
     std::function<void(std::uint64_t, std::uint64_t)> prepare_adopt;
     std::function<void()>                             adopt, discard;
+    // Local read of already-known global accepted/peak point counts.
+    std::function<std::pair<std::uint64_t, std::uint64_t>()>
+      quadrature_diagnostics;
   };
 
   struct GrowthLeafTerminals

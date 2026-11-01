@@ -59,6 +59,7 @@ TEST(VascularForest, BOTH_AcceptedSelectionMatchesFullNativeGeometryVote)
             roots.emplace(0, .003);
           }
         Parameters p("/Native accepted selector/");
+        p.length_scale   = "meter";
         p.minimum_length = 0.;
         p.minimum_angle  = 15.;
         GrowthWork                                             work;
@@ -84,26 +85,24 @@ TEST(VascularForest, BOTH_AcceptedSelectionMatchesFullNativeGeometryVote)
               id,
               Segment<3>{initial.network.nodes.at(v.nodes[0]).position,
                          initial.network.nodes.at(v.nodes[1]).position});
-        const auto measure = [](const GrowthGeometrySegments &query) {
-          GrowthGeometryMeasures values;
-          for (const auto &[id, segment] : query)
-            values.emplace(
-              id,
-              GrowthGeometryMeasure{
-                segment.first.distance(segment.second), 1., 1., true});
-          return values;
-        };
-        GrowthExecution execution(initial.network,
-                                  initial.physiology,
-                                  p,
-                                  1,
-                                  geometry,
-                                  measure(segments),
-                                  measure,
-                                  {},
-                                  0.,
-                                  MPI_COMM_WORLD,
-                                  &work);
+        const auto measures =
+          geometry.measure_segments(segments, MPI_COMM_WORLD);
+        GrowthExecution execution(
+          initial.network,
+          initial.physiology,
+          p,
+          1,
+          geometry,
+          measures,
+          [&](const GrowthGeometrySegments &query) {
+            return geometry.measure_segments(query, MPI_COMM_WORLD);
+          },
+          [&](const GrowthGeometrySegments &query) {
+            geometry.release_profiles(query);
+          },
+          0.,
+          MPI_COMM_WORLD,
+          &work);
         ASSERT_TRUE(execution.validation().valid());
         const auto                   accepted = execution.accepted_snapshot();
         std::map<Id, const Vessel *> addresses;

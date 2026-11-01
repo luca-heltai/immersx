@@ -95,10 +95,24 @@ def validate(directory, case):
     assert seen == set(nodes)
     branch_nodes = {node for node in children if children[node]}
     assert {int(t['node']) for t in terminals.values()} == set(nodes)-branch_nodes
+    terminal_demands = {}
+    for terminal in terminals.values():
+        node = int(terminal['node'])
+        value = float(terminal['demand'])
+        assert math.isfinite(value) and value > 0.
+        assert node not in terminal_demands
+        terminal_demands[node] = value
+        close(value, float(territories[int(terminal['territory'])]['demand']))
+    total_demand = math.fsum(terminal_demands.values())
+    close(total_demand, side**3)
     descendants = {}
+    subtree_demands = {}
     for node in reversed(order):
         descendants[node] = sum(descendants[c] for c, _ in children[node]) if children[node] else 1
+        subtree_demands[node] = (math.fsum(subtree_demands[c] for c, _ in children[node])
+                                 if children[node] else terminal_demands[node])
     assert descendants[0] == count
+    close(subtree_demands[0], total_demand)
     angles = []
     for node in order:
         rays = [tuple(x-y for x, y in zip(xyz(nodes[c]), xyz(nodes[node])))
@@ -113,10 +127,10 @@ def validate(directory, case):
     assert not angles or min(angles) >= 15-1.e-9
     for vessel in vessels.values():
         a, b = (nodes[int(vessel[k])] for k in ('node0', 'node1'))
-        n = descendants[int(vessel['node1'])]
-        close(float(vessel['radius0']), radius*(n/count)**(1/3))
+        fraction = subtree_demands[int(vessel['node1'])] / total_demand
+        close(float(vessel['radius0']), radius*fraction**(1/3))
         close(float(vessel['radius1']), float(vessel['radius0']))
-        assert math.isclose(float(vessel['flow']), flow*n/count, rel_tol=1.e-8)
+        assert math.isclose(float(vessel['flow']), flow*fraction, rel_tol=1.e-8)
         close(float(vessel['viscosity']), .004)
         close(float(vessel['length']), math.dist(xyz(a), xyz(b)))
         pressure_drop = float(a['pressure'])-float(b['pressure'])
@@ -124,8 +138,8 @@ def validate(directory, case):
                             rel_tol=5.e-8, abs_tol=64*sys.float_info.epsilon*max(abs(float(a['pressure'])), abs(float(b['pressure']))))
     assert {int(t['territory']) for t in terminals.values()} == set(territories)
     for terminal in terminals.values():
-        assert math.isclose(float(terminal['actual_outflow']), flow/count, rel_tol=1.e-8)
-        close(float(terminal['demand']), 1.)
+        fraction = float(terminal['demand']) / total_demand
+        assert math.isclose(float(terminal['actual_outflow']), flow*fraction, rel_tol=1.e-8)
     integrals, intervals = defaultdict(lambda: [0., 0.]), defaultdict(list)
     for cell in tables(directory, 'intervals'):
         assert cell['inside'] == '1'
@@ -210,6 +224,7 @@ def validate(directory, case):
 def parameters(case, output):
     return f'''# Declared synthetic SI benchmark; not an organ calibration.
 subsection Vascularization
+ set Length scale = meter
  subsection Input and ports
   set Mode = generate
   set Seed position = {.2*case['side']},{.5*case['side']},{.5*case['side']}
@@ -224,6 +239,7 @@ subsection Vascularization
  end
  subsection Growth
   set Seed length = .15
+  set Minimum vessel length = 0
  end
  subsection Sampling
   set Terminal count = {case['terminals']}
