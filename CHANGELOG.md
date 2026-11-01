@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance vascular and venous-territory candidates by physical identifier. Reuse native nearest cursors while venous outlets reject or claim candidate territories. Optional MPI profiling separates growth initialization, batch ranges and finalization without additional communication. Use the owning incremental transaction for ordinary public generation, with sparse native selection and one independent full reconstruction at output. Growth tables separate initialization and finalization operation counts from ordinary batch work. Reuse one background geometry context through arterial startup, venous growth and calibration attempts. Sweep background crossing intervals, traverse metric cuts with a cursor and update local subdivision cuts without shifting complete vectors.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Grow vascular networks with persistent native ownership, spatial indices and demand summaries, updating and certifying affected records in one rollback-capable transaction. Share background caches through arterial/venous growth and calibration, retain venous nearest cursors, and sweep subdivision intervals without repeated full scans. Report initialization, ordinary and finalization work separately, with optional MPI phase profiling.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 
@@ -339,6 +339,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Document the complete vascular cost inventory, invalidation and rollback rules, reproducible four-size performance measurements, memory and communication counts, and inherited arterial/venous convergence limits.
+
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Explain terminal sampling weights, cell-interface conventions and count normalization separately from numerical vessel resolution.
@@ -415,7 +417,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii, journal rollback and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check native ownership and physical aggregation after concurrent branch edits and terminal remapping. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero. Check cached branch resistance extrema and minimum leaf demand after staged edits. Compare owning execution rejection, retry, native owner migration and SI ghost output with immutable full commits. Check candidate envelope queries against full-forest trial collisions after demand transfers between roots. Keep per-batch physical-bound checks limited to changed roots while retaining the flow minimum on untouched distant leaves. Compare retained venous nearest cursors with exhaustive searches through successive exclusions, concurrent claims and exact-distance ties. Reuse certified ancestor headroom without recertification and check that expired doubling events tighten their envelopes once. Verify nested MPI phase attribution, zero-byte sends, null destinations and asynchronous reductions against known native MPI payloads. Compare sparse preliminary selection with full native geometry votes while unrelated input grows, and check that ordinary public growth does not rebuild background caches or materialize all vessels. Count one background cache and boundary index per rank across both vascular systems and calibration retries. Bound crossing and subdivision work on segments crossing 8, 32, 128 and 512 cells, including exterior pieces and distributed owners.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 

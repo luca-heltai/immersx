@@ -1010,7 +1010,10 @@ total to obtain ordinary batch work. Initialization builds the accepted state;
 finalization materializes physical radii and native ghosts and runs the
 independent full reconstruction once. `finalization_seconds` is separate from
 the accumulated batch `total_seconds`. Commit subphase times remain included
-in `commit_seconds`.
+in `commit_seconds`. Initialization operation counts include shared outer seed
+preparation, whereas `initialization_seconds` covers the forest-growth call.
+See the [execution cost report](../developer/vascular-growth-costs.md) for the
+A–K audit, measurements, remaining costs and validation scope.
 
 An instrumented forest-growth loop also records `growth-mpi-RANK.csv` in that
 profiling directory. Each row identifies a local run, system, requested count,
