@@ -474,6 +474,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Include the Boost segment equality definition explicitly so persistent 3D vascular indices build with deal.II 9.7 headers.
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Include Boost point and box equality for incremental tissue-territory indices when building with deal.II 9.7 headers.
+
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Fix compilation of venous network generation with deal.II 9.7.1 and its Boost.Geometry headers.
 
 - [PR #303](https://github.com/luca-heltai/immersx/pull/303) Distribute precompiled Release applications in AMD64 and ARM64 OCI images for Docker, Podman, and Apptainer, with default help, application selection, a standalone MPI launcher, and tested GHCR publication.
