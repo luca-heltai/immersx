@@ -72,14 +72,22 @@ namespace ImmersX::Vascularization::internal
                         std::set<Id>                   &mutable_owned,
                         std::map<Id, double>           &roots,
                         double                          halo,
-                        MPI_Comm                        comm)
+                        MPI_Comm                        comm,
+                        BackgroundGeometry             *geometry)
   {
     std::map<unsigned int, std::map<Id, double>> routes;
     auto result = redistribute_with_owners(
-      bg, mapping, network, halo, comm, [&](Id id, unsigned int owner) {
+      bg,
+      mapping,
+      network,
+      halo,
+      comm,
+      [&](Id id, unsigned int owner) {
         if (mutable_owned.count(id))
           routes[owner].emplace(id, roots.count(id) ? roots.at(id) : 0.);
-      });
+      },
+      geometry,
+      geometry ? geometry->counts : nullptr);
     const auto metadata = dealii::Utilities::MPI::some_to_some(comm, routes);
     mutable_owned.clear();
     roots.clear();
@@ -116,7 +124,8 @@ namespace ImmersX::Vascularization::internal
           {"growth commit", invalid_id, message});
       return all;
     };
-    bool valid = validate_counted_data(snapshot, size, work).valid() &&
+    auto *work  = shared_geometry ? shared_geometry->counts : nullptr;
+    bool  valid = validate_counted_data(snapshot, size, work).valid() &&
                  std::isfinite(p.clearance) && p.clearance >= 0. &&
                  std::isfinite(p.minimum_length) && p.minimum_length >= 0. &&
                  std::isfinite(p.minimum_angle) && p.minimum_angle >= 0. &&
@@ -161,11 +170,10 @@ namespace ImmersX::Vascularization::internal
     count_work(work,
                GrowthOperation::metadata_copy_attempts,
                mutable_owned.size() + fixed_owned_roots.size());
-    auto                  trial = snapshot;
-    auto                  ids   = mutable_owned;
-    auto                  roots = fixed_owned_roots;
-    std::set<Id>          written;
-    GrowthGeometryChanges changes;
+    auto         trial = snapshot;
+    auto         ids   = mutable_owned;
+    auto         roots = fixed_owned_roots;
+    std::set<Id> written;
     for (const auto &[producer, splits] : patches)
       for (const auto &s : splits)
         {
@@ -188,10 +196,12 @@ namespace ImmersX::Vascularization::internal
           "A split is stale, duplicates a write, or changes a frozen vessel."))
       return result;
     Timer timer;
-    trial = migrate_growth_forest(bg, mapping, trial, ids, roots, halo, comm);
+    trial = migrate_growth_forest(
+      bg, mapping, trial, ids, roots, halo, comm, &geometry);
     result.redistribution_seconds = timer.wall_time();
     const double physiology_begin = timer.wall_time();
-    auto         state = evaluate_forest(trial, ids, roots, p, comm, scale);
+    count_work(work, GrowthOperation::physiology_branch_visits, ids.size());
+    auto state = evaluate_forest(trial, ids, roots, p, comm, scale);
     if (!state.validation.valid())
       {
         result.physiology_seconds = timer.wall_time() - physiology_begin;
@@ -204,7 +214,8 @@ namespace ImmersX::Vascularization::internal
     result.physiology_seconds = timer.wall_time() - physiology_begin;
     // Enlarged radii need refreshed multi-partition geometric ghosts.
     const double migration_begin = timer.wall_time();
-    trial = migrate_growth_forest(bg, mapping, trial, ids, roots, halo, comm);
+    trial                        = migrate_growth_forest(
+      bg, mapping, trial, ids, roots, halo, comm, &geometry);
     result.redistribution_seconds += timer.wall_time() - migration_begin;
     const double               certification_begin = timer.wall_time();
     std::vector<BatchProposal> checks;

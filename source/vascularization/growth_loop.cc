@@ -20,9 +20,11 @@
 #include <memory>
 #include <random>
 
+#include "growth_mpi_scope.h"
 #include "growth_paths.h"
 #include "growth_sampling.h"
 #include "growth_selection.h"
+#include "growth_work.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -155,11 +157,11 @@ namespace ImmersX::Vascularization::internal
     auto              *work = &run.work;
     const unsigned int terminal_count =
       requested_count == 0 ? p.terminal_count : requested_count;
-    GrowthMpiRun mpi(static_cast<unsigned int>(system), terminal_count);
-    auto         mpi_initialization = mpi.phase(GrowthMpiPhase::initialization);
-    const unsigned int rank         = Utilities::MPI::this_mpi_process(comm),
-                       size         = Utilities::MPI::n_mpi_processes(comm);
-    const auto phase = [&](bool valid, const std::string &message) {
+    GrowthMpiRun mpi_run(static_cast<unsigned int>(system), terminal_count);
+    auto initialization_scope = mpi_run.phase(GrowthMpiPhase::initialization);
+    const unsigned int rank   = Utilities::MPI::this_mpi_process(comm),
+                       size   = Utilities::MPI::n_mpi_processes(comm);
+    const auto phase          = [&](bool valid, const std::string &message) {
       const bool all =
         Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1;
       if (!all)
@@ -242,6 +244,7 @@ namespace ImmersX::Vascularization::internal
     // Startup has established native topology and fixed physical radii only.
     // Assign all initial Di before the first Murray/flow/objective evaluation,
     // including a request satisfied by its initial leaves without insertions.
+    count_copy(work, initial);
     auto                    weighted_initial = initial;
     GrowthDemandJointUpdate initial_demands;
     if (demand_callbacks.bootstrap)
@@ -526,6 +529,7 @@ namespace ImmersX::Vascularization::internal
         }
     };
     const auto finish = [&]() {
+      auto mpi_scope = mpi_run.phase(GrowthMpiPhase::finalization, count);
       const double final_begin = timer.wall_time();
       const auto   final_work  = *work;
       auto         output      = execution.materialize();
@@ -617,8 +621,10 @@ namespace ImmersX::Vascularization::internal
     bucket(count).initialization_work += *work;
     unsigned int failures                     = 0;
     bool         integration_budget_exhausted = false;
+    initialization_scope.finish();
     while (count < terminal_count && failures < p.sample_budget)
       {
+        auto       mpi_scope   = mpi_run.phase(GrowthMpiPhase::batch, count);
         auto      &statistics  = bucket(count);
         const auto work_before = *work;
         const auto accepted    = execution.accepted_snapshot();
@@ -864,15 +870,23 @@ namespace ImmersX::Vascularization::internal
                     std::max(obstacle_radius, obstacle.edge.radius);
                 }
               const auto obstacle_tree = pack_rtree(obstacle_leaves);
+              count_work(work, GrowthOperation::network_index_builds);
+              count_work(work,
+                         GrowthOperation::network_index_insertions,
+                         obstacle_leaves.size());
               search_seconds += timer.wall_time() - search_begin;
               const double optimization_begin = timer.wall_time();
               if (rank == producer && target)
                 for (const auto &hit : nearby)
                   {
-                    const auto &x     = paths.contexts.at(hit.id);
-                    const auto  radii = candidate_radii(x, terminal_demand);
+                    const auto &x = paths.contexts.at(hit.id);
+                    const auto  radii =
+                      candidate_radii(x, terminal_demand, work);
                     if (!radii)
                       continue;
+                    count_work(work,
+                               GrowthOperation::candidate_path_visits,
+                               x.path.size());
                     std::map<Id, Point<3>> port_normals;
                     for (const auto &branch : x.path)
                       for (unsigned int end = 0; end < 2; ++end)
@@ -909,6 +923,10 @@ namespace ImmersX::Vascularization::internal
                               i);
                           }
                         const auto trial_tree = pack_rtree(trial_leaves);
+                        count_work(work, GrowthOperation::network_index_builds);
+                        count_work(work,
+                                   GrowthOperation::network_index_insertions,
+                                   trial_leaves.size());
                         for (std::size_t i = 0; i < changed.size(); ++i)
                           {
                             const auto &e = changed[i];
@@ -935,41 +953,55 @@ namespace ImmersX::Vascularization::internal
                               64. * std::numeric_limits<double>::epsilon() *
                               std::max(
                                 {1., e.points[0].norm(), e.points[1].norm()});
+                            count_work(work,
+                                       GrowthOperation::network_index_queries);
                             for (const auto &[segment, id] :
                                  obstacle_tree |
                                    bgi::adaptors::queried(bgi::intersects(
                                      envelope(e,
                                               e.radius + obstacle_radius +
                                                 broad_clearance + guard))))
-                              if (!replaced.count(id))
-                                {
-                                  auto obstacle = obstacles.at(id).edge;
-                                  obstacle.radius =
-                                    (*radii)(id,
-                                             obstacles.at(id).root,
-                                             obstacle.radius);
-                                  if (!compatible(e,
-                                                  obstacle,
-                                                  p.minimum_angle,
-                                                  clearance_lower))
-                                    return false;
-                                }
+                              {
+                                count_work(work,
+                                           GrowthOperation::network_index_hits);
+                                if (!replaced.count(id))
+                                  {
+                                    auto obstacle = obstacles.at(id).edge;
+                                    obstacle.radius =
+                                      (*radii)(id,
+                                               obstacles.at(id).root,
+                                               obstacle.radius);
+                                    if (!compatible(e,
+                                                    obstacle,
+                                                    p.minimum_angle,
+                                                    clearance_lower,
+                                                    work))
+                                      return false;
+                                  }
+                              }
+                            count_work(work,
+                                       GrowthOperation::network_index_queries);
                             for (const auto &[box, j] :
                                  trial_tree |
                                    bgi::adaptors::queried(
                                      bgi::intersects(trial_leaves[i].first)))
-                              if (j != i &&
-                                  (j > i || covered.count(changed[j].id)) &&
-                                  !compatible(e,
-                                              changed[j],
-                                              p.minimum_angle,
-                                              clearance_lower))
-                                return false;
+                              {
+                                count_work(work,
+                                           GrowthOperation::network_index_hits);
+                                if (j != i &&
+                                    (j > i || covered.count(changed[j].id)) &&
+                                    !compatible(e,
+                                                changed[j],
+                                                p.minimum_angle,
+                                                clearance_lower,
+                                                work))
+                                  return false;
+                              }
                           }
                         return true;
                       };
                     if (auto proposal = optimize_growth(
-                          x, p, *target, terminal_demand, cheap_geometry))
+                          x, p, *target, terminal_demand, cheap_geometry, work))
                       if (!best || proposal->cost < best->cost)
                         {
                           best   = std::move(proposal);

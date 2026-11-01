@@ -38,7 +38,8 @@ namespace ImmersX::Vascularization::internal
                        const std::set<Id>             &mutable_owned,
                        const std::map<Id, double>     &fixed_owned_roots,
                        double                          halo,
-                       MPI_Comm                        communicator);
+                       MPI_Comm                        communicator,
+                       BackgroundGeometry             *geometry = nullptr);
   struct AttachmentStartup
   {
     GrowthPreparation accepted;
@@ -52,7 +53,8 @@ namespace ImmersX::Vascularization::internal
                     const NetworkData              &initial,
                     const Parameters               &parameters,
                     unsigned int                    terminal_count,
-                    MPI_Comm                        communicator);
+                    MPI_Comm                        communicator,
+                    BackgroundGeometry             *geometry = nullptr);
 
   struct VenousOutlet
   {
@@ -68,7 +70,7 @@ namespace ImmersX::Vascularization::internal
                         const NetworkData              &network,
                         const Parameters               &parameters,
                         MPI_Comm                        communicator,
-                        BackgroundGeometry *shared_geometry = nullptr);
+                        BackgroundGeometry             *geometry = nullptr);
 
   AttachmentStartup
   start_venous(const dealii::Triangulation<3> &background,
@@ -79,7 +81,7 @@ namespace ImmersX::Vascularization::internal
                const std::vector<Territory>   &owned_territories,
                Id                              reserved_port,
                MPI_Comm                        communicator,
-               BackgroundGeometry             *shared_geometry = nullptr);
+               BackgroundGeometry             *geometry = nullptr);
 
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.
@@ -87,6 +89,7 @@ namespace ImmersX::Vascularization::internal
   start_seed(const dealii::Triangulation<3> &background,
              const dealii::Mapping<3>       &mapping,
              const Parameters               &parameters,
-             MPI_Comm                        communicator);
+             MPI_Comm                        communicator,
+             BackgroundGeometry             *geometry = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif

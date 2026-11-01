@@ -14,6 +14,7 @@
 #include "distribution_internal.h"
 #include "growth_batch.h"
 #include "growth_demand_callbacks.h"
+#include "growth_work.h"
 namespace ImmersX::Vascularization::internal
 {
   std::vector<dealii::Point<3>>
@@ -80,14 +81,16 @@ namespace ImmersX::Vascularization::internal
                        const std::set<Id>             &mutable_owned,
                        const std::map<Id, double>     &fixed_owned_roots,
                        double                          halo,
-                       MPI_Comm                        comm)
+                       MPI_Comm                        comm,
+                       BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     GrowthPreparation result;
     const auto        rank = Utilities::MPI::this_mpi_process(comm);
     const auto        size = Utilities::MPI::n_mpi_processes(comm);
-    bool              valid =
-      validate_data(network, size).valid() && std::isfinite(halo) && halo >= 0.;
+    auto *work  = shared_geometry ? shared_geometry->counts : nullptr;
+    bool  valid = validate_counted_data(network, size, work).valid() &&
+                 std::isfinite(halo) && halo >= 0.;
     for (Id id : mutable_owned)
       valid = valid && network.vessels.count(id) &&
               network.vessels.at(id).owner == rank;
@@ -102,10 +105,13 @@ namespace ImmersX::Vascularization::internal
            "Startup requires valid geometry and native mutable root controls."});
         return result;
       }
+    count_work(work,
+               GrowthOperation::metadata_copy_attempts,
+               mutable_owned.size() + fixed_owned_roots.size());
     auto ids   = mutable_owned;
     auto roots = fixed_owned_roots;
-    auto trial =
-      migrate_growth_forest(bg, mapping, network, ids, roots, halo, comm);
+    auto trial = migrate_growth_forest(
+      bg, mapping, network, ids, roots, halo, comm, shared_geometry);
     auto leaves       = collect_growth_leaf_terminals(trial, ids, comm);
     result.validation = std::move(leaves.validation);
     if (!result.validation.valid())
@@ -121,7 +127,8 @@ namespace ImmersX::Vascularization::internal
   start_seed(const dealii::Triangulation<3> &bg,
              const dealii::Mapping<3>       &mapping,
              const Parameters               &p,
-             MPI_Comm                        comm)
+             MPI_Comm                        comm,
+             BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     const auto rank        = Utilities::MPI::this_mpi_process(comm);
@@ -174,7 +181,10 @@ namespace ImmersX::Vascularization::internal
       result.validation.issues.push_back({"seed", 0, message});
     };
     const auto normal = normalized_port_normal(p.seed_inward_port_normal);
-    BackgroundGeometry geometry(bg, mapping);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double minimum_length =
@@ -229,7 +239,7 @@ namespace ImmersX::Vascularization::internal
                        Provenance::generated,
                        normal};
     port = redistribute_with_owners(
-      bg, mapping, port, 0., comm, {}, &geometry, work);
+      bg, mapping, port, 0., comm, {}, &geometry, geometry.counts);
     const bool producer = port.nodes.count(0) && port.nodes.at(0).owner == rank;
     std::vector<Point<3>> directions;
     if (producer)
@@ -306,7 +316,8 @@ namespace ImmersX::Vascularization::internal
                                roots,
                                scale.physical_length(p.clearance,
                                                      scale.maximum()),
-                               comm);
+                               comm,
+                               &geometry);
         if (committed.prepared)
           return committed;
       }
@@ -320,7 +331,8 @@ namespace ImmersX::Vascularization::internal
                     const NetworkData              &initial,
                     const Parameters               &p,
                     unsigned int                    terminal_count,
-                    MPI_Comm                        comm)
+                    MPI_Comm                        comm,
+                    BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     const auto        rank = Utilities::MPI::this_mpi_process(comm);
@@ -362,7 +374,12 @@ namespace ImmersX::Vascularization::internal
                 ExcMessage(
                   "Imported startup requires matching growth controls."));
 
-    const auto   scale = mesh_length_scale(bg, p.length_scale, comm);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
     const double halo  = scale.physical_length(p.clearance, scale.maximum());
     const double minimum_radius =
       scale.physical_length(p.minimum_radius, scale.minimum());
@@ -372,7 +389,8 @@ namespace ImmersX::Vascularization::internal
     scale.physical_length(p.seed_length, scale.maximum());
     // Native ownership and endpoint incidence are established before selecting
     // leaves. Input geometry and properties are copied, never normalized.
-    auto snapshot = redistribute(bg, mapping, initial, halo, comm);
+    auto snapshot = redistribute_with_owners(
+      bg, mapping, initial, halo, comm, {}, &geometry, geometry.counts);
     std::map<Id, std::vector<Id>> incoming, outgoing;
     for (const auto &[id, v] : snapshot.vessels)
       {
@@ -439,19 +457,9 @@ namespace ImmersX::Vascularization::internal
 
     // Route all attachment point queries together using coarse background
     // boxes; neither terminal topology nor point coordinates are replicated.
-    BackgroundGeometry geometry(bg, mapping);
-    geometry.configure_length_scale(p.length_scale, comm);
-    const auto &tree =
-      geometry.cache.get_locally_owned_cell_bounding_boxes_rtree();
-    std::vector<BoundingBox<3>> local_boxes;
-    if (!tree.empty())
-      local_boxes = extract_rtree_level(tree, 1);
-    const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
-    std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
-    for (unsigned int r = 0; r < boxes.size(); ++r)
-      for (const auto &box : boxes[r])
-        covering.emplace_back(box, r);
-    const auto   covering_tree = pack_rtree(covering);
+    const auto  &routing       = geometry.routing(comm, geometry.counts);
+    const auto  &boxes         = routing.boxes;
+    const auto  &covering_tree = routing.covering_tree;
     std::set<Id> explicit_ids(p.selected_terminals.begin(),
                               p.selected_terminals.end());
     if (explicit_ids.size() != p.selected_terminals.size())
@@ -665,7 +673,8 @@ namespace ImmersX::Vascularization::internal
                                roots,
                                scale.physical_length(p.clearance,
                                                      scale.maximum()),
-                               comm);
+                               comm,
+                               &geometry);
         if (!committed.prepared)
           {
             result.accepted = std::move(committed);
