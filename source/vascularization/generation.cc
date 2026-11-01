@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <optional>
 #include <set>
 
@@ -241,14 +242,17 @@ namespace ImmersX::Vascularization
   }
 
   static GenerationResult
-  generate_count(const dealii::Triangulation<3>  &background,
-                 const dealii::Mapping<3>        &mapping,
-                 const NetworkData               &initial,
-                 const Parameters                &parameters,
-                 MPI_Comm                         communicator,
-                 unsigned int                     terminal_count,
-                 const std::vector<Territory>    &initial_territories,
-                 const std::vector<TerminalPair> &initial_pairs)
+  generate_count(
+    const dealii::Triangulation<3>                &background,
+    const dealii::Mapping<3>                      &mapping,
+    const NetworkData                             &initial,
+    const Parameters                              &parameters,
+    MPI_Comm                                       communicator,
+    unsigned int                                   terminal_count,
+    const std::vector<Territory>                  &initial_territories,
+    const std::vector<TerminalPair>               &initial_pairs,
+    std::unique_ptr<internal::BackgroundGeometry> &prepared_geometry,
+    GrowthWork                                    &preparation_work)
   {
     using namespace dealii;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -328,16 +332,26 @@ namespace ImmersX::Vascularization
        (mapping_fe && mapping_fe->get_degree() == 1));
     for (const auto &cell : background.active_cell_iterators())
       if (cell->is_locally_owned())
-        valid_mapping = (cell->reference_cell().is_simplex() ||
-                         cell->reference_cell().is_hyper_cube()) &&
-                        mapping.is_compatible_with(cell->reference_cell()) &&
-                        valid_mapping;
+        {
+          count_work(&preparation_work,
+                     GrowthOperation::background_cell_visits);
+          valid_mapping = (cell->reference_cell().is_simplex() ||
+                           cell->reference_cell().is_hyper_cube()) &&
+                          mapping.is_compatible_with(cell->reference_cell()) &&
+                          valid_mapping;
+        }
     AssertThrow(
       Utilities::MPI::min(static_cast<unsigned int>(valid_mapping),
                           communicator) == 1,
       ExcMessage(
         "Vascular generation requires compatible first-order background mappings and congruent communicators."));
-    const auto fail = [&](Id id, const std::string &message) {
+    if (!prepared_geometry)
+      prepared_geometry =
+        std::make_unique<internal::BackgroundGeometry>(background,
+                                                       mapping,
+                                                       &preparation_work);
+    auto      &geometry = *prepared_geometry;
+    const auto fail     = [&](Id id, const std::string &message) {
       result.validation.issues.push_back({"attachment", id, message});
     };
     const auto collective_valid = [&]() {
@@ -352,8 +366,12 @@ namespace ImmersX::Vascularization
     std::vector<Id> roots;
     if (creating_seed)
       {
-        auto startup = internal::start_seed(
-          background, mapping, parameters, demand_function, communicator);
+        auto startup      = internal::start_seed(background,
+                                            mapping,
+                                            parameters,
+                                            demand_function,
+                                            communicator,
+                                            &geometry);
         result.validation = startup.validation;
         if (startup.committed)
           {
@@ -370,7 +388,8 @@ namespace ImmersX::Vascularization
                                                    parameters,
                                                    demand_function,
                                                    terminal_count,
-                                                   communicator);
+                                                   communicator,
+                                                   &geometry);
         result.validation = startup.accepted.validation;
         if (startup.accepted.committed)
           {
@@ -385,8 +404,12 @@ namespace ImmersX::Vascularization
     Id reserved_venous_port = invalid_id;
     if (parameters.venous.enabled)
       {
-        auto outlet = internal::reserve_venous_outlet(
-          background, mapping, result.network, parameters, communicator);
+        auto outlet = internal::reserve_venous_outlet(background,
+                                                      mapping,
+                                                      result.network,
+                                                      parameters,
+                                                      communicator,
+                                                      &geometry);
         result.validation.issues.insert(result.validation.issues.end(),
                                         outlet.validation.issues.begin(),
                                         outlet.validation.issues.end());
@@ -412,7 +435,16 @@ namespace ImmersX::Vascularization
                               terminal_count,
                               system,
                               system == System::venous ? result.territories :
-                                                         empty);
+                                                         empty,
+                              {},
+                              &geometry);
+      if (!growth.statistics.empty())
+        {
+          auto &first = growth.statistics.begin()->second;
+          first.work += preparation_work;
+          first.initialization_work += preparation_work;
+          preparation_work = {};
+        }
       for (const auto &[bucket, statistics] : growth.statistics)
         result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),
@@ -459,7 +491,8 @@ namespace ImmersX::Vascularization
                                               parameters,
                                               result.territories,
                                               reserved_venous_port,
-                                              communicator);
+                                              communicator,
+                                              &geometry);
         result.validation.issues.insert(
           result.validation.issues.end(),
           startup.accepted.validation.issues.begin(),
@@ -552,16 +585,18 @@ namespace ImmersX::Vascularization
            const std::vector<TerminalPair> &initial_pairs)
   {
     using namespace dealii;
-    const auto                 &p = parameters.calibration;
-    const std::array<double, 8> modes{
-      {p.volume_fraction,
-       p.minimum_coverage,
-       p.relative_tolerance,
-       static_cast<double>(p.minimum_terminals),
-       static_cast<double>(p.maximum_terminals),
-       static_cast<double>(p.attempt_budget),
-       static_cast<double>(parameters.terminal_count),
-       static_cast<double>(parameters.venous.enabled)}};
+    GrowthWork                                    preparation_work;
+    std::unique_ptr<internal::BackgroundGeometry> prepared_geometry;
+    const auto                                   &p = parameters.calibration;
+    const std::array<double, 8>                   modes{
+                        {p.volume_fraction,
+                         p.minimum_coverage,
+                         p.relative_tolerance,
+                         static_cast<double>(p.minimum_terminals),
+                         static_cast<double>(p.maximum_terminals),
+                         static_cast<double>(p.attempt_budget),
+                         static_cast<double>(parameters.terminal_count),
+                         static_cast<double>(parameters.venous.enabled)}};
     bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
@@ -595,7 +630,9 @@ namespace ImmersX::Vascularization
                             communicator,
                             parameters.terminal_count,
                             initial_territories,
-                            initial_pairs);
+                            initial_pairs,
+                            prepared_geometry,
+                            preparation_work);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
@@ -672,7 +709,9 @@ namespace ImmersX::Vascularization
                                         communicator,
                                         count,
                                         initial_territories,
-                                        initial_pairs);
+                                        initial_pairs,
+                                        prepared_geometry,
+                                        preparation_work);
         statistics.insert(statistics.end(),
                           candidate.growth_statistics.begin(),
                           candidate.growth_statistics.end());
