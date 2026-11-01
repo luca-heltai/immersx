@@ -107,6 +107,47 @@ class NumericGate(unittest.TestCase):
         self.assertTrue(condition("tests.yml", "ci", "pull_request", "refs/pull/1/merge"))
 
 
+class CoralGate(unittest.TestCase):
+    step = "Require all selected Coral checks"
+
+    def needs(self, selected=True):
+        return {"plan": {"result": "success", "outputs": {"run_coral": str(selected).lower()}},
+                **{name: {"result": "success" if selected else "skipped"}
+                   for name in ("debug", "release")}}
+
+    def test_selected_success_and_intentional_skips_pass(self):
+        for selected in (True, False):
+            code, error = execute_gate("coral.yml", self.step, self.needs(selected))
+            self.assertEqual(code, 0, error)
+
+    def test_each_configuration_must_match_the_selection(self):
+        for selected in (True, False):
+            expected = "success" if selected else "skipped"
+            for name in ("debug", "release"):
+                for result in ("success", "failure", "cancelled", "skipped"):
+                    with self.subTest(selected=selected, name=name, result=result):
+                        needs = self.needs(selected)
+                        needs[name]["result"] = result
+                        code, error = execute_gate("coral.yml", self.step, needs)
+                        self.assertEqual(code == 0, result == expected, error)
+
+    def test_failed_plan_or_invalid_output_is_rejected(self):
+        for result in ("failure", "cancelled", "skipped"):
+            needs = self.needs(False)
+            needs["plan"]["result"] = result
+            self.assertNotEqual(execute_gate("coral.yml", self.step, needs)[0], 0)
+        for output in ("", "tru", "null", None):
+            needs = self.needs(False)
+            needs["plan"]["outputs"]["run_coral"] = output
+            self.assertNotEqual(execute_gate("coral.yml", self.step, needs)[0], 0)
+        needs = self.needs(False)
+        del needs["plan"]["outputs"]["run_coral"]
+        self.assertNotEqual(execute_gate("coral.yml", self.step, needs)[0], 0)
+
+    def test_final_gate_runs_even_when_an_upstream_job_fails(self):
+        self.assertTrue(condition("coral.yml", "ci", "pull_request", "refs/pull/1/merge"))
+
+
 class DocumentationGate(unittest.TestCase):
     step = "Require documentation and the applicable performance checks"
 
