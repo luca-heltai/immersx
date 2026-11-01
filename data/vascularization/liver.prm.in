@@ -13,6 +13,7 @@ subsection Liver
     end
   end
   subsection Vascularization
+    set Length scale = meter
     subsection Growth
       set Seed length = .003
       set Minimum vessel length = .0002
@@ -20,6 +21,7 @@ subsection Liver
       set Local optimization steps = 5
     end
     subsection Sampling
+      set Terminal count multiplier factor = none
       set Terminal count = 1000
       set Random seed = 23
       set Sample budget per insertion = 2000

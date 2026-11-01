@@ -12,6 +12,7 @@
 namespace ImmersX::Vascularization
 {
   struct Parameters;
+  struct GrowthWork;
   namespace internal
   {
     struct ForestBranch
@@ -65,7 +66,8 @@ namespace ImmersX::Vascularization
                     const std::map<Id, double> &fixed_owned_roots,
                     const Parameters           &parameters,
                     MPI_Comm                    communicator,
-                    const MeshLengthScale      &scale = {});
+                    const MeshLengthScale      &scale = {},
+                    GrowthWork                 *work  = nullptr);
   } // namespace internal
 } // namespace ImmersX::Vascularization
 #endif

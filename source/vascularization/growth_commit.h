@@ -70,6 +70,7 @@ namespace ImmersX::Vascularization::internal
                        const std::vector<GrowthSplit> &local,
                        const Parameters               &parameters,
                        MPI_Comm                        communicator,
-                       BackgroundGeometry             *geometry = nullptr);
+                       BackgroundGeometry             *geometry = nullptr,
+                       GrowthWork                     *work     = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif
