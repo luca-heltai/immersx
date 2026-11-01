@@ -7,6 +7,7 @@
 
 #include <deal.II/numerics/rtree.h>
 
+#include <boost/geometry/algorithms/equals.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
 #include <boost/multiprecision/cpp_int/serialize.hpp>
 #include <boost/serialization/map.hpp>
