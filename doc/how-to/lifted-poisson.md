@@ -72,14 +72,19 @@ against representative FE shapes multiplied by the selected transverse basis
 functions on the lifted geometry.
 
 The prescribed data are modal coefficients, not a scalar function sampled on
-the surface. For representative test shape `phi_i` in selected slot `k`,
+the surface. The cross-section modes have maximum one, as the Fourier modes of
+point coupling, so a coefficient is the amplitude of its mode. For
+representative test shape `phi_i` in selected slot `k`,
 
 ```text
-g_(i,k) = integral_representative phi_i(s) g_k(s) section_measure(radius(s)) ds.
+g_(i,k) = integral_representative phi_i(s) g_k(s) m_k section_measure(radius(s)) ds,
 ```
 
-The multiplier metric is component-diagonal representative mass with the same
-section measure. It is not an unweighted line mass matrix. Radii must be finite
+where `m_k` is the mean square of mode `k` on the reference cross section: 1
+for the constant mode and about 1/2 for `cos(theta)`. The multiplier metric is
+component-diagonal representative mass with the same weight
+`m_k section_measure(radius)`, i.e. the Gram matrix of the modal functions on
+the surface. It is not an unweighted line mass matrix. Radii must be finite
 and positive. Lifted integration points must lie in the background mesh;
 assembly fails rather than silently dropping points outside it.
 
