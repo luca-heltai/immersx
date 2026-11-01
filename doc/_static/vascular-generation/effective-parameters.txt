@@ -1,5 +1,6 @@
 # cube_uniform
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Discretization
     set Exterior target length = 0
     set Lower length factor    = 0.5
@@ -17,7 +18,7 @@ subsection Vascularization
     set Shape                = cube
     set Sphere center        = .5,.5,.5
     set Sphere radius        = .5
-    set Uniform refinements  = 2
+    set Uniform refinements  = 1
   end
   subsection Growth
     set Candidate vessels          = 12
@@ -27,8 +28,8 @@ subsection Vascularization
     set Geometry subdivision depth = 18
     set Local optimization steps   = 10
     set Minimum junction angle     = 15
-    set Minimum vessel length      = 0
-    set Seed length                = .15
+    set Minimum vessel length      = .1
+    set Seed length                = 1
   end
   subsection Input and ports
     set Evaluate reference      = true
@@ -36,19 +37,19 @@ subsection Vascularization
     set Mode                    = generate
     set Seed direction          = 1,0,0
     set Seed inward port normal = 0, 0, 0
-    set Seed position           = .2,.5,.5
+    set Seed position           = .05,.25,.25
     set Seed radius             = .003
     set Selected terminal ids   =
   end
   subsection Objectives
     set Calibration attempt budget = 12
     set Coverage quadrature order  = 2
-    set Maximum new terminals      = 128
-    set Maximum service distance   = .2
-    set Minimum new terminals      = 32
-    set Minimum tissue coverage    = .25
-    set Target volume fraction     = 4.6e-5
-    set Volume relative tolerance  = .05
+    set Maximum new terminals      = 0
+    set Maximum service distance   = 1
+    set Minimum new terminals      = 1
+    set Minimum tissue coverage    = 0
+    set Target volume fraction     = 0
+    set Volume relative tolerance  = 0.05
   end
   subsection Output
     set Directory             = <run>/cube_uniform
@@ -57,27 +58,31 @@ subsection Vascularization
     set Write tables          = true
   end
   subsection Physiology
-    set Arterial Murray exponent          = 3
-    set Dynamic viscosity                 = .004
-    set Loaded tissue reference flow      = 0
-    set Minimum radius                    = 0
-    set Reference absolute flow tolerance = 0
-    set Reference conservation tolerance  = 1e-09
-    set Reference iteration budget        = 10000
-    set Reference linear tolerance        = 1e-12
-    set Reference pressures               = 0:12000
-    set Tissue demand                     = 1
-    set Total new-tissue reference flow   = 2e-9
-    set Unpaired reference inflows        =
+    set Arterial Murray exponent              = 3
+    set Demand integration point budget       = 4000000
+    set Demand integration refinement budget  = 8
+    set Demand quadrature order               = 2
+    set Demand samples per requested terminal = 64
+    set Dynamic viscosity                     = .004
+    set Loaded tissue reference flow          = 0
+    set Minimum radius                        = 0
+    set Reference absolute flow tolerance     = 0
+    set Reference conservation tolerance      = 1e-09
+    set Reference iteration budget            = 10000
+    set Reference linear tolerance            = 1e-12
+    set Reference pressures                   = 0:12000
+    set Tissue demand                         = 1
+    set Total new-tissue reference flow       = 2e-9
+    set Unpaired reference inflows            =
   end
   subsection Sampling
-    set Density mesh exponent            = 0
+    set Density mesh exponent            = 3
     set Random seed                      = 23
     set Sample budget per insertion      = 2000
     set Spatial weight                   = 1
     set Spatial weight bound             = 1
-    set Terminal count                   = 64
-    set Terminal count multiplier factor = none
+    set Terminal count                   = 1
+    set Terminal count multiplier factor = background cell count
   end
   subsection Venous network
     set Enabled                  = false
@@ -87,12 +92,13 @@ subsection Vascularization
     set Seed position            = 0, 0, 0
     set Seed radius              = 0
     set Selected terminal ids    =
-    set Terminal separation      = 0
+    set Terminal separation      = 0.25
   end
 end
 
 # cube_edge
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Discretization
     set Exterior target length = 0
     set Lower length factor    = 0.5
@@ -103,14 +109,14 @@ subsection Vascularization
   subsection Domain
     set Cube origin          = 0,0,0
     set Cube side length     = 1
-    set Edge axis            = 2
-    set Edge sides           = 0,0
+    set Edge axis            = 0
+    set Edge sides           = 1,1
     set Refinement focus     = edge
-    set Refinement fractions = .5,.25,.125
+    set Refinement fractions = .45,.225,.1125
     set Shape                = cube
     set Sphere center        = .5,.5,.5
     set Sphere radius        = .5
-    set Uniform refinements  = 2
+    set Uniform refinements  = 1
   end
   subsection Growth
     set Candidate vessels          = 12
@@ -120,8 +126,8 @@ subsection Vascularization
     set Geometry subdivision depth = 18
     set Local optimization steps   = 10
     set Minimum junction angle     = 15
-    set Minimum vessel length      = 0
-    set Seed length                = .15
+    set Minimum vessel length      = .1
+    set Seed length                = 1
   end
   subsection Input and ports
     set Evaluate reference      = true
@@ -129,19 +135,19 @@ subsection Vascularization
     set Mode                    = generate
     set Seed direction          = 1,0,0
     set Seed inward port normal = 0, 0, 0
-    set Seed position           = .2,.5,.5
+    set Seed position           = .05,.25,.25
     set Seed radius             = .003
     set Selected terminal ids   =
   end
   subsection Objectives
     set Calibration attempt budget = 12
     set Coverage quadrature order  = 2
-    set Maximum new terminals      = 128
-    set Maximum service distance   = .2
-    set Minimum new terminals      = 32
-    set Minimum tissue coverage    = .25
-    set Target volume fraction     = 3.4e-5
-    set Volume relative tolerance  = .05
+    set Maximum new terminals      = 0
+    set Maximum service distance   = 1
+    set Minimum new terminals      = 1
+    set Minimum tissue coverage    = 0
+    set Target volume fraction     = 0
+    set Volume relative tolerance  = 0.05
   end
   subsection Output
     set Directory             = <run>/cube_edge
@@ -150,18 +156,22 @@ subsection Vascularization
     set Write tables          = true
   end
   subsection Physiology
-    set Arterial Murray exponent          = 3
-    set Dynamic viscosity                 = .004
-    set Loaded tissue reference flow      = 0
-    set Minimum radius                    = 0
-    set Reference absolute flow tolerance = 0
-    set Reference conservation tolerance  = 1e-09
-    set Reference iteration budget        = 10000
-    set Reference linear tolerance        = 1e-12
-    set Reference pressures               = 0:12000
-    set Tissue demand                     = 1
-    set Total new-tissue reference flow   = 2e-9
-    set Unpaired reference inflows        =
+    set Arterial Murray exponent              = 3
+    set Demand integration point budget       = 4000000
+    set Demand integration refinement budget  = 8
+    set Demand quadrature order               = 2
+    set Demand samples per requested terminal = 64
+    set Dynamic viscosity                     = .004
+    set Loaded tissue reference flow          = 0
+    set Minimum radius                        = 0
+    set Reference absolute flow tolerance     = 0
+    set Reference conservation tolerance      = 1e-09
+    set Reference iteration budget            = 10000
+    set Reference linear tolerance            = 1e-12
+    set Reference pressures                   = 0:12000
+    set Tissue demand                         = 1
+    set Total new-tissue reference flow       = 2e-9
+    set Unpaired reference inflows            =
   end
   subsection Sampling
     set Density mesh exponent            = 3
@@ -169,8 +179,8 @@ subsection Vascularization
     set Sample budget per insertion      = 2000
     set Spatial weight                   = 1
     set Spatial weight bound             = 1
-    set Terminal count                   = 64
-    set Terminal count multiplier factor = none
+    set Terminal count                   = 1
+    set Terminal count multiplier factor = background cell count
   end
   subsection Venous network
     set Enabled                  = false
@@ -180,12 +190,13 @@ subsection Vascularization
     set Seed position            = 0, 0, 0
     set Seed radius              = 0
     set Selected terminal ids    =
-    set Terminal separation      = 0
+    set Terminal separation      = 0.25
   end
 end
 
 # sphere_uniform
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Discretization
     set Exterior target length = 0
     set Lower length factor    = 0.5
@@ -203,7 +214,7 @@ subsection Vascularization
     set Shape                = sphere
     set Sphere center        = .5,.5,.5
     set Sphere radius        = .5
-    set Uniform refinements  = 2
+    set Uniform refinements  = 1
   end
   subsection Growth
     set Candidate vessels          = 12
@@ -213,8 +224,8 @@ subsection Vascularization
     set Geometry subdivision depth = 18
     set Local optimization steps   = 10
     set Minimum junction angle     = 15
-    set Minimum vessel length      = 0
-    set Seed length                = .15
+    set Minimum vessel length      = .1
+    set Seed length                = 1
   end
   subsection Input and ports
     set Evaluate reference      = true
@@ -229,12 +240,12 @@ subsection Vascularization
   subsection Objectives
     set Calibration attempt budget = 12
     set Coverage quadrature order  = 2
-    set Maximum new terminals      = 128
-    set Maximum service distance   = .2
-    set Minimum new terminals      = 32
-    set Minimum tissue coverage    = .25
-    set Target volume fraction     = 7e-5
-    set Volume relative tolerance  = .05
+    set Maximum new terminals      = 0
+    set Maximum service distance   = 1
+    set Minimum new terminals      = 1
+    set Minimum tissue coverage    = 0
+    set Target volume fraction     = 0
+    set Volume relative tolerance  = 0.05
   end
   subsection Output
     set Directory             = <run>/sphere_uniform
@@ -243,27 +254,31 @@ subsection Vascularization
     set Write tables          = true
   end
   subsection Physiology
-    set Arterial Murray exponent          = 3
-    set Dynamic viscosity                 = .004
-    set Loaded tissue reference flow      = 0
-    set Minimum radius                    = 0
-    set Reference absolute flow tolerance = 0
-    set Reference conservation tolerance  = 1e-09
-    set Reference iteration budget        = 10000
-    set Reference linear tolerance        = 1e-12
-    set Reference pressures               = 0:12000
-    set Tissue demand                     = 1
-    set Total new-tissue reference flow   = 2e-9
-    set Unpaired reference inflows        =
+    set Arterial Murray exponent              = 3
+    set Demand integration point budget       = 4000000
+    set Demand integration refinement budget  = 8
+    set Demand quadrature order               = 2
+    set Demand samples per requested terminal = 64
+    set Dynamic viscosity                     = .004
+    set Loaded tissue reference flow          = 0
+    set Minimum radius                        = 0
+    set Reference absolute flow tolerance     = 0
+    set Reference conservation tolerance      = 1e-09
+    set Reference iteration budget            = 10000
+    set Reference linear tolerance            = 1e-12
+    set Reference pressures                   = 0:12000
+    set Tissue demand                         = 1
+    set Total new-tissue reference flow       = 2e-9
+    set Unpaired reference inflows            =
   end
   subsection Sampling
-    set Density mesh exponent            = 0
+    set Density mesh exponent            = 3
     set Random seed                      = 23
     set Sample budget per insertion      = 2000
     set Spatial weight                   = 1
     set Spatial weight bound             = 1
-    set Terminal count                   = 64
-    set Terminal count multiplier factor = none
+    set Terminal count                   = 1
+    set Terminal count multiplier factor = background cell count
   end
   subsection Venous network
     set Enabled                  = false
@@ -273,12 +288,13 @@ subsection Vascularization
     set Seed position            = 0, 0, 0
     set Seed radius              = 0
     set Selected terminal ids    =
-    set Terminal separation      = 0
+    set Terminal separation      = 0.25
   end
 end
 
 # sphere_center
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Discretization
     set Exterior target length = 0
     set Lower length factor    = 0.5
@@ -296,7 +312,7 @@ subsection Vascularization
     set Shape                = sphere
     set Sphere center        = .5,.5,.5
     set Sphere radius        = .5
-    set Uniform refinements  = 2
+    set Uniform refinements  = 1
   end
   subsection Growth
     set Candidate vessels          = 12
@@ -306,8 +322,8 @@ subsection Vascularization
     set Geometry subdivision depth = 18
     set Local optimization steps   = 10
     set Minimum junction angle     = 15
-    set Minimum vessel length      = 0
-    set Seed length                = .15
+    set Minimum vessel length      = .1
+    set Seed length                = 1
   end
   subsection Input and ports
     set Evaluate reference      = true
@@ -322,12 +338,12 @@ subsection Vascularization
   subsection Objectives
     set Calibration attempt budget = 12
     set Coverage quadrature order  = 2
-    set Maximum new terminals      = 128
-    set Maximum service distance   = .2
-    set Minimum new terminals      = 32
-    set Minimum tissue coverage    = .25
-    set Target volume fraction     = 3.5e-5
-    set Volume relative tolerance  = .05
+    set Maximum new terminals      = 0
+    set Maximum service distance   = 1
+    set Minimum new terminals      = 1
+    set Minimum tissue coverage    = 0
+    set Target volume fraction     = 0
+    set Volume relative tolerance  = 0.05
   end
   subsection Output
     set Directory             = <run>/sphere_center
@@ -336,18 +352,22 @@ subsection Vascularization
     set Write tables          = true
   end
   subsection Physiology
-    set Arterial Murray exponent          = 3
-    set Dynamic viscosity                 = .004
-    set Loaded tissue reference flow      = 0
-    set Minimum radius                    = 0
-    set Reference absolute flow tolerance = 0
-    set Reference conservation tolerance  = 1e-09
-    set Reference iteration budget        = 10000
-    set Reference linear tolerance        = 1e-12
-    set Reference pressures               = 0:12000
-    set Tissue demand                     = 1
-    set Total new-tissue reference flow   = 2e-9
-    set Unpaired reference inflows        =
+    set Arterial Murray exponent              = 3
+    set Demand integration point budget       = 4000000
+    set Demand integration refinement budget  = 8
+    set Demand quadrature order               = 2
+    set Demand samples per requested terminal = 64
+    set Dynamic viscosity                     = .004
+    set Loaded tissue reference flow          = 0
+    set Minimum radius                        = 0
+    set Reference absolute flow tolerance     = 0
+    set Reference conservation tolerance      = 1e-09
+    set Reference iteration budget            = 10000
+    set Reference linear tolerance            = 1e-12
+    set Reference pressures                   = 0:12000
+    set Tissue demand                         = 1
+    set Total new-tissue reference flow       = 2e-9
+    set Unpaired reference inflows            =
   end
   subsection Sampling
     set Density mesh exponent            = 3
@@ -355,8 +375,8 @@ subsection Vascularization
     set Sample budget per insertion      = 2000
     set Spatial weight                   = 1
     set Spatial weight bound             = 1
-    set Terminal count                   = 64
-    set Terminal count multiplier factor = none
+    set Terminal count                   = 1
+    set Terminal count multiplier factor = background cell count
   end
   subsection Venous network
     set Enabled                  = false
@@ -366,12 +386,13 @@ subsection Vascularization
     set Seed position            = 0, 0, 0
     set Seed radius              = 0
     set Selected terminal ids    =
-    set Terminal separation      = 0
+    set Terminal separation      = 0.25
   end
 end
 
 # arteriovenous
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Discretization
     set Exterior target length = 0
     set Lower length factor    = 0.5
@@ -399,8 +420,8 @@ subsection Vascularization
     set Geometry subdivision depth = 18
     set Local optimization steps   = 10
     set Minimum junction angle     = 15
-    set Minimum vessel length      = 0
-    set Seed length                = .15
+    set Minimum vessel length      = .1
+    set Seed length                = 1
   end
   subsection Input and ports
     set Evaluate reference      = true
@@ -408,19 +429,19 @@ subsection Vascularization
     set Mode                    = generate
     set Seed direction          = 1,0,0
     set Seed inward port normal = 0, 0, 0
-    set Seed position           = .2,.5,.5
+    set Seed position           = .05,.25,.25
     set Seed radius             = .003
     set Selected terminal ids   =
   end
   subsection Objectives
     set Calibration attempt budget = 12
     set Coverage quadrature order  = 2
-    set Maximum new terminals      = 128
-    set Maximum service distance   = .2
-    set Minimum new terminals      = 32
-    set Minimum tissue coverage    = .6
-    set Target volume fraction     = 1.26e-4
-    set Volume relative tolerance  = .05
+    set Maximum new terminals      = 0
+    set Maximum service distance   = 1
+    set Minimum new terminals      = 1
+    set Minimum tissue coverage    = 0
+    set Target volume fraction     = 0
+    set Volume relative tolerance  = 0.05
   end
   subsection Output
     set Directory             = <run>/arteriovenous
@@ -429,47 +450,52 @@ subsection Vascularization
     set Write tables          = true
   end
   subsection Physiology
-    set Arterial Murray exponent          = 3
-    set Dynamic viscosity                 = .004
-    set Loaded tissue reference flow      = 0
-    set Minimum radius                    = 0
-    set Reference absolute flow tolerance = 0
-    set Reference conservation tolerance  = 1e-09
-    set Reference iteration budget        = 10000
-    set Reference linear tolerance        = 1e-12
-    set Reference pressures               = 0:12000,2:4000
-    set Tissue demand                     = 1
-    set Total new-tissue reference flow   = 2e-9
-    set Unpaired reference inflows        =
+    set Arterial Murray exponent              = 3
+    set Demand integration point budget       = 4000000
+    set Demand integration refinement budget  = 8
+    set Demand quadrature order               = 2
+    set Demand samples per requested terminal = 64
+    set Dynamic viscosity                     = .004
+    set Loaded tissue reference flow          = 0
+    set Minimum radius                        = 0
+    set Reference absolute flow tolerance     = 0
+    set Reference conservation tolerance      = 1e-09
+    set Reference iteration budget            = 10000
+    set Reference linear tolerance            = 1e-12
+    set Reference pressures                   = 0:12000,2:4000
+    set Tissue demand                         = 1
+    set Total new-tissue reference flow       = 2e-9
+    set Unpaired reference inflows            =
   end
   subsection Sampling
-    set Density mesh exponent            = 0
+    set Density mesh exponent            = 3
     set Random seed                      = 23
     set Sample budget per insertion      = 2000
     set Spatial weight                   = 1
     set Spatial weight bound             = 1
-    set Terminal count                   = 64
-    set Terminal count multiplier factor = none
+    set Terminal count                   = 1
+    set Terminal count multiplier factor = background cell count
   end
   subsection Venous network
     set Enabled                  = true
     set Microvascular resistance = 0
     set Murray exponent          = 3
     set Seed inward port normal  = 0, 0, 0
-    set Seed position            = .8,.5,.5
+    set Seed position            = .95,.75,.75
     set Seed radius              = .004
     set Selected terminal ids    =
-    set Terminal separation      = .04
+    set Terminal separation      = 0.25
   end
 end
 
 # rediscretized
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Discretization
     set Exterior target length = 0
-    set Lower length factor    = .25
+    set Lower length factor    = .5
     set Numerical cell budget  = 1000000
-    set Target length factor   = .5
+    set Target length factor   = 1
     set Upper length factor    = 2
   end
   subsection Domain
@@ -492,8 +518,8 @@ subsection Vascularization
     set Geometry subdivision depth = 18
     set Local optimization steps   = 10
     set Minimum junction angle     = 15
-    set Minimum vessel length      = 0
-    set Seed length                = 0
+    set Minimum vessel length      = 0.1
+    set Seed length                = 1
   end
   subsection Input and ports
     set Evaluate reference      = true
@@ -508,8 +534,8 @@ subsection Vascularization
   subsection Objectives
     set Calibration attempt budget = 12
     set Coverage quadrature order  = 2
-    set Maximum new terminals      = 10000
-    set Maximum service distance   = .2
+    set Maximum new terminals      = 0
+    set Maximum service distance   = 1
     set Minimum new terminals      = 1
     set Minimum tissue coverage    = 0
     set Target volume fraction     = 0
@@ -522,21 +548,25 @@ subsection Vascularization
     set Write tables          = true
   end
   subsection Physiology
-    set Arterial Murray exponent          = 3
-    set Dynamic viscosity                 = 0
-    set Loaded tissue reference flow      = 2e-9
-    set Minimum radius                    = 0
-    set Reference absolute flow tolerance = 0
-    set Reference conservation tolerance  = 1e-09
-    set Reference iteration budget        = 10000
-    set Reference linear tolerance        = 1e-12
-    set Reference pressures               = 0:12000
-    set Tissue demand                     = 1
-    set Total new-tissue reference flow   = 0
-    set Unpaired reference inflows        =
+    set Arterial Murray exponent              = 3
+    set Demand integration point budget       = 4000000
+    set Demand integration refinement budget  = 8
+    set Demand quadrature order               = 2
+    set Demand samples per requested terminal = 64
+    set Dynamic viscosity                     = 0
+    set Loaded tissue reference flow          = 2e-9
+    set Minimum radius                        = 0
+    set Reference absolute flow tolerance     = 0
+    set Reference conservation tolerance      = 1e-09
+    set Reference iteration budget            = 10000
+    set Reference linear tolerance            = 1e-12
+    set Reference pressures                   = 0:12000
+    set Tissue demand                         = 1
+    set Total new-tissue reference flow       = 0
+    set Unpaired reference inflows            =
   end
   subsection Sampling
-    set Density mesh exponent            = 0
+    set Density mesh exponent            = 3
     set Random seed                      = 1
     set Sample budget per insertion      = 2000
     set Spatial weight                   = 1
@@ -552,6 +582,6 @@ subsection Vascularization
     set Seed position            = 0, 0, 0
     set Seed radius              = 0
     set Selected terminal ids    =
-    set Terminal separation      = 0
+    set Terminal separation      = 0.25
   end
 end

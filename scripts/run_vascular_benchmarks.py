@@ -317,7 +317,7 @@ def main():
         output.mkdir(parents=True, exist_ok=False)
         (output / 'bin').mkdir()
         shutil.copy2(args.executable, output / 'bin' / 'vascular_network_profile')
-        shutil.copy2(args.library, output / 'bin' / 'libimmersx_lib.so')
+        shutil.copy2(args.library, output / 'bin' / args.library.name)
         manifest = dict(identity=identity, created=now(), host=platform.uname()._asdict(),
                         affinity=sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else [],
                         environment={k: os.environ.get(k) for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'LD_LIBRARY_PATH')},
@@ -331,8 +331,10 @@ def main():
             manifest['cpuinfo'] = Path('/proc/cpuinfo').read_text()
         save(output / 'manifest.json', manifest)
     assert digest(output / 'bin' / 'vascular_network_profile') == identity['executable_sha256']
-    assert digest(output / 'bin' / 'libimmersx_lib.so') == identity['library_sha256']
+    assert digest(output / 'bin' / args.library.name) == identity['library_sha256']
     env = dict(os.environ, LD_LIBRARY_PATH=str(output / 'bin') + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
+    linked = subprocess.check_output(['ldd', str(output / 'bin' / 'vascular_network_profile')], text=True, env=env)
+    assert str(output / 'bin' / args.library.name) in linked, 'Snapshot library was not selected by the dynamic loader'
     for case in cases:
         run = output / case['name']
         if run.exists():

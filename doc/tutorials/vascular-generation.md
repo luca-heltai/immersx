@@ -6,40 +6,40 @@ simulation. They use synthetic SI data, not a calibrated organ model. The
 completion of imported networks, distributed growth, physical laws and failure
 reports.
 
-The four domains start with two uniform refinements. The adaptive cube then
-refines towards the edge parallel to $z$ at $x=y=0$. The adaptive sphere refines
-towards its center. Successive refinement distances are $L/2,L/4,L/8$ for cube
-side $L$ and $R/2,R/4,R/8$ for sphere radius $R$. These are ordinary deal.II
-refinement passes, completed before generation. Growth does not adapt the mesh.
+The four domains start with one uniform refinement. The adaptive cube then
+refines towards the edge parallel to $x$ at $y=z=1$, at distances
+$0.45L,0.225L,0.1125L$ for cube side $L$. The adaptive sphere refines towards
+its center at distances $R/2,R/4,R/8$ for sphere radius $R$. These are ordinary
+deal.II refinement passes, completed before generation. Growth does not adapt
+the mesh.
 
 | Parameter | Value |
 |---|---|
 | Cube origin and side | $(0,0,0)$; $L=1\ \mathrm{m}$ |
 | Sphere center and radius | $(0.5,0.5,0.5)\ \mathrm{m}$; $R=0.5\ \mathrm{m}$ |
-| Arterial seed and initial direction | $(0.2,0.5,0.5)\ \mathrm{m}$; positive $x$ |
-| Fixed arterial seed radius and initial length | $0.003\ \mathrm{m}$; $0.15\ \mathrm{m}$ |
+| Arterial seed | Cube: $(0.05,0.25,0.25)\ \mathrm{m}$; sphere: $(0.2,0.5,0.5)\ \mathrm{m}$ |
+| Initial direction and fixed seed radius | Positive $x$; $0.003\ \mathrm{m}$ |
+| Length policy and seed coefficient | `local mesh size`; $1$ |
+| Minimum normalized vessel length; clearance | $0.1$; $0$ |
 | Dynamic viscosity | $0.004\ \mathrm{Pa\,s}$ |
 | Total new-tissue reference flow | $2\times10^{-9}\ \mathrm{m^3/s}$ |
 | Arterial inlet pressure | $12000\ \mathrm{Pa}$ |
-| Murray exponents; tissue demand; spatial weight | $3$; $1$; $1$ |
-| Sampling seed and initial terminal count | $23$; $64$ |
-| Terminal count multiplier factor | `none`: these examples prescribe absolute counts |
-| Density mesh exponent $\beta$ | $0$ on uniform backgrounds; $3$ on adaptive backgrounds |
-| Maximum service distance | $0.2\ \mathrm{m}$ |
-| Terminal-count calibration bounds and budget | $32$–$128$; at most $12$ trials |
-| Relative volume tolerance | $5\%$ |
-| Minimum arterial coverage | $0.25$ |
+| Murray exponents; tissue density; spatial weight | $3$; $1$; $1$ |
+| Sampling seed and terminal count | $23$; one per global active background cell |
+| Density mesh exponent $\beta$ | $3$ on every background |
+| Maximum service distance | One local cell diameter at each tissue quadrature point |
+| Terminal-count calibration | Disabled: volume and coverage targets are zero |
 | Numerical interval target and desired range | $h$; $0.5h$–$2h$ |
 
-The requested volume fractions are $4.6\times10^{-5}$ for the uniform cube,
-$3.4\times10^{-5}$ for the edge cube, $7.0\times10^{-5}$ for the uniform sphere
-and $3.5\times10^{-5}$ for the central sphere. They were chosen near the measured
-64-terminal pilot values to compare equally sized physical trees. The published serial runs converge at the initial count. In the two-rank
-check, the uniform cube instead converges with 92 terminals; its geometry and
-count differ while the same volume tolerance and minimum coverage still hold.
-This single-seed comparison does not establish statistical equivalence across
-partitions. Separate calibration tests exercise bounded count changes and
-nonmonotone trials.
+Each cube pair and sphere pair keeps its physical controls unchanged. Refining
+the background changes terminal count and geometric scales automatically.
+Territorial demand integrates the constant density over the physical tissue;
+adding terminals redistributes that integral and the same total flow. These
+single-seed figures illustrate the ordinary configuration. The
+[mesh-refinement study](../how-to/vascular-generation#compare-background-refinements)
+compares three uniform/local resolutions across several seeds, without imposing
+geometrical identity or statistical-equivalence thresholds. Separate calibration
+tests retain the volume/coverage target checks.
 
 The source configurations are
 {download}`uniform cube <../../data/vascularization/cube_uniform.prm.in>`,
@@ -69,7 +69,7 @@ replacement mesh.
 :width: 100%
 ```
 
-The cube wireframes show cells intersecting $y=0.0625$, close to the refined
+The cube wireframes show cells intersecting $y=0.9375$, close to the refined
 edge. Sphere wireframes use $y=0.5$. Both include cells on either side of the
 selected plane. The central sphere panel resolves the nested refinement regions.
 First-order mappings approximate the spherical boundary. Reported volume
@@ -88,10 +88,11 @@ terminals. This is a quadrature estimate of shell volume. A shell with no
 quadrature volume has no plotted density. The logarithmic vertical coordinate
 is $\log_{10}(1+\rho_T)$, with density in terminals per cubic metre.
 
-The adaptive cases use $\beta=3$, concentrating terminal sampling in smaller
-background cells. The uniform cases use $\beta=0$. These single-seed examples
-show the resulting physical distribution; they do not establish statistical
-quality across partitions or seeds.
+All cases use $\beta=3$, giving comparable proposal weight per cell when the
+spatial weight is one. Smaller cells therefore receive more proposals per unit
+physical volume. Geometric acceptance can change that distribution. These
+single-seed examples do not establish statistical quality across partitions or
+seeds.
 
 ```{image} ../_static/vascular-generation/length-distribution.svg
 :alt: Histograms of numerical interval length divided by the smallest actually crossed background-cell diameter
@@ -105,18 +106,17 @@ interval table records short-cell exceptions. Subdivision preserves each
 physical vessel's integrated volume and Poiseuille resistance and creates no
 new bifurcation.
 
-## Requested and achieved targets
+## Physical volume and geometric coverage
 
 ```{image} ../_static/vascular-generation/targets.svg
-:alt: Requested and achieved vascular volume fraction and separate geometric coverage for the four domains
+:alt: Observed vascular volume fraction and tissue-local geometric coverage for four uncalibrated domains
 :width: 100%
 ```
 
-The native runs validate the volume tolerance and minimum coverage separately.
-The adaptive trees leave more tissue beyond the service distance than the
-uniform trees at the same terminal count and service radius. A positive nearest
-terminal assignment does not make such tissue covered. Geometric service
-coverage is not a proof of physiological perfusion.
+The bars report observed volume and coverage, with calibration disabled. A
+nearest-territory assignment contributes integrated demand even where the
+service-distance criterion reports uncovered tissue. Coverage uses the tissue
+point's local cell diameter and remains separate from physiological perfusion.
 
 [Measured run summary](../_static/vascular-generation/summary.csv) records counts,
 volume fraction, coverage and calibration results. The full owned tables,
@@ -130,12 +130,12 @@ archives and meshes remain in the build tree.
 ```
 
 The {download}`arterial–venous configuration <../../data/vascularization/arteriovenous.prm.in>`
-adds a venous outlet at $(0.8,0.5,0.5)\ \mathrm{m}$ with fixed radius
-$0.004\ \mathrm{m}$ and pressure $4000\ \mathrm{Pa}$. Terminal partners are
-$0.04\ \mathrm{m}$ apart. A positive resistance for each bed is derived from the
-explicit pressure data and demand flow, then checked in the actual paired
-reference solve. The target volume fraction is $1.26\times10^{-4}$ and the
-minimum dual coverage is $0.6$.
+adds a venous outlet at $(0.95,0.75,0.75)\ \mathrm{m}$ with fixed radius
+$0.004\ \mathrm{m}$ and pressure $4000\ \mathrm{Pa}$. This example uses two
+uniform background refinements. Terminal partners are $0.25H$ apart, with $H$
+evaluated once at their common territory centre. A positive resistance for each
+bed is derived from the explicit pressure data and integrated demand flow, then
+checked in the actual paired reference solve. Calibration remains disabled.
 
 Dashed links identify the common territories. They are 0D resistive connections,
 not capillary segments with an implicit volume. Veins grow from the outlet
@@ -151,11 +151,13 @@ reference results precede any transient haemodynamic simulation.
 
 The {download}`load-only configuration <../../data/vascularization/rediscretized.prm.in>`
 reloads the uniform cube archive without growth. It uses four uniform background
-refinements and target interval length $0.5h$ with lower bound $0.25h$. The
+refinements and the same target interval length $h$, with desired range
+$0.5h$–$2h$. The
 pipeline checks identical physical ids, connectivity, geometry, radii and
 viscosity, and independently integrates every interval to check preservation of
-physical volume and resistance. Only numerical cells and vertices change. Coverage estimates can change with
-the background quadrature even though terminal coordinates remain identical.
+physical volume and resistance. Only numerical cells and vertices change. Normalized length/radius diagnostics
+and tissue-local coverage also change with the new background scale; the stored
+physical graph stays the same.
 
 ## Reproduce and check the published figures
 
@@ -249,10 +251,68 @@ orientation. Partially external imported networks remain supported by the
 standalone generator; adapting their multiplier space for partial wall coupling
 is deferred.
 
-(vascular-measured-mpi-growth)=
-## Measured MPI growth
+## Measured background-refinement study
 
-These measurements use three random seeds (`23`, `24`, `25`) for every
+The native generator completed all 18 cases: three uniform and three edge
+resolutions, each with seeds 23, 24 and 25. The physical inlet, root radius,
+viscosity, pressure and total flow are fixed. Growth uses the ordinary mesh
+controls in the table above. Only background refinement and seed vary.
+
+The ranges below span the three per-seed medians. Length is the whole-branch
+integral $\int ds/H$; radius is the minimum $r/H$ along that branch.
+
+| Background | Level | Cells and terminals | Median normalized length | Median minimum $r/H$ |
+|---|---|---|---|---|
+| Uniform | 1 | 8 | 0.184–0.275 | 0.00193–0.00202 |
+| Uniform | 2 | 64 | 0.189–0.233 | 0.00196–0.00200 |
+| Uniform | 3 | 512 | 0.201–0.212 | 0.00202–0.00203 |
+| Edge | 1 | 22 | 0.219–0.245 | 0.00200–0.00228 |
+| Edge | 2 | 50 | 0.189–0.249 | 0.00198–0.00233 |
+| Edge | 3 | 106 | 0.221–0.232 | 0.00211–0.00230 |
+
+```{image} ../_static/vascular-mesh-study/uniform-distributions.svg
+:alt: Native uniform-refinement distributions across three resolutions and three seeds
+:width: 100%
+```
+
+```{image} ../_static/vascular-mesh-study/edge-distributions.svg
+:alt: Native edge-refinement distributions and accepted terminals per cell grouped by cell diameter
+:width: 100%
+```
+
+The cumulative curves pool branches across the three seeds. The right panels
+retain individual seed counts within each cell-diameter group. The global
+terminal/cell ratio is one by the count policy; these conditional counts show
+how geometric acceptance changes its spatial allocation. At the finest edge
+resolution, the 64 smallest cells contain 65, 74 and 72 terminals respectively.
+
+Every case conserves demand per tissue volume at 1 and total flow per tissue
+volume at $2\times10^{-9}\ \mathrm{s^{-1}}$, within the independent table
+oracle's floating-point tolerances. All generated branches satisfy the 0.1
+minimum normalized length. These observations support comparable local scales
+for this experiment; no equivalence threshold is imposed. The fixed physical
+root radius gives a growing $r/H$ at the root under uniform refinement, so the
+upper radius tails need not coincide.
+
+The [per-seed summary](../_static/vascular-mesh-study/summary.csv),
+[individual distributions and work counters](../_static/vascular-mesh-study/results.json),
+[shared physical controls](../_static/vascular-mesh-study/common-parameters.prm)
+and [source/binary manifest](../_static/vascular-mesh-study/manifest.json) retain
+the measurements. Follow the
+[refinement-study workflow](../how-to/vascular-generation#compare-background-refinements)
+to reproduce them. The executable, library and scripts are hashed; timings
+were collected alongside other validation work on separate worker cores and
+are not isolated performance estimates.
+
+(vascular-measured-mpi-growth)=
+## Historical MPI growth baseline
+
+These archived measurements describe the earlier point-demand generator, not
+the current integrated-demand implementation. They are retained as the cost
+baseline; the frozen source and binary identities are recorded below. Current
+measurements must report their own quadrature sizes and work counters.
+
+The baseline uses three random seeds (`23`, `24`, `25`) for every
 process-count and size combination: 1,000 and 10,000 terminals at
 `P=1,2,4,8` for strong scaling, and 1,000 terminals per process at
 `P=1,8` for weak scaling. Every one of the 30 native runs passed the
@@ -360,35 +420,13 @@ The executable SHA-256 is `d4a70de019707637c76897b44dd33723a5cc3a1805793abc78446
 library SHA-256 is `559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082`. These files were
 copied before the experiments and were not rebuilt between cases.
 
-### Regenerate the measured assets
+### Reproduce the historical baseline
 
-The measurements were run as three experiments. With a compatible
-Release profiling build, run:
-
-```bash
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 scripts/run_vascular_benchmarks.py \
-  --executable build-release/benchmarks/vascular_network_profile \
-  --library build-release/libimmersx_lib.so \
-  --output build-release/vascular-measurements/strong-1000 \
-  --kind strong --terminals 1000 --ranks 1,2,4,8 --seeds 23,24,25
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 scripts/run_vascular_benchmarks.py \
-  --executable build-release/benchmarks/vascular_network_profile \
-  --library build-release/libimmersx_lib.so \
-  --output build-release/vascular-measurements/weak-1000 \
-  --kind weak --terminals 1000 --ranks 1,8 --seeds 23,24,25
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 scripts/run_vascular_benchmarks.py \
-  --executable build-release/benchmarks/vascular_network_profile \
-  --library build-release/libimmersx_lib.so \
-  --output build-release/vascular-measurements/strong-10000 \
-  --kind strong --terminals 10000 --ranks 1,2,4,8 --seeds 23,24,25
-python3 scripts/update_vascular_benchmarks.py \
-  build-release/vascular-measurements/strong-1000 \
-  build-release/vascular-measurements/weak-1000 \
-  build-release/vascular-measurements/strong-10000 --check
-```
-
-The publisher independently rechecks native tables and frozen binary
-hashes. It rejects any incomplete experiment. Omit `--check` to update
-selected assets after reviewing new measurements. Repeated timings need
-not match; `--check` checks the publication against the supplied completed
-dataset, not against an assumed performance target.
+The archived manifests retain the exact inputs, commands, source identity and
+binary hashes. Reproducing these figures requires the corresponding archived
+source and scripts. Do not rerun the old multi-hour campaign merely to establish
+the baseline. The current benchmark runner validates integrated territory
+weights and records the new execution counters; use the
+[current measurement workflow](../how-to/vascular-generation#reproducible-mpi-measurements)
+for that implementation. Keep the two physical-demand protocols separate when
+comparing timings and quality.
