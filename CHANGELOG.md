@@ -385,7 +385,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Document the complete vascular cost inventory, invalidation and rollback rules, reproducible four-size performance measurements, memory and communication counts, and inherited arterial/venous convergence limits.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Publish integrated-demand cost checks at 1,000 and 10,000 terminals, with quadrature sizes, memory, operation counts and frozen experiment identities.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
 

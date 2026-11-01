@@ -1,0 +1,9 @@
+{
+  "aggregation": "Ordinary operation counters are rank sums after subtracting initialization and finalization. Global quadrature counts and peak rank RSS are maxima, never sums.",
+  "assets_sha256": {
+    "manifest.json": "49dc1958a3c63c2192bc943d339140353fd594f02407b47e0e74300bc5c07a46",
+    "measurements.json": "1172718291dd4474167e690a572ae924e37fe6930cd780dc080b7fc1305c6729",
+    "protocol-notes.json": "8f7a75cc2918eefeb70343f31c0524013356dadb17b5cedc36a4c1caa3eff389",
+    "summary.csv": "0da37a0303eef1bf90f222318cb112fd767008b0519506f049ad014ee63604a0"
+  }
+}
