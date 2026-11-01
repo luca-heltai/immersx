@@ -22,7 +22,6 @@
 
 #include "growth_mpi_scope.h"
 #include "growth_paths.h"
-#include "growth_sampling.h"
 #include "growth_selection.h"
 #include "growth_work.h"
 namespace ImmersX::Vascularization::internal
@@ -426,45 +425,24 @@ namespace ImmersX::Vascularization::internal
       }
     if (!phase(valid, "Invalid spatial-weight or tissue-demand expression."))
       return run;
-    Point<3> lo, hi;
-    bool     first               = true;
-    double   minimum_cell_volume = std::numeric_limits<double>::infinity(),
-           maximum_cell_volume   = 0.;
-    for (const auto &cell : bg.active_cell_iterators())
-      if (cell->is_locally_owned())
+    const BackgroundCellSampler *cell_sampler = nullptr;
+    if (system == System::arterial)
+      try
         {
-          count_work(work, GrowthOperation::background_cell_visits);
-          const auto ends = cell->bounding_box().get_boundary_points();
-          for (unsigned int d = 0; d < 3; ++d)
-            {
-              lo[d] = first ? ends.first[d] : std::min(lo[d], ends.first[d]);
-              hi[d] = first ? ends.second[d] : std::max(hi[d], ends.second[d]);
-            }
-          first               = false;
-          const double volume = cell->measure();
-          valid               = valid && std::isfinite(volume) && volume > 0.;
-          minimum_cell_volume = std::min(minimum_cell_volume, volume);
-          maximum_cell_volume = std::max(maximum_cell_volume, volume);
+          cell_sampler = &geometry.sample_cells(p.density_beta, comm);
         }
-    double box_volume = 0.;
-    if (!first)
-      {
-        box_volume = 1.;
-        for (unsigned int d = 0; d < 3; ++d)
-          box_volume *= hi[d] - lo[d];
-      }
-    const double maximum_box_volume = Utilities::MPI::max(box_volume, comm);
-    minimum_cell_volume = Utilities::MPI::min(minimum_cell_volume, comm);
-    maximum_cell_volume = Utilities::MPI::max(maximum_cell_volume, comm);
-    if (
-      !phase(
-        valid && std::isfinite(maximum_box_volume) && maximum_box_volume > 0. &&
-          std::isfinite(minimum_cell_volume) && minimum_cell_volume > 0. &&
-          std::isfinite(maximum_cell_volume),
-        "Sampling requires finite positive background sizes and covering-box volumes."))
+      catch (const std::exception &error)
+        {
+          valid = false;
+          run.validation.issues.push_back(
+            {"cell sampling", invalid_id, error.what()});
+        }
+    if (!phase(valid, "Cannot prepare physical background-cell sampling."))
       return run;
     std::seed_seq   seed{p.random_seed, rank, 194837u};
     std::mt19937_64 random(seed);
+    std::seed_seq   physical_seed{p.random_seed, rank, 194838u};
+    std::mt19937    physical_random(physical_seed);
     const auto      uniform = [&]() {
       return static_cast<double>(random() >> 11) * 0x1.0p-53;
     };
@@ -690,12 +668,19 @@ namespace ImmersX::Vascularization::internal
           return finish();
         std::optional<Point<3>> raw;
         Id                      shared_territory = invalid_id;
-        if (system == System::arterial && !first)
+        if (system == System::arterial)
           {
-            raw.emplace();
-            for (unsigned int d = 0; d < 3; ++d)
-              (*raw)[d] = lo[d] + uniform() * (hi[d] - lo[d]);
-            ++run.sampled_points;
+            try
+              {
+                raw = cell_sampler->sample(random, physical_random);
+                run.sampled_points += raw.has_value();
+              }
+            catch (const std::exception &error)
+              {
+                valid = false;
+                run.validation.issues.push_back(
+                  {"cell sampling", invalid_id, error.what()});
+              }
           }
         else if (system == System::venous && !pending.empty())
           {
@@ -729,14 +714,7 @@ namespace ImmersX::Vascularization::internal
             const double w = weight.value(*raw);
             valid          = valid && std::isfinite(w) && w >= 0. &&
                     w <= p.terminal_weight_bound;
-            const double reference_volume =
-              p.density_beta >= 0. ? minimum_cell_volume : maximum_cell_volume;
-            if (valid &&
-                uniform() < box_volume / maximum_box_volume * w /
-                              p.terminal_weight_bound *
-                              mesh_sampling_factor(selected_cell->second.volume,
-                                                   reference_volume,
-                                                   p.density_beta))
+            if (valid && uniform() < w / p.terminal_weight_bound)
               {
                 target = raw;
                 if (!has_demand_callbacks)
@@ -750,7 +728,7 @@ namespace ImmersX::Vascularization::internal
         if (
           !phase(
             valid,
-            "Spatial weight violates its bound, or tissue demand is not positive and finite."))
+            "Native cell sampling failed, or spatial weight/tissue demand violates its configured range."))
           return finish();
         sampling_end               = timer.wall_time();
         const double nearest_begin = timer.wall_time();

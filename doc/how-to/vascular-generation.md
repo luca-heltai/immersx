@@ -260,10 +260,24 @@ equal integrated proposal weight per cell when $w=1$, including cells of
 different shape or aspect ratio. Geometric constraints can change the
 accepted terminal distribution.
 
-The implementation uses the global minimum cell volume as $V_{\mathrm{ref}}$
-for nonnegative $\beta$, and the maximum for negative $\beta$, so the mesh
-factor in rejection sampling stays at most one. This global constant affects
-normalization, not the relative spatial weights. There is no separate
+The generator first chooses an owned cell with mass
+$|K|^{1-\beta/3}$, then draws uniform points in its physical bounding box.
+The native mapping inverse and `ReferenceCell::contains_point` select points
+inside that same cell. Mapped cell volumes use physical
+`JxW`; reference-uniform points would bias distorted cells. Rank proposal
+probabilities are proportional to their total cell mass. The remaining rejection
+uses only $w/\mathrm{terminal\_weight\_bound}$.
+
+The immutable cell table is cached with the background, including across
+calibration attempts. Its common logarithmic normalization leaves relative
+weights unchanged. This avoids spending the insertion budget on global-box
+draws rejected solely because a small refined region has tiny cells. The
+sampler reports exhaustion of its 4096 inverse-map attempts
+explicitly; it never switches to a different cell or substitutes a density.
+Unrepresentable cell-mass ranges are rejected before growth.
+`sampled_points` counts generated physical-cell points before spatial-weight and
+geometry acceptance. Rank mass skips produce no point. Inverse-map retries
+contribute to sampling time. There is no separate
 $\lambda$ parameter: `terminal_count` and its multiplier set the initial number
 of new tissue terminals, and calibration changes that number to seek the volume
 target.
@@ -773,14 +787,12 @@ this candidate evaluation after distributed sampling and nearest-vessel search.
 ## Grow a prepared forest in MPI batches
 
 The growth loop operates on already prepared real attachment trees with one
-or several processes. For arteries, each process draws raw samples in the
-bounding box of its owned background cells. Acceptance includes the ratio of
-its box volume to the largest box volume; this avoids prescribing the same
-number of accepted terminals to partitions with different physical volumes.
-Actual containing-cell queries reject holes and exterior points. On interfaces,
-the smallest containing rank proposes the point and the smallest containing
-cell diameter determines the density factor. Spatial sampling weight and tissue
-demand remain separate expressions.
+or several processes. Arterial proposals use cached owned-cell masses and
+uniform physical-cell sampling through the native inverse mapping. Rank mass
+correction preserves the global proposal density without assigning equal terminal counts to differently
+sized partitions. Native containing-cell queries confirm ownership; shared
+interfaces use the smallest containing diameter and lowest containing rank.
+Spatial sampling weight and integrated tissue demand remain separate.
 
 Nearest-vessel search uses owned physical segments. Only one covering box per
 nonempty vessel owner is replicated. A first sparse query obtains a distance
