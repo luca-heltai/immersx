@@ -43,6 +43,12 @@ On interfaces, the smallest containing diameter is used, including across MPI
 partitions. The prepared background and its reference scale remain fixed during
 generation and time integration.
 
+The generator retains one background search context across startup, both
+systems and calibration attempts. It is created after background validation
+and destroyed when generation returns; it cannot survive mesh or mapping
+changes. Each calibration attempt starts with independent network and tissue
+state. Final coverage, subdivision and output remain separate measured phases.
+
 `Growth/Seed length` defaults to one and gives a physical length
 $cH(x_{attachment})$, for both new seeds and imported attachments. The fixed
 seed or attachment radius remains physical. A venous startup uses this seed
@@ -212,10 +218,16 @@ budgets, the candidate is rejected explicitly; no demand floor is substituted.
 `demand_quadrature_peak_points` is its global proposed peak, including rejected
 previews. Use the maximum across ranks for these cardinalities. Assignment
 queries, hits, generated/refined points and reassigned samples are local work
-counts and can be summed across ranks. The work columns include unsuccessful
+counts and can be summed across ranks. Index counters include persistent
+network indices, small MPI owner-box indices and temporary candidate trees.
+Read their insertion and hit totals alongside build counts to see the number
+of records processed. The work columns include unsuccessful
 attempts; the `initialization_` and `finalization_` prefixes separate their
 one-time contributions from ordinary insertion work. Timings use the same
 phase separation, with finalization outside the accumulated batch total.
+Initialization work also includes startup and cache preparation outside the
+forest-growth call. That work contributes to overall `generation_seconds`;
+`initialization_seconds` times initialization inside forest growth.
 Failure to reach the terminal target also reports any encountered integration
 budget exhaustion. Invalid or nonrepresentable density/JxW values are input
 errors rather than geometric retries.
@@ -1231,23 +1243,13 @@ that samples or produces proposals. Quality figures show observed volume,
 coverage, physical lengths and angles, without fitted physiological acceptance
 thresholds or a claim of statistical equivalence from a small seed sample.
 
-Each `growth-RANK.csv` row contains total operation counts and the corresponding
-`initialization_` and `finalization_` counts. Subtract those two groups from the
-total to obtain ordinary batch work. Initialization builds the accepted state;
-finalization materializes physical radii and native ghosts and runs the
-independent full reconstruction once. `finalization_seconds` is separate from
-the accumulated batch `total_seconds`. Commit subphase times remain included
-in `commit_seconds`. Initialization operation counts include shared outer seed
-preparation, whereas `initialization_seconds` covers the forest-growth call.
-See the [execution cost report](../developer/vascular-growth-costs.md) for the
-A–K audit, measurements, remaining costs and validation scope.
-
 An instrumented forest-growth loop also records `growth-mpi-RANK.csv` in that
 profiling directory. Each row identifies a local run, system, requested count,
 power-of-two terminal range and `initialization`, `batch` or `finalization`
 phase. Run identifiers follow the collective growth-call order, including
-calibration attempts. Nested finalization is charged to finalization alone;
-ending initialization leaves no active fallback phase between batches.
+calibration attempts. A zero terminal-range lower bound marks initialization
+entered before the accepted count is known. Nested finalization is charged to
+finalization alone. Ending initialization leaves no active fallback phase between batches.
 
 `posted_sends` counts successful point-to-point send calls, including zero-byte
 messages and self sends, but excludes `MPI_PROC_NULL`. Collectives do not add

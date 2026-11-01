@@ -178,6 +178,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Separate optional MPI communication measurements by growth run, system, terminal range and phase without adding communication to production growth.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Share immutable background geometry and native routing across startup, arterial and venous growth, and calibration attempts while keeping each attempt's tissue state independent.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply joint integrated territory demands throughout ordinary growth. Update native rows, physiology and geometric certificates together; retain persistent spatial indices and validate the full physical result once at output.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage topology and integrated demand changes through a sparse physiology journal, retaining branch mesh constraints and root normalizations across native ownership changes.

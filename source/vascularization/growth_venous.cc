@@ -104,7 +104,10 @@ namespace ImmersX::Vascularization::internal
     result.network = network;
     if (!p.venous.selected_terminals.empty())
       return result;
-    BackgroundGeometry geometry(bg, mapping);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double minimum_radius =
@@ -168,7 +171,8 @@ namespace ImmersX::Vascularization::internal
                                            Port::venous_outlet,
                                            Provenance::generated,
                                            normal};
-    result.network = redistribute(bg, mapping, result.network, halo, comm);
+    result.network = redistribute_with_owners(
+      bg, mapping, result.network, halo, comm, {}, &geometry, geometry.counts);
     return result;
   }
 
@@ -202,7 +206,12 @@ namespace ImmersX::Vascularization::internal
         result.accepted.prepared = false;
       return all;
     };
-    const auto   scale = mesh_length_scale(bg, p.length_scale, comm);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
     const double halo  = scale.physical_length(p.clearance, scale.maximum());
     const double minimum_radius =
       scale.physical_length(p.minimum_radius, scale.minimum());
@@ -210,9 +219,8 @@ namespace ImmersX::Vascularization::internal
       scale.physical_length(p.minimum_length, scale.minimum());
     scale.physical_length(p.venous.terminal_separation, scale.minimum());
     scale.physical_length(p.venous.terminal_separation, scale.maximum());
-    auto snapshot = redistribute(bg, mapping, network, halo, comm);
-    BackgroundGeometry geometry(bg, mapping);
-    geometry.configure_length_scale(p.length_scale, comm);
+    auto snapshot = redistribute_with_owners(
+      bg, mapping, network, halo, comm, {}, &geometry, geometry.counts);
     std::set<Id> requested(p.venous.selected_terminals.begin(),
                            p.venous.selected_terminals.end());
     if (requested.size() != p.venous.selected_terminals.size())
@@ -631,8 +639,14 @@ namespace ImmersX::Vascularization::internal
             }
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
-        auto committed = prepare_growth_start(
-          bg, mapping, trial, mutable_owned, fixed_roots, halo, comm);
+        auto committed = prepare_growth_start(bg,
+                                              mapping,
+                                              trial,
+                                              mutable_owned,
+                                              fixed_roots,
+                                              halo,
+                                              comm,
+                                              &geometry);
         if (!committed.prepared)
           {
             result.accepted = std::move(committed);

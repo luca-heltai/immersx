@@ -21,7 +21,8 @@ namespace ImmersX::Vascularization::internal
                         std::set<Id>                   &mutable_owned,
                         std::map<Id, double>           &roots,
                         double                          halo,
-                        MPI_Comm                        communicator);
+                        MPI_Comm                        communicator,
+                        BackgroundGeometry             *geometry = nullptr);
   struct GrowthSplit
   {
     Id                vessel = invalid_id;
