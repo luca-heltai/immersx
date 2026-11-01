@@ -272,7 +272,7 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
 }
 
 TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
-       MPI_DisplacementAlongVtkCenterlineWithSegmentClustering)
+       BOTH_DisplacementAlongVtkCenterlineWithSegmentClustering)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> par;
@@ -282,21 +282,6 @@ TEST_P(ElasticityTensorProductCouplingTriangulationTypeTest,
     {"1", "0", "0"});
   par.triangulation_type                  = current_triangulation_type(*this);
   par.default_material_properties.Lame_mu = 2.0;
-  par.default_material_properties.Lame_lambda = 50.0;
-  run_tensor_product_case(par);
-}
-
-TEST(ElasticityTensorProductCouplingValidation,
-     DISABLED_DisplacementAlongVtkCenterlineWithSegmentClustering)
-{
-  ParameterAcceptor::clear();
-  ElasticityProblemParameters<3> par;
-  set_tensor_product_defaults(
-    par,
-    "tensor_product_displacement_vtk_centerline_segments_serial",
-    {"1", "0", "0"});
-  par.triangulation_type                      = "distributed";
-  par.default_material_properties.Lame_mu     = 2.0;
   par.default_material_properties.Lame_lambda = 50.0;
   run_tensor_product_case(par);
 }
