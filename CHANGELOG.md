@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #308](https://github.com/luca-heltai/immersx/pull/N) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise vesselwise displacement and pressure exchange on tetrahedral tissue meshes in pseudocoupling1D, including repeated solves with updated coupling data.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Use simplex meshes in the tissue component of the legacy 1D coupling drivers. Build this component independently of the optional hemodynamics library and check pointwise displacement and pressure exchange in serial and MPI.
@@ -45,6 +45,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Compose harmonic elasticity Problems with `LinearAdapter` using separate real and imaginary displacement Fields, material-dependent damping, and phased body and Neumann loads.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Support Field-local absolute tolerances, a history-preserving startup tolerance ramp, and cumulative IDA progress statistics.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Expose all backported IDA solver controls through IDAParameters while preserving existing defaults.
+- [PR #286](https://github.com/luca-heltai/immersx/pull/286) Run coupled elasticity without the optional 1D solver, compute vessel-wall pressure with point or tensor-product coupling, and update radial vessel data between solves.
 - [PR #277](https://github.com/luca-heltai/immersx/pull/277) Allow local co-refinement to partition embedded cells with their background owners through the `immersed` policy, preserving imported fields on the final partition.
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Allow Domain to observe an externally owned triangulation, retaining its imported fields without taking ownership of the mesh.
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Allow serial and distributed coupled IDA solves with native deal.II SparseDirectMUMPS when DEAL_II_WITH_MUMPS is enabled, selected through the application parameter file.

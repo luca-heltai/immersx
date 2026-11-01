@@ -1,6 +1,12 @@
+# The problem of circle_one_hole.prm on a mesh that resolves the inclusion:
+# the inflation is a Dirichlet condition on the hole, and there are no
+# immersed inclusions.
+set dimension       = 2
+set space dimension = 2
+
 subsection Error
   set Enable computation of the errors = true
-  set Error file name                  = 
+  set Error file name                  =
   set Error precision                  = 3
   set Exponent for p-norms             = 2
   set Extra columns                    = cells, dofs
@@ -8,23 +14,11 @@ subsection Error
   set Rate key                         = dofs
   set Rate mode                        = reduction_rate_log2
 end
-subsection Immersed Problem
-  set Dirichlet boundary ids             = 1,2
-  set FE degree                          = 1
-  set Initial refinement                 = 3
-  set Neumann boundary ids               = 
-  set Normal flux boundary ids           = 
-  set Output directory                   = ./
-  set Output name                        = solution
-  set Output results also before solving = false
+
+subsection Functions
   subsection Dirichlet boundary conditions
     set Function constants  = ri=0.2, re=1, di=0.1
     set Function expression = if((x^2+y^2) > (2*ri*ri), 0, di*x/ri); if((x^2+y^2) > (2*ri*ri), 0, di*y/ri)
-    set Variable names      = x,y,t
-  end
-  subsection Neumann boundary conditions
-    set Function constants  = 
-    set Function expression = 0;0
     set Variable names      = x,y,t
   end
   subsection Exact solution
@@ -33,64 +27,43 @@ subsection Immersed Problem
     set Variable names      = x,y,t
     set Weight expression   = if((x^2+y^2) > 0.04, 1., 0.)
   end
+end
+
+subsection Immersed Problem
+  set Dirichlet boundary ids = 1, 2
+  set FE degree              = 1
+  set Initial refinement     = 3
+  set Output directory       = .
+  set Output name            = solution
   subsection Grid generation
     set Domain type              = file
     set Grid generator           = data/elasticity/geometry/circle_1hole.msh
     set Grid generator arguments = 1.
   end
-  subsection Immersed inclusions
-    set Bounding boxes extraction level     = 1
-    set Data file                           =
-    set Reference inclusion data            = 
-    set Inclusions                          = 
-    set Inclusions file                     = 
-    set Inclusions refinement               = 400
-    set Number of fourier coefficients      = 2
-    set Selection of Fourier coefficients   = 2,5
-    set Start index of Fourier coefficients = 1
-    subsection Boundary data
-      set Function constants  = 
-      set Function expression = 0;0
-      set Variable names      = x,y,t
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
     end
   end
-  subsection Physical constants
-    set Lame lambda = 1
-    set Lame mu     = 1
-  end
   subsection Refinement and remeshing
-    set Coarsening fraction         = 0
     set Maximum number of cells     = 2000000
     set Number of refinement cycles = 1
     set Refinement fraction         = 0.3
     set Strategy                    = fixed_fraction
   end
-  subsection Right hand side
-    set Function constants  = 
-    set Function expression = 0;0
-    set Variable names      = x,y,t
+end
+
+# Reduction and Tolerance keep their defaults (1e-10). The default limit of
+# 100 iterations is too low for these meshes.
+subsection Solvers
+  subsection Augmented Lagrange
+    set Max steps = 10000
   end
-  subsection Solver
-    subsection Inner control
-      set Log frequency = 1
-      set Log history   = false
-      set Log result    = true
-      set Max steps     = 10000
-      set Reduction     = 1.e-10
-      set Tolerance     = 1.e-12
-    end
-    subsection Outer control
-      set Log frequency = 1
-      set Log history   = false
-      set Log result    = true
-      set Max steps     = 10000
-      set Reduction     = 1.e-10
-      set Tolerance     = 1.e-12
-    end
+  subsection Displacement
+    set Max steps = 10000
   end
-  subsection Time parameters
-    set Final time   = 0
-    set Initial time = 0
-    set Time step    = 0.005
+  subsection Reduced mass
+    set Max steps = 10000
   end
 end

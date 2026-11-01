@@ -79,6 +79,16 @@ namespace ImmersX
       "If this is true, then we do NOT solve a saddle point problem, but we use the "
       "input data as a pressure field on the vasculature network, and we solve for "
       "the displacement field directly.");
+    add_parameter(
+      "Remove interior stress from pressure",
+      remove_interior_stress_from_pressure,
+      "The elastic material also fills the vessels, so the Lagrange "
+      "multiplier is the jump between the normal stress of the tissue and the "
+      "normal stress of the material inside the vessel. If this is true, the "
+      "computed vessel pressure adds back the analytic normal stress of the "
+      "interior material, 2 (lambda + mu) u_n / r for a mean normal wall "
+      "displacement u_n and radius r, so that it is the normal stress of the "
+      "tissue alone.");
     enter_subsection("Grid generation");
     {
       add_parameter("Domain type",

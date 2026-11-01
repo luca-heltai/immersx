@@ -22,6 +22,9 @@
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 
+#include <sstream>
+#include <string>
+
 using namespace ImmersX;
 #include <immersx/io/utils.h>
 
@@ -238,9 +241,6 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_DisplacementYScaled)
 }
 
 
-/**
- * We need the data_file_1d.txt file to be present somewhere
- */
 TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
 {
   ParameterAcceptor::clear();
@@ -263,7 +263,7 @@ TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
       subsection Immersed inclusions
         set Inclusions                          = 0, 0, .5
         set Number of fourier coefficients      = 3
-        set Data file                           = @TEST_DATA_DIR@/tests/data_file_1d.txt
+        set Reference inclusion data            = 0, 0, 0.1, 0, 0, 0.1
         set Inclusions refinement               = 100
       end
     end
@@ -598,6 +598,9 @@ TEST(ElasticityValidation, ExactLambda)
   initialize_parameters();
   ParameterAcceptor::prm.parse_input_from_string(
     R"(
+    subsection Error
+      set Error precision = 10
+    end
     subsection Functions
       subsection Exact solution
         set Function constants  = ri=0.2, re=1, di=0.1
@@ -658,6 +661,31 @@ TEST(ElasticityValidation, ExactLambda)
   ASSERT_NEAR(problem.solution.block(0).l2_norm(), 7.5520240146374107, tol);
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 5.5728, tol);
   ASSERT_NEAR(problem.solution.block(1)[0], theoretical_lambda, 1e-1);
+
+  // Errors to the exact solution on the last cycle. The table has a header,
+  // then one row per cycle: cells, dofs, and the L2, Linfty and H1 errors,
+  // each followed by its convergence rate. Values are printed with ten
+  // digits (Error precision above).
+  std::stringstream table;
+  par.convergence_table.output_table(table);
+  std::string header, rate;
+  double      cells, dofs, l2, linfty, h1;
+  std::getline(table, header);
+  for (unsigned int cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
+    table >> cells >> dofs >> l2 >> rate >> linfty >> rate >> h1 >> rate;
+  ASSERT_TRUE(table);
+
+  // Upper bounds on the errors of the last cycle, not theoretical estimates.
+  // A serial Debug run with deal.II 9.7.1 (8540 cells, 18522 dofs) gave L2
+  // 1.546e-4, Linfty 6.874e-4 and H1 1.803e-2; the bounds leave about 25%
+  // margin. Rounded to three digits these values match the last row of the
+  // fixed_number data of Fig. 2 in Belponer, Caiazzo, Heltai,
+  // "Mixed-dimensional modeling of vascular tissues with reduced Lagrange
+  // multipliers" (see BOTH_PaperAxisSymmetricAdaptiveRefinement in
+  // elasticity_04.cc).
+  EXPECT_LT(l2, 1.9e-4);
+  EXPECT_LT(linfty, 8.6e-4);
+  EXPECT_LT(h1, 2.25e-2);
 }
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,

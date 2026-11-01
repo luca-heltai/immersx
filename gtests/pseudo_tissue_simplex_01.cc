@@ -15,21 +15,21 @@ TEST(ElasticityValidation, BOTH_SimplexVesselwisePseudoExchange)
   initialize_parameters(
     TestPaths::parameter_path("gtests/parameters/pseudocoupling_simplex.prm"));
   problem.run_timestep0();
-  problem.update_inclusions_data({.001});
+  problem.update_vessel_radius_data({.001});
   problem.run_timestep();
   auto displacement = problem.solution.block(0);
   auto multiplier   = problem.solution.block(1);
-  auto pressure     = problem.coupling_pressure;
+  auto pressure     = problem.pressure_at_immersed_surface;
   EXPECT_GT(displacement.l2_norm(), 1.e-6);
   EXPECT_GT(pressure.l2_norm(), 1.e-6);
-  problem.update_inclusions_data({.002});
+  problem.update_vessel_radius_data({.002});
   problem.run_timestep();
   displacement *= 2.;
   multiplier *= 2.;
   pressure *= 2.;
   displacement -= problem.solution.block(0);
   multiplier -= problem.solution.block(1);
-  pressure -= problem.coupling_pressure;
+  pressure -= problem.pressure_at_immersed_surface;
   EXPECT_LT(displacement.linfty_norm(), 1.e-9);
   EXPECT_LT(multiplier.linfty_norm(), 1.e-9);
   EXPECT_LT(pressure.linfty_norm(), 1.e-9);
