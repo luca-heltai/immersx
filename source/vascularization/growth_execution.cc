@@ -249,6 +249,7 @@ namespace ImmersX::Vascularization::internal
     clearance_bound =
       dealii::Utilities::MPI::max(clearance_bound, communicator);
     root_members_changed.clear();
+    update_bounds(demand_state.owned_roots, preview, false);
     if (!physical_bounds(preview, report))
       return;
     GrowthOwnershipDelta initial_geometry;
@@ -324,46 +325,24 @@ namespace ImmersX::Vascularization::internal
   GrowthExecution::physical_bounds(const GrowthDemandPreview &preview,
                                    ValidationReport          &validation) const
   {
-    bool valid = true;
-    for (Id id : demand_state.owned_roots)
-      {
-        const auto       &summary     = demand_state.summary(id, preview);
-        const auto       &branch      = demand_state.branches.at(id);
-        const long double root_radius = branch.topology.root_radius;
-        const double      minimum_radius =
-          static_cast<double>(root_radius * summary.minimum_ratio);
-        valid = valid && std::isfinite(minimum_radius) && minimum_radius > 0. &&
-                root_radius * summary.minimum_scaled_ratio >=
-                  parameters.minimum_radius;
-        if (parameters.reference_flow > 0.)
+    bool valid = invalid_bounds == 0;
+    if (parameters.reference_flow > 0.)
+      for (unsigned int system = 0; system < 2; ++system)
+        if (!leaf_minima[system].empty())
           {
             const long double system_demand =
               preview.canonical_total_demand ?
-                (*preview.canonical_total_demand)[branch.system] :
-                preview.totals[3 * branch.system];
-            if (!(std::isfinite(system_demand) && system_demand > 0.))
-              {
-                valid = false;
-                continue;
-              }
+                (*preview.canonical_total_demand)[system] :
+                preview.totals[3 * system];
             GrowthDemandSummary smallest;
-            smallest.mass             = summary.minimum_leaf_mass;
+            smallest.mass             = leaf_minima[system].begin()->first;
             const double minimum_flow = static_cast<double>(
               parameters.reference_flow * demand_state.demand_value(smallest) /
               system_demand);
-            const long double factor =
-              8.L / dealii::numbers::PI / std::pow(root_radius, 4);
-            const double min_resistance =
-              static_cast<double>(factor * summary.minimum_resistance_length);
-            const double max_resistance =
-              static_cast<double>(factor * summary.maximum_resistance_length);
             valid = valid && std::isfinite(system_demand) &&
                     system_demand > 0. && std::isfinite(minimum_flow) &&
-                    minimum_flow > 0. && std::isfinite(min_resistance) &&
-                    min_resistance > 0. && std::isfinite(max_resistance) &&
-                    max_resistance > 0.;
+                    minimum_flow > 0.;
           }
-      }
     for (unsigned int system = 0; system < 2; ++system)
       {
         const double volume =
@@ -479,6 +458,17 @@ namespace ImmersX::Vascularization::internal
       {
         return result;
       }
+    std::set<Id> changed_bounds;
+    for (Id id : delta.released_owned)
+      if (root_bounds.count(id))
+        changed_bounds.insert(id);
+    for (Id id : delta.changed_owned)
+      if (demand_state.owned_roots.count(id))
+        changed_bounds.insert(id);
+    for (const auto &[id, value] : preview.owned)
+      if (demand_state.branches.at(id).topology.parent == invalid_id)
+        changed_bounds.insert(id);
+    update_bounds(changed_bounds, preview, true);
     if (!refresh_controls(delta, preview, result.validation) ||
         !physical_bounds(preview, result.validation))
       {
