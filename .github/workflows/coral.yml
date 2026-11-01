@@ -10,6 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Use the same directory in ccache-action and the ImmersX launcher.
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_NOHASHDIR: 'true'
+
 jobs:
   debug:
     runs-on: ubuntu-latest
@@ -24,9 +30,9 @@ jobs:
       - name: Restore ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ github.job }}-coral-dealii-9.7.1-noble
+          key: ${{ github.job }}-coral-dealii-9.7.1-noble-v2
           max-size: 1G
-          append-timestamp: false
+          append-timestamp: true
           update-package-index: true
           install: detect
           verbose: 1
@@ -42,10 +48,16 @@ jobs:
       - name: Install Coral
         run: |
           rm -rf coral-build-debug coral-install-debug
+          command -v ccache
+          coral_flags="-ffile-prefix-map=$GITHUB_WORKSPACE/coral-upstream=/coral/source -fdebug-prefix-map=$GITHUB_WORKSPACE/coral-upstream=/coral/source -fmacro-prefix-map=$GITHUB_WORKSPACE/coral-upstream=/coral/source"
+          coral_flags="$coral_flags -ffile-prefix-map=$GITHUB_WORKSPACE/coral-build-debug=/coral/build -fdebug-prefix-map=$GITHUB_WORKSPACE/coral-build-debug=/coral/build -fmacro-prefix-map=$GITHUB_WORKSPACE/coral-build-debug=/coral/build"
           cmake -S coral-upstream -B coral-build-debug -GNinja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/coral-install-debug" \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_FLAGS="$coral_flags" \
+            -DCMAKE_C_FLAGS="$coral_flags" \
             -DCORAL_BUILD_BACKEND_DEALII=OFF \
             -DCORAL_BUILD_SHARED_CORE=ON \
             -DCORAL_BUILD_TESTS=OFF \
@@ -90,7 +102,9 @@ jobs:
 
       - name: Show ccache statistics
         if: always()
-        run: ccache --show-stats
+        run: |
+          ccache --show-config
+          ccache --show-stats
 
   release:
     runs-on: ubuntu-latest
@@ -105,9 +119,9 @@ jobs:
       - name: Restore ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ github.job }}-coral-dealii-9.7.1-noble
+          key: ${{ github.job }}-coral-dealii-9.7.1-noble-v2
           max-size: 1G
-          append-timestamp: false
+          append-timestamp: true
           update-package-index: true
           install: detect
           verbose: 1
@@ -123,10 +137,16 @@ jobs:
       - name: Install Coral
         run: |
           rm -rf coral-build-release coral-install-release
+          command -v ccache
+          coral_flags="-ffile-prefix-map=$GITHUB_WORKSPACE/coral-upstream=/coral/source -fdebug-prefix-map=$GITHUB_WORKSPACE/coral-upstream=/coral/source -fmacro-prefix-map=$GITHUB_WORKSPACE/coral-upstream=/coral/source"
+          coral_flags="$coral_flags -ffile-prefix-map=$GITHUB_WORKSPACE/coral-build-release=/coral/build -fdebug-prefix-map=$GITHUB_WORKSPACE/coral-build-release=/coral/build -fmacro-prefix-map=$GITHUB_WORKSPACE/coral-build-release=/coral/build"
           cmake -S coral-upstream -B coral-build-release -GNinja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/coral-install-release" \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_FLAGS="$coral_flags" \
+            -DCMAKE_C_FLAGS="$coral_flags" \
             -DCORAL_BUILD_BACKEND_DEALII=OFF \
             -DCORAL_BUILD_SHARED_CORE=ON \
             -DCORAL_BUILD_TESTS=OFF \
@@ -171,4 +191,6 @@ jobs:
 
       - name: Show ccache statistics
         if: always()
-        run: ccache --show-stats
+        run: |
+          ccache --show-config
+          ccache --show-stats

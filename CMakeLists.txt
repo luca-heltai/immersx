@@ -59,6 +59,8 @@ option(IMMERSX_BUILD_CORAL_PLUGINS
   "Build Coral plugins when a compatible Coral package is available." ON)
 option(IMMERSX_ENABLE_CORAL_GRAPH_TESTS
   "Enable numerical Coral graph integration tests." OFF)
+option(IMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS
+  "Enable configure-only MetricFlowX package compatibility tests." ON)
 option(IMMERSX_BUILD_BENCHMARKS
   "Build standalone ImmersX versus deal.II benchmarks." OFF)
 
@@ -596,7 +598,9 @@ ENABLE_TESTING()
 include(cmake/container_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
 include(cmake/harmonic_fiber_tests.cmake)
-include(cmake/metric_flow_x_package_tests.cmake)
+if(IMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS)
+  include(cmake/metric_flow_x_package_tests.cmake)
+endif()
 
 if(IMMERSX_WITH_CORAL)
   add_subdirectory(coral)
