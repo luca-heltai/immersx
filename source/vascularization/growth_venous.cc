@@ -1,5 +1,6 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#include <boost/geometry/algorithms/comparable_distance.hpp>
 #include <boost/geometry/algorithms/equals.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
@@ -10,6 +11,7 @@
 
 #include "growth_batch.h"
 #include "growth_start.h"
+#include "growth_territory_search.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -32,15 +34,36 @@ namespace ImmersX::Vascularization::internal
     };
     struct RootQuery
     {
-      Point<3>     position;
-      std::set<Id> excluded;
+      Point<3> position;
+      Id       rejected = invalid_id;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
-        ar &position &excluded;
+        ar &position &rejected;
       }
     };
+    struct TerritoryUpdates
+    {
+      std::vector<Id> claimed, retired;
+      template <class Archive>
+      void
+      serialize(Archive &ar, unsigned int)
+      {
+        ar &claimed &retired;
+      }
+    };
+    double
+    lower_distance(const BoundingBox<3> &box, const Point<3> &point)
+    {
+      const double distance = boost::geometry::comparable_distance(point, box);
+      return std::max(
+        0.,
+        std::nextafter(std::min(distance, std::numeric_limits<double>::max()) *
+                         (1. - 64. * std::numeric_limits<double>::epsilon()),
+                       -std::numeric_limits<double>::infinity()) -
+          64. * std::numeric_limits<double>::denorm_min());
+    }
   } // namespace
 
   VenousOutlet
@@ -199,9 +222,10 @@ namespace ImmersX::Vascularization::internal
       Id       node = invalid_id, vessel = invalid_id, terminal = invalid_id;
       Vessel   properties;
       Point<3> position, normal;
-      std::set<Id> excluded;
-      Id           current   = invalid_id;
-      unsigned int direction = 0;
+      std::set<Rank> queried_owners, exhausted_owners;
+      Id             rejected  = invalid_id;
+      Id             current   = invalid_id;
+      unsigned int   direction = 0;
     };
     std::vector<Pending> roots;
     if (reserved_port != invalid_id)
@@ -293,77 +317,108 @@ namespace ImmersX::Vascularization::internal
         root.terminal = next_terminal++;
         pending.emplace(root.vessel, std::move(root));
       }
-    std::map<Id, SharedPoint>            available;
-    std::vector<std::pair<Point<3>, Id>> points;
-    for (const auto &t : owned_territories)
-      {
-        if (t.id == invalid_id || t.owner != rank || !std::isfinite(t.demand) ||
-            !(t.demand > 0.) ||
-            !available
-               .emplace(t.id, SharedPoint{t.id, t.position, rank, t.demand})
-               .second)
-          fail(
-            t.id,
-            "Venous startup requires unique native common territories with positive finite demand.");
-        points.emplace_back(t.position, t.id);
-      }
+    VenousTerritorySearch territories(owned_territories, rank, geometry.counts);
+    for (const auto &issue : territories.validation().issues)
+      fail(issue.id, issue.message);
     if (!valid())
       return result;
-    auto                 tree = pack_rtree(points);
+    std::vector<BoundingBox<3>> local_cover;
+    if (const auto cover = territories.cover())
+      local_cover.push_back(*cover);
+    const auto           covers = Utilities::MPI::all_gather(comm, local_cover);
     std::set<Id>         mutable_owned;
     std::map<Id, double> fixed_roots;
     while (Utilities::MPI::sum(static_cast<Id>(pending.size()), comm) > 0)
       {
-        // Each producer returns one nearest available point per query. The
-        // exchanges carry root queries and candidates, never a territory graph.
-        const auto counts = Utilities::MPI::all_gather(comm, available.size());
-        std::map<Rank, std::map<Id, RootQuery>> queries;
+        const auto counts =
+          Utilities::MPI::all_gather(comm, territories.size());
+        using Queries = std::map<Rank, std::map<Id, RootQuery>>;
+        std::map<Id, SharedPoint> nearest;
+        const auto                exchange = [&](const Queries &queries) {
+          std::map<Rank, std::map<Id, SharedPoint>> replies;
+          for (const auto &[source, entries] :
+               Utilities::MPI::some_to_some(comm, queries))
+            for (const auto &[id, query] : entries)
+              if (const auto point =
+                    territories.query(id, query.position, query.rejected))
+                replies[source].emplace(id,
+                                        SharedPoint{point->id,
+                                                    point->position,
+                                                    point->owner,
+                                                    point->demand});
+          const auto received = Utilities::MPI::some_to_some(comm, replies);
+          for (const auto &[owner, entries] : queries)
+            for (const auto &[id, query] : entries)
+              {
+                auto &root = pending.at(id);
+                root.queried_owners.insert(owner);
+                const auto part = received.find(owner);
+                if (part == received.end() || !part->second.count(id))
+                  root.exhausted_owners.insert(owner);
+              }
+          for (const auto &[source, entries] : received)
+            for (const auto &[id, point] : entries)
+              {
+                const double distance =
+                  pending.at(id).position.distance_square(point.position);
+                const auto old = nearest.find(id);
+                if (old == nearest.end() ||
+                    distance < pending.at(id).position.distance_square(
+                                 old->second.position) ||
+                    (distance == pending.at(id).position.distance_square(
+                                   old->second.position) &&
+                     point.id < old->second.id))
+                  nearest[id] = point;
+              }
+        };
+        // First obtain a finite nearest bound from one nonempty owner box.
+        // Only boxes that can improve it receive the second round.
+        Queries            first;
+        std::map<Id, Rank> first_owner;
         for (const auto &[id, root] : pending)
-          for (Rank target = 0; target < size; ++target)
-            if (counts[target] > 0)
-              queries[target].emplace(id,
-                                      RootQuery{root.position, root.excluded});
-        std::map<Rank, std::map<Id, SharedPoint>> replies;
-        for (const auto &[source, entries] :
-             Utilities::MPI::some_to_some(comm, queries))
-          for (const auto &[id, query] : entries)
-            {
-              const SharedPoint *best = nullptr;
-              double     distance     = std::numeric_limits<double>::infinity();
-              const auto count =
-                std::min(tree.size(), query.excluded.size() + 1);
-              for (const auto &[point, territory] :
-                   tree | bgi::adaptors::queried(
-                            bgi::nearest(query.position, count)))
-                if (!query.excluded.count(territory))
+          {
+            Rank   owner    = size;
+            double distance = std::numeric_limits<double>::infinity();
+            for (Rank candidate = 0; candidate < size; ++candidate)
+              if (counts[candidate] > 0 &&
+                  !root.exhausted_owners.count(candidate))
+                for (const auto &box : covers[candidate])
                   {
-                    const double d = point.distance_square(query.position);
-                    if (!best || d < distance ||
-                        (d == distance && territory < best->id))
+                    const double bound = lower_distance(box, root.position);
+                    if (owner == size || bound < distance)
                       {
-                        best     = &available.at(territory);
-                        distance = d;
+                        owner    = candidate;
+                        distance = bound;
                       }
                   }
-              if (best)
-                replies[source].emplace(id, *best);
-            }
-        std::map<Id, SharedPoint> nearest;
-        for (const auto &[source, entries] :
-             Utilities::MPI::some_to_some(comm, replies))
-          for (const auto &[id, point] : entries)
-            {
-              const double distance =
-                pending.at(id).position.distance_square(point.position);
-              const auto it = nearest.find(id);
-              if (it == nearest.end() ||
-                  distance < pending.at(id).position.distance_square(
-                               it->second.position) ||
-                  (distance == pending.at(id).position.distance_square(
-                                 it->second.position) &&
-                   point.id < it->second.id))
-                nearest[id] = point;
-            }
+            if (owner < size)
+              {
+                first[owner].emplace(id,
+                                     RootQuery{root.position, root.rejected});
+                first_owner.emplace(id, owner);
+              }
+          }
+        exchange(first);
+        Queries additional;
+        for (const auto &[id, root] : pending)
+          {
+            const auto   best = nearest.find(id);
+            const double distance =
+              best == nearest.end() ?
+                std::numeric_limits<double>::infinity() :
+                root.position.distance_square(best->second.position);
+            for (Rank owner = 0; owner < size; ++owner)
+              if (counts[owner] > 0 && !root.exhausted_owners.count(owner) &&
+                  (!first_owner.count(id) || first_owner.at(id) != owner))
+                for (const auto &box : covers[owner])
+                  if (lower_distance(box, root.position) <= distance)
+                    additional[owner].emplace(id,
+                                              RootQuery{root.position,
+                                                        root.rejected});
+          }
+        exchange(additional);
+        for (auto &[id, root] : pending)
+          root.rejected = invalid_id;
         for (const auto &[id, root] : pending)
           if (!nearest.count(id))
             fail(
@@ -418,7 +473,7 @@ namespace ImmersX::Vascularization::internal
                                       p.venous.terminal_separation);
             const auto end = root.position + directions.at(root.direction++);
             if (root.direction == directions.size())
-              root.excluded.insert(point.id);
+              root.rejected = point.id;
             if (root.position.distance(end) <= p.minimum_length)
               continue;
             BatchProposal proposal;
@@ -439,9 +494,9 @@ namespace ImmersX::Vascularization::internal
             const auto &v = snapshot.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
           });
-        auto                            trial = snapshot;
-        std::vector<Id>                 accepted;
-        std::map<Rank, std::vector<Id>> claims;
+        auto                             trial = snapshot;
+        std::vector<Id>                  accepted;
+        std::map<Rank, TerritoryUpdates> updates;
         for (const auto &proposal : proposals)
           if (selection.local.at(proposal.id))
             {
@@ -465,7 +520,9 @@ namespace ImmersX::Vascularization::internal
               mutable_owned.insert(root.vessel);
               fixed_roots[root.vessel] = vessel.radii[0];
               accepted.push_back(root.vessel);
-              claims[point.owner].push_back(point.id);
+              updates[point.owner].claimed.push_back(point.id);
+              for (Rank owner : root.queried_owners)
+                updates[owner].retired.push_back(root.vessel);
             }
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
@@ -476,14 +533,17 @@ namespace ImmersX::Vascularization::internal
             result.accepted = std::move(committed);
             return result;
           }
-        for (const auto &[source, ids] :
-             Utilities::MPI::some_to_some(comm, claims))
-          for (Id id : ids)
-            {
-              const auto &point = available.at(id);
-              tree.remove(std::make_pair(point.position, id));
-              available.erase(id);
-            }
+        for (const auto &[source, update] :
+             Utilities::MPI::some_to_some(comm, updates))
+          {
+            for (Id id : update.claimed)
+              if (!territories.claim(id))
+                fail(id, "A common territory can be claimed only once.");
+            for (Id root : update.retired)
+              territories.forget(root);
+          }
+        if (!valid())
+          return result;
         for (Id id : accepted)
           {
             if (pending.at(id).input_terminal != invalid_id)
