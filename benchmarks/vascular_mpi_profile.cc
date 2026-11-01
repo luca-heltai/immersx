@@ -4,12 +4,18 @@
 // application do not link this translation unit.
 #include <mpi.h>
 
+#define IMMERSX_VASCULAR_MPI_SCOPE_IMPLEMENTATION
+#include "../source/vascularization/growth_mpi_scope.h"
+#undef IMMERSX_VASCULAR_MPI_SCOPE_IMPLEMENTATION
+
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
+#include <mutex>
 #include <string>
 #include <utility>
 namespace
@@ -25,6 +31,7 @@ namespace
     Irecv,
     Sendrecv,
     Allreduce,
+    Iallreduce,
     Scan,
     Exscan,
     Reduce,
@@ -53,47 +60,46 @@ namespace
     count
   };
   constexpr std::array<const char *, static_cast<unsigned int>(Function::count)>
-    names{{"MPI_Send",
-           "MPI_Ssend",
-           "MPI_Rsend",
-           "MPI_Isend",
-           "MPI_Issend",
-           "MPI_Recv",
-           "MPI_Irecv",
-           "MPI_Sendrecv",
-           "MPI_Allreduce",
-           "MPI_Scan",
-           "MPI_Exscan",
-           "MPI_Reduce",
-           "MPI_Reduce_scatter_block",
-           "MPI_Bcast",
-           "MPI_Allgather",
-           "MPI_Alltoall",
-           "MPI_Allgatherv",
-           "MPI_Alltoallv",
-           "MPI_Gather",
-           "MPI_Gatherv",
-           "MPI_Scatter",
-           "MPI_Scatterv",
-           "MPI_Barrier",
-           "MPI_Ibarrier",
-           "MPI_Wait",
-           "MPI_Waitall",
-           "MPI_Waitany",
-           "MPI_Test",
-           "MPI_Testall",
-           "MPI_Probe",
-           "MPI_Iprobe",
-           "MPI_Comm_dup",
-           "MPI_Comm_free",
+    names{{"MPI_Send",      "MPI_Ssend",
+           "MPI_Rsend",     "MPI_Isend",
+           "MPI_Issend",    "MPI_Recv",
+           "MPI_Irecv",     "MPI_Sendrecv",
+           "MPI_Allreduce", "MPI_Iallreduce",
+           "MPI_Scan",      "MPI_Exscan",
+           "MPI_Reduce",    "MPI_Reduce_scatter_block",
+           "MPI_Bcast",     "MPI_Allgather",
+           "MPI_Alltoall",  "MPI_Allgatherv",
+           "MPI_Alltoallv", "MPI_Gather",
+           "MPI_Gatherv",   "MPI_Scatter",
+           "MPI_Scatterv",  "MPI_Barrier",
+           "MPI_Ibarrier",  "MPI_Wait",
+           "MPI_Waitall",   "MPI_Waitany",
+           "MPI_Test",      "MPI_Testall",
+           "MPI_Probe",     "MPI_Iprobe",
+           "MPI_Comm_dup",  "MPI_Comm_free",
            "MPI_Comm_split"}};
   struct Measurement
   {
     std::atomic<std::uint64_t> calls{0}, sent{0}, collective{0}, nanoseconds{0};
   };
   std::array<Measurement, names.size()> measurements;
-  std::atomic<bool>                     enabled{false};
-  int                                   world_rank = 0;
+  struct ScopeMeasurement
+  {
+    std::atomic<std::uint64_t> entries{0}, calls{0}, sends{0}, sent{0},
+      collective{0}, reductions{0}, nanoseconds{0};
+  };
+  using ScopeKey = std::array<std::uint64_t, 5>;
+  std::map<ScopeKey, ScopeMeasurement>  scopes;
+  std::mutex                            scope_mutex;
+  std::atomic<std::uint64_t>            next_run{0};
+  thread_local ScopeMeasurement        *active_scope = nullptr;
+  constexpr std::array<const char *, 3> phase_names{
+    {"initialization", "batch", "finalization"}};
+  static_assert(phase_names.size() ==
+                static_cast<unsigned int>(
+                  ImmersX::Vascularization::internal::GrowthMpiPhase::count));
+  std::atomic<bool> enabled{false};
+  int               world_rank = 0;
   void
   start()
   {
@@ -140,7 +146,10 @@ namespace
   }
   template <typename Payload, typename Call>
   int
-  observe(Function function, Payload payload, Call call)
+  observe(Function      function,
+          Payload       payload,
+          Call          call,
+          std::uint64_t sends = 0)
   {
     if (!enabled.load(std::memory_order_relaxed))
       return call();
@@ -157,6 +166,22 @@ namespace
         m.sent.fetch_add(sent, std::memory_order_relaxed);
         m.collective.fetch_add(collective, std::memory_order_relaxed);
         m.nanoseconds.fetch_add(duration, std::memory_order_relaxed);
+        if (active_scope)
+          {
+            auto &scope = *active_scope;
+            scope.calls.fetch_add(1, std::memory_order_relaxed);
+            scope.sends.fetch_add(sends, std::memory_order_relaxed);
+            scope.sent.fetch_add(sent, std::memory_order_relaxed);
+            scope.collective.fetch_add(collective, std::memory_order_relaxed);
+            const bool reduction = function == Function::Allreduce ||
+                                   function == Function::Iallreduce ||
+                                   function == Function::Reduce ||
+                                   function == Function::Scan ||
+                                   function == Function::Exscan ||
+                                   function == Function::Reduce_scatter_block;
+            scope.reductions.fetch_add(reduction, std::memory_order_relaxed);
+            scope.nanoseconds.fetch_add(duration, std::memory_order_relaxed);
+          }
       }
     return status;
   }
@@ -191,8 +216,78 @@ namespace
       }
     if (std::fclose(out) != 0)
       std::fprintf(stderr, "Cannot close MPI profile: %s\n", filename.c_str());
+    const std::string phase_filename = std::string(directory) + "/growth-mpi-" +
+                                       std::to_string(world_rank) + ".csv";
+    out = std::fopen(phase_filename.c_str(), "wx");
+    if (!out)
+      {
+        std::fprintf(stderr,
+                     "Cannot write growth MPI profile: %s\n",
+                     phase_filename.c_str());
+        return;
+      }
+    std::fprintf(
+      out,
+      "run,system,requested_terminals,lower_terminals,phase,entries,calls,posted_sends,posted_send_bytes,collective_input_bytes,reductions,seconds\n");
+    const std::lock_guard<std::mutex> lock(scope_mutex);
+    for (const auto &[key, scope] : scopes)
+      std::fprintf(out,
+                   "%llu,%s,%llu,%llu,%s,%llu,%llu,%llu,%llu,%llu,%llu,%.17g\n",
+                   static_cast<unsigned long long>(key[0]),
+                   key[2] == 0 ? "arterial" : "venous",
+                   static_cast<unsigned long long>(key[3]),
+                   static_cast<unsigned long long>(key[4]),
+                   phase_names[key[1]],
+                   static_cast<unsigned long long>(scope.entries.load()),
+                   static_cast<unsigned long long>(scope.calls.load()),
+                   static_cast<unsigned long long>(scope.sends.load()),
+                   static_cast<unsigned long long>(scope.sent.load()),
+                   static_cast<unsigned long long>(scope.collective.load()),
+                   static_cast<unsigned long long>(scope.reductions.load()),
+                   static_cast<double>(scope.nanoseconds.load()) * 1.e-9);
+    if (std::fclose(out) != 0)
+      std::fprintf(stderr,
+                   "Cannot close growth MPI profile: %s\n",
+                   phase_filename.c_str());
   }
 } // namespace
+extern "C" std::uint64_t
+immersx_vascular_mpi_new_run() noexcept
+{
+  return enabled.load(std::memory_order_relaxed) ?
+           next_run.fetch_add(1, std::memory_order_relaxed) + 1 :
+           0;
+}
+extern "C" std::uintptr_t
+immersx_vascular_mpi_begin(std::uint64_t run,
+                           unsigned int  phase,
+                           unsigned int  system,
+                           std::uint64_t requested,
+                           std::uint64_t leaves) noexcept
+{
+  const auto previous = reinterpret_cast<std::uintptr_t>(active_scope);
+  if (!enabled.load(std::memory_order_relaxed) || run == 0 ||
+      phase >= phase_names.size() || system > 1)
+    return previous;
+  std::uint64_t lower = 0;
+  if (leaves != 0)
+    for (lower = 1; leaves > 1; leaves >>= 1)
+      lower <<= 1;
+  const std::lock_guard<std::mutex> lock(scope_mutex);
+  if (!enabled.load(std::memory_order_relaxed))
+    return previous;
+  auto &scope =
+    scopes.try_emplace(ScopeKey{{run, phase, system, requested, lower}})
+      .first->second;
+  scope.entries.fetch_add(1, std::memory_order_relaxed);
+  active_scope = &scope;
+  return previous;
+}
+extern "C" void
+immersx_vascular_mpi_end(std::uintptr_t previous) noexcept
+{
+  active_scope = reinterpret_cast<ScopeMeasurement *>(previous);
+}
 extern "C" int
 MPI_Init(int *argc, char ***argv)
 {
@@ -229,7 +324,8 @@ MPI_Send(const void  *buf,
       return std::pair<std::uint64_t, std::uint64_t>{
         dest == MPI_PROC_NULL ? 0 : bytes(count, type), 0};
     },
-    [&]() { return PMPI_Send(buf, count, type, dest, tag, comm); });
+    [&]() { return PMPI_Send(buf, count, type, dest, tag, comm); },
+    dest == MPI_PROC_NULL ? 0 : 1);
 }
 extern "C" int
 MPI_Ssend(const void  *buf,
@@ -245,7 +341,8 @@ MPI_Ssend(const void  *buf,
       return std::pair<std::uint64_t, std::uint64_t>{
         dest == MPI_PROC_NULL ? 0 : bytes(count, type), 0};
     },
-    [&]() { return PMPI_Ssend(buf, count, type, dest, tag, comm); });
+    [&]() { return PMPI_Ssend(buf, count, type, dest, tag, comm); },
+    dest == MPI_PROC_NULL ? 0 : 1);
 }
 extern "C" int
 MPI_Rsend(const void  *buf,
@@ -261,7 +358,8 @@ MPI_Rsend(const void  *buf,
       return std::pair<std::uint64_t, std::uint64_t>{
         dest == MPI_PROC_NULL ? 0 : bytes(count, type), 0};
     },
-    [&]() { return PMPI_Rsend(buf, count, type, dest, tag, comm); });
+    [&]() { return PMPI_Rsend(buf, count, type, dest, tag, comm); },
+    dest == MPI_PROC_NULL ? 0 : 1);
 }
 extern "C" int
 MPI_Isend(const void  *buf,
@@ -278,7 +376,8 @@ MPI_Isend(const void  *buf,
       return std::pair<std::uint64_t, std::uint64_t>{
         dest == MPI_PROC_NULL ? 0 : bytes(count, type), 0};
     },
-    [&]() { return PMPI_Isend(buf, count, type, dest, tag, comm, request); });
+    [&]() { return PMPI_Isend(buf, count, type, dest, tag, comm, request); },
+    dest == MPI_PROC_NULL ? 0 : 1);
 }
 extern "C" int
 MPI_Issend(const void  *buf,
@@ -295,7 +394,8 @@ MPI_Issend(const void  *buf,
       return std::pair<std::uint64_t, std::uint64_t>{
         dest == MPI_PROC_NULL ? 0 : bytes(count, type), 0};
     },
-    [&]() { return PMPI_Issend(buf, count, type, dest, tag, comm, request); });
+    [&]() { return PMPI_Issend(buf, count, type, dest, tag, comm, request); },
+    dest == MPI_PROC_NULL ? 0 : 1);
 }
 extern "C" int
 MPI_Recv(void        *buf,
@@ -362,7 +462,8 @@ MPI_Sendrecv(const void  *sendbuf,
                            recvtag,
                            comm,
                            status);
-    });
+    },
+    dest == MPI_PROC_NULL ? 0 : 1);
 }
 extern "C" int
 MPI_Allreduce(const void  *sendbuf,
@@ -378,6 +479,24 @@ MPI_Allreduce(const void  *sendbuf,
       return std::pair<std::uint64_t, std::uint64_t>{0, bytes(count, type)};
     },
     [&]() { return PMPI_Allreduce(sendbuf, recvbuf, count, type, op, comm); });
+}
+extern "C" int
+MPI_Iallreduce(const void  *sendbuf,
+               void        *recvbuf,
+               int          count,
+               MPI_Datatype type,
+               MPI_Op       op,
+               MPI_Comm     comm,
+               MPI_Request *request)
+{
+  return observe(
+    Function::Iallreduce,
+    [&]() {
+      return std::pair<std::uint64_t, std::uint64_t>{0, bytes(count, type)};
+    },
+    [&]() {
+      return PMPI_Iallreduce(sendbuf, recvbuf, count, type, op, comm, request);
+    });
 }
 extern "C" int
 MPI_Scan(const void  *sendbuf,
