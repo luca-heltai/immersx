@@ -48,49 +48,58 @@ TEST(VascularGeneration, BOTH_OneBackgroundContextAcrossArterialAndVenousGrowth)
   GridGenerator::hyper_cube(bg);
   bg.refine_global(2);
   Parameters p;
-  p.seed_position                  = {.2, .5, .5};
-  p.seed_direction                 = {1., 0., 0.};
-  p.seed_radius                    = .003;
-  p.viscosity                      = .004;
-  p.reference_flow                 = 2e-9;
-  p.reference_conditions.pressures = {{0, 12000.}, {2, 4000.}};
-  p.venous.enabled                 = true;
-  p.venous.seed_position           = {.8, .5, .5};
-  p.venous.seed_radius             = .004;
-  p.tissue_demand                  = "1+x+2*y";
-  p.terminal_count                 = 3;
-  p.seed_length                    = .2;
-  p.venous.terminal_separation     = .04;
+  p.seed_position                    = {.05, .25, .25};
+  p.seed_direction                   = {1., 0., 0.};
+  p.seed_radius                      = .003;
+  p.viscosity                        = .004;
+  p.reference_flow                   = 2e-9;
+  p.reference_conditions.pressures   = {{0, 12000.}, {2, 4000.}};
+  p.venous.enabled                   = true;
+  p.venous.seed_position             = {.95, .75, .75};
+  p.venous.seed_radius               = .004;
+  p.tissue_demand                    = "1+x+2*y";
+  p.terminal_count_multiplier_factor = "none";
+  p.terminal_count                   = 3;
+  EXPECT_EQ(p.length_scale, "local mesh size");
+  EXPECT_DOUBLE_EQ(p.seed_length, 1.);
+  EXPECT_DOUBLE_EQ(p.minimum_length, .1);
+  EXPECT_DOUBLE_EQ(p.venous.terminal_separation, .25);
   const auto result = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
   ASSERT_TRUE(result.validation.valid()) << issues(result);
-
+  EXPECT_EQ(result.effective_terminal_count, 3u);
   EXPECT_EQ(Utilities::MPI::sum(result.terminal_pairs.size(), MPI_COMM_WORLD),
             3u);
+  double demand = 0.;
+  for (const auto &territory : result.territories)
+    demand += territory.demand;
+  EXPECT_NEAR(Utilities::MPI::sum(demand, MPI_COMM_WORLD), 2.5, 3e-13);
   one_cache(result);
 }
-TEST(VascularGeneration, BOTH_CalibrationReusesBackgroundAcrossAttempts)
+TEST(VascularGeneration, BOTH_CalibrationReusesBackgroundButNotTerritorialState)
 {
   parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
   GridGenerator::hyper_cube(bg);
   bg.refine_global(1);
   Parameters p;
-  p.seed_position                  = {.2, .5, .5};
-  p.seed_direction                 = {1., 0., 0.};
-  p.seed_length                    = .3;
-  p.seed_radius                    = .01;
-  p.viscosity                      = .004;
-  p.minimum_length                 = 0.;
-  p.density_beta                   = 0.;
-  p.terminal_count                 = 3;
-  p.calibration.minimum_terminals  = 1;
-  p.calibration.maximum_terminals  = 5;
-  p.calibration.volume_fraction    = numbers::PI * .01 * .01 * .3;
-  p.calibration.relative_tolerance = 1e-10;
+  p.length_scale                     = "meter";
+  p.seed_position                    = {.2, .5, .5};
+  p.seed_direction                   = {1., 0., 0.};
+  p.seed_length                      = .3;
+  p.seed_radius                      = .01;
+  p.viscosity                        = .004;
+  p.minimum_length                   = 0.;
+  p.density_beta                     = 0.;
+  p.terminal_count_multiplier_factor = "none";
+  p.terminal_count                   = 3;
+  p.calibration.minimum_terminals    = 1;
+  p.calibration.maximum_terminals    = 5;
+  p.calibration.volume_fraction      = numbers::PI * .01 * .01 * .3;
+  p.calibration.relative_tolerance   = 1e-10;
   const auto result = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
   ASSERT_TRUE(result.validation.valid()) << issues(result);
   EXPECT_EQ(result.calibration.status, CalibrationStatus::converged);
   EXPECT_GE(result.calibration.attempts.size(), 2u);
-  EXPECT_EQ(Utilities::MPI::sum(result.territories.size(), MPI_COMM_WORLD), 1u);
+  EXPECT_EQ(result.effective_terminal_count, 1u);
   double demand = 0.;
   for (const auto &territory : result.territories)
     demand += territory.demand;

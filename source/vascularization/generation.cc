@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <set>
 
@@ -306,15 +307,18 @@ namespace ImmersX::Vascularization
   }
 
   static GenerationResult
-  generate_count(const dealii::Triangulation<3>  &background,
-                 const dealii::Mapping<3>        &mapping,
-                 const NetworkData               &initial,
-                 const Parameters                &parameters,
-                 MPI_Comm                         communicator,
-                 unsigned int                     terminal_count,
-                 unsigned int                     initial_count,
-                 const std::vector<Territory>    &initial_territories,
-                 const std::vector<TerminalPair> &initial_pairs)
+  generate_count(
+    const dealii::Triangulation<3>                &background,
+    const dealii::Mapping<3>                      &mapping,
+    const NetworkData                             &initial,
+    const Parameters                              &parameters,
+    MPI_Comm                                       communicator,
+    unsigned int                                   terminal_count,
+    unsigned int                                   initial_count,
+    const std::vector<Territory>                  &initial_territories,
+    const std::vector<TerminalPair>               &initial_pairs,
+    std::unique_ptr<internal::BackgroundGeometry> &prepared_geometry,
+    GrowthWork                                    &preparation_work)
   {
     using namespace dealii;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -408,9 +412,15 @@ namespace ImmersX::Vascularization
                           communicator) == 1,
       ExcMessage(
         "Vascular generation requires compatible first-order background mappings and congruent communicators."));
-    result.length_scale =
-      mesh_length_scale(background, parameters.length_scale, communicator);
-    const auto fail = [&](Id id, const std::string &message) {
+    if (!prepared_geometry)
+      prepared_geometry =
+        std::make_unique<internal::BackgroundGeometry>(background,
+                                                       mapping,
+                                                       &preparation_work);
+    auto &geometry = *prepared_geometry;
+    geometry.configure_length_scale(parameters.length_scale, communicator);
+    result.length_scale = *geometry.length_scale;
+    const auto fail     = [&](Id id, const std::string &message) {
       result.validation.issues.push_back({"attachment", id, message});
     };
     const auto collective_valid = [&]() {
@@ -426,8 +436,8 @@ namespace ImmersX::Vascularization
     std::set<Id>    mutable_forest;
     if (creating_seed)
       {
-        auto startup =
-          internal::start_seed(background, mapping, parameters, communicator);
+        auto startup = internal::start_seed(
+          background, mapping, parameters, communicator, &geometry);
         result.validation = startup.validation;
         if (startup.prepared)
           {
@@ -479,7 +489,6 @@ namespace ImmersX::Vascularization
       std::map<Id, double> fixed_roots;
       for (Id root : roots)
         fixed_roots[root] = result.network.vessels.at(root).radii[0];
-      internal::BackgroundGeometry geometry(background, mapping);
       auto                         callbacks = system == System::arterial ?
                                                  internal::tissue_growth_callbacks(geometry,
                                                            parameters,
@@ -501,6 +510,13 @@ namespace ImmersX::Vascularization
                                                          empty,
                               std::move(callbacks),
                               &geometry);
+      if (!growth.statistics.empty())
+        {
+          auto &first = growth.statistics.begin()->second;
+          first.work += preparation_work;
+          first.initialization_work += preparation_work;
+          preparation_work = {};
+        }
       for (const auto &[bucket, statistics] : growth.statistics)
         result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),
@@ -663,6 +679,9 @@ namespace ImmersX::Vascularization
            const std::vector<TerminalPair> &initial_pairs)
   {
     using namespace dealii;
+    GrowthWork                                    preparation_work;
+    std::unique_ptr<internal::BackgroundGeometry> prepared_geometry;
+
     auto       p     = parameters.calibration;
     const auto modes = std::make_pair(
       std::array<double, 8>{{p.volume_fraction,
