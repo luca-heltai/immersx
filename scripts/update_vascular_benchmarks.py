@@ -22,6 +22,27 @@ from run_vascular_benchmarks import digest, validate
 COLORS = ('#1768ac', '#bd452d', '#398339', '#7954a1', '#9b691c')
 
 
+def growth_work(directory, ranks):
+    """Summarize recorded producer work, separately from vessel ownership."""
+    rows, hashes = [], {}
+    for rank in range(ranks):
+        path = directory / f'growth-{rank}.csv'
+        with path.open(newline='') as stream:
+            rows.append(list(csv.DictReader(stream)))
+        assert rows[-1], path
+        hashes[path.name] = digest(path)
+    result = {}
+    for quantity in ('sampled_points', 'proposed_insertions', 'accepted_insertions'):
+        counts = [sum(int(row[quantity]) for row in rank_rows) for rank_rows in rows]
+        assert all(int(row[quantity]) >= 0 for rank_rows in rows for row in rank_rows)
+        assert sum(counts) > 0, quantity
+        result[quantity+'_by_rank'] = counts
+        result[quantity+'_max_over_mean'] = max(counts)/(sum(counts)/ranks)
+    result['startup_proposer_fraction'] = sum(int(rank_rows[0]['proposed_insertions']) > 0
+                                               for rank_rows in rows)/ranks
+    return result, hashes
+
+
 def load(runs):
     records, provenance, names = [], [], set()
     for run in sorted(runs):
@@ -46,8 +67,10 @@ def load(runs):
             assert record['case'] == case and record['returncode'] == 0, path
             measured = validate(path.parent / 'network', case)
             assert measured == record['measurements'], f'Native tables changed: {path}'
+            measured['work'], growth_hashes = growth_work(path.parent / 'network', case['ranks'])
             records.append((case, measured))
-            provenance.append(dict(case=case['name'], case_sha256=digest(path)))
+            provenance.append(dict(case=case['name'], case_sha256=digest(path),
+                                   growth_sha256=growth_hashes))
     assert records, 'No completed measurements supplied'
     return sorted(records, key=lambda r: r[0]['name']), provenance
 
@@ -76,7 +99,7 @@ def chart(svg, origin, title, series, logarithmic=False):
         assert min(ys) > 0
     lower = min(map(transform, ys)) if logarithmic else 0.
     upper = max(map(transform, ys))
-    span = max(upper-lower, .1 if logarithmic else max(upper, 1.)*.1)
+    span = max(upper-lower, .1) if logarithmic else (upper or 1.)
     lower -= .03*span if logarithmic else 0.
     upper += .08*span
     px = lambda x: x0 + width*(math.log2(x)-math.log2(xs[0])) / max(math.log2(xs[-1]/xs[0]), 1.)
@@ -140,7 +163,9 @@ def render(records, provenance):
         ('Summed rank time inside selected MPI calls [s]', lambda c, m: m['mpi']['seconds'], True),
         ('Maximum rank physiological-update time [s]', lambda c, m: maximum_phase(m, 'physiology_seconds'), True),
         ('First leaf range: writer rank-batch fraction', lambda c, m: m['growth'][0]['active_writer_fraction'], False),
-    ], 'Measured memory, MPI activity, physiology and startup ownership')
+        ('Proposal counts: maximum / mean', lambda c, m: m['work']['proposed_insertions_max_over_mean'], False),
+        ('First leaf range: fraction of ranks proposing', lambda c, m: m['work']['startup_proposer_fraction'], False),
+    ], 'Measured memory, MPI activity, physiology, ownership and producer work')
     assets['quality.svg'] = plot(records, [
         ('Vascular volume fraction', lambda c, m: float(m['summary']['volume_fraction']), False),
         ('Geometric arterial coverage', lambda c, m: float(m['summary']['arterial_coverage']), False),
@@ -160,6 +185,8 @@ def render(records, provenance):
                    physiology_max_rank_seconds=maximum_phase(measured, 'physiology_seconds'),
                    startup_writer_fraction=measured['growth'][0]['active_writer_fraction'],
                    minimum_reference_area=measured['minimum_reference_area'])
+        row.update({key: json.dumps(value) if isinstance(value, list) else value
+                    for key, value in measured['work'].items()})
         row.update({'mpi_'+key: value for key, value in measured['mpi'].items()})
         for quantity in ('length', 'radius', 'junction_angle', 'terminal_distance'):
             row.update({quantity+'_q'+str(round(float(q)*100)): v for q, v in measured[quantity+'_quantiles'].items()})
@@ -171,7 +198,7 @@ def render(records, provenance):
     assets['measurements.csv'] = stream.getvalue().encode()
     assets['manifest.json'] = (json.dumps(dict(
         format_version=1, publisher_sha256=digest(Path(__file__)),
-        conventions='Median curves; whiskers span all supplied seeds. Strong ratio is T(1)/T(P); weak ratio is the same elapsed-time ratio at increasing global size. MPI bytes are logical posted sends plus collective input, not wire traffic; MPI seconds sum rank time. RSS sums double-count shared pages and sum individual peaks rather than measuring simultaneous node memory. Writer ownership does not measure CPU-active proposal producers. No fitted model or physiological acceptance thresholds.',
+        conventions='Median curves; whiskers span all supplied seeds. Strong ratio is T(1)/T(P); weak ratio is the same elapsed-time ratio at increasing global size. MPI bytes are logical posted sends plus collective input, not wire traffic; MPI seconds sum rank time. RSS sums double-count shared pages and sum individual peaks rather than measuring simultaneous node memory. Writer ownership does not measure CPU-active proposal producers. Work imbalance uses cumulative rank-local sample, proposal and accepted-insertion counts. Startup proposer fraction counts ranks with at least one proposal in the first leaf range; it is not CPU utilization. No fitted model or physiological acceptance thresholds.',
         provenance=provenance,
         assets={name: hashlib.sha256(data).hexdigest() for name, data in assets.items()}), indent=2, sort_keys=True)+'\n').encode()
     return assets
