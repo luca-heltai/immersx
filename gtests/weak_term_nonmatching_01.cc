@@ -74,8 +74,9 @@ namespace
     Model                               model;
     SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
     const auto before = detail::weak_term_nonmatching_preparations.load();
-    const auto expected =
-      before + static_cast<unsigned int>(expected_preparations);
+    const auto preparations_per_build =
+      static_cast<unsigned int>(expected_preparations);
+    const auto expected = before;
     weak_term(value(source), test(target)).add(builder);
     EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), expected);
 
@@ -96,7 +97,7 @@ namespace
         changed_residual.reinit(target.locally_owned_dofs(), MPI_COMM_WORLD);
         model.evaluate_row(target.field_id(), context, changed_residual);
         EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-                  expected + 1u);
+                  expected + preparations_per_build);
       }
 
     Vector residual;
@@ -130,7 +131,7 @@ namespace
     second_residual -= residual;
     EXPECT_LT(second_residual.l2_norm(), 1.e-12);
     EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-              expected + (change ? 1u : 0u));
+              expected + (4u + (change ? 1u : 0u)) * preparations_per_build);
   }
 
   template <typename SourceField, typename TargetField>

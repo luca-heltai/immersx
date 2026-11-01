@@ -5,6 +5,22 @@ geometric integration support. The support chooses the cells, faces, or
 physical quadrature points used by the integral. It does not need to own a
 finite-element space.
 
+## Registration and assembly
+
+Adding a weak term with `.add(builder)` records its assembly actions. It does
+not assemble or retain the term's matrix. Request a matrix explicitly when it
+will be reused, and keep that matrix in the caller. To assemble only selected
+contributions, register them with a separate builder. For a serial deal.II
+`SparseMatrix`, use the owning result returned by `matrix()`, or provide a
+destination with caller-owned sparsity when using `materialize_into_matrix()`.
+
+Changing prescribed Dirichlet values with the same constraint structure does
+not change a linear operator's matrix. Affine residual contributions on matching
+cell and boundary supports are reintegrated only on cells with nonzero trial
+constraint offsets. Local matrices are temporary; they are not retained for
+later boundary updates. This also accounts for offsets propagated through
+closed hanging-node constraints.
+
 ## Configure a field space
 
 Register space parameters before reading the application parameter file. The

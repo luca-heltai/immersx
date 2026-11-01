@@ -396,11 +396,7 @@ namespace ImmersX
       using MatrixOperator = typename MatrixOperatorRange::value_type;
       using MatrixType     = typename MatrixOperator::Matrix;
 
-      std::vector<std::shared_ptr<MatrixType>> matrices;
-      matrices.reserve(operators.size());
-      for (const auto &entry : operators)
-        matrices.push_back(entry.matrix());
-      auto first = matrices.front();
+      auto first = operators.front().matrix();
       if constexpr (has_distributed_partitions<MatrixType>::value)
         {
           const auto row_partition    = first->locally_owned_range_indices();
@@ -409,20 +405,25 @@ namespace ImmersX
           dealii::DynamicSparsityPattern sparsity(first->m(),
                                                   first->n(),
                                                   row_partition);
-          for (const auto &matrix : matrices)
-            {
-              for (const auto row : row_partition)
-                for (auto entry = matrix->begin(row), end = matrix->end(row);
-                     entry != end;
-                     ++entry)
-                  sparsity.add(row, entry->column());
-            }
-
+          const auto                     add_graph = [&](const auto &matrix) {
+            for (const auto row : row_partition)
+              for (auto entry = matrix.begin(row), end = matrix.end(row);
+                   entry != end;
+                   ++entry)
+                sparsity.add(row, entry->column());
+          };
+          add_graph(*first);
+          first.reset();
+          for (std::size_t i = 1; i < operators.size(); ++i)
+            add_graph(*operators[i].matrix());
           auto result = std::make_shared<MatrixType>();
           result->reinit(
             row_partition, column_partition, sparsity, communicator, false);
-          for (const auto &matrix : matrices)
+          // Recipes are replayable. Keep one temporary contribution at a time
+          // rather than retaining every materialized term until the sum ends.
+          for (const auto &op : operators)
             {
+              const auto matrix = op.matrix();
               for (const auto row : row_partition)
                 for (auto entry = matrix->begin(row), end = matrix->end(row);
                      entry != end;
@@ -434,35 +435,41 @@ namespace ImmersX
         }
       else if constexpr (has_sparse_reinit<MatrixType>::value)
         {
-          dealii::DynamicSparsityPattern dynamic_sparsity(first->m(),
-                                                          first->n());
-          for (const auto &matrix : matrices)
-            {
-              for (typename MatrixType::size_type i = 0; i < matrix->m(); ++i)
-                for (auto entry = matrix->begin(i), end = matrix->end(i);
-                     entry != end;
-                     ++entry)
-                  dynamic_sparsity.add(i, entry->column());
-            }
-
+          dealii::DynamicSparsityPattern graph(first->m(), first->n());
+          const auto                     add_graph = [&](const auto &matrix) {
+            for (typename MatrixType::size_type row = 0; row < matrix.m();
+                 ++row)
+              for (auto entry = matrix.begin(row), end = matrix.end(row);
+                   entry != end;
+                   ++entry)
+                graph.add(row, entry->column());
+          };
+          add_graph(*first);
+          first.reset();
+          for (std::size_t i = 1; i < operators.size(); ++i)
+            add_graph(*operators[i].matrix());
           auto sparsity = std::make_shared<dealii::SparsityPattern>();
-          sparsity->copy_from(dynamic_sparsity);
+          sparsity->copy_from(graph);
           auto result = make_matrix_with_sparsity<MatrixType>(sparsity);
-          for (const auto &matrix : matrices)
+          for (const auto &op : operators)
             {
-              for (typename MatrixType::size_type i = 0; i < matrix->m(); ++i)
-                for (auto entry = matrix->begin(i), end = matrix->end(i);
+              const auto matrix = op.matrix();
+              for (typename MatrixType::size_type row = 0; row < matrix->m();
+                   ++row)
+                for (auto entry = matrix->begin(row), end = matrix->end(row);
                      entry != end;
                      ++entry)
-                  result->add(i, entry->column(), entry->value());
+                  result->add(row, entry->column(), entry->value());
             }
           return result;
         }
       else
         {
+          auto result = clone_matrix(*first);
+          first.reset();
           for (std::size_t i = 1; i < operators.size(); ++i)
-            first->add(1., *matrices[i]);
-          return first;
+            result->add(1., *operators[i].matrix());
+          return result;
         }
     }
   } // namespace detail
