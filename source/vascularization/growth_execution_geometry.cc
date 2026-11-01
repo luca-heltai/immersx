@@ -210,6 +210,31 @@ namespace ImmersX::Vascularization::internal
           id, rows.network(), preview, branch.geometry.clearance_scale, lower);
         const auto old     = certificates.find(id);
         const bool changed = delta.changed_owned.count(id);
+        if (old != certificates.end() && !changed &&
+            old->second.root == value.root && old->second.mass > 0 &&
+            old->second.clearance_scale == value.clearance_scale &&
+            value.cap.radius > old->second.cap.radius &&
+            radius(id, preview) <= old->second.cap.radius)
+          {
+            // Keep certified headroom until the physical radius consumes it.
+            // Scale the old mass threshold exactly, then verify the actual
+            // floating radius kernel instead of inverting pow().
+            Mass retained_lower = 0;
+            if (old->second.lower_root_mass > 0)
+              {
+                retained_lower = (old->second.lower_root_mass * value.mass +
+                                  old->second.mass - 1) /
+                                 old->second.mass;
+                if (retained_lower > root.summary.mass ||
+                    radius_at(value.mass, root, retained_lower) >
+                      old->second.cap.radius)
+                  retained_lower = root.summary.mass;
+              }
+            value.cap.radius      = old->second.cap.radius;
+            value.lower_root_mass = retained_lower;
+            // Keep the new upper token: an expired doubling event must advance
+            // even if its current physical envelope can still be reused.
+          }
         if (old == certificates.end() || changed ||
             value.cap.radius > old->second.cap.radius)
           check.insert(id);
