@@ -3,8 +3,12 @@
 #include "growth_loop.h"
 
 #include <deal.II/base/function_parser.h>
+#include <deal.II/base/scope_exit.h>
 #include <deal.II/base/timer.h>
 
+#include <boost/multi_index/member.hpp>
+#include <boost/multi_index/ranked_index.hpp>
+#include <boost/multi_index_container.hpp>
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/string.hpp>
@@ -13,10 +17,12 @@
 
 #include <immersx/vascularization/generation.h>
 
+#include <memory>
 #include <random>
 
-#include "growth_batch.h"
+#include "growth_mpi_scope.h"
 #include "growth_paths.h"
+#include "growth_selection.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -128,110 +134,6 @@ namespace ImmersX::Vascularization::internal
       exchange(send);
       return hits;
     }
-    struct Obstacle
-    {
-      Edge edge;
-      Id   root = invalid_id;
-      template <class Archive>
-      void
-      serialize(Archive &ar, unsigned int)
-      {
-        ar &edge &root;
-      }
-    };
-    // Fetch geometry covering every possible local-search trial and each fixed
-    // ancestral segment. Replies come from physical owners, including owners
-    // of imported exterior vessels that have no nearby background cells.
-    std::map<Id, Obstacle>
-    candidate_obstacles(const NetworkData                          &network,
-                        const ForestState                          &state,
-                        const GrowthIndices                        &indices,
-                        const std::map<Id, GrowthCandidateContext> &contexts,
-                        const std::optional<Point<3>>              &target,
-                        const Parameters                           &p,
-                        MPI_Comm                                    comm,
-                        GrowthWork                                 *work)
-    {
-      const unsigned int rank  = Utilities::MPI::this_mpi_process(comm),
-                         size  = Utilities::MPI::n_mpi_processes(comm);
-      const double max_radius  = indices.radius_bound;
-      const auto  &tree        = indices.owned;
-      const auto   local_boxes = GrowthIndices::covering(tree);
-      const auto   boxes       = Utilities::MPI::all_gather(comm, local_boxes);
-      std::vector<BoundingBox<3>> regions;
-      if (target)
-        for (const auto &[id, x] : contexts)
-          for (std::size_t i = 0; i < x.path.size(); ++i)
-            {
-              const auto  &edge = x.path[i].edge;
-              const double reach =
-                i == 0 ? .25 * edge.points[0].distance(edge.points[1]) *
-                           p.optimization_steps :
-                         0.;
-              const double guard = 64. *
-                                   std::numeric_limits<double>::epsilon() *
-                                   std::max({1.,
-                                             target->norm(),
-                                             edge.points[0].norm(),
-                                             edge.points[1].norm()});
-              const double pad =
-                reach + x.root_radius + max_radius + p.clearance + guard;
-              Point<3> a, b;
-              for (unsigned int d = 0; d < 3; ++d)
-                {
-                  a[d] = std::min(edge.points[0][d], edge.points[1][d]);
-                  b[d] = std::max(edge.points[0][d], edge.points[1][d]);
-                  if (i == 0)
-                    {
-                      a[d] = std::min(a[d], (*target)[d]);
-                      b[d] = std::max(b[d], (*target)[d]);
-                    }
-                  a[d] -= pad;
-                  b[d] += pad;
-                }
-              regions.emplace_back(std::make_pair(a, b));
-            }
-      std::map<unsigned int, std::vector<BoundingBox<3>>> send;
-      for (unsigned int owner = 0; owner < size; ++owner)
-        for (const auto &box : boxes[owner])
-          for (const auto &region : regions)
-            if (boost::geometry::intersects(box, region))
-              send[owner].push_back(region);
-      const auto incoming = Utilities::MPI::some_to_some(comm, send);
-      std::map<unsigned int, std::vector<Obstacle>> replies;
-      for (const auto &[source, query] : incoming)
-        {
-          std::set<Id> ids;
-          count_work(work,
-                     GrowthOperation::network_index_queries,
-                     query.size());
-          for (const auto &region : query)
-            for (const auto &[segment, id] :
-                 tree | bgi::adaptors::queried(bgi::intersects(region)))
-              {
-                count_work(work, GrowthOperation::network_index_hits);
-                ids.insert(id);
-              }
-          for (Id id : ids)
-            {
-              const auto &v = network.vessels.at(id);
-              const auto  b = state.owned.find(id);
-              replies[source].push_back(
-                {{id,
-                  v.nodes,
-                  {{network.nodes.at(v.nodes[0]).position,
-                    network.nodes.at(v.nodes[1]).position}},
-                  std::max(v.radii[0], v.radii[1])},
-                 b == state.owned.end() ? invalid_id : b->second.root});
-            }
-        }
-      const auto received = Utilities::MPI::some_to_some(comm, replies);
-      std::map<Id, Obstacle> result;
-      for (const auto &[owner, values] : received)
-        for (const auto &obstacle : values)
-          result.emplace(obstacle.edge.id, obstacle);
-      return result;
-    }
   } // namespace
   GrowthRun
   grow_forest(const dealii::Triangulation<3> &bg,
@@ -243,7 +145,9 @@ namespace ImmersX::Vascularization::internal
               MPI_Comm                        comm,
               unsigned int                    requested_count,
               System                          system,
-              const std::vector<Territory>   &owned_territories)
+              const std::vector<Territory>   &owned_territories,
+              GrowthDemandCallbacks           demand_callbacks,
+              BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     Timer              timer;
@@ -251,9 +155,11 @@ namespace ImmersX::Vascularization::internal
     auto              *work = &run.work;
     const unsigned int terminal_count =
       requested_count == 0 ? p.terminal_count : requested_count;
-    const unsigned int rank = Utilities::MPI::this_mpi_process(comm),
-                       size = Utilities::MPI::n_mpi_processes(comm);
-    const auto phase        = [&](bool valid, const std::string &message) {
+    GrowthMpiRun mpi(static_cast<unsigned int>(system), terminal_count);
+    auto         mpi_initialization = mpi.phase(GrowthMpiPhase::initialization);
+    const unsigned int rank         = Utilities::MPI::this_mpi_process(comm),
+                       size         = Utilities::MPI::n_mpi_processes(comm);
+    const auto phase = [&](bool valid, const std::string &message) {
       const bool all =
         Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1;
       if (!all)
@@ -286,37 +192,95 @@ namespace ImmersX::Vascularization::internal
         valid,
         "Batched growth requires valid controls and real attachment trees of the active system."))
       return run;
+    const bool has_demand_callbacks =
+      demand_callbacks.bootstrap || demand_callbacks.preview ||
+      demand_callbacks.joint || demand_callbacks.prepare_adopt ||
+      demand_callbacks.adopt || demand_callbacks.discard;
+    if (!phase(!has_demand_callbacks ||
+                 (demand_callbacks.bootstrap && demand_callbacks.preview &&
+                  demand_callbacks.joint && demand_callbacks.prepare_adopt &&
+                  demand_callbacks.adopt && demand_callbacks.discard),
+               "Integrated growth requires a complete demand transaction."))
+      return run;
     const auto controls = std::make_pair(
-      std::array<double, 9>{{static_cast<double>(terminal_count),
-                             static_cast<double>(p.random_seed),
-                             static_cast<double>(p.sample_budget),
-                             static_cast<double>(p.candidate_count),
-                             static_cast<double>(p.optimization_steps),
-                             p.density_beta,
-                             p.terminal_weight_bound,
-                             static_cast<double>(system),
-                             p.venous.terminal_separation}},
+      std::array<double, 10>{{static_cast<double>(terminal_count),
+                              static_cast<double>(p.random_seed),
+                              static_cast<double>(p.sample_budget),
+                              static_cast<double>(p.candidate_count),
+                              static_cast<double>(p.optimization_steps),
+                              p.density_beta,
+                              p.terminal_weight_bound,
+                              static_cast<double>(system),
+                              p.venous.terminal_separation,
+                              has_demand_callbacks ? 1. : 0.}},
       std::array<std::string, 2>{{p.terminal_weight, p.tissue_demand}});
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     if (!phase(valid,
                "All producers must use the same growth and sampling controls."))
       return run;
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping, work);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    if (!phase(&geometry.cache.get_triangulation() == &bg &&
+                 &geometry.mapping == &mapping,
+               "Growth geometry must describe its background and mapping."))
+      return run;
+    auto *original_counts = geometry.counts;
+    geometry.counts       = work;
+    const ScopeExit restore_counts(
+      [&]() { geometry.counts = original_counts; });
+    const double clearance_lower         = p.clearance;
+    const double broad_clearance         = p.clearance;
+    const double physical_minimum_radius = p.minimum_radius;
+    // Apply optional initial demand updates before evaluating this run,
+    // including a request satisfied by its initial leaves without insertions.
+    count_work(work,
+               GrowthOperation::physical_copy_attempts,
+               initial.nodes.size() + initial.vessels.size() +
+                 initial.terminals.size());
+    auto                    weighted_initial = initial;
+    GrowthDemandJointUpdate initial_demands;
+    if (demand_callbacks.bootstrap)
+      {
+        const auto leaves =
+          collect_growth_leaf_terminals(initial, mutable_owned, comm);
+        if (!leaves.validation.valid())
+          {
+            run.validation = leaves.validation;
+            return run;
+          }
+        initial_demands = demand_callbacks.bootstrap(initial, leaves.owned, 0);
+        run.validation  = initialize_growth_demands(
+          weighted_initial, leaves.owned, initial_demands, 0, comm);
+        if (!run.validation.valid())
+          {
+            demand_callbacks.discard();
+            return run;
+          }
+        demand_callbacks.prepare_adopt(
+          initial_demands.update.quadrature_revision, 1);
+      }
     run.accepted = commit_growth_splits(bg,
                                         mapping,
-                                        initial,
+                                        weighted_initial,
                                         mutable_owned,
                                         fixed_owned_roots,
                                         {},
                                         p,
                                         comm,
-                                        nullptr,
+                                        &geometry,
                                         work);
     if (!run.accepted.committed)
       {
+        if (demand_callbacks.discard)
+          demand_callbacks.discard();
         run.validation = run.accepted.validation;
         return run;
       }
+    if (demand_callbacks.adopt)
+      demand_callbacks.adopt();
     const auto count_leaves = [&]() {
       std::uint64_t local = 0;
       for (const auto &[id, b] : run.accepted.physiology.owned)
@@ -330,7 +294,13 @@ namespace ImmersX::Vascularization::internal
         count > 0 && count <= terminal_count,
         "Growth requires real roots and a target not smaller than the existing mutable forest."))
       return run;
-    std::map<Id, Territory> pending;
+    // Keep the sorted-id ordinal stable when served territories are erased.
+    boost::multi_index_container<
+      Territory,
+      boost::multi_index::indexed_by<boost::multi_index::ranked_unique<
+        boost::multi_index::member<Territory, Id, &Territory::id>>>>
+                         pending;
+    std::map<Id, double> territory_separations;
     if (system == System::venous)
       {
         std::map<unsigned int, std::map<Id, double>> registration;
@@ -339,7 +309,7 @@ namespace ImmersX::Vascularization::internal
             valid = valid && territory.id != invalid_id &&
                     territory.owner == rank &&
                     std::isfinite(territory.demand) && territory.demand > 0. &&
-                    pending.emplace(territory.id, territory).second;
+                    pending.insert(territory).second;
             for (unsigned int d = 0; d < 3; ++d)
               valid = valid && std::isfinite(territory.position[d]);
             registration[territory.id % size][territory.id] = territory.demand;
@@ -401,27 +371,25 @@ namespace ImmersX::Vascularization::internal
             "An existing venous claim has no authoritative common-territory owner."))
           return run;
       }
+    if (system == System::venous)
+      for (const auto &territory : owned_territories)
+        territory_separations.emplace(territory.id,
+                                      p.venous.terminal_separation);
     double local_capacity = 0.;
     for (const auto &[id, radius] : run.accepted.fixed_owned_roots)
       local_capacity +=
-        p.minimum_radius == 0. ?
+        physical_minimum_radius == 0. ?
           terminal_count :
           std::min<double>(
             terminal_count,
-            std::floor(std::pow(radius / p.minimum_radius, gamma) *
+            std::floor(std::pow(radius / physical_minimum_radius, gamma) *
                        (1. + 32. * std::numeric_limits<double>::epsilon())));
     if (
       !phase(
         Utilities::MPI::sum(local_capacity, comm) >= terminal_count,
         "Requested terminal count is incompatible with Murray's minimum-radius capacity at the real fixed roots."))
       return run;
-    BackgroundGeometry geometry(bg, mapping, work);
-    GrowthIndices      indices(run.accepted.network,
-                          run.accepted.mutable_owned,
-                          run.accepted.fixed_owned_roots,
-                          comm,
-                          work);
-    FunctionParser<3>  weight, demand;
+    FunctionParser<3> weight, demand;
     try
       {
         weight.initialize("x,y,z", p.terminal_weight, {});
@@ -439,6 +407,7 @@ namespace ImmersX::Vascularization::internal
     for (const auto &cell : bg.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          count_work(work, GrowthOperation::background_cell_visits);
           const auto ends = cell->bounding_box().get_boundary_points();
           for (unsigned int d = 0; d < 3; ++d)
             {
@@ -491,6 +460,121 @@ namespace ImmersX::Vascularization::internal
         id = Utilities::MPI::max(id, comm);
         ++id;
       }
+    GrowthGeometrySegments initial_segments;
+    for (const auto &[id, v] : run.accepted.network.vessels)
+      if (v.owner == rank)
+        initial_segments.emplace(
+          id,
+          Segment<3>{run.accepted.network.nodes.at(v.nodes[0]).position,
+                     run.accepted.network.nodes.at(v.nodes[1]).position});
+    // The existing public model specifies lengths and clearance in metres.
+    // Its metric is defined on full physical segments, including input
+    // exterior.
+    const auto meter_measure = [](const GrowthGeometrySegments &segments) {
+      GrowthGeometryMeasures result;
+      for (const auto &[id, segment] : segments)
+        result.emplace(id,
+                       GrowthGeometryMeasure{
+                         segment.first.distance(segment.second), 1., 1., true});
+      return result;
+    };
+    const auto      initial_measures = meter_measure(initial_segments);
+    GrowthExecution execution(run.accepted.network,
+                              run.accepted.physiology,
+                              p,
+                              1,
+                              geometry,
+                              initial_measures,
+                              meter_measure,
+                              {},
+                              broad_clearance,
+                              comm,
+                              work);
+    if (!execution.validation().valid())
+      {
+        run.validation = execution.validation();
+        return run;
+      }
+    const auto update_quadrature = [&](GrowthStatistics &statistics) {
+      if (demand_callbacks.quadrature_diagnostics)
+        {
+          const auto [points, peak] = demand_callbacks.quadrature_diagnostics();
+          statistics.demand_quadrature_points = points;
+          statistics.demand_quadrature_peak_points =
+            std::max(statistics.demand_quadrature_peak_points, peak);
+        }
+    };
+    const auto finish = [&]() {
+      auto mpi_finalization    = mpi.phase(GrowthMpiPhase::finalization, count);
+      const double final_begin = timer.wall_time();
+      const auto   final_work  = *work;
+      auto         output      = execution.materialize();
+      // The independent full transaction runs once at output. Ordinary growth
+      // keeps native rows and lazy physiology in the incremental controller.
+      auto final = commit_growth_splits(bg,
+                                        mapping,
+                                        output.network,
+                                        output.mutable_owned,
+                                        output.fixed_owned_roots,
+                                        {},
+                                        p,
+                                        comm,
+                                        &geometry,
+                                        work);
+      if (!final.committed)
+        run.validation.issues.insert(run.validation.issues.end(),
+                                     final.validation.issues.begin(),
+                                     final.validation.issues.end());
+      if (final.committed)
+        {
+          bool same_radii = true;
+          // Positive subtree sums accumulate roundoff along their ancestors.
+          // This bound also covers the final power and ratio evaluations.
+          const long double tolerance =
+            64.L * std::numeric_limits<double>::epsilon() *
+            (1.L + (1.L + final.physiology.upward_levels) / gamma);
+          count_work(work,
+                     GrowthOperation::validation_record_visits,
+                     output.network.vessels.size());
+          for (const auto &[id, vessel] : output.network.vessels)
+            if (vessel.owner == rank)
+              {
+                const auto after = final.network.vessels.find(id);
+                if (after == final.network.vessels.end() ||
+                    after->second.owner != rank)
+                  {
+                    same_radii = false;
+                    continue;
+                  }
+                for (unsigned int end = 0; end < 2; ++end)
+                  {
+                    const long double before_radius = vessel.radii[end];
+                    const long double after_radius  = after->second.radii[end];
+                    if (output.mutable_owned.count(id))
+                      same_radii = same_radii &&
+                                   std::abs(before_radius - after_radius) /
+                                       std::max(before_radius, after_radius) <=
+                                     tolerance;
+                    else
+                      same_radii = same_radii && vessel.radii[end] ==
+                                                   after->second.radii[end];
+                  }
+              }
+          phase(
+            same_radii,
+            "The independent final reconstruction disagrees with accepted physical radii or native ownership.");
+        }
+      run.accepted = std::move(final);
+      if (!run.statistics.empty())
+        {
+          auto &statistics = run.statistics.rbegin()->second;
+          statistics.finalization_seconds += timer.wall_time() - final_begin;
+          statistics.finalization_work += *work - final_work;
+          statistics.work += *work - final_work;
+          update_quadrature(statistics);
+        }
+      return std::move(run);
+    };
     const auto bucket = [&](std::uint64_t leaves) -> GrowthStatistics & {
       unsigned int exponent = 0;
       for (auto n = leaves; n > 1; n >>= 1)
@@ -504,27 +588,34 @@ namespace ImmersX::Vascularization::internal
           statistics.first_terminals = statistics.last_terminals = leaves;
           statistics.owned_vessels_first = statistics.owned_vessels_last =
             statistics.owned_vessels_maximum =
-              run.accepted.mutable_owned.size();
+              execution.accepted_snapshot().owned_mutable_count();
+          update_quadrature(statistics);
         }
       return statistics;
     };
     bucket(count).initialization_seconds = timer.wall_time();
     bucket(count).work += *work;
-    unsigned int failures = 0;
+    bucket(count).initialization_work += *work;
+    mpi_initialization.finish();
+    unsigned int failures                     = 0;
+    bool         integration_budget_exhausted = false;
     while (count < terminal_count && failures < p.sample_budget)
       {
-        auto        &statistics       = bucket(count);
-        const auto   work_before      = *work;
-        const auto   owned_before     = run.accepted.mutable_owned.size();
+        auto       mpi_batch   = mpi.phase(GrowthMpiPhase::batch, count);
+        auto      &statistics  = bucket(count);
+        const auto work_before = *work;
+        const auto accepted    = execution.accepted_snapshot();
+        const auto owned_before =
+          execution.accepted_snapshot().owned_mutable_count();
         const auto   samples_before   = run.sampled_points;
         const auto   proposals_before = run.proposed_insertions;
         const auto   accepted_before  = run.accepted_insertions;
         const double batch_begin      = timer.wall_time();
-        double       sampling_end = batch_begin, search_end = batch_begin,
-               optimization_end = batch_begin, selection_end = batch_begin;
-        const auto record = [&](const GrowthCommit *commit) {
+        double       sampling_end = batch_begin, optimization_end = batch_begin,
+               selection_end      = batch_begin;
+        double     search_seconds = 0., optimization_seconds = 0.;
+        const auto record = [&](const GrowthExecutionResult *commit) {
           const double end = timer.wall_time();
-          statistics.work += *work - work_before;
           ++statistics.batches;
           statistics.sampled_points += run.sampled_points - samples_before;
           statistics.proposed_insertions +=
@@ -532,15 +623,18 @@ namespace ImmersX::Vascularization::internal
           statistics.accepted_insertions +=
             run.accepted_insertions - accepted_before;
           statistics.active_writer_batches += owned_before > 0;
-          statistics.last_terminals        = count;
-          statistics.owned_vessels_last    = run.accepted.mutable_owned.size();
+          statistics.last_terminals = count;
+          statistics.owned_vessels_last =
+            execution.accepted_snapshot().owned_mutable_count();
           statistics.owned_vessels_maximum = std::max<std::uint64_t>(
             statistics.owned_vessels_maximum,
             std::max<std::uint64_t>(owned_before,
                                     statistics.owned_vessels_last));
           statistics.sampling_seconds += sampling_end - batch_begin;
-          statistics.search_seconds += search_end - sampling_end;
-          statistics.optimization_seconds += optimization_end - search_end;
+          statistics.search_seconds += search_seconds;
+          statistics.optimization_seconds += optimization_seconds;
+          statistics.work += *work - work_before;
+          update_quadrature(statistics);
           statistics.selection_seconds += selection_end - optimization_end;
           statistics.total_seconds += end - batch_begin;
           if (commit)
@@ -565,7 +659,7 @@ namespace ImmersX::Vascularization::internal
           }
         if (!phase(valid,
                    "The physical vascular identifier space is exhausted."))
-          return run;
+          return finish();
         std::optional<Point<3>> raw;
         Id                      shared_territory = invalid_id;
         if (system == System::arterial && !first)
@@ -577,14 +671,14 @@ namespace ImmersX::Vascularization::internal
           }
         else if (system == System::venous && !pending.empty())
           {
-            auto entry = pending.begin();
-            std::advance(entry, ((run.batches - 1) / 6) % pending.size());
-            shared_territory = entry->first;
-            raw              = entry->second.position;
+            const auto entry =
+              pending.nth(((run.batches - 1) / 6) % pending.size());
+            shared_territory = entry->id;
+            raw              = entry->position;
             const unsigned int direction =
               ((run.batches - 1) % 6 + shared_territory % 6) % 6;
-            (*raw)[direction / 2] +=
-              (direction % 2 ? 1. : -1.) * p.venous.terminal_separation;
+            (*raw)[direction / 2] += (direction % 2 ? 1. : -1.) *
+                                     territory_separations.at(shared_territory);
             ++run.sampled_points;
           }
         // Query actual containing cells for h(x), including MPI interfaces.
@@ -614,7 +708,7 @@ namespace ImmersX::Vascularization::internal
         if (system == System::venous && raw && point_owner < size)
           {
             target          = raw;
-            terminal_demand = pending.at(shared_territory).demand;
+            terminal_demand = pending.find(shared_territory)->demand;
           }
         else if (system == System::arterial && raw && point_owner == rank)
           {
@@ -626,151 +720,279 @@ namespace ImmersX::Vascularization::internal
                                        p.terminal_weight_bound *
                                        std::pow(scale / h, p.density_beta))
               {
-                target          = raw;
-                terminal_demand = demand.value(*target);
-                valid = std::isfinite(terminal_demand) && terminal_demand > 0.;
+                target = raw;
+                if (!has_demand_callbacks)
+                  {
+                    terminal_demand = demand.value(*target);
+                    valid =
+                      std::isfinite(terminal_demand) && terminal_demand > 0.;
+                  }
               }
           }
         if (
           !phase(
             valid,
             "Spatial weight violates its bound, or tissue demand is not positive and finite."))
-          return run;
-        sampling_end = timer.wall_time();
-        const auto nearby =
-          nearest(target, indices, p.candidate_count, comm, system, work);
-        std::map<Id, unsigned int> requests;
-        for (const auto &hit : nearby)
-          requests[hit.id] = hit.owner;
-        const auto paths = fetch_growth_candidates(run.accepted.network,
-                                                   run.accepted.physiology,
-                                                   requests,
-                                                   allocated[0],
-                                                   allocated[1],
-                                                   p,
-                                                   comm,
-                                                   work);
-        if (!paths.validation.valid())
-          {
-            run.validation = paths.validation;
-            return run;
-          }
-        const auto obstacles = candidate_obstacles(run.accepted.network,
-                                                   run.accepted.physiology,
-                                                   indices,
-                                                   paths.contexts,
-                                                   target,
-                                                   p,
-                                                   comm,
-                                                   work);
-        search_end           = timer.wall_time();
-        std::vector<Leaf> obstacle_leaves;
-        double            obstacle_radius = 0.;
-        for (const auto &[id, obstacle] : obstacles)
-          {
-            obstacle_leaves.push_back(
-              {{obstacle.edge.points[0], obstacle.edge.points[1]}, id});
-            obstacle_radius = std::max(obstacle_radius, obstacle.edge.radius);
-          }
-        count_work(work, GrowthOperation::network_index_builds);
-        count_work(work,
-                   GrowthOperation::network_index_insertions,
-                   obstacle_leaves.size());
-        const auto obstacle_tree = pack_rtree(obstacle_leaves);
-        std::optional<GrowthCandidate> best;
-        const GrowthCandidateContext  *chosen = nullptr;
-        if (target)
-          for (const auto &hit : nearby)
+          return finish();
+        sampling_end               = timer.wall_time();
+        const double nearest_begin = timer.wall_time();
+        const auto   nearby        = nearest(
+          target, accepted.indices(), p.candidate_count, comm, system, work);
+        search_seconds += timer.wall_time() - nearest_begin;
+        const auto active_producers =
+          Utilities::MPI::all_gather(comm, target.has_value());
+        GrowthCandidatePaths                       paths;
+        std::optional<GrowthCandidate>             best;
+        const GrowthCandidateContext              *chosen = nullptr;
+        const std::map<Id, GrowthCandidateContext> no_contexts;
+        for (unsigned int producer = 0; producer < size; ++producer)
+          if (active_producers[producer])
             {
-              const auto  &x = paths.contexts.at(hit.id);
-              const double w = terminal_demand / x.demand_scale;
-              const double shrink =
-                std::pow(x.root_demand / (x.root_demand + w),
-                         1. / x.murray_exponent);
+              const double            search_begin = timer.wall_time();
+              const GrowthProposalKey key{producer,
+                                          allocated[2] - rank + producer};
+              GrowthDemandUpdate      update;
+              update.snapshot_revision = accepted.revision();
+              double new_demand = rank == producer ? terminal_demand : 0.;
+              if (demand_callbacks.preview)
+                {
+                  auto proposal =
+                    demand_callbacks.preview(key,
+                                             key.second,
+                                             allocated[3],
+                                             rank == producer ? *target :
+                                                                Point<3>(),
+                                             accepted.revision());
+                  const bool usable =
+                    Utilities::MPI::min(
+                      static_cast<unsigned int>(
+                        proposal.validation.valid() &&
+                        !proposal.integration_budget_exhausted),
+                      comm) == 1;
+                  if (!usable)
+                    {
+                      const bool budget =
+                        Utilities::MPI::max(
+                          static_cast<unsigned int>(
+                            proposal.integration_budget_exhausted),
+                          comm) == 1;
+                      search_seconds += timer.wall_time() - search_begin;
+                      if (!budget)
+                        {
+                          run.validation = proposal.validation;
+                          phase(
+                            false,
+                            "Integrated candidate demand evaluation failed.");
+                          demand_callbacks.discard();
+                          return finish();
+                        }
+                      integration_budget_exhausted = true;
+                      if (rank == producer)
+                        count_work(
+                          work, GrowthOperation::integration_budget_rejections);
+                      continue;
+                    }
+                  update     = std::move(proposal.update);
+                  new_demand = proposal.new_demand;
+                  if (rank == producer)
+                    terminal_demand = new_demand;
+                }
+              auto preview = accepted.demand().preview(update);
+              if (!preview.validation.valid())
+                {
+                  run.validation = preview.validation;
+                  if (demand_callbacks.discard)
+                    demand_callbacks.discard();
+                  return finish();
+                }
+              std::map<Id, unsigned int> requests;
+              if (rank == producer)
+                for (const auto &hit : nearby)
+                  requests[hit.id] = hit.owner;
+              auto fetched =
+                accepted.demand().candidate_paths(accepted.network(),
+                                                  preview,
+                                                  requests,
+                                                  allocated[0],
+                                                  allocated[1],
+                                                  new_demand,
+                                                  1.,
+                                                  work);
+              if (!fetched.validation.valid())
+                {
+                  run.validation = fetched.validation;
+                  if (demand_callbacks.discard)
+                    demand_callbacks.discard();
+                  return finish();
+                }
+              if (rank == producer)
+                paths = std::move(fetched);
+              const auto obstacle_reply = execution.candidate_obstacles(
+                accepted,
+                preview,
+                rank == producer ? paths.contexts : no_contexts,
+                rank == producer ? target : std::optional<Point<3>>{},
+                new_demand,
+                producer);
+              if (!obstacle_reply.validation.valid())
+                {
+                  run.validation = obstacle_reply.validation;
+                  if (demand_callbacks.discard)
+                    demand_callbacks.discard();
+                  return finish();
+                }
+              const auto       &obstacles = obstacle_reply.records;
+              std::vector<Leaf> obstacle_leaves;
+              double            obstacle_radius = 0.;
+              for (const auto &[id, obstacle] : obstacles)
+                {
+                  obstacle_leaves.push_back(
+                    {{obstacle.edge.points[0], obstacle.edge.points[1]}, id});
+                  obstacle_radius =
+                    std::max(obstacle_radius, obstacle.edge.radius);
+                }
+              count_work(work, GrowthOperation::network_index_builds);
               count_work(work,
-                         GrowthOperation::candidate_path_visits,
-                         x.path.size());
-              std::map<Id, double> path_demands;
-              for (const auto &branch : x.path)
-                path_demands[branch.edge.id] = branch.demand;
-              const auto cheap_geometry = [&](
-                                            const std::vector<Edge> &changed) {
-                std::set<Id> replaced;
-                for (const auto &edge : changed)
-                  replaced.insert(edge.id);
-                for (std::size_t i = 0; i < changed.size(); ++i)
+                         GrowthOperation::network_index_insertions,
+                         obstacle_leaves.size());
+              const auto obstacle_tree = pack_rtree(obstacle_leaves);
+              search_seconds += timer.wall_time() - search_begin;
+              const double optimization_begin = timer.wall_time();
+              if (rank == producer && target)
+                for (const auto &hit : nearby)
                   {
-                    std::array<Point<3>, 2> normals;
-                    count_work(work,
-                               GrowthOperation::candidate_path_visits,
-                               x.path.size());
+                    const auto &x = paths.contexts.at(hit.id);
+                    const auto  radii =
+                      candidate_radii(x, terminal_demand, work);
+                    if (!radii)
+                      continue;
+                    std::map<Id, Point<3>> port_normals;
                     for (const auto &branch : x.path)
-                      for (unsigned int end = 0; end < 2; ++end)
-                        for (unsigned int old = 0; old < 2; ++old)
-                          if (changed[i].nodes[end] == branch.edge.nodes[old])
-                            normals[end] = branch.port_normals[old];
-                    if (!geometry.boundary_separated(
-                          {changed[i].points[0], changed[i].points[1]},
-                          changed[i].radius + p.clearance,
-                          p.geometry_depth,
-                          p.geometry_work,
-                          normals))
-                      return false;
-                    const auto  &e = changed[i];
-                    const double pad =
-                      e.radius + std::max(obstacle_radius, x.root_radius) +
-                      p.clearance +
-                      64. * std::numeric_limits<double>::epsilon() *
-                        std::max({1., e.points[0].norm(), e.points[1].norm()});
-                    Point<3> a, b;
-                    for (unsigned int d = 0; d < 3; ++d)
                       {
-                        a[d] = std::min(e.points[0][d], e.points[1][d]) - pad;
-                        b[d] = std::max(e.points[0][d], e.points[1][d]) + pad;
+                        count_work(work,
+                                   GrowthOperation::candidate_path_visits);
+                        for (unsigned int end = 0; end < 2; ++end)
+                          port_normals[branch.edge.nodes[end]] =
+                            branch.port_normals[end];
                       }
-                    count_work(work, GrowthOperation::network_index_queries);
-                    for (const auto &[segment, id] :
-                         obstacle_tree |
-                           bgi::adaptors::queried(bgi::intersects(
-                             BoundingBox<3>(std::make_pair(a, b)))))
-                      {
-                        count_work(work, GrowthOperation::network_index_hits);
-                        if (!replaced.count(id))
+                    const auto &covered =
+                      obstacle_reply.covered_ancestors.at(hit.id);
+                    const auto cheap_geometry =
+                      [&](const std::vector<Edge> &changed) {
+                        std::set<Id> replaced;
+                        using TrialLeaf =
+                          std::pair<BoundingBox<3>, std::size_t>;
+                        std::vector<TrialLeaf> trial_leaves;
+                        const auto             envelope = [&](const Edge &edge,
+                                                  double      padding) {
+                          Point<3> a, b;
+                          for (unsigned int d = 0; d < 3; ++d)
+                            {
+                              a[d] =
+                                std::min(edge.points[0][d], edge.points[1][d]) -
+                                padding;
+                              b[d] =
+                                std::max(edge.points[0][d], edge.points[1][d]) +
+                                padding;
+                            }
+                          return BoundingBox<3>(std::make_pair(a, b));
+                        };
+                        for (std::size_t i = 0; i < changed.size(); ++i)
                           {
-                            auto obstacle = obstacles.at(id).edge;
-                            if (obstacles.at(id).root == x.root)
-                              obstacle.radius =
-                                path_demands.count(id) ?
-                                  x.root_radius *
-                                    std::pow((path_demands.at(id) + w) /
-                                               (x.root_demand + w),
-                                             1. / x.murray_exponent) :
-                                  obstacle.radius * shrink;
-                            if (!compatible(e,
-                                            obstacle,
-                                            p.minimum_angle,
-                                            p.clearance,
-                                            work))
-                              return false;
+                            replaced.insert(changed[i].id);
+                            trial_leaves.emplace_back(
+                              envelope(changed[i],
+                                       changed[i].radius + clearance_lower),
+                              i);
                           }
-                      }
-                    for (std::size_t j = 0; j < i; ++j)
-                      if (!compatible(changed[i],
-                                      changed[j],
-                                      p.minimum_angle,
-                                      p.clearance,
-                                      work))
-                        return false;
+                        count_work(work, GrowthOperation::network_index_builds);
+                        count_work(work,
+                                   GrowthOperation::network_index_insertions,
+                                   trial_leaves.size());
+                        const auto trial_tree = pack_rtree(trial_leaves);
+                        for (std::size_t i = 0; i < changed.size(); ++i)
+                          {
+                            const auto &e = changed[i];
+                            // The controller proves these unchanged ancestor
+                            // envelopes against the current demand overlay. New
+                            // geometry still checks its pairs with them through
+                            // the trial tree.
+                            if (covered.count(e.id))
+                              continue;
+                            std::array<Point<3>, 2> normals;
+                            for (unsigned int end = 0; end < 2; ++end)
+                              if (const auto normal =
+                                    port_normals.find(e.nodes[end]);
+                                  normal != port_normals.end())
+                                normals[end] = normal->second;
+                            if (!geometry.boundary_separated(
+                                  {e.points[0], e.points[1]},
+                                  e.radius + clearance_lower,
+                                  p.geometry_depth,
+                                  p.geometry_work,
+                                  normals))
+                              return false;
+                            const double guard =
+                              64. * std::numeric_limits<double>::epsilon() *
+                              std::max(
+                                {1., e.points[0].norm(), e.points[1].norm()});
+                            count_work(work,
+                                       GrowthOperation::network_index_queries);
+                            for (const auto &[segment, id] :
+                                 obstacle_tree |
+                                   bgi::adaptors::queried(bgi::intersects(
+                                     envelope(e,
+                                              e.radius + obstacle_radius +
+                                                broad_clearance + guard))))
+                              {
+                                count_work(work,
+                                           GrowthOperation::network_index_hits);
+                                if (!replaced.count(id))
+                                  {
+                                    auto obstacle = obstacles.at(id).edge;
+                                    obstacle.radius =
+                                      (*radii)(id,
+                                               obstacles.at(id).root,
+                                               obstacle.radius);
+                                    if (!compatible(e,
+                                                    obstacle,
+                                                    p.minimum_angle,
+                                                    clearance_lower,
+                                                    work))
+                                      return false;
+                                  }
+                              }
+                            count_work(work,
+                                       GrowthOperation::network_index_queries);
+                            for (const auto &[box, j] :
+                                 trial_tree |
+                                   bgi::adaptors::queried(
+                                     bgi::intersects(trial_leaves[i].first)))
+                              {
+                                count_work(work,
+                                           GrowthOperation::network_index_hits);
+                                if (j != i &&
+                                    (j > i || covered.count(changed[j].id)) &&
+                                    !compatible(e,
+                                                changed[j],
+                                                p.minimum_angle,
+                                                clearance_lower,
+                                                work))
+                                  return false;
+                              }
+                          }
+                        return true;
+                      };
+                    if (auto proposal = optimize_growth(
+                          x, p, *target, terminal_demand, cheap_geometry, work))
+                      if (!best || proposal->cost < best->cost)
+                        {
+                          best   = std::move(proposal);
+                          chosen = &x;
+                        }
                   }
-                return true;
-              };
-              if (auto proposal = optimize_growth(
-                    x, p, *target, terminal_demand, cheap_geometry, work))
-                if (!best || proposal->cost < best->cost)
-                  {
-                    best   = std::move(proposal);
-                    chosen = &x;
-                  }
+
+              optimization_seconds += timer.wall_time() - optimization_begin;
             }
         optimization_end = timer.wall_time();
         unsigned int has = best ? 1 : 0, prefix = 0;
@@ -784,7 +1006,7 @@ namespace ImmersX::Vascularization::internal
           {
             ++run.proposed_insertions;
             BatchProposal proposal;
-            proposal.id   = 0;
+            proposal.id   = allocated[2];
             proposal.cost = best->cost;
             proposal.changed.assign(best->changed.begin(),
                                     best->changed.begin() + 3);
@@ -806,20 +1028,10 @@ namespace ImmersX::Vascularization::internal
         // Trials used proposed Murray radii: unchanged siblings shrink.
         // Current snapshot radii cannot certify those trials. The commit
         // below always certifies the fully normalized joint snapshot.
-        const auto selection = select_growth_batch(
-          geometry,
-          run.accepted.network,
-          proposals,
-          p,
-          comm,
-          [&](Id id) {
-            const auto &v = run.accepted.network.vessels.at(id);
-            return std::max(v.radii[0], v.radii[1]);
-          },
-          false,
-          work);
+        const auto selection =
+          select_growth_batch(geometry, accepted, proposals, p, comm);
         std::vector<GrowthSplit> splits;
-        if (best && selection.local.at(0))
+        if (best && selection.local.at(allocated[2]))
           {
             const auto &v = chosen->path.front();
             GrowthSplit split;
@@ -847,19 +1059,76 @@ namespace ImmersX::Vascularization::internal
         if (selected == 0)
           {
             ++failures;
+            if (demand_callbacks.discard)
+              demand_callbacks.discard();
             record(nullptr);
             continue;
           }
-        auto committed = commit_growth_splits(bg,
-                                              mapping,
-                                              run.accepted.network,
-                                              run.accepted.mutable_owned,
-                                              run.accepted.fixed_owned_roots,
-                                              splits,
-                                              p,
-                                              comm,
-                                              &geometry,
-                                              work);
+        GrowthDemandJointUpdate joint;
+        if (demand_callbacks.joint)
+          {
+            std::vector<GrowthProposalKey> keys;
+            for (const auto &split : splits)
+              keys.emplace_back(rank, split.terminal);
+            joint = demand_callbacks.joint(keys, accepted.revision());
+          }
+        else
+          {
+            joint.update.snapshot_revision = accepted.revision();
+            for (const auto &split : splits)
+              joint.new_terminals.push_back({split.terminal, split.demand});
+          }
+        const bool joint_valid =
+          Utilities::MPI::min(static_cast<unsigned int>(
+                                joint.validation.valid() &&
+                                !joint.integration_budget_exhausted),
+                              comm) == 1;
+        const bool joint_budget =
+          Utilities::MPI::max(static_cast<unsigned int>(
+                                joint.integration_budget_exhausted),
+                              comm) == 1;
+        if (!joint_valid)
+          {
+            if (demand_callbacks.discard)
+              demand_callbacks.discard();
+            if (!joint_budget)
+              {
+                run.validation = joint.validation;
+                phase(false,
+                      "Joint integrated territory demand evaluation failed.");
+                return finish();
+              }
+            integration_budget_exhausted = true;
+            count_work(work,
+                       GrowthOperation::integration_budget_rejections,
+                       splits.size());
+            ++run.rejected_batches;
+            ++failures;
+            const GrowthExecutionResult rejected;
+            record(&rejected);
+            continue;
+          }
+        std::map<Id, double> joint_demands;
+        for (const auto &item : joint.new_terminals)
+          valid =
+            joint_demands.emplace(item.terminal, item.demand).second && valid;
+        for (auto &split : splits)
+          {
+            const auto found = joint_demands.find(split.terminal);
+            valid            = valid && found != joint_demands.end();
+            if (found != joint_demands.end())
+              split.demand = found->second;
+          }
+        if (
+          !phase(
+            valid,
+            "Every selected split requires its true joint integrated demand."))
+          {
+            if (demand_callbacks.discard)
+              demand_callbacks.discard();
+            return finish();
+          }
+        auto committed = execution.commit(splits, joint, demand_callbacks);
         if (!committed.committed)
           {
             ++run.rejected_batches;
@@ -873,24 +1142,24 @@ namespace ImmersX::Vascularization::internal
                                                splits.front().terminal);
             pending.erase(shared_territory);
           }
-        indices.update(committed.network,
-                       committed.mutable_owned,
-                       committed.geometry_changes);
-        run.accepted = std::move(committed);
         run.accepted_insertions += splits.size();
         run.maximum_batch_insertions =
           std::max(run.maximum_batch_insertions, selected);
         count += selected;
         failures = 0;
-        record(&run.accepted);
+        record(&committed);
       }
     std::uint64_t unserved = 0;
     if (system == System::venous)
       unserved =
         Utilities::MPI::sum(static_cast<std::uint64_t>(pending.size()), comm);
+    if (count != terminal_count && integration_budget_exhausted)
+      phase(
+        false,
+        "Tissue integration exhausted its point or refinement budget for rejected territories; no demand floor was applied.");
     phase(
       count == terminal_count && unserved == 0,
       "The finite batched sampling budget was exhausted before reaching the terminal target.");
-    return run;
+    return finish();
   }
 } // namespace ImmersX::Vascularization::internal

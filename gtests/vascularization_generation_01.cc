@@ -308,6 +308,22 @@ TEST(VascularGeneration, BOTH_PublicSeedFeedsTheSameBatchedGrowthEngine)
   EXPECT_EQ(Utilities::MPI::sum(vessels, comm), 2 * p.terminal_count - 1);
   EXPECT_EQ(Utilities::MPI::sum(terminals, comm), p.terminal_count);
   EXPECT_NEAR(Utilities::MPI::sum(flow, comm) / p.reference_flow, 1., 1.e-13);
+  double point_demand = 0.;
+  for (const auto &[id, terminal] : a.network.terminals)
+    if (terminal.owner == rank)
+      {
+        const double expected =
+          1. + a.network.nodes.at(terminal.node).position[0];
+        EXPECT_DOUBLE_EQ(terminal.demand, expected);
+        point_demand += expected;
+      }
+  point_demand = Utilities::MPI::sum(point_demand, comm);
+  for (const auto &[id, terminal] : a.network.terminals)
+    if (terminal.owner == rank)
+      EXPECT_NEAR(a.target_terminal_flows.at(id) /
+                    (p.reference_flow * terminal.demand / point_demand),
+                  1.,
+                  2.e-13);
   EXPECT_EQ(a.accepted_insertions, p.terminal_count - 1);
   EXPECT_GT(a.sampled_points, 0u);
   EXPECT_EQ(a.sampled_points, b.sampled_points);
@@ -410,6 +426,29 @@ TEST(VascularGeneration, BOTH_GrowthStatisticsCountActualOwnedWork)
   std::uint64_t sampled = 0, accepted = 0, first_owned = 0, final_owned = 0;
   for (const auto &s : result.growth_statistics)
     {
+      const auto ordinary =
+        s.work - s.initialization_work - s.finalization_work;
+      for (unsigned int operation = 0; operation < ordinary.counts.size();
+           ++operation)
+        EXPECT_GE(s.work.counts[operation],
+                  s.initialization_work.counts[operation] +
+                    s.finalization_work.counts[operation]);
+      for (const auto operation :
+           {GrowthOperation::background_cache_constructions,
+            GrowthOperation::background_cell_visits,
+            GrowthOperation::boundary_face_visits,
+            GrowthOperation::boundary_index_builds,
+            GrowthOperation::materialized_vessels})
+        EXPECT_EQ(ordinary[operation], 0u);
+      EXPECT_LE(Utilities::MPI::sum(
+                  ordinary[GrowthOperation::vessel_midpoint_localizations],
+                  MPI_COMM_WORLD),
+                3 * Utilities::MPI::sum(s.proposed_insertions, MPI_COMM_WORLD));
+      EXPECT_GE(Utilities::MPI::sum(
+                  ordinary[GrowthOperation::vessel_midpoint_localizations],
+                  MPI_COMM_WORLD),
+                3 * Utilities::MPI::sum(s.accepted_insertions, MPI_COMM_WORLD));
+      EXPECT_GE(s.finalization_seconds, 0.);
       EXPECT_EQ(s.system, System::arterial);
       EXPECT_EQ(s.requested_terminals, 12u);
       EXPECT_GT(s.batches, 0u);

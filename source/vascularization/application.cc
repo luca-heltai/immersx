@@ -548,9 +548,10 @@ namespace ImmersX::Vascularization
           auto stats =
             output(directory / ("growth-" + std::to_string(rank) + ".csv"));
           stats
-            << "system,requested_terminals,first_terminals,last_terminals,batches,sampled_points,proposed_insertions,accepted_insertions,committed_batches,rejected_batches,active_writer_batches,owned_vessels_first,owned_vessels_last,owned_vessels_maximum,initialization_seconds,sampling_seconds,search_seconds,optimization_seconds,selection_seconds,commit_seconds,redistribution_seconds,physiology_seconds,certification_seconds,total_seconds";
-          for (const auto name : growth_operation_names)
-            stats << ',' << name;
+            << "system,requested_terminals,first_terminals,last_terminals,batches,sampled_points,proposed_insertions,accepted_insertions,committed_batches,rejected_batches,active_writer_batches,owned_vessels_first,owned_vessels_last,owned_vessels_maximum,initialization_seconds,sampling_seconds,search_seconds,optimization_seconds,selection_seconds,commit_seconds,redistribution_seconds,physiology_seconds,certification_seconds,finalization_seconds,total_seconds,demand_quadrature_points,demand_quadrature_peak_points";
+          for (const auto prefix : {"", "initialization_", "finalization_"})
+            for (const auto name : growth_operation_names)
+              stats << ',' << prefix << name;
           stats << '\n';
           for (const auto &s : result.growth_statistics)
             {
@@ -567,9 +568,13 @@ namespace ImmersX::Vascularization
                     << ',' << s.selection_seconds << ',' << s.commit_seconds
                     << ',' << s.redistribution_seconds << ','
                     << s.physiology_seconds << ',' << s.certification_seconds
-                    << ',' << s.total_seconds;
-              for (const auto count : s.work.counts)
-                stats << ',' << count;
+                    << ',' << s.finalization_seconds << ',' << s.total_seconds
+                    << ',' << s.demand_quadrature_points << ','
+                    << s.demand_quadrature_peak_points;
+              for (const auto phase :
+                   {&s.work, &s.initialization_work, &s.finalization_work})
+                for (const auto count : phase->counts)
+                  stats << ',' << count;
               stats << '\n';
             }
         }

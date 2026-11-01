@@ -261,7 +261,6 @@ namespace ImmersX::Vascularization::internal
     auto &geometry =
       background_geometry ? *background_geometry : *local_geometry;
     std::vector<BatchProposal> checks;
-    count_work(work, GrowthOperation::certified_vessels, ids.size());
     for (Id id : ids)
       {
         const auto   &v = trial.vessels.at(id);
