@@ -61,10 +61,13 @@ def main():
             assert (int(row["node0"]), int(row["node1"])) == endpoints
             assert float(row["radius0"]) == radius == float(row["radius1"])
             assert int(row["provenance"]) == 0
-        assert len(vessels) == 32 and len(pairs) == 8
-        for system in (0, 1):
+        # Each binary insertion adds two vessels. The venous startup has a
+        # fixed-length stem and one continuation before its first insertion.
+        generated = {0: 2 * 8 - 1, 1: 2 * 8}
+        assert len(vessels) == sum(generated.values()) + 2 and len(pairs) == 8
+        for system, expected_count in generated.items():
             assert sum(int(r["system"]) == system and int(r["provenance"]) == 1
-                       for r in vessels.values()) == 15
+                       for r in vessels.values()) == expected_count
         used = set()
         for territory, pair in pairs.items():
             a, v = int(pair["arterial"]), int(pair["venous"])
