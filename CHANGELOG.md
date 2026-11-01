@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system. Grow all three geometric networks toward the same territories with a configurable supply fraction, retain common compartments in physical archives, and import optional portal trees through the liver application.
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system. Grow all three geometric networks toward the same territories with a configurable supply fraction, retain common compartments in physical archives, and import optional portal trees through the liver application.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
 
@@ -457,6 +457,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Add optional portal-tree preparation and growth to the liver workflow, with a common-compartment diagram, independent checks and rendering for three networks. Preserve the published 1,000-pair arterial–venous reference.
+
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Use project-relative examples in the liver tutorial without machine names or installation-specific paths.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Illustrate the liver tutorial with native before-and-after vascular trees and a tissue-volume section; provide a renderer and a manifest of the checked source data.
@@ -556,6 +558,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Count the fixed-length venous startup stem and its continuation separately in the liver smoke checks, while preserving exact terminal counts and imported physical properties.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Allow ninety minutes for the complete Debug and Release CI jobs, including cold-cache builds, all quick tests and cache upload. Keep the test selection and individual test timeouts unchanged.
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Check three-network perfusion balance, archive completion and canonical portal-demand updates in serial and MPI, and exercise the liver CLI with two and three input trees.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii, journal rollback and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check native ownership and physical aggregation after concurrent branch edits and terminal remapping. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero. Check cached branch resistance extrema and minimum leaf demand after staged edits. Compare owning execution rejection, retry, native owner migration and SI ghost output with immutable full commits. Check candidate envelope queries against full-forest trial collisions after demand transfers between roots. Keep per-batch physical-bound checks limited to changed roots while retaining the flow minimum on untouched distant leaves. Compare retained venous nearest cursors with exhaustive searches through successive exclusions, concurrent claims and exact-distance ties.
 
