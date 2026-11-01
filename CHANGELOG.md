@@ -13,6 +13,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Expose local vascular growth operation counters, including unsuccessful attempts, without MPI in counter updates.
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add a reproducible native mesh-refinement study with fixed physical controls, independent demand/flow checks, normalized geometry distributions and per-seed reports. Preserve benchmark library filenames and verify the frozen library loaded for each experiment.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add mesh-owned tissue quadrature refinement with explicit global point and refinement budgets. Preserve the background mesh and stage resolution changes with territorial demand journals.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply one background length policy to vascular seeds and imported attachments, whole-branch minimum length and radius, symmetric variable clearance, venous separation and tissue-local coverage. Preserve physical input and solver units, and report mesh bounds, count decisions and normalized vessel geometry.

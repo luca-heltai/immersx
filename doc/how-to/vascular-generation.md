@@ -1008,6 +1008,61 @@ The focused CTest tests `ImmersX.VascularProfile.*.MPI2` compare counters agains
 known native MPI payloads, including in-place collectives and disabled forwarding.
 The profiler adds no mandatory dependency and does not collect physical graphs.
 
+## Compare background refinements
+
+`scripts/run_vascular_mesh_study.py` runs the ordinary C++ application at three
+uniform and three edge-refined resolutions, each with random seeds 23, 24 and
+25. It keeps the physical inputs and growth coefficients fixed. Only the domain
+refinement, random seed and output location change. The supplied synthetic
+unit-cube experiment declares its inlet position, 0.003 m root radius,
+0.004 Pa s viscosity, 12000 Pa inlet pressure and 2e-9 m^3/s total flow in every
+input file. These values are an experiment, not an organ calibration.
+
+After configuring a Release build, run:
+
+```bash
+cmake --build build-release --target vascular_network -j
+python3 -m venv /tmp/vascular-study-env
+/tmp/vascular-study-env/bin/python -m pip install matplotlib
+/tmp/vascular-study-env/bin/python scripts/run_vascular_mesh_study.py \
+  --executable build-release/vascular_network \
+  --library build-release/libimmersx_lib.so \
+  --output /tmp/vascular-mesh-study
+```
+
+The default mesh-based count, density exponent, seed length, minimum normalized
+length, clearance, service distance and minimum radius apply without tuning
+individual resolutions. `common-parameters.prm` records the shared controls;
+the script checks that each case changes only its declared domain/seed/output
+fields. It copies and hashes the executable and shared library and verifies the
+library selected by the dynamic loader. The manifest also records source
+identity, script hash, CPU affinity and relevant environment variables.
+
+Each native case retains its parameters, log, physical archive, VTK meshes,
+owned tables and growth work counters. An independent table oracle checks the
+tree, positive integrated demands, unit tissue integral, total flow, Murray
+radii and normalized minimum lengths. `summary.csv` reports per-seed quantiles,
+counts, demand and flow per tissue volume, runtime and peak rank memory.
+`results.json` retains the individual normalized lengths/radius bounds and
+accepted terminal counts by cell diameter. Demand quadrature cardinalities are
+global maxima; operation counts are rank sums, with initialization and
+finalization removed in the ordinary-work totals.
+
+The SVG/PNG distribution plots pool the declared seeds for each resolution.
+Their cell-diameter panels retain the individual seed counts. They show observed
+variation; the study imposes no statistical-equivalence threshold. Geometric
+constraints can change the accepted spatial distribution even when proposal
+weights are comparable per cell.
+
+Use `--levels 1 --families uniform --seeds 23` in a new output directory for a
+small check before the full study. `--ranks 2` or `--ranks 4` exercises the same
+protocol in MPI; use a separate output directory for each rank count.
+`--resume` checks experiment identity and revalidates completed cases. It leaves
+failed or incomplete cases available for inspection and requires an explicit
+audit before restarting them. Refinement-study timings include the current
+quadrature resolution and one-time final work; compare the operation counts and
+reported quadrature sizes when interpreting them.
+
 ## Reproducible MPI measurements
 
 `scripts/run_vascular_benchmarks.py` launches the instrumented C++ application

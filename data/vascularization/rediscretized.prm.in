@@ -1,5 +1,6 @@
 # Rediscretize precisely the physical graph produced by cube_uniform.
 subsection Vascularization
+  set Length scale = local mesh size
   subsection Input and ports
     set Mode = load
     set Input archive = @TEST_OUTPUT_DIR@/vascular-examples/cube_uniform/network
@@ -9,11 +10,12 @@ subsection Vascularization
     set Uniform refinements = 4
   end
   subsection Discretization
-    set Target length factor = .5
-    set Lower length factor = .25
+    set Target length factor = 1
+    set Lower length factor = .5
+    set Upper length factor = 2
   end
   subsection Objectives
-    set Maximum service distance = .2
+    set Maximum service distance = 1
   end
   subsection Physiology
     set Reference pressures = 0:12000

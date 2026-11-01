@@ -1,0 +1,15 @@
+{
+  "assets_sha256": {
+    "common-parameters.prm": "1d6482ef2a92f5ae8e6489d01092f87eb4125fed67858a4759cf81baa42a31cf",
+    "edge-distributions.png": "804e31b381429dcacbd9cfd9da77d0f55777a47f10eff7280ca75c68d9beba4b",
+    "edge-distributions.svg": "64f38d485e2608aac523aeccc96b599a72e664b9d5544ca8282a2e9784237ecb",
+    "manifest.json": "20b8cf052a3cd3b28010b0e3ca34d108f6d0d10945052e225abfaa45c49f6c81",
+    "results.json": "db0e806a8b0049d6e24ffed562211688caba5232f311879bf9f43181dd4040de",
+    "summary.csv": "dd9c915db374bfbf4f8488e2ee4995dc3c2dda1e18b8d7a6d1342857225686b4",
+    "uniform-distributions.png": "fb88adc60f0eeb20e3fc9b30cdfd6f7da1a56a26fafc857ca688e7fb2c6e632d",
+    "uniform-distributions.svg": "5acecf8230b578b515e6518ae4c9ec587a34d83dc673e4b57090f5147a23ed73"
+  },
+  "experiment": "mesh-study-native-comparison",
+  "plotter_sha256": "8fa0b27531fff9a62f21dcecfd8b7fcb9a5c5a07427400dc62cb7b68c4047962",
+  "preparation": "Trim trailing whitespace and normalize text line endings in published SVG, CSV and PRM assets; native measurements and binary identity are unchanged. Regenerate plots from the retained native records with tight export bounds; do not rerun growth. The experiment retains its original runner snapshot."
+}
