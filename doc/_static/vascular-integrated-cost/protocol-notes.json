@@ -1,0 +1,7 @@
+{
+  "physics": "Integrated tissue demand; meter length policy; absolute requested terminal counts; minimum vessel length0; beta0; otherwise frozen declared SI benchmark controls.",
+  "cases": "Serial N1000/10000, seed23, background512cells; independent native table checks and phase MPI profile.",
+  "cpu_affinity": "28-31; rank binding none; OMP/BLAS threads1",
+  "concurrency": "No agent C++ compilation during measurements. Refinement and MPI-example validation ran on separate cores; the independent point-demand headline campaign ran on32-35. Timings are observed worker costs, not a paired speedup estimate against the historical physical model.",
+  "source": "Sampler511667e; source/binary/helper hashes and current HEAD/status are retained by the experiment manifest."
+}

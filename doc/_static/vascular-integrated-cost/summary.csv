@@ -1,0 +1,3 @@
+terminals,ranks,seed,background_cells,generation_seconds,quadrature_points,peak_quadrature_points,peak_rank_rss_kib,ordinary_background_cache_constructions,ordinary_background_cell_visits,ordinary_materialized_vessels,ordinary_physical_copy_attempts,ordinary_vessel_midpoint_localizations,ordinary_certified_vessels,ordinary_physiology_branch_visits,ordinary_candidate_path_visits,ordinary_demand_influence_hits,ordinary_demand_reassigned_samples,ordinary_pair_checks
+1000,1,23,512,42.567730418000004,262144,262144,411456,0,0,0,2997,2997,6034,50116,11100511,2730667,1582623,946548
+10000,1,23,512,985.885031974,2097152,2097152,1374120,0,0,0,29997,29997,61451,837906,240200623,30822458,17474781,10222329
