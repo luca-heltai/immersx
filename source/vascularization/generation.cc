@@ -166,7 +166,7 @@ namespace ImmersX::Vascularization
     add_parameter(
       "Tissue demand",
       tissue_demand,
-      "Positive finite relative demand at new territory positions; independent of sampling density.");
+      "Positive finite relative demand density integrated over nearest-centre tissue territories; independent of sampling density.");
     add_parameter("Demand quadrature order",
                   tissue_integration.quadrature_order);
     add_parameter(

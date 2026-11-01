@@ -11,6 +11,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <immersx/vascularization/discretization.h>
+#include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/metrics.h>
 #include <immersx/vascularization/network.h>
@@ -123,7 +124,8 @@ namespace ImmersX::Vascularization
     double           density_beta             = 3.;
     std::string      terminal_weight          = "1";
     double           terminal_weight_bound    = 1.;
-    /** Positive dimensionless tissue-demand expression in x,y,z. */
+    /** Relative tissue-demand density in x,y,z, integrated with physical JxW.
+     */
     std::string tissue_demand = "1";
     /** Total m^3/s through NEW tissue terminals; zero leaves flow unspecified.
      */

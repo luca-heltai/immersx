@@ -182,6 +182,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, avoid building matrices for zero-vector actions, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time. The standard iterative LinearAdapter solve owns and reuses one assembled system matrix.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Limit concurrent vascular proposal comparisons to overlapping vessel envelopes and shared physical identifiers. Preserve exact collision and junction checks, owner votes and deterministic conflict decisions during joint radius validation.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply joint integrated territory demands throughout ordinary growth. Update native rows, physiology and geometric certificates together; retain persistent spatial indices and validate the full physical result once at output.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage topology and integrated demand changes through a sparse physiology journal, retaining branch mesh constraints and root normalizations across native ownership changes.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Reuse prepared background routing for cell queries and retain ancestor port metadata during candidate optimization instead of rebuilding or rescanning it for each trial.

@@ -247,8 +247,15 @@ TEST(VascularAV, SharedWeightedTerritoriesAndPositiveDerivedMicrovascularBeds)
   ASSERT_EQ(r.network.terminals.size(), 16u);
   EXPECT_EQ(r.network.nodes.at(0).port, Port::arterial_inlet);
   EXPECT_EQ(r.network.nodes.at(2).port, Port::venous_outlet);
+  double integrated_demand = 0.;
   for (const auto &t : r.territories)
-    EXPECT_NEAR(t.demand, 1. + t.position[0] + 2. * t.position[1], 1.e-13);
+    {
+      EXPECT_TRUE(std::isfinite(t.demand));
+      EXPECT_GT(t.demand, 0.);
+      integrated_demand += t.demand;
+    }
+  // Integral of 1+x+2*y over the unit cube, independent of its partition.
+  EXPECT_NEAR(integrated_demand, 2.5, 2.e-13);
   oracle(r, p);
   const auto again = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
   ASSERT_TRUE(again.validation.valid()) << issues(again);

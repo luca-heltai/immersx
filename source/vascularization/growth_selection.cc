@@ -74,13 +74,7 @@ namespace ImmersX::Vascularization::internal
     AssertThrow(
       Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1,
       ExcMessage("A preliminary batch names conflicting native owners."));
-    return select_growth_batch(geometry,
-                               selected,
-                               proposals,
-                               parameters,
-                               comm,
-                               {},
-                               false,
-                               geometry.counts);
+    return select_growth_batch(
+      geometry, selected, proposals, parameters, comm, {}, false);
   }
 } // namespace ImmersX::Vascularization::internal

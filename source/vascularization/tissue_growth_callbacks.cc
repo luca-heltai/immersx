@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "tissue_growth_callbacks.h"
 
+#include "growth_geometry.h"
 #include "tissue_integration.h"
 namespace ImmersX::Vascularization::internal
 {
@@ -27,6 +28,40 @@ namespace ImmersX::Vascularization::internal
                     isolated;
       std::uint64_t snapshot = 0, next_snapshot = 0;
       bool          staged = false, ready = false;
+      std::uint64_t peak_points = 0;
+
+      void
+      account(const TissueIntegrationWork &work)
+      {
+        peak_points = std::max(peak_points, work.peak_points);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_generated_points,
+                   work.generated_points);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_refined_cells,
+                   work.refined_cells);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_nearest_queries,
+                   work.assignments.nearest_queries);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_nearest_hits,
+                   work.assignments.nearest_hits);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_influence_queries,
+                   work.assignments.influence_queries);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_influence_hits,
+                   work.assignments.influence_hits);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_reassigned_samples,
+                   work.assignments.reassigned_samples);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_added_samples,
+                   work.assignments.added_samples);
+        count_work(geometry.counts,
+                   GrowthOperation::demand_removed_samples,
+                   work.assignments.removed_samples);
+      }
 
       TissueGrowthState(BackgroundGeometry &background,
                         const Parameters   &configuration,
@@ -79,6 +114,7 @@ namespace ImmersX::Vascularization::internal
         snapshot    = revision;
         integration = std::make_unique<TissueDemandIntegration>(
           geometry, density, parameters, requested_terminals, centres, comm);
+        account(integration->initialization_work());
         if (!integration->validation().valid())
           {
             GrowthDemandJointUpdate failure;
@@ -89,6 +125,7 @@ namespace ImmersX::Vascularization::internal
             return failure;
           }
         pending = integration->preview({}, snapshot);
+        account(pending->work);
         return pending->territory.demand;
       }
       GrowthDemandProposal
@@ -114,6 +151,7 @@ namespace ImmersX::Vascularization::internal
         // Retain at most one journal, including while computing the next trial.
         isolated.reset();
         auto trial = integration->preview(descriptor.local, snapshot);
+        account(trial.work);
         GrowthDemandProposal result;
         result.proposal_key    = key;
         result.new_terminal_id = terminal;
@@ -168,7 +206,10 @@ namespace ImmersX::Vascularization::internal
           pending = std::move(isolated->second);
         isolated.reset();
         if (!pending)
-          pending = integration->preview(centres, snapshot);
+          {
+            pending = integration->preview(centres, snapshot);
+            account(pending->work);
+          }
         return pending->territory.demand;
       }
       void
@@ -239,8 +280,14 @@ namespace ImmersX::Vascularization::internal
                                       std::uint64_t revision) {
       state->prepare(quadrature, revision);
     };
-    callbacks.adopt   = [state]() { state->adopt(); };
-    callbacks.discard = [state]() { state->discard(); };
+    callbacks.adopt                  = [state]() { state->adopt(); };
+    callbacks.discard                = [state]() { state->discard(); };
+    callbacks.quadrature_diagnostics = [state]() {
+      return std::make_pair(state->integration ?
+                              state->integration->point_count() :
+                              0,
+                            state->peak_points);
+    };
     return callbacks;
   }
 } // namespace ImmersX::Vascularization::internal
