@@ -16,9 +16,11 @@ want to complete.
   architectural ideas behind the examples.
 - [Look up the reference](reference/index): check executable capabilities,
   parameter groups, and the generated C++ API.
+- [Integrations](integrations/index): use Coral and dealiiX-platform.
 - [Performance history](performance/index): inspect native comparisons, commit
   regressions, validation failures, and gaps in benchmark coverage.
 - [Contribute](developer/index): build, test, document, and extend the project.
+- [About ImmersX](about/index): find references, funding, and the changelog.
 
 The [API reference](api/library_root) is generated from the public
 headers. The [mathematical background](concepts/mathematical-background) and
@@ -27,26 +29,16 @@ ownership boundaries used throughout the documentation.
 
 ```{toctree}
 :hidden:
+:maxdepth: 2
+:titlesonly:
 
 getting-started/index
-getting-started/containers
-how-to/index
-how-to/local-co-refinement
-how-to/lifted-poisson
-how-to/lifted-static-elasticity
 tutorials/index
-tutorials/fiber-reinforced-frequency
-tutorials/fiber-in-3d-frequency
-tutorials/metric-flow-x-elastostatic-onboarding
-tutorials/metric-flow-x-elastodynamics-mms
+how-to/index
 concepts/index
 reference/index
-dealiiX-platform/index
-developer/index
+integrations/index
 performance/index
-performance/pipeline
-performance/particle-penalty
-performance/metric-flow-x-elastodynamics
-changes
+developer/index
 about/index
 ```

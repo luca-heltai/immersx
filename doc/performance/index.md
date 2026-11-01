@@ -1,4 +1,4 @@
-# Performance history
+# Performance
 
 These measurements are diagnostics, not speed guarantees. GitHub-hosted CPUs
 and host load vary. Compare only matching configurations and environments.
@@ -12,8 +12,14 @@ faster. The dashed line marks 1×. Ratios reduce sensitivity to machine speed,
 but cache, memory and compiler differences can still affect overhead. The
 viewer therefore keeps incompatible environments and configurations in separate
 series, even in ratio mode. Cases without equivalent native timings and failed
-attempts are excluded from ratio charts, not plotted as zero. A single sample
-is a baseline point, not a historical trend.
+attempts are excluded from ratio charts, not plotted as zero.
+
+The viewer initially selects the compatible series with the most measurements;
+ties prefer the series reaching the newest commit. The series selector shows
+the CPU, kernel, and point count. Hosted runners can use different CPUs or
+kernels on successive runs, so the archive can contain many commits split
+across shorter compatible series. A single sample is a baseline point, not
+a historical trend.
 
 The table shows medians and median absolute deviations (MAD), in milliseconds.
 Positive changes mean slower execution. A diagnostic regression requires an
@@ -65,3 +71,12 @@ local execution, backfill and recovery.
 The [one-vessel elastodynamics cost analysis](metric-flow-x-elastodynamics)
 profiles coupled Jacobian setup and nested iterative solves, and compares the
 parameter-selected serial UMFPACK path.
+
+```{toctree}
+:maxdepth: 1
+:titlesonly:
+
+particle-penalty
+metric-flow-x-elastodynamics
+pipeline
+```

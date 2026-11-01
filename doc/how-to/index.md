@@ -1,23 +1,20 @@
 # How-to guides
 
-These pages answer focused operational questions. They assume that ImmersX is
-already configured; start with [Installation](../getting-started/installation)
-if it is not.
+These pages answer focused operational questions. Start with
+[Getting started](../getting-started/index) if ImmersX is not configured yet.
 
 ```{toctree}
 :maxdepth: 1
+:titlesonly:
 
 running-applications
-imported-fields
 configuration
 boundary-conditions
+imported-fields
 reduced-coupling
 lifted-poisson
 lifted-static-elasticity
 support-aware-weak-terms
 lifted-integration
 local-co-refinement
-coral-backend
-testing
-vascular-tree-elasticity
 ```

@@ -26,7 +26,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
 ```
 
 With no arguments the image prints help and lists applications. See the
-[container guide](https://luca-heltai.github.io/immersx/getting-started/containers/)
+[container guide](https://luca-heltai.github.io/immersx/getting-started/containers.html)
 for Podman, Apptainer, MPI, image versions, and the standalone launcher.
 Images become available after the container workflow first publishes them.
 
@@ -43,7 +43,7 @@ For a single-config build tree containing both variants, use
 `_debug`-suffixed Debug targets; it is an ImmersX build mode, not a CMake
 multi-config generator.
 
-See the [getting-started guide](https://luca-heltai.github.io/immersx/getting-started/)
+See the [getting-started guide](https://luca-heltai.github.io/immersx/getting-started/index.html)
 for dependencies, configuration, and the first runnable example.
 
 ## References

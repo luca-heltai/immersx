@@ -3,6 +3,7 @@
 Run: uv run --with playwright python scripts/performance/tests/viewer.py
 Install Chromium first: uv run --with playwright python -m playwright install chromium
 """
+from collections import Counter
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -24,7 +25,8 @@ def check_ratio_charts(page, url):
     # Different absolute timings, known paired ratios, same compatibility series.
     b["records"] = [normalize({**raw(), "warm_immersx_median_ms": 3.,
         "warm_dealii_median_ms": 4., "warm_ratio": 0.75}, CONFIG)]
-    other_cpu = attempt("c", "3")
+    # The oldest series has only one point, as in the official archive.
+    other_cpu = attempt("0", "3")
     other_cpu["environment"] = {**a["environment"], "cpu": "another synthetic CPU"}
     failed_attempt = attempt("d", "4", "failed")
     failed_record = attempt("e", "5")
@@ -32,7 +34,7 @@ def check_ratio_charts(page, url):
     # Non-equivalent native work must remain N/A, even when timings exist.
     a["records"].append(normalize({**raw(), "case": "boundary_flux_q1",
         "relative_rhs_error": 0}, CONFIG))
-    data = report({"source_sha": "f", "baseline": "a", "commits": list("abcdef")},
+    data = report({"source_sha": "f", "baseline": "0", "commits": list("0abcdef")},
                   [a, b, other_cpu, failed_attempt, failed_record])
     page.route("**/performance/data/history.json", lambda route: route.fulfill(json=data))
     page.goto(url)
@@ -40,6 +42,8 @@ def check_ratio_charts(page, url):
     assert page.get_by_label("Chart metric", exact=True).input_value() == "ratio"
     chooser = page.get_by_label("Chart series", exact=True)
     assert chooser.locator("option").count() == 2  # CPU variants stay separate.
+    assert "2 points" in chooser.locator("option:checked").inner_text()
+    assert "synthetic" in chooser.locator("option:checked").inner_text()
     assert "boundary_flux" not in chooser.inner_text()
     svg = page.locator("#performance-chart svg")
     assert svg.is_visible() and svg.bounding_box()["width"] > 100
@@ -53,6 +57,9 @@ def check_ratio_charts(page, url):
     chooser.select_option(index=1)
     assert svg.locator("circle").count() == 1
     assert "no historical trend yet" in page.locator("#performance-chart").inner_text()
+    # Re-rendering preserves a user's choice even when another series is longer.
+    page.get_by_label("dimension", exact=True).select_option("2")
+    assert svg.locator("circle").count() == 1
     page.get_by_label("Chart metric", exact=True).select_option("absolute")
     assert "metric=absolute" in page.url
     assert chooser.input_value().endswith("/warm_immersx")
@@ -68,6 +75,18 @@ def check_ratio_charts(page, url):
     assert "No validated equivalent native comparison" in page.locator("#performance-chart").inner_text()
     page.get_by_label("case", exact=True).select_option("mass_q1")
     assert svg.locator("circle").count() == 2
+    page.unroute("**/performance/data/history.json")
+
+
+def check_series_recency(page, url):
+    a, b = attempt(), attempt("b", "2")
+    b["environment"]["cpu"] = "newer synthetic CPU"
+    data = report({"source_sha": "b", "baseline": "a", "commits": ["a", "b"]}, [a, b])
+    page.route("**/performance/data/history.json", lambda route: route.fulfill(json=data))
+    page.goto(url)
+    page.wait_for_selector("#performance-chart svg circle")
+    assert "newer synthetic CPU" in page.locator("#performance-series option:checked").inner_text()
+    assert page.locator("#performance-chart svg circle title").text_content().startswith("b:")
     page.unroute("**/performance/data/history.json")
 
 
@@ -89,6 +108,13 @@ def main():
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 downloaded = page.request.get(url.replace("index.html", "data/history.json"))
                 assert downloaded.ok and downloaded.json()["schema_version"] == 1
+                valid = [r for r in downloaded.json()['rows'] if r['status'] == 'passed'
+                         and r['attempt_status'] == 'passed' and r['native_ratio'] is not None]
+                if valid:
+                    longest = max(Counter(r['series'] for r in valid).values())
+                    page.goto(url)
+                    page.wait_for_selector('#performance-chart svg circle')
+                    assert page.locator('#performance-chart svg circle').count() == longest
                 real_mpi = [r for r in downloaded.json()['rows'] if r['case'].startswith('particle_penalty_')
                             and r['ranks'] == 2 and r['status'] == 'passed' and r['attempt_status'] == 'passed']
                 if real_mpi:
@@ -99,6 +125,7 @@ def main():
                     assert '2 ranks' in page.locator('#performance-results').inner_text()
                     assert page.locator('#performance-chart svg').count() == 1
                 check_ratio_charts(page, url)
+                check_series_recency(page, url)
                 empty = report({"source_sha": None, "baseline": None, "commits": []}, [])
                 page.route("**/performance/data/history.json", lambda route: route.fulfill(json=empty))
                 page.goto(url)
