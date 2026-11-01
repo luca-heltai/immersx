@@ -67,10 +67,25 @@ def validate(directory):
     close(sum(float(q['weight']) for q in data['quadrature']), float(s['background_volume']))
     assert s['coverage_evaluated'] == '1' and s['reference_evaluated'] == '1'
     if s['mode'] == 'generate':
-        assert s['calibration_status'] == 'converged'
-        assert abs(float(s['volume_fraction']) / float(s['target_volume_fraction']) - 1) <= .05
-        coverage = float(s['dual_coverage'] if data['pairs'] else s['arterial_coverage'])
-        assert coverage >= float(s['minimum_coverage'])
+        volume_target, coverage_target = float(s['target_volume_fraction']), float(s['minimum_coverage'])
+        if volume_target > 0 or coverage_target > 0:
+            assert s['calibration_status'] == 'converged'
+            if volume_target > 0:
+                assert abs(float(s['volume_fraction']) / volume_target - 1) <= .05
+            coverage = float(s['dual_coverage'] if data['pairs'] else s['arterial_coverage'])
+            assert coverage >= coverage_target
+        else:
+            assert s['calibration_status'] == 'not_requested'
+            assert int(s['arterial_terminals']) == len(data['background'])
+    territories = keyed(data['territories'])
+    total_demand = math.fsum(float(t['demand']) for t in territories.values())
+    close(total_demand, float(s['background_volume']))
+    for t in data['terminals'].values():
+        demand = float(t['demand'])
+        assert math.isfinite(demand) and demand > 0
+        close(demand, float(territories[int(t['territory'])]['demand']))
+        expected = float(s['reference_flow'])*demand/total_demand
+        assert math.isclose(abs(float(t['actual_outflow'])), expected, rel_tol=1e-8)
     integrated = defaultdict(lambda: [0., 0.])
     intervals = defaultdict(list)
     for cell in data['intervals']:
@@ -225,8 +240,14 @@ def render(root, output=None):
         for id_, a in original[kind].items():
             b = refined[kind][id_]
             for key in a:
-                if key not in ('owner', 'pressure', 'flow', 'shear0', 'shear1', 'target_flow', 'actual_outflow'):
+                if key not in ('owner', 'pressure', 'flow', 'shear0', 'shear1', 'target_flow', 'actual_outflow',
+                               'normalized_length', 'minimum_scale', 'maximum_scale',
+                               'minimum_normalized_radius', 'maximum_normalized_radius',
+                               'normalization_complete', 'has_normalized_part', 'inside_length', 'exterior_length'):
                     assert a[key] == b[key], (kind, id_, key)
+    for id_, vessel in original['vessels'].items():
+        for key in ('inside_length', 'exterior_length'):
+            close(float(vessel[key]), float(refined['vessels'][id_][key]))
     close(float(original['summary']['volume_fraction']), float(refined['summary']['volume_fraction']))
     assert len(refined['intervals']) > len(original['intervals'])
     output = root / 'figures' if output is None else output
@@ -240,14 +261,14 @@ def render(root, output=None):
             x, y = 280 + 560*(i % 2), 268 + 440*(i // 2)
             text(svg, x, y-170, TITLES[i], 18, 'middle')
             if name == 'meshes.svg':
-                mesh(svg, data[case], (x, y), .0625 if i < 2 else .5)
+                mesh(svg, data[case], (x, y), .9375 if i < 2 else .5)
             else:
                 draw(svg, data[case], (x, y))
             s = data[case]['summary']
             text(svg, x, y+170, f"{s['arterial_terminals']} terminals; {s['vessels']} physical vessels; {s['numerical_cells']} line cells", 12, 'middle')
             text(svg, x, y+190, f"{s['background_cells']} background cells", 12, 'middle')
         footer = ('Red: arterial; black: inlet. Tube widths = 4 × physical diameter in every panel.'
-                  if name == 'domains.svg' else 'Wireframes: cube cells intersect y = 0.0625; sphere cells intersect y = 0.5.')
+                  if name == 'domains.svg' else 'Wireframes: cube cells intersect y = 0.9375; sphere cells intersect y = 0.5.')
         text(svg, 28, 958, footer, 13)
         save(output / name, svg)
 
@@ -275,12 +296,12 @@ def render(root, output=None):
     for group, cases in enumerate((CASES[:2], CASES[2:4])):
         x0, y0 = 75 + 555*group, 365
         bins = [0., .125, .25, .5, .75, 1., math.sqrt(2)] if group == 0 else [0., .125, .25, .5, .75, 1.]
-        title = 'Distance to chosen z edge / cube side' if group == 0 else 'Distance to sphere center / radius'
-        axes(svg, (x0, y0), 450, 250, 5., [(i, str(i)) for i in range(6)])
-        for j, case in enumerate(cases):
-            def distance(row):
-                p = xyz(row)
-                return math.hypot(p[0], p[1]) if group == 0 else 2 * math.dist(p, (.5, .5, .5))
+        title = 'Distance to chosen x edge / cube side' if group == 0 else 'Distance to sphere center / radius'
+        def distance(row):
+            p = xyz(row)
+            return math.hypot(1-p[1], 1-p[2]) if group == 0 else 2 * math.dist(p, (.5, .5, .5))
+        series = []
+        for case in cases:
             counts = histogram([distance(t) for t in data[case]['terminals'].values() if t['system'] == 'arterial'], bins)
             volumes = [0.] * len(counts)
             for q in data[case]['quadrature']:
@@ -288,14 +309,18 @@ def render(root, output=None):
                     if distance(q) <= end:
                         volumes[i] += float(q['weight'])
                         break
+            series.append([math.log10(1+count/volume) if volume > 0 else None
+                           for count, volume in zip(counts, volumes)])
+        maximum = max(1, math.ceil(max(v for values in series for v in values if v is not None)))
+        axes(svg, (x0, y0), 450, 250, maximum, [(i, str(i)) for i in range(maximum+1)])
+        for j, values in enumerate(series):
             previous = None
-            for i, (count, volume) in enumerate(zip(counts, volumes)):
-                if volume == 0:
+            for i, value in enumerate(values):
+                if value is None:
                     previous = None
                     continue
-                density = count / volume
-                p = (x0 + 450*(i+.5)/len(counts), y0-250*math.log10(1+density)/5)
-                if previous:
+                p = (x0+450*(i+.5)/len(values), y0-250*value/maximum)
+                if previous is not None:
                     line(svg, previous, p, COLORS[2*group+j], 2)
                 dot(svg, p, 3, COLORS[2*group+j])
                 previous = p
@@ -307,9 +332,10 @@ def render(root, output=None):
     text(svg, 25, 78, 'Vertical axis: log10(1 + terminals / m³). Gaps denote shells without quadrature volume.', 12)
     save(output / 'terminal-density.svg', svg)
 
-    svg = start(1120, 460, 'Requested and achieved vascular metrics')
-    text(svg, 25, 28, 'Volume fraction and geometric service coverage are separate targets', 21)
-    for group, (title, maximum) in enumerate((('Volume fraction × 100000', 8.), ('Arterial geometric coverage', 1.))):
+    svg = start(1120, 460, 'Observed vascular metrics')
+    text(svg, 25, 28, 'Observed volume fraction and tissue-local geometric coverage', 21)
+    volume_max = 1.15*max(float(data[c]['summary']['volume_fraction'])*1e5 for c in CASES[:4])
+    for group, (title, maximum) in enumerate((('Volume fraction × 100000', volume_max), ('Arterial geometric coverage', 1.))):
         x0, y0 = 75+555*group, 355
         axes(svg, (x0, y0), 450, 260, maximum, [(maximum*i/4, f'{maximum*i/4:g}') for i in range(5)])
         text(svg, x0, 62, title, 15)
@@ -320,12 +346,13 @@ def render(root, output=None):
             x = x0+55+110*i
             height = 260*actual/maximum
             svg.append(f'<rect x="{x-22}" y="{y0-height:.3f}" width="44" height="{height:.3f}" fill="{COLORS[i]}"/>')
-            yy = y0-260*target/maximum
-            line(svg, (x-32, yy), (x+32, yy), '#172a3a', 2)
-            if group == 0:
-                line(svg, (x, y0-260*target*.95/maximum), (x, y0-260*target*1.05/maximum), '#172a3a', 2)
+            if target > 0:
+                yy = y0-260*target/maximum
+                line(svg, (x-32, yy), (x+32, yy), '#172a3a', 2)
+                if group == 0:
+                    line(svg, (x, y0-260*target*.95/maximum), (x, y0-260*target*1.05/maximum), '#172a3a', 2)
             text(svg, x, 378, str(i+1), 13, 'middle')
-    text(svg, 25, 413, 'Bars: achieved. Black marks: requested value (±5% for volume) or minimum coverage.', 13)
+    text(svg, 25, 413, 'Bars: observed metrics. Black marks appear only for explicitly enabled calibration targets.', 13)
     text(svg, 25, 438, '1 uniform cube; 2 edge cube; 3 uniform sphere; 4 central sphere. Coverage is not a physiological perfusion proof.', 12)
     save(output / 'targets.svg', svg)
 
