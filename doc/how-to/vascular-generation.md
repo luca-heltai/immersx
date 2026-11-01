@@ -1008,6 +1008,7 @@ The focused CTest tests `ImmersX.VascularProfile.*.MPI2` compare counters agains
 known native MPI payloads, including in-place collectives and disabled forwarding.
 The profiler adds no mandatory dependency and does not collect physical graphs.
 
+(vascular-compare-background-refinements)=
 ## Compare background refinements
 
 `scripts/run_vascular_mesh_study.py` runs the ordinary C++ application at three
@@ -1063,6 +1064,7 @@ audit before restarting them. Refinement-study timings include the current
 quadrature resolution and one-time final work; compare the operation counts and
 reported quadrature sizes when interpreting them.
 
+(vascular-reproducible-mpi-measurements)=
 ## Reproducible MPI measurements
 
 `scripts/run_vascular_benchmarks.py` launches the instrumented C++ application
