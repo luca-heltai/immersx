@@ -14,6 +14,8 @@
 #include <functional>
 #include <set>
 
+#include "vascularization_integral_oracles.h"
+
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 namespace
@@ -118,12 +120,27 @@ TEST(VascularCCO, TreeTopologyAndMurrayHaveIndependentOracles)
   EXPECT_EQ(leaves(0), p.terminal_count);
   EXPECT_EQ(visited.size(), n.vessels.size());
   EXPECT_DOUBLE_EQ(n.vessels.at(0).radii[0], p.seed_radius);
-  const double terminal_radius =
-    p.seed_radius *
-    std::pow(1. / p.terminal_count, 1. / p.arterial_murray_exponent);
+  const auto demands =
+    VascularTestOracles::unit_cube_demands(result,
+                                           [](const Point<3> &) { return 1.; });
+  std::map<Id, double> terminal_demands;
+  double               total = 0.;
+  for (const auto &[id, terminal] : n.terminals)
+    {
+      const double demand = demands.at(terminal.territory);
+      EXPECT_NEAR(terminal.demand, demand, 1.e-13);
+      terminal_demands.emplace(terminal.node, demand);
+      total += demand;
+    }
+  EXPECT_NEAR(total, 1., 1.e-13);
   for (const auto &[id, e] : n.vessels)
     if (children[e.nodes[1]].empty())
-      EXPECT_NEAR(e.radii[0] / terminal_radius, 1., 2.e-14);
+      {
+        const double terminal_radius =
+          p.seed_radius * std::pow(terminal_demands.at(e.nodes[1]) / total,
+                                   1. / p.arterial_murray_exponent);
+        EXPECT_NEAR(e.radii[0] / terminal_radius, 1., 2.e-14);
+      }
 }
 
 TEST(VascularCCO, WholeTreeWallsAnglesAndSkewClearances)
