@@ -1,0 +1,36 @@
+[  5%] Building CXX object CMakeFiles/immersx_lib.dir/source/compatibility/dealii_9_8/vtk/utilities.cc.o
+[  5%] Building CXX object CMakeFiles/immersx_lib.dir/source/compatibility/dealii_9_8/grid_in.cc.o
+[  8%] Building CXX object CMakeFiles/immersx_lib.dir/source/coupled_elasticity.cc.o
+[ 11%] Building CXX object CMakeFiles/immersx_lib.dir/source/domain.cc.o
+[ 14%] Building CXX object CMakeFiles/immersx_lib.dir/source/elasticity.cc.o
+[ 17%] Building CXX object CMakeFiles/immersx_lib.dir/source/elasticity_coupling_impl.cc.o
+[ 20%] Building CXX object CMakeFiles/immersx_lib.dir/source/elasticity_explicit.cc.o
+[ 23%] Building CXX object CMakeFiles/immersx_lib.dir/source/elasticity_freq.cc.o
+[ 26%] Building CXX object CMakeFiles/immersx_lib.dir/source/elasticity_freq_problem_parameters.cc.o
+[ 29%] Building CXX object CMakeFiles/immersx_lib.dir/source/elasticity_problem_parameters.cc.o
+[ 32%] Building CXX object CMakeFiles/immersx_lib.dir/source/elastodynamics.cc.o
+[ 35%] Building CXX object CMakeFiles/immersx_lib.dir/source/fiber_reinforced_elastodynamics.cc.o
+[ 38%] Building CXX object CMakeFiles/immersx_lib.dir/source/immersed_repartitioner.cc.o
+[ 41%] Building CXX object CMakeFiles/immersx_lib.dir/source/imported_finite_element_fields.cc.o
+[ 44%] Building CXX object CMakeFiles/immersx_lib.dir/source/input_field_selector.cc.o
+[ 47%] Building CXX object CMakeFiles/immersx_lib.dir/source/laplacian.cc.o
+[ 50%] Building CXX object CMakeFiles/immersx_lib.dir/source/legacy_inclusions.cc.o
+[ 52%] Building CXX object CMakeFiles/immersx_lib.dir/source/matrix_free_utils.cc.o
+[ 55%] Building CXX object CMakeFiles/immersx_lib.dir/source/modulated_parsed_function.cc.o
+[ 58%] Building CXX object CMakeFiles/immersx_lib.dir/source/navier_stokes.cc.o
+[ 61%] Building CXX object CMakeFiles/immersx_lib.dir/source/particle_coupling.cc.o
+[ 64%] Building CXX object CMakeFiles/immersx_lib.dir/source/poisson.cc.o
+[ 67%] Building CXX object CMakeFiles/immersx_lib.dir/source/reduced_coupling.cc.o
+[ 70%] Building CXX object CMakeFiles/immersx_lib.dir/source/reduced_field_utils.cc.o
+[ 73%] Building CXX object CMakeFiles/immersx_lib.dir/source/reduced_poisson.cc.o
+[ 76%] Building CXX object CMakeFiles/immersx_lib.dir/source/reference_cross_section.cc.o
+[ 79%] Building CXX object CMakeFiles/immersx_lib.dir/source/symbolic_expression_kernel.cc.o
+[ 82%] Building CXX object CMakeFiles/immersx_lib.dir/source/symbolic_expression_support.cc.o
+[ 85%] Building CXX object CMakeFiles/immersx_lib.dir/source/symbolic_field_evaluator.cc.o
+[ 88%] Building CXX object CMakeFiles/immersx_lib.dir/source/tensor_product_space.cc.o
+[ 91%] Building CXX object CMakeFiles/immersx_lib.dir/source/vtk_utils.cc.o
+[ 94%] Linking CXX shared library libimmersx_lib.so
+[ 94%] Built target immersx_lib
+[ 97%] Building CXX object benchmarks/CMakeFiles/weak_term_assembly_benchmark.dir/weak_term_assembly.cc.o
+[100%] Linking CXX executable weak_term_assembly_benchmark
+[100%] Built target weak_term_assembly_benchmark
