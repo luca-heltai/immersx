@@ -266,6 +266,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Sample weighted native background cells directly so local refinement does not exhaust the growth budget through global density-rejection draws. Preserve physical cell density, MPI ownership and mapped-cell volume weights.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Restore physiology metadata after rejected growth with retained map and set nodes, avoiding allocations while restoring migrated branches and root authorities.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.

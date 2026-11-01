@@ -10,6 +10,18 @@
 #include <set>
 namespace ImmersX::Vascularization::internal
 {
+  const BackgroundCellSampler &
+  BackgroundGeometry::sample_cells(double density_beta, MPI_Comm communicator)
+  {
+    const bool prepare =
+      !cached_sampling || cached_sampling->exponent() != density_beta;
+    if (dealii::Utilities::MPI::max(static_cast<unsigned int>(prepare),
+                                    communicator))
+      cached_sampling.emplace(
+        cache.get_triangulation(), mapping, density_beta, communicator, counts);
+    return *cached_sampling;
+  }
+
   BackgroundGeometry::ProfileKey
   BackgroundGeometry::profile_key(const Segment<3> &segment)
   {
