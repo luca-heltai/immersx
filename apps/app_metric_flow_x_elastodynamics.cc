@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------
 
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/parameter_acceptor.h>
 
 #include <deal.II/fe/fe_dgq.h>
@@ -23,6 +24,7 @@
 #  include <immersx/core/observable_lift.h>
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/core/weak_term.h>
+#  include <immersx/coupling/immersed_repartitioner.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastodynamics.h>
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
@@ -32,6 +34,7 @@
 #  include <filesystem>
 #  include <fstream>
 #  include <iostream>
+#  include <set>
 #  include <stdexcept>
 #  include <string>
 #  include <type_traits>
@@ -52,6 +55,54 @@ namespace
     return result;
   }
 
+  // Print the solid boundary ids and the number of vessel cells with a vertex
+  // outside the solid mesh. This only checks the centreline vertices. The
+  // lifted wall points lie one radius away from the centreline, so a count of
+  // zero does not guarantee that the lifted wall is inside the solid. Lifted
+  // points outside the solid stop the assembly with "Some lifted integration
+  // points lie outside the background mesh".
+  template <typename FlowTriangulation, typename SolidProblem>
+  void
+  report_vessel_geometry(const FlowTriangulation &flow_triangulation,
+                         const SolidProblem      &solid_problem)
+  {
+    std::vector<Point<3>> points;
+    unsigned int          n_local_cells = 0;
+    for (const auto &cell : flow_triangulation.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          ++n_local_cells;
+          for (const auto v : cell->vertex_indices())
+            points.push_back(cell->vertex(v));
+        }
+
+    Utilities::MPI::RemotePointEvaluation<3, 3> evaluation;
+    evaluation.reinit(points,
+                      solid_problem.triangulation(),
+                      solid_problem.mapping());
+    unsigned int n_local_outside = 0;
+    for (unsigned int i = 0; i < points.size(); i += 2)
+      if (!evaluation.point_found(i) || !evaluation.point_found(i + 1))
+        ++n_local_outside;
+
+    const auto n_cells   = Utilities::MPI::sum(n_local_cells, MPI_COMM_WORLD);
+    const auto n_outside = Utilities::MPI::sum(n_local_outside, MPI_COMM_WORLD);
+    const auto local_ids = solid_problem.triangulation().get_boundary_ids();
+    const auto boundary_ids = Utilities::MPI::compute_set_union(
+      std::set<types::boundary_id>(local_ids.begin(), local_ids.end()),
+      MPI_COMM_WORLD);
+
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        std::cout << "Solid boundary ids:";
+        for (const auto id : boundary_ids)
+          std::cout << ' ' << id;
+        std::cout << std::endl
+                  << "Vessel cells with a vertex outside the solid mesh: "
+                  << n_outside << " of " << n_cells << std::endl;
+      }
+  }
+
   void
   run_coupled_problem(const std::string &parameter_file)
   {
@@ -63,10 +114,11 @@ namespace
     using WallLift     = TensorProductLift<1, 2, 3, 3>;
 
     ParameterAcceptor::clear();
-    FlowProblem                 flow_problem(MPI_COMM_WORLD);
-    TimeIntervalParameters      flow_time;
-    FixedStepParameters         fixed_step;
-    IDAParameters               ida_parameters;
+    FlowProblem            flow_problem(MPI_COMM_WORLD);
+    TimeIntervalParameters flow_time("/", false);
+    FixedStepParameters    fixed_step("/", false);
+    IDAParameters ida_parameters("/MetricFlowSystem<1, 3>/IDA parameters/",
+                                 &flow_time);
     ElastodynamicsParameters<3> solid_parameters("/Elastodynamics/",
                                                  &flow_time,
                                                  &fixed_step,
@@ -75,14 +127,24 @@ namespace
     FiniteElementSpaceParameters<1, 3> lambda_parameters(
       "/MetricFlowX multiplier space/", "auto");
 
-    ParameterAcceptor coupled_solver("/MetricFlowX coupled solver/");
-    std::string       linear_solver = "iterative";
+    ParameterAcceptor coupled_solver(
+      "/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/");
+    std::string linear_solver = "iterative";
     coupled_solver.add_parameter(
-      "Linear solver",
+      "Type",
       linear_solver,
       "Coupled IDA linear solver. Direct solvers materialize each Jacobian. UMFPACK requires one rank; MUMPS supports MPI.",
       ParameterAcceptor::prm,
       Patterns::Selection("iterative|umfpack|mumps"));
+
+    ParameterAcceptor coupling("/MetricFlowX coupling/");
+    std::string       embedded_partitioning = "default";
+    coupling.add_parameter(
+      "Embedded partitioning policy",
+      embedded_partitioning,
+      "default preserves ordinary Domain ownership; immersed follows the solid cell owner at each vessel cell center.",
+      ParameterAcceptor::prm,
+      Patterns::Selection("default|immersed"));
 
     initialize_parameters(parameter_file);
     flow_problem.initialize_params(parameter_file);
@@ -103,6 +165,9 @@ namespace
       ExcMessage(
         "The coupled MUMPS solver requires deal.II configured with MUMPS."));
 #  endif
+    SolidProblem solid_problem(solid_parameters);
+    solid_problem.make_grid();
+
     DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
     flow_domain_parameters.name_of_grid =
       metric_flow_parameter("Vtk file path for mesh input");
@@ -113,7 +178,14 @@ namespace
       [&](const auto &coarse_mesh, const unsigned int refinement) {
         flow_domain_parameters.initial_refinement = refinement;
         flow_domain.prepare_grid(coarse_mesh);
-        flow_domain.finalize_grid();
+        if (embedded_partitioning == "default")
+          flow_domain.finalize_grid();
+        else if (embedded_partitioning == "immersed")
+          {
+            const ImmersedRepartitioner<1, 3> policy(
+              solid_problem.triangulation());
+            flow_domain.finalize_grid(policy);
+          }
       });
     if (lambda_parameters.finite_element == "auto")
       lambda_parameters.finite_element =
@@ -142,12 +214,11 @@ namespace
     reference_area.update_ghost_values();
     const auto A0 = frozen(a0.field(), reference_area);
 
-    SolidProblem solid_problem(solid_parameters);
-    solid_problem.make_grid();
     solid_problem.setup_fe();
     solid_problem.setup_system();
     solid_problem.assemble_operators();
     solid_problem.set_initial_conditions();
+    report_vessel_geometry(flow_problem.triangulation(), solid_problem);
 
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_schur_primal_coupling();
@@ -235,18 +306,19 @@ namespace
 
     const auto flow_output_directory =
       metric_flow_parameter("Output directory");
-    const std::filesystem::path multiplier_output_directory =
-      flow_output_directory + "/interaction";
+    const auto flow_output_name = metric_flow_parameter("Output filename");
     std::vector<std::pair<double, std::string>> multiplier_output_records;
+    std::vector<std::pair<double, std::string>> flow_output_records;
     const auto                                  output = [&solid_problem,
                          &solid_parameters,
                          &flow_problem,
                          &adapter,
                          &lambda_view,
-                         &multiplier_output_directory,
                          &multiplier_output_records,
+                         &flow_output_records,
                          coupling_fields,
                          flow_fields,
+                         flow_output_name,
                          flow_output_directory](const GlobalVector &solution,
                                                 const unsigned int  step,
                                                 const double        time) {
@@ -263,6 +335,18 @@ namespace
           -1. * value(coupling_fields.fields().multiplier),
           adapter.field(solution, coupling_fields.fields().multiplier)));
       flow_problem.output_results(flow_state, pressure, step);
+      // MetricFlowX's native writer uses its runner's private clock. The
+      // coupled adapter supplies the accepted times for this collection.
+      if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        {
+          flow_output_records.emplace_back(time,
+                                           flow_output_name + "_" +
+                                             Utilities::int_to_string(step, 5) +
+                                             ".pvtu");
+          std::ofstream pvd(std::filesystem::path(flow_output_directory) /
+                            (flow_output_name + ".pvd"));
+          DataOutBase::write_pvd_record(pvd, flow_output_records);
+        }
       solid_problem.output_results();
       DataOut<1, 3> multiplier_output;
       multiplier_output.attach_dof_handler(lambda_view.dof_handler());
@@ -272,16 +356,16 @@ namespace
         DataOut<1, 3>::type_dof_data);
       multiplier_output.build_patches(lambda_view.mapping());
       const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
-      if (rank == 0)
-        std::filesystem::create_directories(multiplier_output_directory);
       MPI_Barrier(MPI_COMM_WORLD);
       const auto filename = "pressure_jump_" + std::to_string(step) + ".vtu";
       multiplier_output.write_vtu_in_parallel(
-        (multiplier_output_directory / filename).string(), MPI_COMM_WORLD);
+        (std::filesystem::path(flow_output_directory) / filename).string(),
+        MPI_COMM_WORLD);
       multiplier_output_records.emplace_back(time, filename);
       if (rank == 0)
         {
-          std::ofstream pvd(multiplier_output_directory / "pressure_jump.pvd");
+          std::ofstream pvd(std::filesystem::path(flow_output_directory) /
+                            "pressure_jump.pvd");
           DataOutBase::write_pvd_record(pvd, multiplier_output_records);
         }
       MPI_Barrier(MPI_COMM_WORLD);
@@ -301,7 +385,6 @@ namespace
       (void)solution_dot;
     });
 
-    output(state, 0, flow_time.initial_time);
     const auto accepted_steps = adapter.solve(state, state_dot);
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << "MetricFlowX elastodynamics accepted IDA steps: "

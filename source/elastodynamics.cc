@@ -13,7 +13,9 @@
 
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/mapping_fe.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -88,7 +90,35 @@ namespace ImmersX
     }
   } // namespace
 
+  ElastodynamicsMaterialParameters::ElastodynamicsMaterialParameters(
+    const std::string &subsection)
+    : ParameterAcceptor(subsection)
+  {
+    add_parameter("Density", coefficients.density);
+    add_parameter("Lame mu", coefficients.lame_mu);
+    add_parameter("Lame lambda", coefficients.lame_lambda);
 
+
+    add_parameter("Rayleigh alpha", coefficients.rayleigh_alpha);
+    add_parameter("Rayleigh beta", coefficients.rayleigh_beta);
+    add_parameter("Viscosity eta", coefficients.viscosity_eta);
+
+    parse_parameters_call_back.connect([this]() {
+      const auto &m = coefficients;
+
+      AssertThrow(std::isfinite(m.density) && m.density > 0.,
+                  ExcMessage("Material density must be finite and positive."));
+
+      AssertThrow(std::isfinite(m.lame_mu) && m.lame_mu > 0.,
+                  ExcMessage("Material Lame mu must be finite and positive."));
+
+      for (const double value :
+           {m.lame_lambda, m.rayleigh_alpha, m.rayleigh_beta, m.viscosity_eta})
+        AssertThrow(std::isfinite(value) && value >= 0.,
+                    ExcMessage("Material lambda and damping coefficients "
+                               "must be finite and non-negative."));
+    });
+  }
   template <int dim, int spacedim>
   ElastodynamicsParameters<dim, spacedim>::ElastodynamicsParameters(
     const std::string      &subsection,
@@ -114,6 +144,8 @@ namespace ImmersX
           nullptr)
     , domain_parameters(
         domain_subsection(normalize_elastodynamics_subsection(subsection)))
+    , default_material(normalize_elastodynamics_subsection(subsection) +
+                       "Material properties/default/")
     , time_parameters(shared_time_parameters != nullptr ?
                         *shared_time_parameters :
                         *owned_time_parameters)
@@ -157,16 +189,10 @@ namespace ImmersX
 
 
 
-    enter_subsection("Material");
+    enter_subsection("Material properties");
     {
-      add_parameter("Density", density, "", this->prm, Patterns::Double(0));
-      add_parameter("Lame mu", lame_mu, "", this->prm, Patterns::Double(0));
-      add_parameter(
-        "Lame lambda", lame_lambda, "", this->prm, Patterns::Double(0));
-      add_parameter(
-        "Damping shear", damping_shear, "", this->prm, Patterns::Double(0));
-      add_parameter(
-        "Damping bulk", damping_bulk, "", this->prm, Patterns::Double(0));
+      add_parameter("Material tags by material id",
+                    material_tags_by_material_id);
     }
     leave_subsection();
 
@@ -199,15 +225,64 @@ namespace ImmersX
     convergence_table.add_parameters(this->prm);
     this->prm.leave_subsection();
 
-    parse_parameters_call_back.connect([this]() {
+    const std::string material_root =
+      normalize_elastodynamics_subsection(subsection) + "Material properties/";
+
+    parse_parameters_call_back.connect([this, material_root]() {
       ensure_output_directory(output_directory);
-      AssertThrow(density > 0., ExcMessage("Density must be positive."));
-      AssertThrow(lame_mu > 0., ExcMessage("Lame mu must be positive."));
-      AssertThrow(lame_lambda >= 0.,
-                  ExcMessage("Lame lambda must be non-negative."));
-      AssertThrow(damping_shear >= 0. && damping_bulk >= 0.,
-                  ExcMessage("Damping coefficients must be non-negative."));
+
+      // The default material already exists.
+      // Create only the other named material acceptors.
+      this->leave_my_subsection(this->prm);
+
+      for (const auto &[id, tag] : material_tags_by_material_id)
+        {
+          (void)id;
+
+          AssertThrow(!tag.empty() && tag.find('/') == std::string::npos,
+                      ExcMessage("Material tags must be nonempty and "
+                                 "must not contain '/'."));
+
+          // Reuse the permanently registered default material.
+          if (tag == "default")
+            continue;
+
+          if (material_parameters_by_tag.find(tag) ==
+              material_parameters_by_tag.end())
+            material_parameters_by_tag.emplace(
+              tag,
+              std::make_unique<ElastodynamicsMaterialParameters>(material_root +
+                                                                 tag + "/"));
+        }
+
+      this->enter_my_subsection(this->prm);
     });
+  }
+
+  template <int dim, int spacedim>
+  ElastodynamicsMaterialCoefficients
+  ElastodynamicsParameters<dim, spacedim>::get_material_properties(
+    const types::material_id material_id) const
+  {
+    const auto tag_it = material_tags_by_material_id.find(material_id);
+
+    // Unmapped material ID: use Material properties/default.
+    if (tag_it == material_tags_by_material_id.end())
+      return default_material.coefficients;
+
+    const std::string &tag = tag_it->second;
+
+    // Also support an explicit mapping such as 42:default.
+    if (tag == "default")
+      return default_material.coefficients;
+
+    const auto material_it = material_parameters_by_tag.find(tag);
+
+    AssertThrow(material_it != material_parameters_by_tag.end(),
+                ExcMessage("Material parameters are not initialized for tag '" +
+                           tag + "'."));
+
+    return material_it->second->coefficients;
   }
 
 
@@ -251,10 +326,31 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe_storage = std::make_unique<FESystem<dim, spacedim>>(
-      FE_Q<dim, spacedim>(par.fe_degree), spacedim);
-    quadrature      = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
-    mapping_storage = std::make_unique<MappingQ<dim, spacedim>>(1);
+    const auto         reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The elastodynamics mesh has no cells."));
+    if (reference_cell->is_hyper_cube())
+      {
+        fe_storage = std::make_unique<FESystem<dim, spacedim>>(
+          FE_Q<dim, spacedim>(par.fe_degree), spacedim);
+        quadrature      = std::make_unique<QGauss<dim>>(par.fe_degree + 1);
+        face_quadrature = std::make_unique<QGauss<dim - 1>>(par.fe_degree + 1);
+        mapping_storage = std::make_unique<MappingQ<dim, spacedim>>(1);
+      }
+    // Line meshes are hypercube meshes, so only dim > 1 reaches this branch.
+    else if constexpr (dim > 1)
+      {
+        AssertThrow(reference_cell->is_simplex(),
+                    ExcMessage("ElastodynamicsSolver supports meshes of only "
+                               "hypercube or only simplex cells."));
+        fe_storage = std::make_unique<FESystem<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(par.fe_degree), spacedim);
+        quadrature = std::make_unique<QGaussSimplex<dim>>(par.fe_degree + 1);
+        face_quadrature =
+          std::make_unique<QGaussSimplex<dim - 1>>(par.fe_degree + 1);
+        mapping_storage = std::make_unique<MappingFE<dim, spacedim>>(
+          FE_SimplexP<dim, spacedim>(1));
+      }
   }
 
 
@@ -378,7 +474,11 @@ namespace ImmersX
     par.displacement_boundary.set_time(time);
     for (const auto id : par.dirichlet_ids)
       VectorTools::interpolate_boundary_values(
-        dh, id, par.displacement_boundary, displacement_constraints_storage);
+        *mapping_storage,
+        dh,
+        id,
+        par.displacement_boundary,
+        displacement_constraints_storage);
     displacement_constraints_storage.close();
 
     velocity_constraints_storage.clear();
@@ -386,7 +486,8 @@ namespace ImmersX
     DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
     par.velocity_boundary.set_time(time);
     for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh,
+      VectorTools::interpolate_boundary_values(*mapping_storage,
+                                               dh,
                                                id,
                                                par.velocity_boundary,
                                                velocity_constraints_storage);
@@ -528,7 +629,8 @@ namespace ImmersX
     AffineConstraints<double> no_constraints;
     no_constraints.close();
 
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_quadrature_points |
@@ -548,6 +650,7 @@ namespace ImmersX
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          const auto mp  = par.get_material_properties(cell->material_id());
           cell_mass      = 0.;
           cell_stiffness = 0.;
           cell_damping   = 0.;
@@ -567,19 +670,27 @@ namespace ImmersX
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     const auto jxw = fe_values.JxW(q);
+
                     cell_mass(i, j) +=
-                      par.density * (values[i] * values[j]) * jxw;
+                      mp.density * (values[i] * values[j]) * jxw;
+
                     cell_stiffness(i, j) +=
-                      (2. * par.lame_mu *
+                      (2. * mp.lame_mu *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
-                       par.lame_lambda * divergences[i] * divergences[j]) *
+                       mp.lame_lambda * divergences[i] * divergences[j]) *
                       jxw;
+
                     cell_damping(i, j) +=
-                      (2. * par.damping_shear *
+                      (mp.rayleigh_alpha * mp.density *
+                         (values[i] * values[j]) +
+
+                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
-                       par.damping_bulk * divergences[i] * divergences[j]) *
+
+                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
+                         divergences[j]) *
                       jxw;
                   }
             }
@@ -623,14 +734,17 @@ namespace ImmersX
 
     AffineConstraints<double> no_constraints;
     no_constraints.close();
-    FEValues<dim, spacedim>     fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_quadrature_points |
                                         update_JxW_values);
-    FEFaceValues<dim, spacedim> fe_face_values(
-      *fe_storage,
-      QGauss<dim - 1>(par.fe_degree + 1),
-      update_values | update_quadrature_points | update_JxW_values);
+    FEFaceValues<dim, spacedim>      fe_face_values(*mapping_storage,
+                                               *fe_storage,
+                                               *face_quadrature,
+                                               update_values |
+                                                 update_quadrature_points |
+                                                 update_JxW_values);
     const FEValuesExtractors::Vector vector_field(0);
     const unsigned int          dofs_per_cell = fe_storage->n_dofs_per_cell();
     const unsigned int          n_q_points    = quadrature->size();
@@ -706,10 +820,14 @@ namespace ImmersX
 
     par.initial_displacement.set_time(current_time_storage);
     par.initial_velocity.set_time(current_time_storage);
-    VectorTools::interpolate(dh,
+    VectorTools::interpolate(*mapping_storage,
+                             dh,
                              par.initial_displacement,
                              displacement_storage);
-    VectorTools::interpolate(dh, par.initial_velocity, velocity_storage);
+    VectorTools::interpolate(*mapping_storage,
+                             dh,
+                             par.initial_velocity,
+                             velocity_storage);
 
     // The initial velocity is the value of the initial condition, not an
     // independently prescribed boundary datum.  In particular, do not impose
@@ -718,7 +836,8 @@ namespace ImmersX
     velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
     DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
     for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(dh,
+      VectorTools::interpolate_boundary_values(*mapping_storage,
+                                               dh,
                                                id,
                                                par.initial_velocity,
                                                velocity_constraints_storage);
@@ -810,7 +929,8 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::add_initial_acceleration_constraint_rhs(
     VectorType &rhs) const
   {
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_JxW_values);
     const FEValuesExtractors::Vector vector_field(0);
@@ -825,6 +945,7 @@ namespace ImmersX
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          const auto mp  = par.get_material_properties(cell->material_id());
           cell_mass      = 0.;
           zero_local_rhs = 0.;
           fe_values.reinit(cell);
@@ -837,7 +958,7 @@ namespace ImmersX
               for (unsigned int i = 0; i < dofs_per_cell; ++i)
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   cell_mass(i, j) +=
-                    par.density * (values[i] * values[j]) * fe_values.JxW(q);
+                    mp.density * (values[i] * values[j]) * fe_values.JxW(q);
             }
 
           cell->get_dof_indices(local_dof_indices);
@@ -865,7 +986,8 @@ namespace ImmersX
     locally_relevant_velocity = previous_velocity;
     locally_relevant_velocity.update_ghost_values();
 
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_quadrature_points |
@@ -891,6 +1013,7 @@ namespace ImmersX
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          const auto mp  = par.get_material_properties(cell->material_id());
           cell_mass      = 0.;
           cell_stiffness = 0.;
           cell_damping   = 0.;
@@ -913,19 +1036,27 @@ namespace ImmersX
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     const auto jxw = fe_values.JxW(q);
+
                     cell_mass(i, j) +=
-                      par.density * (values[i] * values[j]) * jxw;
+                      mp.density * (values[i] * values[j]) * jxw;
+
                     cell_stiffness(i, j) +=
-                      (2. * par.lame_mu *
+                      (2. * mp.lame_mu *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
-                       par.lame_lambda * divergences[i] * divergences[j]) *
+                       mp.lame_lambda * divergences[i] * divergences[j]) *
                       jxw;
+
                     cell_damping(i, j) +=
-                      (2. * par.damping_shear *
+                      (mp.rayleigh_alpha * mp.density *
+                         (values[i] * values[j]) +
+
+                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
-                       par.damping_bulk * divergences[i] * divergences[j]) *
+
+                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
+                         divergences[j]) *
                       jxw;
                   }
 
@@ -992,7 +1123,8 @@ namespace ImmersX
     locally_relevant_velocity = previous_velocity;
     locally_relevant_velocity.update_ghost_values();
 
-    FEValues<dim, spacedim>          fe_values(*fe_storage,
+    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+                                      *fe_storage,
                                       *quadrature,
                                       update_values | update_gradients |
                                         update_JxW_values);
@@ -1015,6 +1147,7 @@ namespace ImmersX
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
+          const auto mp  = par.get_material_properties(cell->material_id());
           cell_mass      = 0.;
           cell_stiffness = 0.;
           cell_damping   = 0.;
@@ -1035,19 +1168,27 @@ namespace ImmersX
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     const auto jxw = fe_values.JxW(q);
+
                     cell_mass(i, j) +=
-                      par.density * (values[i] * values[j]) * jxw;
+                      mp.density * (values[i] * values[j]) * jxw;
+
                     cell_stiffness(i, j) +=
-                      (2. * par.lame_mu *
+                      (2. * mp.lame_mu *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
-                       par.lame_lambda * divergences[i] * divergences[j]) *
+                       mp.lame_lambda * divergences[i] * divergences[j]) *
                       jxw;
+
                     cell_damping(i, j) +=
-                      (2. * par.damping_shear *
+                      (mp.rayleigh_alpha * mp.density *
+                         (values[i] * values[j]) +
+
+                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
                          scalar_product(symmetric_gradients[i],
                                         symmetric_gradients[j]) +
-                       par.damping_bulk * divergences[i] * divergences[j]) *
+
+                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
+                         divergences[j]) *
                       jxw;
                   }
             }
@@ -1225,8 +1366,13 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::compute_error() const
   {
+    // ParsedConvergenceTable::error_from_exact() integrates with QGauss.
+    AssertThrow(fe_storage != nullptr &&
+                  fe_storage->reference_cell().is_hyper_cube(),
+                ExcMessage("compute_error() supports hypercube meshes only."));
     par.exact_solution.set_time(current_time_storage);
-    par.convergence_table.error_from_exact(dh,
+    par.convergence_table.error_from_exact(*mapping_storage,
+                                           dh,
                                            locally_relevant_displacement,
                                            par.exact_solution);
   }
@@ -1260,7 +1406,7 @@ namespace ImmersX
     for (unsigned int i = 0; i < subdomain.size(); ++i)
       subdomain(i) = tria->locally_owned_subdomain();
     data_out.add_data_vector(subdomain, "subdomain");
-    data_out.build_patches();
+    data_out.build_patches(*mapping_storage);
 
     const std::string cycle_suffix =
       par.n_refinement_cycles > 1 ?
@@ -1407,13 +1553,17 @@ namespace ImmersX
         cycles_and_solutions.clear();
         run_time_integration();
 
-        par.exact_solution.set_time(current_time_storage);
-        par.convergence_table.error_from_exact(dh,
-                                               locally_relevant_displacement,
-                                               par.exact_solution);
-
-        if (pcout.is_active())
-          par.convergence_table.output_table(pcout.get_stream());
+        if (fe_storage != nullptr &&
+            fe_storage->reference_cell().is_hyper_cube())
+          {
+            compute_error();
+            if (pcout.is_active())
+              par.convergence_table.output_table(pcout.get_stream());
+          }
+        else if (fe_storage != nullptr &&
+                 fe_storage->reference_cell().is_simplex())
+          pcout << "   Error table skipped: not available on simplex meshes."
+                << std::endl;
 
         if (refinement_cycle_storage + 1 < par.n_refinement_cycles)
           refine_global();

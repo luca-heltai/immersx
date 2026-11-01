@@ -1,0 +1,16 @@
+include @IMMERSX_BINARY_DIR@/gtests/parameters/elastodynamics_adapter_simplex.prm
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/elastodynamics-native-simplex
+  subsection Solver
+    subsection Control
+      set Max steps = 1000
+      set Tolerance = 1.e-13
+      set Reduction = 1.e-13
+    end
+  end
+  subsection Fixed step
+    set Policy = number_of_steps
+    set Number of time steps = 20
+    set Strategy = trapezoidal
+  end
+end

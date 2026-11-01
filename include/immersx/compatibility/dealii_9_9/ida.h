@@ -730,49 +730,62 @@ namespace ImmersX::Compatibility
          * will occur if you destroy this class, and then parse a parameter file
          * using `prm`.
          */
+        // Synchronize bindings installed by a native IDA configuration before
+        // this backport exposes the shared entries.
         void
-        add_parameters(ParameterHandler &prm)
+        add_parameters(ParameterHandler &prm,
+                       const bool        include_time_parameters       = true,
+                       const bool        include_correction_types      = true,
+                       const bool        synchronize_shared_parameters = false)
         {
-          prm.add_parameter("Initial time", initial_time);
-          prm.add_parameter("Final time", final_time);
-          prm.add_parameter("Time interval between each output", output_period);
+          const auto add_parameter = [&](const std::string &entry,
+                                         auto              &parameter,
+                                         const auto &...arguments) {
+            prm.add_parameter(entry, parameter, arguments...);
+            if (synchronize_shared_parameters)
+              prm.set(entry, prm.get(entry));
+          };
+          if (include_time_parameters)
+            {
+              add_parameter("Initial time", initial_time);
+              add_parameter("Final time", final_time);
+              add_parameter("Time interval between each output", output_period);
+            }
 
           prm.enter_subsection("Running parameters");
-          prm.add_parameter("Initial step size", initial_step_size);
-          prm.add_parameter("Minimum step size",
-                            minimum_step_size,
-                            "Smallest allowed integration step.");
-          prm.add_parameter(
-            "Maximum step size",
-            maximum_step_size,
-            "Largest allowed integration step; zero is unlimited.");
-          prm.add_parameter("Maximum number of steps",
-                            maximum_number_of_steps,
-                            "Maximum internal steps between output times.");
-          prm.add_parameter(
+          add_parameter("Initial step size", initial_step_size);
+          add_parameter("Minimum step size",
+                        minimum_step_size,
+                        "Smallest allowed integration step.");
+          add_parameter("Maximum step size",
+                        maximum_step_size,
+                        "Largest allowed integration step; zero is unlimited.");
+          add_parameter("Maximum number of steps",
+                        maximum_number_of_steps,
+                        "Maximum internal steps between output times.");
+          add_parameter(
             "Maximum error test failures",
             maximum_error_test_failures,
             "Stops a solve after repeated local error test rejections.");
-          prm.add_parameter(
+          add_parameter(
             "Maximum nonlinear convergence failures",
             maximum_convergence_failures,
             "Stops a solve after repeated nonlinear solver failures.");
-          prm.add_parameter("Maximum order of BDF", maximum_order);
-          prm.add_parameter("Maximum number of nonlinear iterations",
-                            maximum_non_linear_iterations);
+          add_parameter("Maximum order of BDF", maximum_order);
+          add_parameter("Maximum number of nonlinear iterations",
+                        maximum_non_linear_iterations);
           prm.leave_subsection();
 
           prm.enter_subsection("Nonlinear solver");
-          prm.add_parameter(
-            "Convergence coefficient",
-            nonlinear_convergence_coefficient,
-            "Controls when Newton corrections count as converged.");
+          add_parameter("Convergence coefficient",
+                        nonlinear_convergence_coefficient,
+                        "Controls when Newton corrections count as converged.");
           prm.leave_subsection();
 
           prm.enter_subsection("Error control");
-          prm.add_parameter("Absolute error tolerance", absolute_tolerance);
-          prm.add_parameter("Relative error tolerance", relative_tolerance);
-          prm.add_parameter(
+          add_parameter("Absolute error tolerance", absolute_tolerance);
+          add_parameter("Relative error tolerance", relative_tolerance);
+          add_parameter(
             "Ignore algebraic terms for error computations",
             ignore_algebraic_terms_for_errors,
             "Indicate whether or not to suppress algebraic variables "
@@ -780,73 +793,73 @@ namespace ImmersX::Compatibility
           prm.leave_subsection();
 
           prm.enter_subsection("Initial condition correction parameters");
-          prm.add_parameter(
-            "Correction type at initial time",
-            ic_type,
-            "This is one of the following three options for the "
-            "initial condition calculation. \n"
-            " none: do not try to make initial conditions consistent. \n"
-            " use_y_diff: compute the algebraic components of y and differential\n"
-            "    components of y_dot, given the differential components of y. \n"
-            "    This option requires that the user specifies differential and \n"
-            "    algebraic components in the function differential_components().\n"
-            " use_y_dot: compute all components of y, given y_dot.");
-          prm.add_parameter(
-            "Correction type after restart",
-            reset_type,
-            "This is one of the following three options for the "
-            "initial condition calculation. \n"
-            " none: do not try to make initial conditions consistent. \n"
-            " use_y_diff: compute the algebraic components of y and differential\n"
-            "    components of y_dot, given the differential components of y. \n"
-            "    This option requires that the user specifies differential and \n"
-            "    algebraic components in the function differential_components().\n"
-            " use_y_dot: compute all components of y, given y_dot.");
-          prm.add_parameter("Maximum number of nonlinear iterations",
-                            maximum_non_linear_iterations_ic);
-          prm.add_parameter(
+          if (include_correction_types)
+            {
+              add_parameter(
+                "Correction type at initial time",
+                ic_type,
+                "This is one of the following three options for the "
+                "initial condition calculation. \n"
+                " none: do not try to make initial conditions consistent. \n"
+                " use_y_diff: compute the algebraic components of y and differential\n"
+                "    components of y_dot, given the differential components of y. \n"
+                "    This option requires that the user specifies differential and \n"
+                "    algebraic components in the function differential_components().\n"
+                " use_y_dot: compute all components of y, given y_dot.");
+              add_parameter(
+                "Correction type after restart",
+                reset_type,
+                "This is one of the following three options for the "
+                "initial condition calculation. \n"
+                " none: do not try to make initial conditions consistent. \n"
+                " use_y_diff: compute the algebraic components of y and differential\n"
+                "    components of y_dot, given the differential components of y. \n"
+                "    This option requires that the user specifies differential and \n"
+                "    algebraic components in the function differential_components().\n"
+                " use_y_dot: compute all components of y, given y_dot.");
+            }
+          add_parameter("Maximum number of nonlinear iterations",
+                        maximum_non_linear_iterations_ic);
+          add_parameter(
             "Factor to use when converting from the integrator tolerance to the linear solver tolerance",
             ls_norm_factor);
-          prm.add_parameter(
+          add_parameter(
             "Maximum number of steps",
             maximum_number_of_steps_ic,
             "Bounds work while making the initial values consistent.");
-          prm.add_parameter(
+          add_parameter(
             "Maximum number of Jacobians",
             maximum_number_of_jacobians_ic,
             "Bounds Jacobian refresh attempts during IC correction.");
-          prm.add_parameter("Maximum number of backtracks",
-                            maximum_number_of_backtracks_ic,
-                            "Limits trial reductions in the IC line search.");
-          prm.add_parameter(
-            "Line search enabled",
-            line_search_enabled_ic,
-            "Enable backtracking when adjusting initial values.");
-          prm.add_parameter(
+          add_parameter("Maximum number of backtracks",
+                        maximum_number_of_backtracks_ic,
+                        "Limits trial reductions in the IC line search.");
+          add_parameter("Line search enabled",
+                        line_search_enabled_ic,
+                        "Enable backtracking when adjusting initial values.");
+          add_parameter(
             "Step tolerance",
             step_tolerance_ic,
             "Treats a sufficiently small Newton correction as convergence.");
-          prm.add_parameter(
-            "Nonlinear convergence coefficient",
-            nonlinear_convergence_coefficient_ic,
-            "Sets the Newton convergence test used by IDACalcIC.");
+          add_parameter("Nonlinear convergence coefficient",
+                        nonlinear_convergence_coefficient_ic,
+                        "Sets the Newton convergence test used by IDACalcIC.");
           prm.leave_subsection();
 
           prm.enter_subsection("Linear solver");
-          prm.add_parameter(
+          add_parameter(
             "Linear tolerance factor",
             linear_tolerance_factor,
             "Relates linear solve accuracy to the nonlinear tolerance.");
-          prm.add_parameter(
+          add_parameter(
             "Difference quotient increment factor",
             increment_factor,
             "Scales finite-difference perturbations in Jacobian products.");
-          prm.add_parameter(
-            "Linear solution scaling",
-            linear_solution_scaling,
-            "Compensates for changes in Cj between linear solves.");
+          add_parameter("Linear solution scaling",
+                        linear_solution_scaling,
+                        "Compensates for changes in Cj between linear solves.");
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 2, 0)
-          prm.add_parameter(
+          add_parameter(
             "Cj setup difference factor",
             delta_cj_lsetup,
             "Rebuilds linear setup when Cj changes by this fraction.");
@@ -855,34 +868,33 @@ namespace ImmersX::Compatibility
 
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 2, 0)
           prm.enter_subsection("Step adaptivity");
-          prm.add_parameter(
-            "Minimum step growth factor",
-            eta_min,
-            "Prevents overly aggressive reductions in step size.");
-          prm.add_parameter("Maximum step growth factor",
-                            eta_max,
-                            "Caps step growth after a successful step.");
-          prm.add_parameter("Low step growth factor",
-                            eta_low,
-                            "Applies when IDA takes a lower-order step.");
-          prm.add_parameter("Minimum growth factor after error failure",
-                            eta_min_err_fail,
-                            "Limits step reduction after a failed error test.");
-          prm.add_parameter(
+          add_parameter("Minimum step growth factor",
+                        eta_min,
+                        "Prevents overly aggressive reductions in step size.");
+          add_parameter("Maximum step growth factor",
+                        eta_max,
+                        "Caps step growth after a successful step.");
+          add_parameter("Low step growth factor",
+                        eta_low,
+                        "Applies when IDA takes a lower-order step.");
+          add_parameter("Minimum growth factor after error failure",
+                        eta_min_err_fail,
+                        "Limits step reduction after a failed error test.");
+          add_parameter(
             "Growth factor after convergence failure",
             eta_conv_fail,
             "Sets the next-step reduction after nonlinear failure.");
-          prm.add_parameter("Minimum fixed step growth factor",
-                            eta_min_fixed,
-                            "Lower growth bound for fixed-step adaptivity.");
-          prm.add_parameter("Maximum fixed step growth factor",
-                            eta_max_fixed,
-                            "Upper growth bound for fixed-step adaptivity.");
+          add_parameter("Minimum fixed step growth factor",
+                        eta_min_fixed,
+                        "Lower growth bound for fixed-step adaptivity.");
+          add_parameter("Maximum fixed step growth factor",
+                        eta_max_fixed,
+                        "Upper growth bound for fixed-step adaptivity.");
           prm.leave_subsection();
 #  endif
 #  if DEAL_II_SUNDIALS_VERSION_GTE(7, 6, 0)
           prm.enter_subsection("Constraints");
-          prm.add_parameter(
+          add_parameter(
             "Maximum constraint failures",
             maximum_constraint_failures,
             "Rejects a step after this many constraint violations.");
@@ -1364,12 +1376,18 @@ namespace ImmersX::Compatibility
       std::function<IndexSet()> differential_components;
 
       /**
-       * Return a vector whose components are the weights used by IDA to compute
-       * the vector norm. The implementation of this function is optional. If
-       * the user does not provide an implementation, the weights are assumed to
-       * be all ones.
+       * Return componentwise absolute tolerances. When unset, IDA uses
+       * AdditionalData::absolute_tolerance for every component.
        */
       std::function<VectorType &()> get_local_tolerances;
+
+      /** Optional inverse error weights. Exceptions are captured at the C
+       * boundary and rethrown by solve_dae(). Takes precedence over scalar
+       * and vector tolerances; keep wrapper-owned userdata unchanged.
+       */
+      std::function<void(const VectorType &, VectorType &)>
+        compute_error_weights;
+
 
       /**
        * Return the IDA inequality constraint vector, if used. Entries follow

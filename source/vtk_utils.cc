@@ -444,8 +444,30 @@ namespace ImmersX
           append(cell_data->GetArray(i),
                  FieldAssociation::cell_data,
                  grid->GetNumberOfCells());
+      bool simplex_mesh = false;
+      bool found_cell   = false;
+      for (vtkIdType i = 0; i < grid->GetNumberOfCells(); ++i)
+        {
+          auto *cell = grid->GetCell(i);
+          if (cell->GetCellDimension() != dim)
+            continue;
+          const int  type    = cell->GetCellType();
+          const bool simplex = (dim == 2 && type == VTK_TRIANGLE) ||
+                               (dim == 3 && type == VTK_TETRA);
+          const bool hypercube = (dim == 1 && type == VTK_LINE) ||
+                                 (dim == 2 && type == VTK_QUAD) ||
+                                 (dim == 3 && type == VTK_HEXAHEDRON);
+          AssertThrow(
+            (simplex || hypercube) && (!found_cell || simplex == simplex_mesh),
+            ExcMessage(
+              "VTK fields require only simplices or only hypercubes."));
+          simplex_mesh = simplex;
+          found_cell   = true;
+        }
+      // Preserve every catalogued array, including multiple legacy scalar
+      // arrays.
       return ReducedFieldUtils::field_catalog_to_finite_element<dim, spacedim>(
-        catalog);
+        catalog, simplex_mesh);
     }
 
     /** Read coefficients in exactly the order established by a catalogue. */

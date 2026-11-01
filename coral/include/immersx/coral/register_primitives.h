@@ -77,6 +77,39 @@ namespace ImmersX::Coral
     coral::detail::set_type_alias<Term>("ImmersX::KnownTerm<" +
                                         dimensions(dim, spacedim) + "," +
                                         field_kind + ">");
+    // Saved graphs omit the default integration-support template argument.
+    // Keep their function keys independent of compiler type spellings.
+    const std::string key_dimensions =
+      std::to_string(dim) + ", " + std::to_string(spacedim);
+    const auto value_key =
+      std::is_arithmetic_v<Value> ?
+        std::string("double") :
+        "dealii::Tensor<1, " + std::to_string(spacedim) + ">";
+    const auto source_key = "ImmersX::KnownSource<" + value_key + ", " +
+                            std::to_string(spacedim) + ">";
+    const auto field_key = "ImmersX::Field<" + key_dimensions +
+                           ", dealii::FEValuesExtractors::" + field_kind + ">";
+    const auto test_key = "ImmersX::TestExpression<" + field_key +
+                          ", ImmersX::detail::ValueOperation>";
+    const auto term_key =
+      "ImmersX::KnownTerm<" + source_key + ", " + test_key + ">";
+    const std::string adapter_key =
+      "std::shared_ptr<ImmersX::LinearAdapter<"
+      "dealii::TrilinosWrappers::MPI::Vector, "
+      "dealii::TrilinosWrappers::MPI::BlockVector>>";
+    using TermFactory = std::function<Term(const Source &, const Test &)>;
+    using BoundaryTermFactory = std::function<Term(const Term &, unsigned int)>;
+    using AddTermFactory =
+      std::function<void(AdapterHandle &, const Term &, const std::string &)>;
+    coral::detail::set_type_alias<TermFactory>(
+      "std::function<" + term_key + " (const " + source_key + " &, const " +
+      test_key + " &)>");
+    coral::detail::set_type_alias<BoundaryTermFactory>(
+      "std::function<" + term_key + " (const " + term_key +
+      " &, unsigned int)>");
+    coral::detail::set_type_alias<AddTermFactory>(
+      "std::function<void (" + adapter_key + " &, const " + term_key +
+      " &, const std::string &)>");
     coral::NodeObject::register_output_type<Source>();
     coral::NodeObject::register_output_type<Term>();
 
@@ -94,10 +127,9 @@ namespace ImmersX::Coral
         "from_function"));
 
     coral::NodeObject::register_function(
-      std::function<Term(const Source &, const Test &)>(
-        [](const Source &source, const Test &test_expression) {
-          return ImmersX::known_term(source, test_expression);
-        }),
+      TermFactory([](const Source &source, const Test &test_expression) {
+        return ImmersX::known_term(source, test_expression);
+      }),
       {"source", "test"},
       method_metadata(
         operation_prefix + "Known term",
@@ -108,10 +140,9 @@ namespace ImmersX::Coral
         "create"));
 
     coral::NodeObject::register_function(
-      std::function<Term(const Term &, const unsigned int)>(
-        [](const Term &term, const unsigned int boundary_id) {
-          return term.on_boundary(boundary_id);
-        }),
+      BoundaryTermFactory([](const Term &term, const unsigned int boundary_id) {
+        return term.on_boundary(boundary_id);
+      }),
       {"term", "boundary_id"},
       method_metadata(operation_prefix + "Boundary known term",
                       "Boundary known term",
@@ -121,7 +152,7 @@ namespace ImmersX::Coral
                       "on_boundary"));
 
     coral::NodeObject::register_function(
-      std::function<void(AdapterHandle &, const Term &, const std::string &)>(
+      AddTermFactory(
         [](AdapterHandle     &adapter,
            const Term        &term,
            const std::string &prefix) { (*adapter).add(term, prefix); }),
@@ -459,6 +490,19 @@ namespace ImmersX::Coral
       const typename ImmersX::Domain<dim, spacedim>::ImportedFields::FieldView
         &,
       const TestExpression &)>;
+    const auto parsed_weak_key =
+      "ImmersX::KnownTerm<ImmersX::KnownSource<double, " +
+      std::to_string(spacedim) + ">, " + test_value_key + ">";
+    using ParsedWeakFactory =
+      std::function<ParsedWeakTerm(const ParsedRhs &, const TestExpression &)>;
+    using AddParsedWeakFactory = std::function<
+      void(AdapterHandle &, const ParsedWeakTerm &, const std::string &)>;
+    coral::detail::set_type_alias<ParsedWeakFactory>(
+      "std::function<" + parsed_weak_key + " (const ImmersX::Function<" +
+      std::to_string(spacedim) + "> &, const " + test_value_key + " &)>");
+    coral::detail::set_type_alias<AddParsedWeakFactory>(
+      "std::function<void (" + adapter_key + " &, const " + parsed_weak_key +
+      " &, const std::string &)>");
     coral::detail::set_type_alias<StaticWeakFactory>(
       "std::function<" + static_weak_key + " (const " +
       "ImmersX::ImportedFiniteElementFields<" + key_dimensions +
@@ -509,7 +553,7 @@ namespace ImmersX::Coral
                       "create"));
 
     coral::NodeObject::register_function(
-      std::function<ParsedWeakTerm(const ParsedRhs &, const TestExpression &)>(
+      ParsedWeakFactory(
         [](const ParsedRhs &rhs, const TestExpression &test_expression) {
           AssertThrow(rhs.value != nullptr,
                       dealii::ExcMessage(
@@ -563,8 +607,7 @@ namespace ImmersX::Coral
                       "add_weak_term"));
 
     coral::NodeObject::register_function(
-      std::function<
-        void(AdapterHandle &, const ParsedWeakTerm &, const std::string &)>(
+      AddParsedWeakFactory(
         [](AdapterHandle        &adapter,
            const ParsedWeakTerm &term,
            const std::string    &prefix) { (*adapter).add(term, prefix); }),

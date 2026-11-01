@@ -78,11 +78,11 @@ namespace ImmersX
         // other coefficient averages to zero over the wall. Find where these
         // two coefficients are in the selection; a coefficient that is not
         // selected contributes nothing.
-        const auto        &selection = this->inclusions.get_selected_coefficients();
+        const auto &selection = this->inclusions.get_selected_coefficients();
         std::vector<bool> is_normal_coefficient(used_number_modes, false);
         for (unsigned int j = 0; j < used_number_modes; ++j)
-          is_normal_coefficient[j] = (selection[j] == spacedim ||
-                                      selection[j] == 2 * spacedim + 1);
+          is_normal_coefficient[j] =
+            (selection[j] == spacedim || selection[j] == 2 * spacedim + 1);
 
         // Area of the lateral surface of each vessel, |Gamma_v| = sum of
         // |S_k| over its inclusions, with |S_k| = 2 pi r_k |d_k| in 3D and
@@ -105,18 +105,19 @@ namespace ImmersX
         // segments the data of a block is the sum over its n_s inclusions,
         // and each inclusion gets the mean g / n_s. lambda + mu is the mean
         // over the cells that contain the support points of the inclusion.
-        const auto &imposed_displacement = this->force_rhs.block(1);
+        const auto         &imposed_displacement = this->force_rhs.block(1);
         std::vector<double> interior_stiffness;
         if (this->par.remove_interior_stress_from_pressure)
           {
-            std::vector<double> local_stiffness(
-              this->inclusions.n_inclusions(), 0.);
+            std::vector<double> local_stiffness(this->inclusions.n_inclusions(),
+                                                0.);
             std::vector<double> local_n_points(this->inclusions.n_inclusions(),
                                                0.);
-            for (const auto &particle : this->inclusions.inclusions_as_particles)
+            for (const auto &particle :
+                 this->inclusions.inclusions_as_particles)
               {
-                const auto  k = this->inclusions.get_inclusion_id(
-                  particle.get_id());
+                const auto k =
+                  this->inclusions.get_inclusion_id(particle.get_id());
                 const auto &mp = this->par.get_material_properties(
                   particle.get_surrounding_cell()->material_id());
                 local_stiffness[k] += 2. * (mp.Lame_lambda + mp.Lame_mu);
@@ -133,11 +134,10 @@ namespace ImmersX
             const auto &default_material =
               this->par.get_material_properties(numbers::invalid_material_id);
             for (unsigned int k = 0; k < interior_stiffness.size(); ++k)
-              interior_stiffness[k] =
-                n_points[k] > 0 ?
-                  interior_stiffness[k] / n_points[k] :
-                  2. * (default_material.Lame_lambda +
-                        default_material.Lame_mu);
+              interior_stiffness[k] = n_points[k] > 0 ?
+                                        interior_stiffness[k] / n_points[k] :
+                                        2. * (default_material.Lame_lambda +
+                                              default_material.Lame_mu);
           }
 
         // A normal coefficient lambda of the multiplier block used by
@@ -157,11 +157,10 @@ namespace ImmersX
           AssertIndexRange(inclusion, this->inclusions.n_inclusions());
           const auto vessel_id = this->inclusions.get_vesselID(inclusion);
           const auto measure = this->inclusions.get_section_measure(inclusion);
-          auto interior_stress = 0.0;
+          auto       interior_stress = 0.0;
           if (this->par.remove_interior_stress_from_pressure)
-            interior_stress = 
-              interior_stiffness[inclusion] * displacement /
-                this->inclusions.get_radius(inclusion);
+            interior_stress = interior_stiffness[inclusion] * displacement /
+                              this->inclusions.get_radius(inclusion);
           pressure_at_inc[inclusion] +=
             lambda / (2. * measure) + interior_stress;
           pressure[vessel_id] +=
@@ -178,10 +177,9 @@ namespace ImmersX
                   continue;
                 const unsigned inclusion_number = (unsigned int)floor(
                   element_of_local_lambda / (used_number_modes));
-                add_normal_force(
-                  inclusion_number,
-                  lambda_to_pressure[element_of_local_lambda],
-                  imposed_displacement[element_of_local_lambda]);
+                add_normal_force(inclusion_number,
+                                 lambda_to_pressure[element_of_local_lambda],
+                                 imposed_displacement[element_of_local_lambda]);
               }
           }
         else
@@ -227,8 +225,8 @@ namespace ImmersX
 
                 for (const auto i : inclusions_in_segment)
                   {
-                    n_cells_concurring_to_each_vessel
-                      [this->inclusions.get_vesselID(i)]++;
+                    n_cells_concurring_to_each_vessel[this->inclusions
+                                                        .get_vesselID(i)]++;
                     add_normal_force(
                       i,
                       lambda_to_pressure[element_of_local_lambda],
@@ -279,11 +277,11 @@ namespace ImmersX
         // section, so it is exact for the quadrature used by the coupling.
         const auto &section =
           this->tensor_product_coupling->get_reference_cross_section();
-        const auto &selection = this->par.tensor_product_coupling_parameters
-                                  .tensor_product_space_parameters.section
-                                  .selected_coefficients;
+        const auto &selection =
+          this->par.tensor_product_coupling_parameters
+            .tensor_product_space_parameters.section.selected_coefficients;
         AssertDimension(selection.size(), n_comp);
-        const auto         &section_quadrature = section.get_global_quadrature();
+        const auto &section_quadrature = section.get_global_quadrature();
         std::vector<double> normal_weight(n_comp, 0.);
         for (unsigned int c = 0; c < n_comp; ++c)
           if (selection[c] == 3 || selection[c] == 7)
@@ -326,9 +324,9 @@ namespace ImmersX
             imposed_coefficients = lambda;
             imposed_coefficients = owned_coefficients;
 
-            const auto n_reduced_cells = this->tensor_product_coupling
-                                           ->get_triangulation()
-                                           .n_global_active_cells();
+            const auto n_reduced_cells =
+              this->tensor_product_coupling->get_triangulation()
+                .n_global_active_cells();
             std::vector<double> local_stiffness(n_reduced_cells, 0.);
             std::vector<double> local_n_points(n_reduced_cells, 0.);
             for (const auto &particle :
@@ -354,11 +352,10 @@ namespace ImmersX
             const auto &default_material =
               this->par.get_material_properties(numbers::invalid_material_id);
             for (unsigned int c = 0; c < n_reduced_cells; ++c)
-              interior_stiffness[c] =
-                n_points[c] > 0 ?
-                  interior_stiffness[c] / n_points[c] :
-                  2. * (default_material.Lame_lambda +
-                        default_material.Lame_mu);
+              interior_stiffness[c] = n_points[c] > 0 ?
+                                        interior_stiffness[c] / n_points[c] :
+                                        2. * (default_material.Lame_lambda +
+                                              default_material.Lame_mu);
           }
 
         // Pressure at each support point of the reduced grid: the nodal
@@ -372,14 +369,13 @@ namespace ImmersX
           reduced_dh, fe.component_mask(FEValuesExtractors::Scalar(0)));
         const auto [first_support_point, n_support_points] =
           Utilities::MPI::partial_and_total_sum(
-            owned_dofs_of_first_component.n_elements(),
-            this->mpi_communicator);
+            owned_dofs_of_first_component.n_elements(), this->mpi_communicator);
         IndexSet owned_support_points(n_support_points);
         owned_support_points.add_range(
           first_support_point,
           first_support_point + owned_dofs_of_first_component.n_elements());
-        pressure_at_immersed_surface_by_inclusion.reinit(owned_support_points,
-                                                         this->mpi_communicator);
+        pressure_at_immersed_surface_by_inclusion.reinit(
+          owned_support_points, this->mpi_communicator);
         auto &pressure_at_inc = pressure_at_immersed_surface_by_inclusion;
         pressure_at_inc       = 0;
 
@@ -409,12 +405,14 @@ namespace ImmersX
                   for (unsigned int c = 0; c < n_comp; ++c)
                     if (normal_weight[c] != 0)
                       {
-                        const auto dof = dof_indices[fe.component_to_system_index(
-                          c, base_index)];
+                        const auto dof =
+                          dof_indices[fe.component_to_system_index(c,
+                                                                   base_index)];
                         nodal_pressure += normal_weight[c] * lambda[dof];
                         if (this->par.remove_interior_stress_from_pressure)
                           nodal_pressure +=
-                            interior_stiffness[cell->global_active_cell_index()] *
+                            interior_stiffness[cell
+                                                 ->global_active_cell_index()] *
                             normal_weight[c] * imposed_coefficients[dof] /
                             support_point_thickness[base_index];
                       }
@@ -644,14 +642,14 @@ namespace ImmersX
             // coordinates.emplace_back(el);
             data_to_write.emplace_back(pressure[el]);
           }
-
+        // The prefix sum is collective: every rank must call it, including
+        // ranks that own no vessel.
         const hsize_t los = pressure.locally_owned_size();
         const hsize_t prefix =
           Utilities::MPI::partial_and_total_sum(los, this->mpi_communicator)
             .first;
         if (los > 0)
           {
-
             std::vector<hsize_t> offset = {prefix, 1};
             std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};
             // data.write_selection(data_to_write, coordinates);
@@ -807,7 +805,7 @@ namespace ImmersX
   std::vector<std::vector<double>>
   CoupledElasticityProblem<dim, spacedim>::split_pressure_over_inclusions(
     std::vector<int> number_of_cells_per_vessel,
-    Vector<double> /* full_press */) const
+    Vector<double>   full_press) const
   {
     std::vector<std::vector<double>> split_pressure;
 
@@ -818,10 +816,10 @@ namespace ImmersX
                     ExcDimensionMismatch(number_of_cells_per_vessel.size(),
                                          this->inclusions.get_n_vessels()));
 
-        // Copying the distributed vector into a serial one is collective, so
-        // every rank must call this function.
-        const Vector<double> pressure_by_inclusion(
-          pressure_at_immersed_surface_by_inclusion);
+        AssertThrow(full_press.size() == this->inclusions.n_inclusions(),
+                    ExcDimensionMismatch(full_press.size(),
+                                         this->inclusions.n_inclusions()));
+        const auto &pressure_by_inclusion = full_press;
 
         for (unsigned int vessel = 0;
              vessel < number_of_cells_per_vessel.size();
@@ -899,7 +897,10 @@ namespace ImmersX
     if (!this->uses_tensor_product_coupling())
       {
         TimerOutput::Scope t(this->computing_timer, "Refine");
-        Vector<float>      error_per_cell(this->tria->n_active_cells());
+        AssertThrow(this->fe->reference_cell().is_hyper_cube(),
+                    ExcMessage(
+                      "Refine simplex tissue meshes before distribution."));
+        Vector<float> error_per_cell(this->tria->n_active_cells());
         KellyErrorEstimator<spacedim>::estimate(
           this->dh,
           QGauss<spacedim - 1>(this->par.fe_degree + 1),

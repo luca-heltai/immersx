@@ -88,11 +88,15 @@ namespace ImmersX
                                        "velocity",
                                        dealii::FEValuesExtractors::Vector(0));
 
+    // Coupling terms also need the boundary data at the candidate time.
+    builder.context_update([&problem](const auto &context) {
+      problem.update_constraints(context.time());
+    });
+
     auto kinematic = builder.term(displacement_id, "kinematic");
     kinematic
       .residual(
         [displacement_id, velocity_id, &problem, mass](const auto &context) {
-          problem.update_constraints(context.time());
           return semidiscrete_detail::constrained_residual(
             mass.view * context.derivative(displacement_id) -
               mass.view * context.state(velocity_id),
@@ -114,7 +118,6 @@ namespace ImmersX
       .residual(
         [velocity_id, displacement_id, &problem, mass, stiffness, damping](
           const auto &context) {
-          problem.update_constraints(context.time());
           const auto &v_dot  = context.derivative(velocity_id);
           auto        result = mass.view * v_dot +
                         stiffness.view * context.state(displacement_id) +

@@ -1,3 +1,5 @@
+/* ---------------------------------------------------------------------
+ */
 #ifndef immersx_coupled_elasticity_h
 #define immersx_coupled_elasticity_h
 
@@ -100,6 +102,12 @@ namespace ImmersX
     update_vessel_radius_data(std::vector<double> new_data,
                               std::vector<int>    cells_per_vessel);
 
+    /** Interpolate gathered inclusion pressures to vessel samples.
+     * A single inclusion supplies a constant pressure; a single requested
+     * sample receives the vessel mean. Each vessel needs at least one sample.
+     * This callback performs no MPI operations and may run only on rank zero
+     * after the caller gathers the pressure vector.
+     */
     std::vector<std::vector<double>>
       split_pressure_over_inclusions(std::vector<int>, Vector<double>) const;
 
@@ -144,7 +152,6 @@ namespace ImmersX
     /// @}
 
   private:
-
     void
     refine_and_transfer_around_inclusions();
 

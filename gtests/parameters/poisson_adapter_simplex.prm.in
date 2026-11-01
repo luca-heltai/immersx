@@ -1,0 +1,27 @@
+set dimension = 3
+set space dimension = 3
+subsection Poisson
+  set FE degree = 2
+  set Output directory = @TEST_OUTPUT_DIR@/poisson-adapter-simplex
+  set Dirichlet boundary ids = 0
+  subsection Domain
+    set Triangulation type = fullydistributed
+    set Initial refinement = 0
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+  end
+  subsection Right hand side
+    set Function expression = -6
+    set Variable names = x,y,z,t
+  end
+  subsection Dirichlet boundary conditions
+    set Function expression = 1+x*x+y*y+z*z
+    set Variable names = x,y,z,t
+  end
+  subsection Solver
+    subsection Control
+      set Max steps = 1000
+      set Tolerance = 1.e-13
+      set Reduction = 1.e-13
+    end
+  end
+end

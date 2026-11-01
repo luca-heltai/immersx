@@ -58,15 +58,30 @@ namespace
         problem.set_solution(adapter.field(state, fields.fields().solution));
 
         problem.output_results(cycle);
-        parameters.convergence_table.error_from_exact(problem.dof_handler(),
-                                                      problem.solution(),
-                                                      parameters.bc);
+        if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
+          {
+            typename PoissonSolver<dim, spacedim>::VectorType relevant_solution;
+            relevant_solution.reinit(problem.locally_owned_dofs(),
+                                     problem.locally_relevant_dofs(),
+                                     MPI_COMM_WORLD);
+            relevant_solution = problem.solution();
+            parameters.convergence_table.error_from_exact(
+              problem.dof_handler(),
+              relevant_solution,
+              parameters.exact_solution);
+          }
+        else if (problem.dof_handler().get_fe().reference_cell().is_simplex() &&
+                 dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout
+            << "   Error table skipped: not available on simplex meshes."
+            << std::endl;
 
         if (cycle + 1 < parameters.n_refinement_cycles)
           problem.refine_grid();
       }
 
-    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0 &&
+        problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
       parameters.convergence_table.output_table(std::cout);
   }
 } // namespace

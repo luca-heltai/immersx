@@ -1,0 +1,19 @@
+# Use the same manufactured target with exact outer traction.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
+
+subsection Elastodynamics
+  set Dirichlet boundary ids =
+  set Neumann boundary ids = 0
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-neumann
+  subsection Functions
+    subsection Neumann boundary
+      # sigma(u)*n: n_i is nonzero only on the two faces perpendicular to i.
+      set Function constants = R2=9.7418740666549138e-5, ell=0.120685
+      set Function expression = 2*t^3*if(y^2+z^2<R2,1,0)*if(abs(x)>ell-1e-10,x/ell,0); 2*t^3*R2*((z^2-y^2)*if(abs(y)>ell-1e-10,y/ell,0)-2*y*z*if(abs(z)>ell-1e-10,z/ell,0))/max(y^2+z^2,R2)^2; 2*t^3*R2*((y^2-z^2)*if(abs(z)>ell-1e-10,z/ell,0)-2*y*z*if(abs(y)>ell-1e-10,y/ell,0))/max(y^2+z^2,R2)^2
+    end
+  end
+end
+
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-neumann
+end

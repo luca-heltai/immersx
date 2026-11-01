@@ -60,8 +60,9 @@ namespace ImmersX
       : Function<spacedim>(spacedim)
       , type(_type)
     {
-      Assert(spacedim == 2 || spacedim == 3, ExcNotImplemented());
-      Assert((spacedim == 2 && type <= 2) || (spacedim == 3 && type <= 5),
+      Assert(spacedim >= 1 && spacedim <= 3, ExcNotImplemented());
+      Assert((spacedim == 1 && type == 0) || (spacedim == 2 && type <= 2) ||
+               (spacedim == 3 && type <= 5),
              ExcNotImplemented());
     }
 
@@ -70,7 +71,9 @@ namespace ImmersX
     RigidBodyMotion<spacedim>::value(const Point<spacedim> &p,
                                      const unsigned int     component) const
     {
-      if constexpr (spacedim == 2)
+      if constexpr (spacedim == 1)
+        return 1.;
+      else if constexpr (spacedim == 2)
         {
           const std::array<double, 3> modes{
             {static_cast<double>(component == 0),
@@ -170,7 +173,7 @@ namespace ImmersX
           dst[2 * i] += factor.real() * real - factor.imag() * imag;
           dst[2 * i + 1] += factor.imag() * real + factor.real() * imag;
         }
-      dst.compress(VectorOperation::insert);
+      dst.compress(VectorOperation::add);
     }
 
     template <typename Operator, typename Preconditioner>
@@ -442,14 +445,6 @@ namespace ImmersX
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , triangulation_storage(std::in_place_type<DistributedTriangulation>,
-                            mpi_communicator,
-                            typename Triangulation<spacedim>::MeshSmoothing(
-                              Triangulation<spacedim>::smoothing_on_refinement |
-                              Triangulation<spacedim>::smoothing_on_coarsening),
-                            parallel::distributed::Triangulation<
-                              spacedim>::construct_multigrid_hierarchy)
-    , tria(&std::get<DistributedTriangulation>(triangulation_storage))
     , dh()
     , displacement(0)
   {}
@@ -459,185 +454,34 @@ namespace ImmersX
   ElasticityFreqProblem<dim, spacedim>::uses_fully_distributed_triangulation()
     const
   {
-    return std::holds_alternative<FullyDistributedTriangulation>(
-      triangulation_storage);
+    return domain->uses_fully_distributed_triangulation();
   }
 
   template <int dim, int spacedim>
   void
   ElasticityFreqProblem<dim, spacedim>::make_grid()
   {
-    const bool need_fully_distributed =
-      (par.triangulation_type == "fullydistributed");
-
-    if (need_fully_distributed && !uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<FullyDistributedTriangulation>(
-        mpi_communicator);
-    else if (!need_fully_distributed && uses_fully_distributed_triangulation())
-      triangulation_storage.template emplace<DistributedTriangulation>(
-        mpi_communicator,
-        typename Triangulation<spacedim>::MeshSmoothing(
-          Triangulation<spacedim>::smoothing_on_refinement |
-          Triangulation<spacedim>::smoothing_on_coarsening),
-        parallel::distributed::Triangulation<
-          spacedim>::construct_multigrid_hierarchy);
-
-    tria = &std::visit(
-      [](auto &selected_tria) -> parallel::TriangulationBase<spacedim> & {
-        return selected_tria;
-      },
-      triangulation_storage);
-
-    dh.reinit(*tria);
-
-    if (!uses_fully_distributed_triangulation())
+    AssertThrow(domain == nullptr,
+                ExcMessage("The harmonic mesh is already initialized."));
+    domain = std::make_unique<Domain<dim, spacedim>>(par.domain_parameters,
+                                                     mpi_communicator);
+    tria   = &domain->triangulation();
+    if (par.domain_type == "generate" || par.domain_type == "file")
+      domain->make_grid();
+    else if (par.domain_type == "cylinder" || par.domain_type == "cheese")
       {
-        auto &distributed_tria =
-          std::get<DistributedTriangulation>(triangulation_storage);
-
-        if (par.domain_type == "generate")
-          {
-            try
-              {
-                GridGenerator::generate_from_name_and_arguments(
-                  distributed_tria, par.name_of_grid, par.arguments_for_grid);
-              }
-            catch (...)
-              {
-                pcout << "Generating from name and argument failed."
-                      << std::endl
-                      << "Trying to read from file name." << std::endl;
-                read_grid_and_cad_files(par.name_of_grid,
-                                        par.arguments_for_grid,
-                                        distributed_tria);
-              }
-          }
-        else if (par.domain_type == "cylinder")
-          {
-            Assert(spacedim == 2, ExcInternalError());
-            GridGenerator::hyper_ball(distributed_tria, Point<spacedim>(), 1.);
-            std::cout << " ATTENTION: GRID: cirle of radius 1." << std::endl;
-          }
+        AssertThrow(dim == 2 && spacedim == 2,
+                    ExcMessage(
+                      "Cylinder and cheese grids require dim=spacedim=2."));
+        Triangulation<dim, spacedim> coarse;
+        if (par.domain_type == "cylinder")
+          GridGenerator::hyper_ball(coarse, Point<spacedim>(), 1.);
         else if (par.domain_type == "cheese")
-          {
-            Assert(spacedim == 2, ExcInternalError());
-            GridGenerator::cheese(distributed_tria,
-                                  std::vector<unsigned int>(2, 2));
-          }
-        else if (par.domain_type == "file")
-          {
-            GridIn<spacedim> gi;
-            gi.attach_triangulation(distributed_tria);
-#ifdef DEAL_II_WITH_GMSH_API
-            std::string infile(par.name_of_grid);
-#else
-            std::ifstream infile(par.name_of_grid);
-            Assert(infile.good(), ExcIO());
-#endif
-            try
-              {
-                gi.read_msh(infile);
-              }
-            catch (...)
-              {
-                // Try standard readers if msh reader fails, in case the file is
-                // not actually a file that msh understands
-                gi.read(par.name_of_grid);
-              }
-          }
-
-        if (par.grid_scale != 1.0)
-          GridTools::scale(par.grid_scale, distributed_tria);
-
-        distributed_tria.refine_global(par.initial_refinement);
-        return;
+          GridGenerator::cheese(coarse, std::vector<unsigned int>(dim, 2));
+        domain->prepare_grid(coarse);
+        domain->finalize_grid();
       }
-
-    Triangulation<spacedim> serial_tria(
-      typename Triangulation<spacedim>::MeshSmoothing(
-        Triangulation<spacedim>::smoothing_on_refinement |
-        Triangulation<spacedim>::smoothing_on_coarsening));
-
-    if (par.domain_type == "generate")
-      {
-        try
-          {
-            GridGenerator::generate_from_name_and_arguments(
-              serial_tria, par.name_of_grid, par.arguments_for_grid);
-          }
-        catch (...)
-          {
-            pcout << "Generating from name and argument failed." << std::endl
-                  << "Trying to read from file name." << std::endl;
-            read_grid_and_cad_files(par.name_of_grid,
-                                    par.arguments_for_grid,
-                                    serial_tria);
-          }
-      }
-    else if (par.domain_type == "cylinder")
-      {
-        Assert(spacedim == 2, ExcInternalError());
-        GridGenerator::hyper_ball(serial_tria, Point<spacedim>(), 1.);
-        std::cout << " ATTENTION: GRID: cirle of radius 1." << std::endl;
-      }
-    else if (par.domain_type == "cheese")
-      {
-        Assert(spacedim == 2, ExcInternalError());
-        GridGenerator::cheese(serial_tria, std::vector<unsigned int>(2, 2));
-      }
-    else if (par.domain_type == "file")
-      {
-        GridIn<spacedim> gi;
-        gi.attach_triangulation(serial_tria);
-#ifdef DEAL_II_WITH_GMSH_API
-        std::string infile(par.name_of_grid);
-#else
-        std::ifstream infile(par.name_of_grid);
-        Assert(infile.good(), ExcIO());
-#endif
-        try
-          {
-            gi.read_msh(infile);
-            // gi.read_vtk(infile);
-          }
-        catch (...)
-          {
-            // Try standard readers if msh reader fails, in case the file is not
-            // actually a file that msh understands
-            gi.read(par.name_of_grid);
-          }
-      }
-
-    if (par.grid_scale != 1.0)
-      GridTools::scale(par.grid_scale, serial_tria);
-
-    serial_tria.refine_global(par.initial_refinement);
-    auto &fully_distributed_tria =
-      std::get<FullyDistributedTriangulation>(triangulation_storage);
-    for (const auto manifold_id : serial_tria.get_manifold_ids())
-      if (manifold_id != numbers::flat_manifold_id)
-        fully_distributed_tria.set_manifold(
-          manifold_id, serial_tria.get_manifold(manifold_id));
-
-    fully_distributed_tria.copy_triangulation(serial_tria);
-
-    pcout << "Number of active cells: " << tria->n_active_cells() << std::endl
-          << "   Boundary ids: "
-          << Patterns::Tools::to_string(tria->get_boundary_ids()) << std::endl;
-
-    std::set<types::material_id> material_ids;
-    for (const auto &cell : tria->active_cell_iterators())
-      material_ids.insert(cell->material_id());
-    pcout << "   Material ids: " << Patterns::Tools::to_string(material_ids)
-          << std::endl;
-
-    pcout << "   Grid volume: " << GridTools::volume(*tria) << std::endl
-          << "   Dirichlet boundary ids: "
-          << Patterns::Tools::to_string(par.dirichlet_ids) << std::endl
-          << "   Weak Dirichlet boundary ids: "
-          << Patterns::Tools::to_string(par.weak_dirichlet_ids) << std::endl
-          << "   Neumann boundary ids: "
-          << Patterns::Tools::to_string(par.neumann_ids) << std::endl;
+    dh.reinit(*tria);
   }
 
   template <int dim, int spacedim>
@@ -645,11 +489,25 @@ namespace ImmersX
   ElasticityFreqProblem<dim, spacedim>::setup_fe()
   {
     TimerOutput::Scope t(computing_timer, "Initial setup");
-    fe = std::make_unique<FESystem<spacedim>>(FE_Q<spacedim>(par.fe_degree),
-                                              spacedim);
-    quadrature = std::make_unique<QGauss<spacedim>>(par.fe_degree + 1);
-    face_quadrature_formula =
-      std::make_unique<QGauss<spacedim - 1>>(par.fe_degree + 1);
+    AssertThrow(
+      tria != nullptr && tria->n_global_active_cells() > 0,
+      ExcMessage(
+        "Create the harmonic mesh before selecting its finite element."));
+    const auto reference_cell = detail::uniform_reference_cell(*tria);
+    AssertThrow(reference_cell.has_value(), ExcNotInitialized());
+    if (reference_cell->is_hyper_cube())
+      fe = std::make_unique<FESystem<dim, spacedim>>(
+        FE_Q<dim, spacedim>(par.fe_degree), spacedim);
+    else if constexpr (dim > 1)
+      fe = std::make_unique<FESystem<dim, spacedim>>(
+        FE_SimplexP<dim, spacedim>(par.fe_degree), spacedim);
+    AssertThrow(fe != nullptr, ExcNotInitialized());
+    quadrature = std::make_unique<Quadrature<dim>>(
+      compatibility::gauss_quadrature<dim>(fe->reference_cell(),
+                                           par.fe_degree + 1));
+    face_quadrature_formula = std::make_unique<Quadrature<dim - 1>>(
+      compatibility::gauss_quadrature<dim - 1>(
+        fe->reference_cell().face_reference_cell(0), par.fe_degree + 1));
   }
 
   template <int dim, int spacedim>
@@ -704,16 +562,18 @@ namespace ImmersX
         u_dot_n[id]         = 0.0;
       }
     double internal_area = 0.;
-    //   // FEValues<spacedim>               fe_values(*fe,
+    //   // FEValues<dim, spacedim>               fe_values(*fe,
     //   //                              *quadrature,
     //   //                              update_values | update_gradients |
     //   //                                update_quadrature_points | update_JxW_values);
-    FEFaceValues<spacedim>           fe_face_values(*fe,
-                                          *face_quadrature_formula,
-                                          update_values | update_gradients |
-                                            update_JxW_values |
-                                            update_quadrature_points |
-                                            update_normal_vectors);
+    FEFaceValues<dim, spacedim>      fe_face_values(mapping(),
+                                               *fe,
+                                               *face_quadrature_formula,
+                                               update_values |
+                                                 update_gradients |
+                                                 update_JxW_values |
+                                                 update_quadrature_points |
+                                                 update_normal_vectors);
     const FEValuesExtractors::Vector displacement(0);
 
     //   // const unsigned int                   dofs_per_cell =
@@ -774,8 +634,7 @@ namespace ImmersX
             //           //       }
             //           //   }
 
-            for (unsigned int f = 0; f < GeometryInfo<spacedim>::faces_per_cell;
-                 ++f)
+            for (const auto f : cell->face_indices())
               // for (const auto &f : cell->face_iterators())
               // for (const auto f : GeometryInfo<spacedim>::face_indices())
               if (cell->face(f)->at_boundary())
@@ -890,42 +749,47 @@ namespace ImmersX
   void
   ElasticityFreqProblem<dim, spacedim>::refine_and_transfer()
   {
-    if (!uses_fully_distributed_triangulation())
-      {
-        TimerOutput::Scope t(computing_timer, "Refine");
-        Vector<float>      error_per_cell(tria->n_active_cells());
-        KellyErrorEstimator<spacedim>::estimate(
-          dh,
-          QGauss<spacedim - 1>(par.fe_degree + 1),
-          {},
-          locally_relevant_solution.block(0),
-          error_per_cell);
-        if (par.refinement_strategy == "fixed_fraction")
-          {
-            parallel::distributed::GridRefinement::
-              refine_and_coarsen_fixed_fraction(
-                std::get<DistributedTriangulation>(triangulation_storage),
-                error_per_cell,
-                par.refinement_fraction,
-                par.coarsening_fraction);
-          }
-        else if (par.refinement_strategy == "fixed_number")
-          {
-            parallel::distributed::GridRefinement::
-              refine_and_coarsen_fixed_number(
-                std::get<DistributedTriangulation>(triangulation_storage),
-                error_per_cell,
-                par.refinement_fraction,
-                par.coarsening_fraction,
-                par.max_cells);
-          }
-        else if (par.refinement_strategy == "global")
-          for (const auto &cell : tria->active_cell_iterators())
-            cell->set_refine_flag();
+    if constexpr (dim > 1)
+      if (!uses_fully_distributed_triangulation())
+        {
+          TimerOutput::Scope t(computing_timer, "Refine");
+          Vector<float>      error_per_cell(tria->n_active_cells());
+          KellyErrorEstimator<dim, spacedim>::estimate(
+            dh,
+            QGauss<dim - 1>(par.fe_degree + 1),
+            {},
+            locally_relevant_solution.block(0),
+            error_per_cell);
+          if (par.refinement_strategy == "fixed_fraction")
+            {
+              parallel::distributed::GridRefinement::
+                refine_and_coarsen_fixed_fraction(
+                  dynamic_cast<
+                    typename Domain<dim, spacedim>::DistributedTriangulation &>(
+                    *tria),
+                  error_per_cell,
+                  par.refinement_fraction,
+                  par.coarsening_fraction);
+            }
+          else if (par.refinement_strategy == "fixed_number")
+            {
+              parallel::distributed::GridRefinement::
+                refine_and_coarsen_fixed_number(
+                  dynamic_cast<
+                    typename Domain<dim, spacedim>::DistributedTriangulation &>(
+                    *tria),
+                  error_per_cell,
+                  par.refinement_fraction,
+                  par.coarsening_fraction,
+                  par.max_cells);
+            }
+          else if (par.refinement_strategy == "global")
+            for (const auto &cell : tria->active_cell_iterators())
+              cell->set_refine_flag();
 
-        execute_actual_refine_and_transfer();
-        return;
-      }
+          execute_actual_refine_and_transfer();
+          return;
+        }
 
     AssertThrow(
       false,
@@ -940,22 +804,25 @@ namespace ImmersX
   void
   ElasticityFreqProblem<dim, spacedim>::execute_actual_refine_and_transfer()
   {
-    if (!uses_fully_distributed_triangulation())
-      {
-        SolutionTransfer<spacedim, LA::MPI::Vector> transfer(dh);
-        std::get<DistributedTriangulation>(triangulation_storage)
-          .prepare_coarsening_and_refinement();
-        transfer.prepare_for_coarsening_and_refinement(
-          locally_relevant_solution.block(0));
-        std::get<DistributedTriangulation>(triangulation_storage)
-          .execute_coarsening_and_refinement();
-        setup_dofs();
-        transfer.interpolate(solution.block(0));
-        constraints.distribute(solution.block(0));
-        locally_relevant_solution.block(0) = solution.block(0);
-        locally_relevant_solution.block(1) = solution.block(1);
-        return;
-      }
+    if constexpr (dim > 1)
+      if (!uses_fully_distributed_triangulation())
+        {
+          SolutionTransfer<dim, LA::MPI::Vector, spacedim> transfer(dh);
+          dynamic_cast<
+            typename Domain<dim, spacedim>::DistributedTriangulation &>(*tria)
+            .prepare_coarsening_and_refinement();
+          transfer.prepare_for_coarsening_and_refinement(
+            locally_relevant_solution.block(0));
+          dynamic_cast<
+            typename Domain<dim, spacedim>::DistributedTriangulation &>(*tria)
+            .execute_coarsening_and_refinement();
+          setup_dofs();
+          transfer.interpolate(solution.block(0));
+          constraints.distribute(solution.block(0));
+          locally_relevant_solution.block(0) = solution.block(0);
+          locally_relevant_solution.block(1) = solution.block(1);
+          return;
+        }
 
     AssertThrow(
       false,
@@ -980,7 +847,30 @@ namespace ImmersX
             par.get_dirichlet_bc(id),
             phase_factor(
               par.dirichlet_phase_by_id, id, par.dirichlet_phase, imaginary));
-          VectorTools::interpolate_boundary_values(dh, id, amplitude, c);
+          if constexpr (dim == 1 && !DEAL_II_VERSION_GTE(9, 8, 0))
+            {
+              // deal.II 9.7 also visits artificial 1D cells, whose endpoint
+              // ids and coordinates do not describe physical boundary data.
+              for (const auto &cell : dh.active_cell_iterators())
+                if (!cell->is_artificial())
+                  for (const auto face : cell->face_indices())
+                    if (cell->at_boundary(face) &&
+                        cell->face(face)->boundary_id() == id)
+                      for (unsigned int component = 0; component < spacedim;
+                           ++component)
+                        {
+                          const auto dof =
+                            cell->vertex_dof_index(face, component);
+                          if (c.can_store_line(dof) && !c.is_constrained(dof))
+                            c.add_constraint(dof,
+                                             {},
+                                             amplitude.value(cell->vertex(face),
+                                                             component));
+                        }
+            }
+          else
+            VectorTools::interpolate_boundary_values(
+              mapping(), dh, id, amplitude, c);
         }
       // two maps for owning ampltiude and pointing to object
       std::map<types::boundary_id, std::unique_ptr<ScaledAmplitude<spacedim>>>
@@ -994,9 +884,18 @@ namespace ImmersX
               par.neumann_phase_by_id, id, par.neumann_phase, imaginary));
           functions[id] = storage[id].get();
         }
-      if (!par.normal_flux_ids.empty())
-        VectorTools::compute_nonzero_normal_flux_constraints(
-          dh, 0, par.normal_flux_ids, functions, c);
+      if constexpr (dim == spacedim && dim > 1)
+        {
+          if (!par.normal_flux_ids.empty())
+            VectorTools::compute_nonzero_normal_flux_constraints(
+              dh, 0, par.normal_flux_ids, functions, c, mapping());
+        }
+      else if constexpr (dim != spacedim || dim == 1)
+        AssertThrow(par.normal_flux_ids.empty(),
+                    ExcMessage(
+                      "Normal-flux constraints require a full-dimensional "
+                      "2D or 3D domain. Use vector Dirichlet data on "
+                      "embedded domains."));
       c.close();
     };
     make(false, constraints);
@@ -1012,6 +911,8 @@ namespace ImmersX
     owned_dofs    = {dh.locally_owned_dofs(), IndexSet(0)};
     relevant_dofs = {DoFTools::extract_locally_relevant_dofs(dh), IndexSet(0)};
     setup_constraints();
+    real_displacement_storage.reinit(owned_dofs[0], mpi_communicator);
+    imaginary_displacement_storage.reinit(owned_dofs[0], mpi_communicator);
     solution.reinit(owned_dofs, mpi_communicator);
     locally_relevant_solution.reinit(owned_dofs,
                                      relevant_dofs,
@@ -1032,18 +933,20 @@ namespace ImmersX
     const bool positive_surrogate = matrix.m() == dh.n_dofs();
     par.set_rhs_times(0.0);
     par.set_boundary_condition_times(0.0);
-    FEValues<spacedim>     fe_values(*fe,
-                                 *quadrature,
-                                 update_values | update_gradients |
-                                   update_quadrature_points |
-                                   update_JxW_values);
-    FEFaceValues<spacedim> fe_face_values(*fe,
-                                          *face_quadrature_formula,
-                                          update_values |
-                                            update_quadrature_points |
-                                            update_JxW_values |
-                                            update_gradients |
-                                            update_normal_vectors);
+    FEValues<dim, spacedim>     fe_values(mapping(),
+                                      *fe,
+                                      *quadrature,
+                                      update_values | update_gradients |
+                                        update_quadrature_points |
+                                        update_JxW_values);
+    FEFaceValues<dim, spacedim> fe_face_values(mapping(),
+                                               *fe,
+                                               *face_quadrature_formula,
+                                               update_values |
+                                                 update_quadrature_points |
+                                                 update_JxW_values |
+                                                 update_gradients |
+                                                 update_normal_vectors);
 
     const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature->size();
@@ -1325,7 +1228,7 @@ namespace ImmersX
     gi = imag;
     ga = amplitude;
     gp = phase;
-    DataOut<spacedim> data;
+    DataOut<dim, spacedim> data;
     data.attach_dof_handler(dh);
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
       interpretation(spacedim,
@@ -1333,12 +1236,12 @@ namespace ImmersX
     data.add_data_vector(gr,
                          std::vector<std::string>(spacedim,
                                                   "displacement_real"),
-                         DataOut<spacedim>::type_dof_data,
+                         DataOut<dim, spacedim>::type_dof_data,
                          interpretation);
     data.add_data_vector(gi,
                          std::vector<std::string>(spacedim,
                                                   "displacement_imag"),
-                         DataOut<spacedim>::type_dof_data,
+                         DataOut<dim, spacedim>::type_dof_data,
                          interpretation);
     std::vector<std::string>         amplitudes, phases;
     const std::array<std::string, 3> axes{{"x", "y", "z"}};
@@ -1347,8 +1250,8 @@ namespace ImmersX
         amplitudes.push_back("amplitude_" + axes[d]);
         phases.push_back("phase_degrees_" + axes[d]);
       }
-    data.add_data_vector(ga, amplitudes, DataOut<spacedim>::type_dof_data);
-    data.add_data_vector(gp, phases, DataOut<spacedim>::type_dof_data);
+    data.add_data_vector(ga, amplitudes, DataOut<dim, spacedim>::type_dof_data);
+    data.add_data_vector(gp, phases, DataOut<dim, spacedim>::type_dof_data);
     Vector<float> subdomain(tria->n_active_cells()),
       materials(tria->n_active_cells());
     unsigned int index = 0;
@@ -1360,11 +1263,49 @@ namespace ImmersX
       }
     data.add_data_vector(subdomain, "subdomain");
     data.add_data_vector(materials, "material_id");
-    data.build_patches(par.fe_degree);
+    data.build_patches(mapping(), par.fe_degree);
     const std::string stem =
       par.output_name + "_cycle_" + std::to_string(cycle);
     data.write_vtu_with_pvtu_record(
-      par.output_directory, stem, frequency_index, mpi_communicator, 3);
+      par.output_directory + "/", stem, frequency_index, mpi_communicator, 3);
+  }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityFreqProblem<dim, spacedim>::prepare_frequency(
+    const double frequency_hz)
+  {
+    AssertThrow(dh.n_dofs() > 0,
+                ExcMessage("Prepare the harmonic FE space first."));
+    AssertThrow(std::isfinite(frequency_hz) && frequency_hz >= 0.,
+                ExcMessage("The frequency must be finite and nonnegative."));
+    current_frequency = frequency_hz;
+    par.set_rhs_times(0.);
+    setup_constraints();
+    frequency_prepared = true;
+  }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityFreqProblem<dim, spacedim>::accept_frequency_solution(
+    const VectorType &real,
+    const VectorType &imaginary)
+  {
+    AssertThrow(frequency_prepared, ExcNotInitialized());
+    AssertDimension(real.size(), dh.n_dofs());
+    AssertDimension(imaginary.size(), dh.n_dofs());
+    real_displacement_storage      = real;
+    imaginary_displacement_storage = imaginary;
+    constraints.distribute(real_displacement_storage);
+    imaginary_constraints.distribute(imaginary_displacement_storage);
+  }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityFreqProblem<dim, spacedim>::output_results(const unsigned int index)
+  {
+    frequency_index = index;
+    output_frequency(real_displacement_storage, imaginary_displacement_storage);
   }
 
   template <int dim, int spacedim>
@@ -1436,6 +1377,7 @@ namespace ImmersX
              ++frequency_index)
           {
             current_frequency  = par.frequencies[frequency_index];
+            frequency_prepared = true;
             const double omega = 2 * std::acos(-1.0) * current_frequency;
             LA::MPI::SparseMatrix H;
             H.reinit(own, own, dsp, mpi_communicator);
@@ -1508,14 +1450,15 @@ namespace ImmersX
             P0.compress(VectorOperation::insert);
 
             const unsigned int n_modes = spacedim * (spacedim + 1) / 2;
-            Epetra_MultiVector near(P0.trilinos_matrix().DomainMap(), n_modes);
-            near.PutScalar(0.0);
             std::vector<std::unique_ptr<LA::MPI::Vector>> modes;
             for (unsigned int m = 0; m < n_modes; ++m)
               {
                 auto v = std::make_unique<LA::MPI::Vector>();
                 v->reinit(owned_dofs[0], mpi_communicator);
-                VectorTools::interpolate(dh, RigidBodyMotion<spacedim>(m), *v);
+                VectorTools::interpolate(mapping(),
+                                         dh,
+                                         RigidBodyMotion<spacedim>(m),
+                                         *v);
                 for (const auto &line : scalar_graph.get_lines())
                   if (owned_dofs[0].is_element(line.index))
                     (*v)[line.index] = 0.0;
@@ -1524,22 +1467,30 @@ namespace ImmersX
                   for (const auto &previous : modes)
                     v->add(-((*v) * (*previous)), *previous);
                 const double norm = v->l2_norm();
-                AssertThrow(norm > 0.0 && std::isfinite(norm),
+                AssertThrow(std::isfinite(norm),
                             ExcMessage(
-                              "Degenerate elasticity near-nullspace mode."));
+                              "Non-finite elasticity near-nullspace mode."));
+                // Restricting ambient rotations to a curve or imposing
+                // essential data can remove or identify rigid-body modes.
+                if (norm <= 100. * std::numeric_limits<double>::epsilon())
+                  continue;
                 (*v) *= 1.0 / norm;
-                for (const auto i : owned_dofs[0])
-                  {
-                    const auto local = near.Map().LID(static_cast<int>(i));
-                    AssertThrow(local >= 0, ExcInternalError());
-                    near[m][local] = (*v)[i];
-                  }
                 modes.emplace_back(std::move(v));
               }
+            Epetra_MultiVector near(P0.trilinos_matrix().DomainMap(),
+                                    modes.size());
+            near.PutScalar(0.0);
+            for (unsigned int m = 0; m < modes.size(); ++m)
+              for (const auto i : owned_dofs[0])
+                {
+                  const auto local = near.Map().LID(static_cast<int>(i));
+                  AssertThrow(local >= 0, ExcInternalError());
+                  near[m][local] = (*modes[m])[i];
+                }
             Teuchos::ParameterList ml;
             ml.set("PDE equations", spacedim);
             ml.set("null space: type", "pre-computed");
-            ml.set("null space: dimension", static_cast<int>(n_modes));
+            ml.set("null space: dimension", static_cast<int>(modes.size()));
             ml.set("null space: vectors", near.Values());
             ml.set("aggregation: type", "Uncoupled");
             ml.set("aggregation: threshold", 0.02);
@@ -1609,16 +1560,18 @@ namespace ImmersX
               }
             ur.compress(VectorOperation::insert);
             ui.compress(VectorOperation::insert);
+            real_displacement_storage      = ur;
+            imaginary_displacement_storage = ui;
             output_frequency(ur, ui);
             solution.block(0)         = ur;
             locally_relevant_solution = solution;
             stress_part               = "real";
-            if (par.domain_type == "generate")
+            if (dim == spacedim && dim > 1 && par.domain_type == "generate")
               compute_internal_and_boundary_stress(frequency_index == 0);
             solution.block(0)         = ui;
             locally_relevant_solution = solution;
             stress_part               = "imag";
-            if (par.domain_type == "generate")
+            if (dim == spacedim && dim > 1 && par.domain_type == "generate")
               compute_internal_and_boundary_stress(frequency_index == 0);
             // Refinement uses component amplitudes at the last solved
             // frequency.
@@ -1635,6 +1588,9 @@ namespace ImmersX
           refine_and_transfer();
       }
   }
+  template class ElasticityFreqProblem<1>;
+  template class ElasticityFreqProblem<1, 2>;
+  template class ElasticityFreqProblem<1, 3>;
   template class ElasticityFreqProblem<2>;
   template class ElasticityFreqProblem<2, 3>;
   template class ElasticityFreqProblem<3>;

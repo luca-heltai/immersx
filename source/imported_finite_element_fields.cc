@@ -155,7 +155,7 @@ namespace ImmersX
       triangulation, serial_dof_handler.get_fe().clone());
     storage->space_view = std::make_unique<
       typename ImportedFiniteElementFields<dim, spacedim>::SpaceView>(
-      storage->space->view(dealii::StaticMappingQ1<dim, spacedim>::mapping));
+      storage->space->view());
     coefficients->reinit(storage->space->locally_owned_dofs(), communicator);
     AssertDimension(serial_coefficients.size(), serial_dof_handler.n_dofs());
     AssertDimension(storage->space->dof_handler().n_dofs(),

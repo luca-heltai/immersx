@@ -26,6 +26,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
 # directive: a failure here is a public-header dependency or namespace error,
 # not a runtime test failure.
 set(_public_headers
+    immersx/compatibility/reference_cell.h
     immersx/core/boundary_conditions.h
     immersx/core/constraint.h
     immersx/core/contributor.h
@@ -52,6 +53,7 @@ set(_public_headers
     immersx/compatibility/dealii_9_9/utilities.h
     immersx/core/sundials_kinsol_adapter.h
     immersx/core/time_parameters.h
+    immersx/core/ida_tolerance_ramp.h
     immersx/core/linear_adapter.h
     immersx/core/matrix_operator.h
     immersx/core/observable.h
@@ -62,13 +64,17 @@ set(_public_headers
     immersx/core/time_residual.h
     immersx/coupling/tensor_product_lift.h
     immersx/physics/elastic_static.h
+    immersx/physics/coupled_elasticity.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
     immersx/io/output_handler.h
+    immersx/physics/elasticity_freq.h
+    immersx/physics/elasticity_freq_contributor.h
     immersx/physics/elastodynamics.h
     immersx/physics/elastodynamics_semidiscrete.h
+    immersx/physics/fiber_reinforced_elasticity_freq.h
     immersx/physics/fiber_reinforced_elastodynamics.h
     immersx/physics/navier_stokes.h
     immersx/physics/navier_stokes_semidiscrete.h
@@ -169,6 +175,16 @@ FOREACH(_build_type ${_d2_build_types})
     IF(ENABLE_COUPLED_PROBLEMS)
       TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
     ENDIF()
+    if(OpenMP_CXX_FOUND AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
+      set(_optional_1d_clients "immersx_optional_1d_clients${_p}")
+      add_library(${_optional_1d_clients} OBJECT
+        "${CMAKE_SOURCE_DIR}/apps/app_coupled_elasticity.cc"
+        "${CMAKE_SOURCE_DIR}/apps/app_pseudocoupling1D.cc")
+      target_compile_definitions(${_optional_1d_clients} PRIVATE ENABLE_COUPLED_PROBLEMS)
+      target_link_libraries(${_optional_1d_clients} ${TEST_LIBRARIES_${_BUILD_TYPE}})
+      DEAL_II_SETUP_TARGET(${_optional_1d_clients} ${_BUILD_TYPE})
+      add_dependencies(${_exe} ${_optional_1d_clients})
+    endif()
     DEAL_II_SETUP_TARGET(${_exe} ${_BUILD_TYPE})
     target_include_directories(${_exe} PRIVATE ${GTEST_INCLUDE_DIRS})
     LIST(APPEND IMMERSX_TEST_TARGETS ${_exe})
@@ -363,44 +379,88 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                                         TIMEOUT 300 PROCESSORS 2
                                         RESOURCE_LOCK ImmersX.TestOutput
                                         ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*")
+        set(_metric_flow_x_rcr_mpi4_test
+            "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.RCR.MPI4")
+        add_test(NAME ${_metric_flow_x_rcr_mpi4_test}
+                 COMMAND ${_immersx_mpiexec} -np 4
+                         $<TARGET_FILE:${_metric_flow_x_test_target}>)
+        set_tests_properties(${_metric_flow_x_rcr_mpi4_test}
+                             PROPERTIES LABELS "integration;quick;mpi"
+                                        TIMEOUT 300 PROCESSORS 4
+                                        RESOURCE_LOCK ImmersX.TestOutput
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal")
       endif()
-      foreach(_case Coupled MMS)
+      foreach(_case Coupled MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
         set(_coupled_modes Serial MPI)
         if(DEAL_II_WITH_UMFPACK)
           list(APPEND _coupled_modes SerialUMFPACK)
         endif()
         if(DEAL_II_WITH_MUMPS)
           list(APPEND _coupled_modes SerialMUMPS MPIMUMPS)
+          if(_case MATCHES "^RCR")
+            list(APPEND _coupled_modes MPI4MUMPS)
+          endif()
         endif()
         foreach(_mode IN LISTS _coupled_modes)
-          if((_mode STREQUAL "MPI" OR _mode STREQUAL "MPIMUMPS")
-             AND NOT _immersx_mpiexec)
+          if(_mode MATCHES "^MPI" AND NOT _immersx_mpiexec)
             continue()
           endif()
           set(_coupled_name
               "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowX${_case}.${_mode}")
           set(_saved_output_dir "${TEST_OUTPUT_DIR}")
           set(TEST_OUTPUT_DIR "${_saved_output_dir}/${_build_type}/metric-${_case}-${_mode}")
+          if(_case STREQUAL "Coupled")
+            set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-elastodynamics")
+            set(_coupled_output_times "0;0.01;0.02")
+          elseif(_case STREQUAL "MMS")
+            set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-mms-cube-resolved")
+            set(_coupled_output_times "0;0.05;0.1")
+          elseif(_case STREQUAL "MMSNeumann")
+            set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-mms-cube-neumann")
+            set(_coupled_output_times "0;0.05;0.1")
+          elseif(_case MATCHES "^RCR")
+            set(_coupled_output_directory "${TEST_OUTPUT_DIR}/metric-flow-x-rcr")
+            set(_coupled_output_times "0;0.001;0.002")
+          endif()
           set(_coupled_input "${CMAKE_CURRENT_BINARY_DIR}/parameters/metric_${_case}_${_build_type}_${_mode}.prm")
           if(_case STREQUAL "MMS")
             set(_coupled_template "${CMAKE_SOURCE_DIR}/tutorials/metric_flow_x_elastodynamics/mms_cube.prm.in")
+          elseif(_case STREQUAL "MMSNeumann")
+            set(_coupled_template "${CMAKE_SOURCE_DIR}/tutorials/metric_flow_x_elastodynamics/mms_cube_neumann.prm.in")
           elseif(_case STREQUAL "Coupled")
             set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_elastodynamics.prm.in")
+          elseif(_case STREQUAL "RCRSimplexDefault" OR _case STREQUAL "RCRSimplexImmersed")
+            set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_rcr_simplex_coupled.prm.in")
+          elseif(_case MATCHES "^RCR")
+            set(_coupled_template "${CMAKE_CURRENT_SOURCE_DIR}/parameters/metric_flow_x_rcr_coupled.prm.in")
+            if(_case STREQUAL "RCRImmersed")
+              set(PARTITIONING_POLICY "immersed")
+            elseif(_case STREQUAL "RCRDefault")
+              set(PARTITIONING_POLICY "default")
+            endif()
           endif()
           configure_file(
             "${_coupled_template}"
             "${_coupled_input}" @ONLY)
+          if(_case STREQUAL "RCRSimplexImmersed")
+            file(APPEND "${_coupled_input}"
+              "\nsubsection MetricFlowX coupling\n  set Embedded partitioning policy = immersed\nend\n")
+          endif()
           if(_mode STREQUAL "SerialUMFPACK")
             file(APPEND "${_coupled_input}"
-              "\nsubsection MetricFlowX coupled solver\n  set Linear solver = umfpack\nend\n")
-          elseif(_mode STREQUAL "SerialMUMPS" OR _mode STREQUAL "MPIMUMPS")
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = umfpack\n    end\n  end\nend\n")
+          elseif(_mode STREQUAL "SerialMUMPS" OR _mode STREQUAL "MPIMUMPS" OR _mode STREQUAL "MPI4MUMPS")
             file(APPEND "${_coupled_input}"
-              "\nsubsection MetricFlowX coupled solver\n  set Linear solver = mumps\nend\n")
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps\n    end\n  end\nend\n")
           endif()
           set(TEST_OUTPUT_DIR "${_saved_output_dir}")
           set(_coupled_mpiexec "")
           set(_coupled_labels "application")
-          if(_mode STREQUAL "MPI" OR _mode STREQUAL "MPIMUMPS")
+          set(_coupled_ranks 2)
+          if(_mode STREQUAL "MPI4MUMPS")
+            set(_coupled_ranks 4)
+          endif()
+          if(_mode MATCHES "^MPI")
             set(_coupled_mpiexec "${_immersx_mpiexec}")
             set(_coupled_labels "application;mpi")
           endif()
@@ -408,12 +468,15 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             COMMAND "${CMAKE_COMMAND}"
               "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"
               "-DPARAMETER_FILE=${_coupled_input}"
+              "-DOUTPUT_DIRECTORY=${_coupled_output_directory}"
+              "-DEXPECTED_TIMES=${_coupled_output_times}"
               "-DMPIEXEC=${_coupled_mpiexec}"
+              "-DMPI_RANKS=${_coupled_ranks}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_coupled.cmake")
           set_tests_properties("${_coupled_name}" PROPERTIES
                                TIMEOUT 600 LABELS "${_coupled_labels}")
-          if(_mode STREQUAL "MPI" OR _mode STREQUAL "MPIMUMPS")
-            set_property(TEST "${_coupled_name}" PROPERTY PROCESSORS 2)
+          if(_mode MATCHES "^MPI")
+            set_property(TEST "${_coupled_name}" PROPERTY PROCESSORS ${_coupled_ranks})
           endif()
         endforeach()
       endforeach()

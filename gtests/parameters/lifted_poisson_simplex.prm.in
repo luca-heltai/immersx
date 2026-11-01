@@ -1,0 +1,46 @@
+subsection Lifted Poisson
+  set Modal data = 1+x*x
+  set Radius field = radius
+  set Compute errors = true
+  subsection Background
+    set Triangulation type = fullydistributed
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+  end
+  subsection Representative
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_interior_line_3d.vtk
+    subsection VTK support
+      set Read fields = true
+    end
+  end
+  subsection Background space
+    set Finite element = FE_SimplexP<3>(2)
+  end
+  subsection Lift
+    subsection Cross section
+      set Maximum inclusion degree = 0
+      set Selected indices = 0
+    end
+  end
+  subsection Co-refinement
+    set Max refinement level = 0
+    set Space pre-refinement cycles = 0
+    set Space post-refinement cycles = 0
+    set Embedded pre-refinement cycles = 0
+    set Embedded post-refinement cycles = 0
+  end
+  subsection Forcing
+    set Function expression = -2
+  end
+  subsection Boundary
+    set Function expression = 1+x*x
+  end
+  subsection Exact solution
+    set Function expression = 1+x*x
+  end
+  subsection Solver
+    set Solver = direct
+  end
+  subsection Output
+    set Output directory = @TEST_OUTPUT_DIR@/lifted-poisson-simplex
+  end
+end

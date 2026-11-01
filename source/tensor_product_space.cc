@@ -843,7 +843,7 @@ namespace ImmersX
                                                            quadrature,
                                                            properties,
                                                            properties_bindings);
-    std::vector<double> bound_values(quadrature.size() *
+    std::vector<double>                       bound_values(quadrature.size() *
                                      properties_bindings.size());
     if (!properties_bindings.empty())
       field_values.extract(cell->as_dof_handler_iterator(properties_dh),

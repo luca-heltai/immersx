@@ -23,6 +23,7 @@
 
 #include <deal.II/lac/solver_control.h>
 
+#include <immersx/core/domain.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
 
@@ -40,12 +41,17 @@ namespace ImmersX
    */
   class ElasticityFreqProblemParameters : public ParameterAcceptor
   {
+    std::vector<double> owned_frequencies{100.0};
+
   public:
     /**
      * Build and register all parameter subsections used by the elasticity
-     * model.
+     * model. A shared frequency vector is registered by its owner and must
+     * outlive this parameter object.
      */
-    ElasticityFreqProblemParameters();
+    explicit ElasticityFreqProblemParameters(
+      const std::string   &subsection         = "/Immersed Problem/",
+      std::vector<double> *shared_frequencies = nullptr);
 
     /**
      * Return material parameters associated with a material id.
@@ -72,7 +78,10 @@ namespace ImmersX
     void
     validate_parameters();
 
-    std::vector<double> frequencies{100.0};
+    /** Domain settings use the same grid subsection as the legacy solver. */
+    DomainParameters<dim, spacedim> domain_parameters;
+
+    std::vector<double> &frequencies;
     double dirichlet_phase = 0.0, neumann_phase = 0.0, rhs_phase = 0.0;
     std::map<types::boundary_id, double> dirichlet_phase_by_id,
       neumann_phase_by_id;
@@ -83,17 +92,17 @@ namespace ImmersX
      * Output, mesh, and finite-element setup parameters.
      */
     /// @{
-    std::string  output_directory   = ".";         ///< Output folder.
-    std::string  output_name        = "solution";  ///< Output stem.
-    unsigned int fe_degree          = 1;           ///< FE degree.
-    unsigned int initial_refinement = 5;           ///< Global refinements.
+    std::string   output_directory = ".";        ///< Output folder.
+    std::string   output_name      = "solution"; ///< Output stem.
+    unsigned int  fe_degree        = 1;          ///< FE degree.
+    unsigned int &initial_refinement =
+      domain_parameters.initial_refinement;        ///< Global refinements.
     std::set<types::boundary_id> dirichlet_ids{0}; ///< Strong Dirichlet ids.
     std::set<types::boundary_id> weak_dirichlet_ids{}; ///< Weak Dirichlet ids.
     std::set<types::boundary_id> neumann_ids{};        ///< Neumann ids.
     std::set<types::boundary_id> normal_flux_ids{};    ///< Flux-constraint ids.
 
-    MaterialProperties default_material_properties{
-      "default"}; ///< Fallback material.
+    MaterialProperties default_material_properties; ///< Fallback material.
     std::map<types::material_id, std::string>
       material_tags_by_material_id; ///< Id->tag map.
 
@@ -101,12 +110,15 @@ namespace ImmersX
       material_properties_by_id; ///< Runtime material table.
     std::set<types::material_id> rhs_material_ids{}; ///< Material-specific rhs.
 
-    std::string domain_type        = "generate";    ///< Grid source mode.
-    std::string triangulation_type = "distributed"; ///< Parallel tria backend.
-    std::string name_of_grid = "hyper_cube"; ///< Grid generator/input name.
-    std::string arguments_for_grid =
-      "-1: 1: false";             ///< Grid generator arguments.
-    double      grid_scale = 1.0; ///< Uniform scaling applied after grid input.
+    std::string  domain_type = "generate"; ///< Grid source mode.
+    std::string &triangulation_type =
+      domain_parameters.triangulation_type; ///< Parallel tria backend.
+    std::string &name_of_grid =
+      domain_parameters.name_of_grid; ///< Grid generator/input name.
+    std::string &arguments_for_grid =
+      domain_parameters.arguments_for_grid; ///< Grid generator arguments.
+    /// Uniform scaling applied after grid input.
+    double     &grid_scale = domain_parameters.grid_scale;
     std::string refinement_strategy =
       "fixed_fraction";                       ///< Adaptivity strategy.
     double       coarsening_fraction = 0.0;   ///< Coarsening fraction.
@@ -120,6 +132,11 @@ namespace ImmersX
      * Volumetric forcing and forcing modulation.
      */
     /// @{
+  private:
+    const std::string function_prefix;
+    const std::string material_prefix;
+
+  public:
     mutable ModulatedParsedFunction<spacedim> rhs;
     std::map<types::material_id,
              std::shared_ptr<ModulatedParsedFunction<spacedim>>>

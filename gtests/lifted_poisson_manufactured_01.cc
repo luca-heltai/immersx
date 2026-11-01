@@ -90,7 +90,7 @@ TEST(LiftedPoisson, BOTH_ManufacturedForcingAndHangingNodes)
   adapter.solve(state);
   auto residual = adapter.make_state();
   adapter.evaluate_residual(state, residual);
-  EXPECT_LT(residual.l2_norm(), 1.e-8);
+  EXPECT_LT(residual.l2_norm(), options.tolerance);
   EXPECT_LT(adapter.field(state, lambda).l2_norm(), 1.e-8);
   auto solution = adapter.field(state, u);
   view.constraints().distribute(solution);

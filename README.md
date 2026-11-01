@@ -16,6 +16,22 @@ tutorials, how-to guides, concepts, application reference, and API reference.
 
 ## Quick start
 
+Run a precompiled application with Docker, Podman, or Apptainer; no compiler or
+deal.II installation is needed on the host:
+
+```bash
+docker run --rm ghcr.io/luca-heltai/immersx:master
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD:/work" ghcr.io/luca-heltai/immersx:master poisson input.prm
+```
+
+With no arguments the image prints help and lists applications. See the
+[container guide](https://luca-heltai.github.io/immersx/getting-started/containers/)
+for Podman, Apptainer, MPI, image versions, and the standalone launcher.
+Images become available after the container workflow first publishes them.
+
+To build from source:
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDEAL_II_DIR=/path/to/deal.II
 cmake --build build -j

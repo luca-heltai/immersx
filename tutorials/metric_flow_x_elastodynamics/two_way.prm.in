@@ -1,43 +1,23 @@
-subsection Time interval
-  set Initial time = 0.0
-  set Final time = 0.02
-  set Output time interval = 0.01
-end
-
-subsection Fixed step
-  set Time step = 0.01
-  set Number of time steps = 2
-  set Policy = number_of_steps
-end
-
-subsection IDA
-  subsection Running parameters
-    set Initial step size = 0.001
-    set Minimum step size = 1e-8
-    set Maximum order of BDF = 2
-    set Maximum number of nonlinear iterations = 8
-  end
-  subsection Error control
-    set Absolute error tolerance = 1e-6
-    set Relative error tolerance = 1e-5
-  end
-end
-
 subsection Elastodynamics
   set FE degree = 1
   set Number of refinement cycles = 1
   set Dirichlet boundary ids = 0
-  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastodynamics/solid
-  set Output name = two_way
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastodynamics
+  set Output name = solid
   subsection Domain
     set Initial refinement = 1
     set Grid generator = subdivided_cylinder
     set Grid generator arguments = 4:0.05:0.120685
   end
-  subsection Material
-    set Density = 1060.0
-    set Lame mu = 1e6
-    set Lame lambda = 1e6
+  subsection Material properties
+    subsection default
+      set Density = 1060.0
+      set Lame mu = 1e6
+      set Lame lambda = 1e6
+      set Rayleigh alpha = 0
+      set Rayleigh beta = 0
+      set Viscosity eta = 0
+    end
   end
   subsection Functions
     subsection Body force
@@ -72,11 +52,26 @@ subsection Functions
 end
 
 subsection MetricFlowSystem<1, 3>
+  subsection IDA parameters
+    set Initial time = 0.0
+    set Final time = 0.02
+    set Time interval between each output = 0.01
+    subsection Running parameters
+      set Initial step size = 0.001
+      set Minimum step size = 1e-8
+      set Maximum order of BDF = 2
+      set Maximum number of nonlinear iterations = 8
+    end
+    subsection Error control
+      set Absolute error tolerance = 1e-6
+      set Relative error tolerance = 1e-5
+    end
+  end
   set Finite element degree = 1
   set Number of global refinement = 0
   set Number of refinement cycles = 1
-  set Output filename = two_way
-  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastodynamics/flow
+  set Output filename = flow
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastodynamics
   set Use direct solver = true
   set Verbosity (console depth) = 0
   set Numerical flux type = HLL

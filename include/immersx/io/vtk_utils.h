@@ -189,10 +189,10 @@ namespace ImmersX
      * with one block for each field found in the vtk file, and a vector of
      * strings with the names of the fields.
      *
-     * VTK point data is stored in blocks of FE_Q elements or FE_System(FE_Q,
-     * n_comps), while cell data is stored in FE_DGQ or FE_System(FE_DGQ,
-     * n_comps). The number of components is determined by the number of
-     * components in the data field.
+     * VTK point data uses FE_Q(1) on hypercubes and FE_SimplexP(1) on
+     * simplices. Cell data uses FE_DGQ(0) or FE_SimplexDGP(0), respectively.
+     * Vector fields repeat the scalar element in an FESystem. The number of
+     * components is determined by the number of components in the data field.
      *
      * @param vtk_filename The name of the input VTK file
      */
@@ -208,8 +208,8 @@ namespace ImmersX
      * This function reads the mesh from the specified VTK file, populates the
      * Triangulation associated to the given DoFHandler, and queries all cell
      * and vertex data fields. For each data field, a suitable FESystem is
-     * constructed (using FE_DGQ for cell data and FE_Q for vertex data, with
-     * the correct number of components). DoFs are distributed and renumbered
+     * constructed using the reference-cell element for cell or point data, with
+     * the correct number of components. DoFs are distributed and renumbered
      * block-wise. All data is read into the output_vector, and the names of the
      * fields are stored in data_names.
      *

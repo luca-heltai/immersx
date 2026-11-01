@@ -3,6 +3,8 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/coupling/immersed_repartitioner.h>
 #include <immersx/coupling/reduced_coupling.h>
 #include <immersx/coupling/tensor_product_space.h>
@@ -85,6 +87,17 @@ background_tria.get_mpi_communicator()
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
   void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize()
+  {
+    const auto reference_cell =
+      detail::uniform_reference_cell(*background_tria);
+    AssertThrow(reference_cell.has_value(),
+                ExcMessage("The coupling background mesh has no cells."));
+    initialize(compatibility::linear_mapping<spacedim>(*reference_cell));
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::initialize(
     const Mapping<spacedim> &mapping)
   {
@@ -97,11 +110,15 @@ background_tria.get_mpi_communicator()
         if (!zero_dimensional_background_refined)
           {
             this->prepare();
-            refine_space_around_points(*background_tria,
-                                       this->point_cloud.points,
-                                       this->entity_thickness,
-                                       par.refinement_parameters,
-                                       mpi_communicator);
+            if (prepare_point_cloud_background)
+              prepare_point_cloud_background(this->point_cloud.points,
+                                             this->entity_thickness);
+            else
+              refine_space_around_points(*background_tria,
+                                         this->point_cloud.points,
+                                         this->entity_thickness,
+                                         par.refinement_parameters,
+                                         mpi_communicator);
             zero_dimensional_background_refined = true;
             prepared_for_refinement             = true;
           }

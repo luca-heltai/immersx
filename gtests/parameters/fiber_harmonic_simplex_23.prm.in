@@ -1,0 +1,47 @@
+set dimension = 2
+set space dimension = 3
+subsection Fiber Reinforced Elasticity Frequency
+  set Frequencies = 0.25
+  set Output directory = @TEST_OUTPUT_DIR@/harmonic-simplex-23
+  subsection Matrix
+    set Initial refinement = 0
+    set Dirichlet boundary ids =
+    subsection Grid generation
+      set Triangulation type = fullydistributed
+      set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+    end
+    subsection Material properties
+      subsection default
+        set Density = 2
+        set Rayleigh alpha = 0.4
+      end
+    end
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 1;2;3
+      end
+    end
+  end
+  subsection Fiber
+    set Initial refinement = 0
+    set Dirichlet boundary ids =
+    subsection Grid generation
+      set Triangulation type = fullydistributed
+      set Grid generator = @TEST_DATA_DIR@/tests/simplex_sheet.msh
+    end
+    subsection Material properties
+      subsection default
+        set Density = 3
+        set Rayleigh alpha = 0.4
+      end
+    end
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 1.5;3;4.5
+      end
+    end
+  end
+  subsection Lift
+    set Thickness = 0.5
+  end
+end

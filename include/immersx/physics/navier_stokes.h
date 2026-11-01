@@ -26,6 +26,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_q1.h>
@@ -43,7 +44,9 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/domain.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/core/time_parameters.h>
 
 #include <list>
@@ -338,7 +341,6 @@ namespace ImmersX
     dealii::parallel::TriangulationBase<dim, spacedim>   *tria;
     std::unique_ptr<dealii::FiniteElement<dim, spacedim>> fe;
     std::unique_ptr<dealii::Quadrature<dim>>              quadrature;
-    dealii::MappingQ1<dim, spacedim>                      mapping_storage;
     dealii::DoFHandler<dim, spacedim>                     dh;
 
     dealii::IndexSet                             owned_dofs;

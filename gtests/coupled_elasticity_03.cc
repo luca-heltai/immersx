@@ -423,9 +423,8 @@ namespace
 {
   // Compute only the multiplier part of the pressure, without the interior
   // stress, so that the expected values depend on the multiplier alone.
-  const std::pair<std::string, std::string> multiplier_only = {
-    "Remove interior stress from pressure",
-    "false"};
+  const std::pair<std::string, std::string> multiplier_only =
+    {"Remove interior stress from pressure", "false"};
 
   // Set multiplier dof i to 1 + i.
   void
@@ -487,7 +486,8 @@ namespace
 
     const auto computed_by_inclusion =
       gather(problem.pressure_at_immersed_surface_by_inclusion);
-    const auto computed_by_vessel = gather(problem.pressure_at_immersed_surface);
+    const auto computed_by_vessel =
+      gather(problem.pressure_at_immersed_surface);
     ASSERT_EQ(computed_by_inclusion.size(), by_inclusion.size());
     ASSERT_EQ(computed_by_vessel.size(), force.size());
     for (unsigned int k = 0; k < by_inclusion.size(); ++k)
@@ -551,29 +551,28 @@ TEST(CoupledElasticity, BOTH_PressureIgnoresTangentialCoefficientsPoint)
 // force, and the pressure is zero.
 TEST(CoupledElasticity, BOTH_PressureWithoutNormalCoefficientsIsZeroPoint)
 {
-  with_problem(point_parameters(
-                 {multiplier_only,
-                  {"Number of fourier coefficients", "2"},
-                  {"Selection of Fourier coefficients", "0, 4"}}),
-               [](auto &problem) {
-                 problem.run_timestep0();
-                 set_increasing_multiplier(problem);
-                 problem.compute_pressure_at_immersed_surface();
-                 for (const auto p :
-                      gather(problem.pressure_at_immersed_surface))
-                   EXPECT_EQ(p, 0.);
-                 for (const auto p :
-                      gather(problem.pressure_at_immersed_surface_by_inclusion))
-                   EXPECT_EQ(p, 0.);
-               });
+  with_problem(
+    point_parameters({multiplier_only,
+                      {"Number of fourier coefficients", "2"},
+                      {"Selection of Fourier coefficients", "0, 4"}}),
+    [](auto &problem) {
+      problem.run_timestep0();
+      set_increasing_multiplier(problem);
+      problem.compute_pressure_at_immersed_surface();
+      for (const auto p : gather(problem.pressure_at_immersed_surface))
+        EXPECT_EQ(p, 0.);
+      for (const auto p :
+           gather(problem.pressure_at_immersed_surface_by_inclusion))
+        EXPECT_EQ(p, 0.);
+    });
 }
 
 // With "Cluster inclusions with segments" the multiplier is numbered by
 // segment: every inclusion of a segment receives the segment's block.
 TEST(CoupledElasticity, BOTH_PressureFromMultiplierClusteredPoint)
 {
-  with_problem(point_parameters(
-                 {multiplier_only, {"Cluster inclusions with segments", "true"}}),
+  with_problem(point_parameters({multiplier_only,
+                                 {"Cluster inclusions with segments", "true"}}),
                [](auto &problem) {
                  problem.run_timestep0();
                  const auto n_segments = problem.inclusions.n_global_segments();
@@ -588,7 +587,8 @@ TEST(CoupledElasticity, BOTH_PressureFromMultiplierClusteredPoint)
 // the vessel is split into inclusions. With segments the constraint of a
 // segment only changes by the quadrature of its wall, and the pressure agrees
 // closely.
-TEST(CoupledElasticity, BOTH_PressureIndependentOfInclusionSpacingClusteredPoint)
+TEST(CoupledElasticity,
+     BOTH_PressureIndependentOfInclusionSpacingClusteredPoint)
 {
   const auto coarse = solved_vessel_pressure(50, true);
   const auto fine   = solved_vessel_pressure(100, true);
@@ -724,12 +724,11 @@ TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressPoint)
 // so the interior stress is the same as without segments.
 TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressClusteredPoint)
 {
-  with_problem(point_parameters(
-                 {{"Cluster inclusions with segments", "true"}}),
+  with_problem(point_parameters({{"Cluster inclusions with segments", "true"}}),
                [](auto &problem) {
                  solve_and_zero_multiplier(problem);
-                 for (const auto p : gather(
-                        problem.pressure_at_immersed_surface_by_inclusion))
+                 for (const auto p :
+                      gather(problem.pressure_at_immersed_surface_by_inclusion))
                    EXPECT_NEAR(p, point_interior_stress, 1e-12);
                  for (const auto p :
                       gather(problem.pressure_at_immersed_surface))
@@ -746,7 +745,8 @@ TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressClusteredPoint)
 TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressTensorProduct)
 {
   with_problem(parameters(false,
-                          reduced_grid("four_cells", {-1., -0.5, 0., 0.5, 1.},
+                          reduced_grid("four_cells",
+                                       {-1., -0.5, 0., 0.5, 1.},
                                        {0, 0, 1, 1}),
                           "displacement, vessel_id",
                           {{"Refinement level", "3"}}),
@@ -849,8 +849,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
       by_inclusion[i] = i;
     by_inclusion.compress(VectorOperation::insert);
 
-    const auto split =
-      problem.split_pressure_over_inclusions({49, 49}, Vector<double>(50));
+    const auto split = problem.split_pressure_over_inclusions(
+      {49, 49},
+      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
     for (unsigned int vessel = 0; vessel < 2; ++vessel)
       {
@@ -872,8 +873,9 @@ TEST(CoupledElasticity,
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i * i; });
 
-    const auto split =
-      problem.split_pressure_over_inclusions({25, 25}, Vector<double>(50));
+    const auto split = problem.split_pressure_over_inclusions(
+      {25, 25},
+      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
     for (unsigned int vessel = 0; vessel < 2; ++vessel)
       {
@@ -896,8 +898,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsOneCellPoint)
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
 
-    const auto split =
-      problem.split_pressure_over_inclusions({1, 1}, Vector<double>(50));
+    const auto split = problem.split_pressure_over_inclusions(
+      {1, 1},
+      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
     ASSERT_EQ(split[0].size(), 1u);
     ASSERT_EQ(split[1].size(), 1u);
@@ -919,8 +922,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsInterpolatesPoint)
     set_pressure_by_inclusion(problem, pressure);
 
     const std::vector<int> n_cells = {3, 7};
-    const auto             split =
-      problem.split_pressure_over_inclusions(n_cells, Vector<double>(50));
+    const auto             split   = problem.split_pressure_over_inclusions(
+      n_cells,
+      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
     for (unsigned int vessel = 0; vessel < 2; ++vessel)
       {
@@ -957,8 +961,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
       for (unsigned int k = 0; k < 49; ++k)
         vessel_pressure[k] = pressure(k);
 
-      const auto split =
-        problem.split_pressure_over_inclusions({3, 4}, Vector<double>(50));
+      const auto split = problem.split_pressure_over_inclusions(
+        {3, 4},
+        Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
       ASSERT_EQ(split.size(), 2u);
       ASSERT_EQ(split[0].size(), 3u);
       for (unsigned int c = 0; c < 3; ++c)
@@ -972,8 +977,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
 
       // One cell in each vessel: the mean pressure of vessel 0, and the
       // pressure of the only inclusion of vessel 1.
-      const auto one_cell =
-        problem.split_pressure_over_inclusions({1, 1}, Vector<double>(50));
+      const auto one_cell = problem.split_pressure_over_inclusions(
+        {1, 1},
+        Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
       ASSERT_EQ(one_cell.size(), 2u);
       ASSERT_EQ(one_cell[0].size(), 1u);
       ASSERT_EQ(one_cell[1].size(), 1u);
@@ -993,8 +999,8 @@ TEST(CoupledElasticity,
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
-    EXPECT_ANY_THROW(
-      problem.split_pressure_over_inclusions({49}, Vector<double>(50)));
+    EXPECT_ANY_THROW(problem.split_pressure_over_inclusions(
+      {49}, Vector<double>(problem.pressure_at_immersed_surface_by_inclusion)));
   });
 }
 
@@ -1004,8 +1010,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsZeroCellsPoint)
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
-    EXPECT_ANY_THROW(
-      problem.split_pressure_over_inclusions({49, 0}, Vector<double>(50)));
+    EXPECT_ANY_THROW(problem.split_pressure_over_inclusions(
+      {49, 0},
+      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion)));
   });
 }
 

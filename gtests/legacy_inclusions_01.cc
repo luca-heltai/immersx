@@ -192,7 +192,7 @@ TEST(LegacyInclusions, ReferenceBasisFollowsFourierOrdering)
     const auto frequency = (mode + 1) / 2;
     const auto angle     = std::atan2(point[1], point[0]);
     return mode % 2 == 1 ? std::cos(frequency * angle) :
-                           std::sin(frequency * angle);
+                              std::sin(frequency * angle);
   };
 
   // The reference modes have maximum one, as the Fourier modes, so each one
@@ -205,8 +205,8 @@ TEST(LegacyInclusions, ReferenceBasisFollowsFourierOrdering)
         for (unsigned int q = 0; q < quadrature.size(); ++q)
           {
             const double value = expected(mode, quadrature.point(q));
-            correlation += reference.shape_value(basis, q, 0) * value *
-                           quadrature.weight(q);
+            correlation +=
+              reference.shape_value(basis, q, 0) * value * quadrature.weight(q);
             norm_square += value * value * quadrature.weight(q);
           }
 

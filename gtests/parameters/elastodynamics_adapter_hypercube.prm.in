@@ -1,0 +1,10 @@
+include @IMMERSX_BINARY_DIR@/gtests/parameters/elastodynamics_adapter_simplex.prm
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/elastodynamics-adapter-hypercube
+  subsection Domain
+    set Triangulation type = distributed
+    set Grid generator = hyper_cube
+    set Grid generator arguments = 0:1:false
+    set Initial refinement = 1
+  end
+end

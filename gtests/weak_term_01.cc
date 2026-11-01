@@ -2304,3 +2304,88 @@ TEST(WeakTerm, MPI_DistributedSameDoFHandler)
   action -= residual;
   EXPECT_LT(action.l2_norm(), 1.e-12);
 }
+
+TEST(WeakTerm, BOTH_AutomaticAffineUpdatesOnCellAndBoundarySupport)
+{
+  using V = ImmersXLA::MPI::Vector;
+  using M = ImmersXLA::MPI::SparseMatrix;
+  parallel::distributed::Triangulation<2> mesh(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(mesh);
+  mesh.refine_global(1);
+  FE_Q<2>       fe(1);
+  DoFHandler<2> dof_handler(mesh);
+  dof_handler.distribute_dofs(fe);
+  const auto relevant = DoFTools::extract_locally_relevant_dofs(dof_handler);
+  const auto points =
+    DoFTools::map_dofs_to_support_points(StaticMappingQ1<2>::mapping,
+                                         dof_handler);
+  AffineConstraints<double> source_constraints, target_constraints;
+  source_constraints.reinit(dof_handler.locally_owned_dofs(), relevant);
+  target_constraints.reinit(dof_handler.locally_owned_dofs(), relevant);
+  for (const auto index : relevant)
+    source_constraints.add_line(index);
+  source_constraints.close();
+  target_constraints.close();
+  const auto source_space =
+    fe_space(dof_handler, StaticMappingQ1<2>::mapping, source_constraints);
+  const auto target_space =
+    fe_space(dof_handler, StaticMappingQ1<2>::mapping, target_constraints);
+  for (const bool boundary : {false, true})
+    {
+      StateLayout               layout;
+      const auto                source = source_space.field(layout, "source");
+      const auto                target = target_space.field(layout, "target");
+      SemiDiscreteModel<V, M>   model;
+      SemidiscreteBuilder<V, M> builder(layout, model);
+      if (boundary)
+        weak_term(value(source), test(target))
+          .on(BoundaryIntegrationSupport<2>(mesh, 0))
+          .add(builder);
+      else
+        weak_term(value(source), test(target))
+          .on(IntegrationSupport<2>(mesh))
+          .add(builder);
+      V state, residual, expected;
+      state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+      residual.reinit(state);
+      expected.reinit(state);
+      state = 0.;
+      StateView<V> view(layout, 0.);
+      view.bind(source.id(), state);
+      EvaluationContext<V> context(0., view);
+      const auto           matrix_operator =
+        model.state_matrix_operator(target.id(), source.id(), context);
+      ASSERT_TRUE(matrix_operator.has_value());
+      const auto *matrix = matrix_operator->source_matrix();
+      ASSERT_NE(matrix, nullptr);
+      for (const double time : {0.2, 0.4, 0.1, 0.})
+        {
+          const double offset = time * time * time;
+          for (const auto index : relevant)
+            source_constraints.set_inhomogeneity(index, offset);
+          model.evaluate_row(target.id(), context, residual);
+          // Exact integrals of the nodal Q1 hats on the uniform 2-by-2 mesh.
+          for (const auto index : dof_handler.locally_owned_dofs())
+            {
+              const auto  &point      = points.at(index);
+              const bool   x_boundary = point[0] == 0. || point[0] == 1.;
+              const bool   y_boundary = point[1] == 0. || point[1] == 1.;
+              const double wx         = x_boundary ? 0.25 : 0.5;
+              const double wy         = y_boundary ? 0.25 : 0.5;
+              expected[index] = offset * (boundary ? (x_boundary ? wy : 0.) +
+                                                       (y_boundary ? wx : 0.) :
+                                                     wx * wy);
+            }
+          expected.compress(VectorOperation::insert);
+          EXPECT_NEAR(expected.l1_norm(),
+                      offset * (boundary ? 4. : 1.),
+                      1.e-12);
+          residual -= expected;
+          EXPECT_LT(residual.l2_norm(), 1.e-12);
+          const auto updated_operator =
+            model.state_matrix_operator(target.id(), source.id(), context);
+          ASSERT_TRUE(updated_operator.has_value());
+          EXPECT_EQ(updated_operator->source_matrix(), matrix);
+        }
+    }
+}

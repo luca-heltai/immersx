@@ -15,13 +15,15 @@
 
 #include <deal.II/lac/sparse_matrix.h>
 
+#include <deal.II/numerics/vector_tools.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/weak_term.h>
 
 using namespace dealii;
 using namespace ImmersX;
 
-TEST(WeakTermNonmatching, BOTH_RejectsUnsupportedAffineSourceOffsets)
+TEST(WeakTermNonmatching, BOTH_NonmatchingAffineOffsetsFollowOwnedValues)
 {
   parallel::distributed::Triangulation<2> source_mesh(MPI_COMM_WORLD),
     target_mesh(MPI_COMM_WORLD);
@@ -66,17 +68,44 @@ TEST(WeakTermNonmatching, BOTH_RejectsUnsupportedAffineSourceOffsets)
   StateView<V> view(layout, 0.);
   view.bind(source.field_id(), state);
   EvaluationContext<V> context(0., view);
-  EXPECT_NO_THROW(model.evaluate_row(target.field_id(), context, residual));
+  // Integrate a separately reconstructed FE field on the source mesh.
+  // Only the owner supplies the essential value; ghost values are imported.
+  const auto reference_integral = [&](const double offset) {
+    V owned;
+    detail::initialize_weak_vector(owned,
+                                   source.locally_owned_dofs(),
+                                   MPI_COMM_WORLD);
+    owned = 1.;
+    if (source.locally_owned_dofs().is_element(0))
+      owned[0] = offset;
+    owned.compress(VectorOperation::insert);
+    V relevant;
+    relevant.reinit(source.locally_owned_dofs(),
+                    source.locally_relevant_dofs(),
+                    MPI_COMM_WORLD);
+    relevant = owned;
+    relevant.update_ghost_values();
+    // Both meshes cover the unit square, so mean value equals integral.
+    return VectorTools::compute_mean_value(
+      StaticMappingQ1<2>::mapping, source_dofs, QGauss<2>(2), relevant, 0);
+  };
+  const auto residual_integral = [&](const auto &current_model) {
+    residual = 0.;
+    current_model.evaluate_row(target.field_id(), context, residual);
+    double local = 0.;
+    for (const auto i : target.locally_owned_dofs())
+      local += residual[i];
+    return Utilities::MPI::sum(local, MPI_COMM_WORLD);
+  };
+  EXPECT_NEAR(residual_integral(model), reference_integral(0.), 1.e-12);
 
-  // Only the owning rank changes the offset. Rejection must be collective.
   if (source.locally_owned_dofs().is_element(0))
     source_constraints.set_inhomogeneity(0, 2.);
-  EXPECT_THROW(model.evaluate_row(target.field_id(), context, residual),
-               dealii::ExceptionBase);
-  SemiDiscreteModel<V, M>   rejected_model;
-  SemidiscreteBuilder<V, M> rejected_builder(layout, rejected_model);
-  EXPECT_THROW(weak_term(value(source), test(target)).add(rejected_builder),
-               dealii::ExceptionBase);
+  EXPECT_NEAR(residual_integral(model), reference_integral(2.), 1.e-12);
+  SemiDiscreteModel<V, M>   updated_model;
+  SemidiscreteBuilder<V, M> updated_builder(layout, updated_model);
+  weak_term(value(source), test(target)).add(updated_builder);
+  EXPECT_NEAR(residual_integral(updated_model), reference_integral(2.), 1.e-12);
 }
 
 TEST(WeakTerm, RejectsUnsupportedAffineMultiplierReaction)

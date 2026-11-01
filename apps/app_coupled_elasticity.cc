@@ -191,8 +191,8 @@ main(int argc, char *argv[])
                             if (Utilities::MPI::this_mpi_process(
                                   MPI_COMM_WORLD) == 0)
                               {
-                                AssertDimension(
-                                  problem3D.coupling_pressure.size(), pb1D.NV);
+                                AssertDimension(coupling_pressure.size(),
+                                                pb1D.NV);
 
                                 for (int i = 0; i < pb1D.NV; i++)
                                   for (int j = 0; j < pb1D.vess[i].NCELLS; j++)
@@ -206,7 +206,7 @@ main(int argc, char *argv[])
                           {
                             Vector<double> pressure(
                               problem3D
-                                .pressure_at_immersed_surface_by_inclusions);
+                                .pressure_at_immersed_surface_by_inclusion);
 
                             // baseline_pExt - pressure
 

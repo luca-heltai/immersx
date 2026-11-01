@@ -40,5 +40,63 @@ execution-adapter concepts are described in
 The larger convergence cases remain in `tutorials/elastodynamics/` and are
 listed in the [verification reference](../reference/verification).
 
+Materials are selected under `Elastodynamics/Material properties`. Map mesh
+material ids to named subsections with `Material tags by material id`, for
+example `0: default, 1: stiff`. Unmapped ids use `default`; several ids may
+share a tag. Each material accepts `Density`, `Lame mu`, `Lame lambda`,
+`Rayleigh alpha`, `Rayleigh beta`, and `Viscosity eta`.
+
+The damping bilinear form on each cell is
+
+$$
+C(v,w) = \alpha\rho (v,w)
+       + \beta\bigl(2\mu (\varepsilon(v),\varepsilon(w))
+                     + \lambda (\nabla\cdot v,\nabla\cdot w)\bigr)
+       + \eta (\varepsilon(v),\varepsilon(w)).
+$$
+
+Density and shear modulus must be finite and positive. The remaining
+coefficients must be finite and non-negative. The viscosity convention is
+the same as in `ElasticityProblem`: there is no factor of two before
+`Viscosity eta`. To migrate an older elastodynamics input, move the
+`Material` entries to `Material properties/default` and replace
+`Damping shear = s` with `Viscosity eta = 2*s`. The former `Damping bulk`
+parameter has no independent counterpart in this schema; `Rayleigh beta`
+scales the entire elastic stiffness.
+
+`ElastodynamicsSolver` also runs on simplex meshes (triangles in 2D,
+tetrahedra in 3D). Read the mesh from a file and select the fullydistributed
+triangulation, since p4est holds only quadrilaterals and hexahedra:
+
+```ini
+subsection Elastodynamics
+  subsection Domain
+    set Grid generator = liver.msh
+    set Triangulation type = fullydistributed
+  end
+end
+```
+
+On simplex meshes the solver uses `FE_SimplexP`, `QGaussSimplex`, and a linear
+`MappingFE`; meshes that mix simplex and hypercube cells are rejected.
+`Initial refinement` refines the mesh before it is distributed. The
+fullydistributed triangulation cannot be refined afterwards, so
+`Number of refinement cycles` must stay at 1. The
+`ParsedConvergenceTable` error integration supports only hypercube cells:
+`run()` skips the error table on simplex meshes and `compute_error()` throws.
+`gtests/elastodynamics_simplex_01.cc` runs a 48-tetrahedron cube from
+`data/tests/simplex_cube.msh.in` with nonzero body force and Dirichlet data,
+in serial and on two MPI ranks. The generated
+`gtests/parameters/elastodynamics_simplex.prm` also checks quadratic spatial
+displacement and cubic time dependence with the native trapezoidal method.
+
+The `elastodynamics_adapter` executable accepts the same uniform simplex
+meshes through `Elastodynamics/Domain`. Set
+`Triangulation type = fullydistributed` and use one refinement cycle.
+Its IDA solve uses simplex operators and skips the convergence table.
+The generated test input
+`gtests/parameters/elastodynamics_adapter_simplex.prm` supplies nonzero body
+force and time-dependent displacement and velocity boundary values.
+
 Next, [Reduced Poisson](reduced-poisson) introduces a lower-dimensional
 geometry and coupling.

@@ -192,15 +192,18 @@ namespace ImmersX
    * term reuses the ordinary FE expression machinery without registering a
    * state dependency or duplicating a field representation.
    */
-  template <typename Source, typename TestExpression>
+  template <typename Source,
+            typename TestExpression,
+            typename Support = InferredIntegrationSupport>
   class KnownTerm
   {
   public:
     using target_type = TestExpression;
 
-    KnownTerm(Source source, TestExpression target)
+    KnownTerm(Source source, TestExpression target, Support support = {})
       : source_(std::move(source))
       , target_(std::move(target))
+      , support_(std::move(support))
     {}
 
     const std::vector<FieldId> &
@@ -234,6 +237,27 @@ namespace ImmersX
       return result;
     }
 
+    /** Integrate a known callback on an independent physical support. */
+    template <typename PhysicalSupport,
+              std::enable_if_t<is_physical_quadrature_support<
+                                 std::decay_t<PhysicalSupport>>::value,
+                               int> = 0>
+    auto
+    on(PhysicalSupport support) const
+    {
+      AssertThrow(region_.kind == KnownTermRegion::Kind::volume,
+                  dealii::ExcMessage(
+                    "Physical known sources require volume integration."));
+      static_assert(
+        detail::is_known_source<Source>::value,
+        "Physical KnownTerm supports require a KnownSource callback.");
+      static_assert(
+        PhysicalSupport::ambient_dimension == TestExpression::spacedimension(),
+        "Known source and support must share the ambient dimension.");
+      return KnownTerm<Source, TestExpression, PhysicalSupport>(
+        source_, target_, std::move(support));
+    }
+
     template <typename VectorType, typename MatrixType>
     FieldId
     add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
@@ -244,10 +268,25 @@ namespace ImmersX
                   dealii::ExcMessage("A KnownTerm target must be registered."));
 
       auto term = builder.term(target_id, "known_term");
-      term.residual([source = source_, target = target_, region = region_](
-                      const auto &context) {
-        const auto values =
-          assemble<VectorType>(source, target, region, context);
+      term.residual([source  = source_,
+                     target  = target_,
+                     region  = region_,
+                     support = support_](const auto &context) {
+        const auto values = [&] {
+          if constexpr (is_physical_quadrature_support<Support>::value)
+            {
+              AssertThrow(
+                region.kind == KnownTermRegion::Kind::volume,
+                dealii::ExcMessage(
+                  "Physical known sources require volume integration."));
+              return assemble_on_support<VectorType>(source,
+                                                     target,
+                                                     support,
+                                                     context);
+            }
+          else
+            return assemble<VectorType>(source, target, region, context);
+        }();
         typename Model::Operation result;
         result.reinit_vector = [values](VectorType &vector, const bool omit) {
           vector.reinit(*values, omit);
@@ -283,6 +322,48 @@ namespace ImmersX
     }
 
   private:
+    template <typename VectorType, typename Context>
+    static std::shared_ptr<VectorType>
+    assemble_on_support(const Source         &source,
+                        const TestExpression &target,
+                        const Support        &support,
+                        const Context        &context)
+    {
+      using Field = typename TestExpression::source_field_type;
+      using Assembly =
+        detail::NonlinearWeakAssembly<decltype(value(target.source())),
+                                      TestExpression>;
+      auto result = std::make_shared<VectorType>();
+      detail::reinit_known_vector(*result, target.source());
+      *result = 0.;
+      const auto quadratures =
+        Assembly::make_support_quadratures(support,
+                                           target.source(),
+                                           target.source());
+      for (const auto &[cell_id, data] : quadratures)
+        {
+          const dealii::Quadrature<Field::dimension()> quadrature(
+            data.reference_points);
+          dealii::FEValues<Field::dimension(), Field::spacedimension()> values(
+            target.source().mapping(),
+            target.source().finite_element(),
+            quadrature,
+            target.update_flags() | dealii::update_quadrature_points);
+          values.reinit(data.cell);
+          add_callback_cell(source,
+                            target,
+                            context,
+                            values,
+                            data.cell,
+                            data.cell,
+                            std::nullopt,
+                            *result,
+                            &data.physical_weights);
+        }
+      detail::compress_weak_vector(*result);
+      return result;
+    }
+
     template <typename VectorType, typename Context>
     static std::shared_ptr<VectorType>
     assemble(const Source          &source,
@@ -339,8 +420,9 @@ namespace ImmersX
       constexpr int dim          = TargetField::dimension();
       constexpr int spacedim     = TargetField::spacedimension();
       const auto   &target_field = target.source();
-      const auto    quadrature   = dealii::QGauss<dim>(degree);
-      const auto    flags = target.update_flags() | dealii::update_JxW_values |
+      const auto    quadrature   = compatibility::gauss_quadrature<dim>(
+        target_field.space().finite_element().reference_cell(), degree);
+      const auto flags = target.update_flags() | dealii::update_JxW_values |
                          dealii::update_quadrature_points;
 
       if (region.kind == KnownTermRegion::Kind::volume)
@@ -367,8 +449,13 @@ namespace ImmersX
         }
       else
         {
-          const dealii::QGauss<dim - 1> face_quadrature(degree);
-          const auto                    face_flags =
+          const auto face_quadrature =
+            compatibility::gauss_quadrature<dim - 1>(target_field.space()
+                                                       .finite_element()
+                                                       .reference_cell()
+                                                       .face_reference_cell(0),
+                                                     degree);
+          const auto face_flags =
             target.update_flags() | dealii::update_JxW_values |
             dealii::update_quadrature_points | dealii::update_normal_vectors;
           dealii::FEFaceValues<dim, spacedim> face_values(
@@ -421,8 +508,9 @@ namespace ImmersX
         &source_field.mapping() == &target.source().mapping(),
         dealii::ExcMessage(
           "A frozen KnownTerm source and target must share a mapping."));
-      const auto quadrature = dealii::QGauss<dim>(degree);
-      const auto flags      = source.update_flags() | target.update_flags() |
+      const auto quadrature = compatibility::gauss_quadrature<dim>(
+        target.source().space().finite_element().reference_cell(), degree);
+      const auto flags = source.update_flags() | target.update_flags() |
                          dealii::update_JxW_values |
                          dealii::update_quadrature_points;
       const auto &frozen = source.template frozen_values<VectorType>();
@@ -453,8 +541,14 @@ namespace ImmersX
         }
       else
         {
-          const dealii::QGauss<dim - 1> face_quadrature(degree);
-          const auto                    face_flags =
+          const auto face_quadrature =
+            compatibility::gauss_quadrature<dim - 1>(target.source()
+                                                       .space()
+                                                       .finite_element()
+                                                       .reference_cell()
+                                                       .face_reference_cell(0),
+                                                     degree);
+          const auto face_flags =
             source.update_flags() | target.update_flags() |
             dealii::update_JxW_values | dealii::update_quadrature_points |
             dealii::update_normal_vectors;
@@ -498,7 +592,8 @@ namespace ImmersX
       const Cell                                                 &cell,
       const Cell &,
       const std::optional<dealii::types::boundary_id> boundary_id,
-      VectorType                                     &result)
+      VectorType                                     &result,
+      const std::vector<double> *physical_weights = nullptr)
     {
       using TargetField = typename TestExpression::source_field_type;
       std::vector<dealii::types::global_dof_index> indices(
@@ -528,9 +623,10 @@ namespace ImmersX
             data.normal = values.normal_vector(q);
           const auto known = source.evaluate(data);
           for (unsigned int i = 0; i < positions.size(); ++i)
-            local[i] += detail::natural_pairing(
-                          known, target.operation()(view, positions[i], q)) *
-                        values.JxW(q);
+            local[i] +=
+              detail::natural_pairing(
+                known, target.operation()(view, positions[i], q)) *
+              (physical_weights ? (*physical_weights)[q] : values.JxW(q));
         }
       target.source().constraints().distribute_local_to_global(
         local, execution_indices, result);
@@ -598,6 +694,7 @@ namespace ImmersX
 
     Source          source_;
     TestExpression  target_;
+    Support         support_;
     KnownTermRegion region_;
   };
 

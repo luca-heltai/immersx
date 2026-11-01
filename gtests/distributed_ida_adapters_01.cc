@@ -160,6 +160,91 @@ TEST(DistributedIDA, ApplicationConsistentInitialConditions) // NOLINT
   EXPECT_DOUBLE_EQ(initial_dot_norm, std::sqrt(8.));
 }
 
+TEST(DistributedIDA, CompleteParameterControls)
+{
+  TimeIntervalParameters   time;
+  IDAParameters            parameters;
+  dealii::ParameterHandler prm;
+  parameters.declare_parameters(prm);
+  prm.parse_input_from_string(R"(
+subsection Running parameters
+  set Maximum step size = 0.002
+  set Maximum number of steps = 123
+  set Maximum error test failures = 7
+  set Maximum nonlinear convergence failures = 8
+end
+subsection Nonlinear solver
+  set Convergence coefficient = 0.2
+end
+subsection Initial condition correction parameters
+  set Maximum number of steps = 9
+  set Maximum number of Jacobians = 6
+  set Maximum number of backtracks = 12
+  set Line search enabled = false
+  set Correction type at initial time = use_y_diff
+end
+subsection Linear solver
+  set Linear tolerance factor = 0.04
+  set Difference quotient increment factor = 0.9
+  set Linear solution scaling = false
+end
+)");
+  const auto data = parameters.additional_data<GlobalVector>(time);
+  EXPECT_DOUBLE_EQ(data.maximum_step_size, 0.002);
+  EXPECT_EQ(data.maximum_number_of_steps, 123);
+  EXPECT_EQ(data.maximum_error_test_failures, 7u);
+  EXPECT_EQ(data.maximum_convergence_failures, 8u);
+  EXPECT_DOUBLE_EQ(data.nonlinear_convergence_coefficient, 0.2);
+  EXPECT_EQ(data.maximum_number_of_steps_ic, 9u);
+  EXPECT_EQ(data.maximum_number_of_jacobians_ic, 6u);
+  EXPECT_EQ(data.maximum_number_of_backtracks_ic, 12u);
+  EXPECT_FALSE(data.line_search_enabled_ic);
+  EXPECT_EQ(data.ic_type, Adapter::AdditionalData::use_y_diff);
+  EXPECT_DOUBLE_EQ(data.linear_tolerance_factor, 0.04);
+  EXPECT_DOUBLE_EQ(data.increment_factor, 0.9);
+  EXPECT_FALSE(data.linear_solution_scaling);
+  EXPECT_EQ(data.maximum_order, 1u);
+  EXPECT_DOUBLE_EQ(data.absolute_tolerance, 1.e-4);
+}
+
+TEST(DistributedIDA, NativeSetupFailureThrows)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  parameters.maximum_order = 6;
+  Adapter adapter(time, parameters, MPI_COMM_SELF);
+  add_identity_field(adapter, 1);
+  auto y = adapter.make_state(), yp = adapter.make_state();
+  y  = 1.;
+  yp = -1.;
+  EXPECT_THROW(adapter.solve(y, yp), dealii::ExceptionBase);
+}
+
+TEST(DistributedIDA, NativeWorkLimitThrows)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                  = 0.25;
+  time.final_time                    = 0.35;
+  time.output_time_interval          = 0.1;
+  parameters.initial_step_size       = 1.e-4;
+  parameters.maximum_step_size       = 1.e-4;
+  parameters.maximum_number_of_steps = 2;
+  Adapter adapter(time, parameters, MPI_COMM_SELF);
+  add_identity_field(adapter, 1);
+  auto y = adapter.make_state(), yp = adapter.make_state();
+  y  = 1.;
+  yp = -1.;
+  adapter.set_output_step(
+    [&](double t, const auto &, const auto &, unsigned int step) {
+      if (step == 0)
+        {
+          EXPECT_DOUBLE_EQ(t, time.initial_time);
+        }
+    });
+  EXPECT_THROW(adapter.solve(y, yp), dealii::ExceptionBase);
+}
+
 TEST(DistributedIDA, BackportedControlsAndConstraints) // NOLINT
 {
   TimeIntervalParameters time;
@@ -339,6 +424,12 @@ TEST(DistributedIDA, RestartCallbackPrecedesResetAndCanResizeState) // NOLINT
   auto         dot              = adapter.make_state();
   unsigned int restart_count    = 0;
   unsigned int consistent_count = 0;
+  unsigned int tolerance_builds = 0;
+  adapter.set_local_tolerances(field.fields(), [&](FieldVector &values) {
+    ++tolerance_builds;
+    EXPECT_EQ(values.size(), tolerance_builds == 1 ? 2u : 3u);
+    values = 1.e-6;
+  });
   adapter.set_compute_consistent_initial_conditions(
     [&](const double, GlobalVector &y, GlobalVector &y_dot) {
       ++consistent_count;
@@ -360,6 +451,7 @@ TEST(DistributedIDA, RestartCallbackPrecedesResetAndCanResizeState) // NOLINT
   EXPECT_GT(adapter.solve(state, dot), 0u);
   EXPECT_GE(restart_count, 2u);
   EXPECT_EQ(consistent_count, 2u);
+  EXPECT_EQ(tolerance_builds, 2u);
   EXPECT_EQ(state.block(0).size(), 3u);
   EXPECT_EQ(dot.block(0).size(), 3u);
 }

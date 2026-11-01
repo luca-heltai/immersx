@@ -179,12 +179,16 @@ namespace ImmersX
                          communicator_);
           ghosted = solution();
           ghosted.update_ghost_values();
-          parameters_.convergence_table.error_from_exact(
-            displacement_->dof_handler(), ghosted, parameters_.exact_solution);
+          if (displacement_->finite_element().reference_cell().is_hyper_cube())
+            parameters_.convergence_table.error_from_exact(
+              displacement_->dof_handler(),
+              ghosted,
+              parameters_.exact_solution);
           if (cycle + 1 < parameters_.n_refinement_cycles)
             refine(ghosted);
         }
-      if (dealii::Utilities::MPI::this_mpi_process(communicator_) == 0)
+      if (dealii::Utilities::MPI::this_mpi_process(communicator_) == 0 &&
+          displacement_->finite_element().reference_cell().is_hyper_cube())
         parameters_.convergence_table.output_table(std::cout);
     }
 
@@ -279,13 +283,24 @@ namespace ImmersX
       using namespace dealii;
       adapter_ =
         std::make_unique<Adapter>(parameters_.execution, communicator_);
-      displacement_space_ = std::make_unique<FiniteElementSpace<dim>>(
-        background_.triangulation(),
-        parameters_.space_parameters.finite_element == "auto" ?
+      const auto reference =
+        detail::uniform_reference_cell(background_.triangulation());
+      AssertThrow(reference.has_value(),
+                  ExcMessage("The elasticity mesh has no cells."));
+      std::unique_ptr<FiniteElement<dim>> element;
+      if (parameters_.space_parameters.finite_element != "auto")
+        element = FETools::get_fe_by_name<dim>(
+          parameters_.space_parameters.finite_element);
+      else if (reference->is_hyper_cube())
+        element =
           std::make_unique<FESystem<dim>>(FE_Q<dim>(parameters_.fe_degree),
-                                          dim) :
-          FETools::get_fe_by_name<dim>(
-            parameters_.space_parameters.finite_element));
+                                          dim);
+      else if (reference->is_simplex())
+        element = std::make_unique<FESystem<dim>>(
+          FE_SimplexP<dim>(parameters_.fe_degree), dim);
+      displacement_space_ =
+        std::make_unique<FiniteElementSpace<dim>>(background_.triangulation(),
+                                                  std::move(element));
       AssertThrow(
         displacement_space_->finite_element().n_components() == dim &&
           displacement_space_->finite_element().is_primitive(),

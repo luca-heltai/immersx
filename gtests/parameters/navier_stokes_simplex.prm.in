@@ -1,0 +1,50 @@
+set dimension = 3
+set space dimension = 3
+subsection Navier-Stokes
+  set Output directory = @TEST_OUTPUT_DIR@/navier-stokes-simplex
+  set Dirichlet boundary ids = 0
+  subsection Finite element spaces
+    set Velocity degree = 2
+    set Pressure degree = 1
+  end
+  subsection Domain
+    set Triangulation type = fullydistributed
+    set Initial refinement = 0
+    set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
+  end
+  subsection Physical properties
+    set Density = 1
+    set Viscosity = 1
+    set Include convective term = true
+  end
+  subsection Time interval
+    set Initial time = 0
+    set Final time = 0.02
+    set Output time interval = 0.02
+  end
+  subsection Fixed step
+    set Policy = number_of_steps
+    set Number of time steps = 2
+  end
+  subsection Right hand side
+    set Variable names = x,y,z,t
+    set Function expression = 2;0;0;0
+  end
+  subsection Dirichlet boundary conditions
+    set Variable names = x,y,z,t
+    set Function expression = y*(1-y);0;0;0
+  end
+  subsection Initial condition
+    set Variable names = x,y,z,t
+    set Function expression = y*(1-y);0;0;0
+  end
+  subsection Solver
+    subsection Control
+      set Max steps = 1000
+      set Tolerance = 1.e-13
+      set Reduction = 1.e-13
+    end
+    set Inner maximum steps = 1000
+    set Inner tolerance = 1.e-13
+  end
+end

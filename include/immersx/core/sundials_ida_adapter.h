@@ -26,6 +26,7 @@
 #include <immersx/core/time_parameters.h>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -88,6 +89,101 @@ namespace ImmersX
                         dealii::TimerOutput::summary,
                         dealii::TimerOutput::wall_times)
     {}
+
+    /** Set a constant absolute tolerance for a semantic Field. */
+    void
+    set_absolute_tolerance(const FieldId field, const double tolerance)
+    {
+      AssertThrow(std::isfinite(tolerance) && tolerance > 0.,
+                  dealii::ExcMessage(
+                    "Absolute tolerances must be finite and positive."));
+      set_local_tolerances(field, [tolerance](FieldVectorType &values) {
+        values = tolerance;
+      });
+    }
+
+    template <typename SemanticField>
+    void
+    set_absolute_tolerance(const SemanticField &field, const double tolerance)
+    {
+      set_absolute_tolerance(field.id(), tolerance);
+    }
+
+    /** Fill locally owned absolute tolerances for one Field. Called on every
+     * IDA initialization/reset, after the execution layout has been rebuilt.
+     * Unspecified Fields retain the configured scalar absolute tolerance.
+     */
+    void
+    set_local_tolerances(const FieldId                          field,
+                         std::function<void(FieldVectorType &)> fill)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure tolerances before solver initialization."));
+      AssertThrow(static_cast<bool>(fill),
+                  dealii::ExcMessage("Empty local tolerance callback."));
+      AssertThrow(field.value() < composition_.n_fields(),
+                  dealii::ExcMessage("Unknown tolerance Field."));
+      for (auto &entry : local_tolerances_)
+        if (entry.first == field)
+          {
+            entry.second = std::move(fill);
+            return;
+          }
+      local_tolerances_.emplace_back(field, std::move(fill));
+    }
+
+    template <typename SemanticField>
+    void
+    set_local_tolerances(const SemanticField                   &field,
+                         std::function<void(FieldVectorType &)> fill)
+    {
+      set_local_tolerances(field.id(), std::move(fill));
+    }
+
+    /** IDA counters accumulated across adapter-managed restarts. */
+    struct Statistics
+    {
+      long int steps = 0, residual_evaluations = 0, nonlinear_iterations = 0,
+               error_test_failures = 0, convergence_failures = 0;
+      unsigned long jacobian_setups = 0, linear_solves = 0, restarts = 0,
+                    weight_evaluations       = 0;
+      int                       order        = 0;
+      double                    current_time = 0., last_step = 0.;
+      std::pair<double, double> tolerance_scales = {1., 1.};
+    };
+
+    Statistics
+    statistics() const
+    {
+      Statistics result = accumulated_statistics_;
+      if (ida_ && ida_->get_ida_memory())
+        {
+          auto     memory = ida_->get_ida_memory();
+          long int value;
+          check_ida(IDAGetNumSteps(memory, &value));
+          result.steps += value;
+          check_ida(IDAGetNumResEvals(memory, &value));
+          result.residual_evaluations += value;
+          check_ida(IDAGetNumNonlinSolvIters(memory, &value));
+          result.nonlinear_iterations += value;
+          check_ida(IDAGetNumErrTestFails(memory, &value));
+          result.error_test_failures += value;
+          check_ida(IDAGetNumNonlinSolvConvFails(memory, &value));
+          result.convergence_failures += value;
+          check_ida(IDAGetCurrentOrder(memory, &result.order));
+          check_ida(IDAGetCurrentTime(memory, &result.current_time));
+          check_ida(IDAGetLastStep(memory, &result.last_step));
+        }
+      result.jacobian_setups    = jacobian_setups_;
+      result.linear_solves      = linear_solves_;
+      result.restarts           = restarts_;
+      result.weight_evaluations = weight_evaluations_;
+      result.tolerance_scales =
+        tolerance_ramp_.scales(additional_data().initial_time,
+                               result.current_time);
+      return result;
+    }
 
     /** Select the coupled linear solver before initialization.
      * Direct solvers reuse their factorization until IDA requests a new
@@ -208,7 +304,9 @@ namespace ImmersX
     unsigned int
     solve(GlobalVectorType &state, GlobalVectorType &state_dot)
     {
-      current_state_ = &state;
+      current_state_          = &state;
+      accumulated_statistics_ = {};
+      jacobian_setups_ = linear_solves_ = restarts_ = weight_evaluations_ = 0;
       if (compute_consistent_initial_conditions_ &&
           additional_data().ic_type == AdditionalData::use_y_diff)
         {
@@ -223,9 +321,10 @@ namespace ImmersX
       pcout << "IDAAdapter: starting DAE solve with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
       dealii::TimerOutput::Scope timer(computing_timer, "Solve DAE");
-      const auto                 n_steps = ida_->solve_dae(state, state_dot);
+      ida_->solve_dae(state, state_dot);
+      const auto n_steps = static_cast<unsigned int>(statistics().steps);
       pcout << "IDAAdapter: DAE solve finished after " << n_steps
-            << " accepted step(s)." << std::endl;
+            << " internal step(s)." << std::endl;
       return n_steps;
     }
 
@@ -428,7 +527,11 @@ namespace ImmersX
 
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
-      auto ida_data = additional_data();
+      tolerance_ramp_ = ida_parameters_.tolerance_ramp;
+      auto ida_data   = additional_data();
+      tolerance_ramp_.validate(ida_data.initial_time,
+                               ida_data.final_time,
+                               ida_data.output_period);
       if (compute_consistent_initial_conditions_)
         {
           if (ida_data.ic_type == AdditionalData::use_y_diff)
@@ -441,6 +544,15 @@ namespace ImmersX
       ida_->reinit_vector = [this](GlobalVectorType &vector) {
         composition_.reinit(vector);
       };
+      if (!local_tolerances_.empty() || tolerance_ramp_.enabled)
+        {
+          ida_->custom_setup = [this](void *) { initialize_tolerances(); };
+          ida_->compute_error_weights = [this](const GlobalVectorType &state,
+                                               GlobalVectorType &weights) {
+            compute_error_weights(state, weights);
+          };
+        }
+
       ida_->residual = [this](const double            time,
                               const GlobalVectorType &state,
                               const GlobalVectorType &state_dot,
@@ -457,6 +569,7 @@ namespace ImmersX
       ida_->solve_with_jacobian = [this](const GlobalVectorType &rhs,
                                          GlobalVectorType       &dst,
                                          const double            tolerance) {
+        ++linear_solves_;
         dealii::TimerOutput::Scope timer(computing_timer, "Linear solve");
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
@@ -579,6 +692,11 @@ namespace ImmersX
           return false;
 
         const bool restart = solver_should_restart_(time, state, state_dot);
+        if (restart)
+          {
+            accumulated_statistics_ = statistics();
+            ++restarts_;
+          }
         if (restart && compute_consistent_initial_conditions_ &&
             additional_data().reset_type == AdditionalData::use_y_diff)
           {
@@ -589,21 +707,127 @@ namespace ImmersX
           }
         return restart;
       };
-      if (output_)
-        {
-          ida_->output_step =
-            [this, output = output_](const double            time,
-                                     const GlobalVectorType &state,
-                                     const GlobalVectorType &state_dot,
-                                     const unsigned int      step) {
-              pcout << "IDAAdapter: accepted output step " << step
-                    << " at time " << time << "." << std::endl;
-              output(time, state, state_dot, step);
-            };
-        }
+      // Internal bookkeeping must run even when no application output is set.
+      ida_->output_step = [this](const double            time,
+                                 const GlobalVectorType &state,
+                                 const GlobalVectorType &state_dot,
+                                 const unsigned int      step) {
+        update_ramp_stop();
+        if (ida_parameters_.print_statistics)
+          {
+            const auto info = statistics();
+            pcout << "IDA: output t=" << time
+                  << ", internal t=" << info.current_time
+                  << ", steps=" << info.steps << ", order=" << info.order
+                  << ", h=" << info.last_step
+                  << ", Newton=" << info.nonlinear_iterations
+                  << ", Jacobians=" << info.jacobian_setups
+                  << ", linear solves=" << info.linear_solves
+                  << ", error failures=" << info.error_test_failures
+                  << ", convergence failures=" << info.convergence_failures
+                  << std::endl;
+          }
+        if (output_)
+          output_(time, state, state_dot, step);
+      };
       pcout << "IDAAdapter: finalized with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
       connected_ = true;
+    }
+
+    static void
+    check_ida(const int status)
+    {
+      AssertThrow(status >= 0,
+                  dealii::ExcMessage("SUNDIALS IDA returned status " +
+                                     std::to_string(status)));
+    }
+
+    void
+    initialize_tolerances()
+    {
+      AssertThrow(current_state_ != nullptr,
+                  dealii::ExcMessage(
+                    "Use IDAAdapter::solve() with adapter-owned tolerances."));
+      absolute_tolerances_.reinit(*current_state_);
+      absolute_tolerances_ = additional_data().absolute_tolerance;
+      for (const auto &entry : local_tolerances_)
+        entry.second(composition_.field(absolute_tolerances_, entry.first));
+      absolute_tolerances_.compress(dealii::VectorOperation::insert);
+      bool valid = std::isfinite(additional_data().relative_tolerance) &&
+                   additional_data().relative_tolerance >= 0.;
+      const auto scales =
+        tolerance_ramp_.scales(additional_data().initial_time,
+                               additional_data().initial_time);
+      valid = valid && std::isfinite(additional_data().relative_tolerance *
+                                     scales.first);
+      for (const auto index : absolute_tolerances_.locally_owned_elements())
+        {
+          const double value = absolute_tolerances_[index];
+          valid              = valid && std::isfinite(value) && value > 0. &&
+                  std::isfinite(value * scales.second);
+        }
+      AssertThrow(
+        dealii::Utilities::MPI::min(valid ? 1 : 0,
+                                    composition_.communicator()) == 1,
+        dealii::ExcMessage(
+          "IDA absolute tolerances must be finite and positive on every rank."));
+      ramp_stop_armed_    = false;
+      ramp_stop_released_ = false;
+    }
+
+    void
+    compute_error_weights(const GlobalVectorType &state,
+                          GlobalVectorType       &weights)
+    {
+      double time;
+      check_ida(IDAGetCurrentTime(ida_->get_ida_memory(), &time));
+      const auto scales =
+        tolerance_ramp_.scales(additional_data().initial_time, time);
+      bool valid = std::isfinite(time);
+      for (const auto index : weights.locally_owned_elements())
+        {
+          const double value = state[index];
+          const double denominator =
+            additional_data().relative_tolerance * scales.first *
+              std::abs(value) +
+            scales.second * absolute_tolerances_[index];
+          weights[index] = 1. / denominator;
+          valid          = valid && std::isfinite(value) &&
+                  std::isfinite(weights[index]) && weights[index] > 0.;
+        }
+      weights.compress(dealii::VectorOperation::insert);
+      AssertThrow(dealii::Utilities::MPI::min(valid ? 1 : 0,
+                                              composition_.communicator()) == 1,
+                  dealii::ExcMessage(
+                    "Non-finite state or invalid IDA error weights."));
+      ++weight_evaluations_;
+    }
+
+    void
+    update_ramp_stop()
+    {
+      const auto &ramp = tolerance_ramp_;
+      if (!ramp.enabled)
+        return;
+      double time;
+      auto   memory = ida_->get_ida_memory();
+      check_ida(IDAGetCurrentTime(memory, &time));
+      const bool at_cutoff =
+        time >=
+        ramp.end_time -
+          IDAToleranceRamp::time_tolerance(additional_data().initial_time,
+                                           ramp.end_time);
+      if (!ramp_stop_armed_ && !at_cutoff)
+        {
+          check_ida(IDASetStopTime(memory, ramp.end_time));
+          ramp_stop_armed_ = true;
+        }
+      if (at_cutoff && !ramp_stop_released_)
+        {
+          check_ida(IDASetStopTime(memory, additional_data().final_time));
+          ramp_stop_released_ = true;
+        }
     }
 
     void
@@ -612,6 +836,7 @@ namespace ImmersX
                      const GlobalVectorType &state_dot,
                      const double            alpha)
     {
+      ++jacobian_setups_;
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
       const auto snapshot = composition_.make_snapshot(time, state, state_dot);
       const auto operator_view =
@@ -790,6 +1015,14 @@ namespace ImmersX
         }
     }
 
+    std::vector<std::pair<FieldId, std::function<void(FieldVectorType &)>>>
+                     local_tolerances_;
+    GlobalVectorType absolute_tolerances_;
+    IDAToleranceRamp tolerance_ramp_;
+    Statistics       accumulated_statistics_;
+    unsigned long    jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
+                  weight_evaluations_ = 0;
+    bool         ramp_stop_armed_ = false, ramp_stop_released_ = false;
     LinearSolver linear_solver_ = LinearSolver::iterative;
 #  ifdef DEAL_II_WITH_MUMPS
     std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;

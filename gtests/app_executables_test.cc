@@ -5,6 +5,7 @@
 #include <deal.II/base/mpi.h>
 
 #include <gtest/gtest.h>
+#include <immersx/config.h>
 
 #include <cmath>
 #include <cstdlib>
@@ -519,3 +520,166 @@ TEST(AppExecutables, TutorialFiberReinforcedElastodynamics)
   EXPECT_TRUE(has_fiber_state);
   EXPECT_TRUE(has_multiplier);
 }
+
+TEST(AppExecutables, PoissonAdapterReferenceCells)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("poisson_adapter",
+                         "gtests/parameters/poisson_adapter_simplex.prm");
+  run_app_with_parameter("poisson_adapter",
+                         "gtests/parameters/poisson_adapter_hypercube.prm");
+}
+
+TEST(AppExecutables, ElasticStaticSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elastic_static",
+                         "gtests/parameters/elastic_static_simplex.prm");
+}
+
+TEST(AppExecutables, ElasticStaticAdapterReferenceCells)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elastic_static_adapter",
+                         "gtests/parameters/elastic_static_simplex.prm");
+  run_app_with_parameter("elastic_static_adapter",
+                         "gtests/parameters/elastic_static_hypercube.prm");
+}
+
+#ifdef DEAL_II_WITH_SUNDIALS
+TEST(AppExecutables, ElastodynamicsAdapterReferenceCells)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter(
+    "elastodynamics_adapter",
+    "gtests/parameters/elastodynamics_adapter_simplex.prm");
+  run_app_with_parameter(
+    "elastodynamics_adapter",
+    "gtests/parameters/elastodynamics_adapter_hypercube.prm");
+}
+
+#endif
+
+TEST(AppExecutables, ElastodynamicsSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elastodynamics",
+                         "gtests/parameters/elastodynamics_simplex.prm");
+}
+
+TEST(AppExecutables, ElasticityFreqSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elasticity_freq",
+                         "gtests/parameters/elasticity_freq_simplex.prm");
+}
+
+TEST(AppExecutables, ElasticitySimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elasticity",
+                         "gtests/parameters/elasticity_simplex.prm");
+}
+
+TEST(AppExecutables, ElasticityExplicitSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("elasticity_explicit",
+                         "gtests/parameters/elasticity_explicit_simplex.prm");
+}
+
+TEST(AppExecutables, LaplacianSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("laplacian",
+                         "gtests/parameters/laplacian_simplex.prm");
+}
+
+TEST(AppExecutables, NavierStokesSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("navier_stokes",
+                         "gtests/parameters/navier_stokes_simplex.prm");
+}
+
+TEST(AppExecutables, ReducedPoissonSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter(
+    "reduced_poisson", "gtests/parameters/reduced_poisson_simplex_line_3d.prm");
+  run_app_with_parameter(
+    "reduced_poisson",
+    "gtests/parameters/reduced_poisson_simplex_point_3d.prm");
+}
+
+TEST(AppExecutables, LiftedPoissonSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("lifted_poisson",
+                         "gtests/parameters/lifted_poisson_simplex.prm");
+}
+
+TEST(AppExecutables, LiftedElasticitySimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("lifted_elasticity",
+                         "gtests/parameters/lifted_elasticity_simplex.prm");
+}
+
+TEST(AppExecutables, CoupledPoissonSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("coupled_poisson",
+                         "gtests/parameters/coupled_poisson_simplex.prm");
+}
+
+TEST(AppExecutables, CoupledPoissonElasticitySimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter(
+    "coupled_poisson_elasticity",
+    "gtests/parameters/coupled_poisson_elasticity_simplex.prm");
+}
+
+TEST(AppExecutables, FiberReinforcedSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("fiber_reinforced_elastodynamics",
+                         "gtests/parameters/fiber_reinforced_simplex_3d.prm");
+}
+
+TEST(AppExecutables, FiberHarmonicSimplex)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("fiber_reinforced_elasticity_freq",
+                         "gtests/parameters/fiber_harmonic_simplex_23.prm");
+  run_app_with_parameter("fiber_reinforced_elasticity_freq",
+                         "gtests/parameters/fiber_harmonic_simplex_33.prm");
+}
+
+#if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
+TEST(AppExecutables, MetricFlowXSegments)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  run_app_with_parameter("metric_flow_x",
+                         "gtests/parameters/metric_flow_x.prm");
+}
+#endif

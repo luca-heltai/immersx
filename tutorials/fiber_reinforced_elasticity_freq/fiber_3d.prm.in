@@ -1,0 +1,82 @@
+# Matrix and additive/excess reinforcement under harmonic traction.
+set dimension = 1
+set space dimension = 3
+
+subsection Fiber Reinforced Elasticity Frequency
+  set Formulation = independent
+  set Frequencies = 0, 0.1, 0.2
+  set Output directory = @TEST_OUTPUT_DIR@/tutorial-output/fiber-reinforced-elasticity-frequency-fiber-3d
+  set Multiplier FE degree = 0
+
+  subsection Lift
+    set Thickness = 0.1
+  end
+
+  subsection Solver
+    set Solver = direct
+  end
+
+  subsection Matrix
+    set FE degree = 1
+    set Initial refinement = 2
+    set Dirichlet boundary ids = 0
+    set Neumann boundary ids = 1
+    subsection Grid generation
+      set Grid generator = hyper_cube
+      set Grid generator arguments = -1: 1: true
+      set Triangulation type = distributed
+    end
+    subsection Material properties
+      subsection default
+        set Lame mu = 1
+        set Lame lambda = 1
+        set Density = 1
+        set Viscosity eta = 0.05
+        set Rayleigh alpha = 0.1
+        set Rayleigh beta = 0.001
+      end
+    end
+    subsection Frequency domain
+      set Neumann phase = 15
+    end
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 0; 0; 0
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0; 0; 0
+      end
+      subsection Neumann boundary conditions
+        set Function expression = 1; 0; 0
+      end
+    end
+  end
+
+  subsection Fiber
+    set FE degree = 1
+    set Initial refinement = 1
+    set Dirichlet boundary ids =
+    set Neumann boundary ids =
+    subsection Grid generation
+      set Grid generator = hyper_cube
+      set Grid generator arguments = -0.65: 0.65: true
+      set Triangulation type = fullydistributed
+    end
+    subsection Material properties
+      subsection default
+        # Additive/excess coefficients per unit reinforcement volume.
+        set Lame mu = 8
+        set Lame lambda = 8
+        set Density = 0.2
+        set Viscosity eta = 0.05
+        set Rayleigh alpha = 0.1
+        set Rayleigh beta = 0.001
+      end
+    end
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 0; 0; 0
+      end
+    end
+  end
+end

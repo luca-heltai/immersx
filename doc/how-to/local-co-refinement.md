@@ -9,6 +9,11 @@ The utility retains imported local fields while refining and partitions
 `fullydistributed` meshes only after all adjustments have finished. It does not
 transfer an application's solution or refine an already finalized domain.
 
+Uniform triangle and tetrahedron meshes use matching reference-cell mappings.
+Set their Domain backend to `fullydistributed`; the serial preparation mesh
+can be refined before distribution. Simplex preparation disables deal.II's
+hypercube smoothing rules. Imported point and cell fields follow refinement.
+
 ## Ordinary usage
 
 This example assumes that `line.vtk` contains an array named `thickness`.

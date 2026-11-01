@@ -52,6 +52,8 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ElasticityCouplingIntegration
     ElasticityCouplingParticleOutput
     Elastodynamics
+    ElasticityFreq
+    FiberReinforcedElasticityFreq
     ImportedFiniteElementFields
     Domain
     LocalCoRefinement
@@ -76,6 +78,9 @@ set(IMMERSX_VALIDATION_TEST_SUITES
     ElasticityCoupling
     ElasticStaticProblemValidation
     ElasticityValidation
+    ElasticityExplicitValidation
+    LaplacianValidation
+    ReducedPoissonValidation
     ElasticityTensorProductCouplingValidation
     TriangulationBackendsValidation/*
     ElastodynamicsValidation

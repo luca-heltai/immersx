@@ -1,0 +1,59 @@
+# vtk DataFile Version 3.0
+Two vessels in opposite background octants, with separate RCR outlets
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 4 double
+-0.15 -0.12 -0.12
+-0.09 -0.12 -0.12
+0.09 0.12 0.12
+0.15 0.12 0.12
+CELLS 2 6
+2 0 1
+2 2 3
+CELL_TYPES 2
+3
+3
+CELL_DATA 2
+SCALARS vessel_id double 1
+LOOKUP_TABLE default
+0 1
+SCALARS a0 double 1
+LOOKUP_TABLE default
+0.0001 0.0002
+SCALARS a_d double 1
+LOOKUP_TABLE default
+0.0001 0.0002
+SCALARS E double 1
+LOOKUP_TABLE default
+400000.0 400000.0
+SCALARS h_wall double 1
+LOOKUP_TABLE default
+0.0012 0.0012
+SCALARS p_d double 1
+LOOKUP_TABLE default
+0 0
+SCALARS p0 double 1
+LOOKUP_TABLE default
+0 0
+SCALARS L double 1
+LOOKUP_TABLE default
+0.06 0.06
+SCALARS r_d double 1
+LOOKUP_TABLE default
+0.005641895835477563 0.007978845608028654
+POINT_DATA 4
+SCALARS boundary_id double 1
+LOOKUP_TABLE default
+0 1 0 2
+SCALARS R1 double 1
+LOOKUP_TABLE default
+0 11752000.0 0 11752000.0
+SCALARS R2 double 1
+LOOKUP_TABLE default
+0 111670000.0 0 111670000.0
+SCALARS C double 1
+LOOKUP_TABLE default
+0 1.0163e-08 0 2.0326e-08
+SCALARS P_out double 1
+LOOKUP_TABLE default
+0 0 0 0

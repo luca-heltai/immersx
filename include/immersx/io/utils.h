@@ -173,12 +173,11 @@ namespace ImmersX
    */
   template <int spacedim>
   void
-  refine_space_around_points(
-    parallel::TriangulationBase<spacedim> &space_triangulation,
-    const std::vector<Point<spacedim>>    &local_points,
-    const std::vector<double>             &local_scales,
-    const RefinementParameters<0>         &parameters,
-    const MPI_Comm                         mpi_communicator)
+  refine_space_around_points(Triangulation<spacedim> &space_triangulation,
+                             const std::vector<Point<spacedim>> &local_points,
+                             const std::vector<double>          &local_scales,
+                             const RefinementParameters<0>      &parameters,
+                             const MPI_Comm mpi_communicator)
   {
     AssertDimension(local_points.size(), local_scales.size());
     AssertThrow(parameters.refinement_factor > 0.,
@@ -216,11 +215,7 @@ namespace ImmersX
         if (cell->is_locally_owned() &&
             cell->level() < parameters.max_refinement_level)
           {
-            std::vector<Point<spacedim>> vertices(
-              GeometryInfo<spacedim>::vertices_per_cell);
-            for (unsigned int vertex = 0; vertex < vertices.size(); ++vertex)
-              vertices[vertex] = cell->vertex(vertex);
-            const BoundingBox<spacedim> cell_box(vertices);
+            const auto cell_box              = cell->bounding_box();
             const auto &[cell_min, cell_max] = cell_box.get_boundary_points();
             const double cell_diameter       = cell_min.distance(cell_max);
             for (unsigned int point = 0; point < points.size(); ++point)

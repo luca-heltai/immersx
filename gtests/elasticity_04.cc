@@ -201,7 +201,8 @@ TEST(ElasticityValidation, BOTH_PaperAxisSymmetricAdaptiveRefinement)
 // The multiplier gives their difference. With "Remove interior stress from
 // pressure" the computed pressure adds back the inside stress, and it is the
 // outside stress. The finite element error of the multiplier at refinement 6
-// is about one percent of the jump (see BOTH_PaperAxisSymmetricGlobalConvergence).
+// is about one percent of the jump (see
+// BOTH_PaperAxisSymmetricGlobalConvergence).
 TEST(ElasticityValidation, BOTH_PaperAxisSymmetricPressure)
 {
   constexpr double ri = 0.2, R = 1., ubar = 0.1, lambda = 3., mu = 1.;
@@ -239,8 +240,7 @@ TEST(ElasticityValidation, BOTH_PaperAxisSymmetricPressure)
 
     const auto &p = problem.pressure_at_immersed_surface;
     EXPECT_EQ(p.size(), 1u);
-    return Utilities::MPI::sum(p.in_local_range(0) ? p[0] : 0.,
-                               MPI_COMM_WORLD);
+    return Utilities::MPI::sum(p.in_local_range(0) ? p[0] : 0., MPI_COMM_WORLD);
   };
 
   const double jump   = pressure(false);

@@ -366,7 +366,12 @@ namespace ImmersX
       solve_with_current_direct(state);
     }
 
-    /** Reuse an explicitly prepared direct factorization. */
+    /** Reuse an explicitly prepared direct factorization.
+     * For the default direct backend, apply one residual correction with the
+     * same factorization if its absolute residual exceeds Tolerance. This
+     * bounded refinement reduces LU roundoff; it does not guarantee convergence
+     * to an arbitrary requested tolerance.
+     */
     void
     solve_with_current_direct(GlobalVectorType &state) const
     {
@@ -397,7 +402,21 @@ namespace ImmersX
         mumps_solver_->vmult(solution, rhs);
       else
 #endif
-        direct_solver_->solve(solution, rhs);
+        {
+          direct_solver_->solve(solution, rhs);
+          // A successful LU solve can still lose accuracy on saddle-point
+          // systems. Refine once with the cached matrix and factorization, so
+          // explicit factorization reuse also corrects the saved system.
+          auto defect = rhs;
+          direct_matrix_->vmult(defect, solution);
+          defect.sadd(-1., 1., rhs);
+          if (defect.l2_norm() > parameters_.tolerance)
+            {
+              auto correction = composition_.pack(result);
+              direct_solver_->solve(correction, defect);
+              solution += correction;
+            }
+        }
       composition_.unpack(solution, state);
       pcout << "LinearAdapter: direct solve finished." << std::endl;
     }

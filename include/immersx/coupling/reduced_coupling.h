@@ -47,6 +47,7 @@
 #include <immersx/io/utils.h>
 
 #include <fstream>
+#include <functional>
 #include <map>
 
 namespace ImmersX
@@ -146,11 +147,22 @@ namespace ImmersX
 
     /**
      * @brief Initialize the tensor product space and particle coupling.
-     * @param mapping The mapping to use (default: StaticMappingQ1).
+     * @param mapping The background geometry mapping.
      */
     void
-    initialize(
-      const Mapping<spacedim> &mapping = StaticMappingQ1<spacedim>::mapping);
+    initialize(const Mapping<spacedim> &mapping);
+
+    /** Optional preparation of a 0D background before particle ownership.
+     * The default refines the existing background. A Problem may instead
+     * refine a serial preparation mesh and finalize its distributed Domain.
+     */
+    std::function<void(const std::vector<Point<spacedim>> &,
+                       const std::vector<double> &)>
+      prepare_point_cloud_background;
+
+    /** Initialize using the background mesh's linear reference-cell mapping. */
+    void
+    initialize();
 
     /**
      * @brief Set the time used by the reduced right-hand-side function.
@@ -190,6 +202,18 @@ namespace ImmersX
       MatrixType                      &coupling_matrix,
       const DoFHandler<spacedim>      &dh,
       const AffineConstraints<double> &constraints) const;
+
+    /** Assemble the matrix and add the load from prescribed background values.
+     * reduced_rhs must already be initialized on the representative DoFs.
+     * Its prescribed data are retained; the affine background action is
+     * subtracted before the distributed vector is compressed.
+     */
+    template <typename MatrixType, typename VectorType>
+    void
+    assemble_coupling_matrix(MatrixType                      &coupling_matrix,
+                             const DoFHandler<spacedim>      &dh,
+                             const AffineConstraints<double> &constraints,
+                             VectorType &reduced_rhs) const;
 
     /**
      * @brief Assemble the mass matrix of the multiplier space.
@@ -234,6 +258,13 @@ namespace ImmersX
     get_coupling_constraints() const;
 
   private:
+    template <typename MatrixType, typename VectorType>
+    void
+    assemble_coupling_matrix_impl(MatrixType                 &coupling_matrix,
+                                  const DoFHandler<spacedim> &dh,
+                                  const AffineConstraints<double> &constraints,
+                                  VectorType *reduced_rhs) const;
+
     /**
      * @brief The MPI communicator used for parallel operations.
      */
@@ -279,10 +310,56 @@ namespace ImmersX
   template <typename MatrixType>
   inline void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_coupling_matrix(MatrixType                      &coupling_matrix,
+    assemble_coupling_matrix(MatrixType                      &matrix,
                              const DoFHandler<spacedim>      &dh,
                              const AffineConstraints<double> &constraints) const
   {
+    assemble_coupling_matrix_impl(matrix,
+                                  dh,
+                                  constraints,
+                                  static_cast<Vector<double> *>(nullptr));
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename MatrixType, typename VectorType>
+  inline void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_coupling_matrix(MatrixType                      &matrix,
+                             const DoFHandler<spacedim>      &dh,
+                             const AffineConstraints<double> &constraints,
+                             VectorType                      &rhs) const
+  {
+    assemble_coupling_matrix_impl(matrix, dh, constraints, &rhs);
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename MatrixType, typename VectorType>
+  inline void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_coupling_matrix_impl(MatrixType                 &coupling_matrix,
+                                  const DoFHandler<spacedim> &dh,
+                                  const AffineConstraints<double> &constraints,
+                                  VectorType *reduced_rhs) const
+  {
+    const auto add_affine_load =
+      [&](const FullMatrix<double>                   &local,
+          const std::vector<types::global_dof_index> &background_indices,
+          const std::vector<types::global_dof_index> &reduced_indices) {
+        if (reduced_rhs == nullptr)
+          return;
+        Vector<double> local_rhs(reduced_indices.size());
+        for (unsigned int i = 0; i < background_indices.size(); ++i)
+          {
+            const double prescribed =
+              constraints.get_inhomogeneity(background_indices[i]);
+            if (prescribed != 0.)
+              for (unsigned int j = 0; j < reduced_indices.size(); ++j)
+                local_rhs[j] -= local(i, j) * prescribed;
+          }
+        coupling_constraints.distribute_local_to_global(local_rhs,
+                                                        reduced_indices,
+                                                        *reduced_rhs);
+      };
     if constexpr (reduced_dim == 0)
       {
         const auto                          &fe = dh.get_fe();
@@ -315,14 +392,13 @@ namespace ImmersX
                       particle.get_properties()[0];
                   }
               }
+            add_affine_load(local, background_dof_indices, entity_dofs);
             constraints.distribute_local_to_global(local,
                                                    background_dof_indices,
                                                    coupling_constraints,
                                                    entity_dofs,
                                                    coupling_matrix);
           }
-        coupling_matrix.compress(VectorOperation::add);
-        return;
       }
     else
       {
@@ -395,6 +471,9 @@ namespace ImmersX
               {
                 const auto &immersed_dof_indices =
                   this->get_dof_indices(immersed_cell_id);
+                add_affine_load(local_coupling_matrix,
+                                background_dof_indices,
+                                immersed_dof_indices);
                 constraints.distribute_local_to_global(local_coupling_matrix,
                                                        background_dof_indices,
                                                        coupling_constraints,
@@ -405,6 +484,8 @@ namespace ImmersX
           }
       }
     coupling_matrix.compress(VectorOperation::add);
+    if (reduced_rhs != nullptr)
+      reduced_rhs->compress(VectorOperation::add);
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
@@ -646,13 +727,12 @@ namespace ImmersX
                   {
                     const auto comp_i =
                       fe_values.get_fe().system_to_component_index(i).first;
-                    local_rhs(i) +=
-                      rhs_values[q][comp_i] * fe_values.shape_value(i, q) *
-                      JxW[q] *
-                      this->get_reference_cross_section().measure(
-                        thickness_values[q]) *
-                      this->get_reference_cross_section()
-                        .get_basis_mean_squares()[comp_i];
+                    local_rhs(i) += rhs_values[q][comp_i] *
+                                    fe_values.shape_value(i, q) * JxW[q] *
+                                    this->get_reference_cross_section().measure(
+                                      thickness_values[q]) *
+                                    this->get_reference_cross_section()
+                                      .get_basis_mean_squares()[comp_i];
                   }
               cell->get_dof_indices(dof_indices);
               coupling_constraints.distribute_local_to_global(local_rhs,

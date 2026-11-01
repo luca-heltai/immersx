@@ -29,17 +29,46 @@
 
 namespace ImmersX
 {
-  template <int dim, int spacedim>
-  ElasticityFreqProblemParameters<dim,
-                                  spacedim>::ElasticityFreqProblemParameters()
-    : ParameterAcceptor("/Immersed Problem/")
-    , rhs("/Functions/Right hand side", spacedim)
-    , bc("/Functions/Dirichlet boundary conditions", spacedim)
-    , Neumann_bc("/Functions/Neumann boundary conditions", spacedim)
-    , displacement_solver_control("/Solvers/Displacement")
+  namespace
   {
+    std::string
+    harmonic_section(const std::string &section)
+    {
+      return MaterialProperties::normalize_subsection(section);
+    }
+
+    std::string
+    harmonic_auxiliary_section(const std::string &section)
+    {
+      return harmonic_section(section) == "/Immersed Problem/" ?
+               "/" :
+               harmonic_section(section);
+    }
+  } // namespace
+
+  template <int dim, int spacedim>
+  ElasticityFreqProblemParameters<dim, spacedim>::
+    ElasticityFreqProblemParameters(const std::string   &subsection,
+                                    std::vector<double> *shared_frequencies)
+    : ParameterAcceptor(harmonic_section(subsection))
+    , domain_parameters(harmonic_section(subsection) + "Grid generation/")
+    , frequencies(shared_frequencies != nullptr ? *shared_frequencies :
+                                                  owned_frequencies)
+    , default_material_properties("default",
+                                  harmonic_section(subsection) +
+                                    "Material properties/")
+    , function_prefix(harmonic_auxiliary_section(subsection) + "Functions/")
+    , material_prefix(harmonic_section(subsection) + "Material properties/")
+    , rhs(function_prefix + "Right hand side", spacedim)
+    , bc(function_prefix + "Dirichlet boundary conditions", spacedim)
+    , Neumann_bc(function_prefix + "Neumann boundary conditions", spacedim)
+    , displacement_solver_control(harmonic_auxiliary_section(subsection) +
+                                  "Solvers/Displacement")
+  {
+    domain_parameters.initial_refinement = 5;
     enter_subsection("Frequency domain");
-    add_parameter("Frequencies", frequencies);
+    if (shared_frequencies == nullptr)
+      add_parameter("Frequencies", frequencies);
     add_parameter("Dirichlet phase", dirichlet_phase);
     add_parameter("Neumann phase", neumann_phase);
     add_parameter("Rhs phase", rhs_phase);
@@ -51,7 +80,9 @@ namespace ImmersX
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
-    add_parameter("Initial refinement", initial_refinement);
+    add_parameter("Initial refinement",
+                  initial_refinement,
+                  "Alias for Grid generation/Initial refinement.");
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
     add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);
     add_parameter("Weak Dirichlet penalty coefficient", penalty_term);
@@ -65,14 +96,6 @@ namespace ImmersX
                     "",
                     this->prm,
                     Patterns::Selection("generate|file|cheese|cylinder"));
-      add_parameter("Triangulation type",
-                    triangulation_type,
-                    "",
-                    this->prm,
-                    Patterns::Selection("distributed|fullydistributed"));
-      add_parameter("Grid generator", name_of_grid);
-      add_parameter("Grid generator arguments", arguments_for_grid);
-      add_parameter("Grid scale", grid_scale);
     }
     leave_subsection();
     enter_subsection("Refinement and remeshing");
@@ -101,6 +124,12 @@ namespace ImmersX
     }
 
     this->parse_parameters_call_back.connect([this]() {
+      // Keep both input aliases in saved files consistent with the actual mesh.
+      const std::string refinement = std::to_string(initial_refinement);
+      this->prm.set("Initial refinement", refinement);
+      this->prm.enter_subsection("Grid generation");
+      this->prm.set("Initial refinement", refinement);
+      this->prm.leave_subsection();
       // Ensure output directory exists.
       {
         namespace fs = std::filesystem;
@@ -212,7 +241,7 @@ namespace ImmersX
         ensure_function_overrides(rhs_material_ids,
                                   rhs_by_material_id,
                                   rhs,
-                                  "/Functions/Right hand side");
+                                  function_prefix + "Right hand side");
 
         std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
         dirichlet_bc_ids.insert(weak_dirichlet_ids.begin(),
@@ -220,14 +249,16 @@ namespace ImmersX
         ensure_function_overrides(dirichlet_bc_ids,
                                   dirichlet_bc_by_id,
                                   bc,
-                                  "/Functions/Dirichlet boundary conditions");
+                                  function_prefix +
+                                    "Dirichlet boundary conditions");
 
         std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
         neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
         ensure_function_overrides(neumann_bc_ids,
                                   neumann_bc_by_id,
                                   Neumann_bc,
-                                  "/Functions/Neumann boundary conditions");
+                                  function_prefix +
+                                    "Neumann boundary conditions");
 
         this->enter_my_subsection(this->prm);
       }
@@ -245,7 +276,7 @@ namespace ImmersX
           for (const auto &[material_id, tag] : material_tags_by_material_id)
             {
               material_properties_by_id[material_id] =
-                std::make_unique<MaterialProperties>(tag);
+                std::make_unique<MaterialProperties>(tag, material_prefix);
             }
           // Go back to our subsection, so we can continue parsing parameters.
           this->enter_my_subsection(this->prm);
@@ -425,6 +456,9 @@ namespace ImmersX
   }
 
 
+  template class ElasticityFreqProblemParameters<1>;
+  template class ElasticityFreqProblemParameters<1, 2>;
+  template class ElasticityFreqProblemParameters<1, 3>;
   template class ElasticityFreqProblemParameters<2>;
   template class ElasticityFreqProblemParameters<2, 3>; // dim != spacedim
   template class ElasticityFreqProblemParameters<3>;

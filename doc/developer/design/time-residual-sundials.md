@@ -77,9 +77,14 @@ controls.linear_tolerance_factor = 0.05;
 ida.set_additional_data(controls);
 ```
 
-The compatibility `AdditionalData::add_parameters()` exposes all upstream
-controls when used directly with a `ParameterHandler`; the adapter's
-`IDAParameters` continues to expose its existing parameter-file subset.
+Both `IDAParameters` and the compatibility
+`AdditionalData::add_parameters()` expose all backported solver controls.
+The adapter keeps the simulation interval in `TimeIntervalParameters`.
+The `Running parameters` subsection includes minimum/maximum step sizes,
+the internal-step limit per output, and error/convergence failure limits.
+The `Nonlinear solver`, `Linear solver`, `Step adaptivity`, and
+`Initial condition correction parameters` subsections expose the remaining
+Newton, linear solve, step-growth, and initial-correction controls.
 Adaptivity controls require SUNDIALS 6.2 or newer; the constraint-failure limit
 requires 7.6 or newer.
 
@@ -104,6 +109,103 @@ can update both vectors when the correction type is `use_y_diff`. The optional
 change and request an IDA restart. These callbacks operate on execution
 vectors; updating Problem-owned matrices, constraints, and accepted state is
 the application's responsibility.
+
+### Local absolute tolerances and startup ramp
+
+The default error control uses one absolute tolerance and one relative
+tolerance. Assign an absolute tolerance to a semantic Field before solver
+initialization when its physical scale differs from the other Fields:
+
+```cpp
+ida.set_absolute_tolerance(fields.fields().displacement, 1.e-8);
+ida.set_local_tolerances(fields.fields().velocity,
+  [&problem](FieldVector &absolute) {
+    problem.fill_velocity_absolute_tolerances(absolute);
+  });
+```
+
+`fill_velocity_absolute_tolerances` is an application callback in this example.
+It writes positive, finite absolute tolerances on locally owned entries. It
+may use reference geometry or physical coefficients owned by the Problem.
+The adapter calls it on each initialization and restart, with the current
+Field layout. Fields without an override use the scalar absolute tolerance.
+Relative tolerance remains scalar. Do not use execution block indices to
+assign physical tolerances.
+
+The optional startup ramp relaxes the configured tolerances, holds them for a
+specified duration, then tightens them geometrically. The following example
+uses the standard `/IDA/` subsection:
+
+```text
+subsection Time interval
+  set Initial time = 0
+  set Final time = 1
+  set Output time interval = 0.01
+end
+subsection IDA
+  set Print current statistics = true
+  subsection Error control
+    set Absolute error tolerance = 1e-8
+    set Relative error tolerance = 1e-6
+  end
+  subsection Running parameters
+    set Maximum step size = 0.01
+    set Maximum number of steps = 2000
+  end
+  subsection Tolerance ramp
+    set Enabled = true
+    set Initial relative factor = 100
+    set Initial absolute factor = 10
+    set Hold duration = 0.05
+    set End time = 0.2
+  end
+end
+```
+
+`Hold duration` is measured from the simulation's initial time; `End time`
+is an absolute physical time. The end must be after the hold, no later than
+the final time, and on the output grid configured by `TimeIntervalParameters`.
+Both initial factors must be finite and at least one. Disabled ramps leave
+scalar error control unchanged unless Field tolerances are configured.
+
+The inverse error weights are
+
+```{math}
+w_i(t,y) = \frac{1}{s_a(t)\,a_i+s_r(t)\,r\,|y_i|},
+```
+
+where $a_i$ is the Field-local or scalar absolute tolerance, $r$ is the scalar
+relative tolerance, and $s_a,s_r$ are the ramp multipliers. Weights use IDA's
+internal time. Output values can be interpolated at earlier times, so output
+time and internal time need not coincide.
+
+Changing weights does not restart IDA or discard its BDF history. The adapter
+sets a stop at the ramp end, then restores the final stop time, including
+when no application output callback is installed. After a genuine application
+restart the ramp continues on the original physical timeline.
+
+The adapter installs its weight and setup callbacks when local tolerances or
+the ramp are enabled. Use `IDAAdapter::solve()` and keep these callbacks
+intact; replacing them through `solver()` bypasses adapter bookkeeping.
+No wrapper-owned userdata is replaced. Callback exceptions are captured before
+returning through the SUNDIALS C interface and rethrown in C++.
+
+### Statistics and failure handling
+
+`ida.statistics()` returns internal steps, residual evaluations, nonlinear
+iterations, Jacobian setups, linear solve calls, error/convergence failures,
+restart count, weight evaluations, current order, last step size, internal
+time, and current ramp multipliers. Work counters accumulate across
+adapter-managed restarts. Statistics are also maintained without application
+output. `Print current statistics` prints progress at every output callback;
+its default is false.
+
+`solve()` returns the accumulated internal step count. Output callback counts
+are different: IDA can interpolate several output states from its internal
+history. The first callback uses the configured initial time, including when
+it is nonzero. Native setup and integration failures throw in both Debug and
+Release builds. Empty MPI ranks participate in weight validation and vector
+minimum reductions.
 
 ## KINSOL
 

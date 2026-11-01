@@ -721,7 +721,8 @@ namespace ImmersX::Compatibility
           auto cloned = new NVectorContent<VectorType>(
             get_mpi_communicator_from_vector(*w_dealii));
 
-          // Then also copy the structure and values:
+          // Pooled vectors may retain a different block layout.
+          cloned->get()->reinit(*w_dealii, true);
           *cloned->get() = *w_dealii;
 
           // Finally set the cloned object in 'v':
@@ -1172,11 +1173,15 @@ namespace ImmersX::Compatibility
 
           auto local_elements = vector->locally_owned_elements();
 
-          const auto local_min = *std::min_element(local_elements.begin(),
-                                                   local_elements.end(),
-                                                   indexed_less_than);
+          const auto local_min = std::min_element(local_elements.begin(),
+                                                  local_elements.end(),
+                                                  indexed_less_than);
+          const auto value =
+            local_min == local_elements.end() ?
+              std::numeric_limits<typename VectorType::value_type>::max() :
+              (*vector)[*local_min];
           return ::dealii::Utilities::MPI::min(
-            (*vector)[local_min], get_mpi_communicator<VectorType>(x));
+            value, get_mpi_communicator<VectorType>(x));
         }
 
 

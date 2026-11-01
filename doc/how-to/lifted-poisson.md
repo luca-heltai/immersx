@@ -90,10 +90,10 @@ selection, or constraint master structure requires rebuilding the lifted
 observable and interaction.
 
 Scalar and [vector static elasticity](lifted-static-elasticity) use the same
-lifted weak assembly. Ordinary lifted weak terms keep a collective static-data
-guard. `LiftedMultiplierInteraction` explicitly enables source offset updates
-with `with_lifted_affine_updates()`; vector terms can use the same opt-in.
-Constraint master entries and target affine data remain fixed in either case.
+weak-term affine contribution storage. Scalar and vector terms automatically
+read the current source offsets when evaluating the residual. No opt-in is
+needed in either the weak term or `LiftedMultiplierInteraction`. Constraint
+indices and master coefficients must remain fixed while reusing the matrix.
 The combined implementation includes the field-preserving co-refinement from
 [PR #259](https://github.com/luca-heltai/immersx/pull/259), static elasticity from
 [PR #262](https://github.com/luca-heltai/immersx/pull/262), and the reindexed

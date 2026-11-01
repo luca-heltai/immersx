@@ -20,6 +20,12 @@ files. These inputs use the corrected momentum and continuity rows, with the
 native pressure feedback described in the tutorial. The application does not
 compute their errors automatically.
 
+The default cube inputs prescribe exact time-dependent displacement and velocity
+on the outer boundary. `mms_cube_neumann.prm.in` and
+`mms_cube_neumann_refined.prm.in` retain the exact-traction version on the base
+and refined meshes. They use separate output directories so both boundary
+choices can be compared.
+
 `mms_cube_mumps.prm.in` selects native `dealii::SparseDirectMUMPS` for serial
 or MPI runs. It requires deal.II configured with `DEAL_II_WITH_MUMPS`.
 

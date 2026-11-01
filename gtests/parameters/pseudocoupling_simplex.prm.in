@@ -1,0 +1,4 @@
+include @IMMERSX_BINARY_DIR@/gtests/parameters/coupled_elasticity_simplex.prm
+subsection Immersed Problem
+  set Output directory = @TEST_OUTPUT_DIR@/pseudo-tissue-simplex
+end

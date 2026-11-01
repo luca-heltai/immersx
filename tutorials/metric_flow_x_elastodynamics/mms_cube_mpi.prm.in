@@ -2,9 +2,9 @@
 include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
 
 subsection Elastodynamics
-  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mpi-resolved/solid
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mpi-resolved
 end
 
 subsection MetricFlowSystem<1, 3>
-  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mpi-resolved/flow
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mpi-resolved
 end

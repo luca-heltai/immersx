@@ -45,6 +45,7 @@
 
 #  include <iomanip>
 #  include <iostream>
+#  include <utility>
 
 
 #endif // DEAL_II_WITH_SUNDIALS
@@ -136,7 +137,7 @@ namespace ImmersX::Compatibility
 
       double next_time = data.initial_time;
 
-      output_step(0, solution, solution_dot, 0);
+      output_step(data.initial_time, solution, solution_dot, 0);
 
       while (t < data.final_time)
         {
@@ -183,7 +184,7 @@ namespace ImmersX::Compatibility
           AssertThrow(status >= 0, ExcIDAError(status));
 
           status = IDAGetLastStep(ida_mem, &h);
-          Assert(status >= 0, ExcIDAError(status));
+          AssertThrow(status >= 0, ExcIDAError(status));
 
           while (solver_should_restart(t, solution, solution_dot))
             reset(t, h, solution, solution_dot);
@@ -194,7 +195,7 @@ namespace ImmersX::Compatibility
         }
       long int n_steps;
       status = IDAGetNumSteps(ida_mem, &n_steps);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       return n_steps;
     }
 
@@ -214,24 +215,24 @@ namespace ImmersX::Compatibility
 
 #  if DEAL_II_SUNDIALS_VERSION_GTE(7, 0, 0)
       status = SUNContext_Free(&ida_ctx);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       // Same comment applies as in class constructor:
       status =
         SUNContext_Create(mpi_communicator == MPI_COMM_SELF ? SUN_COMM_NULL :
                                                               mpi_communicator,
                           &ida_ctx);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  elif DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
       status = SUNContext_Free(&ida_ctx);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       // Same comment applies as in class constructor:
       status =
         SUNContext_Create(mpi_communicator == MPI_COMM_SELF ? nullptr :
                                                               &mpi_communicator,
                           &ida_ctx);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  endif
 
       if (ida_mem)
@@ -283,8 +284,21 @@ namespace ImmersX::Compatibility
         current_time,
         yy,
         yp);
-      Assert(status >= 0, ExcIDAError(status));
-      if (get_local_tolerances)
+      AssertThrow(status >= 0, ExcIDAError(status));
+      if (compute_error_weights)
+        {
+          status = IDAWFtolerances(
+            ida_mem, [](N_Vector y, N_Vector weights, void *user_data) -> int {
+              auto &solver = *static_cast<IDA<VectorType> *>(user_data);
+              return Utilities::call_and_possibly_capture_exception(
+                solver.compute_error_weights,
+                solver.pending_exception,
+                *internal::unwrap_nvector_const<VectorType>(y),
+                *internal::unwrap_nvector<VectorType>(weights));
+            });
+          AssertThrow(status >= 0, ExcIDAError(status));
+        }
+      else if (get_local_tolerances)
         {
           const auto abs_tols =
             internal::make_nvector_view(get_local_tolerances()
@@ -294,21 +308,21 @@ namespace ImmersX::Compatibility
 #  endif
             );
           status = IDASVtolerances(ida_mem, data.relative_tolerance, abs_tols);
-          Assert(status >= 0, ExcIDAError(status));
+          AssertThrow(status >= 0, ExcIDAError(status));
         }
       else
         {
           status = IDASStolerances(ida_mem,
                                    data.relative_tolerance,
                                    data.absolute_tolerance);
-          Assert(status >= 0, ExcIDAError(status));
+          AssertThrow(status >= 0, ExcIDAError(status));
         }
 
       status = IDASetInitStep(ida_mem, current_time_step);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       status = IDASetUserData(ida_mem, this);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       if (data.ic_type == AdditionalData::use_y_diff ||
           data.reset_type == AdditionalData::use_y_diff ||
@@ -327,36 +341,36 @@ namespace ImmersX::Compatibility
 #  endif
           );
           status = IDASetId(ida_mem, diff_id);
-          Assert(status >= 0, ExcIDAError(status));
+          AssertThrow(status >= 0, ExcIDAError(status));
         }
 
       status =
         IDASetSuppressAlg(ida_mem, data.ignore_algebraic_terms_for_errors);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       //  status = IDASetMaxNumSteps(ida_mem, max_steps);
       status = IDASetStopTime(ida_mem, data.final_time);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       status = IDASetMaxNumSteps(ida_mem, data.maximum_number_of_steps);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetMaxStep(ida_mem, data.maximum_step_size);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 2, 0)
       status = IDASetMinStep(ida_mem, data.minimum_step_size);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  endif
       status = IDASetMaxErrTestFails(ida_mem, data.maximum_error_test_failures);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetMaxConvFails(ida_mem, data.maximum_convergence_failures);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status =
         IDASetNonlinConvCoef(ida_mem, data.nonlinear_convergence_coefficient);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       status =
         IDASetMaxNonlinIters(ida_mem, data.maximum_non_linear_iterations);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       // Initialize solver
       SUNMatrix       J  = nullptr;
@@ -459,20 +473,20 @@ namespace ImmersX::Compatibility
 
       // Now set the linear system and Jacobian objects in the solver:
       status = IDASetLinearSolver(ida_mem, LS, J);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       status = IDASetLSNormFactor(ida_mem, data.ls_norm_factor);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetEpsLin(ida_mem, data.linear_tolerance_factor);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetIncrementFactor(ida_mem, data.increment_factor);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status =
         IDASetLinearSolutionScaling(ida_mem, data.linear_solution_scaling);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 2, 0)
       status = IDASetDeltaCjLSetup(ida_mem, data.delta_cj_lsetup);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  endif
       // Finally tell IDA about
       // it as well. The manual says that this must happen *after*
@@ -503,9 +517,9 @@ namespace ImmersX::Compatibility
             *src_yp,
             cj);
         });
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetMaxOrd(ida_mem, data.maximum_order);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 
       if (get_constraint_vector)
         {
@@ -520,7 +534,7 @@ namespace ImmersX::Compatibility
           if (N_VMaxNorm(constraints) > 0.0)
             {
               status = IDASetConstraints(ida_mem, constraints);
-              Assert(status >= 0, ExcIDAError(status));
+              AssertThrow(status >= 0, ExcIDAError(status));
             }
         }
 
@@ -528,17 +542,17 @@ namespace ImmersX::Compatibility
       status = IDASetEtaFixedStepBounds(ida_mem,
                                         data.eta_min_fixed,
                                         data.eta_max_fixed);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetEtaMin(ida_mem, data.eta_min);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetEtaMax(ida_mem, data.eta_max);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetEtaLow(ida_mem, data.eta_low);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetEtaMinErrFail(ida_mem, data.eta_min_err_fail);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetEtaConvFail(ida_mem, data.eta_conv_fail);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  endif
 
       typename AdditionalData::InitialConditionCorrection type;
@@ -549,25 +563,25 @@ namespace ImmersX::Compatibility
 
       status =
         IDASetMaxNumItersIC(ida_mem, data.maximum_non_linear_iterations_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status =
         IDASetNonlinConvCoefIC(ida_mem,
                                data.nonlinear_convergence_coefficient_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetMaxNumStepsIC(ida_mem, data.maximum_number_of_steps_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetMaxNumJacsIC(ida_mem, data.maximum_number_of_jacobians_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetMaxBacksIC(ida_mem, data.maximum_number_of_backtracks_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetLineSearchOffIC(ida_mem, !data.line_search_enabled_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
       status = IDASetStepToleranceIC(ida_mem, data.step_tolerance_ic);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  if DEAL_II_SUNDIALS_VERSION_GTE(7, 6, 0)
       status =
         IDASetMaxNumConstraintFails(ida_mem, data.maximum_constraint_failures);
-      Assert(status >= 0, ExcIDAError(status));
+      AssertThrow(status >= 0, ExcIDAError(status));
 #  endif
 
       if (custom_setup)
@@ -578,20 +592,30 @@ namespace ImmersX::Compatibility
           // (re)initialization of the vectors
           status =
             IDACalcIC(ida_mem, IDA_Y_INIT, current_time + current_time_step);
-          Assert(status >= 0, ExcIDAError(status));
+          if (pending_exception)
+            {
+              auto exception = std::exchange(pending_exception, nullptr);
+              std::rethrow_exception(exception);
+            }
+          AssertThrow(status >= 0, ExcIDAError(status));
 
           status = IDAGetConsistentIC(ida_mem, yy, yp);
-          Assert(status >= 0, ExcIDAError(status));
+          AssertThrow(status >= 0, ExcIDAError(status));
         }
       else if (type == AdditionalData::use_y_diff)
         {
           status = IDACalcIC(ida_mem,
                              IDA_YA_YDP_INIT,
                              current_time + current_time_step);
-          Assert(status >= 0, ExcIDAError(status));
+          if (pending_exception)
+            {
+              auto exception = std::exchange(pending_exception, nullptr);
+              std::rethrow_exception(exception);
+            }
+          AssertThrow(status >= 0, ExcIDAError(status));
 
           status = IDAGetConsistentIC(ida_mem, yy, yp);
-          Assert(status >= 0, ExcIDAError(status));
+          AssertThrow(status >= 0, ExcIDAError(status));
         }
     }
 

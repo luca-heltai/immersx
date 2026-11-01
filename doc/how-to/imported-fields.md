@@ -21,9 +21,12 @@ coefficients, but it does not own a Problem, solver vector, or execution block.
 `FiniteElementSpaceView` remains a non-owning view, so the same FE-space vocabulary is
 used for native and imported data.
 
-PointData uses a continuous `FE_Q` field and CellData uses a discontinuous
-`FE_DGQ` field. Imported coefficients are transferred across supported
-distributed refinement through deal.II's `SolutionTransfer`. Consumers must
+On quad/hex meshes, PointData uses continuous `FE_Q(1)` elements and CellData
+uses discontinuous `FE_DGQ(0)` elements. On triangle/tetrahedron meshes, the
+corresponding elements are `FE_SimplexP(1)` and `FE_SimplexDGP(0)`. The mesh
+must contain a single reference-cell type. Initial refinement transfers both
+point and cell fields before a fully distributed Domain is finalized.
+Imported coefficients are transferred across supported distributed refinement through deal.II's `SolutionTransfer`. Consumers must
 use the triangulation associated with the imported space; interpolation or
 remote point evaluation is not implicit.
 

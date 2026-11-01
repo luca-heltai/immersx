@@ -1,0 +1,18 @@
+# vtk DataFile Version 3.0
+Interior line
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 3 double
+0.5 0.5 0.25
+0.5 0.5 0.5
+0.5 0.5 0.75
+CELLS 2 6
+2 0 1
+2 1 2
+CELL_TYPES 2
+3
+3
+POINT_DATA 3
+SCALARS radius double 1
+LOOKUP_TABLE default
+0.05 0.05 0.05

@@ -1,0 +1,9 @@
+include @IMMERSX_BINARY_DIR@/gtests/parameters/poisson_adapter_simplex.prm
+subsection Poisson
+  set Output directory = @TEST_OUTPUT_DIR@/poisson-adapter-hypercube
+  subsection Domain
+    set Grid generator = subdivided_hyper_cube
+    set Grid generator arguments = 2: 0: 1: false
+    set Triangulation type = distributed
+  end
+end

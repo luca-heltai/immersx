@@ -15,8 +15,11 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria.h>
 
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/vector.h>
+
+#include <deal.II/numerics/matrix_creator.h>
 
 #include <gtest/gtest.h>
 #include <immersx/core/contributor.h>
@@ -26,6 +29,7 @@
 #include <immersx/core/state.h>
 
 #include <cmath>
+#include <numeric>
 #include <set>
 
 using namespace dealii;
@@ -240,4 +244,109 @@ TEST(WeakTerm, BoundaryRegionMatchesFaceMassPairing)
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
   EXPECT_TRUE(model.has_state_operator(target.field_id(), source.field_id()));
+}
+
+namespace
+{
+  struct KnownPhysicalSupport
+  {
+    static constexpr int intrinsic_dimension = 2;
+    static constexpr int ambient_dimension   = 2;
+    struct PointData
+    {
+      Point<2>      point;
+      double        weight;
+      std::uint64_t stable_id;
+      unsigned int  owner_rank;
+    };
+    std::vector<PointData> points{{Point<2>(0.2, 0.3), 0.4, 0, 0},
+                                  {Point<2>(0.8, 0.7), 0.6, 1, 0}};
+    const auto &
+    locally_owned_quadrature_points() const
+    {
+      return points;
+    }
+    MPI_Comm
+    mpi_communicator() const
+    {
+      return MPI_COMM_SELF;
+    }
+  };
+} // namespace
+
+TEST(KnownTerm, IndependentPhysicalSupportUsesExactPointValuesAndWeights)
+{
+  ScalarSpace space;
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto                 target = V.field(layout, "physical-target");
+  KnownSource<double, 2>     source([](const KnownTermContext<2> &context) {
+    return context.point[0] + 2. * context.point[1] + context.time;
+  });
+  const KnownPhysicalSupport support;
+  const auto term = known_term(source, test(target)).on(support);
+  Model      model;
+  SemidiscreteBuilder<LocalVector, LocalMatrix> builder(layout, model);
+  term.add(builder);
+  const StateView<LocalVector>         view(layout, 0.5);
+  const EvaluationContext<LocalVector> context(0.5, view);
+  LocalVector                          residual(target.dof_handler().n_dofs());
+  model.evaluate_row(target.id(), context, residual);
+  EXPECT_NEAR(std::accumulate(residual.begin(), residual.end(), 0.),
+              2.14,
+              1.e-12);
+  EXPECT_FALSE(model.has_state_operator(target.id(), target.id()));
+  EXPECT_THROW(known_term(source, test(target)).on_boundary(0).on(support),
+               ExceptionBase);
+}
+
+TEST(KnownTerm, PhysicalVolumePairingRetainsEssentialOffsets)
+{
+  ScalarSpace space;
+  space.constraints.clear();
+  space.constraints.add_line(0);
+  space.constraints.set_inhomogeneity(0, 0.25);
+  space.constraints.close();
+  StateLayout layout;
+  const auto  V =
+    fe_space(space.dof_handler, StaticMappingQ1<2>::mapping, space.constraints);
+  const auto           target = V.field(layout, "affine-physical-target");
+  KnownPhysicalSupport support;
+  support.points.clear();
+  FEValues<2> values(StaticMappingQ1<2>::mapping,
+                     space.finite_element,
+                     QGauss<2>(2),
+                     update_quadrature_points | update_JxW_values);
+  for (const auto &cell : space.dof_handler.active_cell_iterators())
+    {
+      values.reinit(cell);
+      for (const auto q : values.quadrature_point_indices())
+        support.points.push_back({values.quadrature_point(q),
+                                  values.JxW(q),
+                                  support.points.size(),
+                                  0});
+    }
+  Model                                         model;
+  SemidiscreteBuilder<LocalVector, LocalMatrix> builder(layout, model);
+  weak_term(value(target), test(target)).on(support).add(builder);
+  LocalVector            state(space.dof_handler.n_dofs());
+  StateView<LocalVector> view(layout, 0.);
+  view.bind(target.id(), state);
+  const EvaluationContext<LocalVector> context(0., view);
+  LocalVector                          residual(state.size());
+  model.evaluate_row(target.id(), context, residual);
+  DynamicSparsityPattern dynamic(state.size());
+  DoFTools::make_sparsity_pattern(space.dof_handler, dynamic);
+  SparsityPattern sparsity;
+  sparsity.copy_from(dynamic);
+  LocalMatrix mass(sparsity);
+  MatrixCreator::create_mass_matrix(space.dof_handler, QGauss<2>(2), mass);
+  LocalVector essential(state.size()), expected(state.size());
+  essential[0] = 0.25;
+  mass.vmult(expected, essential);
+  residual[0] = 0.;
+  expected[0] = 0.;
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
 }

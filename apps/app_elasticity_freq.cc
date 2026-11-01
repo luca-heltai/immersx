@@ -54,7 +54,28 @@ main(int argc, char *argv[])
         prm_file = "parameters_freq.prm";
       const auto dimensions = get_dimension_parameters(prm_file);
 
-      if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
+      if (dimensions.dimension == 1 && dimensions.space_dimension == 1)
+        {
+          ElasticityFreqProblemParameters<1> par;
+          ElasticityFreqProblem<1>           problem(par);
+          initialize_parameters(prm_file, "", true);
+          problem.run();
+        }
+      else if (dimensions.dimension == 1 && dimensions.space_dimension == 2)
+        {
+          ElasticityFreqProblemParameters<1, 2> par;
+          ElasticityFreqProblem<1, 2>           problem(par);
+          initialize_parameters(prm_file, "", true);
+          problem.run();
+        }
+      else if (dimensions.dimension == 1 && dimensions.space_dimension == 3)
+        {
+          ElasticityFreqProblemParameters<1, 3> par;
+          ElasticityFreqProblem<1, 3>           problem(par);
+          initialize_parameters(prm_file, "", true);
+          problem.run();
+        }
+      else if (dimensions.dimension == 2 && dimensions.space_dimension == 3)
         {
           ElasticityFreqProblemParameters<2, 3> par;
           ElasticityFreqProblem<2, 3>           problem(par);

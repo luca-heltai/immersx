@@ -419,7 +419,6 @@ namespace ImmersX
       };
       builder.saddle_point(id, {bulk_.id()}, metric_operator);
       weak_term(value(bulk_), test(lift_))
-        .with_lifted_affine_updates()
         .add_constraint_terms(builder, id, 1., 0);
       builder.term(id, "modal data").residual([rhs](const auto &) {
         typename SemiDiscreteModel<VectorType, MatrixType>::Operation result;

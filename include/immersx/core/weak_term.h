@@ -23,6 +23,8 @@
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_tools_cache.h>
 
+#include <deal.II/hp/fe_values.h>
+
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/sparsity_pattern.h>
@@ -313,6 +315,107 @@ namespace ImmersX
       AssertThrow(inhomogeneous == 0, dealii::ExcMessage(message));
     }
 
+    struct WeakAffineContribution
+    {
+      dealii::FullMatrix<double>                   matrix;
+      std::vector<dealii::types::global_dof_index> source_indices;
+      std::vector<dealii::types::global_dof_index> target_indices;
+      bool use_square_constraints = false;
+    };
+
+    template <typename VectorType, typename MatrixType>
+    struct WeakAffineData
+    {
+      const dealii::AffineConstraints<double> *source_constraints = nullptr;
+      const dealii::AffineConstraints<double> *target_constraints = nullptr;
+      dealii::IndexSet                         locally_owned;
+      MPI_Comm                                 communicator;
+      std::shared_ptr<MatrixType>              sink_matrix;
+      std::shared_ptr<dealii::SparsityPattern> sink_sparsity;
+      std::vector<WeakAffineContribution>      contributions;
+
+      dealii::AffineConstraints<double> source_structure;
+      dealii::AffineConstraints<double> target_structure;
+
+      void
+      set_constraints(const dealii::AffineConstraints<double> &source,
+                      const dealii::AffineConstraints<double> &target)
+      {
+        source_constraints = &source;
+        target_constraints = &target;
+        source_structure.copy_from(source);
+        target_structure.copy_from(target);
+      }
+
+      static bool
+      same_structure(const dealii::AffineConstraints<double> &current,
+                     const dealii::AffineConstraints<double> &snapshot)
+      {
+        if (current.n_constraints() != snapshot.n_constraints())
+          return false;
+        for (const auto &line : current.get_lines())
+          if (!snapshot.is_constrained(line.index) ||
+              *snapshot.get_constraint_entries(line.index) != line.entries)
+            return false;
+        return true;
+      }
+
+      void
+      refresh(VectorType &rhs) const
+      {
+        AssertThrow(
+          source_constraints != nullptr && target_constraints != nullptr,
+          dealii::ExcMessage(
+            "An affine refresh needs source and target constraints."));
+        const unsigned int changed =
+          !same_structure(*source_constraints, source_structure) ||
+          !same_structure(*target_constraints, target_structure);
+        AssertThrow(
+          dealii::Utilities::MPI::max(changed, communicator) == 0,
+          dealii::ExcMessage(
+            "Weak-term constraint structure changed; rebuild the weak term."));
+        initialize_weak_vector(rhs, locally_owned, communicator);
+        rhs = 0.;
+        if (sink_matrix != nullptr)
+          *sink_matrix = 0.;
+        for (const auto &contribution : contributions)
+          {
+            dealii::Vector<double> local_rhs(contribution.matrix.m());
+            if (contribution.use_square_constraints)
+              {
+                AssertThrow(sink_matrix != nullptr,
+                            dealii::ExcMessage(
+                              "Square affine assembly needs a matrix sink."));
+                source_constraints->distribute_local_to_global(
+                  contribution.matrix,
+                  local_rhs,
+                  contribution.target_indices,
+                  *sink_matrix,
+                  rhs,
+                  true);
+                continue;
+              }
+            // Closed constraints already include offsets inherited from
+            // masters. Keep the negative sign of the eliminated right-hand
+            // side: the residual subtracts this vector to recover the affine
+            // FE state.
+            for (unsigned int i = 0; i < contribution.matrix.m(); ++i)
+              for (unsigned int j = 0; j < contribution.matrix.n(); ++j)
+                local_rhs[i] -= contribution.matrix(i, j) *
+                                source_constraints->get_inhomogeneity(
+                                  contribution.source_indices[j]);
+            target_constraints->distribute_local_to_global(
+              local_rhs, contribution.target_indices, rhs);
+          }
+        // Every rank participates, including ranks with only homogeneous
+        // lines.
+        if (sink_matrix != nullptr)
+          compress_weak_matrix(*sink_matrix);
+        compress_weak_vector(rhs);
+      }
+    };
+
+
     template <typename ObservableType, typename TargetExpression>
     struct WeakAssembly
     {
@@ -325,72 +428,8 @@ namespace ImmersX
 
       using TargetField = typename TargetExpression::source_field_type;
 
-      struct AffineContribution
-      {
-        dealii::FullMatrix<double>                   matrix;
-        std::vector<dealii::types::global_dof_index> source_indices;
-        std::vector<dealii::types::global_dof_index> target_indices;
-        bool use_square_constraints = false;
-      };
-
       template <typename VectorType, typename MatrixType>
-      struct AffineData
-      {
-        const dealii::AffineConstraints<double> *source_constraints = nullptr;
-        const dealii::AffineConstraints<double> *target_constraints = nullptr;
-        dealii::IndexSet                         locally_owned;
-        MPI_Comm                                 communicator;
-        std::shared_ptr<MatrixType>              sink_matrix;
-        std::shared_ptr<dealii::SparsityPattern> sink_sparsity;
-        std::vector<AffineContribution>          contributions;
-
-        void
-        refresh(VectorType &rhs) const
-        {
-          AssertThrow(
-            source_constraints != nullptr && target_constraints != nullptr,
-            dealii::ExcMessage(
-              "An affine refresh needs source and target constraints."));
-          initialize_weak_vector(rhs, locally_owned, communicator);
-          rhs = 0.;
-          if (sink_matrix != nullptr)
-            *sink_matrix = 0.;
-          for (const auto &contribution : contributions)
-            {
-              dealii::Vector<double> local_rhs(contribution.matrix.m());
-              if (contribution.use_square_constraints)
-                {
-                  AssertThrow(sink_matrix != nullptr,
-                              dealii::ExcMessage(
-                                "Square affine assembly needs a matrix sink."));
-                  source_constraints->distribute_local_to_global(
-                    contribution.matrix,
-                    local_rhs,
-                    contribution.target_indices,
-                    *sink_matrix,
-                    rhs,
-                    true);
-                  continue;
-                }
-              // Closed constraints already include offsets inherited from
-              // masters. Keep the negative sign of the eliminated right-hand
-              // side: the residual subtracts this vector to recover the affine
-              // FE state.
-              for (unsigned int i = 0; i < contribution.matrix.m(); ++i)
-                for (unsigned int j = 0; j < contribution.matrix.n(); ++j)
-                  local_rhs[i] -= contribution.matrix(i, j) *
-                                  source_constraints->get_inhomogeneity(
-                                    contribution.source_indices[j]);
-              target_constraints->distribute_local_to_global(
-                local_rhs, contribution.target_indices, rhs);
-            }
-          // Every rank participates, including ranks with only homogeneous
-          // lines.
-          if (sink_matrix != nullptr)
-            compress_weak_matrix(*sink_matrix);
-          compress_weak_vector(rhs);
-        }
-      };
+      using AffineData = WeakAffineData<VectorType, MatrixType>;
 
       template <typename MatrixType>
       struct MatrixStorage
@@ -489,9 +528,8 @@ namespace ImmersX
         if constexpr (support_dim <= dim && SourceField::dimension() == dim &&
                       dim == spacedim)
           if (!matches_source && !matches_target)
-            return assemble_background_trace<VectorType, MatrixType>(observable,
-                                                                     target,
-                                                                     support);
+            return assemble_background_trace<VectorType, MatrixType>(
+              observable, target, support, affine_rhs, affine_data);
         AssertThrow(matches_source || matches_target,
                     dealii::ExcMessage(
                       "An explicit support must use the source or test "
@@ -516,19 +554,22 @@ namespace ImmersX
                 std::enable_if_t<is_physical_quadrature_support<Support>::value,
                                  int> = 0>
       static MatrixStorage<MatrixType>
-      assemble_on_support(const ObservableType   &observable,
-                          const TargetExpression &target,
-                          const Support          &support)
+      assemble_on_support(const ObservableType        &observable,
+                          const TargetExpression      &target,
+                          const Support               &support,
+                          std::shared_ptr<VectorType> *affine_rhs = nullptr,
+                          std::shared_ptr<AffineData<VectorType, MatrixType>>
+                            *affine_data = nullptr)
       {
-        static_assert(Support::intrinsic_dimension == dim - 1,
-                      "Independent trace integration currently requires "
-                      "codimension one.");
+        static_assert(Support::intrinsic_dimension > 0 &&
+                        Support::intrinsic_dimension <= dim,
+                      "Physical integration support must have dimension "
+                      "between one and the background dimension.");
         static_assert(Support::ambient_dimension == spacedim,
                       "Integration support and weak-term fields must share "
                       "an embedding dimension.");
-        return assemble_background_trace<VectorType, MatrixType>(observable,
-                                                                 target,
-                                                                 support);
+        return assemble_background_trace<VectorType, MatrixType>(
+          observable, target, support, affine_rhs, affine_data);
       }
 
       /** Assemble a background-to-background pairing at physical points
@@ -542,9 +583,13 @@ namespace ImmersX
        */
       template <typename VectorType, typename MatrixType, typename Support>
       static MatrixStorage<MatrixType>
-      assemble_background_trace(const ObservableType   &observable,
-                                const TargetExpression &target,
-                                const Support          &support)
+      assemble_background_trace(
+        const ObservableType        &observable,
+        const TargetExpression      &target,
+        const Support               &support,
+        std::shared_ptr<VectorType> *affine_rhs = nullptr,
+        std::shared_ptr<AffineData<VectorType, MatrixType>> *affine_data =
+          nullptr)
       {
         constexpr int support_dim = [] {
           if constexpr (is_physical_quadrature_support<Support>::value)
@@ -655,10 +700,20 @@ namespace ImmersX
             const unsigned int degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const dealii::QGauss<support_dim> support_quadrature(degree + 2);
-            const dealii::FE_Nothing<support_dim, spacedim> geometry_element;
-            dealii::FEValues<support_dim, spacedim>         support_values(
-              dealii::StaticMappingQ1<support_dim, spacedim>::mapping,
+            const auto physical_reference =
+              detail::uniform_reference_cell(support.triangulation());
+            AssertThrow(physical_reference.has_value(),
+                        dealii::ExcMessage(
+                          "The integration support mesh has no cells."));
+            const auto reference_cell = *physical_reference;
+            const auto support_quadrature =
+              compatibility::gauss_quadrature<support_dim>(reference_cell,
+                                                           degree + 2);
+            const dealii::FE_Nothing<support_dim, spacedim> geometry_element(
+              reference_cell);
+            dealii::FEValues<support_dim, spacedim> support_values(
+              compatibility::linear_mapping<support_dim, spacedim>(
+                reference_cell),
               geometry_element,
               support_quadrature,
               dealii::update_quadrature_points | dealii::update_JxW_values);
@@ -809,6 +864,25 @@ namespace ImmersX
                                  sparsity,
                                  target_field.space().mpi_communicator());
 
+        if (affine_data != nullptr)
+          {
+            *affine_data =
+              std::make_shared<AffineData<VectorType, MatrixType>>();
+            (*affine_data)
+              ->set_constraints(source.constraints(),
+                                target_field.constraints());
+            (*affine_data)->locally_owned = target_field.locally_owned_dofs();
+            (*affine_data)->communicator =
+              target_field.space().mpi_communicator();
+            (*affine_data)->sink_matrix = std::make_shared<MatrixType>();
+            (*affine_data)->sink_sparsity =
+              initialize_weak_matrix(*(*affine_data)->sink_matrix,
+                                     target_field.locally_owned_dofs(),
+                                     source.locally_owned_dofs(),
+                                     sparsity,
+                                     target_field.space().mpi_communicator());
+          }
+
         for (const auto &[cell_id, cell_quadrature] : cell_quadratures)
           {
             (void)cell_id;
@@ -832,18 +906,24 @@ namespace ImmersX
               flags);
             source_values.reinit(cell_quadrature.source_cell);
             target_values.reinit(target_cell);
-            assemble_cell<VectorType>(
-              observable,
-              source,
-              source_values,
-              target,
-              target_values,
-              cell_quadrature.source_cell,
-              target_cell,
-              point_quadrature,
-              *matrix,
-              static_cast<AffineData<VectorType, MatrixType> *>(nullptr),
-              &cell_quadrature.physical_weights);
+            assemble_cell<VectorType>(observable,
+                                      source,
+                                      source_values,
+                                      target,
+                                      target_values,
+                                      cell_quadrature.source_cell,
+                                      target_cell,
+                                      point_quadrature,
+                                      *matrix,
+                                      affine_data != nullptr ?
+                                        affine_data->get() :
+                                        nullptr,
+                                      &cell_quadrature.physical_weights);
+          }
+        if (affine_rhs != nullptr && affine_data != nullptr)
+          {
+            *affine_rhs = std::make_shared<VectorType>();
+            (*affine_data)->refresh(**affine_rhs);
           }
         compress_weak_matrix(*matrix);
         return {std::move(matrix), std::move(matrix_sparsity)};
@@ -1056,8 +1136,10 @@ namespace ImmersX
             const auto degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const dealii::QGauss<dim> quadrature(degree + 1);
-            dealii::UpdateFlags       update_flags = dealii::update_JxW_values |
+            const auto quadrature = compatibility::gauss_quadrature<dim>(
+              target_field.space().finite_element().reference_cell(),
+              degree + 1);
+            dealii::UpdateFlags update_flags = dealii::update_JxW_values |
                                                observable.update_flags() |
                                                target.update_flags();
 
@@ -1147,9 +1229,9 @@ namespace ImmersX
               {
                 *affine_data =
                   std::make_shared<AffineData<VectorType, MatrixType>>();
-                (*affine_data)->source_constraints = &source.constraints();
-                (*affine_data)->target_constraints =
-                  &target_field.constraints();
+                (*affine_data)
+                  ->set_constraints(source.constraints(),
+                                    target_field.constraints());
                 (*affine_data)->locally_owned =
                   target_field.locally_owned_dofs();
                 (*affine_data)->communicator =
@@ -1282,8 +1364,14 @@ namespace ImmersX
             const unsigned int degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const dealii::QGauss<dim - 1> quadrature(degree + 1);
-            const auto                    flags =
+            const auto quadrature =
+              compatibility::gauss_quadrature<dim - 1>(target_field.space()
+                                                         .finite_element()
+                                                         .reference_cell()
+                                                         .face_reference_cell(
+                                                           0),
+                                                       degree + 1);
+            const auto flags =
               dealii::update_JxW_values | dealii::update_quadrature_points |
               dealii::update_normal_vectors | observable.update_flags() |
               target.update_flags();
@@ -1327,9 +1415,9 @@ namespace ImmersX
               {
                 *affine_data =
                   std::make_shared<AffineData<VectorType, MatrixType>>();
-                (*affine_data)->source_constraints = &source.constraints();
-                (*affine_data)->target_constraints =
-                  &target_field.constraints();
+                (*affine_data)
+                  ->set_constraints(source.constraints(),
+                                    target_field.constraints());
                 (*affine_data)->locally_owned =
                   target_field.locally_owned_dofs();
                 (*affine_data)->communicator =
@@ -1396,10 +1484,11 @@ namespace ImmersX
 
         const auto background_mask = background.component_mask();
         const auto embedded_mask   = embedded.component_mask();
-        const dealii::QGauss<embedded_dim> quadrature(
+        const auto quadrature = compatibility::gauss_quadrature<embedded_dim>(
+          embedded.space().finite_element().reference_cell(),
           std::max(background.space().finite_element().degree,
                    embedded.space().finite_element().degree) +
-          1);
+            1);
         dealii::DynamicSparsityPattern sparsity(
           background.dof_handler().n_dofs(),
           embedded.dof_handler().n_dofs(),
@@ -1582,8 +1671,10 @@ namespace ImmersX
                       "A mixed-dimensional weak term needs a distributed "
                       "target background triangulation."));
 
-        const dealii::QGauss<SourceField::dimension()> quadrature(degree + 1);
-        const unsigned int                             n_source_dofs =
+        const auto quadrature =
+          compatibility::gauss_quadrature<SourceField::dimension()>(
+            source.space().finite_element().reference_cell(), degree + 1);
+        const unsigned int n_source_dofs =
           source.space().finite_element().n_dofs_per_cell();
         const unsigned int source_components =
           n_stored_components<typename ObservableType::value_type>();
@@ -1776,9 +1867,10 @@ namespace ImmersX
                       "Nonmatching weak terms require a full-dimensional "
                       "source background.");
 
-        const auto                target_field = target.source();
-        const dealii::QGauss<dim> quadrature(degree + 1);
-        const auto               *source_tria =
+        const auto target_field = target.source();
+        const auto quadrature   = compatibility::gauss_quadrature<dim>(
+          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto *source_tria =
           dynamic_cast<const dealii::parallel::TriangulationBase<spacedim> *>(
             &source.space().dof_handler().get_triangulation());
         AssertThrow(source_tria != nullptr,
@@ -2335,10 +2427,20 @@ namespace ImmersX
                 const unsigned int degree =
                   std::max(source.space().finite_element().degree,
                            target_field.space().finite_element().degree);
-                const dealii::QGauss<support_dim> quadrature(degree + 2);
-                const dealii::FE_Nothing<support_dim, spacedim> geometry_fe;
-                dealii::FEValues<support_dim, spacedim>         support_values(
-                  dealii::StaticMappingQ1<support_dim, spacedim>::mapping,
+                const auto physical_reference =
+                  detail::uniform_reference_cell(support.triangulation());
+                AssertThrow(physical_reference.has_value(),
+                            dealii::ExcMessage(
+                              "The integration support mesh has no cells."));
+                const auto reference_cell = *physical_reference;
+                const auto quadrature =
+                  compatibility::gauss_quadrature<support_dim>(reference_cell,
+                                                               degree + 2);
+                const dealii::FE_Nothing<support_dim, spacedim> geometry_fe(
+                  reference_cell);
+                dealii::FEValues<support_dim, spacedim> support_values(
+                  compatibility::linear_mapping<support_dim, spacedim>(
+                    reference_cell),
                   geometry_fe,
                   quadrature,
                   dealii::update_quadrature_points | dealii::update_JxW_values);
@@ -2492,6 +2594,11 @@ namespace ImmersX
       class CellInputCache
       {
       public:
+        using VectorType =
+          std::decay_t<decltype(std::declval<const Context &>().state(
+            FieldId()))>;
+        using InputStates = std::map<FieldId, VectorType>;
+
         struct Entry
         {
           std::unique_ptr<dealii::FEValues<dim, spacedim>> values;
@@ -2506,12 +2613,14 @@ namespace ImmersX
 
         CellInputCache(
           const Context                        &context,
+          const InputStates                    &input_states,
           const Cell                           &source_cell,
           const SourceValues                   &source_values,
           const dealii::Mapping<dim, spacedim> &integration_mapping,
           const dealii::UpdateFlags             update_flags,
           const bool                            reuse_across_cells = false)
           : context_(context)
+          , input_states_(input_states)
           , source_cell_(source_cell)
           , source_values_(&source_values)
           , integration_mapping_(&integration_mapping)
@@ -2535,8 +2644,13 @@ namespace ImmersX
               {
                 const auto input_cell = source_cell_->as_dof_handler_iterator(
                   *it->second->dof_handler);
-                it->second->values->reinit(input_cell);
-                ++it;
+                if (&it->second->values->get_fe() == &input_cell->get_fe())
+                  {
+                    it->second->values->reinit(input_cell);
+                    ++it;
+                  }
+                else
+                  it = entries_.erase(it);
               }
             else
               it = entries_.erase(it);
@@ -2557,8 +2671,6 @@ namespace ImmersX
               return *it->second;
             }
 
-          using VectorType =
-            std::decay_t<decltype(context_.state(observable.source_field()))>;
           const auto &input_field = observable.source();
           // Frozen leaves are not dependencies. Check them before converting
           // the integration cell to their DoFHandler.
@@ -2594,7 +2706,7 @@ namespace ImmersX
             }
           entry->values = std::make_unique<dealii::FEValues<dim, spacedim>>(
             input_field.mapping(),
-            input_field.space().finite_element(),
+            input_cell->get_fe(),
             entry->reusable ? source_values_->get_quadrature() : *quadrature,
             dealii::update_values | update_flags_);
           entry->values->reinit(input_cell);
@@ -2632,7 +2744,7 @@ namespace ImmersX
           const auto &coefficients =
             observable.is_frozen() ?
               observable.template frozen_values<VectorType>() :
-              context_.state(observable.source_field());
+              input_states_.at(observable.source_field());
           input_field.constraints().get_dof_values(
             coefficients,
             entry.execution_indices.begin(),
@@ -2643,6 +2755,7 @@ namespace ImmersX
         }
 
         const Context                        &context_;
+        const InputStates                    &input_states_;
         Cell                                  source_cell_;
         const SourceValues                   *source_values_;
         const dealii::Mapping<dim, spacedim> *integration_mapping_;
@@ -2684,8 +2797,7 @@ namespace ImmersX
           return Value{};
         const auto &input_field = observable.source();
         const auto &entry       = input_cache.get(observable);
-        AssertIndexRange(
-          basis, input_field.space().finite_element().n_dofs_per_cell());
+        AssertIndexRange(basis, entry.values->dofs_per_cell);
         const auto &view = (*entry.values)[input_field.extractor()];
         return observable.operation()(view, basis, q);
       }
@@ -2737,6 +2849,55 @@ namespace ImmersX
                                           derivative_evaluator);
       }
 
+      template <typename VectorType, typename FieldType>
+      static void
+      distribute_cell_residual(
+        const FieldType                                    &field,
+        const std::vector<dealii::types::global_dof_index> &native_indices,
+        const dealii::Vector<double>                       &cell_values,
+        VectorType                                         &result)
+      {
+        std::vector<dealii::types::global_dof_index> indices;
+        std::vector<unsigned int>                    positions;
+        for (unsigned int i = 0; i < native_indices.size(); ++i)
+          if (field.has_execution_index(native_indices[i]))
+            {
+              indices.push_back(field.execution_index(native_indices[i]));
+              positions.push_back(i);
+            }
+        dealii::Vector<double> values(indices.size());
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          values[i] = cell_values[positions[i]];
+        field.constraints().distribute_local_to_global(values, indices, result);
+      }
+
+      // All ranks import state coefficients before entering local cell loops.
+      // Empty ranks must participate in the distributed vector setup as well.
+      template <typename VectorType, typename Context>
+      static std::map<FieldId, VectorType>
+      read_input_states(const ObservableType &observable,
+                        const Context        &context)
+      {
+        std::map<FieldId, VectorType> result;
+        for (const auto id : observable.dependencies())
+          {
+            const auto &field  = observable.source_for(id);
+            auto       &values = result[id];
+            if constexpr (has_distributed_reinit<VectorType,
+                                                 SourceField>::value)
+              {
+                values.reinit(field.locally_owned_dofs(),
+                              field.locally_relevant_dofs(),
+                              field.space().mpi_communicator());
+                values = context.state(id);
+                values.update_ghost_values();
+              }
+            else
+              values = context.state(id);
+          }
+        return result;
+      }
+
       template <typename VectorType,
                 typename MatrixType,
                 typename Context,
@@ -2757,6 +2918,9 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Nonlinear weak terms currently require matching "
                       "source and target meshes."));
+
+        const auto input_states =
+          read_input_states<VectorType>(observable, context);
 
         if constexpr (uses_support_quadratures<Support>())
           {
@@ -2792,6 +2956,7 @@ namespace ImmersX
                   flags);
                 source_values.reinit(cell_quadrature.cell);
                 CellInputCache input_cache(context,
+                                           input_states,
                                            cell_quadrature.cell,
                                            source_values,
                                            source.mapping(),
@@ -2800,7 +2965,8 @@ namespace ImmersX
                 std::vector<dealii::types::global_dof_index> target_indices(
                   target_cell->get_fe().n_dofs_per_cell());
                 target_cell->get_dof_indices(target_indices);
-                const auto &target_view =
+                dealii::Vector<double> cell_residual(target_indices.size());
+                const auto            &target_view =
                   target_values[target_field.extractor()];
                 for (unsigned int q = 0;
                      q < cell_quadrature.reference_points.size();
@@ -2813,13 +2979,16 @@ namespace ImmersX
                                                             context.time());
                     for (unsigned int i = 0; i < target_indices.size(); ++i)
                       if (target_field.has_execution_index(target_indices[i]))
-                        (*result)(
-                          target_field.execution_index(target_indices[i])) +=
+                        cell_residual[i] +=
                           target.scale() *
                           natural_pairing(
                             value, target.operation()(target_view, i, q)) *
                           cell_quadrature.physical_weights[q];
                   }
+                distribute_cell_residual(target_field,
+                                         target_indices,
+                                         cell_residual,
+                                         *result);
               }
             result->compress(dealii::VectorOperation::add);
             return result;
@@ -2828,16 +2997,25 @@ namespace ImmersX
         const auto degree =
           std::max(observable.polynomial_degree(),
                    target_field.space().finite_element().degree);
-        const dealii::QGauss<dim> quadrature(degree + 1);
-        const auto                flags = dealii::update_JxW_values |
+        const auto quadrature = compatibility::gauss_quadrature<dim>(
+          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto flags = dealii::update_JxW_values |
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
-        dealii::FEValues<dim, spacedim> source_values(
-          source.mapping(), source.space().finite_element(), quadrature, flags);
-        dealii::FEValues<dim, spacedim> target_values(
-          target_field.mapping(),
-          target_field.space().finite_element(),
-          quadrature,
+        const dealii::hp::MappingCollection<dim, spacedim> source_mappings(
+          source.mapping());
+        const dealii::hp::MappingCollection<dim, spacedim> target_mappings(
+          target_field.mapping());
+        const dealii::hp::QCollection<dim>  quadratures(quadrature);
+        dealii::hp::FEValues<dim, spacedim> source_hp_values(
+          source_mappings,
+          source.dof_handler().get_fe_collection(),
+          quadratures,
+          flags);
+        dealii::hp::FEValues<dim, spacedim> target_hp_values(
+          target_mappings,
+          target_field.dof_handler().get_fe_collection(),
+          quadratures,
           flags);
 
         auto result = std::make_shared<VectorType>();
@@ -2845,12 +3023,11 @@ namespace ImmersX
         *result = 0.;
         std::vector<dealii::types::global_dof_index> target_indices(
           target_field.space().finite_element().n_dofs_per_cell());
-        CellInputCache input_cache(context,
-                                   source.dof_handler().begin_active(),
-                                   source_values,
-                                   source.mapping(),
-                                   observable.update_flags(),
-                                   true);
+        using Cache = CellInputCache<
+          Context,
+          typename dealii::DoFHandler<dim, spacedim>::active_cell_iterator,
+          dealii::FEValues<dim, spacedim>>;
+        std::unique_ptr<Cache> input_cache;
         for (const auto &source_cell :
              source.dof_handler().active_cell_iterators())
           if (source_cell->is_locally_owned())
@@ -2861,24 +3038,42 @@ namespace ImmersX
                 target_field.dof_handler());
               if (!target_cell->is_locally_owned())
                 continue;
-              source_values.reinit(source_cell);
-              target_values.reinit(target_cell);
-              input_cache.reinit(source_cell, source_values);
+              source_hp_values.reinit(source_cell);
+              target_hp_values.reinit(target_cell);
+              const auto &source_values =
+                source_hp_values.get_present_fe_values();
+              const auto &target_values =
+                target_hp_values.get_present_fe_values();
+              if (input_cache)
+                input_cache->reinit(source_cell, source_values);
+              else
+                input_cache = std::make_unique<Cache>(context,
+                                                      input_states,
+                                                      source_cell,
+                                                      source_values,
+                                                      source.mapping(),
+                                                      observable.update_flags(),
+                                                      true);
+              target_indices.resize(target_cell->get_fe().n_dofs_per_cell());
               target_cell->get_dof_indices(target_indices);
+              dealii::Vector<double> cell_residual(target_indices.size());
               const auto &target_view = target_values[target_field.extractor()];
               for (unsigned int q = 0; q < quadrature.size(); ++q)
                 {
                   const auto value = value_at<VectorType>(
-                    observable, source_values, input_cache, q, context.time());
+                    observable, source_values, *input_cache, q, context.time());
                   for (unsigned int i = 0; i < target_indices.size(); ++i)
                     if (target_field.has_execution_index(target_indices[i]))
-                      (*result)(
-                        target_field.execution_index(target_indices[i])) +=
+                      cell_residual[i] +=
                         target.scale() *
                         natural_pairing(value,
                                         target.operation()(target_view, i, q)) *
                         target_values.JxW(q);
                 }
+              distribute_cell_residual(target_field,
+                                       target_indices,
+                                       cell_residual,
+                                       *result);
             }
         result->compress(dealii::VectorOperation::add);
         return result;
@@ -2908,6 +3103,9 @@ namespace ImmersX
                     dealii::ExcMessage(
                       "Nonlinear weak terms currently require matching "
                       "source meshes."));
+
+        const auto input_states =
+          read_input_states<VectorType>(observable, context);
 
         if constexpr (uses_support_quadratures<Support>())
           {
@@ -3000,6 +3198,7 @@ namespace ImmersX
                   flags);
                 source_values.reinit(cell_quadrature.cell);
                 CellInputCache input_cache(context,
+                                           input_states,
                                            cell_quadrature.cell,
                                            source_values,
                                            source.mapping(),
@@ -3071,8 +3270,9 @@ namespace ImmersX
         const auto degree =
           std::max(observable.polynomial_degree(),
                    target_field.space().finite_element().degree);
-        const dealii::QGauss<dim> quadrature(degree + 1);
-        const auto                flags = dealii::update_JxW_values |
+        const auto quadrature = compatibility::gauss_quadrature<dim>(
+          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto flags = dealii::update_JxW_values |
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
 
@@ -3096,7 +3296,9 @@ namespace ImmersX
                 continue;
               const auto column_cell = source_cell->as_dof_handler_iterator(
                 column_source.dof_handler());
+              target_indices.resize(target_cell->get_fe().n_dofs_per_cell());
               target_cell->get_dof_indices(target_indices);
+              column_indices.resize(column_cell->get_fe().n_dofs_per_cell());
               column_cell->get_dof_indices(column_indices);
               std::vector<dealii::types::global_dof_index>
                 target_execution_indices;
@@ -3136,19 +3338,26 @@ namespace ImmersX
                                  sparsity,
                                  target_field.space().mpi_communicator());
 
-        dealii::FEValues<dim, spacedim> source_values(
-          source.mapping(), source.space().finite_element(), quadrature, flags);
-        dealii::FEValues<dim, spacedim> target_values(
-          target_field.mapping(),
-          target_field.space().finite_element(),
-          quadrature,
+        const dealii::hp::MappingCollection<dim, spacedim> source_mappings(
+          source.mapping());
+        const dealii::hp::MappingCollection<dim, spacedim> target_mappings(
+          target_field.mapping());
+        const dealii::hp::QCollection<dim>  quadratures(quadrature);
+        dealii::hp::FEValues<dim, spacedim> source_hp_values(
+          source_mappings,
+          source.dof_handler().get_fe_collection(),
+          quadratures,
           flags);
-        CellInputCache input_cache(context,
-                                   source.dof_handler().begin_active(),
-                                   source_values,
-                                   source.mapping(),
-                                   observable.update_flags(),
-                                   true);
+        dealii::hp::FEValues<dim, spacedim> target_hp_values(
+          target_mappings,
+          target_field.dof_handler().get_fe_collection(),
+          quadratures,
+          flags);
+        using Cache = CellInputCache<
+          Context,
+          typename dealii::DoFHandler<dim, spacedim>::active_cell_iterator,
+          dealii::FEValues<dim, spacedim>>;
+        std::unique_ptr<Cache> input_cache;
         for (const auto &source_cell :
              source.dof_handler().active_cell_iterators())
           if (source_cell->is_locally_owned())
@@ -3161,10 +3370,25 @@ namespace ImmersX
                 continue;
               const auto column_cell = source_cell->as_dof_handler_iterator(
                 column_source.dof_handler());
-              source_values.reinit(source_cell);
-              target_values.reinit(target_cell);
-              input_cache.reinit(source_cell, source_values);
+              source_hp_values.reinit(source_cell);
+              target_hp_values.reinit(target_cell);
+              const auto &source_values =
+                source_hp_values.get_present_fe_values();
+              const auto &target_values =
+                target_hp_values.get_present_fe_values();
+              if (input_cache)
+                input_cache->reinit(source_cell, source_values);
+              else
+                input_cache = std::make_unique<Cache>(context,
+                                                      input_states,
+                                                      source_cell,
+                                                      source_values,
+                                                      source.mapping(),
+                                                      observable.update_flags(),
+                                                      true);
+              target_indices.resize(target_cell->get_fe().n_dofs_per_cell());
               target_cell->get_dof_indices(target_indices);
+              column_indices.resize(column_cell->get_fe().n_dofs_per_cell());
               column_cell->get_dof_indices(column_indices);
               const auto &target_view = target_values[target_field.extractor()];
               std::vector<unsigned int> target_positions;
@@ -3196,7 +3420,7 @@ namespace ImmersX
                       derivative_at<VectorType>(observable,
                                                 field,
                                                 source_values,
-                                                input_cache,
+                                                *input_cache,
                                                 q,
                                                 column_positions[j],
                                                 context.time());
@@ -3340,7 +3564,7 @@ namespace ImmersX
         dealii::FEValues<TargetField::dimension(),
                          TargetField::spacedimension()>
           values(target_field.mapping(),
-                 target_field.space().finite_element(),
+                 cell->get_fe(),
                  quadrature,
                  target.update_flags());
         values.reinit(cell);
@@ -3433,10 +3657,12 @@ namespace ImmersX
              target_field.dof_handler().active_cell_iterators())
           if (cell->is_locally_owned())
             {
+              target_indices.resize(cell->get_fe().n_dofs_per_cell());
               cell->get_dof_indices(target_indices);
-              const auto source_cell =
-                cell->as_dof_handler_iterator(source.dof_handler());
-              source_cell->get_dof_indices(column_indices);
+              const auto column_cell =
+                cell->as_dof_handler_iterator(column_source.dof_handler());
+              column_indices.resize(column_cell->get_fe().n_dofs_per_cell());
+              column_cell->get_dof_indices(column_indices);
               std::vector<dealii::types::global_dof_index> rows;
               rows.reserve(target_indices.size());
               for (const auto index : target_indices)
@@ -3446,12 +3672,13 @@ namespace ImmersX
                                dealii::types::global_dof_index>::max())
                     rows.push_back(row);
                 }
+              std::vector<dealii::types::global_dof_index> columns;
+              columns.reserve(column_indices.size());
+              for (const auto index : column_indices)
+                if (column_source.has_execution_index(index))
+                  columns.push_back(column_source.execution_index(index));
               target_field.constraints().add_entries_local_to_global(
-                rows,
-                column_source.constraints(),
-                column_indices,
-                sparsity,
-                true);
+                rows, column_source.constraints(), columns, sparsity, true);
             }
 
         if (dynamic_cast<const dealii::parallel::TriangulationBase<
@@ -3477,10 +3704,12 @@ namespace ImmersX
              target_field.dof_handler().active_cell_iterators())
           if (cell->is_locally_owned())
             {
+              target_indices.resize(cell->get_fe().n_dofs_per_cell());
               cell->get_dof_indices(target_indices);
-              const auto source_cell =
-                cell->as_dof_handler_iterator(source.dof_handler());
-              source_cell->get_dof_indices(column_indices);
+              const auto column_cell =
+                cell->as_dof_handler_iterator(column_source.dof_handler());
+              column_indices.resize(column_cell->get_fe().n_dofs_per_cell());
+              column_cell->get_dof_indices(column_indices);
               std::vector<unsigned int>                    active_rows;
               std::vector<dealii::types::global_dof_index> rows;
               for (unsigned int i = 0; i < target_indices.size(); ++i)
@@ -3491,27 +3720,36 @@ namespace ImmersX
                     rows.push_back(
                       target_field.execution_index(target_indices[i]));
                   }
+              std::vector<unsigned int>                    active_columns;
+              std::vector<dealii::types::global_dof_index> columns;
+              for (unsigned int j = 0; j < column_indices.size(); ++j)
+                if (column_source.has_execution_index(column_indices[j]))
+                  {
+                    active_columns.push_back(j);
+                    columns.push_back(
+                      column_source.execution_index(column_indices[j]));
+                  }
               dealii::FullMatrix<double> local(active_rows.size(),
-                                               column_indices.size());
+                                               active_columns.size());
               for (std::size_t q = 0; q < points.size(); ++q)
                 if (points[q].source_entity_id ==
                     cell->global_active_cell_index())
                   {
                     const auto basis = target_basis(target, cell, points[q]);
                     for (unsigned int row = 0; row < active_rows.size(); ++row)
-                      for (unsigned int j = 0; j < column_indices.size(); ++j)
+                      for (unsigned int j = 0; j < active_columns.size(); ++j)
                         local(row, j) +=
                           target.scale() *
-                          radial_value(
-                            observable.linearize_point(context, field, q, j),
-                            points[q]) *
+                          radial_value(observable.linearize_point(
+                                         context, field, q, active_columns[j]),
+                                       points[q]) *
                           basis[active_rows[row]] * points[q].weight;
                   }
               target_field.constraints().distribute_local_to_global(
                 local,
                 rows,
                 column_source.constraints(),
-                column_indices,
+                columns,
                 *result.matrix);
             }
         compress_weak_matrix(*result.matrix);
@@ -3589,6 +3827,9 @@ namespace ImmersX
       using TargetField = typename TargetLift::source_field_type;
       using Point       = typename TargetLift::Point;
 
+      template <typename VectorType, typename MatrixType>
+      using AffineData = WeakAffineData<VectorType, MatrixType>;
+
       template <typename MatrixType>
       struct MatrixStorage
       {
@@ -3598,10 +3839,11 @@ namespace ImmersX
 
       template <typename VectorType, typename MatrixType>
       static MatrixStorage<MatrixType>
-      assemble(
-        const ObservableType                         &observable,
-        const TargetLift                             &target,
-        std::function<std::shared_ptr<VectorType>()> *affine_factory = nullptr)
+      assemble(const ObservableType        &observable,
+               const TargetLift            &target,
+               std::shared_ptr<VectorType> *affine_rhs = nullptr,
+               std::shared_ptr<AffineData<VectorType, MatrixType>>
+                 *affine_data = nullptr)
       {
         using SourceField = typename ObservableType::source_field_type;
         static_assert(SourceField::dimension() == SourceField::spacedimension(),
@@ -3724,12 +3966,17 @@ namespace ImmersX
                                  sparsity,
                                  source.space().mpi_communicator());
 
-        struct AffineCell
-        {
-          std::vector<dealii::types::global_dof_index> source, target;
-          dealii::FullMatrix<double>                   local;
-        };
-        auto affine_cells = std::make_shared<std::vector<AffineCell>>();
+        if (affine_data != nullptr)
+          {
+            *affine_data =
+              std::make_shared<AffineData<VectorType, MatrixType>>();
+            (*affine_data)
+              ->set_constraints(source.constraints(),
+                                target_field.constraints());
+            (*affine_data)->locally_owned = target_field.locally_owned_dofs();
+            (*affine_data)->communicator =
+              target_field.space().mpi_communicator();
+          }
         for (const auto &particle : distribution.get_particles())
           if (particle.get_surrounding_cell()->is_locally_owned())
             {
@@ -3770,7 +4017,14 @@ namespace ImmersX
               for (unsigned int j = 0; j < n_target_dofs; ++j)
                 target_indices[j] =
                   static_cast<dealii::types::global_dof_index>(data[1 + j]);
-              affine_cells->push_back({source_indices, target_indices, local});
+              if (affine_data != nullptr)
+                {
+                  dealii::FullMatrix<double> transposed;
+                  transposed.copy_transposed(local);
+                  (*affine_data)
+                    ->contributions.push_back(
+                      {std::move(transposed), source_indices, target_indices});
+                }
               source.constraints().distribute_local_to_global(
                 local,
                 source_indices,
@@ -3780,113 +4034,10 @@ namespace ImmersX
             }
         compress_weak_matrix(*result.matrix);
         result.matrix = ImmersX::detail::transpose_matrix(result.matrix);
-        if (affine_factory != nullptr)
+        if (affine_rhs != nullptr && affine_data != nullptr)
           {
-            auto source_constraints =
-              std::make_shared<dealii::AffineConstraints<double>>();
-            auto target_constraints =
-              std::make_shared<dealii::AffineConstraints<double>>();
-            source_constraints->copy_from(source.constraints());
-            target_constraints->copy_from(target_field.constraints());
-            *affine_factory = [affine_cells,
-                               source,
-                               target_field,
-                               source_constraints,
-                               target_constraints] {
-              const unsigned int changed =
-                !same_constraints(source.constraints(),
-                                  *source_constraints,
-                                  false) ||
-                !same_constraints(target_field.constraints(),
-                                  *target_constraints,
-                                  true);
-              AssertThrow(
-                dealii::Utilities::MPI::max(
-                  changed, source.space().mpi_communicator()) == 0,
-                dealii::ExcMessage(
-                  "Lifted constraint structure or target affine data changed; rebuild the weak term."));
-              auto rhs = std::make_shared<VectorType>();
-              rhs->reinit(target_field.locally_owned_dofs(),
-                          target_field.space().mpi_communicator());
-              for (const auto &cell : *affine_cells)
-                {
-                  dealii::Vector<double> local(cell.target.size());
-                  for (unsigned int j = 0; j < cell.target.size(); ++j)
-                    for (unsigned int i = 0; i < cell.source.size(); ++i)
-                      local[j] -=
-                        cell.local(i, j) *
-                        source.constraints().get_inhomogeneity(cell.source[i]);
-                  target_field.constraints().distribute_local_to_global(
-                    local, cell.target, *rhs);
-                }
-              rhs->compress(dealii::VectorOperation::add);
-              return rhs;
-            };
-          }
-        return result;
-      }
-
-      static bool
-      same_constraints(const dealii::AffineConstraints<double> &current,
-                       const dealii::AffineConstraints<double> &snapshot,
-                       const bool                               compare_offsets)
-      {
-        if (current.n_constraints() != snapshot.n_constraints())
-          return false;
-        for (const auto &line : current.get_lines())
-          if (!snapshot.is_constrained(line.index) ||
-              *snapshot.get_constraint_entries(line.index) != line.entries ||
-              (compare_offsets &&
-               snapshot.get_inhomogeneity(line.index) != line.inhomogeneity))
-            return false;
-        return true;
-      }
-
-      /** Static callers use the same assembly, but reject subsequent changes.
-       */
-      template <typename VectorType, typename MatrixType>
-      static MatrixStorage<MatrixType>
-      assemble(
-        const ObservableType                         &observable,
-        const TargetLift                             &target,
-        std::shared_ptr<VectorType>                  *affine_rhs,
-        std::function<std::shared_ptr<VectorType>()> *checked_factory = nullptr)
-      {
-        std::function<std::shared_ptr<VectorType>()> factory;
-        auto                                         result =
-          assemble<VectorType, MatrixType>(observable, target, &factory);
-        const auto rhs = factory();
-        if (affine_rhs)
-          *affine_rhs = rhs;
-        if (checked_factory)
-          {
-            const auto source       = observable.source();
-            const auto target_field = target.source();
-            auto       source_constraints =
-              std::make_shared<dealii::AffineConstraints<double>>();
-            auto target_constraints =
-              std::make_shared<dealii::AffineConstraints<double>>();
-            source_constraints->copy_from(source.constraints());
-            target_constraints->copy_from(target_field.constraints());
-            *checked_factory = [rhs,
-                                source,
-                                target_field,
-                                source_constraints,
-                                target_constraints] {
-              const unsigned int changed =
-                !same_constraints(source.constraints(),
-                                  *source_constraints,
-                                  true) ||
-                !same_constraints(target_field.constraints(),
-                                  *target_constraints,
-                                  true);
-              AssertThrow(
-                dealii::Utilities::MPI::max(
-                  changed, source.space().mpi_communicator()) == 0,
-                dealii::ExcMessage(
-                  "Lifted affine constraints changed after static assembly; rebuild the weak term."));
-              return rhs;
-            };
+            *affine_rhs = std::make_shared<VectorType>();
+            (*affine_data)->refresh(**affine_rhs);
           }
         return result;
       }
@@ -4753,21 +4904,6 @@ namespace ImmersX
       return add(builder);
     }
 
-    /** Refresh lifted source Dirichlet offsets without rebuilding the matrix.
-     * Source/target master entries and target affine data must remain fixed.
-     * Without this opt-in, lifted constraints retain their static-data guard.
-     */
-    WeakTerm
-    with_lifted_affine_updates() const
-    {
-      static_assert(
-        detail::is_lifted_observable<std::decay_t<TestExpression>>::value,
-        "Affine lifted updates require a lifted test expression.");
-      auto result                   = *this;
-      result.lifted_affine_updates_ = true;
-      return result;
-    }
-
     /** Return this term with a callback run before each evaluation context. */
     template <typename Callback>
     WeakTerm
@@ -4812,19 +4948,15 @@ namespace ImmersX
                  const WeakTermRegion                        &region) const
     {
       Pairing<VectorType, MatrixType> result;
+      std::shared_ptr<detail::WeakAffineData<VectorType, MatrixType>>
+        affine_data;
       if constexpr (detail::is_lifted_observable<std::decay_t<Target>>::value)
         {
           using Assembly =
             detail::LiftedTargetWeakAssembly<TrialExpression, Target>;
           const auto storage =
-            lifted_affine_updates_ ?
-              Assembly::template assemble<VectorType, MatrixType>(
-                observable_, target, &result.affine_rhs_factory) :
-              Assembly::template assemble<VectorType, MatrixType>(
-                observable_,
-                target,
-                &result.affine_rhs,
-                &result.affine_rhs_factory);
+            Assembly::template assemble<VectorType, MatrixType>(
+              observable_, target, &result.affine_rhs, &affine_data);
           result.matrix               = storage.matrix;
           result.sparsity             = storage.sparsity;
           result.operator_with_matrix = builder.matrix_operator(*result.matrix);
@@ -4861,14 +4993,15 @@ namespace ImmersX
                             dealii::ExcMessage(
                               "Boundary weak terms require matching source "
                               "and test meshes."));
-              using AffineData =
-                typename Assembly::template AffineData<VectorType, MatrixType>;
-              std::shared_ptr<AffineData> affine_data;
-              const auto                  storage = [&] {
+              const auto storage = [&] {
                 if constexpr (is_physical_quadrature_support<Support>::value)
                   return Assembly::template assemble_on_support<VectorType,
                                                                 MatrixType>(
-                    observable_, target, support_);
+                    observable_,
+                    target,
+                    support_,
+                    &result.affine_rhs,
+                    &affine_data);
                 else if constexpr (std::is_same_v<
                                      Support,
                                      BoundaryIntegrationSupport<
@@ -4892,12 +5025,6 @@ namespace ImmersX
               }();
               result.matrix   = storage.matrix;
               result.sparsity = storage.sparsity;
-              if (affine_data != nullptr)
-                result.affine_rhs_factory = [affine_data] {
-                  auto rhs = std::make_shared<VectorType>();
-                  affine_data->refresh(*rhs);
-                  return rhs;
-                };
               result.operator_with_matrix =
                 builder.matrix_operator(*result.matrix);
             }
@@ -4919,21 +5046,63 @@ namespace ImmersX
                     Assembly::template dynamic_matrix_operator<VectorType,
                                                                MatrixType>(
                       prepared);
+                  // Condensed nonmatching matrices omit essential columns.
+                  // Keep their action on the affine offset using the same
+                  // backend with unconstrained source columns.
+                  if constexpr (std::is_constructible_v<TrialExpression,
+                                                        trial_field_type>)
+                    {
+                      const auto source      = observable_.source();
+                      const auto constrained = dealii::Utilities::MPI::max(
+                        source.constraints().n_constraints() != 0 ? 1u : 0u,
+                        source.space().mpi_communicator());
+                      if (!source.is_reindexed() && constrained != 0)
+                        {
+                          auto empty = std::make_shared<
+                            dealii::AffineConstraints<double>>();
+                          empty->reinit(source.locally_owned_dofs(),
+                                        source.locally_relevant_dofs());
+                          empty->close();
+                          const auto unconstrained =
+                            TrialExpression(source.with_constraints(empty))
+                              .scaled(observable_.scale());
+                          const auto affine_prepared =
+                            Assembly::template prepare<VectorType, MatrixType>(
+                              unconstrained, target);
+                          const auto affine_operator =
+                            Assembly::template dynamic_matrix_operator<
+                              VectorType,
+                              MatrixType>(affine_prepared);
+                          result.affine_rhs_factory = [source,
+                                                       affine_operator] {
+                            VectorType offset;
+                            affine_operator.view.reinit_domain_vector(offset,
+                                                                      false);
+                            offset = 0.;
+                            for (const auto i : source.locally_owned_dofs())
+                              offset[i] +=
+                                source.constraints().get_inhomogeneity(i);
+                            detail::compress_weak_vector(offset);
+                            auto rhs = std::make_shared<VectorType>();
+                            affine_operator.view.reinit_range_vector(*rhs,
+                                                                     false);
+                            affine_operator.view.vmult(*rhs, offset);
+                            *rhs *= -1.;
+                            return rhs;
+                          };
+                        }
+                    }
                 }
               else
                 {
-                  using AffineData =
-                    typename Assembly::template AffineData<VectorType,
-                                                           MatrixType>;
-                  std::shared_ptr<AffineData> affine_data;
-                  const auto                  storage = [&] {
+                  const auto storage = [&] {
                     if (region.kind == WeakTermRegion::Kind::boundary)
                       {
                         AssertThrow(!detail::is_lifted_observable<
                                       std::decay_t<Target>>::value,
                                     dealii::ExcMessage(
                                       "Boundary weak terms do not support "
-                                                       "lifted targets."));
+                                      "lifted targets."));
                         return Assembly::template assemble_boundary<VectorType,
                                                                     MatrixType>(
                           observable_,
@@ -4947,17 +5116,17 @@ namespace ImmersX
                   }();
                   result.matrix   = storage.matrix;
                   result.sparsity = storage.sparsity;
-                  if (affine_data != nullptr)
-                    result.affine_rhs_factory = [affine_data] {
-                      auto result = std::make_shared<VectorType>();
-                      affine_data->refresh(*result);
-                      return result;
-                    };
                   result.operator_with_matrix =
                     builder.matrix_operator(*result.matrix);
                 }
             }
         }
+      if (affine_data != nullptr)
+        result.affine_rhs_factory = [affine_data] {
+          auto rhs = std::make_shared<VectorType>();
+          affine_data->refresh(*rhs);
+          return rhs;
+        };
       if (!result.affine_rhs_factory)
         {
           const auto source         = observable_.source();
@@ -4980,7 +5149,6 @@ namespace ImmersX
     Support                     support_;
     WeakTermRegion              region_;
     std::function<void(double)> context_update_;
-    bool                        lifted_affine_updates_ = false;
   };
 
   /** \cond deduction_guide */

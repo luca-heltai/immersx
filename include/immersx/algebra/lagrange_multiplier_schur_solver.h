@@ -172,7 +172,14 @@ namespace ImmersX
       // nonsymmetric component. GMRES preserves the same matrix-free Schur
       // reuse without making the coupled driver fail on that harmless backend
       // asymmetry.
-      dealii::SolverGMRES<VectorType> schur_solver(schur_solver_control);
+      // deal.II 9.7's delayed Gram-Schmidt path can divide by zero when
+      // the Krylov space closes exactly. This occurs for small multiplier
+      // spaces, so use modified Gram-Schmidt to handle that convergence.
+      typename dealii::SolverGMRES<VectorType>::AdditionalData solver_data;
+      solver_data.orthogonalization_strategy =
+        dealii::LinearAlgebra::OrthogonalizationStrategy::modified_gram_schmidt;
+      dealii::SolverGMRES<VectorType> schur_solver(schur_solver_control,
+                                                   solver_data);
       dealii::PreconditionIdentity    identity;
       schur_solver.solve(schur_operator, multiplier, multiplier_rhs, identity);
 

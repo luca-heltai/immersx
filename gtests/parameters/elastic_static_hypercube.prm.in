@@ -1,0 +1,10 @@
+include @IMMERSX_BINARY_DIR@/gtests/parameters/elastic_static_simplex.prm
+subsection Elastic static
+  set Output directory = @TEST_OUTPUT_DIR@/elastic-static-hypercube
+  subsection Domain
+    set Triangulation type = distributed
+    set Grid generator = hyper_cube
+    set Grid generator arguments = 0:1:false
+    set Initial refinement = 1
+  end
+end

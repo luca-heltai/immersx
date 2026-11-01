@@ -1,13 +1,17 @@
 include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
 
-subsection MetricFlowX coupled solver
-  set Linear solver = mumps
+subsection MetricFlowSystem<1, 3>
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = mumps
+    end
+  end
 end
 
 subsection Elastodynamics
-  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mumps/solid
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mumps
 end
 
 subsection MetricFlowSystem<1, 3>
-  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mumps/flow
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-mumps
 end

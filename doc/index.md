@@ -29,11 +29,14 @@ ownership boundaries used throughout the documentation.
 :hidden:
 
 getting-started/index
+getting-started/containers
 how-to/index
 how-to/local-co-refinement
 how-to/lifted-poisson
 how-to/lifted-static-elasticity
 tutorials/index
+tutorials/fiber-reinforced-frequency
+tutorials/fiber-in-3d-frequency
 tutorials/metric-flow-x-elastostatic-onboarding
 tutorials/metric-flow-x-elastodynamics-mms
 concepts/index

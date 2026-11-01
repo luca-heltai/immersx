@@ -316,8 +316,8 @@ TEST(ElasticityTensorProductCouplingValidation, BOTH_ModesHaveUnitMaximum)
                            {2, 3, 4, 5},
                            {0, 1});
   par.initial_refinement = 2;
-  par.tensor_product_coupling_parameters.tensor_product_space_parameters
-    .section.refinement_level = 3;
+  par.tensor_product_coupling_parameters.tensor_product_space_parameters.section
+    .refinement_level = 3;
   ElasticityProblem<3> problem(par);
   initialize_parameters();
   ParameterAcceptor::parse_all_parameters();
@@ -489,7 +489,8 @@ namespace
     ElasticityProblem<3>           problem(par);
     initialize_parameters();
     ParameterAcceptor::prm.parse_input_from_string(
-      TestPaths::expand_configured_paths(R"(
+      TestPaths::expand_configured_paths(
+        R"(
     subsection Functions
       subsection Dirichlet boundary conditions
         set Function expression = 0; 0; 0
@@ -502,16 +503,14 @@ namespace
     end
     subsection Immersed Problem
       set Coupling type                      = )" +
-                                         std::string(point_coupling ?
-                                                       "Point" :
-                                                       "TensorProduct") +
-                                         R"(
+        std::string(point_coupling ? "Point" : "TensorProduct") +
+        R"(
       set Dirichlet boundary ids             = 0
       set Normal flux boundary ids           = 1,2
       set FE degree                          = 1
       set Initial refinement                 = 2
       set Output name                        = )" +
-                                         name + R"(
+        name + R"(
       set Output results also before solving = false
       subsection Grid generation
         set Domain type              = generate
@@ -521,8 +520,8 @@ namespace
       end
       subsection Immersed inclusions
         set Inclusions                        = )" +
-                                         (point_coupling ? inclusions : "") +
-                                         R"(
+        (point_coupling ? inclusions : "") +
+        R"(
         set Inclusions refinement             = 400
         set Selection of Fourier coefficients = 3,7
         set Reference inclusion data          = 0,0,0,0.1,0,0,0,0.1,0
@@ -539,7 +538,7 @@ namespace
         set Coarsening fraction         = 0
         set Maximum number of cells     = 2000000
         set Number of refinement cycles = )" +
-                                         std::to_string(n_cycles) + R"(
+        std::to_string(n_cycles) + R"(
       end
     end
     subsection Tensor product coupling
@@ -590,7 +589,7 @@ namespace
     // boundary of the domain, which the plane-strain solution does not
     // describe. setup_dofs() reinitializes the solution after each
     // refinement, so it is looked up at every evaluation.
-    const QGauss<3> quadrature(par.fe_degree + 2);
+    const QGauss<3>                           quadrature(par.fe_degree + 2);
     const ScalarFunctionFromFunctionObject<3> weight(
       [](const Point<3> &p) { return std::abs(p[0]) <= 1.9 ? 1. : 0.; });
     const auto error = [&](const VectorTools::NormType norm) {
@@ -623,8 +622,8 @@ namespace
                                    problem.locally_relevant_solution.block(0),
                                    p,
                                    value);
-          mean +=
-            (value[1] * std::cos(theta) + value[2] * std::sin(theta)) / n_points;
+          mean += (value[1] * std::cos(theta) + value[2] * std::sin(theta)) /
+                  n_points;
         }
       return mean;
     };
@@ -685,7 +684,8 @@ TEST(ElasticityTensorProductCouplingValidation, ExactSolution)
 // With the same adaptive refinement, point and tensor-product coupling impose
 // the same inflation of the vessel and approximate the exact solution equally
 // well.
-TEST(ElasticityTensorProductCouplingValidation, PointAndTensorProductExactSolution)
+TEST(ElasticityTensorProductCouplingValidation,
+     PointAndTensorProductExactSolution)
 {
   const auto point  = solve_inflated_vessel(true, 2).back();
   const auto tensor = solve_inflated_vessel(false, 2).back();

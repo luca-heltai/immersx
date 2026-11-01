@@ -20,7 +20,7 @@
 #  include <metric_flow_x/blood_flow_system.h>
 
 #  include <memory>
-#  include <numeric>
+#  include <type_traits>
 #  include <utility>
 
 namespace ImmersX
@@ -70,6 +70,10 @@ namespace ImmersX
     using Vector  = ::MetricFlowX::VectorType;
     using Matrix  = ::MetricFlowX::MatrixType;
 
+    static_assert(
+      std::is_same_v<Vector, ImmersXLA::MPI::Vector>,
+      "MetricFlowX and ImmersX must use the same linear algebra backend.");
+
     AssertThrow(description.problem != nullptr,
                 dealii::ExcMessage("A MetricFlowX Problem cannot be null."));
     Problem &problem = *description.problem;
@@ -84,7 +88,7 @@ namespace ImmersX
       state, [](const auto &matrix, const auto &prototype) {
         using Preconditioner = ::MetricFlowX::LA::MPI::PreconditionILU;
         typename Preconditioner::AdditionalData data;
-#  ifdef DEAL_II_WITH_TRILINOS
+#  ifdef METRIC_FLOW_X_WITH_TRILINOS
         // Algebraic face traces have zero diagonal entries in the native
         // matrix.
         data.ilu_atol = 1.e-5;
@@ -143,26 +147,12 @@ namespace ImmersX
     auto space = std::make_shared<MetricFlowXFields::Space>(
       problem.dof_handler(),
       dealii::StaticMappingQ1<1, 3>::mapping,
-      problem.constraints());
-    auto execution_constraints =
-      std::make_shared<dealii::AffineConstraints<double>>(
-        problem.constraints());
-    std::vector<dealii::types::global_dof_index> identity(
-      problem.dof_handler().n_dofs());
-    std::iota(identity.begin(), identity.end(), 0);
-    const auto make_state_field = [&](const auto        &extractor,
-                                      const std::string &name) {
-      return space->field(state, name, extractor)
-        .reindexed(name,
-                   problem.locally_owned_dofs(),
-                   problem.locally_relevant_dofs(),
-                   identity,
-                   execution_constraints);
-    };
+      problem.constraints(),
+      &problem.locally_relevant_dofs());
     return {state,
             space,
-            make_state_field(problem.area_extractor(), "area"),
-            make_state_field(problem.velocity_extractor(), "velocity")};
+            space->field(state, "area", problem.area_extractor()),
+            space->field(state, "velocity", problem.velocity_extractor())};
   }
 } // namespace ImmersX
 

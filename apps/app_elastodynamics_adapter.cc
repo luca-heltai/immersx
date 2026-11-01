@@ -83,13 +83,15 @@ namespace
           adapter, fields, problem, state, state_dot);
 
         adapter.solve(state, state_dot);
-        problem.compute_error();
+        if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube())
+          problem.compute_error();
 
         if (cycle + 1 < parameters.n_refinement_cycles)
           problem.refine_global();
       }
 
-    if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    if (problem.dof_handler().get_fe().reference_cell().is_hyper_cube() &&
+        dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       parameters.convergence_table.output_table(std::cout);
   }
 #else
