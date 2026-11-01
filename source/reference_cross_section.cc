@@ -204,6 +204,14 @@ namespace ImmersX
       if (is_zero[i] == true)
         basis_functions.erase(basis_functions.begin() + i);
 
+    // The orthogonalization above needs 1/|D| int_D phi_j . phi_j = 1. Only
+    // after it, scale every mode to a maximum absolute value of one, the
+    // normalization of the Fourier modes of point coupling: a coefficient is
+    // then the amplitude of its mode, e.g. phi = cos(theta) e_x instead of
+    // sqrt(2) cos(theta) e_x. The maximum is taken over the nodal values.
+    for (auto &basis_function : basis_functions)
+      basis_function /= basis_function.linfty_norm();
+
     // functions
     if (par.selected_coefficients.empty())
       {
@@ -225,10 +233,14 @@ namespace ImmersX
                                     Vector<double>(dof_handler.n_dofs()));
     // Compute the selected basis functions as the rows of the inverse metric
     // times the basis functions
+    selected_basis_mean_squares.resize(par.selected_coefficients.size());
     for (unsigned int i = 0; i < par.selected_coefficients.size(); ++i)
       {
         selected_basis_functions[i] =
           basis_functions[par.selected_coefficients[i]];
+        selected_basis_mean_squares[i] =
+          mass_matrix.matrix_norm_square(selected_basis_functions[i]) /
+          reference_measure;
       }
 
     // Now compute the Matrix of the selected basis functions evaluated on the
@@ -294,6 +306,16 @@ namespace ImmersX
     const -> const std::vector<Vector<double>> &
   {
     return selected_basis_functions;
+  }
+
+
+
+  template <int dim, int spacedim, int n_components>
+  auto
+  ReferenceCrossSection<dim, spacedim, n_components>::get_basis_mean_squares()
+    const -> const std::vector<double> &
+  {
+    return selected_basis_mean_squares;
   }
 
   template <int dim, int spacedim, int n_components>

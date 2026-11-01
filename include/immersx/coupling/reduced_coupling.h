@@ -172,6 +172,13 @@ namespace ImmersX
 
     /**
      * @brief Assemble the coupling matrix between background and reduced spaces.
+     *
+     * The entries are B_ij = int_gamma int_D(s) v_i . (psi phi_c)_j dD ds, a
+     * surface integral over the cross sections D(s) along the reduced domain
+     * gamma. Point coupling instead uses the plain average
+     * 1/|S| int_S v_i . phi_j over the circle S of each inclusion, which does
+     * not grow with the size of the inclusion.
+     *
      * @tparam MatrixType The matrix type (e.g., SparseMatrix<double>).
      * @param coupling_matrix The matrix to assemble.
      * @param dh The DoFHandler for the background domain.
@@ -184,6 +191,20 @@ namespace ImmersX
       const DoFHandler<spacedim>      &dh,
       const AffineConstraints<double> &constraints) const;
 
+    /**
+     * @brief Assemble the mass matrix of the multiplier space.
+     *
+     * The entries are int_gamma psi_m psi_n |D(s)| m_c ds for equal modes c,
+     * with m_c the mean square of mode c (see
+     * ReferenceCrossSection::get_basis_mean_squares()): the Gram matrix of
+     * the functions psi phi_c on the cross sections, consistent with the
+     * coupling matrix. A multiplier is therefore a force per unit area of the
+     * cross section. Point coupling uses int_S phi_j^2 per inclusion, which is
+     * not divided by |S| as its coupling matrix is.
+     *
+     * @tparam MatrixType The matrix type (e.g., SparseMatrix<double>).
+     * @param mass_matrix The matrix to assemble.
+     */
     template <typename MatrixType>
     void
     assemble_coupling_mass_matrix(MatrixType &mass_matrix) const;
@@ -192,11 +213,11 @@ namespace ImmersX
      * @brief Assemble the right-hand side vector for the reduced space.
      *
      * Computes the right-hand side induced by coefficient functions on the
-     * reduced domain. The selected transverse basis is integrated over the
-     * reference cross section, so the local cross-section measure scales both
-     * the reduced mass matrix and the assembled right-hand side. A constant
-     * reduced expression therefore produces a constant represented datum when
-     * the constant mode is selected.
+     * reduced domain: int_gamma psi g_c |D(s)| m_c ds, i.e., the coupling
+     * matrix applied to u = sum_c g_c phi_c. Since the modes have maximum one,
+     * the coefficient g_c is the amplitude of mode c in the imposed field, as
+     * in point coupling, where the right-hand side is the circle average
+     * g_j <phi_j^2> instead.
      *
      * @tparam VectorType The vector type (e.g., Vector<double>).
      * @param reduced_rhs The right-hand side vector to assemble.
@@ -398,6 +419,8 @@ namespace ImmersX
         AssertDimension(mass_matrix.n(), this->n_representative_dofs());
         mass_matrix              = 0;
         const unsigned int block = this->n_representative_dofs_per_entity();
+        const auto        &mean_squares =
+          this->get_reference_cross_section().get_basis_mean_squares();
         for (const auto entity : this->locally_owned_representative_entities())
           {
             const double section_measure =
@@ -406,7 +429,7 @@ namespace ImmersX
             for (unsigned int j = 0; j < block; ++j)
               mass_matrix.add(entity * block + j,
                               entity * block + j,
-                              section_measure);
+                              section_measure * mean_squares[j]);
           }
         mass_matrix.compress(VectorOperation::add);
         return;
@@ -480,7 +503,9 @@ namespace ImmersX
                             local_mass_matrix(i, j) +=
                               fe_values.shape_value(i, q) *
                               fe_values.shape_value(j, q) * JxW[q] *
-                              section_measure;
+                              section_measure *
+                              this->get_reference_cross_section()
+                                .get_basis_mean_squares()[comp_i];
                         }
                     }
                 }
@@ -528,8 +553,10 @@ namespace ImmersX
                 for (unsigned int j = 0; j < n_basis; ++j)
                   values[j] = value_vector[j];
               }
+            const auto &mean_squares =
+              this->get_reference_cross_section().get_basis_mean_squares();
             for (unsigned int j = 0; j < block; ++j)
-              local_rhs[j] = values[j] * section_measure;
+              local_rhs[j] = values[j] * section_measure * mean_squares[j];
             coupling_constraints.distribute_local_to_global(
               local_rhs,
               this->get_representative_dof_indices(entity),
@@ -619,10 +646,13 @@ namespace ImmersX
                   {
                     const auto comp_i =
                       fe_values.get_fe().system_to_component_index(i).first;
-                    local_rhs(i) += rhs_values[q][comp_i] *
-                                    fe_values.shape_value(i, q) * JxW[q] *
-                                    this->get_reference_cross_section().measure(
-                                      thickness_values[q]);
+                    local_rhs(i) +=
+                      rhs_values[q][comp_i] * fe_values.shape_value(i, q) *
+                      JxW[q] *
+                      this->get_reference_cross_section().measure(
+                        thickness_values[q]) *
+                      this->get_reference_cross_section()
+                        .get_basis_mean_squares()[comp_i];
                   }
               cell->get_dof_indices(dof_indices);
               coupling_constraints.distribute_local_to_global(local_rhs,

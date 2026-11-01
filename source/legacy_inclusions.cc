@@ -251,9 +251,9 @@ namespace ImmersX
   namespace LegacyInclusions
   {
     double
-    fourier_to_reference_scale(const unsigned int mode)
+    fourier_to_reference_scale(const unsigned int)
     {
-      return mode == 0 ? 1. : 1. / std::sqrt(2.);
+      return 1.;
     }
 
     std::vector<unsigned int>

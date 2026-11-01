@@ -273,8 +273,8 @@ namespace ImmersX
         //   p(s) = 1/|D(s)| int_{D(s)} T . n = sum_c k_c Lambda_c(s),
         //   k_c  = 1/|D_ref| int_{D_ref} phi_c . n.
         // Only the modes x e_x and y e_y, i.e., the selected indices 3 and 7,
-        // exert a normal force; their weight is 1/sqrt(2) on the circle,
-        // where they are sqrt(2) cos(theta) e_x and sqrt(2) sin(theta) e_y.
+        // exert a normal force; their weight is 1/2 on the circle, where they
+        // are cos(theta) e_x and sin(theta) e_y.
         // The weight is computed with the quadrature of the reference cross
         // section, so it is exact for the quadrature used by the coupling.
         const auto &section =
@@ -302,8 +302,9 @@ namespace ImmersX
         // Interior stress (see the point-coupling branch above). The imposed
         // wall displacement is sum_c a_c(s) phi_c with M a = g, where g is the
         // multiplier right-hand side and M the coupling mass matrix
-        // int psi_m psi_n |D(s)| ds, i.e., the Gram matrix of the multiplier
-        // space, since int_D phi_c . phi_c = |D|. Its mean normal value is
+        // int psi_m psi_n |D(s)| m_c ds, i.e., the Gram matrix of the
+        // multiplier space, with m_c = 1/|D| int_D phi_c . phi_c. Its mean
+        // normal value is
         //   u_n(s) = sum_c k_c a_c(s),
         // and the mean normal stress of the interior material on the wall is
         //   sigma_int(s) = 2 (lambda + mu) u_n(s) / r(s),
@@ -643,17 +644,13 @@ namespace ImmersX
             // coordinates.emplace_back(el);
             data_to_write.emplace_back(pressure[el]);
           }
-        if (pressure.locally_owned_size() > 0)
+
+        const hsize_t los = pressure.locally_owned_size();
+        const hsize_t prefix =
+          Utilities::MPI::partial_and_total_sum(los, this->mpi_communicator)
+            .first;
+        if (los > 0)
           {
-            hsize_t prefix = 0;
-            hsize_t los    = pressure.locally_owned_size();
-            int     ierr   = MPI_Exscan(&los,
-                                  &prefix,
-                                  1,
-                                  MPI_UNSIGNED_LONG_LONG,
-                                  MPI_SUM,
-                                  this->mpi_communicator);
-            AssertThrowMPI(ierr);
 
             std::vector<hsize_t> offset = {prefix, 1};
             std::vector<hsize_t> count  = {pressure.locally_owned_size(), 1};

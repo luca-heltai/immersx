@@ -108,7 +108,10 @@ namespace
   // inclusions_file(1), or with tensor-product coupling. Each "set <key> = ..."
   // entry listed in `overrides` is replaced by "set <key> = <value>". The inner
   // displacement solve needs more than the default 100 iterations on locally
-  // refined meshes and on two ranks.
+  // refined meshes and on two ranks. The cross section is refined three times
+  // (a 32-sided polygon): with one refinement the polygon makes the
+  // tensor-product pressure about 10% larger than the point one, with three
+  // the difference is below 1%.
   std::string
   parameters(const bool         point_coupling,
              const std::string &reduced_grid,
@@ -173,7 +176,7 @@ namespace
         subsection Cross section
           set Inclusion type           = hyper_ball
           set Maximum inclusion degree = 1
-          set Refinement level         = 1
+          set Refinement level         = 3
           set Selected indices         = 3, 7
         end
         subsection Particle coupling

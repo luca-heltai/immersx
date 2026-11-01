@@ -56,13 +56,20 @@ TEST(ReferenceCrossSection, CheckBasisOrthogonality) // NOLINT
   PolynomialsP<spacedim> polynomials(degree);
   ASSERT_EQ(n_basis_functions, polynomials.n() * n_components);
 
-  // Check for M-orthonormality: basis[i]^T * M * basis[j] == delta_ij
-  Vector<double> tmp(mass_matrix.m()); // Temporary vector for M * basis[j]
+  // Check for M-orthogonality: basis[i]^T * M * basis[j] is zero for i != j
+  // and |D| times the mean square of the mode for i == j. Each mode has
+  // maximum one.
+  const auto &mean_squares = ref_inclusion.get_basis_mean_squares();
+  ASSERT_EQ(mean_squares.size(), n_basis_functions);
 
   for (unsigned int i = 0; i < n_basis_functions; ++i)
     {
       ASSERT_GT(basis[i].l2_norm(), 1e-15)
         << "Basis function " << i << " is zero.";
+      EXPECT_NEAR(basis[i].linfty_norm(), 1., 1e-12)
+        << "Basis function " << i << " does not have maximum one.";
+      EXPECT_GT(mean_squares[i], 0.);
+      EXPECT_LE(mean_squares[i], 1. + 1e-12);
       for (unsigned int j = 0; j < n_basis_functions; ++j)
         {
           const double dot_product =
@@ -70,10 +77,11 @@ TEST(ReferenceCrossSection, CheckBasisOrthogonality) // NOLINT
 
           if (i == j)
             {
-              // Diagonal elements should be close to |D| for orthogonal basis
-              ASSERT_NEAR(dot_product, ref_inclusion.measure(), 1e-10)
+              ASSERT_NEAR(dot_product,
+                          ref_inclusion.measure() * mean_squares[i],
+                          1e-10)
                 << "Basis functions " << i << " and " << j
-                << " are not M-orthonormal (diagonal check).";
+                << " do not match their mean square (diagonal check).";
             }
           else
             {
