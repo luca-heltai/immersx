@@ -1784,6 +1784,26 @@ TEST(VascularForest, BOTH_FullCommitWorkCounts)
   EXPECT_GT(total(GrowthOperation::physical_copy_attempts), owned);
 }
 
+TEST(VascularForest, BOTH_ObstacleRemovalPreservesCoincidentPhysicalVessels)
+{
+  using Box = BoundingBox<3>;
+  const Box original(
+    std::make_pair(Point<3>(.1, .2, .3), Point<3>(.4, .5, .6)));
+  const Box moved(std::make_pair(Point<3>(.2, .3, .4), Point<3>(.5, .6, .7)));
+  GrowthExecution::ObstacleTree tree;
+  tree.insert({original, base});
+  tree.insert({original, base + 1});
+  EXPECT_EQ(tree.remove({original, base}), 1u);
+  ASSERT_EQ(tree.size(), 1u);
+  EXPECT_EQ(tree.begin()->second, base + 1);
+  tree.insert({moved, base});
+  EXPECT_EQ(tree.remove({original, base}), 0u);
+  EXPECT_EQ(tree.size(), 2u);
+  EXPECT_EQ(tree.remove({moved, base}), 1u);
+  ASSERT_EQ(tree.size(), 1u);
+  EXPECT_EQ(tree.begin()->second, base + 1);
+}
+
 TEST(VascularForest, BOTH_CenterlineRemovalPreservesCoincidentPhysicalVessels)
 {
   NetworkData n;

@@ -13,7 +13,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance candidates by physical identifier.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance vascular and venous-territory candidates by physical identifier. Reuse native nearest cursors while venous outlets reject or claim candidate territories.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 
@@ -260,9 +260,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep liver input lengths in metres and tissue counts absolute when layered on mesh-adaptive generation; retain the independently counted full-commit geometry oracle.
 
-- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Build surface volume generation and retained vascular indices with the deal.II 9.7 and Boost toolchain used by CI, preserving conforming hexahedral output and physical vessel identities during index updates.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Build surface volume generation and retained vascular centerline and obstacle indices with the deal.II 9.7 and Boost toolchain used by CI, preserving conforming hexahedral output and physical vessel identities during index updates.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
 
@@ -469,7 +471,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Allow ninety minutes for the complete Debug and Release CI jobs, including cold-cache builds, all quick tests and cache upload. Keep the test selection and individual test timeouts unchanged.
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii, journal rollback and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check native ownership and physical aggregation after concurrent branch edits and terminal remapping. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero. Check cached branch resistance extrema and minimum leaf demand after staged edits. Compare owning execution rejection, retry, native owner migration and SI ghost output with immutable full commits. Check candidate envelope queries against full-forest trial collisions after demand transfers between roots. Keep per-batch physical-bound checks limited to changed roots while retaining the flow minimum on untouched distant leaves. Compare retained venous nearest cursors with exhaustive searches through successive exclusions, concurrent claims and exact-distance ties.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 
