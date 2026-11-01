@@ -17,9 +17,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
+#include <list>
 #include <optional>
 #include <set>
+#include <tuple>
+
+#include "background_intersections.h"
 
 namespace ImmersX::Vascularization
 {
@@ -29,18 +34,7 @@ namespace ImmersX::Vascularization
     namespace bgi                        = boost::geometry::index;
     constexpr double reference_tolerance = 1.e-12;
 
-    struct Interval
-    {
-      double              begin, end, h;
-      types::subdomain_id owner;
-
-      template <class Archive>
-      void
-      serialize(Archive &ar, const unsigned int)
-      {
-        ar &begin &end &h &owner;
-      }
-    };
+    using Interval = internal::BackgroundInterval;
 
     Point<3>
     point(const Segment<3> &s, double t)
@@ -178,9 +172,9 @@ namespace ImmersX::Vascularization
     }
 
     void
-    sort_cuts(std::vector<double> &cuts, GrowthWork *work)
+    sort_cuts(std::vector<double> &cuts, GrowthWork *work = nullptr)
     {
-      const auto old_size = cuts.size();
+      const auto original_size = cuts.size();
       std::sort(cuts.begin(), cuts.end());
       cuts.erase(std::unique(cuts.begin(),
                              cuts.end(),
@@ -190,7 +184,7 @@ namespace ImmersX::Vascularization
                  cuts.end());
       count_work(work,
                  GrowthOperation::interval_cut_edits,
-                 old_size - cuts.size());
+                 original_size - cuts.size());
       cuts.front() = 0.;
       cuts.back()  = 1.;
     }
@@ -202,13 +196,13 @@ namespace ImmersX::Vascularization
               types::subdomain_id        exterior_owner,
               GrowthWork                *work)
     {
-      std::vector<Triangulation<3>::active_cell_iterator> candidates;
-      std::vector<double>                                 cuts{0., 1.};
+      std::vector<double> cuts{0., 1.};
+      double              maximum_diameter = 0.;
       for (const auto &[box, cell] :
            cache.get_locally_owned_cell_bounding_boxes_rtree() |
              bgi::adaptors::queried(bgi::intersects(s)))
         {
-          candidates.push_back(cell);
+          maximum_diameter = std::max(maximum_diameter, cell->diameter());
           for (const auto f : cell->face_indices())
             {
               std::vector<Point<3>> vertices;
@@ -222,13 +216,31 @@ namespace ImmersX::Vascularization
             }
         }
       sort_cuts(cuts, work);
+      // Q1 and affine simplex maps bound the physical displacement allowed by
+      // the reference-cell tolerance by a constant times the cell diameter.
+      const double padding =
+        8. * reference_tolerance *
+        std::max({1., maximum_diameter, s.first.norm(), s.second.norm()});
       std::vector<Interval> result;
       for (std::size_t i = 1; i < cuts.size(); ++i)
         {
           const Point<3> p = point(s, .5 * (cuts[i - 1] + cuts[i]));
           std::optional<Triangulation<3>::active_cell_iterator> found;
-          for (const auto &cell : candidates)
+          Point<3> lower = p, upper = p;
+          for (unsigned int d = 0; d < 3; ++d)
             {
+              lower[d] -= padding;
+              upper[d] += padding;
+            }
+          const BoundingBox<3> query_box(std::make_pair(lower, upper));
+          count_work(work, GrowthOperation::point_cell_queries);
+          for (const auto &[box, cell] :
+               cache.get_locally_owned_cell_bounding_boxes_rtree() |
+                 bgi::adaptors::queried(bgi::intersects(query_box)))
+            {
+              count_work(work, GrowthOperation::point_cell_hits);
+              if (!boost::geometry::intersects(box, s))
+                continue;
               count_work(work, GrowthOperation::interval_cell_tests);
               try
                 {
@@ -258,11 +270,11 @@ namespace ImmersX::Vascularization
     // Only coarse background boxes are replicated. Physical owners obtain
     // exact positive-arclength intersections from the relevant cell owners.
     std::map<Id, std::vector<Interval>>
-    distributed_intervals(const GridTools::Cache<3> &cache,
-                          const Mapping<3>          &mapping,
-                          const NetworkData         &network,
-                          MPI_Comm                   comm,
-                          GrowthWork                *work)
+    distributed_intervals(const GridTools::Cache<3>      &cache,
+                          const Mapping<3>               &mapping,
+                          const std::map<Id, Segment<3>> &segments,
+                          MPI_Comm                        comm,
+                          GrowthWork                     *work)
     {
       const auto  rank = Utilities::MPI::this_mpi_process(comm);
       const auto  size = Utilities::MPI::n_mpi_processes(comm);
@@ -279,22 +291,18 @@ namespace ImmersX::Vascularization
       using Query              = std::pair<Id, std::array<Point<3>, 2>>;
       std::map<unsigned int, std::vector<Query>> queries;
       std::map<Id, std::vector<Interval>>        result;
-      for (const auto &[id, vessel] : network.vessels)
-        if (vessel.owner == rank)
-          {
-            const std::array<Point<3>, 2> endpoints{
-              {network.nodes.at(vessel.nodes[0]).position,
-               network.nodes.at(vessel.nodes[1]).position}};
-            const Segment<3> segment(endpoints[0], endpoints[1]);
-            result[id];
-            std::set<unsigned int> recipients;
-            for (const auto &[box, source] :
-                 covering_tree |
-                   bgi::adaptors::queried(bgi::intersects(segment)))
-              recipients.insert(source);
-            for (const auto source : recipients)
-              queries[source].push_back({id, endpoints});
-          }
+      for (const auto &[id, segment] : segments)
+        {
+          const std::array<Point<3>, 2> endpoints{
+            {segment.first, segment.second}};
+          result[id];
+          std::set<unsigned int> recipients;
+          for (const auto &[box, source] :
+               covering_tree | bgi::adaptors::queried(bgi::intersects(segment)))
+            recipients.insert(source);
+          for (const auto source : recipients)
+            queries[source].push_back({id, endpoints});
+        }
       const auto incoming = Utilities::MPI::some_to_some(comm, queries);
       std::map<unsigned int, std::map<Id, std::vector<Interval>>> replies;
       for (const auto &[source, requests] : incoming)
@@ -322,34 +330,65 @@ namespace ImmersX::Vascularization
               cuts.push_back(interval.end);
             }
           sort_cuts(cuts, work);
-          std::vector<Interval> combined;
+          struct Event
+          {
+            double      coordinate;
+            std::size_t index;
+            bool        enter;
+          };
+          std::vector<Event> events;
+          events.reserve(2 * intervals.size());
+          for (std::size_t i = 0; i < intervals.size(); ++i)
+            {
+              events.push_back({intervals[i].begin, i, true});
+              events.push_back({intervals[i].end, i, false});
+              count_work(work, GrowthOperation::interval_record_visits);
+            }
+          std::sort(events.begin(),
+                    events.end(),
+                    [](const auto &a, const auto &b) {
+                      return std::tie(a.coordinate, a.enter, a.index) <
+                             std::tie(b.coordinate, b.enter, b.index);
+                    });
+          std::set<std::pair<double, std::size_t>>              diameters;
+          std::set<std::pair<types::subdomain_id, std::size_t>> owners;
+          std::size_t                                           event = 0;
+          std::vector<Interval>                                 combined;
           for (std::size_t i = 1; i < cuts.size(); ++i)
             {
               const double middle = .5 * (cuts[i - 1] + cuts[i]);
-              Interval     selected{cuts[i - 1],
-                                cuts[i],
-                                0.,
-                                network.vessels.at(id).owner};
-              count_work(work,
-                         GrowthOperation::interval_record_visits,
-                         intervals.size());
-              for (const auto &interval : intervals)
-                if (interval.begin < middle && middle < interval.end)
-                  {
-                    // On a background interface use the finest crossed cell
-                    // and the lowest containing rank for execution ownership.
-                    if (selected.h == 0.)
-                      {
-                        selected.h     = interval.h;
-                        selected.owner = interval.owner;
-                      }
-                    else
-                      {
-                        selected.h = std::min(selected.h, interval.h);
-                        selected.owner =
-                          std::min(selected.owner, interval.owner);
-                      }
-                  }
+              // Remove exits at the midpoint before admitting entries there:
+              // the original containment predicate is strict at both ends.
+              while (
+                event < events.size() &&
+                (events[event].coordinate < middle ||
+                 (events[event].coordinate == middle && !events[event].enter)))
+                {
+                  const auto &entry    = events[event++];
+                  const auto &interval = intervals[entry.index];
+                  const auto  h = std::make_pair(interval.h, entry.index);
+                  const auto  owner =
+                    std::make_pair(interval.owner, entry.index);
+                  if (entry.enter)
+                    {
+                      diameters.insert(h);
+                      owners.insert(owner);
+                    }
+                  else
+                    {
+                      diameters.erase(h);
+                      owners.erase(owner);
+                    }
+                  count_work(work, GrowthOperation::interval_record_visits);
+                }
+              Interval selected{cuts[i - 1], cuts[i], 0., rank};
+              // Mesh scale and execution ownership have distinct tie rules.
+              if (!diameters.empty())
+                {
+                  selected.h     = diameters.begin()->first;
+                  selected.owner = owners.begin()->first;
+                }
+              count_work(work, GrowthOperation::interval_record_visits);
               if (!combined.empty() && combined.back().h == selected.h &&
                   combined.back().owner == selected.owner)
                 combined.back().end = selected.end;
@@ -368,36 +407,57 @@ namespace ImmersX::Vascularization
                     const std::vector<Interval> &intervals,
                     GrowthWork                  *work)
     {
-      count_work(work,
-                 GrowthOperation::interval_record_visits,
-                 intervals.size());
       DiscretizationCell result;
       result.reference            = {vessel, begin, end};
       result.h_min                = std::numeric_limits<double>::infinity();
       const double middle         = .5 * (begin + end);
       bool         midpoint_found = false;
-      for (const auto &interval : intervals)
-        if (interval.begin < end && interval.end > begin)
-          {
-            if (interval.h > 0.)
-              {
-                result.inside = true;
-                result.h_min  = std::min(result.h_min, interval.h);
-                result.h_max  = std::max(result.h_max, interval.h);
-              }
-            if (interval.begin <= middle && middle <= interval.end)
-              {
-                result.owner   = midpoint_found ?
-                                   std::min(result.owner, interval.owner) :
-                                   interval.owner;
-                midpoint_found = true;
-              }
-          }
+      const auto   first =
+        std::lower_bound(intervals.begin(),
+                         intervals.end(),
+                         begin,
+                         [work](const auto &interval, double coordinate) {
+                           count_work(work,
+                                      GrowthOperation::interval_record_visits);
+                           return interval.end <= coordinate;
+                         });
+      for (auto it = first; it != intervals.end() && it->begin < end; ++it)
+        {
+          const auto &interval = *it;
+          count_work(work, GrowthOperation::interval_record_visits);
+          if (interval.begin < end && interval.end > begin)
+            {
+              if (interval.h > 0.)
+                {
+                  result.inside = true;
+                  result.h_min  = std::min(result.h_min, interval.h);
+                  result.h_max  = std::max(result.h_max, interval.h);
+                }
+              if (interval.begin <= middle && middle <= interval.end)
+                {
+                  result.owner   = midpoint_found ?
+                                     std::min(result.owner, interval.owner) :
+                                     interval.owner;
+                  midpoint_found = true;
+                }
+            }
+        }
       if (!result.inside)
         result.h_min = 0.;
       return result;
     }
   } // namespace
+
+  std::map<Id, std::vector<internal::BackgroundInterval>>
+  internal::intersect_background(
+    const dealii::GridTools::Cache<3>      &cache,
+    const dealii::Mapping<3>               &mapping,
+    const std::map<Id, dealii::Segment<3>> &segments,
+    MPI_Comm                                communicator,
+    GrowthWork                             *work)
+  {
+    return distributed_intervals(cache, mapping, segments, communicator, work);
+  }
 
   void
   DiscretizationParameters::validate() const
@@ -498,8 +558,15 @@ namespace ImmersX::Vascularization
       exterior_h > 0.,
       ExcMessage(
         "A nonempty background or an explicit exterior target length is required."));
-    const auto crossings =
-      distributed_intervals(cache, mapping, network, communicator, work);
+    std::map<Id, Segment<3>> owned_segments;
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == rank)
+        owned_segments.emplace(
+          id,
+          Segment<3>(network.nodes.at(vessel.nodes[0]).position,
+                     network.nodes.at(vessel.nodes[1]).position));
+    const auto crossings = internal::intersect_background(
+      cache, mapping, owned_segments, communicator, work);
     const auto subdivide_owned = [&]() {
       for (const auto &[id, e] : network.vessels)
         {
@@ -528,12 +595,14 @@ namespace ImmersX::Vascularization
             }
           const unsigned int  count = static_cast<unsigned int>(wanted);
           std::vector<double> cuts{0., 1.};
+          std::size_t         current_interval = 0;
+          double              accumulated      = 0.;
           for (unsigned int i = 1; i < count; ++i)
             {
-              const double target      = metric * i / count;
-              double       accumulated = 0.;
-              for (const auto &interval : intervals)
+              const double target = metric * i / count;
+              while (current_interval < intervals.size())
                 {
+                  const auto &interval = intervals[current_interval];
                   count_work(work, GrowthOperation::interval_record_visits);
                   const double h = interval.h > 0. ? interval.h : exterior_h;
                   const double piece = (interval.end - interval.begin) * l / h;
@@ -544,6 +613,7 @@ namespace ImmersX::Vascularization
                       break;
                     }
                   accumulated += piece;
+                  ++current_interval;
                 }
             }
           // An exterior part is preserved, but never merged across the physical
@@ -560,17 +630,22 @@ namespace ImmersX::Vascularization
                  "Boundary-conforming numerical cell budget exhausted."});
               return;
             }
-          for (std::size_t i = 1; i < cuts.size();)
+          // Stable cut iterators avoid shifting all later cells on each edit.
+          std::list<double> partition(cuts.begin(), cuts.end());
+          for (auto right = std::next(partition.begin());
+               right != partition.end();)
             {
-              const auto cell =
-                cell_resolution(id, cuts[i - 1], cuts[i], intervals, work);
+              const double begin = *std::prev(right), end = *right;
+              const auto   cell =
+                cell_resolution(id, begin, end, intervals, work);
               const double h = cell.inside ? cell.h_min : exterior_h;
-              if ((cuts[i] - cuts[i - 1]) * l >
+              if ((end - begin) * l >
                   parameters.upper_factor * h * (1. + 1.e-12))
                 {
-                  if (result.cells.size() + cuts.size() >
+                  const double middle = .5 * (begin + end);
+                  if (result.cells.size() + partition.size() >
                         parameters.cell_budget ||
-                      .5 * (cuts[i - 1] + cuts[i]) == cuts[i - 1])
+                      middle == begin)
                     {
                       result.validation.issues.push_back(
                         {"discretization",
@@ -578,41 +653,39 @@ namespace ImmersX::Vascularization
                          "Cannot meet the upper length bound within the numerical cell budget."});
                       return;
                     }
-                  count_work(work,
-                             GrowthOperation::interval_cut_moves,
-                             cuts.size() - i);
+                  right = partition.insert(right, middle);
                   count_work(work, GrowthOperation::interval_cut_edits);
-                  cuts.insert(cuts.begin() + i, .5 * (cuts[i - 1] + cuts[i]));
                 }
               else
-                ++i;
+                ++right;
             }
           // Merge avoidable short pieces without violating any crossed cell's
           // upper bound or joining interior and exterior pieces.
-          for (std::size_t i = 1; i < cuts.size();)
+          for (auto right = std::next(partition.begin());
+               right != partition.end();)
             {
+              const auto left = std::prev(right);
               const auto cell =
-                cell_resolution(id, cuts[i - 1], cuts[i], intervals, work);
-              if (cell.inside && (cuts[i] - cuts[i - 1]) * l <
-                                   parameters.lower_factor * cell.h_max)
+                cell_resolution(id, *left, *right, intervals, work);
+              if (cell.inside &&
+                  (*right - *left) * l < parameters.lower_factor * cell.h_max)
                 {
                   bool merged = false;
                   for (int offset : {-1, 1})
                     {
-                      if ((offset == -1 && i == 1) ||
-                          (offset == 1 && i + 1 == cuts.size()))
+                      if ((offset == -1 && left == partition.begin()) ||
+                          (offset == 1 && std::next(right) == partition.end()))
                         continue;
-                      const auto neighbor =
-                        cell_resolution(id,
-                                        offset == -1 ? cuts[i - 2] : cuts[i],
-                                        offset == -1 ? cuts[i - 1] :
-                                                       cuts[i + 1],
-                                        intervals,
-                                        work);
+                      const auto neighbor_begin =
+                        offset == -1 ? std::prev(left) : right;
+                      const auto neighbor_end =
+                        offset == -1 ? left : std::next(right);
+                      const auto neighbor = cell_resolution(
+                        id, *neighbor_begin, *neighbor_end, intervals, work);
                       const double begin =
-                                     offset == -1 ? cuts[i - 2] : cuts[i - 1],
-                                   end = offset == -1 ? cuts[i] : cuts[i + 1];
-                      const auto combined =
+                        offset == -1 ? *neighbor_begin : *left;
+                      const double end = offset == -1 ? *right : *neighbor_end;
+                      const auto   combined =
                         cell_resolution(id, begin, end, intervals, work);
                       if (neighbor.inside == cell.inside &&
                           (end - begin) * l <=
@@ -620,14 +693,18 @@ namespace ImmersX::Vascularization
                           (end - begin) * l >=
                             parameters.lower_factor * combined.h_max)
                         {
-                          count_work(work,
-                                     GrowthOperation::interval_cut_moves,
-                                     cuts.size() - 1 -
-                                       (offset == -1 ? i - 1 : i));
+                          if (offset == -1)
+                            partition.erase(left);
+                          else if (offset == 1)
+                            {
+                              const auto next = partition.erase(right);
+                              // Revisit the previous cell to preserve the
+                              // existing left-first merge order.
+                              right = left == partition.begin() ?
+                                        next :
+                                        std::prev(next);
+                            }
                           count_work(work, GrowthOperation::interval_cut_edits);
-                          cuts.erase(cuts.begin() + (offset == -1 ? i - 1 : i));
-                          if (i > 1)
-                            --i;
                           merged = true;
                           break;
                         }
@@ -635,15 +712,17 @@ namespace ImmersX::Vascularization
                   if (merged)
                     continue;
                 }
-              ++i;
+              ++right;
             }
-          for (std::size_t i = 1; i < cuts.size(); ++i)
+          for (auto right = std::next(partition.begin());
+               right != partition.end();
+               ++right)
             {
-              auto cell =
-                cell_resolution(id, cuts[i - 1], cuts[i], intervals, work);
-              cell.short_cell = cell.inside && (cuts[i] - cuts[i - 1]) * l <
-                                                 parameters.lower_factor *
-                                                   cell.h_max * (1. - 1.e-12);
+              const double begin = *std::prev(right), end = *right;
+              auto cell = cell_resolution(id, begin, end, intervals, work);
+              cell.short_cell =
+                cell.inside && (end - begin) * l < parameters.lower_factor *
+                                                     cell.h_max * (1. - 1.e-12);
               result.short_cells += cell.short_cell;
               result.exterior_cells += !cell.inside;
               result.cells.push_back(cell);

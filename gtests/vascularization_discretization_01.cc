@@ -23,6 +23,8 @@
 #include <limits>
 #include <set>
 
+#include "../source/vascularization/background_intersections.h"
+
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 namespace
@@ -848,4 +850,112 @@ TEST(VascularDiscretization, MPI_NativeMeshRejectsInconsistentJunction)
   parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
   EXPECT_THROW(create_triangulation(network, result, mesh), ExceptionBase);
   EXPECT_EQ(mesh.n_active_cells(), 0u);
+}
+
+TEST(VascularDiscretization, BOTH_CrossingWorkTracksIntersectedCells)
+{
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto size = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  for (unsigned int count : {8u, 32u, 128u, 512u})
+    {
+      parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+      std::vector<std::vector<double>>        widths(3);
+      widths[1] = widths[2] = {1.};
+      std::vector<double> endpoints{0.};
+      for (unsigned int i = 0; i < count; ++i)
+        {
+          widths[0].push_back(i % 2 == 0 ? .5 : 1.);
+          endpoints.push_back(endpoints.back() + widths[0].back());
+        }
+      GridGenerator::subdivided_hyper_rectangle(
+        background, widths, Point<3>(), Point<3>(endpoints.back(), 1., 1.));
+      std::vector<unsigned int> local_owners(count,
+                                             numbers::invalid_unsigned_int);
+      for (const auto &cell : background.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            const auto i = std::upper_bound(endpoints.begin(),
+                                            endpoints.end(),
+                                            cell->center()[0]) -
+                           endpoints.begin() - 1;
+            local_owners[i] = rank;
+          }
+      const auto owners =
+        Utilities::MPI::all_gather(MPI_COMM_WORLD, local_owners);
+      MappingQ1<3>             mapping;
+      GridTools::Cache<3>      cache(background, mapping);
+      std::map<Id, Segment<3>> segments;
+      if (rank == size - 1)
+        segments.emplace(9,
+                         Segment<3>(Point<3>(-.25, .5, .5),
+                                    Point<3>(endpoints.back() + .25, .5, .5)));
+      GrowthWork work;
+      const auto profiles =
+        ImmersX::Vascularization::internal::intersect_background(
+          cache, mapping, segments, MPI_COMM_WORLD, &work);
+      if (rank == size - 1)
+        {
+          EXPECT_EQ(profiles.at(9).size(), count + 2);
+          const auto &profile = profiles.at(9);
+          EXPECT_EQ(profile.front().h, 0.);
+          EXPECT_EQ(profile.back().h, 0.);
+          EXPECT_EQ(profile.front().owner, rank);
+          EXPECT_EQ(profile.back().owner, rank);
+          const double length = endpoints.back() + .5;
+          for (unsigned int i = 0; i < count && i + 1 < profile.size(); ++i)
+            {
+              const auto &piece = profile[i + 1];
+              EXPECT_NEAR(piece.begin, (endpoints[i] + .25) / length, 1.e-12);
+              EXPECT_NEAR(piece.end, (endpoints[i + 1] + .25) / length, 1.e-12);
+              EXPECT_NEAR(piece.h,
+                          std::sqrt(widths[0][i] * widths[0][i] + 2.),
+                          1.e-13);
+              unsigned int owner = numbers::invalid_unsigned_int;
+              for (const auto &part : owners)
+                owner = std::min(owner, part[i]);
+              EXPECT_EQ(piece.owner, owner);
+            }
+        }
+      else
+        EXPECT_TRUE(profiles.empty());
+      const auto cell_tests =
+        Utilities::MPI::sum(work[GrowthOperation::interval_cell_tests],
+                            MPI_COMM_WORLD);
+      const auto interval_visits =
+        Utilities::MPI::sum(work[GrowthOperation::interval_record_visits],
+                            MPI_COMM_WORLD);
+      EXPECT_GE(cell_tests, count);
+      EXPECT_LE(cell_tests, 8 * count + 8 * size);
+      EXPECT_GE(interval_visits, count);
+      EXPECT_LE(interval_visits, 8 * count + 8 * size);
+
+      NetworkData network;
+      if (rank == size - 1)
+        {
+          network = line(segments.at(9).first, segments.at(9).second);
+          for (auto &[id, node] : network.nodes)
+            node.owner = rank;
+          for (auto &[id, vessel] : network.vessels)
+            vessel.owner = rank;
+        }
+      DiscretizationParameters parameters;
+      parameters.target_factor   = .1;
+      parameters.lower_factor    = .05;
+      parameters.upper_factor    = .2;
+      parameters.exterior_length = .2;
+      const auto numerical =
+        discretize(background, mapping, network, parameters, MPI_COMM_WORLD);
+      EXPECT_TRUE(numerical.validation.valid());
+      const auto numerical_cells =
+        Utilities::MPI::sum(static_cast<std::uint64_t>(numerical.cells.size()),
+                            MPI_COMM_WORLD);
+      const auto subdivision_visits = Utilities::MPI::sum(
+        numerical.work[GrowthOperation::interval_record_visits],
+        MPI_COMM_WORLD);
+      const auto levels =
+        static_cast<unsigned int>(1 + std::ceil(std::log2(count + 3.)));
+      EXPECT_GT(subdivision_visits, numerical_cells);
+      EXPECT_LE(subdivision_visits, 16ull * (count + numerical_cells) * levels);
+      EXPECT_EQ(numerical.work[GrowthOperation::interval_cut_moves], 0u);
+    }
 }
