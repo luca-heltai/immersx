@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
@@ -235,6 +237,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 
+- [PR #301](https://github.com/luca-heltai/immersx/pull/301) Write the HDF5 vessel pressure on every rank, so parallel coupled elasticity runs where some rank owns no vessel no longer hang.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include prescribed bulk values in the Reduced Poisson coupling right-hand side. Nonzero Dirichlet data now satisfy the same immersed constraint as the complete physical solution.
@@ -390,6 +394,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Fix compilation of venous network generation with deal.II 9.7.1 and its Boost.Geometry headers.
 
+- [PR #303](https://github.com/luca-heltai/immersx/pull/303) Distribute precompiled Release applications in AMD64 and ARM64 OCI images for Docker, Podman, and Apptainer, with default help, application selection, a standalone MPI launcher, and tested GHCR publication.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Generate valid C++ for the optional 1dsolver link probe, include deal.II dependencies, and report incompatible libraries without claiming that RTTI is missing. Compile both driver bodies during Linux OpenMP test builds even when the external archive cannot link.
 
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Use the unified solution-transfer header so legacy applications build with deal.II 9.9.
@@ -425,6 +431,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
+- [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
+
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Measure vascular MPI calls, posted payloads and time with optional benchmark-only PMPI profiling. Check native payload accounting and in-place forwarding in Debug and Release.
