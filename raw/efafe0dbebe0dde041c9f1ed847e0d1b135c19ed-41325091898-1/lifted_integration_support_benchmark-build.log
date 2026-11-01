@@ -1,0 +1,4 @@
+[ 94%] Built target immersx_lib
+[ 97%] Building CXX object benchmarks/CMakeFiles/lifted_integration_support_benchmark.dir/lifted_integration_support.cc.o
+[100%] Linking CXX executable lifted_integration_support_benchmark
+[100%] Built target lifted_integration_support_benchmark

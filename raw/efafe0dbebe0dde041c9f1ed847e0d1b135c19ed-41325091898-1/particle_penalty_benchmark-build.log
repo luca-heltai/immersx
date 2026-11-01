@@ -1,0 +1,4 @@
+[ 94%] Built target immersx_lib
+[ 97%] Building CXX object benchmarks/CMakeFiles/particle_penalty_benchmark.dir/particle_penalty.cc.o
+[100%] Linking CXX executable particle_penalty_benchmark
+[100%] Built target particle_penalty_benchmark
