@@ -325,7 +325,22 @@ TEST(VascularImported, RestartFreezesPreviouslyGeneratedData)
   const auto initial =
     generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
   ASSERT_TRUE(initial.validation.valid());
-  p.selected_terminals = {initial.network.terminals.begin()->first};
+  // Keep the fixed extension clear of short frozen sibling branches.
+  Id     selected = invalid_id;
+  double longest  = -1.;
+  for (const auto &[id, terminal] : initial.network.terminals)
+    for (const auto &[vessel_id, vessel] : initial.network.vessels)
+      if (vessel.nodes[1] == terminal.node)
+        {
+          const double incoming_length = length(initial.network, vessel_id);
+          if (incoming_length > longest)
+            {
+              longest  = incoming_length;
+              selected = id;
+            }
+        }
+  ASSERT_NE(selected, invalid_id);
+  p.selected_terminals = {selected};
   p.seed_direction     = Point<3>();
   p.seed_radius        = 0.;
   p.viscosity          = 0.;
@@ -464,7 +479,8 @@ TEST(VascularImported,
         else
           {
             ++new_terminals;
-            EXPECT_DOUBLE_EQ(t.demand, 2.);
+            // A single territory integrates (1+x) over [0,8] x [0,1]^2.
+            EXPECT_DOUBLE_EQ(t.demand, 40.);
             EXPECT_GT(t.territory, distributed_base + 301);
             EXPECT_NEAR(generated.target_terminal_flows.at(id) /
                           p.reference_flow,
