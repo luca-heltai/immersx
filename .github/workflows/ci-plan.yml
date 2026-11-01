@@ -1,0 +1,53 @@
+name: CI selection
+
+on:
+  workflow_call:
+    inputs:
+      force-full:
+        type: boolean
+        default: false
+    outputs:
+      run_numeric:
+        value: ${{ jobs.plan.outputs.run_numeric }}
+      run_coral:
+        value: ${{ jobs.plan.outputs.run_coral }}
+      run_benchmarks:
+        value: ${{ jobs.plan.outputs.run_benchmarks }}
+      full_suite:
+        value: ${{ jobs.plan.outputs.full_suite }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      run_numeric: ${{ steps.select.outputs.run_numeric }}
+      run_coral: ${{ steps.select.outputs.run_coral }}
+      run_benchmarks: ${{ steps.select.outputs.run_benchmarks }}
+      full_suite: ${{ steps.select.outputs.full_suite }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test CI selection and reporting
+        run: python3 -B -m unittest discover -s scripts/ci/tests -v
+      - name: Select checks
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          FORCE_FULL: ${{ inputs.force-full }}
+        run: |
+          options=()
+          if [ "$FORCE_FULL" = true ]; then options+=(--force-full); fi
+          python3 scripts/ci/select_changes.py --event "$EVENT" \
+            --base "$BASE" --head "$HEAD" --output ci-plan.json "${options[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-plan-${{ github.workflow }}
+          path: ci-plan.json
+          retention-days: 14

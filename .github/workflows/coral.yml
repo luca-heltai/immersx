@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -17,7 +18,12 @@ env:
   CCACHE_NOHASHDIR: 'true'
 
 jobs:
+  plan:
+    uses: ./.github/workflows/ci-plan.yml
+
   debug:
+    needs: plan
+    if: needs.plan.outputs.run_coral == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
@@ -76,6 +82,7 @@ jobs:
             -Dcoral_DIR="$GITHUB_WORKSPACE/coral-install-debug/lib/cmake/coral" \
             -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
             -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=ON \
+            -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DENABLE_COUPLED_PROBLEMS=OFF \
             -DENABLE_GOOGLE_TESTING=OFF \
             -DENABLE_DEAL_II_APP_TESTING=OFF 2>&1 | tee coral-configure-debug.log
@@ -98,7 +105,17 @@ jobs:
             | tee /tmp/immersx-coral-debug-tests.txt
           grep -Eq '^Total Tests: [1-9][0-9]*$' \
             /tmp/immersx-coral-debug-tests.txt
-          ctest --test-dir build_coral_debug -R '^ImmersX\.Coral\.' --output-on-failure
+          ctest --test-dir build_coral_debug -R '^ImmersX\.Coral\.' --output-on-failure --output-junit ctest-results.xml
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctest-coral-debug
+          path: |
+            build_coral_debug/ctest-results.xml
+            build_coral_debug/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Show ccache statistics
         if: always()
@@ -107,6 +124,8 @@ jobs:
           ccache --show-stats
 
   release:
+    needs: plan
+    if: needs.plan.outputs.run_coral == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
@@ -165,6 +184,7 @@ jobs:
             -Dcoral_DIR="$GITHUB_WORKSPACE/coral-install-release/lib/cmake/coral" \
             -DIMMERSX_BUILD_CORAL_PLUGINS=ON \
             -DIMMERSX_ENABLE_CORAL_GRAPH_TESTS=ON \
+            -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DENABLE_COUPLED_PROBLEMS=OFF \
             -DENABLE_GOOGLE_TESTING=OFF \
             -DENABLE_DEAL_II_APP_TESTING=OFF 2>&1 | tee coral-configure-release.log
@@ -187,10 +207,41 @@ jobs:
             | tee /tmp/immersx-coral-release-tests.txt
           grep -Eq '^Total Tests: [1-9][0-9]*$' \
             /tmp/immersx-coral-release-tests.txt
-          ctest --test-dir build_coral_release -R '^ImmersX\.Coral\.' --output-on-failure
+          ctest --test-dir build_coral_release -R '^ImmersX\.Coral\.' --output-on-failure --output-junit ctest-results.xml
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctest-coral-release
+          path: |
+            build_coral_release/ctest-results.xml
+            build_coral_release/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Show ccache statistics
         if: always()
         run: |
           ccache --show-config
           ccache --show-stats
+
+  ci:
+    name: Coral CI
+    needs: [plan, debug, release]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all selected Coral checks
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['NEEDS'])
+          assert jobs['plan']['result'] == 'success', 'CI selection failed'
+          selected = jobs['plan']['outputs'].get('run_coral')
+          assert selected in ('true', 'false'), 'Missing or invalid CI selection'
+          expected = 'success' if selected == 'true' else 'skipped'
+          for name in ('debug', 'release'):
+              assert jobs[name]['result'] == expected, (name, jobs[name]['result'], expected)
+          PY

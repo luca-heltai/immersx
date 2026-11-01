@@ -78,6 +78,7 @@ sed \
 
 sphinx-build \
   -b html \
+  -j "${SPHINX_JOBS:-2}" \
   -W \
   "${DOCS_SOURCE_DIR}" \
   "${SITE_DIR}"

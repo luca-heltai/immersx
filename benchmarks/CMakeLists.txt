@@ -27,6 +27,14 @@ foreach(_build_type IN LISTS IMMERSX_REQUESTED_BUILD_TYPES)
     ${_target} PRIVATE DEAL_II_PACKAGE_VERSION="${DEAL_II_PACKAGE_VERSION}")
   target_link_libraries(${_target} ${TEST_LIBRARIES_${_BUILD_TYPE}})
   DEAL_II_SETUP_TARGET(${_target} ${_BUILD_TYPE})
+  if(IMMERSX_PYTHON_EXECUTABLE)
+    add_test(NAME ImmersX.WeakTermBenchmark.${_build_type}
+      COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/performance/smoke.py" --family weak
+        $<TARGET_FILE:${_target}>)
+    set_tests_properties(ImmersX.WeakTermBenchmark.${_build_type} PROPERTIES
+      LABELS "integration;quick;benchmark" TIMEOUT 180)
+  endif()
 endforeach()
 
 foreach(_build_type IN LISTS IMMERSX_REQUESTED_BUILD_TYPES)
@@ -38,4 +46,12 @@ foreach(_build_type IN LISTS IMMERSX_REQUESTED_BUILD_TYPES)
   target_include_directories(${_target} PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(${_target} ${TEST_LIBRARIES_${_BUILD_TYPE}})
   DEAL_II_SETUP_TARGET(${_target} ${_BUILD_TYPE})
+  if(IMMERSX_PYTHON_EXECUTABLE)
+    add_test(NAME ImmersX.LiftedSupportBenchmark.${_build_type}
+      COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/performance/smoke.py" --family lifted
+        $<TARGET_FILE:${_target}>)
+    set_tests_properties(ImmersX.LiftedSupportBenchmark.${_build_type} PROPERTIES
+      LABELS "integration;quick;benchmark" TIMEOUT 180)
+  endif()
 endforeach()

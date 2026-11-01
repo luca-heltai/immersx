@@ -52,14 +52,73 @@ ctest -R 'ImmersX\.integration\.MPI' --output-on-failure
 
 GoogleTest targets are enabled only when `GTest` is available at configure time.
 
-Pull requests run the `quick` label. Pushes to `master` run the full CTest
-manifest. CI does not rerun the aggregate GoogleTest binary outside CTest.
+## CI selection
+
+Pull requests normally run the `quick` label in Debug and Release, including
+serial and MPI coverage. Documentation-only PRs run documentation, mathematics,
+formatting, and lightweight tooling checks without compiling numerical or Coral
+targets. The allowlist covers documentation pages and assets, the README,
+changelog, Sphinx configuration, Doxyfile, and documentation requirements.
+Executable examples, parameter files, and unknown inputs retain numerical checks.
+
+`scripts/ci/select_changes.py` compares the actual PR head with its merge base,
+including both paths of renames and deleted files. Missing history, malformed
+diffs, empty changes, and unknown paths retain every normal PR job. Each workflow
+uploads its `ci-plan` artifact with the changed paths and selection reasons.
+
+C++ component ownership is recorded in observation mode. It does not exclude
+tests: changes to implementation, headers, parameters, meshes, or baselines still
+run the complete quick matrix. A component hint is not a transitive dependency
+proof. Compiler and link dependencies, runtime fixture ownership, and comparisons
+with complete runs are required before enabling finer exclusions.
+
+Pushes to `master` run every CTest category and both Coral configurations.
+The independent package job executes the complete `MetricFlowXPackage` matrix
+once, including its Debug, Release, and DebugRelease scenarios. Ordinary Debug
+and Release jobs disable only that duplicate registration through
+`IMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF`; the local default remains `ON`.
+CI does not rerun the aggregate GoogleTest binary outside CTest.
+
+Use the GitHub CI workflow's manual dispatch with `full_suite=true` to run all
+categories on a chosen branch. The final `ci` jobs require every selected job to
+succeed and accept only explicitly planned skips. Workflows remain triggered on
+every PR, so documentation-only changes still produce a final check result.
+
+Documentation previews do not wait for performance measurements. They contain
+an explicitly unmeasured performance report, and still run the viewer and MathJax
+checks. Numerical PRs run small benchmark correctness cases through CTest;
+master and scheduled documentation runs retain complete performance measurements
+and append-only publication. Benchmark compilation uses a shared ccache with
+source/build prefix maps; compilation logs and cache statistics remain in the
+raw measurement artifacts.
+
+The documentation builder uses two Sphinx workers. Set `SPHINX_JOBS` explicitly
+when a local allocation requires a different worker budget.
+
+## Timing and focused reruns
 
 The Debug and Release jobs preserve the CTest manifest, JUnit results, and
 temporary test logs as `ctest-debug` and `ctest-release` artifacts for 14 days.
+These artifacts also contain compile commands, Ninja header dependencies and
+the target graph for reviewing component selection. Runtime fixture dependencies
+still require explicit ownership. GoogleTest XML and `test-timings.json` record
+the case observations. The slowest
+cases are listed in the job summary. MPI XML describes rank zero; the MPI/CTest
+exit status remains authoritative for failures on any rank.
 `Testing/Temporary/LastTest.log` includes GoogleTest case timings even for
 successful groups. Partial logs are uploaded on failure when the runner can
 still execute cleanup steps; a hard job timeout can prevent the upload.
+
+Integration GoogleTests are partitioned by suite within each category and
+serial/MPI mode. Their union is checked against the compiled registry, and the
+existing category coverage guard remains enabled. The executable is still built
+once. The common output lock remains in place because generated parameter files
+and fixtures still share output paths; removing it requires isolating those
+paths first.
+
+For example, a focused CTest expression can select one integration suite while
+retaining its serial or MPI mode. Use `ctest -N` to obtain the exact names in the
+current configuration before rerunning a failed group.
 
 For application smoke tests and package checks, see
 [Test a documented workflow](../how-to/testing).
