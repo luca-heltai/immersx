@@ -13,7 +13,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
+- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
 
@@ -249,7 +251,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Include the flow-state derivative of prescribed-pressure HLL fluxes in MetricFlowX wall coupling when the native package provides it, keeping it separate from the derivative with respect to pressure coefficients.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 
 - [PR #301](https://github.com/luca-heltai/immersx/pull/301) Write the HDF5 vessel pressure on every rank, so parallel coupled elasticity runs where some rank owns no vessel no longer hang.
 
@@ -362,7 +364,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
 
-- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality, and reject incomplete inputs or stale published assets.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Explain terminal sampling weights, cell-interface conventions and count normalization separately from numerical vessel resolution.
+
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Describe the completed connection between distributed vascular sampling, candidate optimization, forest normalization and batch adoption in the generation guide. Link the OpenCCO and svVascularize algorithmic references.
+
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality. Distinguish rank-local sampling, proposal and insertion work from physical ownership, scale fractional quantities to their measured values, and reject incomplete inputs or stale published assets.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
 
@@ -455,7 +461,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Exercise native vascular transfer and nonzero coupled IDA evolution in Debug and Release, including two- and four-rank MPI runs. Keep independent geometry and output checks and allow the generated Debug application time for Jacobian materialization.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
+- [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
+
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
 
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Measure vascular MPI calls, posted payloads and time with optional benchmark-only PMPI profiling. Check native payload accounting and in-place forwarding in Debug and Release.
 
