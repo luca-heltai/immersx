@@ -268,6 +268,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Keep fresh vascular identifiers above existing valid identities when frozen terminals have no territory, and reject exhausted node, vessel, terminal or territory namespaces before sampling without changing accepted data.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Sample weighted native background cells directly so local refinement does not exhaust the growth budget through global density-rejection draws. Preserve physical cell density, MPI ownership and mapped-cell volume weights.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Restore physiology metadata after rejected growth with retained map and set nodes, avoiding allocations while restoring migrated branches and root authorities.
