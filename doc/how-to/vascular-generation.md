@@ -343,6 +343,7 @@ exceptions. Refining these 1D cells changes neither physical topology nor
 integrated volume and resistance, and does not change which physical vessels
 are selected as growth candidates.
 
+(vascular-three-compartments)=
 ## Arterial, portal and venous reference networks
 
 Three distinct geometric networks can feed and drain the same tissue territory.

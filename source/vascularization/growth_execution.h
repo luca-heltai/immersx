@@ -18,7 +18,7 @@ namespace ImmersX::Vascularization::internal
     bool                  committed = false;
     ValidationReport      validation;
     GrowthGeometryChanges geometry_changes;
-    std::array<double, 2> volume{}, power{}, total_demand{};
+    std::array<double, 3> volume{}, power{}, total_demand{};
     double                redistribution_seconds = 0., physiology_seconds = 0.,
            certification_seconds = 0.;
   };
@@ -156,7 +156,7 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, std::optional<GrowthDemandRootView>> controls_before;
     GrowthGeometrySegments    release_old, release_trial;
     std::map<Id, RootBound>   root_bounds, root_bounds_before;
-    std::array<LeafMinima, 2> leaf_minima, leaf_minima_before;
+    std::array<LeafMinima, 3> leaf_minima, leaf_minima_before;
     std::set<Id>              bounds_touched;
     std::uint64_t             invalid_bounds = 0, invalid_bounds_before = 0;
     RootBound

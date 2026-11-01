@@ -240,17 +240,21 @@ namespace ImmersX::Vascularization
     result.coverage_evaluated = parameters.service_radius > 0.;
     if (!result.coverage_evaluated)
       return result;
-    const auto terminals = service_centres(
-      background, mapping, network, parameters.service_radius, communicator);
+    scale.physical_length(parameters.service_radius, scale.minimum());
+    const double reach =
+      scale.physical_length(parameters.service_radius, scale.maximum());
+    const auto terminals =
+      service_centres(background, mapping, network, reach, communicator);
     const std::array<RTree<Point<3>>, 3> trees{{pack_rtree(terminals[0]),
                                                 pack_rtree(terminals[1]),
                                                 pack_rtree(terminals[2])}};
-    const auto served = [&](unsigned int system, const Point<3> &point) {
-      for (const auto &nearest :
-           trees[system] | bgi::adaptors::queried(bgi::nearest(point, 1)))
-        return nearest.distance(point) <= parameters.service_radius;
-      return false;
-    };
+    const auto                           served =
+      [&](unsigned int system, const Point<3> &point, double threshold) {
+        for (const auto &nearest :
+             trees[system] | bgi::adaptors::queried(bgi::nearest(point, 1)))
+          return nearest.distance(point) <= threshold;
+        return false;
+      };
     // Retain each FE for the lifetime of its FEValues observer. Geometry-only
     // quadrature needs no DoFs and supports both tetrahedra and hexahedra.
     std::array<std::unique_ptr<FE_Nothing<3>>, 2> elements;
@@ -283,9 +287,12 @@ namespace ImmersX::Vascularization
               result.coverage_quadrature_volume += weight;
               if (result.coverage_evaluated)
                 {
-                  const bool artery = served(0, fe.quadrature_point(q)),
-                             vein   = served(1, fe.quadrature_point(q)),
-                             portal = served(2, fe.quadrature_point(q));
+                  const bool artery =
+                               served(0, fe.quadrature_point(q), threshold),
+                             vein =
+                               served(1, fe.quadrature_point(q), threshold),
+                             portal =
+                               served(2, fe.quadrature_point(q), threshold);
                   if (artery)
                     result.arterial_coverage += weight;
                   if (vein)

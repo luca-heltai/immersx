@@ -50,6 +50,16 @@ namespace ImmersX::Vascularization::internal
     std::optional<std::array<double, 2>> canonical_total_demand;
     // Separate portal control preserves the existing arterial/venous input.
     std::optional<double> canonical_portal_demand;
+    long double
+    total_demand(unsigned int system) const
+    {
+      AssertIndexRange(system, 3);
+      if (system < 2 && canonical_total_demand)
+        return (*canonical_total_demand)[system];
+      else if (system == 2 && canonical_portal_demand)
+        return *canonical_portal_demand;
+      return totals[3 * system];
+    }
     // Nine scalar controls per rank; no topology or per-terminal data.
     std::vector<std::array<long double, 9>> rank_totals;
     // Sparse derived nodes in the accepted root-sum tree.

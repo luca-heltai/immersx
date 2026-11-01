@@ -22,7 +22,8 @@
 
 #include "growth_mpi_scope.h"
 #include "growth_paths.h"
-#include "growth_system.h"
+#include "growth_selection.h"
+#include "growth_work.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -167,8 +168,8 @@ namespace ImmersX::Vascularization::internal
       return all;
     };
     const auto &companion = system == System::portal ? p.portal : p.venous;
-    bool valid = system == System::arterial || system == System::venous ||
-                 system == System::portal;
+    bool        valid     = system == System::arterial ||
+                 (system == System::venous || system == System::portal);
     double gamma = 0.;
     if (system == System::arterial)
       gamma = p.arterial_murray_exponent;
@@ -205,15 +206,16 @@ namespace ImmersX::Vascularization::internal
                "Integrated growth requires a complete demand transaction."))
       return run;
     const auto controls = std::make_pair(
-      std::array<double, 9>{{static_cast<double>(terminal_count),
-                             static_cast<double>(p.random_seed),
-                             static_cast<double>(p.sample_budget),
-                             static_cast<double>(p.candidate_count),
-                             static_cast<double>(p.optimization_steps),
-                             p.density_beta,
-                             p.terminal_weight_bound,
-                             static_cast<double>(system),
-                             companion.terminal_separation}},
+      std::array<double, 10>{{static_cast<double>(terminal_count),
+                              static_cast<double>(p.random_seed),
+                              static_cast<double>(p.sample_budget),
+                              static_cast<double>(p.candidate_count),
+                              static_cast<double>(p.optimization_steps),
+                              p.density_beta,
+                              p.terminal_weight_bound,
+                              static_cast<double>(system),
+                              companion.terminal_separation,
+                              has_demand_callbacks ? 1. : 0.}},
       std::array<std::string, 2>{{p.terminal_weight, p.tissue_demand}});
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
@@ -297,7 +299,13 @@ namespace ImmersX::Vascularization::internal
         count > 0 && count <= terminal_count,
         "Growth requires real roots and a target not smaller than the existing mutable forest."))
       return run;
-    std::map<Id, Territory> pending;
+    // Keep the sorted-id ordinal stable when served territories are erased.
+    boost::multi_index_container<
+      Territory,
+      boost::multi_index::indexed_by<boost::multi_index::ranked_unique<
+        boost::multi_index::member<Territory, Id, &Territory::id>>>>
+                         pending;
+    std::map<Id, double> territory_separations;
     if (system == System::venous || system == System::portal)
       {
         std::map<unsigned int, std::map<Id, double>> registration;
@@ -368,10 +376,10 @@ namespace ImmersX::Vascularization::internal
             "An existing venous claim has no authoritative common-territory owner."))
           return run;
       }
-    if (system == System::venous)
+    if (system == System::venous || system == System::portal)
       {
-        scale.physical_length(p.venous.terminal_separation, scale.minimum());
-        scale.physical_length(p.venous.terminal_separation, scale.maximum());
+        scale.physical_length(companion.terminal_separation, scale.minimum());
+        scale.physical_length(companion.terminal_separation, scale.maximum());
         std::map<Id, Point<3>> territory_queries;
         for (const auto &territory : owned_territories)
           territory_queries.emplace(territory.id, territory.position);
@@ -384,7 +392,7 @@ namespace ImmersX::Vascularization::internal
             found_all        = found_all && found != tissue_cells.end();
             if (found != tissue_cells.end())
               territory_separations[territory.id] =
-                scale.physical_length(p.venous.terminal_separation,
+                scale.physical_length(companion.terminal_separation,
                                       found->second.diameter);
           }
         if (
@@ -685,8 +693,8 @@ namespace ImmersX::Vascularization::internal
             raw              = entry->position;
             const unsigned int direction =
               ((run.batches - 1) % 6 + shared_territory % 6) % 6;
-            (*raw)[direction / 2] +=
-              (direction % 2 ? 1. : -1.) * companion.terminal_separation;
+            (*raw)[direction / 2] += (direction % 2 ? 1. : -1.) *
+                                     territory_separations.at(shared_territory);
             ++run.sampled_points;
           }
         std::map<Id, Point<3>> point_queries;

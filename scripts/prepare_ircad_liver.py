@@ -40,6 +40,57 @@ def components(adjacency):
     return sorted(result, key=lambda nodes: (-len(nodes), min(nodes)))
 
 
+def prune_overlapping_growth_endpoints(trees, line_trees, components, output):
+    """Prune Grow flags against other input envelopes; retain physical geometry."""
+    import numpy as np
+    import vtk
+
+    # A leaf valid for two networks can lie inside the newly imported portal
+    # envelope. Prune these starts without moving or deleting physical data.
+    # This endpoint filter is preliminary; continuous growth certification
+    # remains authoritative for each proposed vessel.
+    for source, name in trees:
+        grid = line_trees[name]
+        grow = grid.GetPointData().GetArray("Grow")
+        radius = grid.GetPointData().GetArray("Radius")
+        retained, blocked, margins = [], [], {}
+        for i in range(grid.GetNumberOfPoints()):
+            if not grow.GetTuple1(i):
+                continue
+            point = np.array(grid.GetPoint(i))
+            margin = float("inf")
+            for other_name, other in line_trees.items():
+                if other_name == name:
+                    continue
+                other_radius = other.GetPointData().GetArray("Radius")
+                for c in range(other.GetNumberOfCells()):
+                    cell = other.GetCell(c)
+                    a, b = (cell.GetPointId(j) for j in (0, 1))
+                    start, end = np.array(other.GetPoint(a)), np.array(other.GetPoint(b))
+                    direction = end - start
+                    t = np.clip((point - start) @ direction / (direction @ direction), 0., 1.)
+                    margin = min(margin, float(np.linalg.norm(point - start - t * direction)) -
+                                 radius.GetTuple1(i) - max(other_radius.GetTuple1(a), other_radius.GetTuple1(b)))
+            if margin <= 0.:
+                grow.SetTuple1(i, 0.)
+                blocked.append(i)
+            else:
+                retained.append(i)
+                margins[str(i)] = margin
+        if not retained:
+            raise RuntimeError(f"All selected {name} growth endpoints overlap another input network")
+        components[source].update(
+            growth_nodes=retained, growth_radii=[radius.GetTuple1(i) for i in retained],
+            excluded_overlapping_growth_nodes=blocked, endpoint_capsule_margins_m=margins)
+        if blocked:
+            writer = vtk.vtkUnstructuredGridWriter()
+            writer.SetFileName(str(output / f"{name}.vtk"))
+            writer.SetInputData(grid)
+            writer.SetFileTypeToASCII()
+            if writer.Write() != 1:
+                raise RuntimeError(f"Cannot update {name} growth flags")
+
+
 def prepare(args):
     import vtk
     import numpy as np
@@ -273,50 +324,7 @@ def prepare(args):
             root=ids[root], growth_nodes=[ids[i] for i in selected],
             growth_radii=[radius.GetTuple1(i) for i in selected])
     if args.with_portal:
-        # A leaf valid for two networks can lie inside the newly imported portal
-        # envelope. Prune these starts without moving or deleting physical data.
-        # This endpoint filter is preliminary; continuous growth certification
-        # remains authoritative for each proposed vessel.
-        for source, name in trees:
-            grid = line_trees[name]
-            grow = grid.GetPointData().GetArray("Grow")
-            radius = grid.GetPointData().GetArray("Radius")
-            retained, blocked, margins = [], [], {}
-            for i in range(grid.GetNumberOfPoints()):
-                if not grow.GetTuple1(i):
-                    continue
-                point = np.array(grid.GetPoint(i))
-                margin = float("inf")
-                for other_name, other in line_trees.items():
-                    if other_name == name:
-                        continue
-                    other_radius = other.GetPointData().GetArray("Radius")
-                    for c in range(other.GetNumberOfCells()):
-                        cell = other.GetCell(c)
-                        a, b = (cell.GetPointId(j) for j in (0, 1))
-                        start, end = np.array(other.GetPoint(a)), np.array(other.GetPoint(b))
-                        direction = end - start
-                        t = np.clip((point - start) @ direction / (direction @ direction), 0., 1.)
-                        margin = min(margin, float(np.linalg.norm(point - start - t * direction)) -
-                                     radius.GetTuple1(i) - max(other_radius.GetTuple1(a), other_radius.GetTuple1(b)))
-                if margin <= 0.:
-                    grow.SetTuple1(i, 0.)
-                    blocked.append(i)
-                else:
-                    retained.append(i)
-                    margins[str(i)] = margin
-            if not retained:
-                raise RuntimeError(f"All selected {name} growth endpoints overlap another input network")
-            manifest["components"][source].update(
-                growth_nodes=retained, growth_radii=[radius.GetTuple1(i) for i in retained],
-                excluded_overlapping_growth_nodes=blocked, endpoint_capsule_margins_m=margins)
-            if blocked:
-                writer = vtk.vtkUnstructuredGridWriter()
-                writer.SetFileName(str(output / f"{name}.vtk"))
-                writer.SetInputData(grid)
-                writer.SetFileTypeToASCII()
-                if writer.Write() != 1:
-                    raise RuntimeError(f"Cannot update {name} growth flags")
+        prune_overlapping_growth_endpoints(trees, line_trees, manifest["components"], output)
     (output / "provenance.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(output / "provenance.json")
 

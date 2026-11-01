@@ -70,7 +70,8 @@ namespace ImmersX::Vascularization::internal
                          const NetworkData              &network,
                          const Parameters               &parameters,
                          MPI_Comm                        communicator,
-                         System                          system);
+                         System                          system,
+                         BackgroundGeometry             *geometry = nullptr);
 
   AttachmentStartup
   start_companion(const dealii::Triangulation<3> &background,
@@ -81,7 +82,8 @@ namespace ImmersX::Vascularization::internal
                   const std::vector<Territory>   &owned_territories,
                   Id                              reserved_port,
                   MPI_Comm                        communicator,
-                  System                          system);
+                  System                          system,
+                  BackgroundGeometry             *geometry = nullptr);
 
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.

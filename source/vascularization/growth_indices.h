@@ -118,7 +118,8 @@ namespace ImmersX::Vascularization::internal
         {
           if (system == 2 && candidates[system].empty())
             continue;
-          mutable_trees[system] = pack_rtree(candidates[system]);
+          mutable_trees[system] =
+            Tree(candidates[system].begin(), candidates[system].end());
           count_work(work, GrowthOperation::network_index_builds);
           count_work(work,
                      GrowthOperation::network_index_insertions,
