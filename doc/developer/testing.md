@@ -55,6 +55,12 @@ GoogleTest targets are enabled only when `GTest` is available at configure time.
 Pull requests run the `quick` label. Pushes to `master` run the full CTest
 manifest. CI does not rerun the aggregate GoogleTest binary outside CTest.
 
+The Debug and Release jobs preserve the CTest manifest, JUnit results, and
+temporary test logs as `ctest-debug` and `ctest-release` artifacts for 14 days.
+`Testing/Temporary/LastTest.log` includes GoogleTest case timings even for
+successful groups. Partial logs are uploaded on failure when the runner can
+still execute cleanup steps; a hard job timeout can prevent the upload.
+
 For application smoke tests and package checks, see
 [Test a documented workflow](../how-to/testing).
 
