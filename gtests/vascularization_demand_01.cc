@@ -16,6 +16,8 @@
 #include <limits>
 #include <set>
 
+#include "vascularization_integral_oracles.h"
+
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 namespace
@@ -179,16 +181,21 @@ TEST(VascularDemand, WeightedMurrayAndGlobalDesignFlowsHaveIndependentOracles)
   const auto metrics = oracle(result, {}, p);
   EXPECT_NEAR(result.tissue.inside_vessel_volume / metrics.volume, 1., 1.e-12);
   EXPECT_GT(metrics.power, 0.);
-  double flow = 0., smallest = 1.e300, largest = 0.;
+  const auto demands =
+    VascularTestOracles::unit_cube_demands(result, [](const Point<3> &point) {
+      return 1. + 3. * point[0] + 2. * point[1];
+    });
+  double flow = 0., total = 0., smallest = 1.e300, largest = 0.;
   for (const auto &[id, t] : result.network.terminals)
     {
-      const auto pos = result.network.nodes.at(t.node).position;
-      EXPECT_NEAR(t.demand, 1. + 3. * pos[0] + 2. * pos[1], 1.e-13);
+      EXPECT_NEAR(t.demand, demands.at(t.territory), 1.e-13);
+      total += t.demand;
       smallest = std::min(smallest, t.demand);
       largest  = std::max(largest, t.demand);
       flow += result.target_terminal_flows.at(id);
     }
-  EXPECT_GT(largest, smallest + 1.);
+  EXPECT_NEAR(total, 3.5, 1.e-13);
+  EXPECT_GT(largest, smallest);
   EXPECT_NEAR(flow / p.reference_flow, 1., 1.e-12);
   EXPECT_DOUBLE_EQ(result.network.vessels.at(0).radii[0], p.seed_radius);
 }
@@ -213,28 +220,60 @@ TEST(VascularDemand, CommonDemandAndFlowScalesDoNotChangePhysicalGeneration)
     EXPECT_EQ(e.radii, b.network.vessels.at(id).radii);
   for (const auto &[id, q] : a.target_terminal_flows)
     EXPECT_NEAR(b.target_terminal_flows.at(id) / q, 3., 1.e-12);
+  double total = 0.;
   for (const auto &[id, t] : b.network.terminals)
-    EXPECT_DOUBLE_EQ(t.demand, 4.);
+    {
+      EXPECT_DOUBLE_EQ(t.demand, 4. * a.network.terminals.at(id).demand);
+      total += t.demand;
+    }
+  EXPECT_NEAR(total, 4., 1.e-13);
 }
 
 TEST(VascularDemand, AHeavyNewLeafCannotShrinkAnOldLeafBelowMinimumRadius)
 {
   Triangulation<3> background;
-  GridGenerator::hyper_cube(background);
+  GridGenerator::hyper_rectangle(background,
+                                 Point<3>(0., .45, .45),
+                                 Point<3>(1., .55, .55));
   Parameters p;
   synthetic(p);
-  p.terminal_count  = 2;
-  p.minimum_radius  = .004;
-  p.tissue_demand   = "1+999999*(x>0.7)";
-  p.terminal_weight = "x>0.8";
+  p.terminal_count = 2;
+  p.minimum_radius = .004;
+  p.tissue_demand  = "1+999999*(x>0.7)";
+  // Every allowed new centre is closer than (.5,.5,.5) throughout x>.7:
+  // the largest squared-distance difference is -.0175 + 2*.0075 < 0.
+  // Even assigning all remaining mass to the old leaf gives demand share
+  // below .01/2500, hence a radius below .00016, less than the fixed minimum.
+  p.terminal_weight = "(x>0.8)*(x<0.85)";
   p.sample_budget   = 64;
   const auto result =
     generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
   EXPECT_FALSE(result.validation.valid());
   EXPECT_EQ(result.sampled_points, 64u);
   EXPECT_EQ(result.accepted_insertions, 0u);
+  std::uint64_t influence_queries = 0;
+  for (const auto &statistics : result.growth_statistics)
+    influence_queries +=
+      statistics.work[GrowthOperation::demand_influence_queries];
+  EXPECT_GT(influence_queries, 0u);
   EXPECT_EQ(result.network.vessels.size(), 1u);
   EXPECT_DOUBLE_EQ(result.network.vessels.at(0).radii[0], p.seed_radius);
+
+  const double minimum_radius = p.minimum_radius;
+  p.minimum_radius            = 0.;
+  const auto unconstrained =
+    generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(unconstrained.validation.valid());
+  EXPECT_EQ(unconstrained.accepted_insertions, 1u);
+  unsigned int old_leaves = 0;
+  for (const auto &[id, vessel] : unconstrained.network.vessels)
+    if (unconstrained.network.nodes.at(vessel.nodes[1]).position ==
+        Point<3>(.5, .5, .5))
+      {
+        ++old_leaves;
+        EXPECT_LT(vessel.radii[1], minimum_radius);
+      }
+  EXPECT_EQ(old_leaves, 1u);
 }
 
 TEST(VascularDemand, ReferenceSolveRealizesTheDemandSplitWithoutDoubleInletData)
