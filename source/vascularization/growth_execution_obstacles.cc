@@ -150,7 +150,7 @@ namespace ImmersX::Vascularization::internal
                                                     cap.clearance_scale),
                            id);
       }
-    const auto overlay = pack_rtree(extra);
+    const ObstacleTree overlay(extra.begin(), extra.end());
     count_work(work, GrowthOperation::network_index_builds);
     count_work(work, GrowthOperation::network_index_insertions, extra.size());
 
