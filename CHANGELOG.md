@@ -465,33 +465,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Allow ninety minutes for the complete Debug and Release CI jobs, including cold-cache builds, all quick tests and cache upload. Keep the test selection and individual test timeouts unchanged.
 
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Mark unsupported native MetricFlowX input and generated-flow checks as skipped using stable capability messages, including exceptions whose text wraps onto another line.
-
-- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Preserve mesh-adaptive generation and integrated demand when stacking on the incremental engine, including total-demand and ordinary-work regression checks.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Report unavailable native MetricFlowX in-memory input as a CTest skip, including wrapped diagnostics, while keeping compatible-package tests active.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check vascular Murray radii and design flows against independently integrated nearest-centre territories, retain exact common-demand scaling checks, and exercise minimum-radius rejection and restart preservation with geometrically valid fixtures.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check runtime geometry measures against exact background crossings under all four length policies, including finest-cell interfaces, exterior input and coordinate-based profile invalidation.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Compare predicted obstacle radii on selected ancestor paths, siblings and other roots with an independent full physiological transaction after territorial demand updates.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Compare finite tissue quadrature with analytical Voronoi integrals and verify convergence as integration resolution increases while the background mesh stays fixed.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Verify integrated seed demands, joint territorial proposals and atomic tissue rollback through the growth callback protocol in serial and MPI.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Exercise adaptive tissue quadrature on hexahedra and tetrahedra, including cross-rank finest-cell ownership, rollback, invalid density and budget exhaustion before allocation.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check sparse common-territory quadrature reassignment against exhaustive nearest-centre results, including stable-id MPI ties, exact demand conservation and staged rollback.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check exact accumulation and subtraction of tissue-demand masses, preserving small positive contributions when dominant masses move between territories and rounding physical totals to binary64.
-
-- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Check physical tissue-demand quadrature against analytical integrals on locally refined hexahedra and tetrahedra, including empty ranks and integration-budget exhaustion before allocation.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
 
