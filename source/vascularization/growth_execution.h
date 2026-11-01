@@ -101,7 +101,15 @@ namespace ImmersX::Vascularization::internal
     materialize() const;
 
   private:
-    using Mass = boost::multiprecision::cpp_int;
+    using Mass       = boost::multiprecision::cpp_int;
+    using LeafMinima = std::set<std::pair<Mass, Id>>;
+    struct RootBound
+    {
+      Mass                 minimum_leaf_mass;
+      LeafMinima::iterator minimum;
+      unsigned int         system = 0;
+      bool                 valid  = true;
+    };
     struct Certificate
     {
       Edge   cap;
@@ -131,7 +139,21 @@ namespace ImmersX::Vascularization::internal
     std::set<Id> root_members_changed, index_touched;
     std::map<Id, std::optional<Certificate>>          certificates_before;
     std::map<Id, std::optional<GrowthDemandRootView>> controls_before;
-    GrowthGeometrySegments release_old, release_trial;
+    GrowthGeometrySegments    release_old, release_trial;
+    std::map<Id, RootBound>   root_bounds, root_bounds_before;
+    std::array<LeafMinima, 2> leaf_minima, leaf_minima_before;
+    std::set<Id>              bounds_touched;
+    std::uint64_t             invalid_bounds = 0, invalid_bounds_before = 0;
+    RootBound
+    root_bound(Id, const GrowthDemandPreview &) const;
+    void
+    update_bounds(const std::set<Id> &,
+                  const GrowthDemandPreview &,
+                  bool remember);
+    void
+    discard_bounds() noexcept;
+    void
+    adopt_bounds() noexcept;
     bool
     phase(ValidationReport &, bool, const char *) const;
     GrowthDemandPreview

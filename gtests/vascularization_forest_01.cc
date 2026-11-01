@@ -3179,3 +3179,144 @@ TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
   EXPECT_TRUE(empty.validation.valid());
   EXPECT_TRUE(empty.records.empty());
 }
+
+TEST(VascularForest,
+     BOTH_ExecutionBoundsTouchOnlyChangedRootsAndKeepRemoteFlowMinimum)
+{
+  for (unsigned int count : {8u, 32u, 128u})
+    {
+      parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+      GridGenerator::subdivided_hyper_rectangle(bg,
+                                                {4, 1, 1},
+                                                Point<3>(),
+                                                Point<3>(1., 1., 1.));
+      MappingQ1<3> mapping;
+      NetworkData  input;
+      if (rank() == size() - 1)
+        for (unsigned int i = 0; i < count; ++i)
+          {
+            const Id     id              = base + 4 * i;
+            const double y               = (i + 1.) / (count + 1.);
+            input.nodes[id].position     = Point<3>(.1, y, .5);
+            input.nodes[id].port         = Port::arterial_inlet;
+            input.nodes[id].owner        = rank();
+            input.nodes[id + 1].position = Point<3>(.9, y, .5);
+            input.nodes[id + 1].owner    = rank();
+            Vessel vessel;
+            vessel.nodes      = {{id, id + 1}};
+            vessel.owner      = rank();
+            vessel.radii      = {{1.e-5, 1.e-5}};
+            vessel.viscosity  = .004;
+            vessel.system     = System::arterial;
+            vessel.provenance = Provenance::generated;
+            input.vessels.emplace(id, vessel);
+            input.terminals.emplace(id,
+                                    Terminal{id + 1,
+                                             id,
+                                             System::arterial,
+                                             rank(),
+                                             i == count - 1 ? 1.e-300 : 1.});
+          }
+      const auto   n = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
+      std::set<Id> mutable_owned;
+      std::map<Id, double>   fixed;
+      GrowthGeometrySegments segments;
+      for (const auto &[id, v] : n.vessels)
+        if (v.owner == rank())
+          {
+            mutable_owned.insert(id);
+            fixed.emplace(id, 1.e-5);
+            segments.emplace(id,
+                             Segment<3>{n.nodes.at(v.nodes[0]).position,
+                                        n.nodes.at(v.nodes[1]).position});
+          }
+      Parameters p;
+      p.reference_flow = 2.e-9;
+      const auto initial =
+        evaluate_forest(n, mutable_owned, fixed, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(initial.validation.valid()) << issues(initial);
+      const auto meter = [](const GrowthGeometrySegments &segments) {
+        GrowthGeometryMeasures result;
+        for (const auto &[id, s] : segments)
+          result.emplace(
+            id,
+            GrowthGeometryMeasure{s.first.distance(s.second), 1., 1., true});
+        return result;
+      };
+      GrowthWork         work;
+      BackgroundGeometry geometry(bg, mapping);
+      GrowthExecution    execution(n,
+                                initial,
+                                p,
+                                0,
+                                geometry,
+                                meter(segments),
+                                meter,
+                                   {},
+                                0.,
+                                MPI_COMM_WORLD,
+                                &work);
+      ASSERT_TRUE(execution.validation().valid());
+      std::vector<GrowthSplit> local;
+      const auto               found = n.vessels.find(base);
+      if (found != n.vessels.end() && found->second.owner == rank())
+        {
+          GrowthSplit split;
+          split.vessel            = base;
+          split.owner             = rank();
+          split.old_nodes         = found->second.nodes;
+          split.old_points        = {{n.nodes.at(split.old_nodes[0]).position,
+                                      n.nodes.at(split.old_nodes[1]).position}};
+          split.junction          = base + 10000;
+          split.tip               = base + 10001;
+          split.continuation      = base + 10000;
+          split.leaf              = base + 10001;
+          split.terminal          = base + 10000;
+          split.territory         = base + 10000;
+          split.junction_position = Point<3>(.35, 1. / (count + 1.), .5);
+          split.tip_position      = Point<3>(.35, 1. / (count + 1.) + .002, .7);
+          split.demand            = 1.;
+          local.push_back(split);
+        }
+      GrowthDemandJointUpdate joint;
+      joint.update.snapshot_revision = 0;
+      if (rank() == 0)
+        joint.new_terminals = {{base + 10000, 1.e20}};
+      const auto before   = work;
+      const auto rejected = execution.commit(local, joint);
+      EXPECT_FALSE(rejected.committed);
+      EXPECT_EQ(execution.accepted_snapshot().revision(), 0u);
+      const auto failed_visits =
+        Utilities::MPI::sum(work[GrowthOperation::physiology_branch_visits] -
+                              before[GrowthOperation::physiology_branch_visits],
+                            MPI_COMM_WORLD);
+      EXPECT_LE(failed_visits, 8u) << count;
+      if (rank() == 0)
+        joint.new_terminals = {{base + 10000, 1.}};
+      const auto retry_before = work;
+      const auto actual       = execution.commit(local, joint);
+      ASSERT_TRUE(actual.committed);
+      const auto visits = Utilities::MPI::sum(
+        work[GrowthOperation::physiology_branch_visits] -
+          retry_before[GrowthOperation::physiology_branch_visits],
+        MPI_COMM_WORLD);
+      EXPECT_LE(visits, 8u) << count;
+      const auto expected = commit_growth_splits(
+        bg, mapping, n, mutable_owned, fixed, local, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(expected.committed);
+      const auto materialized = execution.materialize();
+      EXPECT_EQ(materialized.mutable_owned, expected.mutable_owned);
+      EXPECT_EQ(materialized.fixed_owned_roots, expected.fixed_owned_roots);
+      EXPECT_EQ(Utilities::pack(materialized.network.terminals, false),
+                Utilities::pack(expected.network.terminals, false));
+      ASSERT_EQ(materialized.network.vessels.size(),
+                expected.network.vessels.size());
+      for (const auto &[id, v] : materialized.network.vessels)
+        {
+          const auto &oracle = expected.network.vessels.at(id);
+          EXPECT_EQ(v.owner, oracle.owner);
+          EXPECT_EQ(v.nodes, oracle.nodes);
+          EXPECT_NEAR(v.radii[0] / oracle.radii[0], 1., 2.e-12);
+        }
+    }
+}
