@@ -327,26 +327,21 @@ namespace ImmersX
       const dealii::AffineConstraints<double> *target_constraints = nullptr;
       dealii::IndexSet                         locally_owned;
       MPI_Comm                                 communicator;
-      mutable std::shared_ptr<VectorType>      values;
+      VectorType                               values;
 
-      void
-      set_constraints(const dealii::AffineConstraints<double> &source,
-                      const dealii::AffineConstraints<double> &target)
+      WeakAffineAssembly(const dealii::AffineConstraints<double> &source,
+                         const dealii::AffineConstraints<double> &target,
+                         const dealii::IndexSet                  &owned,
+                         const MPI_Comm                           communicator)
+        : source_constraints(&source)
+        , target_constraints(&target)
+        , locally_owned(owned)
+        , communicator(communicator)
       {
-        source_constraints = &source;
-        target_constraints = &target;
-      }
-
-      VectorType &
-      vector() const
-      {
-        if (!values)
-          {
-            values = std::make_shared<VectorType>();
-            initialize_weak_vector(*values, locally_owned, communicator);
-            *values = 0.;
-          }
-        return *values;
+        // Initialize collectively before local cell/particle loops. Ranks
+        // without contributions must enter collectives in the same order.
+        initialize_weak_vector(values, locally_owned, communicator);
+        values = 0.;
       }
 
       void
@@ -355,7 +350,7 @@ namespace ImmersX
           const std::vector<dealii::types::global_dof_index> &target_indices,
           const bool                                          square = false)
       {
-        auto                  &rhs = vector();
+        auto                  &rhs = values;
         dealii::Vector<double> local_rhs(local.m());
         if (square && local.m() != 0)
           {
@@ -393,11 +388,11 @@ namespace ImmersX
       }
 
       void
-      finish(VectorType &rhs) const
+      finish(VectorType &rhs)
       {
-        compress_weak_vector(vector());
+        compress_weak_vector(values);
         initialize_weak_vector(rhs, locally_owned, communicator);
-        rhs = vector();
+        rhs = values;
       }
     };
 
@@ -475,10 +470,10 @@ namespace ImmersX
       {
         const auto                        &source = observable.source();
         const auto                         row    = target.source();
-        AffineData<VectorType, MatrixType> data;
-        data.set_constraints(source.constraints(), row.constraints());
-        data.locally_owned = row.locally_owned_dofs();
-        data.communicator  = row.space().mpi_communicator();
+        AffineData<VectorType, MatrixType> data(source.constraints(),
+                                                row.constraints(),
+                                                row.locally_owned_dofs(),
+                                                row.space().mpi_communicator());
         if constexpr (std::is_same_v<Support,
                                      BoundaryIntegrationSupport<dim, spacedim>>)
           {
@@ -494,10 +489,18 @@ namespace ImmersX
           degree + 1);
         const auto flags = dealii::update_JxW_values |
                            observable.update_flags() | target.update_flags();
+        const auto volume_flags = static_cast<dealii::UpdateFlags>(
+          flags & ~dealii::update_normal_vectors);
         dealii::FEValues<dim, spacedim> source_values(
-          source.mapping(), source.space().finite_element(), quadrature, flags);
+          source.mapping(),
+          source.space().finite_element(),
+          quadrature,
+          volume_flags);
         dealii::FEValues<dim, spacedim> target_values(
-          row.mapping(), row.space().finite_element(), quadrature, flags);
+          row.mapping(),
+          row.space().finite_element(),
+          quadrature,
+          volume_flags);
         dealii::FEFaceValues<dim, spacedim> source_face(
           source.mapping(),
           source.space().finite_element(),
@@ -965,14 +968,11 @@ namespace ImmersX
 
         if (affine_data != nullptr)
           {
-            *affine_data =
-              std::make_shared<AffineData<VectorType, MatrixType>>();
-            (*affine_data)
-              ->set_constraints(source.constraints(),
-                                target_field.constraints());
-            (*affine_data)->locally_owned = target_field.locally_owned_dofs();
-            (*affine_data)->communicator =
-              target_field.space().mpi_communicator();
+            *affine_data = std::make_shared<AffineData<VectorType, MatrixType>>(
+              source.constraints(),
+              target_field.constraints(),
+              target_field.locally_owned_dofs(),
+              target_field.space().mpi_communicator());
           }
 
         for (const auto &[cell_id, cell_quadrature] : cell_quadratures)
@@ -1320,14 +1320,11 @@ namespace ImmersX
             if (affine_data != nullptr)
               {
                 *affine_data =
-                  std::make_shared<AffineData<VectorType, MatrixType>>();
-                (*affine_data)
-                  ->set_constraints(source.constraints(),
-                                    target_field.constraints());
-                (*affine_data)->locally_owned =
-                  target_field.locally_owned_dofs();
-                (*affine_data)->communicator =
-                  target_field.space().mpi_communicator();
+                  std::make_shared<AffineData<VectorType, MatrixType>>(
+                    source.constraints(),
+                    target_field.constraints(),
+                    target_field.locally_owned_dofs(),
+                    target_field.space().mpi_communicator());
               }
 
             if (&source.dof_handler() == &target_field.dof_handler())
@@ -1499,14 +1496,11 @@ namespace ImmersX
             if (affine_data != nullptr)
               {
                 *affine_data =
-                  std::make_shared<AffineData<VectorType, MatrixType>>();
-                (*affine_data)
-                  ->set_constraints(source.constraints(),
-                                    target_field.constraints());
-                (*affine_data)->locally_owned =
-                  target_field.locally_owned_dofs();
-                (*affine_data)->communicator =
-                  target_field.space().mpi_communicator();
+                  std::make_shared<AffineData<VectorType, MatrixType>>(
+                    source.constraints(),
+                    target_field.constraints(),
+                    target_field.locally_owned_dofs(),
+                    target_field.space().mpi_communicator());
               }
             dealii::FEFaceValues<dim, spacedim> values(
               target_field.mapping(),
@@ -4059,14 +4053,11 @@ namespace ImmersX
 
         if (affine_data != nullptr)
           {
-            *affine_data =
-              std::make_shared<AffineData<VectorType, MatrixType>>();
-            (*affine_data)
-              ->set_constraints(source.constraints(),
-                                target_field.constraints());
-            (*affine_data)->locally_owned = target_field.locally_owned_dofs();
-            (*affine_data)->communicator =
-              target_field.space().mpi_communicator();
+            *affine_data = std::make_shared<AffineData<VectorType, MatrixType>>(
+              source.constraints(),
+              target_field.constraints(),
+              target_field.locally_owned_dofs(),
+              target_field.space().mpi_communicator());
           }
         for (const auto &particle : distribution.get_particles())
           if (particle.get_surrounding_cell()->is_locally_owned())

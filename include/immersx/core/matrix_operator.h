@@ -512,6 +512,10 @@ namespace ImmersX
     if (source.is_materializable())
       result.materialize = [factor, source]() {
         auto matrix = source.matrix();
+        // A materializer may return a matrix explicitly retained by its caller.
+        // Replaying this action must not scale that source a second time.
+        if (matrix.use_count() > 1)
+          matrix = detail::clone_matrix(*matrix);
         *matrix *= factor;
         return matrix;
       };

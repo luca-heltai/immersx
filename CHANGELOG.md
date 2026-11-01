@@ -127,7 +127,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately and materialize sums with one temporary contribution at a time.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time.
 
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Share one frequency list between the harmonic matrix and fiber, and preserve the actual initial refinement when saving and reloading either supported parameter alias.
@@ -182,6 +182,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep caller-owned matrices unchanged when replaying scaled matrix contributions.
 
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Open performance charts on the compatible series with the most measurements and show CPU, kernel, point count, and commit range in the series selector.
 

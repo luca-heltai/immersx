@@ -126,12 +126,12 @@ surfaces provide `conormal()`. A planar two-dimensional boundary also provides
 
 Matching cell and boundary terms reintegrate affine source contributions on
 cells with nonzero constraint offsets when the prescribed values change.
-They do not retain local cell matrices. Nonmatching and lifted linear
-pairings currently require homogeneous source constraints and reject nonzero
-offsets, including changes made after assembly. Linear multiplier reaction rows
-also require homogeneous multiplier constraints. Rebuild explicitly retained
-matrices when their coefficients, constraint structure, meshes, or mappings
-change.
+They do not retain local cell matrices. Supported nonmatching and lifted
+pairings also reconstruct affine source contributions from the current
+constraints; unsupported affine combinations raise an exception. Linear
+multiplier reaction rows require homogeneous multiplier constraints. Rebuild
+explicitly retained matrices when their coefficients, constraint structure,
+meshes, or mappings change.
 
 A `Constraint` is an Interaction assembled from weak terms with one
 independently defined multiplier field. The multiplier has its own FE space
