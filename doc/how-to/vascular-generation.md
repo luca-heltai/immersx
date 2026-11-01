@@ -154,7 +154,7 @@ distance/id order and deterministic stem
 directions. Each later insertion tries six Cartesian endpoint offsets of the
 configured separation.
 The territory centre is the arterial endpoint; its venous endpoint is distinct.
-Demand is evaluated once at the common centre and shared exactly by both
+Each territory receives its integrated tissue demand, shared exactly by both
 terminals. A vein's geometry is oriented from outlet toward tissue, and its
 physical reference flow is negative in that orientation.
 
@@ -167,9 +167,64 @@ failure is reported; it does not establish geometric impossibility.
 Each system has its own Murray exponent. The radius of a generated vessel
 satisfies $r_e=R_{\mathrm{root}}(D_e/D_{\mathrm{root}})^{1/\gamma}$, where
 $D_e$ is the sum of downstream territory demands. Root radii stay fixed. The
-minimum-radius check includes existing leaves when a new demand is added.
+minimum-radius check includes every generated branch, including internal
+branches crossing coarse background cells, after each joint demand update.
 `terminal_weight` and `density_beta` control where territories are sampled;
 `tissue_demand` controls supply and radii independently.
+
+## Integrated tissue demand
+
+`Physiology/Tissue demand` supplies the relative density $d(x)$. The tissue is
+assigned to its nearest common territory centre; stable physical territory
+identifiers break equal-distance ties. This assignment is independent of the
+maximum service distance used for coverage. A territory's demand is
+
+$$
+D_i=\int_{T_i} d(x)\,dx.
+$$
+
+The implementation approximates this integral with physical `JxW` weights on
+owned background cells. Adding centres changes existing territories too: their
+absolute demands, dependent Murray radii and growth costs are updated together.
+The selected batch is integrated jointly, since its new demands can differ from
+isolated candidate previews. Rejection restores tissue assignments and physical
+state together. Arteries and veins use the same $D_i$ for each common territory;
+the explicit total flow is distributed as $Q_i=Q_{total}D_i/\sum_jD_j$.
+Refining the proposal density therefore does not multiply the total tissue
+integral. Input terminal weights outside the generated forest remain unchanged.
+
+The integration controls are in `Physiology`:
+
+| Parameter | Default | Meaning |
+|---|---:|---|
+| `Demand quadrature order` | 2 | Gauss order on reference hexahedra or tetrahedra; supported orders are 1 through 8. |
+| `Demand samples per requested terminal` | 64 | Initial global quadrature-point target per requested territory, after the terminal multiplier. |
+| `Demand integration point budget` | 4000000 | Maximum global number of active demand quadrature points. |
+| `Demand integration refinement budget` | 8 | Additional integration subdivision rounds permitted in each territorial preview. |
+
+Integration subdivisions leave the background mesh and its length scales
+unchanged. Dyadic subdivisions can exceed the initial point target; the point
+budget remains a hard limit. A territory with no quadrature mass triggers local
+integration refinement. If positive demands cannot be resolved within the
+budgets, the candidate is rejected explicitly; no demand floor is substituted.
+`integration_budget_rejections` in each growth CSV records these rejections.
+`demand_quadrature_points` is the accepted global point count and
+`demand_quadrature_peak_points` is its global proposed peak, including rejected
+previews. Use the maximum across ranks for these cardinalities. Assignment
+queries, hits, generated/refined points and reassigned samples are local work
+counts and can be summed across ranks. The work columns include unsuccessful
+attempts; the `initialization_` and `finalization_` prefixes separate their
+one-time contributions from ordinary insertion work. Timings use the same
+phase separation, with finalization outside the accumulated batch total.
+Failure to reach the terminal target also reports any encountered integration
+budget exhaustion. Invalid or nonrepresentable density/JxW values are input
+errors rather than geometric retries.
+
+The density and its weighted samples must be positive, finite and
+representable. Finite quadrature approximates territory boundaries: obtaining
+positive mass for every territory is not an accuracy estimate. Increase the
+quadrature order or samples per terminal and compare the resulting demands when
+individual territory accuracy matters.
 
 ## Terminal sampling and numerical resolution
 

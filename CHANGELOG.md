@@ -178,6 +178,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply joint integrated territory demands throughout ordinary growth. Update native rows, physiology and geometric certificates together; retain persistent spatial indices and validate the full physical result once at output.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage topology and integrated demand changes through a sparse physiology journal, retaining branch mesh constraints and root normalizations across native ownership changes.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Reuse prepared background routing for cell queries and retain ancestor port metadata during candidate optimization instead of rebuilding or rescanning it for each trial.

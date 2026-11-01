@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "growth_batch.h"
 
+#include <deal.II/base/scope_exit.h>
+
 #include <deal.II/grid/grid_tools.h>
 
 #include <boost/serialization/array.hpp>
@@ -65,6 +67,7 @@ namespace ImmersX::Vascularization::internal
                       bool        check_snapshot_obstacles,
                       GrowthWork *work)
   {
+    auto      *work  = geometry.counts;
     auto       local = submitted;
     const Rank rank  = Utilities::MPI::this_mpi_process(comm),
                size  = Utilities::MPI::n_mpi_processes(comm);
@@ -72,8 +75,15 @@ namespace ImmersX::Vascularization::internal
     MPI_Comm_compare(geometry.cache.get_triangulation().get_mpi_communicator(),
                      comm,
                      &comparison);
-    bool valid = (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
-                 validate_data(network, size).valid();
+    bool valid = comparison == MPI_IDENT || comparison == MPI_CONGRUENT;
+    if (valid)
+      {
+        count_work(work,
+                   GrowthOperation::validation_record_visits,
+                   network.nodes.size() + network.vessels.size() +
+                     network.terminals.size());
+        valid = validate_data(network, size).valid();
+      }
     const auto controls = std::make_pair(
       std::array<double, 6>{{parameters.clearance,
                              parameters.minimum_length,
@@ -107,7 +117,6 @@ namespace ImmersX::Vascularization::internal
     const auto physical_clearance = [&](double h) {
       return h > 0. ? scale.physical_length(parameters.clearance, h) : 0.;
     };
-    geometry.retain_profiles(network);
     std::set<Id> local_ids;
     for (const auto &p : local)
       {
@@ -171,6 +180,8 @@ namespace ImmersX::Vascularization::internal
           segment_keys[{proposal.id, edge.id}] = key;
           segments.emplace(key, Segment<3>(edge.points[0], edge.points[1]));
         }
+    const ScopeExit release_trials(
+      [&]() { geometry.release_profiles(segments); });
     std::map<Id, std::vector<BackgroundInterval>> profiles;
     if (scale.policy == LengthScalePolicy::local_mesh_size)
       profiles = geometry.crossings(segments, comm);
@@ -209,6 +220,8 @@ namespace ImmersX::Vascularization::internal
       }
     std::map<Id, double>     obstacle_scales;
     std::map<Id, Segment<3>> obstacle_segments;
+    const ScopeExit          release_obstacles(
+      [&]() { geometry.release_profiles(obstacle_segments); });
     if (check_snapshot_obstacles && parameters.clearance > 0.)
       for (const auto &[id, vessel] : network.vessels)
         obstacle_segments.emplace(
@@ -233,17 +246,9 @@ namespace ImmersX::Vascularization::internal
              scale.policy == LengthScalePolicy::max_mesh_size)
       for (const auto &[id, segment] : obstacle_segments)
         obstacle_scales[id] = scale.maximum();
-    const auto &cell_tree =
-      geometry.cache.get_locally_owned_cell_bounding_boxes_rtree();
-    std::vector<BoundingBox<3>> local_boxes;
-    if (!cell_tree.empty())
-      local_boxes = extract_rtree_level(cell_tree, 1);
-    const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
-    std::vector<std::pair<BoundingBox<3>, Rank>> covering;
-    for (Rank r = 0; r < size; ++r)
-      for (const auto &box : boxes[r])
-        covering.emplace_back(box, r);
-    const auto covering_tree = pack_rtree(covering);
+    const auto &routing       = geometry.routing(comm, work);
+    const auto &boxes         = routing.boxes;
+    const auto &covering_tree = routing.covering_tree;
 
     std::vector<Point<3>>                             positions;
     std::vector<bool>                                 port_points;

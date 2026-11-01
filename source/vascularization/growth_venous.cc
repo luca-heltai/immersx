@@ -15,7 +15,6 @@
 #include "growth_batch.h"
 #include "growth_start.h"
 #include "growth_territory_search.h"
-#include "growth_work.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -246,7 +245,8 @@ namespace ImmersX::Vascularization::internal
       std::vector<Point<3>> seed_directions;
       Vessel                properties;
       Point<3>              position, normal;
-      std::set<Id>          excluded;
+      std::set<Rank>        queried_owners, exhausted_owners;
+      Id                    rejected  = invalid_id;
       Id                    current   = invalid_id;
       unsigned int          direction = 0;
     };
@@ -383,22 +383,26 @@ namespace ImmersX::Vascularization::internal
     if (!valid())
       return result;
     std::map<Id, Point<3>> tissue_queries;
-    for (const auto &[id, point] : available)
-      tissue_queries.emplace(id, point.position);
+    for (const auto &point : owned_territories)
+      tissue_queries.emplace(point.id, point.position);
     const auto tissue_cells = geometry.locate_points(tissue_queries, comm);
-    for (auto &[id, point] : available)
+    std::map<Id, double> separations;
+    for (const auto &[id, position] : tissue_queries)
       {
         const auto cell = tissue_cells.find(id);
         if (cell == tissue_cells.end())
           fail(id,
                "A common territory centre is outside the prepared background.");
         else
-          point.separation = scale.physical_length(p.venous.terminal_separation,
-                                                   cell->second.diameter);
+          separations[id] = scale.physical_length(p.venous.terminal_separation,
+                                                  cell->second.diameter);
       }
     if (!valid())
       return result;
-    auto                 tree = pack_rtree(points);
+    std::vector<BoundingBox<3>> local_cover;
+    if (const auto cover = territories.cover())
+      local_cover.push_back(*cover);
+    const auto           covers = Utilities::MPI::all_gather(comm, local_cover);
     std::set<Id>         mutable_owned;
     std::map<Id, double> fixed_roots;
     while (Utilities::MPI::sum(static_cast<Id>(pending.size()), comm) > 0)
@@ -418,7 +422,8 @@ namespace ImmersX::Vascularization::internal
                                         SharedPoint{point->id,
                                                     point->position,
                                                     point->owner,
-                                                    point->demand});
+                                                    point->demand,
+                                                    separations.at(point->id)});
           const auto received = Utilities::MPI::some_to_some(comm, replies);
           for (const auto &[owner, entries] : queries)
             for (const auto &[id, query] : entries)
@@ -547,7 +552,7 @@ namespace ImmersX::Vascularization::internal
                                  root.seed_directions.at(knee_choice - 1);
             if (root.direction ==
                 directions.size() * (root.seed_directions.size() + 1))
-              root.excluded.insert(point.id);
+              root.rejected = point.id;
             const double direction_length = knee_direction.norm();
             if (!(direction_length > 0.) || !std::isfinite(direction_length))
               continue;
@@ -585,10 +590,7 @@ namespace ImmersX::Vascularization::internal
           [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
-          },
-          true,
-          work);
-        count_copy(work, snapshot);
+          });
         auto                             trial = snapshot;
         std::vector<Id>                  accepted;
         std::map<Rank, TerritoryUpdates> updates;

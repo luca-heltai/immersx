@@ -359,3 +359,80 @@ TEST(VascularTissueDemand,
   EXPECT_TRUE(failed.target_terminal_flows.empty());
   EXPECT_TRUE(failed.territories.empty());
 }
+
+TEST(VascularTissueDemand, BOTH_OrdinaryGrowthReweightsSeedAndAllNewLeaves)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {2, 1, 1},
+                                            Point<3>(0., 0., 0.),
+                                            Point<3>(2., 1., 1.));
+  Parameters p("/Integrated ordinary generator/");
+  p.terminal_count_multiplier_factor = "none";
+  p.terminal_count                   = 4;
+  p.length_scale                     = "meter";
+  p.seed_position                    = {.2, .5, .5};
+  p.seed_direction                   = {1., 0., 0.};
+  p.seed_length                      = .15;
+  p.seed_radius                      = .01;
+  p.viscosity                        = .004;
+  p.minimum_length                   = 0.;
+  p.coverage.service_radius          = 0.;
+  p.density_beta                     = 0.;
+  p.tissue_demand                    = "1+3*x";
+  p.reference_flow                   = 3.e-9;
+  const auto  result = generate(bg, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  std::string issues;
+  for (const auto &issue : result.validation.issues)
+    issues += issue.message + '\n';
+  ASSERT_TRUE(result.validation.valid()) << issues;
+  EXPECT_EQ(result.effective_terminal_count, 4u);
+  EXPECT_EQ(result.accepted_insertions, 3u);
+  const auto   rank   = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  unsigned int leaves = 0, original_seed = 0;
+  double       mass = 0., flow = 0.;
+  for (const auto &[id, terminal] : result.network.terminals)
+    if (terminal.owner == rank)
+      {
+        ++leaves;
+        EXPECT_GT(terminal.demand, 0.);
+        EXPECT_LT(terminal.demand, 8.);
+        mass += terminal.demand;
+        const double actual = result.target_terminal_flows.at(id);
+        flow += actual;
+        EXPECT_NEAR(actual / (p.reference_flow * terminal.demand / 8.),
+                    1.,
+                    2.e-13);
+        // Splitting its incident vessel preserves the original seed terminal.
+        if (terminal.node == 1)
+          {
+            ++original_seed;
+            EXPECT_LT(terminal.demand, 8.);
+          }
+      }
+  EXPECT_EQ(Utilities::MPI::sum(leaves, MPI_COMM_WORLD), 4u);
+  EXPECT_EQ(Utilities::MPI::sum(original_seed, MPI_COMM_WORLD), 1u);
+  // The original seed initially held this entire analytic tissue integral.
+  // Positive new Di therefore require changing its accepted weight too.
+  EXPECT_NEAR(Utilities::MPI::sum(mass, MPI_COMM_WORLD), 8., 2.e-13);
+  EXPECT_NEAR(Utilities::MPI::sum(flow, MPI_COMM_WORLD) / p.reference_flow,
+              1.,
+              2.e-13);
+  std::uint64_t generated_points = 0, accepted_points = 0;
+  for (const auto &statistics : result.growth_statistics)
+    {
+      EXPECT_GE(statistics.demand_quadrature_points,
+                p.tissue_integration.samples_per_terminal * p.terminal_count);
+      EXPECT_GE(statistics.demand_quadrature_peak_points,
+                statistics.demand_quadrature_points);
+      for (unsigned int i = 0; i < statistics.work.counts.size(); ++i)
+        EXPECT_GE(statistics.work.counts[i],
+                  statistics.initialization_work.counts[i] +
+                    statistics.finalization_work.counts[i]);
+      generated_points +=
+        statistics.work[GrowthOperation::demand_generated_points];
+      accepted_points = statistics.demand_quadrature_points;
+    }
+  EXPECT_GE(Utilities::MPI::sum(generated_points, MPI_COMM_WORLD),
+            accepted_points);
+}
