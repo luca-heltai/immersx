@@ -25,7 +25,7 @@ ordinary 1D VTK meshes. If you already have suitable 1D meshes, start at
 This is a geometric growth example. The pressures, flow and extension settings
 below are illustrative, not a patient calibration. The example uses hepatic
 arterial supply and a retained hepatic venous tree. The published two-network run below omits portal inflow. The
-[three-network extension](#add-portal-inflow) adds that role through a common
+{ref}`three-network extension <liver-portal-inflow>` adds that role through a common
 microvascular compartment; these examples do not establish physiological liver perfusion.
 
 ```{figure} ../_static/liver-vascularization/before-after.png
@@ -344,6 +344,7 @@ capillaries, or guarantee that every point of the liver is adequately served.
 Use the existing [coverage and calibration controls](../how-to/vascular-generation)
 when imposing a service distance or a volume objective.
 
+(liver-portal-inflow)=
 ## Add portal inflow
 
 The optional portal network supplies the same territories as the artery; the
@@ -359,7 +360,7 @@ Prepare a new input directory with the third tree:
 
 ```bash
 micromamba run -n ircad-prep python scripts/prepare_ircad_liver.py \
-  data/ircad-case12-portal --with-portal
+  build-release/data/ircad-case12-portal --with-portal
 ```
 
 This additionally reads `MESHES_VTK/portalvein.vtk`, a surface in the IRCAD
@@ -376,14 +377,30 @@ still certifies every proposed vessel continuously. Arterial and venous trees
 are imported before the portal tree so their physical identifiers stay the same. The portal root is then physical node **1262** for
 this recipe. Recompute these root ids if the preparation settings change.
 
-In a separate parameter file, use the new prepared input directory for all
-three line meshes and the liver surface. Add the following settings to the
-existing `Liver` and `Liver/Vascularization` subsections:
+Copy the generated parameter file for a separate run:
+
+```bash
+cp build-release/data/vascularization/liver.prm \
+  build-release/data/vascularization/liver-portal.prm
+```
+
+Use the new prepared directory for all three line meshes and the liver surface.
+Edit the copied file's existing subsections with these settings. The application
+default remains 1,000 territories per network; this shorter trial requests 32:
 
 ```text
 subsection Liver
-  set Portal grid = data/ircad-case12-portal/portal.vtk
+  set Arterial grid = ../ircad-case12-portal/arterial.vtk
+  set Venous grid = ../ircad-case12-portal/venous.vtk
+  set Portal grid = ../ircad-case12-portal/portal.vtk
+  set Output directory = ../../test_output/liver-portal
+  subsection Domain
+    set Grid generator = ../ircad-case12-portal/liver.stl
+  end
   subsection Vascularization
+    subsection Sampling
+      set Terminal count = 32
+    end
     subsection Physiology
       set Reference pressures = 83:12000,177:2000,1262:5000
     end
@@ -396,14 +413,15 @@ subsection Liver
 end
 ```
 
-All paths are relative to the parameter file. Keep the venous network enabled.
+Save the parameter file in `build-release/data/vascularization`, as in the
+two-network example. All paths are relative to that file. Keep the venous network enabled.
 The total new-tissue flow now denotes venous drainage: with the illustrative
 fraction `0.7`, portal inflow supplies 70% and arterial inflow 30%. These values
 and root pressures are modeling inputs. Leave `Compartment resistances` at its
 three zero defaults to derive positive arms using a common pressure between the
 venous terminal pressure and both supplying terminal pressures. The final solve
 checks each requested supply and drainage, including `Q_v = Q_a + Q_p`.
-See [three-network reference flow](../how-to/vascular-generation#arterial-portal-and-venous-reference-networks)
+See {ref}`three-network reference flow <vascular-three-compartments>`
 for the equations and supplied-resistance alternative.
 
 The CSV output includes `triplets-*.csv` with terminal identities, three arm
@@ -412,14 +430,30 @@ resistances, actual supply and drainage flows and the common pressure. In VTK,
 archive retains all three roles and their common compartments. Existing
 arterial–venous parameter files retain their original behavior.
 
-Start with a smaller territory count when selecting search settings for three
-networks. The published 1,000-pair run and its figures above remain the
-arterial–venous reference. To check a three-network run, pass `--triplets N`
+Run the copied parameter file:
+
+```bash
+mpirun -np 4 build-release/liver_vascular \
+  build-release/data/vascularization/liver-portal.prm
+```
+
+The verified four-rank Release run with deal.II 9.7.1 produced **32 triplets,
+2,185 physical vessels and 11,047 tissue cells**. It retained 2,001 input nodes
+and 1,998 input segments, and added 63 arterial, 62 portal and 62 venous
+segments. The independent checker preserved all input coordinates, ports and
+radii, verified the requested supply split and found a positive sampled wall
+margin for every new vessel.
+
+This 32-territory trial provides a shorter starting point. A different count or
+MPI partition can need different search settings; fewer territories do not
+guarantee an admissible initial connection for every selected attachment.
+The published 1,000-pair run and its figures above remain the arterial–venous
+reference. To check a three-network run, pass `--triplets N`
 instead of `--pairs N`, together with the portal separation:
 
 ```bash
 micromamba run -n ircad-prep python scripts/check_liver_vascular.py \
-  data/ircad-case12-portal results/liver-portal \
+  build-release/data/ircad-case12-portal build-release/test_output/liver-portal \
   --triplets 32 --separation .003 --portal-separation .004 \
   --portal-flow-fraction .7
 ```

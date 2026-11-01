@@ -395,7 +395,10 @@ main(int argc, char **argv)
           std::cout << "Liver cells: "
                     << domain.triangulation().n_global_active_cells()
                     << ", physical vessels: " << vessels
-                    << ", tissue pairs: " << pairs << '\n';
+                    << ", tissue pairs: " << pairs;
+          if (settings.growth.portal.enabled)
+            std::cout << ", tissue triplets: " << triplets;
+          std::cout << '\n';
         }
     }
   catch (const std::exception &error)

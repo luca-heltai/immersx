@@ -156,77 +156,94 @@ TEST(VascularForest, BOTH_VenousNearestCursorValidatesLifetimeAndEmptyInput)
 TEST(VascularAV,
      BOTH_VenousStartupChoosesGlobalNearestTerritoryAcrossNativeOwners)
 {
-  const auto comm = MPI_COMM_WORLD;
-  const auto rank = Utilities::MPI::this_mpi_process(comm);
-  const auto size = Utilities::MPI::n_mpi_processes(comm);
-  const Id   base = Id(1) << 60;
-  parallel::distributed::Triangulation<3> bg(comm);
-  GridGenerator::subdivided_hyper_rectangle(bg,
-                                            {4, 1, 1},
-                                            Point<3>(),
-                                            Point<3>(1., 1., 1.));
-  MappingQ1<3>   mapping;
-  NetworkData    input;
-  const Point<3> points[] = {Point<3>(.2, .25, .5),
-                             Point<3>(.8, .6, .5),
-                             Point<3>(.51, .75, .5)};
-  if (rank == size - 1)
-    for (unsigned int i = 0; i < 3; ++i)
-      {
-        const Id node         = base + 10 * i;
-        input.nodes[node]     = {Point<3>(points[i][0], points[i][1], .1),
-                                 rank,
-                                 Port::arterial_inlet};
-        input.nodes[node + 1] = {points[i], rank};
-        Vessel vessel;
-        vessel.nodes     = {{node, node + 1}};
-        vessel.radii     = {{2.e-5, 2.e-5}};
-        vessel.viscosity = .004;
-        vessel.owner     = rank;
-        vessel.system    = System::arterial;
-        input.vessels.emplace(base + 100 + i, vessel);
-        input.terminals.emplace(
-          base + 200 + i,
-          Terminal{node + 1, base + 500 + i, System::arterial, rank, 1. + i});
-      }
-  const auto             original = redistribute(bg, mapping, input, 0., comm);
-  std::vector<Territory> owned;
-  for (const auto &[id, t] : original.terminals)
-    if (t.owner == rank)
-      owned.push_back(
-        {t.territory, original.nodes.at(t.node).position, rank, t.demand});
-  Parameters p;
-  p.minimum_radius             = 0.;
-  p.minimum_length             = 0.;
-  p.minimum_angle              = 1.;
-  p.seed_length                = .002;
-  p.viscosity                  = .004;
-  p.venous.seed_position       = Point<3>(.49, .75, .5);
-  p.venous.seed_radius         = 5.e-5;
-  p.venous.terminal_separation = .005;
-  const auto reserved = reserve_venous_outlet(bg, mapping, original, p, comm);
-  ASSERT_TRUE(reserved.validation.valid());
-  const auto actual = start_venous(
-    bg, mapping, reserved.network, original, p, owned, reserved.port, comm);
-  ASSERT_TRUE(actual.accepted.validation.valid());
-  unsigned int terminals = 0;
-  for (const auto &[id, t] : actual.accepted.network.terminals)
-    if (t.owner == rank && t.system == System::venous)
-      {
-        ++terminals;
-        EXPECT_EQ(t.territory, base + 502);
-        EXPECT_DOUBLE_EQ(t.demand, 3.);
-      }
-  EXPECT_EQ(Utilities::MPI::sum(terminals, comm), 1u);
-  for (const auto &[id, vessel] : original.vessels)
-    if (vessel.owner == rank)
-      {
-        ASSERT_TRUE(actual.accepted.network.vessels.count(id));
-        const auto &preserved = actual.accepted.network.vessels.at(id);
-        EXPECT_EQ(preserved.nodes, vessel.nodes);
-        EXPECT_EQ(preserved.radii, vessel.radii);
-        EXPECT_EQ(preserved.owner, vessel.owner);
-        EXPECT_EQ(preserved.system, vessel.system);
-        EXPECT_DOUBLE_EQ(preserved.viscosity, vessel.viscosity);
-      }
+  for (const System system : {System::venous, System::portal})
+    {
+      SCOPED_TRACE(static_cast<unsigned int>(system));
+      const auto comm = MPI_COMM_WORLD;
+      const auto rank = Utilities::MPI::this_mpi_process(comm);
+      const auto size = Utilities::MPI::n_mpi_processes(comm);
+      const Id   base = Id(1) << 60;
+      parallel::distributed::Triangulation<3> bg(comm);
+      GridGenerator::subdivided_hyper_rectangle(bg,
+                                                {4, 1, 1},
+                                                Point<3>(),
+                                                Point<3>(1., 1., 1.));
+      MappingQ1<3>   mapping;
+      NetworkData    input;
+      const Point<3> points[] = {Point<3>(.2, .25, .5),
+                                 Point<3>(.8, .6, .5),
+                                 Point<3>(.51, .75, .5)};
+      if (rank == size - 1)
+        for (unsigned int i = 0; i < 3; ++i)
+          {
+            const Id node         = base + 10 * i;
+            input.nodes[node]     = {Point<3>(points[i][0], points[i][1], .1),
+                                     rank,
+                                     Port::arterial_inlet};
+            input.nodes[node + 1] = {points[i], rank};
+            Vessel vessel;
+            vessel.nodes     = {{node, node + 1}};
+            vessel.radii     = {{2.e-5, 2.e-5}};
+            vessel.viscosity = .004;
+            vessel.owner     = rank;
+            vessel.system    = System::arterial;
+            input.vessels.emplace(base + 100 + i, vessel);
+            input.terminals.emplace(base + 200 + i,
+                                    Terminal{node + 1,
+                                             base + 500 + i,
+                                             System::arterial,
+                                             rank,
+                                             1. + i});
+          }
+      const auto original = redistribute(bg, mapping, input, 0., comm);
+      std::vector<Territory> owned;
+      for (const auto &[id, t] : original.terminals)
+        if (t.owner == rank)
+          owned.push_back(
+            {t.territory, original.nodes.at(t.node).position, rank, t.demand});
+      Parameters p;
+      p.length_scale          = "meter";
+      auto &companion         = system == System::venous ? p.venous : p.portal;
+      p.minimum_radius        = 0.;
+      p.minimum_length        = 0.;
+      p.minimum_angle         = 1.;
+      p.seed_length           = .002;
+      p.viscosity             = .004;
+      companion.seed_position = Point<3>(.49, .75, .5);
+      companion.seed_radius   = 5.e-5;
+      companion.terminal_separation = .005;
+      const auto reserved =
+        reserve_companion_port(bg, mapping, original, p, comm, system);
+      ASSERT_TRUE(reserved.validation.valid());
+      const auto actual = start_companion(bg,
+                                          mapping,
+                                          reserved.network,
+                                          original,
+                                          p,
+                                          owned,
+                                          reserved.port,
+                                          comm,
+                                          system);
+      ASSERT_TRUE(actual.accepted.validation.valid());
+      unsigned int terminals = 0;
+      for (const auto &[id, t] : actual.accepted.network.terminals)
+        if (t.owner == rank && t.system == system)
+          {
+            ++terminals;
+            EXPECT_EQ(t.territory, base + 502);
+            EXPECT_DOUBLE_EQ(t.demand, 3.);
+          }
+      EXPECT_EQ(Utilities::MPI::sum(terminals, comm), 1u);
+      for (const auto &[id, vessel] : original.vessels)
+        if (vessel.owner == rank)
+          {
+            ASSERT_TRUE(actual.accepted.network.vessels.count(id));
+            const auto &preserved = actual.accepted.network.vessels.at(id);
+            EXPECT_EQ(preserved.nodes, vessel.nodes);
+            EXPECT_EQ(preserved.radii, vessel.radii);
+            EXPECT_EQ(preserved.owner, vessel.owner);
+            EXPECT_EQ(preserved.system, vessel.system);
+            EXPECT_DOUBLE_EQ(preserved.viscosity, vessel.viscosity);
+          }
+    }
 }

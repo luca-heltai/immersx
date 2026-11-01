@@ -10,10 +10,13 @@
 #include <cmath>
 
 #include "distribution_internal.h"
+#include "growth_system.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
   {
+    constexpr std::array<System, 3> forest_systems{
+      {System::arterial, System::venous, System::portal}};
     GrowthDemandState
     initial_state(const NetworkData            &n,
                   const ForestState            &forest,
@@ -327,33 +330,29 @@ namespace ImmersX::Vascularization::internal
   {
     bool valid = invalid_bounds == 0;
     if (parameters.reference_flow > 0.)
-      for (unsigned int system = 0; system < 2; ++system)
+      for (unsigned int system = 0; system < 3; ++system)
         if (!leaf_minima[system].empty())
           {
-            const long double system_demand =
-              preview.canonical_total_demand ?
-                (*preview.canonical_total_demand)[system] :
-                preview.totals[3 * system];
+            const long double   system_demand = preview.total_demand(system);
             GrowthDemandSummary smallest;
             smallest.mass             = leaf_minima[system].begin()->first;
             const double minimum_flow = static_cast<double>(
-              parameters.reference_flow * demand_state.demand_value(smallest) /
-              system_demand);
+              system_reference_flow(parameters, forest_systems[system]) *
+              demand_state.demand_value(smallest) / system_demand);
             valid = valid && std::isfinite(system_demand) &&
                     system_demand > 0. && std::isfinite(minimum_flow) &&
                     minimum_flow > 0.;
           }
-    for (unsigned int system = 0; system < 2; ++system)
+    for (unsigned int system = 0; system < 3; ++system)
       {
+        const double flow =
+          system_reference_flow(parameters, forest_systems[system]);
         const double volume =
           static_cast<double>(preview.totals[3 * system + 1]);
-        const long double demand = preview.canonical_total_demand ?
-                                     (*preview.canonical_total_demand)[system] :
-                                     preview.totals[3 * system];
+        const long double demand = preview.total_demand(system);
         const double      power =
           demand > 0. ? static_cast<double>(
-                          static_cast<long double>(parameters.reference_flow) *
-                          parameters.reference_flow *
+                          static_cast<long double>(flow) * flow *
                           preview.totals[3 * system + 2] / demand / demand) :
                              0.;
         valid =
@@ -506,17 +505,16 @@ namespace ImmersX::Vascularization::internal
       {
         return result;
       }
-    for (unsigned int system = 0; system < 2; ++system)
+    for (unsigned int system = 0; system < 3; ++system)
       {
+        const double flow =
+          system_reference_flow(parameters, forest_systems[system]);
         result.volume[system]       = preview.totals[3 * system + 1];
-        const long double demand    = preview.canonical_total_demand ?
-                                        (*preview.canonical_total_demand)[system] :
-                                        preview.totals[3 * system];
+        const long double demand    = preview.total_demand(system);
         result.total_demand[system] = demand;
         result.power[system] =
           demand > 0. ? static_cast<double>(
-                          static_cast<long double>(parameters.reference_flow) *
-                          parameters.reference_flow *
+                          static_cast<long double>(flow) * flow *
                           preview.totals[3 * system + 2] / demand / demand) :
                         0.;
       }

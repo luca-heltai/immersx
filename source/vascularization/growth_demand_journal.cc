@@ -368,12 +368,10 @@ namespace ImmersX::Vascularization::internal
           }
       }
     state.accepted_totals = staged.totals;
-    for (unsigned int system = 0; system < 2; ++system)
+    for (unsigned int system = 0; system < 3; ++system)
       {
         state.accepted_volume[system] = staged.totals[3 * system + 1];
-        const long double total       = staged.canonical_total_demand ?
-                                          (*staged.canonical_total_demand)[system] :
-                                          staged.totals[3 * system];
+        const long double total       = staged.total_demand(system);
         state.accepted_resistance[system] =
           total > 0. ? staged.totals[3 * system + 2] / total / total : 0.;
       }

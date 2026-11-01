@@ -62,7 +62,11 @@ def main():
             assert (int(row["node0"]), int(row["node1"])) == endpoints
             assert float(row["radius0"]) == radius == float(row["radius1"])
             assert int(row["provenance"]) == 0
+        # Binary insertions add two vessels. Companion startup has both a
+        # fixed-length stem and a continuation before its first insertion.
+        generated = {0: 2 * 8 - 1, 1: 2 * 8}
         if args.portal:
+            generated[2] = 2 * 8
             expected.extend([(4, (.2, .8, .5), 4), (5, (.3, .8, .5), 0)])
             for identity, point, port in expected[-2:]:
                 row = nodes[identity]
@@ -72,7 +76,7 @@ def main():
             assert (int(portal["node0"]), int(portal["node1"])) == (4, 5)
             assert float(portal["radius0"]) == .003 == float(portal["radius1"])
             assert int(portal["system"]) == 2 and int(portal["provenance"]) == 0
-            assert len(vessels) == 48 and not pairs
+            assert len(vessels) == sum(generated.values()) + 3 and not pairs
             triplets = rows(output, "triplets", "territory")
             assert len(triplets) == 8
             used_triplets = set()
@@ -92,8 +96,8 @@ def main():
                 assert math.isclose(qp / qv, .7, rel_tol=1.e-8)
                 assert all(float(t[k]) > 0 for k in ("arterial_resistance", "portal_resistance", "venous_resistance"))
         else:
-            assert len(vessels) == 32 and len(pairs) == 8
-        for system in ((0, 1, 2) if args.portal else (0, 1)):
+            assert len(vessels) == sum(generated.values()) + 2 and len(pairs) == 8
+        for system, expected_count in generated.items():
             assert sum(int(r["system"]) == system and int(r["provenance"]) == 1
                        for r in vessels.values()) == expected_count
         used = set()

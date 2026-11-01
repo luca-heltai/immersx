@@ -260,6 +260,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Preserve integrated tissue demand, native startup ownership, cached geometry and mesh-scaled separation and coverage across arterial, portal and venous growth.
+
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep liver input lengths in metres and tissue counts absolute when layered on mesh-adaptive generation; retain the independently counted full-commit geometry oracle.
 
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Build surface volume generation and retained vascular centerline and obstacle indices with the deal.II 9.7 and Boost toolchain used by CI, preserving conforming hexahedral output and physical vessel identities during index updates.
@@ -473,7 +475,13 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Check exact liver vessel counts with the fixed-length portal and venous startup stems and continuations, preserving the independent pairing, perfusion and imported-geometry checks.
+
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Check three-network perfusion balance, archive completion and canonical portal-demand updates in serial and MPI, and exercise the liver CLI with two and three input trees.
+
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Count the fixed-length venous startup stem and its continuation separately in the liver smoke checks, while preserving exact terminal counts and imported physical properties.
+
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Allow ninety minutes for the complete Debug and Release CI jobs, including cold-cache builds, all quick tests and cache upload. Keep the test selection and individual test timeouts unchanged.
 
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii, journal rollback and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check native ownership and physical aggregation after concurrent branch edits and terminal remapping. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero. Check cached branch resistance extrema and minimum leaf demand after staged edits. Compare owning execution rejection, retry, native owner migration and SI ghost output with immutable full commits. Check candidate envelope queries against full-forest trial collisions after demand transfers between roots. Keep per-batch physical-bound checks limited to changed roots while retaining the flow minimum on untouched distant leaves. Compare retained venous nearest cursors with exhaustive searches through successive exclusions, concurrent claims and exact-distance ties.
 

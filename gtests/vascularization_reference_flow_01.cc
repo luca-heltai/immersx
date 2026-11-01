@@ -961,25 +961,30 @@ TEST(VascularReferenceFlow, BOTH_GeneratedThreeNetworksShareNonzeroDemandFlow)
   GridGenerator::hyper_cube(background);
   background.refine_global(2);
   Parameters p;
-  p.seed_position                  = Point<3>(.15, .25, .5);
-  p.seed_direction                 = Point<3>(1., 0., 0.);
-  p.seed_length                    = .08;
-  p.seed_radius                    = .001;
-  p.viscosity                      = .004;
-  p.terminal_count                 = 4;
-  p.optimization_steps             = 3;
-  p.reference_flow                 = 2.e-9;
-  p.tissue_demand                  = "1+x";
-  p.venous.enabled                 = true;
-  p.venous.seed_position           = Point<3>(.85, .5, .5);
-  p.venous.seed_radius             = .001;
-  p.venous.terminal_separation     = .04;
-  p.portal.enabled                 = true;
-  p.portal.seed_position           = Point<3>(.15, .75, .5);
-  p.portal.seed_radius             = .001;
-  p.portal.terminal_separation     = .06;
-  p.portal_flow_fraction           = .7;
-  p.reference_conditions.pressures = {{0, 12000.}, {2, 1000.}, {3, 5000.}};
+  p.length_scale                     = "meter";
+  p.terminal_count_multiplier_factor = "none";
+  p.minimum_length                   = 0.;
+  p.density_beta                     = 0.;
+  p.coverage.service_radius          = 0.;
+  p.seed_position                    = Point<3>(.15, .25, .5);
+  p.seed_direction                   = Point<3>(1., 0., 0.);
+  p.seed_length                      = .08;
+  p.seed_radius                      = .001;
+  p.viscosity                        = .004;
+  p.terminal_count                   = 4;
+  p.optimization_steps               = 3;
+  p.reference_flow                   = 2.e-9;
+  p.tissue_demand                    = "1+x";
+  p.venous.enabled                   = true;
+  p.venous.seed_position             = Point<3>(.85, .5, .5);
+  p.venous.seed_radius               = .001;
+  p.venous.terminal_separation       = .04;
+  p.portal.enabled                   = true;
+  p.portal.seed_position             = Point<3>(.15, .75, .5);
+  p.portal.seed_radius               = .001;
+  p.portal.terminal_separation       = .06;
+  p.portal_flow_fraction             = .7;
+  p.reference_conditions.pressures   = {{0, 12000.}, {2, 1000.}, {3, 5000.}};
   const auto r = generate(background, MappingQ1<3>(), {}, p, comm);
   for (const auto &issue : r.validation.issues)
     std::cerr << issue.message << '\n';
@@ -1052,6 +1057,12 @@ TEST(VascularReferenceFlow, BOTH_GeneratedThreeNetworksShareNonzeroDemandFlow)
     comm,
     restored.terminal_triplets);
   EXPECT_FALSE(rejected.validation.valid());
+  // Restart attachments may use incoming and cell directions instead of the
+  // explicit direction used to place the original seed in the empty domain.
+  p.seed_direction = {};
+  // Use a short restart stem relative to the existing endpoint offsets.
+  p.seed_length =
+    .25 * std::min(p.portal.terminal_separation, p.venous.terminal_separation);
   p.terminal_count            = 2;
   p.selected_terminals        = {selected[1]};
   p.portal.selected_terminals = {selected[2]};

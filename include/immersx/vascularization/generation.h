@@ -78,8 +78,8 @@ namespace ImmersX::Vascularization
     dealii::Point<3> seed_position, seed_inward_port_normal;
     double           seed_radius     = 0.;
     double           murray_exponent = 3.;
-    /** Metres from the arterial endpoint to this companion terminal. */
-    double terminal_separation = 0.;
+    /** Separation from the arterial endpoint in the configured length scale. */
+    double terminal_separation = .25;
     /** Two-system venous bed resistance in Pa s/m^3; zero derives beds from
      * flow. Keep zero for portal controls, which use three compartment
      * resistances. */
@@ -94,11 +94,12 @@ namespace ImmersX::Vascularization
     void
     validate(bool creating_seed = true) const;
 
-    DiscretizationParameters discretization;
-    CoverageParameters       coverage;
-    CalibrationParameters    calibration;
-    VenousParameters         venous;
-    CompanionParameters      portal;
+    TissueIntegrationParameters tissue_integration;
+    DiscretizationParameters    discretization;
+    CoverageParameters          coverage;
+    CalibrationParameters       calibration;
+    VenousParameters            venous;
+    CompanionParameters         portal;
     /** Fraction of total new-tissue flow supplied by the portal network. */
     double portal_flow_fraction = .5;
     /** Star-arm resistances in arterial, portal, venous order; zero derives

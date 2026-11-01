@@ -350,15 +350,19 @@ namespace ImmersX::Vascularization
   }
 
   static GenerationResult
-  generate_count(const dealii::Triangulation<3>     &background,
-                 const dealii::Mapping<3>           &mapping,
-                 const NetworkData                  &initial,
-                 const Parameters                   &parameters,
-                 MPI_Comm                            communicator,
-                 unsigned int                        terminal_count,
-                 const std::vector<Territory>       &initial_territories,
-                 const std::vector<TerminalPair>    &initial_pairs,
-                 const std::vector<TerminalTriplet> &initial_triplets)
+  generate_count(
+    const dealii::Triangulation<3>                &background,
+    const dealii::Mapping<3>                      &mapping,
+    const NetworkData                             &initial,
+    const Parameters                              &parameters,
+    MPI_Comm                                       communicator,
+    unsigned int                                   terminal_count,
+    unsigned int                                   initial_count,
+    const std::vector<Territory>                  &initial_territories,
+    const std::vector<TerminalPair>               &initial_pairs,
+    const std::vector<TerminalTriplet>            &initial_triplets,
+    std::unique_ptr<internal::BackgroundGeometry> &prepared_geometry,
+    GrowthWork                                    &preparation_work)
   {
     using namespace dealii;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -521,7 +525,8 @@ namespace ImmersX::Vascularization
                                                        result.network,
                                                        parameters,
                                                        communicator,
-                                                       System::venous);
+                                                       System::venous,
+                                                       &geometry);
         result.validation.issues.insert(result.validation.issues.end(),
                                         outlet.validation.issues.begin(),
                                         outlet.validation.issues.end());
@@ -537,7 +542,8 @@ namespace ImmersX::Vascularization
                                                       result.network,
                                                       parameters,
                                                       communicator,
-                                                      System::portal);
+                                                      System::portal,
+                                                      &geometry);
         result.validation.issues.insert(result.validation.issues.end(),
                                         inlet.validation.issues.begin(),
                                         inlet.validation.issues.end());
@@ -568,7 +574,16 @@ namespace ImmersX::Vascularization
                               terminal_count,
                               system,
                               system != System::arterial ? result.territories :
-                                                           empty);
+                                                           empty,
+                              std::move(callbacks),
+                              &geometry);
+      if (!growth.statistics.empty())
+        {
+          auto &first = growth.statistics.begin()->second;
+          first.work += preparation_work;
+          first.initialization_work += preparation_work;
+          preparation_work = {};
+        }
       for (const auto &[bucket, statistics] : growth.statistics)
         result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),
@@ -634,19 +649,21 @@ namespace ImmersX::Vascularization
                                         reserved_portal_port :
                                         reserved_venous_port,
                                       communicator,
-                                      companion_system);
+                                      companion_system,
+                                      &geometry);
           result.validation.issues.insert(
             result.validation.issues.end(),
             startup.accepted.validation.issues.begin(),
             startup.accepted.validation.issues.end());
           if (!collective_valid())
             return result;
-          if (!startup.accepted.committed)
+          if (!startup.accepted.prepared)
             {
-              fail(invalid_id, "No venous startup batch was committed.");
+              fail(invalid_id, "No companion startup batch was prepared.");
               return result;
             }
           result.network = std::move(startup.accepted.network);
+          mutable_forest = std::move(startup.accepted.mutable_owned);
           result.attachment_roots.insert(startup.attachment_roots.begin(),
                                          startup.attachment_roots.end());
           roots.clear();
@@ -754,18 +771,24 @@ namespace ImmersX::Vascularization
            const std::vector<TerminalTriplet> &initial_triplets)
   {
     using namespace dealii;
-    const auto                  &p = parameters.calibration;
-    const std::array<double, 10> modes{
-      {p.volume_fraction,
-       p.minimum_coverage,
-       p.relative_tolerance,
-       static_cast<double>(p.minimum_terminals),
-       static_cast<double>(p.maximum_terminals),
-       static_cast<double>(p.attempt_budget),
-       static_cast<double>(parameters.terminal_count),
-       static_cast<double>(parameters.venous.enabled),
-       static_cast<double>(parameters.portal.enabled),
-       parameters.portal_flow_fraction}};
+    GrowthWork                                    preparation_work;
+    std::unique_ptr<internal::BackgroundGeometry> prepared_geometry;
+
+    auto p = parameters.calibration;
+
+    const auto modes = std::make_pair(
+      std::array<double, 10>{{p.volume_fraction,
+                              p.minimum_coverage,
+                              p.relative_tolerance,
+                              static_cast<double>(p.minimum_terminals),
+                              static_cast<double>(p.maximum_terminals),
+                              static_cast<double>(p.attempt_budget),
+                              static_cast<double>(parameters.terminal_count),
+                              static_cast<double>(parameters.venous.enabled),
+                              static_cast<double>(parameters.portal.enabled),
+                              parameters.portal_flow_fraction}},
+      std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
+                                  parameters.length_scale}});
     bool matching_modes = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, modes))
       matching_modes = other == modes && matching_modes;
@@ -869,7 +892,9 @@ namespace ImmersX::Vascularization
                             initial_count,
                             initial_territories,
                             initial_pairs,
-                            initial_triplets);
+                            initial_triplets,
+                            prepared_geometry,
+                            preparation_work);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
@@ -952,7 +977,9 @@ namespace ImmersX::Vascularization
                                         initial_count,
                                         initial_territories,
                                         initial_pairs,
-                                        initial_triplets);
+                                        initial_triplets,
+                                        prepared_geometry,
+                                        preparation_work);
         statistics.insert(statistics.end(),
                           candidate.growth_statistics.begin(),
                           candidate.growth_statistics.end());

@@ -2332,6 +2332,7 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
             }
           const unsigned int slot = system == System::portal ? 2u : 0u;
           Parameters         p;
+          physical_controls(p);
           p.portal.enabled         = system == System::portal;
           p.portal.murray_exponent = 2.6;
           p.portal_flow_fraction   = .7;
