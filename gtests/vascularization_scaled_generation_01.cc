@@ -90,6 +90,7 @@ TEST(VascularGeneration, MeshAdaptiveParameterDefaults)
   EXPECT_DOUBLE_EQ(p.coverage.service_radius, 1.);
   EXPECT_DOUBLE_EQ(p.minimum_radius, 0.);
   EXPECT_DOUBLE_EQ(p.venous.terminal_separation, .25);
+  EXPECT_DOUBLE_EQ(p.portal.terminal_separation, .25);
   EXPECT_DOUBLE_EQ(p.discretization.target_factor, 1.);
   EXPECT_DOUBLE_EQ(p.discretization.lower_factor, .5);
   EXPECT_DOUBLE_EQ(p.discretization.upper_factor, 2.);

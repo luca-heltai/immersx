@@ -15,6 +15,7 @@
 #include "growth_batch.h"
 #include "growth_start.h"
 #include "growth_system.h"
+#include "growth_territory_search.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -76,7 +77,8 @@ namespace ImmersX::Vascularization::internal
                          const NetworkData              &network,
                          const Parameters               &p,
                          MPI_Comm                        comm,
-                         System                          system)
+                         System                          system,
+                         BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     const auto &companion = companion_parameters(p, system);
@@ -125,7 +127,7 @@ namespace ImmersX::Vascularization::internal
         {"companion outlet", invalid_id, message});
     };
     if (!(companion.seed_radius > 0.) || !(p.viscosity > 0.) ||
-        companion.seed_radius < p.minimum_radius)
+        companion.seed_radius < minimum_radius)
       {
         fail(
           "A new companion outlet requires an explicit admissible positive radius and dynamic viscosity.");
@@ -168,9 +170,9 @@ namespace ImmersX::Vascularization::internal
     if (rank == source)
       result.network.nodes[result.port] = {companion.seed_position,
                                            rank,
-                                           system == System::portal ?
-                                             Port::portal_inlet :
-                                             Port::venous_outlet,
+                                           (system == System::portal ?
+                                              Port::portal_inlet :
+                                              Port::venous_outlet),
                                            Provenance::generated,
                                            normal};
     result.network = redistribute_with_owners(
@@ -187,7 +189,8 @@ namespace ImmersX::Vascularization::internal
                   const std::vector<Territory>   &owned_territories,
                   Id                              reserved_port,
                   MPI_Comm                        comm,
-                  System                          system)
+                  System                          system,
+                  BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     const auto &companion = companion_parameters(p, system);
@@ -209,9 +212,22 @@ namespace ImmersX::Vascularization::internal
         result.accepted.prepared = false;
       return all;
     };
-    auto snapshot = redistribute(bg, mapping, network, p.clearance, comm);
-    BackgroundGeometry geometry(bg, mapping);
-    std::set<Id>       requested(companion.selected_terminals.begin(),
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    geometry.configure_length_scale(p.length_scale, comm);
+    const auto  &scale = *geometry.length_scale;
+    const double halo  = scale.physical_length(p.clearance, scale.maximum());
+    const double minimum_radius =
+      scale.physical_length(p.minimum_radius, scale.minimum());
+    const double minimum_length =
+      scale.physical_length(p.minimum_length, scale.minimum());
+    scale.physical_length(companion.terminal_separation, scale.minimum());
+    scale.physical_length(companion.terminal_separation, scale.maximum());
+    auto snapshot = redistribute_with_owners(
+      bg, mapping, network, halo, comm, {}, &geometry, geometry.counts);
+    std::set<Id> requested(companion.selected_terminals.begin(),
                            companion.selected_terminals.end());
     if (requested.size() != companion.selected_terminals.size())
       fail(invalid_id, "A companion attachment may be selected only once.");
@@ -307,6 +323,41 @@ namespace ImmersX::Vascularization::internal
       fail(
         invalid_id,
         "Common territory count must cover all real companion outlets or selected attachments.");
+    scale.physical_length(p.seed_length, scale.minimum());
+    scale.physical_length(p.seed_length, scale.maximum());
+    std::map<Id, Point<3>> attachment_queries;
+    for (const auto &root : roots)
+      attachment_queries.emplace(root.start, root.position);
+    const auto attachment_cells =
+      geometry.locate_points(attachment_queries, comm, 1.e-12);
+    for (auto &root : roots)
+      {
+        const auto cell = attachment_cells.find(root.start);
+        if (cell == attachment_cells.end())
+          {
+            fail(root.start,
+                 "Companion seed attachment is outside the background.");
+            continue;
+          }
+        root.seed_length =
+          scale.physical_length(p.seed_length, cell->second.diameter);
+        std::optional<Point<3>> preferred;
+        if (root.input_terminal != invalid_id)
+          preferred =
+            Point<3>(root.position -
+                     snapshot.nodes.at(root.properties.nodes[0]).position);
+        else if (root.normal.norm_square() > 0.)
+          preferred = root.normal;
+        root.seed_directions = initial_root_directions(root.position,
+                                                       cell->second.center,
+                                                       cell->second.vertices,
+                                                       {},
+                                                       preferred,
+                                                       nullptr,
+                                                       0.);
+      }
+    if (!valid())
+      return result;
     // IDs are reserved once per startup, independently of geometric retries.
     const auto reserve = [&](const auto &data, Id stride) {
       Id next = 0;
@@ -352,15 +403,13 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, double> separations;
     for (const auto &[id, position] : tissue_queries)
       {
-        if (t.id == invalid_id || t.owner != rank || !std::isfinite(t.demand) ||
-            !(t.demand > 0.) ||
-            !available
-               .emplace(t.id, SharedPoint{t.id, t.position, rank, t.demand})
-               .second)
-          fail(
-            t.id,
-            "Companion startup requires unique native common territories with positive finite demand.");
-        points.emplace_back(t.position, t.id);
+        const auto cell = tissue_cells.find(id);
+        if (cell == tissue_cells.end())
+          fail(id,
+               "A common territory centre is outside the prepared background.");
+        else
+          separations[id] = scale.physical_length(companion.terminal_separation,
+                                                  cell->second.diameter);
       }
     if (!valid())
       return result;
@@ -506,18 +555,28 @@ namespace ImmersX::Vascularization::internal
                                 point.position,
                                 point.owner,
                                 point.demand};
-            const auto directions =
-              initial_root_directions(root.position,
-                                      {},
-                                      {},
-                                      {},
-                                      {},
-                                      &territory,
-                                      companion.terminal_separation);
-            const auto end = root.position + directions.at(root.direction++);
-            if (root.direction == directions.size())
-              root.excluded.insert(point.id);
-            if (root.position.distance(end) <= p.minimum_length)
+            const auto directions = initial_root_directions(
+              root.position, {}, {}, {}, {}, &territory, point.separation);
+            const auto choice = root.direction++;
+            const auto end_direction =
+              directions.at(choice % directions.size());
+            const auto knee_choice = choice / directions.size();
+            const auto knee_direction =
+              knee_choice == 0 ? end_direction :
+                                 root.seed_directions.at(knee_choice - 1);
+            if (root.direction ==
+                directions.size() * (root.seed_directions.size() + 1))
+              root.rejected = point.id;
+            const double direction_length = knee_direction.norm();
+            if (!(direction_length > 0.) || !std::isfinite(direction_length))
+              continue;
+            const auto knee = root.position + root.seed_length /
+                                                direction_length *
+                                                knee_direction;
+            const auto end = root.position + end_direction;
+            if (root.position.distance(knee) < minimum_length ||
+                knee.distance(end) < minimum_length ||
+                !(knee.distance(end) > 0.))
               continue;
             BatchProposal proposal;
             proposal.id = id;

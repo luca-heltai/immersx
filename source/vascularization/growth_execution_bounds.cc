@@ -98,7 +98,7 @@ namespace ImmersX::Vascularization::internal
           }
       }
     root_bounds.merge(root_bounds_before);
-    for (unsigned int system = 0; system < 2; ++system)
+    for (unsigned int system = 0; system < 3; ++system)
       leaf_minima[system].merge(leaf_minima_before[system]);
     if (!bounds_touched.empty())
       invalid_bounds = invalid_bounds_before;

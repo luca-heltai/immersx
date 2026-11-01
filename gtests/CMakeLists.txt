@@ -299,6 +299,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       target_include_directories(${_metric_flow_x_test_target}
                                  PRIVATE ${GTEST_INCLUDE_DIRS})
       DEAL_II_SETUP_TARGET(${_metric_flow_x_test_target} ${_BUILD_TYPE})
+      set(_vascular_transfer_filter
+        "MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds:MetricFlowX.BOTH_PreparesThreeCompartmentInputWithIndependentPortalBoundary")
       set(_metric_flow_x_serial_test
           "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.Serial")
       add_test(NAME ${_metric_flow_x_serial_test}
@@ -306,7 +308,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       set_tests_properties(${_metric_flow_x_serial_test}
                            PROPERTIES LABELS "integration;quick" TIMEOUT 300
                                       RESOURCE_LOCK ImmersX.TestOutput
-                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*-*.MPI_*:MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds")
+                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*-*.MPI_*:${_vascular_transfer_filter}")
       find_program(_immersx_mpiexec NAMES mpirun mpiexec)
       if(_immersx_mpiexec)
         set(_metric_flow_x_mpi_test
@@ -318,7 +320,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                              PROPERTIES LABELS "integration;quick;mpi"
                                         TIMEOUT 300 PROCESSORS 2
                                         RESOURCE_LOCK ImmersX.TestOutput
-                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*-MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds")
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*-${_vascular_transfer_filter}")
         set(_metric_flow_x_rcr_mpi4_test
             "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.RCR.MPI4")
         add_test(NAME ${_metric_flow_x_rcr_mpi4_test}
@@ -343,7 +345,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
         endif()
         set_tests_properties(${_vascular_name} PROPERTIES LABELS "integration;quick"
           TIMEOUT 300 PROCESSORS ${_ranks} RESOURCE_LOCK ImmersX.TestOutput
-          ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds"
+          ENVIRONMENT "GTEST_FILTER=${_vascular_transfer_filter}"
           SKIP_REGULAR_EXPRESSION "Installed MetricFlowX has no in-memory input API")
         if(_ranks GREATER 1)
           set_property(TEST ${_vascular_name} APPEND PROPERTY LABELS mpi)
