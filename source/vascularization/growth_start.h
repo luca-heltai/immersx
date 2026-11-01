@@ -39,7 +39,8 @@ namespace ImmersX::Vascularization::internal
                     const Parameters                &parameters,
                     const dealii::FunctionParser<3> &demand,
                     unsigned int                     terminal_count,
-                    MPI_Comm                         communicator);
+                    MPI_Comm                         communicator,
+                    BackgroundGeometry              *shared_geometry = nullptr);
 
   struct VenousOutlet
   {
@@ -54,7 +55,8 @@ namespace ImmersX::Vascularization::internal
                         const dealii::Mapping<3>       &mapping,
                         const NetworkData              &network,
                         const Parameters               &parameters,
-                        MPI_Comm                        communicator);
+                        MPI_Comm                        communicator,
+                        BackgroundGeometry *shared_geometry = nullptr);
 
   AttachmentStartup
   start_venous(const dealii::Triangulation<3> &background,
@@ -64,7 +66,8 @@ namespace ImmersX::Vascularization::internal
                const Parameters               &parameters,
                const std::vector<Territory>   &owned_territories,
                Id                              reserved_port,
-               MPI_Comm                        communicator);
+               MPI_Comm                        communicator,
+               BackgroundGeometry             *shared_geometry = nullptr);
 
   // Start exactly one arterial tree in an empty physical network. Native
   // background point ownership selects the writer; all ranks certify trials.
@@ -73,6 +76,7 @@ namespace ImmersX::Vascularization::internal
              const dealii::Mapping<3>        &mapping,
              const Parameters                &parameters,
              const dealii::FunctionParser<3> &demand,
-             MPI_Comm                         communicator);
+             MPI_Comm                         communicator,
+             BackgroundGeometry              *shared_geometry = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif

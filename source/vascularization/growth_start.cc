@@ -11,7 +11,11 @@
 
 #include <immersx/vascularization/distribution.h>
 
+#include <memory>
+
+#include "distribution_internal.h"
 #include "growth_batch.h"
+#include "growth_work.h"
 namespace ImmersX::Vascularization::internal
 {
   std::vector<dealii::Point<3>>
@@ -76,7 +80,8 @@ namespace ImmersX::Vascularization::internal
              const dealii::Mapping<3>        &mapping,
              const Parameters                &p,
              const dealii::FunctionParser<3> &demand,
-             MPI_Comm                         comm)
+             MPI_Comm                         comm,
+             BackgroundGeometry              *shared_geometry)
   {
     using namespace dealii;
     const auto rank        = Utilities::MPI::this_mpi_process(comm);
@@ -114,9 +119,13 @@ namespace ImmersX::Vascularization::internal
             ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1));
     for (const auto &cell : bg.active_cell_iterators())
       if (cell->is_locally_owned())
-        valid = (cell->reference_cell().is_simplex() ||
-                 cell->reference_cell().is_hyper_cube()) &&
-                mapping.is_compatible_with(cell->reference_cell()) && valid;
+        {
+          count_work(shared_geometry ? shared_geometry->counts : nullptr,
+                     GrowthOperation::background_cell_visits);
+          valid = (cell->reference_cell().is_simplex() ||
+                   cell->reference_cell().is_hyper_cube()) &&
+                  mapping.is_compatible_with(cell->reference_cell()) && valid;
+        }
     require_all(
       valid,
       "Seed writers require matching controls, a first-order background mapping and congruent communicators.");
@@ -125,7 +134,12 @@ namespace ImmersX::Vascularization::internal
       result.validation.issues.push_back({"seed", 0, message});
     };
     const auto normal = normalized_port_normal(p.seed_inward_port_normal);
-    BackgroundGeometry    geometry(bg, mapping);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    auto *work     = geometry.counts;
+
     std::vector<SeedCell> local_cells;
     if (const auto cell =
           geometry.containing(p.seed_position,
@@ -173,7 +187,8 @@ namespace ImmersX::Vascularization::internal
                        Port::arterial_inlet,
                        Provenance::generated,
                        normal};
-    port                = redistribute(bg, mapping, port, 0., comm);
+    port = redistribute_with_owners(
+      bg, mapping, port, 0., comm, {}, &geometry, work);
     const bool producer = port.nodes.count(0) && port.nodes.at(0).owner == rank;
     std::vector<Point<3>> directions;
     if (producer)
@@ -211,10 +226,15 @@ namespace ImmersX::Vascularization::internal
                   }
               }
           }
-        const auto selected =
-          select_growth_batch(geometry, port, proposals, p, comm, [](Id) {
-            return 0.;
-          });
+        const auto selected = select_growth_batch(
+          geometry,
+          port,
+          proposals,
+          p,
+          comm,
+          [](Id) { return 0.; },
+          true,
+          work);
         const bool accepted = selected.local.count(0) && selected.local.at(0);
         if (Utilities::MPI::max(static_cast<unsigned int>(accepted), comm) == 0)
           continue;
@@ -235,6 +255,7 @@ namespace ImmersX::Vascularization::internal
         require_all(
           valid_demand,
           "Tissue demand must be positive and finite at every initial terminal.");
+        count_copy(work, port);
         auto                 trial = port;
         std::set<Id>         mutable_owned;
         std::map<Id, double> roots;
@@ -252,8 +273,16 @@ namespace ImmersX::Vascularization::internal
             mutable_owned.insert(0);
             roots[0] = p.seed_radius;
           }
-        auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, roots, {}, p, comm);
+        auto committed = commit_growth_splits(bg,
+                                              mapping,
+                                              trial,
+                                              mutable_owned,
+                                              roots,
+                                              {},
+                                              p,
+                                              comm,
+                                              &geometry,
+                                              work);
         if (committed.committed)
           return committed;
       }
@@ -268,7 +297,8 @@ namespace ImmersX::Vascularization::internal
                     const Parameters                &p,
                     const dealii::FunctionParser<3> &demand,
                     unsigned int                     terminal_count,
-                    MPI_Comm                         comm)
+                    MPI_Comm                         comm,
+                    BackgroundGeometry              *shared_geometry)
   {
     using namespace dealii;
     const auto        rank = Utilities::MPI::this_mpi_process(comm);
@@ -312,7 +342,13 @@ namespace ImmersX::Vascularization::internal
 
     // Native ownership and endpoint incidence are established before selecting
     // leaves. Input geometry and properties are copied, never normalized.
-    auto snapshot = redistribute(bg, mapping, initial, p.clearance, comm);
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    auto *work     = geometry.counts;
+    auto  snapshot = redistribute_with_owners(
+      bg, mapping, initial, p.clearance, comm, {}, &geometry, work);
     std::map<Id, std::vector<Id>> incoming, outgoing;
     for (const auto &[id, v] : snapshot.vessels)
       {
@@ -379,9 +415,8 @@ namespace ImmersX::Vascularization::internal
 
     // Route all attachment point queries together using coarse background
     // boxes; neither terminal topology nor point coordinates are replicated.
-    BackgroundGeometry  geometry(bg, mapping);
-    GridTools::Cache<3> cache(bg, mapping);
-    const auto &tree = cache.get_locally_owned_cell_bounding_boxes_rtree();
+    const auto &tree =
+      geometry.cache.get_locally_owned_cell_bounding_boxes_rtree();
     std::vector<BoundingBox<3>> local_boxes;
     if (!tree.empty())
       local_boxes = extract_rtree_level(tree, 1);
@@ -551,12 +586,20 @@ namespace ImmersX::Vascularization::internal
         if (!valid())
           return result;
         const auto selection = select_growth_batch(
-          geometry, snapshot, proposals, p, comm, [&](Id id) {
+          geometry,
+          snapshot,
+          proposals,
+          p,
+          comm,
+          [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
-          });
+          },
+          true,
+          work);
         std::vector<Id> accepted;
-        auto            trial = snapshot;
+        count_copy(work, snapshot);
+        auto trial = snapshot;
         for (const auto &proposal : proposals)
           if (selection.local.at(proposal.id))
             {
@@ -596,8 +639,16 @@ namespace ImmersX::Vascularization::internal
           return result;
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
-        auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, roots, {}, p, comm);
+        auto committed = commit_growth_splits(bg,
+                                              mapping,
+                                              trial,
+                                              mutable_owned,
+                                              roots,
+                                              {},
+                                              p,
+                                              comm,
+                                              &geometry,
+                                              work);
         if (!committed.committed)
           {
             result.accepted = std::move(committed);

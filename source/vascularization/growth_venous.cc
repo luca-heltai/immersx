@@ -9,9 +9,13 @@
 
 #include <immersx/vascularization/distribution.h>
 
+#include <memory>
+
+#include "distribution_internal.h"
 #include "growth_batch.h"
 #include "growth_start.h"
 #include "growth_territory_search.h"
+#include "growth_work.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -71,7 +75,8 @@ namespace ImmersX::Vascularization::internal
                         const dealii::Mapping<3>       &mapping,
                         const NetworkData              &network,
                         const Parameters               &p,
-                        MPI_Comm                        comm)
+                        MPI_Comm                        comm,
+                        BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -95,11 +100,17 @@ namespace ImmersX::Vascularization::internal
       ExcMessage(
         "Venous startup requires matching outlet controls and input selections."));
     VenousOutlet result;
+    count_copy(shared_geometry ? shared_geometry->counts : nullptr, network);
     result.network = network;
     if (!p.venous.selected_terminals.empty())
       return result;
-    BackgroundGeometry geometry(bg, mapping);
-    unsigned int       available = 0;
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    auto *work     = geometry.counts;
+
+    unsigned int available = 0;
     for (const auto &[id, t] : network.terminals)
       if (t.owner == rank && t.system == System::venous &&
           geometry.containing(network.nodes.at(t.node).position))
@@ -157,8 +168,8 @@ namespace ImmersX::Vascularization::internal
                                            Port::venous_outlet,
                                            Provenance::generated,
                                            normal};
-    result.network =
-      redistribute(bg, mapping, result.network, p.clearance, comm);
+    result.network = redistribute_with_owners(
+      bg, mapping, result.network, p.clearance, comm, {}, &geometry, work);
     return result;
   }
 
@@ -170,7 +181,8 @@ namespace ImmersX::Vascularization::internal
                const Parameters               &p,
                const std::vector<Territory>   &owned_territories,
                Id                              reserved_port,
-               MPI_Comm                        comm)
+               MPI_Comm                        comm,
+               BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
     const Rank rank = Utilities::MPI::this_mpi_process(comm),
@@ -191,9 +203,14 @@ namespace ImmersX::Vascularization::internal
         result.accepted.committed = false;
       return all;
     };
-    auto snapshot = redistribute(bg, mapping, network, p.clearance, comm);
-    BackgroundGeometry geometry(bg, mapping);
-    std::set<Id>       requested(p.venous.selected_terminals.begin(),
+    std::unique_ptr<BackgroundGeometry> local_geometry;
+    if (!shared_geometry)
+      local_geometry = std::make_unique<BackgroundGeometry>(bg, mapping);
+    auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
+    auto *work     = geometry.counts;
+    auto  snapshot = redistribute_with_owners(
+      bg, mapping, network, p.clearance, comm, {}, &geometry, work);
+    std::set<Id> requested(p.venous.selected_terminals.begin(),
                            p.venous.selected_terminals.end());
     if (requested.size() != p.venous.selected_terminals.size())
       fail(invalid_id, "A venous attachment may be selected only once.");
@@ -490,10 +507,18 @@ namespace ImmersX::Vascularization::internal
             proposals.push_back(std::move(proposal));
           }
         const auto selection = select_growth_batch(
-          geometry, snapshot, proposals, p, comm, [&](Id id) {
+          geometry,
+          snapshot,
+          proposals,
+          p,
+          comm,
+          [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
-          });
+          },
+          true,
+          work);
+        count_copy(work, snapshot);
         auto                             trial = snapshot;
         std::vector<Id>                  accepted;
         std::map<Rank, TerritoryUpdates> updates;
@@ -526,8 +551,16 @@ namespace ImmersX::Vascularization::internal
             }
         if (Utilities::MPI::sum(static_cast<Id>(accepted.size()), comm) == 0)
           continue;
-        auto committed = commit_growth_splits(
-          bg, mapping, trial, mutable_owned, fixed_roots, {}, p, comm);
+        auto committed = commit_growth_splits(bg,
+                                              mapping,
+                                              trial,
+                                              mutable_owned,
+                                              fixed_roots,
+                                              {},
+                                              p,
+                                              comm,
+                                              &geometry,
+                                              work);
         if (!committed.committed)
           {
             result.accepted = std::move(committed);
