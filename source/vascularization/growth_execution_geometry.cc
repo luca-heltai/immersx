@@ -397,6 +397,7 @@ namespace ImmersX::Vascularization::internal
   {
     if (!staging)
       return;
+    discard_bounds();
     rows.discard();
     journal.discard();
     GrowthGeometryChanges restore;
@@ -436,6 +437,7 @@ namespace ImmersX::Vascularization::internal
   void
   GrowthExecution::adopt()
   {
+    adopt_bounds();
     rows.adopt();
     journal.adopt();
     for (Id root : root_members_changed)
