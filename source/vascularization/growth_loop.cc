@@ -453,12 +453,14 @@ namespace ImmersX::Vascularization::internal
       if (t.owner == rank)
         {
           next[2] = std::max(next[2], id);
-          next[3] = std::max(next[3], t.territory);
+          if (t.territory != invalid_id)
+            next[3] = std::max(next[3], t.territory);
         }
     for (auto &id : next)
       {
         id = Utilities::MPI::max(id, comm);
-        ++id;
+        if (id != invalid_id)
+          ++id;
       }
     GrowthGeometrySegments initial_segments;
     for (const auto &[id, v] : run.accepted.network.vessels)
@@ -652,10 +654,15 @@ namespace ImmersX::Vascularization::internal
         std::array<Id, 4> allocated;
         for (unsigned int kind = 0; kind < 4; ++kind)
           {
-            const Id stride = kind < 2 ? 2 : 1;
-            valid           = valid && next[kind] < invalid_id - stride * size;
-            allocated[kind] = next[kind] + stride * rank;
-            next[kind] += stride * size;
+            const Id   stride    = kind < 2 ? 2 : 1;
+            const bool available = next[kind] < invalid_id - stride * size;
+            valid                = valid && available;
+            allocated[kind]      = invalid_id;
+            if (available)
+              {
+                allocated[kind] = next[kind] + stride * rank;
+                next[kind] += stride * size;
+              }
           }
         if (!phase(valid,
                    "The physical vascular identifier space is exhausted."))

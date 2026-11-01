@@ -1056,6 +1056,153 @@ namespace
     return result;
   }
 } // namespace
+TEST(VascularForest, BOTH_UnassignedFrozenTerritoryDoesNotResetFreshIds)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         input = single_seed();
+  if (rank() == size() - 1)
+    {
+      input.nodes[base + 2]      = {Point<3>(.2, 1.8, 1.5),
+                                    rank(),
+                                    Port::venous_outlet,
+                                    Provenance::imported};
+      input.nodes[base + 3]      = {Point<3>(.7, 1.8, 1.5),
+                                    rank(),
+                                    Port::none,
+                                    Provenance::imported};
+      auto vein                  = input.vessels.at(base + 10);
+      vein.nodes                 = {{base + 2, base + 3}};
+      vein.system                = System::venous;
+      vein.provenance            = Provenance::imported;
+      input.vessels[base + 11]   = vein;
+      input.terminals[base + 31] = {
+        base + 3, invalid_id, System::venous, rank(), 1.};
+    }
+  const auto initial = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
+  Parameters p;
+  p.seed_length        = .2;
+  p.terminal_count     = 3;
+  p.candidate_count    = 4;
+  p.optimization_steps = 5;
+  p.sample_budget      = 200;
+  const auto run       = grow_forest(bg,
+                               mapping,
+                               initial,
+                               seed_ids(initial),
+                               seed_roots(initial),
+                               p,
+                               MPI_COMM_WORLD);
+  for (const auto &issue : run.validation.issues)
+    ADD_FAILURE() << issue.message;
+  ASSERT_TRUE(run.validation.valid());
+  unsigned int                            leaves = 0;
+  std::map<unsigned int, std::vector<Id>> send;
+  for (const auto &[id, terminal] : run.accepted.network.terminals)
+    if (terminal.owner == rank() && terminal.system == System::arterial)
+      {
+        ++leaves;
+        EXPECT_GE(terminal.territory, base + 40);
+        EXPECT_NE(terminal.territory, invalid_id);
+        send[terminal.territory % size()].push_back(terminal.territory);
+      }
+  std::set<Id> territories;
+  for (const auto &[source, ids] :
+       Utilities::MPI::some_to_some(MPI_COMM_WORLD, send))
+    for (Id id : ids)
+      EXPECT_TRUE(territories.insert(id).second);
+  EXPECT_EQ(Utilities::MPI::sum(leaves, MPI_COMM_WORLD), 3u);
+}
+
+TEST(VascularForest, BOTH_ExhaustedIdentifierNamespacesNeverWrap)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  for (unsigned int kind = 0; kind < 4; ++kind)
+    {
+      SCOPED_TRACE(kind);
+      auto input = single_seed();
+      if (rank() == size() - 1)
+        {
+          if (kind == 0)
+            {
+              auto node  = input.nodes.extract(base + 1);
+              node.key() = invalid_id - 1;
+              input.nodes.insert(std::move(node));
+              input.vessels.at(base + 10).nodes[1] = invalid_id - 1;
+              input.terminals.at(base + 30).node   = invalid_id - 1;
+            }
+          else if (kind == 1)
+            {
+              auto vessel  = input.vessels.extract(base + 10);
+              vessel.key() = invalid_id - 1;
+              input.vessels.insert(std::move(vessel));
+            }
+          else if (kind == 2)
+            {
+              auto terminal  = input.terminals.extract(base + 30);
+              terminal.key() = invalid_id - 1;
+              input.terminals.insert(std::move(terminal));
+            }
+          else if (kind == 3)
+            input.terminals.at(base + 30).territory = invalid_id - 1;
+        }
+      const auto initial = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
+      std::set<Id>         mutable_ids;
+      std::map<Id, double> roots;
+      for (const auto &[id, vessel] : initial.vessels)
+        if (vessel.owner == rank())
+          {
+            mutable_ids.insert(id);
+            roots[id] = .006;
+          }
+      Parameters p;
+      p.seed_length        = .2;
+      p.terminal_count     = 1;
+      const auto unchanged = grow_forest(
+        bg, mapping, initial, mutable_ids, roots, p, MPI_COMM_WORLD);
+      ASSERT_TRUE(unchanged.validation.valid());
+      p.terminal_count     = 2;
+      const auto exhausted = grow_forest(
+        bg, mapping, initial, mutable_ids, roots, p, MPI_COMM_WORLD);
+      EXPECT_FALSE(exhausted.validation.valid());
+      bool reported = false;
+      for (const auto &issue : exhausted.validation.issues)
+        reported =
+          reported || issue.message.find("identifier space is exhausted") !=
+                        std::string::npos;
+      EXPECT_TRUE(reported);
+      EXPECT_EQ(exhausted.sampled_points, 0u);
+      ASSERT_TRUE(exhausted.accepted.committed);
+      const auto &after = exhausted.accepted.network;
+      EXPECT_EQ(after.nodes.size(), initial.nodes.size());
+      EXPECT_EQ(after.vessels.size(), initial.vessels.size());
+      EXPECT_EQ(after.terminals.size(), initial.terminals.size());
+      for (const auto &[id, node] : initial.nodes)
+        {
+          ASSERT_TRUE(after.nodes.count(id));
+          EXPECT_EQ(after.nodes.at(id).position, node.position);
+          EXPECT_EQ(after.nodes.at(id).owner, node.owner);
+        }
+      for (const auto &[id, vessel] : initial.vessels)
+        {
+          ASSERT_TRUE(after.vessels.count(id));
+          EXPECT_EQ(after.vessels.at(id).nodes, vessel.nodes);
+          EXPECT_EQ(after.vessels.at(id).radii, vessel.radii);
+          EXPECT_EQ(after.vessels.at(id).viscosity, vessel.viscosity);
+        }
+      for (const auto &[id, terminal] : initial.terminals)
+        {
+          ASSERT_TRUE(after.terminals.count(id));
+          EXPECT_EQ(after.terminals.at(id).node, terminal.node);
+          EXPECT_EQ(after.terminals.at(id).territory, terminal.territory);
+          EXPECT_EQ(after.terminals.at(id).demand, terminal.demand);
+        }
+    }
+}
+
 TEST(VascularForest,
      BOTH_BatchedGrowthPropagatesFromOneRealSeedAndRepeatsExactly)
 {
