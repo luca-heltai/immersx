@@ -385,6 +385,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Resolve the refinement-study and measurement-workflow links with explicit documentation labels.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Publish integrated-demand cost checks at 1,000 and 10,000 terminals, with quadrature sizes, memory, operation counts and frozen experiment identities.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Fix the generated-network tutorial link to the native MetricFlowX transfer example.

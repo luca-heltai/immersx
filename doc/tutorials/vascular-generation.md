@@ -36,7 +36,7 @@ the background changes terminal count and geometric scales automatically.
 Territorial demand integrates the constant density over the physical tissue;
 adding terminals redistributes that integral and the same total flow. These
 single-seed figures illustrate the ordinary configuration. The
-[mesh-refinement study](../how-to/vascular-generation#compare-background-refinements)
+[mesh-refinement study](vascular-compare-background-refinements)
 compares three uniform/local resolutions across several seeds, without imposing
 geometrical identity or statistical-equivalence thresholds. Separate calibration
 tests retain the volume/coverage target checks.
@@ -299,7 +299,7 @@ The [per-seed summary](../_static/vascular-mesh-study/summary.csv),
 [shared physical controls](../_static/vascular-mesh-study/common-parameters.prm)
 and [source/binary manifest](../_static/vascular-mesh-study/manifest.json) retain
 the measurements. Follow the
-[refinement-study workflow](../how-to/vascular-generation#compare-background-refinements)
+[refinement-study workflow](vascular-compare-background-refinements)
 to reproduce them. The executable, library and scripts are hashed; timings
 were collected alongside other validation work on separate worker cores and
 are not isolated performance estimates.
@@ -479,6 +479,6 @@ binary hashes. Reproducing these figures requires the corresponding archived
 source and scripts. Do not rerun the old multi-hour campaign merely to establish
 the baseline. The current benchmark runner validates integrated territory
 weights and records the new execution counters; use the
-[current measurement workflow](../how-to/vascular-generation#reproducible-mpi-measurements)
+[current measurement workflow](vascular-reproducible-mpi-measurements)
 for that implementation. Keep the two physical-demand protocols separate when
 comparing timings and quality.
