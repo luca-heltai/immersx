@@ -1,176 +1,312 @@
-# Incremental vascular growth: initial cost audit
+# Incremental vascular growth: execution and measured cost
 
-Audit completed before implementation changes on `codex/vascular-incremental-growth`, base PR #310 at `4bcc361dbd19f770247a343c379285705f0f6738`. Remote master was fetched and inspected at `3660ddc27ffdf0c942bfe0038d2080feb45481dc`.
+The public `generate()` interface keeps its SI controls and point-demand model.
+An ordinary insertion updates persistent native state and checks the affected
+geometry. The final public network materializes physical radii, native ownership
+and ghosts, then passes an independent full reconstruction.
 
-Notation: N is physical network entities; M is background cells; L is final numerical line cells; P is ranks; B is attempted growth batches; D is maximum ancestral depth; C is candidate background cells for one physical segment; I is crossed intervals; Q is returned spatial hits; A is the union of dependencies actually changed. Rejected proposals count towards B. An ordinary serial successful insertion adds two vessels and two nodes.
+The parallel mesh/demand PR #311 supplies different physical geometry measures
+and integrated tissue-demand callbacks to the same private execution backend.
+Its timings describe a different physical problem and are reported separately.
+No public legacy switch or alternate approximate generator is used here.
 
-## Evidence and boundaries
+The initial A–K audit preceded implementation on base #310 at
+`4bcc361dbd19f770247a343c379285705f0f6738`; remote master was fetched and
+inspected at `3660ddc27ffdf0c942bfe0038d2080feb45481dc`.
+The initial source inventory and instrumentation remain in commit `be17bde`.
 
-The historical manifests and archived executable/library hashes were verified for strong-1000 and strong-10000. Both campaigns used clean source commit `76bb381187285e57bdc281a09f2bdd4c09a70703`; the diff from that commit to PR310 changes one line in growth_venous.cc and no growth-loop/commit/distribution/physiology/discretization source. Baseline measurements therefore describe the relevant implementation, with that explicit provenance qualification.
+## Cost inventory
 
-The cases use a unit cube, three uniform refinements (512 cells), seed23/24/25, seed point(.2,.5,.5), physical seed length.15, radius.003, viscosity.004, density exponent0, total tissue flow2e-9, port pressure12000, no calibration, coverage distance.2. Stored records have statuscomplete, returncode0, valid1 and exactly1000/10000 arterial terminals. BinarySHA256 d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca; librarySHA256559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082. The manifest SHA256s are6a12f6e0e03af0abd2291ce7221dd1d480c0acc069742dd17199dfe59960cec4 andc8a1ac9f45d49c634d1a88f173572ee0aa95c9edb5e874e3dca72fd33dc02f79.
+`N` denotes physical entities, `M` background cells, `L` numerical line cells,
+`D` ancestral depth, `B` attempted batches and `P` MPI ranks. `A` counts the
+changed dependencies that are actually visited; `K` counts returned geometric
+records, including conservative broad-phase hits. Candidate and optimizer
+limits are explicit controls, not constants when users vary them.
 
-Serial generation medians:144.29592964s and14177.368884775s, ratio98.252036 for N ratio10. For seed23 at10000, redistribution/certification/physiology dominate as in the request. Phases nested inside commit must not be added to commit again. The archived manifests contain the individual measurements. This audit did not rerun the historical campaign.
+| Audit | Previous repeated work | Current treatment | Remaining cost |
+|---|---|---|---|
+| A | Copy and validate every local node, vessel and terminal at each commit | Retain native rows; keep before-images only for edited records; preliminary selection projects only proposed old vessels, endpoints and declared ports | Initial/final full validation; K record copies/validation per proposal |
+| B | Rerun full physical migration and ghost rebuilding | Locate only new junction/tip coordinates and edited/new midpoints; preserve old endpoint authorities; update native rows and endpoint-node ghosts | Final public native redistribution materializes vessel ghosts once |
+| C | Recheck every vessel after each normalization | Certified envelopes remain valid while their proofs cover current radius and clearance; check new geometry and actual enlargement/shrink events | Changed geometry, expired envelope events and returned pair hits; full independent certification once at output |
+| D | Rebuild complete centerline indices | Native R-trees retain owned and mutable centerlines; only edited or migrated entries are removed/inserted | Logarithmic index edits; temporary candidate trees contain returned/local trial records |
+| E | Rebuild background routing/search and boundary data | One background context spans startup, A/V growth and calibration attempts; native point location reuses its routing and strict physical-coordinate checks | Mapping prechecks still scan M per independent calibration attempt, outside ordinary batches |
+| F | Recompute the complete Murray/flow/objective forest | Exact positive demand mass, a persistent terminal directory and affected ancestor unions update branch summaries; root/system normalization stays lazy | Actual affected paths, including distant territories and changed roots; root-prefix directories use at most 65 levels |
+| G | Build complete trial snapshots and fetch the graph for candidate evaluation | Sparse candidate paths and physical obstacle replies use one globally ordered demand overlay; ancestor certificates and a trial R-tree avoid the old unconditional D-by-D pair loop | Candidate/optimizer work on D records; conservative geometric hits remain visible |
+| H | Restart venous nearest searches and transmit all rejected IDs; advance through pending maps | Retain native nearest cursors and authority-local availability; ranked pending selection preserves the sorted-ID ordinal | Real returned nearest records, claims and active cursor memory |
+| I | Scan all candidate cells for every crossing; rescan all intervals for every cut; shift cut vectors | Native cell queries, sorted overlap events, a monotone metric cursor, binary-search/bounded profile reads and stable list edits | Sorting plus actual overlapping records; long-segment counters cover 8/32/128/512 crossed cells |
+| J | Rebuild identity/owner and global control state | Persistent sharded directories, cached root bounds/minimum leaf demand and a one-time ID maximum followed by fixed strides | Small collective control exchanges and remote path rounds remain; the producer protocol is not identical-work MPI scaling |
+| K | Mix one-time output and solver work with insertion cost | Separate initialization and finalization counters/times from batch totals; share immutable geometry through retries | Final coverage, line mesh, full reconstruction, Poiseuille solve, tables and independent calibration attempts |
 
-## Repeated work inventory
+## Acceptance, invalidation and rollback
 
-| Item | Owning code and traversed state | Frequency and cost | Communication/state rebuilt | Incremental treatment and evidence |
-|---|---|---|---|---|
-| A: snapshot copies | growth_commit.cc copies NetworkData, mutable ids and root controls; repeated validate_data calls in commit, distribution, forest, paths and batch | Each attempted accepted-topology commit: Omega(N) copying and validation; cumulative Omega(sum N_b), hence quadratic in ordinary serial growth | Copies complete local graph including ghosts and complete control sets; validations revisit all local records | A provisional in-place journal records only inserted/erased/modified nodes, vessels, terminals and auxiliary metadata. Validate changed records plus explicit incidence/ownership dependencies; keep independent full final validation. Count copy attempts, visited records, journal sizes and rollback work. Proof is the explicit complete-container loops/copies, not a timing inference. |
-| B: migration twice | growth_commit.cc migrate before and after evaluate_forest; distribution.cc authoritative_data, unique_owned_ids, source construction, point arrays, packet maps, halo and terminal ghosts | Two full passes per nonempty commit, plus startup: Omega(N); background cache/routing construction each time adds M-dependent setup | Global duplicate-id directory, authoritative node refresh, ParticleHandler relocation of every local node and every owned vessel midpoint, complete owner payloads and halo refresh; several sparse exchanges/allgathers/reductions | Keep persistent authority/incidence/ghost subscriptions and background routing. Relocate only new/moved nodes and changed midpoints through ParticleHandler. Radius-only changes update envelopes/subscribers without point relocation. Journal owned and ghost edits/version changes. Final redistribution remains an independent oracle. Count localized/migrated entities and ghost add/update/remove. Dominance measured historically; exact per-entity work will be instrumented. |
-| C: full certification | growth_commit.cc constructs one BatchProposal per mutable vessel; growth_batch.cc validates snapshot, localizes every proposed endpoint, rebuilds obstacle tree, checks walls and conflicts | Every successful proposed commit: Omega(N) endpoint/wall work and index rebuilding, plus actual returned hits Q. Existing proposal-conflict RTree already avoids unconditional all-pairs | Complete endpoint particle search, coarse routing, whole proposal serialization and votes; boundary geometry also rebuilt | Certify only changed centerlines or increased envelopes/changed constraints. Reuse shrunk-envelope collision/wall certificates only with unchanged geometry/clearance policy; minimum radius still checked via maintained extrema. Root normalizations that increase untouched radii may require nonlocal work: count it rather than skip. Keep independent complete final certification. Count recertified vessels and exact pair/wall checks separately. |
-| D: network indices | growth_loop.cc nearest packs tree from all mutable owned branches; candidate_obstacles packs all owned network, scans forest roots for max radius; producer packs returned obstacles again; batch packs all relevant obstacles | Every batch, including ranks without producer: Omega(N) traversal and bulk tree construction; query work adds logN+Q | Rank boxes and maxima rebuilt/reduced; candidate geometry serialized anew | Persistent native RTree<Segment,id>, native point/envelope indices and ordered radius bounds. Insert/remove/update only changed ids and ownership routes; centerline index unaffected by radius-only changes. Version remote entries and invalidate targeted subscribers. Producer temporary obstacle result indexing remains proportional to actual Q, not N, and may be reused by revision. Count full builds, inserted/removed entries, queries and hits. |
-| E: background/boundary | BackgroundGeometry constructor loops all owned active cells and boundary faces and packs boundary patches; distribution and batch recreate GridTools::Cache/coarse covering trees | Per commit/per migration creates avoidable B*M work in fixed background; boundary work proportional to boundary face count | Coarse box allgathers, covering RTree allocation; immutable geometry reconstructed | One concrete persistent background context for a generate/calibration session; ctor remains noncollective, explicit collective initialization when routing is needed. Mapping/background lifetime and mesh-change invalidation are explicit. Share native deal.II caches and boundary tree; do not create a generic spatial framework. Count constructions/cell/face visits. |
-| F: forest physiology | forest_state.cc rebuilds registry/incidence, rooted topology and leaf scale, upward/downward sweeps, normalized radii, flows/resistances and root metadata for every branch | Each commit: Omega(N) visits and materialization, with O(D) communication rounds. Unbalanced trees can have D=O(N), independent of N-balanced ordinary case | Native node-owner incidence packets, hash id registry, leaf-demand max reduction; upward and downward sparse packets/termination reductions; flows to terminal owners | Maintain parent/children/leaf/root associations, subtree demand and volume/resistance moments; update union of changed leaf/split ancestors. Keep lazy per-root radius normalization and per-system flow normalization. Materialize SI records once for public result/final solve/output. Old absolute Di updates may be nonlocal; API accepts explicit changed terminal ids with new absolute values and canonical total mass/revision. Count actual branch visits and roots whose increased normalization forces recertification. Preserve independent evaluate_forest oracle. |
-| G: paths/optimizer depth | growth_paths.cc full validate_data, local cache recreated, ancestry fetched in global rounds; growth_candidate.cc recomputes moment sums and changed ancestors per optimizer trial; growth_loop cheap_geometry repeatedly searches paths for normals, ids and proposed obstacle demands | A path union is O(kD) records and O(D) rounds; cost includes avoidable O(N) validation. Nested changed-edge/path scans can be O(D^2) per trial, before actual geometric hits | Repeated remote ancestor records and root metadata, no retained revision cache | Persistent versioned ancestral records and direct id/endpoint lookup; retrieve missing/changed union only. Precompute per-candidate ancestor aggregates and node normals before optimization. No assumption of balanced trees; report A and depth separately. Count remote records, rounds and path comparisons. |
-| H: venous choice | growth_loop.cc advances std::map iterator by index on each proposal; growth_venous.cc sends root/exclusion queries to every rank with available territory, nearest result count grows with excluded set, repeats after conflicts | Indexed map advance costs O(pending size), cumulative quadratic even without geometry; exclusions may create further superlinear work depending on rejections | Available-count allgather, O(P) query fanout per pending root, exclusion sets and nearest result serialization | Keep deterministic indexed/order-statistic territory selection with deletion and stable-id ordering (native/random-access facilities where adequate). Route nearest by persistent owner boxes, bounded exact nearest search and local admissibility cursor/version; do not approximate matches or drop failed candidates. Count inspected territories, exclusion records and recipients. Measurements needed to separate typical and adversarial exclusions. |
-| I: segment intervals | discretization.cc traversed tests every candidate cell for every global cut interval; distributed_intervals rescans all reported intervals per combined cut; subdivide restarts from interval0 for each target; cell_resolution rescans all intervals; cuts inserted/erased in vector | Proven O(C^2), O(I^2), O(L*I), repeated O(I) resolution and O(L^2) shifts can occur for ONE long segment. Final discretization once; mesh-scale integration may make clipping part of repeated growth | Background segment routing and interval replies, plus local sort/search work | Reuse exact face crossing and native RTree tests; sorted event sweeps preserve finest-H/lowest-owner semantics, monotone prefix cursors for metric cuts, indexed range summaries for h min/max and ownership, output append/linked local edits rather than repeated vector shifts. Count predicates, events, interval visits and cut edits. Preserve all independent warped-Q1/tetra/interface/exterior oracles and add many-crossing counter oracles. |
-| J: accessory state | full owner id registry, rank boxes, maxima, fresh identifiers, packet allocation/serialization; per-level readiness reductions in forest/paths | Mix of O(N) rebuilds, O(P) small control exchange, O(A) genuine dependencies and O(D) rounds. Serial follows same allocations and full loops | Identity directories, maxima, self and remote sparse exchanges, message buffers and copies | Persistent sharded id/owner directories and updated bounds, stable fresh-id allocator, retained buffers and explicit revisions. Distinguish source-visible logical records from actual MPI interposition. Existing benchmarks/vascular_mpi_profile.cc already records calls and bytes via PMPI without extra reductions; retain it for transport measurements. Add cheap operation counters in existing per-rank growth buckets, no new per-candidate reductions. |
-| K: one-time work | final discretize, tissue coverage, reference Poiseuille solve, archives/tables/native transfer/full validation; calibration retries all generation | Outside ordinary insertion loop. O(N+M+L) geometry/algebra assembly plus solver/query costs; may still have independent bad algorithms but cannot explain repeated commit cost | Final distributed algebra and final output/metadata communication | Time and count separately; retain independent complete correctness gates and actual public SI materialization. Share immutable background among calibration attempts but reset mutable execution/territory state per attempt. Do not report nested phase times as additive or call all time MPI. |
+`GrowthExecution` owns native rows, demand summaries, indices and certificates.
+Its accepted view borrows this state in constant time; it does not copy or
+materialize a `NetworkData`. Ordinary consumers query physical candidate values
+through the demand state. A new borrowed view is required after staging, even
+if the physical revision remains unchanged after rejection.
 
-## First correctness gate and integration contract
+Demand changes are absolute new values keyed by stable terminal ID. The native
+terminal owner may move; a persistent directory resolves delivery. The new leaf
+and the joint old-terminal changes are adopted together. Independent territory
+previews cannot be added to form a batch: the selected set receives a fresh
+joint preview and one journal.
 
-Use the existing small distributed forest split/commit tests, plus a new direct comparison of incremental updates against complete evaluate_forest/redistribute/full batch certification at each accepted step. Include rejection after each stage and verify graph, physiology, owner/ghost sets, native RTree queries and revisions return to the pre-attempt state. Full public generation and the actual standalone application remain the vertical consumers; no alternate approximate generator.
+Demand is summed exactly in integer multiples of `2^-1074`. Radius fractions,
+length moments, resistance bounds and minimum-radius checks are derived from
+these positive sums. The scaled radius minimum covers every generated branch,
+including internal branches crossing a coarser cell, rather than only leaves.
+A global flow-normalization change also checks the smallest unchanged leaf.
+There is no demand floor or hidden demand rescaling.
 
-The parent mesh-adaptation worker owns Length scale, exact H profiles/clearance semantics and Voronoi integration. This branch owns persistent execution, demand-delta propagation, journaling and certification invalidation. Agreed draft API: absolute new Di by existing terminal id delivered to the engine directory shard `terminalId % P`, new Di in GrowthSplit; one preview per tissue territory, joint chosen-centre demand update, canonical global total demand and quadrature/snapshot revision; no separate competing propagation algorithm. Geometry and demand revisions must participate in the same commit or rollback. Root-factor increases are explicitly nonlocal when unavoidable.
+Geometry certificates depend on endpoint geometry, radius bound, clearance and
+ports. A valid unchanged certificate can cover a smaller physical radius, but
+minimum radius and representability still require their own aggregate checks.
+A demand transfer between roots can increase radii far from the inserted leaf;
+that nonlocal work is retained and counted. Real envelope tightening events are
+separate from ancestor demand changes, so a harmless update does not repeatedly
+expand and rebuild the same certificate.
 
-No implementation is complete at this checkpoint. Historical timings establish priority, not proof that any proposed representation meets the target. Do not launch the 1000/2000/5000/10000 campaign until structural counters show that ordinary insertions no longer rebuild the full graph/background.
+All preparation and logical validation precede the collective adoption vote.
+Map/set node handles retain original rows and summaries for rollback, including
+original addresses in the tested row journals. Geometry/profile releases use
+edited keys. A rejection restores native rows, demand/topology, directories,
+indices and certificates; tissue callbacks participate in the same decision.
+The small tests compare each adopted or rejected step with immutable full
+physics and native redistribution. General recovery from exhausted memory is
+not a separate supported distributed execution mode.
 
-## Operation counters
+Background, mapping and controls remain fixed during one execution. A new
+public generation call constructs a new context. Calibration retains immutable
+background caches while resetting mutable growth state for each attempt.
 
-Each per-rank `growth-<rank>.csv` keeps its existing columns and appends the
-`GrowthOperation` counters. Counts include unsuccessful attempts and require
-no MPI calls. Sum rank-local counts when comparing distributed work. Timings
-inside commit overlap commit time; they must not be added again.
+## Independent correctness checks
 
-`discretization-work-<rank>.csv` records final line-discretization operations
-separately. A cache construction counts explicit native cache objects in instrumented
-ImmersX code; ParticleHandler-internal caches are outside that counter.
-cell and face visits count the inspected local cells and owned-cell faces.
-Index hits count returned entries before application filtering. Copy attempts
-count attempted physical map insertions, including duplicate endpoint inserts.
-Localizations count submitted particles, while migrations count owned records
-whose owner changes. Ghost updates include received refreshes and additions.
-Physiology visits count registration, upward sweep, downward sweep and final
-materialization. Path visits count inspected ancestral records. Interval cut
-moves count vector elements shifted by insertion or erasure.
+Small serial and MPI2/MPI4 tests compare the sparse path with immutable full
+`evaluate_forest()`, complete native redistribution and exhaustive geometric
+queries. They exercise distant old-terminal reweighting, multiple roots,
+internal mesh-scale minima, tiny positive demand and tiny flow, both signs of
+radius change, concurrent adjacent splits, native authority changes and empty
+ranks. Native migration tests include separate 64-bit node/vessel/terminal
+namespaces and 0/64 unrelated vessels.
 
-Zero removal/journal counters describe the current full-rebuild implementation;
-they do not establish that incremental transactions exist. MPI calls and bytes
-are measured independently by the existing benchmark PMPI interposer. Full
-validation, final reference solve and output remain independent correctness
-checks. The counters are diagnostics and do not change acceptance decisions.
+Injected failures cover stale revisions, invalid demand, ownership preparation,
+physiology, geometry and callback stages. Rejection restores the prior
+revision, map values and original row/summary addresses, and retry succeeds.
+Wall tests retain strict physical-coordinate checks for thin exterior offsets,
+planar/two-sided ports, nonconvex gaps and warped faces. Obstacle overlays are
+compared with exhaustive full physical trials, including other roots and frozen
+input. The full reconstruction remains independent and is not replaced by an
+incremental engine calling itself as its own oracle.
 
-## Measured small-case structural baseline
+The interval rewrite preserves 32 old/new subdivision results byte-for-byte
+and adds analytical work tests at 8/32/128/512 crossed cells. The actual public
+application supplies the performance data; independent table readers check its
+physical output and final numerical line intervals.
 
-The original synthetic configuration above, with seeds 23, 24 and 25, gives
-identical counts for each seed:
+## Measurements and protocol
 
-| Terminal count | Submitted vessel midpoints | Fully certified vessels |
-|---:|---:|---:|
-| 32 | 2,048 | 1,024 |
-| 64 | 8,192 | 4,096 |
-| 128 | 32,768 | 16,384 |
+The native application, executable/library/profile hashes, source commit,
+parameters, runners, physical tables and MPI ledgers are frozen per experiment.
+Independent Python table checks validate topology, Murray radii, Poiseuille
+resistance/pressure drop, target flows and complete numerical intervals. They
+do not generate or modify a network.
 
-There are no failed joint commits in these cases. Initial normalization and
-each accepted insertion relocate every midpoint twice and certify every mutable
-vessel once: the counts are exactly `2*N*N` and `N*N`. Doubling the target
-quadruples both counts. These measurements describe the implementation before
-incremental updates; they establish a structural baseline rather than a speedup.
-The benchmark script retains work per rank and sums per stage and per run,
-with final discretization counts in a separate field. It can still validate
-historical archives that predate these columns.
+The point-demand protocol matches the verified historical runs: unit cube,
+M = 512, seed position (.2,.5,.5), direction +x, seed length .15, radius .003,
+viscosity .004, total flow 2e-9, gamma 3, density exponent 0, no
+length/radius/clearance lower bound, 12 candidate branches, 10 optimizer steps
+and unchanged geometry and sampling budgets. Seeds 23/24/25 are retained.
 
-## Persistent centerline indices
+The new application and libraries are frozen at `5ed0570`; the later
+`b9a10db` change only includes an explicit Boost equality header for portability.
+The historical source is `76bb381187285e57bdc281a09f2bdd4c09a70703`.
+It differs from PR #310 in one venous line and no relevant arterial execution
+source. The original manifests and executable/library hashes were verified;
+the historical hours-long campaigns were not repeated.
 
-The growth loop now builds native deal.II RTrees once for owned physical
-centerlines and for each system's mutable candidates. A committed batch
-publishes changed and released owned vessel identifiers. Native migration
-notifications carry these identifiers to the new owner; no comparison of
-complete old and new snapshots is required. Each affected index entry is
-removed or inserted in logarithmic work. Rank bounds come from the native
-RTree bounds without visiting its leaves. Radius changes leave these indices
-valid because their keys contain only centerlines.
+| Terminals | New median [s] | New seed range [s] | Historical median [s] | New peak RSS, median [MiB] |
+|---:|---:|---:|---:|---:|
+| 1,000 | 25.473 | 24.743–27.537 | 144.296 | 283.75 |
+| 2,000 | 61.942 | 60.133–64.662 | — | 299.29 |
+| 5,000 | 213.115 | 210.749–220.212 | — | 347.35 |
+| 10,000 | 514.571 | 506.175–514.873 | 14,177.369 | 428.09 |
 
-A fixed global bound over the real root controls and frozen input radii bounds
-all subsequent mutable Murray radii. Candidate obstacle routing uses this
-bound, avoiding a repeated full scan of radii. All exact envelope and collision
-checks still use current physical radii. The background and mapping remain
-fixed for the context lifetime; changing either requires a new context.
+The 10-fold terminal increase gives a 20.20-fold new time increase, compared
+with 98.25-fold historically. The endpoint speedups are 5.66 and 27.55.
+These four sizes are measurements, not a fitted asymptotic complexity claim.
+At 10,000 terminals peak RSS exceeds the historical median of about 383 MiB;
+the persistent state trades memory for less repeated reconstruction.
 
-The loop also reuses its boundary geometry for commit certification. The
-independent full commit can still construct its own context when called alone.
-Rejected commits publish no index changes. Tests compare stored entries,
-intersection queries and nearest results with exhaustive searches before and
-after a distributed split and after a rejected transaction.
+![Generation timing and separately recorded phases](../_static/vascular-incremental-growth/timing.svg)
 
-At this intermediate milestone, migration and certification still rebuild
-complete state. Producer indices over actual query hits are also temporary.
-The persistent indices remove repeated candidate/owned-obstacle bulk builds;
-they do not yet remove all quadratic growth work or all background cache
-constructions.
+Ordinary counts below exclude initialization and finalization and include failed
+attempts. Values are medians over the same three seeds.
 
-The installed deal.II ParticleHandler implementation also constructs its own
-GridTools cache and allocates a cell-indexed vector at construction. Its
-`clear()` rebuilds that vector, and `update_cached_numbers()` may scan all
-active cells when particle cell order needs sorting. Reusing an external cache
-alone therefore does not remove the repeated background work. The next
-migration milestone must retain native search state and avoid these paths;
-cache-construction counters alone are insufficient evidence while fresh
-ParticleHandlers remain in the insertion loop.
+| Terminals | Copies / midpoint locations | Certified rows | Physiology visits | Candidate path visits | Pair checks |
+|---:|---:|---:|---:|---:|---:|
+| 1,000 | 2,997 | 6,042 | 17,772 | 11,123,257 | 929,880 |
+| 2,000 | 5,997 | 12,194 | 43,286 | 28,067,948 | 1,927,573 |
+| 5,000 | 14,997 | 30,730 | 144,152 | 96,462,250 | 4,964,623 |
+| 10,000 | 29,997 | 62,185 | 360,789 | 245,689,769 | 10,471,737 |
 
-Nearest-candidate queries use the native incremental RTree query iterator,
-stopping after the requested cutoff and its equal-distance results. Sorting
-these results by distance and physical identifier makes candidate ties
-independent of the tree's insertion history. A conservative floating-point
-guard only broadens the queried results; the final ordering uses the physical
-distance without changing it. Work includes the returned cutoff ties and the
-first result beyond the cutoff. No bounding-box expansion scans distant rank
-partitions to find ties. The exact historical graph can change where the old
-bulk nearest query chose an arbitrary subset of equal-distance vessels;
-benchmark comparisons must retain attempt and geometric-work counts.
+Ordinary background-cache constructions, background-cell visits and complete
+materialized-vessel counts are zero in all twelve runs. Candidate path work
+grows faster than N: median mean leaf depth grows from 20.33 to 44.32 and
+maximum depth from 40 to 90. At 1,000 terminals candidate optimization takes
+18.86 s, search 3.76 s, commit 1.93 s and final reconstruction 0.21 s.
+Optimization remains the dominant cost; it was not uniformly accelerated.
 
-## Territorial demand data contract
+![Ordinary work and work per terminal](../_static/vascular-incremental-growth/work.svg)
 
-The private `growth_demand.h` contract separates absolute old-terminal updates,
-a proposal before vessel selection, and the joint update for selected centres.
-`snapshot_revision` identifies the accepted graph. `base_quadrature_revision`
-identifies accepted weights and `quadrature_revision` identifies proposed
-weights. The joint update supplies its new-terminal demands separately because
-simultaneous reassignment can change those values relative to isolated previews.
-Canonical system totals already include new demand and must not add it twice.
-These data types do not mutate accepted graph or tissue state; incremental
-propagation and joint adoption belong to the execution transaction.
+For all three 1,000-terminal seeds, final terminal coordinates, demands and raw
+sample counts match the historical cases. Seeds 23 and 25 also match complete
+physical node/vessel geometry and radii. Seed 24 has different topology and
+0.024% more total vascular volume; it is not described as bitwise equivalent.
+All runs pass the same independent physics checks.
 
-## Retained native point search
+The [individual CSV](../_static/vascular-incremental-growth/measurements.csv),
+[aggregate statistics](../_static/vascular-incremental-growth/summary.json) and
+[SHA256 provenance](../_static/vascular-incremental-growth/manifest.json) are
+distributed with these figures. `measurements.csv` retains individual seeds, depths,
+operation counts, phase times, communication and native memory statistics.
+Frozen campaign directories also retain input parameters, executable/libraries,
+runners, host/affinity/environment, physical tables and per-rank MPI ledgers.
+The [reproduction notes](../_static/vascular-incremental-growth/README.txt) name
+those worker archives and the archived figure-rendering command.
 
-The background context retains native cache and coarse rank routing across
-migration and endpoint certification. These consumers call the same native
-`GridTools::distributed_compute_point_locations` kernel used by
-`ParticleHandler::insert_global_particles`, preserving its unique physical
-ownership search. Temporary particles, their cell-indexed storage and their
-internal cache constructions are removed. A standalone public redistribution
-still creates independent search state and remains a full correctness oracle.
+The original instrumented structural baseline has midpoint counts
+2,048/8,192/32,768 and certification counts 1,024/4,096/16,384 for
+N = 32/64/128: exactly `2*N*N` and `N*N`, respectively. Those original counts
+include initial normalization; the new table below excludes initialization and
+finalization. The source rebuilt
+all rows twice and certified all mutable vessels at each accepted insertion.
+There were no rejected joint commits in those three cases.
+The new small structural pilot shows:
 
-Endpoint certification recomputes reference coordinates from the returned
-physical point. It ignores the native clamped reference coordinates and
-returns separate admissibility bits for ordinary endpoints and declared ports.
-The producer applies exactly the previous zero or `1e-12` boundary tolerance.
-This removes temporary floating-point properties without changing physical
-identifiers or the strict exterior-vessel check. The background constructor
-remains noncollective; first routing use is explicitly collective.
+| N | Ordinary copies | Vessel midpoint localizations | Certified rows, median | Physiology branch visits, median |
+|---|---:|---:|---:|---:|
+| 32 | 93 | 93 | 187 | 233 |
+| 64 | 189 | 189 | 380 | 554 |
+| 128 | 381 | 381 | 765 | 1334 |
 
-Repeated shared-context commits now construct one background cache and one
-boundary index even while the independent full migration and physiology still
-visit the whole network. This removes repeated background setup, not the
-remaining quadratic work on physical entities.
+Ordinary background-cache construction, background-cell visits and complete
+materialization are zero in every pilot. At fixed N = 128, varying M through
+8/64/512/4096 gives initialization cell visits exactly `4*M` and zero ordinary cell
+visits. Physical node, vessel, terminal and territory tables are identical per
+seed across all four backgrounds. MPI2/4 pilots preserve independent physical
+checks; their topology, proposed work and batches can differ from serial.
 
-For the same canonical-nearest synthetic runs, explicit cache constructions
-fall from 66, 130 and 258 at N=32,64,128 to 4 at every size and seed. The four
-include independent startup state; repeated shared-context commits add none.
-The earlier counter excluded temporary ParticleHandler-internal caches; those
-constructors are also removed by the native-kernel path. All seven physical,
-territorial and numerical CSV files match the preceding canonical execution
-byte for byte for all nine serial cases and for the N=32,seed23 MPI2/MPI4 cases,
-including the per-rank ownership partition. Full midpoint relocation and
-certification counts remain `2*N*N` and `N*N` at this milestone.
+![Background dependence and native memory](../_static/vascular-incremental-growth/background-memory.svg)
+
+MPI runs use the same controls but can propose and accept different batches.
+N = 128 is tested with all three seeds on two and four ranks. The two larger
+MPI cases use seed 23 only; they are representative checks, not scaling fits.
+Communication below sums rank-local records from the three growth phases.
+Logical bytes combine posted send payload and collective input bytes, not
+wire traffic. Reductions include size-one calls.
+
+| N | Ranks | Generation [s] | Posted sends | Logical bytes | Reductions |
+|---:|---:|---:|---:|---:|---:|
+| 1,000 | 1 | 25.473 (3-seed median) | 0 | 3,082,221 | 319,301 |
+| 1,000 | 2 | 26.917 (seed 23) | 121,237 | 42,030,937 | 516,100 |
+| 1,000 | 4 | 25.964 (seed 23) | 240,078 | 72,481,079 | 765,072 |
+| 10,000 | 1 | 514.571 (3-seed median) | 0 | 39,500,511 | 5,380,199 |
+
+P2/P4 ordinary midpoint counts are 3,231/2,997, copies 3,240/3,030 and
+physiology visits 17,795/14,443. Rejected attempts and different producer
+schedules explain why counts need not equal the serial `3*(N-1)` pattern.
+All these MPI runs have zero ordinary background visits and full materialization.
+
+Eight AV32 cases pass the independent Murray, signed-flow, pressure-drop,
+separation and arterial/venous coupling checks (three seeds on P1/P2, plus
+seeds 23/24 on P4). A smaller AV16 serial probe also passes.
+An AV32/seed25/MPI4 case reaches 32 arterial and 29 venous terminals, then exhausts
+its finite budget after 2,000 joint rejections and 4,081 raw samples. The archived pre-incremental
+canonical engine (`b154926`) reproduces the same outcome and per-rank proposal, acceptance,
+sampling and rejection counts. The failed experiment is retained, not replaced
+by a retuned successful run. Timings from differently instrumented probes are
+not a matched engine comparison. The planned AV64 cases were not run after
+the AV32 failure stopped that runner. This is an explicitly incomplete AV
+campaign, not an 18-case success. A separate first-rejection diagnostic forwards
+the actual commit unchanged and stops immediately after it fails: all ranks
+report that joint generated geometry intersects an active native obstacle.
+This identifies the first rejection, not the cause of every later attempt;
+its intentional MPI abort is not a performance sample.
+It establishes an inherited convergence
+limit; it does not establish that every requested AV network can be generated.
+
+## Reading the diagnostics
+
+`growth-RANK.csv` contains total, `initialization_` and `finalization_` operation
+counts. Ordinary work is total minus those two groups. Temporary candidate-tree
+builds are included in index-build/insert counters; they are not full accepted
+network rebuilds. Native midpoint, copy, certificate and path counters expose
+the sizes of the records actually processed.
+
+These counters record explicit ImmersX operations and submitted records.
+`background_cell_visits` counts explicit mesh sweeps; zero does not mean that
+native deal.II searches inspect no cells internally. Native point-location
+submissions, instrumented point queries/hits, wall tests and interval work have
+separate counters. Library-internal instructions are not individually counted.
+
+Commit subphase times are included in commit time. Finalization is outside the
+batch total. MPI rank time is a sum of time inside recorded MPI functions, not
+elapsed wall time. No MPI rank-time sum is added to elapsed phase times.
+
+The optional profiler records posted point-to-point sends, including zero-byte
+and self sends, logical payload bytes and reductions. Collective logical input
+bytes are separate from posted send bytes; neither is wire traffic. Run/system/
+phase records distinguish initialization, terminal-count batch ranges and
+finalization without new reductions. Operation initialization includes shared
+outer preparation, whereas initialization time and the MPI initialization scope
+cover `grow_forest()` only; startup calls outside it appear in the whole-run
+ledger. Work outside the growth scopes remains in
+the whole-application MPI ledger. A missing profile is unavailable data, not zero
+communication. Native `ranks.csv` supplies per-rank RSS and peak RSS; report the
+vector and maximum rank peak, never a sum as simultaneous node memory.
+
+## Remaining complexity and limits
+
+The eliminated cost is an automatic full N/M reconstruction for each ordinary
+insertion. This is not a universal O(N logN) guarantee. Exact objective updates
+still visit affected paths; deep trees, changed territory mass far away,
+conservative geometric hits and many rejected trials increase A or K. Index
+updates introduce logarithmic factors, and candidate/optimizer controls multiply
+path work. Exact mass arithmetic also depends on integer bit width.
+
+The favorable measured model is initial/final work on N+M+L plus affected
+updates, returned geometric records and logarithmic index/profile operations.
+Final independent certification and reference solves retain their own costs.
+Calibration performs independent growth attempts and still repeats mapping
+prechecks. The inherited rejected-AV case illustrates why failed-batch work must
+be reported rather than hidden in successful-insertion averages.
+
+## Final validation scope
+
+The actual standalone vascular sources, application and common vascular tests
+passed the broad Debug/Release gate: 226 serial cases and 139 MPI cases per
+group, with serial, MPI2 and MPI4 orchestration. This includes the independent
+physics, migration, rollback, geometry and interval oracles above. The later
+include-only portability fix also passed actual-header Debug/Release native
+R-tree insert/remove/reinsert probes.
+
+The normal MetricFlowX-enabled project separately builds `immersx_lib`,
+`immersx_lib_debug`, `vascular_network`, `vascular_network_debug`,
+`metric_flow_x_tests` and `metric_flow_x_tests_debug`. Its six vascular CLI
+CTests pass in 163.41 s and its six MetricFlowX vascular-consumer CTests pass in
+10.10 s, covering Debug/Release and P1/P2/P4. This is a focused normal-project
+gate, not a claim to have run its entire unrelated PDE manifest again.
+
+The single expensive complete native repository matrix is assigned to the
+combined mesh/integrated-demand branch in PR #311. Committed trees `b9a10db`
+and `b34a6e0` have identical execution, demand-state/journal, owned-row,
+ownership-delta and wall-certificate source files; their caller loop and
+selector retain their respective SI and mesh-relative consumers. The drafts
+keep base #310 and require deliberate reconciliation of those overlapping
+callers before merging. See the PR records for the complete combined matrix
+and current CI status rather than attributing it to this separate SI branch.
+
+Documentation is validated with `./scripts/build_doc.sh` on this worktree,
+using official Doxygen 1.18.0 and the declared Sphinx requirements. An older
+isolated Doxygen 1.9.1 installation incorrectly duplicated a friend signature
+in XML on the combined branch; no C++ source workaround is used.

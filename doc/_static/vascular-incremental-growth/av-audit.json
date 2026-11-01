@@ -1,0 +1,58 @@
+{
+  "planned_cases": 18,
+  "completed_cases": 8,
+  "failed_cases": 1,
+  "unrun_cases": 9,
+  "failed_case": "N32/seed25/P4/M512",
+  "outcome": {
+    "arterial": 32,
+    "venous": 29,
+    "raw_samples": 4081,
+    "joint_rejections": 2000,
+    "venous_batches": 2011
+  },
+  "legacy_comparison": {
+    "purpose": "Small legacy comparison of failed AV input; no parameter retuning",
+    "source_commit": "b154926",
+    "hashes": {
+      "vascular_network_release": "ee883de366aba02177718949d4fc11994f1d5bc235de2c0a979993c64fc73c1c",
+      "libvascular_release.so": "a45a690837b3d3994a7261b6b27f130a0a470a5ead20d65cfcfe8f7d70d98d64",
+      "libvascular_mpi_profile.so": "38b045287ff159cc654f87bcb78aeeae6859e9b51aa22a2233ec4ac88c958e76"
+    },
+    "command": [
+      "taskset",
+      "-c",
+      "32-35",
+      "mpirun",
+      "--bind-to",
+      "none",
+      "-np",
+      "4",
+      "/data/home/lheltai/.codex-hosts/lnx3/visualizations/2026/10/29/01a18880-b60d-70f3-8904-1b7d6efb768d/vascular-build-storage/incremental-growth-av-rejection-legacy/bin/vascular_network_release",
+      "/data/home/lheltai/.codex-hosts/lnx3/visualizations/2026/10/29/01a18880-b60d-70f3-8904-1b7d6efb768d/vascular-build-storage/incremental-growth-av-rejection-legacy/input.prm"
+    ],
+    "status": "finished",
+    "returncode": 1,
+    "elapsed": 34.92056965827942
+  },
+  "first_rejection": {
+    "purpose": "First real rejected commit, intentional MPI_Abort(73); not a timing measurement",
+    "returncode": 73,
+    "command": [
+      "taskset",
+      "-c",
+      "32-35",
+      "mpirun",
+      "--bind-to",
+      "none",
+      "-np",
+      "4",
+      "/data/home/lheltai/.codex-hosts/lnx3/visualizations/2026/10/29/01a18880-b60d-70f3-8904-1b7d6efb768d/vascular-build-storage/incremental-growth-production-av/bin/vascular_network_release",
+      "/data/home/lheltai/.codex-hosts/lnx3/visualizations/2026/10/29/01a18880-b60d-70f3-8904-1b7d6efb768d/vascular-build-storage/incremental-growth-av-first-rejection/input.prm"
+    ],
+    "trace_sha256": "9cb69e0ee52110fa488189e4c4ea526da8668f530d226ea6353988076545445c"
+  },
+  "first_rejection_message": "Joint generated vessel geometry intersects an active native obstacle.",
+  "timing_comparison": "Not matched: old has no scope profiler, new has scope profiling",
+  "note": "The original manifest retains status running because its runner asserted on failure; it is stopped, not still executing."
+}
