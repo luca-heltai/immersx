@@ -33,7 +33,22 @@ namespace ImmersX::Vascularization::internal
   {
   public:
     using ObstacleLeaf = std::pair<dealii::BoundingBox<3>, Id>;
-    using ObstacleTree = dealii::RTree<ObstacleLeaf>;
+    struct EqualObstacle
+    {
+      bool
+      operator()(const ObstacleLeaf &a, const ObstacleLeaf &b) const
+      {
+        // Stored physical records can share bounds; Boost 1.83 does not
+        // implement geometric equality for three-dimensional boxes.
+        return a.second == b.second &&
+               a.first.get_boundary_points() == b.first.get_boundary_points();
+      }
+    };
+    using ObstacleTree = boost::geometry::index::rtree<
+      ObstacleLeaf,
+      boost::geometry::index::linear<16>,
+      boost::geometry::index::indexable<ObstacleLeaf>,
+      EqualObstacle>;
     // This private view borrows base rows and indices until the next stage.
     // Physical radii must be read through the demand-state sparse accessors.
     class AcceptedSnapshot
