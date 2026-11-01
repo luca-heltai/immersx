@@ -1106,6 +1106,7 @@ TEST(VascularForest, BOTH_UnassignedFrozenTerritoryDoesNotResetFreshIds)
     }
   const auto initial = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
   Parameters p;
+  physical_controls(p);
   p.seed_length        = .2;
   p.terminal_count     = 3;
   p.candidate_count    = 4;
@@ -1183,6 +1184,7 @@ TEST(VascularForest, BOTH_ExhaustedIdentifierNamespacesNeverWrap)
             roots[id] = .006;
           }
       Parameters p;
+      physical_controls(p);
       p.seed_length        = .2;
       p.terminal_count     = 1;
       const auto unchanged = grow_forest(
