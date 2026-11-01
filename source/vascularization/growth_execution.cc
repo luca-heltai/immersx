@@ -520,7 +520,7 @@ namespace ImmersX::Vascularization::internal
                           preview.totals[3 * system + 2] / demand / demand) :
                         0.;
       }
-    result.geometry_changes = geometry_changes;
+    result.geometry_changes = std::move(geometry_changes);
     adopt();
     leaves += count;
     owned_leaves += delta.owned.terminals.size();
