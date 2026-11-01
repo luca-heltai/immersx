@@ -419,6 +419,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Mark unsupported native MetricFlowX input and generated-flow checks as skipped using stable capability messages, including exceptions whose text wraps onto another line.
+
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
 
 - [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.

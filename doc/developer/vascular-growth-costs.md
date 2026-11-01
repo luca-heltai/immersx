@@ -119,6 +119,10 @@ and unchanged geometry and sampling budgets. Seeds 23/24/25 are retained.
 
 The new application and libraries are frozen at `5ed0570`; the later
 `b9a10db` change only includes an explicit Boost equality header for portability.
+The later `6f7c027` correction ignores unassigned imported territory sentinels
+and rejects exhausted identifier namespaces before arithmetic can wrap. The
+frozen large-run inputs contain neither condition; that startup correctness
+fix is not presented as a retimed performance campaign.
 The historical source is `76bb381187285e57bdc281a09f2bdd4c09a70703`.
 It differs from PR #310 in one venous line and no relevant arterial execution
 source. The original manifests and executable/library hashes were verified;
@@ -293,9 +297,14 @@ R-tree insert/remove/reinsert probes.
 The normal MetricFlowX-enabled project separately builds `immersx_lib`,
 `immersx_lib_debug`, `vascular_network`, `vascular_network_debug`,
 `metric_flow_x_tests` and `metric_flow_x_tests_debug`. Its six vascular CLI
-CTests pass in 163.41 s and its six MetricFlowX vascular-consumer CTests pass in
-10.10 s, covering Debug/Release and P1/P2/P4. This is a focused normal-project
-gate, not a claim to have run its entire unrelated PDE manifest again.
+CTests pass in 163.41 s, covering Debug/Release and P1/P2/P4. Under the initial
+mainline MetricFlowX installation (`9e013df`), the six native input wrappers
+returned success in 10.10 s but their underlying GoogleTest was capability-
+skipped. That result is not evidence of exercised in-memory consumer coverage.
+The documented native PR #86 branch (`54d0f70`) provides the required API;
+its separate actual-package recheck is recorded in the PR validation log.
+This is a focused normal-project gate, not a claim to have run its entire
+unrelated PDE manifest again.
 
 The single expensive complete native repository matrix is assigned to the
 combined mesh/integrated-demand branch in PR #311. Committed trees `b9a10db`

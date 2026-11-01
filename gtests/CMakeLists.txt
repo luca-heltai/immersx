@@ -414,7 +414,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
         endif()
         set_tests_properties(${_vascular_name} PROPERTIES LABELS "integration;quick"
           TIMEOUT 300 PROCESSORS ${_ranks} RESOURCE_LOCK ImmersX.TestOutput
-          ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds")
+          ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds"
+          SKIP_REGULAR_EXPRESSION "Installed MetricFlowX has no in-memory input API")
         if(_ranks GREATER 1)
           set_property(TEST ${_vascular_name} APPEND PROPERTY LABELS mpi)
         endif()
@@ -519,7 +520,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                                TIMEOUT ${_coupled_timeout} LABELS "${_coupled_labels}")
           if(_case STREQUAL "Generated")
             set_tests_properties("${_coupled_name}" PROPERTIES
-              SKIP_REGULAR_EXPRESSION "Generated flow requires MetricFlowX with in-memory NetworkPhysics input")
+              SKIP_REGULAR_EXPRESSION "Generated flow requires MetricFlowX with in-memory NetworkPhysics")
           endif()
           if(_mode MATCHES "^MPI")
             set_property(TEST "${_coupled_name}" PROPERTY PROCESSORS ${_coupled_ranks})
