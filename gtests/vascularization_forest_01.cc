@@ -3320,3 +3320,152 @@ TEST(VascularForest,
         }
     }
 }
+
+TEST(VascularForest, BOTH_ExecutionReusesAncestorCapsAndAdvancesShrinkEvents)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         n = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
+  Parameters   p;
+  p.minimum_angle = 1.;
+  auto initial    = evaluate(n, p);
+  ASSERT_TRUE(initial.validation.valid());
+  for (const auto &[id, branch] : initial.owned)
+    n.vessels.at(id).radii = {{branch.radius, branch.radius}};
+  n                = redistribute(bg, mapping, n, 0., MPI_COMM_WORLD);
+  initial          = evaluate(n, p);
+  const auto meter = [](const GrowthGeometrySegments &segments) {
+    GrowthGeometryMeasures result;
+    for (const auto &[id, s] : segments)
+      result.emplace(
+        id, GrowthGeometryMeasure{s.first.distance(s.second), 1., 1., true});
+    return result;
+  };
+  GrowthGeometrySegments segments;
+  for (const auto &[id, v] : n.vessels)
+    if (v.owner == rank())
+      segments.emplace(id,
+                       Segment<3>{n.nodes.at(v.nodes[0]).position,
+                                  n.nodes.at(v.nodes[1]).position});
+  GrowthWork         work;
+  BackgroundGeometry geometry(bg, mapping);
+  GrowthExecution    execution(n,
+                            initial,
+                            p,
+                            0,
+                            geometry,
+                            meter(segments),
+                            meter,
+                               {},
+                            0.,
+                            MPI_COMM_WORLD,
+                            &work);
+  ASSERT_TRUE(execution.validation().valid());
+  auto     expected_network = n;
+  auto     expected_mutable = mutable_ids(n);
+  auto     expected_roots   = roots(n);
+  const Id selected[]      = {base + 14, base + 2000, base + 3001, base + 4000};
+  const Point<3> offsets[] = {Point<3>(.1, .1, .15),
+                              Point<3>(.05, .08, .1),
+                              Point<3>(.04, .05, .08),
+                              Point<3>(.08, -.02, -.05)};
+  const auto     width     = [&]() {
+    double       result = 0.;
+    unsigned int count  = 0;
+    for (const auto &[box, id] : execution.accepted_snapshot().obstacles())
+      if (id == base + 13)
+        {
+          result = box.get_boundary_points().second[2] -
+                   box.get_boundary_points().first[2];
+          ++count;
+        }
+    EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), 1u);
+    return Utilities::MPI::sum(result, MPI_COMM_WORLD);
+  };
+  double before_shrink = 0., after_shrink = 0.;
+  for (unsigned int step = 0; step < 4; ++step)
+    {
+      const Id                 next     = base + 2000 + step * 1000;
+      const auto               snapshot = execution.accepted_snapshot();
+      const auto              &rows     = snapshot.network();
+      std::vector<GrowthSplit> local;
+      const auto               found = rows.vessels.find(selected[step]);
+      if (found != rows.vessels.end())
+        {
+          GrowthSplit split;
+          split.vessel       = selected[step];
+          split.owner        = rank();
+          split.old_nodes    = found->second.nodes;
+          split.old_points   = {{rows.nodes.at(split.old_nodes[0]).position,
+                                 rows.nodes.at(split.old_nodes[1]).position}};
+          split.junction     = next;
+          split.tip          = next + 1;
+          split.continuation = next;
+          split.leaf         = next + 1;
+          split.terminal     = next;
+          split.territory    = next + 2;
+          split.junction_position =
+            .5 * (split.old_points[0] + split.old_points[1]);
+          split.tip_position = split.junction_position + offsets[step];
+          split.demand       = .001;
+          local.push_back(split);
+        }
+      GrowthDemandJointUpdate joint;
+      joint.update.snapshot_revision = step;
+      if (rank() == 0)
+        {
+          joint.new_terminals = {{next, .001}};
+          if (step == 2)
+            joint.update.terminals = {{base + 32, 50.}};
+        }
+      if (step == 2)
+        before_shrink = width();
+      const auto before = work;
+      const auto actual = execution.commit(local, joint);
+      ASSERT_TRUE(actual.committed);
+      if (step == 1)
+        {
+          const auto certified =
+            Utilities::MPI::sum(work[GrowthOperation::certified_vessels] -
+                                  before[GrowthOperation::certified_vessels],
+                                MPI_COMM_WORLD);
+          EXPECT_EQ(certified, 3u);
+        }
+      if (step == 2)
+        {
+          after_shrink = width();
+          EXPECT_LT(after_shrink, before_shrink);
+        }
+      if (step == 3)
+        {
+          EXPECT_DOUBLE_EQ(width(), after_shrink);
+        }
+      if (step == 2)
+        for (auto &[id, terminal] : expected_network.terminals)
+          if (id == base + 32 && terminal.owner == rank())
+            terminal.demand = 50.;
+      const auto expected = commit_growth_splits(bg,
+                                                 mapping,
+                                                 expected_network,
+                                                 expected_mutable,
+                                                 expected_roots,
+                                                 local,
+                                                 p,
+                                                 MPI_COMM_WORLD);
+      ASSERT_TRUE(expected.committed);
+      const auto materialized = execution.materialize();
+      ASSERT_EQ(materialized.network.vessels.size(),
+                expected.network.vessels.size());
+      for (const auto &[id, vessel] : materialized.network.vessels)
+        {
+          const auto &full = expected.network.vessels.at(id);
+          EXPECT_EQ(vessel.owner, full.owner);
+          EXPECT_EQ(vessel.nodes, full.nodes);
+          EXPECT_NEAR(vessel.radii[0] / full.radii[0], 1., 2.e-12);
+        }
+      expected_network = expected.network;
+      expected_mutable = expected.mutable_owned;
+      expected_roots   = expected.fixed_owned_roots;
+    }
+}
