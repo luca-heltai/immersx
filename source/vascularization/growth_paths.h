@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #ifndef immersx_internal_growth_paths_h
 #define immersx_internal_growth_paths_h
-#include <immersx/vascularization/growth_work.h>
-
 #include "forest_state.h"
 #include "growth_candidate.h"
 namespace ImmersX::Vascularization::internal
@@ -26,7 +24,6 @@ namespace ImmersX::Vascularization::internal
                           Id                                next_node,
                           Id                                next_vessel,
                           const Parameters                 &parameters,
-                          MPI_Comm                          communicator,
-                          GrowthWork                       *work = nullptr);
+                          MPI_Comm                          communicator);
 } // namespace ImmersX::Vascularization::internal
 #endif

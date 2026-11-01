@@ -100,7 +100,6 @@ namespace ImmersX::Vascularization::internal
       ExcMessage(
         "Venous startup requires matching outlet controls and input selections."));
     VenousOutlet result;
-    count_copy(shared_geometry ? shared_geometry->counts : nullptr, network);
     result.network = network;
     if (!p.venous.selected_terminals.empty())
       return result;

@@ -6,7 +6,6 @@
 
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
-#include <boost/serialization/utility.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/vascularization/generation.h>
@@ -186,9 +185,6 @@ namespace ImmersX::Vascularization::internal
             {
               ids.insert(s.continuation);
               ids.insert(s.leaf);
-              changes.changed_owned.insert(s.vessel);
-              changes.changed_owned.insert(s.continuation);
-              changes.changed_owned.insert(s.leaf);
             }
         }
     if (!phase(
@@ -208,7 +204,6 @@ namespace ImmersX::Vascularization::internal
         result.validation         = state.validation;
         return result;
       }
-    count_work(work, GrowthOperation::materialized_vessels, state.owned.size());
     for (const auto &[id, b] : state.owned)
       trial.vessels.at(id).radii = {{b.radius, b.radius}};
     result.physiology_seconds = timer.wall_time() - physiology_begin;
@@ -244,18 +239,11 @@ namespace ImmersX::Vascularization::internal
           }
         checks.push_back(std::move(check));
       }
-    const auto certified = select_growth_batch(
-      geometry,
-      trial,
-      checks,
-      p,
-      comm,
-      [&](Id id) {
+    const auto certified =
+      select_growth_batch(geometry, trial, checks, p, comm, [&](Id id) {
         return std::max(trial.vessels.at(id).radii[0],
                         trial.vessels.at(id).radii[1]);
-      },
-      true,
-      work);
+      });
     for (const auto &[id, accepted] : certified.local)
       valid = valid && accepted;
     const bool certified_all = phase(
@@ -269,7 +257,6 @@ namespace ImmersX::Vascularization::internal
     result.mutable_owned     = std::move(ids);
     result.fixed_owned_roots = std::move(roots);
     result.physiology        = std::move(state);
-    result.geometry_changes  = std::move(changes);
     return result;
   }
 } // namespace ImmersX::Vascularization::internal

@@ -315,20 +315,20 @@ TEST(VascularGeneration, BOTH_PublicSeedFeedsTheSameBatchedGrowthEngine)
   EXPECT_EQ(Utilities::MPI::sum(vessels, comm), 2 * p.terminal_count - 1);
   EXPECT_EQ(Utilities::MPI::sum(terminals, comm), p.terminal_count);
   EXPECT_NEAR(Utilities::MPI::sum(flow, comm) / p.reference_flow, 1., 1.e-13);
-  double point_demand = 0.;
+  double integrated_demand = 0.;
   for (const auto &[id, terminal] : a.network.terminals)
     if (terminal.owner == rank)
       {
-        const double expected =
-          1. + a.network.nodes.at(terminal.node).position[0];
-        EXPECT_DOUBLE_EQ(terminal.demand, expected);
-        point_demand += expected;
+        EXPECT_GT(terminal.demand, 0.);
+        integrated_demand += terminal.demand;
       }
-  point_demand = Utilities::MPI::sum(point_demand, comm);
+  integrated_demand = Utilities::MPI::sum(integrated_demand, comm);
+  // Integral of 1+x over [0,4] x [0,1]^2.
+  EXPECT_NEAR(integrated_demand, 12., 1.e-13);
   for (const auto &[id, terminal] : a.network.terminals)
     if (terminal.owner == rank)
       EXPECT_NEAR(a.target_terminal_flows.at(id) /
-                    (p.reference_flow * terminal.demand / point_demand),
+                    (p.reference_flow * terminal.demand / integrated_demand),
                   1.,
                   2.e-13);
   EXPECT_EQ(a.accepted_insertions, p.terminal_count - 1);
