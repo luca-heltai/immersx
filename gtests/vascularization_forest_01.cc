@@ -1751,6 +1751,7 @@ TEST(VascularForest, BOTH_FullCommitWorkCounts)
   MappingQ1<3> mapping;
   const auto   raw = redistribute(bg, mapping, forest(), 0., MPI_COMM_WORLD);
   Parameters   p;
+  physical_controls(p);
   p.minimum_angle = 1.;
   GrowthWork work;
   const auto result = commit_growth_splits(bg,
@@ -1876,6 +1877,7 @@ TEST(VascularForest, BOTH_PersistentCenterlineIndicesFollowCommittedDeltas)
   };
   check(initial, mutable_ids(initial));
   Parameters p;
+  physical_controls(p);
   p.minimum_angle = 1.;
   BackgroundGeometry geometry(bg, mapping);
   const auto         committed = commit_growth_splits(bg,
@@ -1989,6 +1991,7 @@ TEST(VascularForest, BOTH_SharedBackgroundSurvivesRepeatedFullCommits)
   auto       ids      = mutable_ids(network);
   auto       controls = roots(network);
   Parameters p;
+  physical_controls(p);
   p.minimum_angle = 1.;
   GrowthWork         work;
   BackgroundGeometry geometry(bg, mapping, &work);
