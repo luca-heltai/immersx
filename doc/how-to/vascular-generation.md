@@ -1003,3 +1003,24 @@ measurement and double-counts shared pages. Startup writer ownership counts muta
 that samples or produces proposals. Quality figures show observed volume,
 coverage, physical lengths and angles, without fitted physiological acceptance
 thresholds or a claim of statistical equivalence from a small seed sample.
+
+An instrumented forest-growth loop also records `growth-mpi-RANK.csv` in that
+profiling directory. Each row identifies a local run, system, requested count,
+power-of-two terminal range and `initialization`, `batch` or `finalization`
+phase. Run identifiers follow the collective growth-call order, including
+calibration attempts. Nested finalization is charged to finalization alone;
+ending initialization leaves no active fallback phase between batches.
+
+`posted_sends` counts successful point-to-point send calls, including zero-byte
+messages and self sends, but excludes `MPI_PROC_NULL`. Collectives do not add
+estimated message counts. Their logical input bytes remain separate from posted
+send bytes; add the two byte columns for total recorded logical payload.
+`reductions` counts the recorded reduce/scan calls, including `MPI_Iallreduce`.
+Scope collection adds no MPI calls, reductions or extra serialization. It records
+only the MPI functions covered by the profiler, not an estimate of wire traffic.
+
+The phase file is absent when profiling is disabled. A header without rows means
+that the executable opened no growth scopes. Seed preparation and other work
+outside the forest-growth call remain in `mpi-RANK.csv`. Compare its totals with
+the phase sums to identify that work. Phase data live in this optional profiler;
+they are not zero-valued communication counters in `GrowthWork`.
