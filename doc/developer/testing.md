@@ -54,3 +54,13 @@ GoogleTest targets are enabled only when `GTest` is available at configure time.
 
 Pull requests run the `quick` label. Pushes to `master` run the full CTest
 manifest. CI does not rerun the aggregate GoogleTest binary outside CTest.
+
+For application smoke tests and package checks, see
+[Test a documented workflow](../how-to/testing).
+
+```{toctree}
+:maxdepth: 1
+:titlesonly:
+
+../how-to/testing
+```

@@ -5,9 +5,10 @@ shorter version, see [First run](first-run).
 
 ```{toctree}
 :maxdepth: 1
+:titlesonly:
 
 installation
-containers
+Containers <containers>
 first-run
 ```
 

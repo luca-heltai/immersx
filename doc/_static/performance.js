@@ -145,6 +145,7 @@
         });
       });
       const chooser = byId("series"), old = chooser.value;
+      chooser.style.maxWidth = "100%";
       chooser.replaceChildren();
       const groups = new Map();
       rows.filter((r) => r.status === "passed" && r.attempt_status === "passed").forEach((r) => {
@@ -157,8 +158,16 @@
           groups.get(key).push(r);
         });
       });
-      groups.forEach((rs, key) => {
-        const option = element("option", `${rs[0].case} ${rs[0].dimension}D ${rs[0].ranks} ranks ${key}`, chooser); option.value = key;
+      const commitOrder = new Map(data.coverage.map((c, i) => [c.sha, i]));
+      const ordered = [...groups].sort((a, b) => b[1].length - a[1].length ||
+        commitOrder.get(b[1][b[1].length - 1].sha) - commitOrder.get(a[1][a[1].length - 1].sha));
+      ordered.forEach(([key, rs]) => {
+        const first = rs[0], last = rs[rs.length - 1];
+        const machine = `${first.environment.cpu || "Unknown CPU"}; ${first.environment.os || "unknown kernel"}`;
+        const range = `${first.sha.slice(0, 10)} → ${last.sha.slice(0, 10)}`;
+        const label = `${first.case} ${first.dimension}D ${first.ranks} ranks — ${rs.length} points — ${machine} — ${range} — ${key}`;
+        const option = element("option", label, chooser); option.value = key;
+        option.title = label;
       });
       if (groups.has(old)) chooser.value = old;
       const draw = () => chart(groups.get(chooser.value) || [],
