@@ -4,8 +4,6 @@
 #define immersx_internal_growth_batch_h
 #include <deal.II/base/mpi.h>
 
-#include <immersx/vascularization/growth_work.h>
-
 #include <functional>
 
 #include "growth_geometry.h"
@@ -51,8 +49,7 @@ namespace ImmersX::Vascularization
                         const Parameters                 &parameters,
                         MPI_Comm                          communicator,
                         const std::function<double(Id)>  &radius,
-                        bool        check_snapshot_obstacles = true,
-                        GrowthWork *work                     = nullptr);
+                        bool check_snapshot_obstacles = true);
   } // namespace internal
 } // namespace ImmersX::Vascularization
 #endif

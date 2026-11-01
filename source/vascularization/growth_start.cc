@@ -166,13 +166,9 @@ namespace ImmersX::Vascularization::internal
             ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1));
     for (const auto &cell : bg.active_cell_iterators())
       if (cell->is_locally_owned())
-        {
-          count_work(shared_geometry ? shared_geometry->counts : nullptr,
-                     GrowthOperation::background_cell_visits);
-          valid = (cell->reference_cell().is_simplex() ||
-                   cell->reference_cell().is_hyper_cube()) &&
-                  mapping.is_compatible_with(cell->reference_cell()) && valid;
-        }
+        valid = (cell->reference_cell().is_simplex() ||
+                 cell->reference_cell().is_hyper_cube()) &&
+                mapping.is_compatible_with(cell->reference_cell()) && valid;
     require_all(
       valid,
       "Seed writers require matching controls, a first-order background mapping and congruent communicators.");
@@ -277,15 +273,10 @@ namespace ImmersX::Vascularization::internal
                   }
               }
           }
-        const auto selected = select_growth_batch(
-          geometry,
-          port,
-          proposals,
-          p,
-          comm,
-          [](Id) { return 0.; },
-          true,
-          work);
+        const auto selected =
+          select_growth_batch(geometry, port, proposals, p, comm, [](Id) {
+            return 0.;
+          });
         const bool accepted = selected.local.count(0) && selected.local.at(0);
         if (Utilities::MPI::max(static_cast<unsigned int>(accepted), comm) == 0)
           continue;
@@ -623,20 +614,12 @@ namespace ImmersX::Vascularization::internal
         if (!valid())
           return result;
         const auto selection = select_growth_batch(
-          geometry,
-          snapshot,
-          proposals,
-          p,
-          comm,
-          [&](Id id) {
+          geometry, snapshot, proposals, p, comm, [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
-          },
-          true,
-          work);
+          });
         std::vector<Id> accepted;
-        count_copy(work, snapshot);
-        auto trial = snapshot;
+        auto            trial = snapshot;
         for (const auto &proposal : proposals)
           if (selection.local.at(proposal.id))
             {

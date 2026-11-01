@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Grow vascular networks with persistent native ownership, spatial indices and demand summaries, updating and certifying affected records in one rollback-capable transaction. Share background caches through arterial/venous growth and calibration, retain venous nearest cursors, and sweep subdivision intervals without repeated full scans. Report initialization, ordinary and finalization work separately, with optional MPI phase profiling.
+
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Expose local vascular growth operation counters, including unsuccessful attempts, without MPI in counter updates.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Add a reproducible native mesh-refinement study with fixed physical controls, independent demand/flow checks, normalized geometry distributions and per-seed reports. Preserve benchmark library filenames and verify the frozen library loaded for each experiment.
@@ -284,6 +286,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve native trace couplings in local flow preconditioning across MPI partitions, so generated vascular networks advance with the iterative coupled solver and unchanged error tolerances.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Ignore unassigned imported territories when reserving fresh vascular identifiers, and reject exhausted identifier namespaces without wrapping or changing the accepted network.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Ignore unassigned imported territories when reserving fresh vascular identifiers, and reject exhausted identifier namespaces without wrapping or changing the accepted network.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Keep fresh vascular identifiers above existing valid identities when frozen terminals have no territory, and reject exhausted node, vessel, terminal or territory namespaces before sampling without changing accepted data.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Sample weighted native background cells directly so local refinement does not exhaust the growth budget through global density-rejection draws. Preserve physical cell density, MPI ownership and mapped-cell volume weights.
@@ -416,6 +420,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality. Distinguish rank-local sampling, proposal and insertion work from physical ownership, scale fractional quantities to their measured values, and reject incomplete inputs or stale published assets.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Document the complete vascular cost inventory, invalidation and rollback rules, reproducible four-size performance measurements, memory and communication counts, and inherited arterial/venous convergence limits.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Document the complete vascular cost inventory, invalidation and rollback rules, reproducible four-size performance measurements, memory and communication counts, and inherited arterial/venous convergence limits.
+
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Resolve the refinement-study and measurement-workflow links with explicit documentation labels.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Publish integrated-demand cost checks at 1,000 and 10,000 terminals, with quadrature sizes, memory, operation counts and frozen experiment identities.
@@ -540,7 +546,13 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare incremental physiology, geometry, migration, output ghosts and rejection/retry with independent full reconstruction in serial and MPI tests. Check sparse preliminary selection, native index updates, tiny positive demands, internal-branch radius bounds, venous exclusions, interval work and exact MPI profiling payloads.
+
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Mark unsupported native MetricFlowX input and generated-flow checks as skipped using stable capability messages, including exceptions whose text wraps onto another line.
+
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii and atomic seed initialization with independent full-forest evaluation in serial and distributed tests.
+
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Preserve mesh-adaptive generation and integrated demand when stacking on the incremental engine, including total-demand and ordinary-work regression checks.
 
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Report unavailable native MetricFlowX in-memory input as a CTest skip, including wrapped diagnostics, while keeping compatible-package tests active.
 
